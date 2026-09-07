@@ -1,0 +1,122 @@
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
+import { PaymentService } from './payment.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('payments')
+export class PaymentController {
+  constructor(private service: PaymentService) {}
+
+  // ---------- 付款计划 ----------
+  @RequirePermissions('payment:view')
+  @Get('plans')
+  findPlans(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.findPlans(query, projectId);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Post('plans')
+  createPlan(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createPlan(body, projectId);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Post('plans/generate')
+  generatePlans(@Body() body: { contractId: string; ratios?: number[]; months?: number[] }, @ProjectId() projectId: string) {
+    return this.service.generatePlans(body.contractId, projectId, body);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Put('plans/:id')
+  updatePlan(@Param('id') id: string, @Body() body: any) {
+    return this.service.updatePlan(id, body);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Delete('plans/:id')
+  removePlan(@Param('id') id: string) {
+    return this.service.removePlan(id);
+  }
+
+  // ---------- 付款申请 ----------
+  @RequirePermissions('payment:view')
+  @Get('applies')
+  findApplies(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.findApplies(query, projectId);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Post('applies')
+  createApply(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createApply(body, projectId);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Put('applies/:id')
+  updateApply(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateApply(id, body);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Post('applies/:id/approve')
+  approveApply(@Param('id') id: string, @Body() body: { action: string; comment?: string }, @CurrentUser() user: JwtUser) {
+    return this.service.approveApply(id, body.action, body.comment, user);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Delete('applies/:id')
+  removeApply(@Param('id') id: string) {
+    return this.service.removeApply(id);
+  }
+
+  // ---------- 付款执行 / 台账 ----------
+  @RequirePermissions('payment:view')
+  @Get('records')
+  findRecords(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.findRecords(query, projectId);
+  }
+
+  @RequirePermissions('payment:view')
+  @Get('records/export')
+  async exportRecords(@ProjectId() projectId: string, @Res() res: Response) {
+    const buffer = await this.service.exportRecords(projectId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=payment-records.xlsx');
+    res.end(buffer);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Post('records')
+  createRecord(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createRecord(body, projectId);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Put('records/:id')
+  updateRecord(@Param('id') id: string, @Body() body: any) {
+    return this.service.updateRecord(id, body);
+  }
+
+  @RequirePermissions('payment:edit')
+  @Delete('records/:id')
+  removeRecord(@Param('id') id: string) {
+    return this.service.removeRecord(id);
+  }
+
+  // ---------- 核销 & 逾期 ----------
+  @RequirePermissions('payment:view')
+  @Get('verifications')
+  verifications(@ProjectId() projectId: string) {
+    return this.service.verifications(projectId);
+  }
+
+  @RequirePermissions('payment:view')
+  @Get('overdue')
+  overdue(@ProjectId() projectId: string) {
+    return this.service.overdue(projectId);
+  }
+}

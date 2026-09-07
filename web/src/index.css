@@ -1,0 +1,24 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.page-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.stat-card {
+  border-radius: 8px;
+}
+
+/* 响应式：小屏下抽屉/表格自适应 */
+@media (max-width: 768px) {
+  .page-card {
+    padding: 8px;
+  }
+}

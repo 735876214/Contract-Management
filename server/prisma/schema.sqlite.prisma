@@ -1,0 +1,710 @@
+// 企业合同管理系统 · 数据模型
+// 约定：
+// 1) 字典关联字段一律存储「字典项编码」字符串，由字典服务校验，不使用数据库枚举；
+// 2) 所有业务表均带 projectId，实现项目级数据隔离；
+// 3) 供应商信息不冗余进合同，合同仅存 supplierId，台账实时关联。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- 组织与权限 ----------------
+
+model Dept {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?
+  leader    String?
+  sort      Int      @default(0)
+  status    Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  password     String
+  realName     String
+  phone        String?
+  email        String?
+  deptId       String?
+  status       Int      @default(1)
+  isSuperAdmin Boolean  @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  dept          Dept?            @relation(fields: [deptId], references: [id])
+  roles         UserRole[]
+  members       ProjectMember[]
+  notifications Notification[]
+  operationLogs OperationLog[]
+  loginLogs     LoginLog[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  remark      String?
+  status      Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  module    String
+  createdAt DateTime @default(now())
+  roles     RolePermission[]
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+// ---------------- 项目 ----------------
+
+model Project {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  status      String?  // dict: project_status
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  managerId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members      ProjectMember[]
+  contracts    Contract[]
+  dailyReports DailyReport[]
+  items        ContractItem[]
+  settlements  Settlement[]
+  ledgers      SettlementLedger[]
+  plans        PaymentPlan[]
+  applies      PaymentApply[]
+  payments     PaymentRecord[]
+  invoices     Invoice[]
+  repayments   RepaymentAgreement[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  roleCode  String   @default("MEMBER") // dict: project_member_role
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+// ---------------- 供应商 ----------------
+
+model Supplier {
+  id                 String   @id @default(cuid())
+  name               String   @unique
+  legalPerson        String? // 法人姓名
+  legalPhone         String? // 法人电话
+  contractAuthPerson String? // 合同授权人姓名
+  contractAuthPhone  String? // 合同授权人电话
+  contractAuthIdNo   String? // 合同授权人身份证号
+  contactName        String? // 联系人姓名
+  contactPhone       String? // 联系人电话
+  contactEmail       String? // 联系人邮箱
+  bankName           String? // 银行名称
+  bankAccount        String? // 银行账号
+  address            String? // 公司地址
+  remark             String?
+  status             Int      @default(1) // 1 启用 0 停用
+  projectId          String? // 全局共享时为空
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  contracts   Contract[]
+  reports     DailyReport[]
+  items       ContractItem[]
+  repayments  RepaymentAgreement[]
+}
+
+// ---------------- 合同 ----------------
+
+model Contract {
+  id                 String    @id @default(cuid())
+  projectId          String
+  code               String // 合同编号
+  name               String
+  typeCode           String? // dict: contract_type
+  supplierId         String?
+  signDate           DateTime?
+  amount             Decimal?  
+  taxRate            Decimal?  
+  paymentMethodCode  String? // dict: payment_method
+  isFramework        String? // dict: yes_no
+  isSupplement       String? // dict: yes_no
+  supplementTypeCode String? // dict: supplement_agreement_type
+  execStatus         String? // dict: contract_execution_status
+  approvalStatus     String   @default("DRAFT") // dict: approval_status
+  remark             String?
+  createdBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier     Supplier?            @relation(fields: [supplierId], references: [id])
+  ext          ContractExt?
+  attachments  ContractAttachment[]
+  changeLogs   ContractChangeLog[]
+  items        ContractItem[]
+  reports      DailyReport[]
+  settlements  Settlement[]
+  ledgers      SettlementLedger[]
+  plans        PaymentPlan[]
+  applies      PaymentApply[]
+  payments     PaymentRecord[]
+  invoices     Invoice[]
+  invoiceApplies InvoiceApply[]
+  repayments   RepaymentAgreement[]
+
+  @@unique([projectId, code])
+  @@index([projectId, supplierId])
+}
+
+model ContractExt {
+  id              String    @id @default(cuid())
+  contractId      String    @unique
+  financeCode     String? // 财务一体化合同编号
+  procurementSrc  String? // dict: procurement_source
+  isDirectPurchase String? // dict: is_direct_purchase
+  bidName         String? // 招标名称
+  currentPayRatio Decimal?   // 当前合同付款比例
+  supplierCategory String? // dict: supplier_category
+  bidStartDate    DateTime? // 开始招标时间
+  bidWinDate      DateTime? // 定标时间
+  disclosureDate  DateTime? // 合同交底时间
+  complaint       String? // 投诉情况
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model ContractAttachment {
+  id         String   @id @default(cuid())
+  contractId String
+  fileName   String
+  url        String
+  size       Int?
+  createdAt  DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model ContractChangeLog {
+  id          String   @id @default(cuid())
+  contractId  String
+  field       String
+  fieldLabel  String?
+  beforeValue String?
+  afterValue  String?
+  operatorId  String?
+  operator    String?
+  createdAt   DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 模板 ----------------
+
+model ContractTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  categoryCode String? // dict: contract_template_category
+  tags        String?
+  status      Int      @default(1)
+  version     Int      @default(1)
+  content     String?  
+  projectId   String? // 空表示全局共享
+  parentId    String? // 上一版本
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variables TemplateVariable[]
+}
+
+model TemplateVariable {
+  id           String   @id @default(cuid())
+  templateId   String
+  varKey       String
+  varLabel     String?
+  sourceType   String   @default("MANUAL") // SUPPLIER / CONTRACT / MANUAL
+  defaultValue String?
+  createdAt    DateTime @default(now())
+
+  template ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+model Clause {
+  id          String   @id @default(cuid())
+  title       String
+  content     String   
+  categoryCode String?
+  status      Int      @default(1)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------- 日报 ----------------
+
+model DailyReport {
+  id               String    @id @default(cuid())
+  projectId        String
+  periodYear       Int?
+  periodMonth      Int?
+  entryDate        DateTime? // 进场日期
+  contractId       String?
+  isAsset          String?   // dict: yes_no
+  assetSupervision String?   // 资产监管
+  department       String?
+  personnel        String?
+  assetStatus      String?   // dict: asset_status
+  sourceCode       String?   // dict: material_source
+  materialCategory String?   // dict: material_category
+  materialType     String?   // dict: material_type（按类别联动）
+  materialName     String?
+  steelBrand       String?
+  steelCount       Int?
+  spec             String?
+  unit             String?   // dict: measurement_unit
+  weighQty         Decimal?  
+  deductQty        Decimal?  
+  settleQty        Decimal?  
+  isWeighed        String?   // dict: yes_no
+  noAcceptReason   String?   // 未云筑验收原因
+  priceBeforeTax   Decimal?  
+  taxRate          Decimal?  
+  priceAfterTax    Decimal?  
+  amountBeforeTax  Decimal?  
+  amountAfterTax   Decimal?  
+  supplierId       String?   // 供应单位
+  receiveUnit      String?
+  receiver         String?
+  laborContract    String?
+  usePosition      String?
+  isProxy          String?   // 是否代购
+  plateNo          String?
+  receiptNo        String?
+  remark           String?
+  subcontractPeriod String?
+  incomePrice      Decimal?  
+  incomeAmount     Decimal?  
+  stdPrice         Decimal?  
+  stdAmount        Decimal?  
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([projectId, contractId])
+}
+
+// ---------------- 合同清单 ----------------
+
+model ContractItem {
+  id                String   @id @default(cuid())
+  projectId         String
+  contractId        String?
+  supplierId        String?
+  materialCategory  String?  // dict: material_category
+  materialName      String?
+  spec              String?
+  unit              String?  // dict: measurement_unit
+  qty               Decimal? 
+  costPrice         Decimal? 
+  taxRate           Decimal? 
+  comprehensivePrice Decimal? 
+  remark            String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+// ---------------- 结算 ----------------
+
+model Settlement {
+  id           String    @id @default(cuid())
+  projectId    String
+  contractId   String?
+  code         String?
+  typeCode     String?   // dict: settlement_type
+  amount       Decimal?  
+  deductAmount Decimal?  
+  actualAmount Decimal?  
+  settleDate   DateTime?
+  statusCode   String?   // dict: settlement_status
+  remark       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model SettlementLedger {
+  id                 String   @id @default(cuid())
+  projectId          String
+  contractId         String?
+  settleMonth        String?  // YYYY-MM
+  monthSettleAmount  Decimal?  // 本月结算额
+  monthInvoiceAmount Decimal?  // 本月开票额
+  settleCount        Int?     // 结算次数
+  yearSettleAmount   Decimal? 
+  cumPurchaseAmount  Decimal?  // 截止当月开累采购额
+  startSettleAmount  Decimal?  // 开工结算额
+  monthActualPurchase Decimal? 
+  factoringDiscount  Decimal?  // 保理贴息
+  overdueInterest    Decimal?  // 逾期利息
+  yearSettleIncome   Decimal? 
+  cumSettleIncome    Decimal? 
+  isOnAccount        String?  // dict: yes_no 是否挂账
+  remark             String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 付款 ----------------
+
+model PaymentPlan {
+  id         String    @id @default(cuid())
+  projectId  String
+  contractId String?
+  period     Int?
+  planAmount Decimal?  
+  planDate   DateTime?
+  condition  String?
+  statusCode String?   // dict: payment_plan_status
+  remark     String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model PaymentApply {
+  id           String    @id @default(cuid())
+  projectId    String
+  contractId   String?
+  settlementId String?
+  invoiceId    String?
+  code         String?
+  applyAmount  Decimal?  
+  payee        String?   // 供应商库自动带出
+  bankName     String?
+  bankAccount  String?
+  payDate      DateTime?
+  methodCode   String?   // dict: payment_method
+  statusCode   String?   // dict: approval_status / payment_status
+  remark       String?
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model PaymentRecord {
+  id         String    @id @default(cuid())
+  projectId  String
+  contractId String?
+  applyId    String?
+  payMonth   String?   // YYYY-MM 付款月份
+  amount     Decimal?   // 本月付款额
+  methodCode String?   // dict: payment_method
+  payDate    DateTime?
+  receiptUrl String?   // 银行回单
+  statusCode String?   // dict: payment_status
+  remark     String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 发票 ----------------
+
+model Invoice {
+  id                   String    @id @default(cuid())
+  projectId            String
+  contractId           String?
+  goodsCategory        String?   // dict: goods_category
+  settlePeriod         String?   // 结算账期
+  invoiceCode          String?
+  invoiceNo            String?
+  typeCode             String?   // dict: invoice_type
+  invoiceDate          DateTime?
+  issuer               String?   // 开票单位
+  receiver             String?
+  amountBeforeTax      Decimal?  
+  taxRate              Decimal?  
+  amountWithTax        Decimal?  
+  receiveDate          DateTime? // 发票收取时间
+  reviewStatus         String?   // dict: invoice_review_status
+  responsiblePerson    String?
+  financeTransferStatus String?  // dict: finance_transfer_status
+  imageUrl             String?
+  statusCode           String?   // dict: invoice_status
+  remark               String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, invoiceNo])
+}
+
+model InvoiceApply {
+  id         String    @id @default(cuid())
+  projectId  String
+  contractId String?
+  typeCode   String?   // dict: invoice_type
+  amount     Decimal?  
+  taxRate    Decimal?  
+  buyerInfo  String?
+  statusCode String?   // dict: invoice_status
+  remark     String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  contract   Contract? @relation(fields: [contractId], references: [id])
+}
+
+// ---------------- 还款协议 ----------------
+
+model RepaymentAgreement {
+  id               String    @id @default(cuid())
+  projectId        String
+  code             String // 签订协议编号（项目内唯一）
+  supplierId       String?
+  contractId       String?
+  material         String? // 供应材料
+  signDate         DateTime?
+  settleAmount     Decimal?  
+  agreedDebtAmount Decimal?   // 协议约定欠款金额
+  paidBeforeSign   Decimal?  
+  paidAfterSign    Decimal?  
+  overdueUnpaid    Decimal?  
+  remark           String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier  Supplier?         @relation(fields: [supplierId], references: [id])
+  contract  Contract?         @relation(fields: [contractId], references: [id])
+  details   RepaymentDetail[]
+
+  @@unique([projectId, code])
+}
+
+model RepaymentDetail {
+  id          String    @id @default(cuid())
+  agreementId String
+  period      Int?      // 期数
+  amount      Decimal?  
+  dueDate     DateTime?
+  remark      String?
+  createdAt   DateTime  @default(now())
+
+  agreement RepaymentAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 审批 ----------------
+
+model ApprovalFlow {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  bizType   String
+  status    Int      @default(1)
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  nodes     ApprovalNode[]
+  instances ApprovalInstance[]
+}
+
+model ApprovalNode {
+  id          String @id @default(cuid())
+  flowId      String
+  nodeName    String
+  nodeType    String @default("ANY") // ALL 会签 / ANY 或签
+  approverIds String 
+  orderNo     Int    @default(1)
+  condition   String?
+
+  flow ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+}
+
+model ApprovalInstance {
+  id           String    @id @default(cuid())
+  flowId       String?
+  bizType      String
+  bizId        String
+  projectId    String?
+  title        String?
+  applicantId  String?
+  applicant    String?
+  status       String    @default("PENDING") // dict: approval_status
+  currentNode  Int       @default(1)
+  submittedAt  DateTime  @default(now())
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  flow    ApprovalFlow?    @relation(fields: [flowId], references: [id])
+  records ApprovalRecord[]
+}
+
+model ApprovalRecord {
+  id         String   @id @default(cuid())
+  instanceId String
+  nodeName   String?
+  approverId String?
+  approver   String?
+  action     String // SUBMIT / APPROVED / REJECTED / TRANSFER
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  instance ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 通知与日志 ----------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  title     String
+  content   String?
+  type      String   @default("SYSTEM")
+  bizType   String?
+  bizId     String?
+  projectId String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OperationLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  username  String?
+  module    String?
+  action    String?
+  method    String?
+  url       String?
+  params    String?  
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model LoginLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  username  String?
+  ip        String?
+  userAgent String?
+  result    String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+// ---------------- 字典与参数 ----------------
+
+model DictType {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  remark    String?
+  sort      Int      @default(0)
+  status    Int      @default(1)
+  isSystem  Boolean  @default(false)
+  scope     String   @default("GLOBAL") // GLOBAL / PROJECT
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DictItem {
+  id        String   @id @default(cuid())
+  typeCode  String
+  itemCode  String
+  itemName  String
+  sortOrder Int      @default(0)
+  status    Int      @default(1)
+  color     String?
+  remark    String?
+  extField1 String? // 扩展字段1（如 material_type 关联 material_category）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([typeCode, itemCode])
+  @@index([typeCode])
+}
+
+model SysParam {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String?
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
