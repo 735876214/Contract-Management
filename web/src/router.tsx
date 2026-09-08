@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Navigate, RouteObject, useLocation } from 'react-router-dom';
+import { Spin } from 'antd';
 import BasicLayout from '@/layouts/BasicLayout';
 import { useAuthStore } from '@/store/auth';
 import Login from '@/pages/Login';
@@ -22,8 +24,32 @@ import System from '@/pages/System';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const loadProfile = useAuthStore((s) => s.loadProfile);
   const location = useLocation();
+  // 有 token 但内存中的用户信息为空（刷新页面 / 新标签页）时，先恢复会话再渲染，
+  // 否则菜单按权限过滤后为空、项目切换与用户信息都会丢失。
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    if (user) {
+      setReady(true);
+      return;
+    }
+    let alive = true;
+    loadProfile()
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setReady(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, user, loadProfile]);
+
   if (!token) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!ready) return <Spin size="large" fullscreen tip="正在恢复登录状态…" />;
   return <>{children}</>;
 }
 
