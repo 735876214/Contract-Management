@@ -27,3 +27,10 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# 本地 npm 缓存与 vite 临时文件
+.npm-cache/
+*.timestamp-*.mjs
+
+# 本项目使用 pnpm 锁定依赖，避免 npm 生成的 lock 文件入库
+package-lock.json

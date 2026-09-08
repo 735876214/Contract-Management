@@ -7,6 +7,8 @@ import { PlusOutlined, SearchOutlined, FileTextOutlined, HistoryOutlined } from 
 import { templateApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import RichTextEditor from '@/components/RichTextEditor';
+import { exportWord, printHtml, highlightPlaceholders } from '@/utils/docExport';
 
 /** 模板内容可用变量占位符说明 */
 const VARIABLES = [
@@ -171,6 +173,13 @@ export default function Templates() {
     );
   };
 
+  /** 导出文件名：合同名称-模板名称 */
+  const genFileName = () => {
+    const c = gContracts.find((x: any) => x.id === gContractId);
+    const t = gTemplates.find((x: any) => x.id === gTemplateId);
+    return `${c?.name || c?.code || '合同'}-${t?.name || '正文'}`.replace(/[\\/:*?"<>|]/g, '_');
+  };
+
   // ---- 条款库 ----
   const openClauseEdit = (row?: any) => {
     setClauseEditing(row || null);
@@ -328,8 +337,8 @@ export default function Templates() {
               />
             </Col>
             <Col xs={24}>
-              <Form.Item name="content" label="模板内容" rules={[{ required: true }]}>
-                <Input.TextArea rows={12} placeholder={'支持 HTML/富文本，例如：\n本合同编号：{合同编号}\n供应商名称：{供应商名称}\n法人姓名：{法人姓名}'} />
+              <Form.Item name="content" label="模板内容" rules={[{ required: true, message: '请填写模板内容' }]}>
+                <RichTextEditor variables={VARIABLES} minHeight={360} placeholder="在此编辑合同正文，可点击「插入变量」把占位符插入到光标处" />
               </Form.Item>
             </Col>
           </Row>
@@ -369,7 +378,8 @@ export default function Templates() {
           gHtml
             ? [
                 <Button key="close" onClick={() => setGenOpen(false)}>关闭</Button>,
-                <Button key="copy" type="primary" onClick={copyHtml}>复制 HTML</Button>,
+                <Button key="copy" onClick={copyHtml}>复制 HTML</Button>,
+                <Button key="word" type="primary" onClick={() => exportWord(gHtml, `${genFileName()}.doc`)}>导出 Word</Button>,
               ]
             : [
                 <Button key="prev" disabled={genStep === 0} onClick={genPrev}>上一步</Button>,
@@ -459,12 +469,20 @@ export default function Templates() {
           )}
           {gHtml && (
             <div>
-              <div style={{ marginBottom: 8 }}>
-                <Button onClick={copyHtml} type="primary" ghost>复制 HTML</Button>
-              </div>
+              <Space style={{ marginBottom: 8 }} wrap>
+                <Button onClick={copyHtml} ghost>复制 HTML</Button>
+                <Button type="primary" onClick={() => exportWord(gHtml, `${genFileName()}.doc`)}>导出 Word</Button>
+                <Button onClick={() => printHtml(gHtml, genFileName())}>打印 / 存为 PDF</Button>
+              </Space>
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message="黄色高亮部分为未被替换的变量占位符，请核对合同或供应商信息是否完整"
+              />
               <div
                 style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: 16, background: '#fff', maxHeight: 420, overflow: 'auto' }}
-                dangerouslySetInnerHTML={{ __html: gHtml }}
+                dangerouslySetInnerHTML={{ __html: highlightPlaceholders(gHtml) }}
               />
             </div>
           )}
@@ -486,7 +504,7 @@ export default function Templates() {
             <DictSelect typeCode="contract_template_category" />
           </Form.Item>
           <Form.Item name="content" label="条款内容" rules={[{ required: true }]}>
-            <Input.TextArea rows={6} />
+            <RichTextEditor variables={VARIABLES} minHeight={200} placeholder="条款正文，支持富文本排版与变量占位符" />
           </Form.Item>
         </Form>
       </Modal>
