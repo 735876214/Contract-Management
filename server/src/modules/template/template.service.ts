@@ -137,7 +137,71 @@ export class TemplateService {
     return all.filter((i: any) => codes.includes(i.itemCode));
   }
 
-  /** 生成合同正文：变量替换 */
+  /** 构建规范 HTML 表格（含表头），用于占位符表格替换 */
+  private buildTableHtml(headers: string[], rows: (string | number | null | undefined)[][]): string {
+    const esc = (v: any) =>
+      String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const thead = `<tr>${headers.map((h) => `<th style="border:1px solid #000;padding:4px 6px;background:#f2f2f2;">${esc(h)}</th>`).join('')}</tr>`;
+    const tbody = rows.length
+      ? rows
+          .map(
+            (r) =>
+              `<tr>${r
+                .map((c) => `<td style="border:1px solid #000;padding:4px 6px;text-align:center;">${esc(c)}</td>`)
+                .join('')}</tr>`,
+          )
+          .join('')
+      : `<tr><td style="border:1px solid #000;padding:4px 6px;text-align:center;" colspan="${headers.length}">暂无数据</td></tr>`;
+    return `<table style="border-collapse:collapse;width:100%;">${thead}${tbody}</table>`;
+  }
+
+  /** 按合同物资清单派生两张子表 HTML（行号重新从 1 编号） */
+  private async buildMaterialTables(contractId: string): Promise<Record<string, string>> {
+    const rows = await this.prisma.contractMaterial.findMany({
+      where: { contractId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      include: { materialBase: true },
+    });
+    const fmt = (v: any) => (v === null || v === undefined || v === '' ? '' : String(v));
+    const fmtNum = (v: any) => (v === null || v === undefined ? '' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 4 }));
+
+    // 派生子表1：物料编码清单（来自物资基础库）
+    const codeTable = this.buildTableHtml(
+      ['序号', '物资名称', '规格型号', 'MDM编码', 'DSC编码'],
+      rows.map((r: any, i: number) => [
+        i + 1,
+        r.materialBase?.name || '',
+        r.materialBase?.spec || '',
+        fmt(r.materialBase?.mdmCode),
+        fmt(r.materialBase?.dscCode),
+      ]),
+    );
+
+    // 派生子表2：合同清单（排除 MDM/DSC 编码与内部成本字段）
+    const itemTable = this.buildTableHtml(
+      ['序号', '物资名称', '规格型号', '计量单位', '暂定数量', '税前单价', '增值税(%)', '含税单价', '暂定含税合价', '备注'],
+      rows.map((r: any, i: number) => [
+        i + 1,
+        r.materialBase?.name || '',
+        r.materialBase?.spec || '',
+        fmt(r.unit),
+        fmtNum(r.qty),
+        fmtNum(r.priceBeforeTax),
+        fmtNum(r.taxRatePct),
+        fmtNum(r.priceWithTax),
+        fmtNum(r.totalWithTax),
+        fmt(r.remark),
+      ]),
+    );
+
+    return { codeTable, itemTable };
+  }
+
+  /**
+   * 生成合同正文：变量替换。
+   * 支持 {{MATERIAL_CODE_TABLE}}（物料编码清单）与 {{CONTRACT_ITEM_TABLE}}（合同清单）表格占位符，
+   * 也兼容中文别名 {物料编码清单} / {合同清单}。
+   */
   async generate(params: { templateId: string; contractId: string; manual?: Record<string, any> }, projectId: string) {
     const template = await this.findOne(params.templateId);
     const contract = await this.prisma.contract.findUnique({
@@ -177,11 +241,18 @@ export class TemplateService {
       ...(params.manual || {}),
     };
 
+    // 表格占位符：双花括号（先于单花括号变量替换，避免嵌套冲突）
+    const tables = await this.buildMaterialTables(params.contractId);
     let html = template.content || '';
+    html = html.split('{{MATERIAL_CODE_TABLE}}').join(tables.codeTable);
+    html = html.split('{{CONTRACT_ITEM_TABLE}}').join(tables.itemTable);
+    html = html.split('{物料编码清单}').join(tables.codeTable);
+    html = html.split('{合同清单}').join(tables.itemTable);
+
     Object.entries(values).forEach(([key, value]) => {
       html = html.split(`{${key}}`).join(String(value ?? ''));
     });
-    return { html, values, templateName: template.name, variables: template.variables };
+    return { html, values, tables, templateName: template.name, variables: template.variables };
   }
 
   // ---------------- 条款库 ----------------

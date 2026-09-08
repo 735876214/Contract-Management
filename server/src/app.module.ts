@@ -10,6 +10,7 @@ import { ContractModule } from './modules/contract/contract.module';
 import { TemplateModule } from './modules/template/template.module';
 import { DailyReportModule } from './modules/daily-report/daily-report.module';
 import { ContractItemModule } from './modules/contract-item/contract-item.module';
+import { MaterialModule } from './modules/material/material.module';
 import { SettlementModule } from './modules/settlement/settlement.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
@@ -34,6 +35,7 @@ import { FileModule } from './modules/file/file.module';
     TemplateModule,
     DailyReportModule,
     ContractItemModule,
+    MaterialModule,
     SettlementModule,
     PaymentModule,
     InvoiceModule,

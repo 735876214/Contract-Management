@@ -22,6 +22,28 @@ export const itemApi = {
   importUrl: () => `${http.defaults.baseURL}/contract-items/import`,
 };
 
+export const materialApi = {
+  list: (params?: any) => http.get<any, any>('/materials', { params }),
+  options: (keyword?: string) => http.get<any, any>('/materials/options', { params: { keyword } }),
+  create: (data: any) => http.post<any, any>('/materials', data),
+  update: (id: string, data: any) => http.put<any, any>(`/materials/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/materials/${id}`),
+  toggle: (id: string) => http.post<any, any>(`/materials/${id}/toggle`),
+  exportUrl: () => `${http.defaults.baseURL}/materials/export`,
+  importUrl: () => `${http.defaults.baseURL}/materials/import`,
+};
+
+export const contractMaterialApi = {
+  list: (contractId: string) => http.get<any, any>('/contract-materials', { params: { contractId } }),
+  create: (data: any) => http.post<any, any>('/contract-materials', data),
+  update: (id: string, data: any) => http.put<any, any>(`/contract-materials/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/contract-materials/${id}`),
+  sort: (items: { id: string; sortOrder: number }[]) => http.put<any, any>('/contract-materials/sort', { items }),
+  exportUrl: (contractId: string, format: 'xlsx' | 'csv' = 'xlsx') =>
+    `${http.defaults.baseURL}/contract-materials/export?contractId=${contractId}&format=${format}`,
+  importUrl: (contractId: string) => `${http.defaults.baseURL}/contract-materials/import?contractId=${contractId}`,
+};
+
 export const settlementApi = {
   list: (params?: any) => http.get<any, any>('/settlements', { params }),
   detail: (id: string) => http.get<any, any>(`/settlements/${id}`),

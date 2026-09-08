@@ -294,6 +294,8 @@ const PERMISSIONS = [
   { code: 'daily:edit', name: '维护日报', module: '日报管理' },
   { code: 'item:view', name: '查看合同清单', module: '合同清单' },
   { code: 'item:edit', name: '维护合同清单', module: '合同清单' },
+  { code: 'material:view', name: '查看物资基础库', module: '物资管理' },
+  { code: 'material:edit', name: '维护物资与合同物资清单', module: '物资管理' },
   { code: 'settlement:view', name: '查看结算', module: '结算管理' },
   { code: 'settlement:edit', name: '维护结算', module: '结算管理' },
   { code: 'payment:view', name: '查看付款', module: '付款管理' },

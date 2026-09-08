@@ -196,6 +196,7 @@ model Contract {
   invoices     Invoice[]
   invoiceApplies InvoiceApply[]
   repayments   RepaymentAgreement[]
+  materials    ContractMaterial[]
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
@@ -365,6 +366,50 @@ model ContractItem {
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
   supplier Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+// ---------------- 物资基础库 ----------------
+
+model MaterialBase {
+  id        String   @id @default(cuid())
+  name      String // 物资名称
+  spec      String // 规格型号
+  mdmCode   String? // MDM编码
+  dscCode   String? // DSC编码
+  status    Int      @default(1) // 1 启用 0 停用（软删除）
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractMaterials ContractMaterial[]
+}
+
+// ---------------- 合同物资清单（合同 × 物资 实例行） ----------------
+
+model ContractMaterial {
+  id             String   @id @default(cuid())
+  contractId     String
+  materialBaseId String // 引用物资基础库，不重复录入名称/规格/编码
+  unit           String // 计量单位（针对本合同的计量方式）
+  qty            Decimal? // 暂定数量 18,4
+  priceBeforeTax Decimal? // 税前单价 18,4
+  taxRatePct     Decimal? // 增值税（百分比，如 13.00）
+  priceWithTax   Decimal? // 含税单价 = 税前单价 × (1 + 增值税/100)，自动计算
+  totalWithTax   Decimal? // 暂定含税合价 = 暂定数量 × 含税单价，自动计算
+  remark         String?
+  incomePrice    Decimal? // 收入单价
+  incomeTotal    Decimal? // 收入合价 = 暂定数量 × 收入单价，自动计算
+  stdPrice       Decimal? // 标准成本单价
+  stdTotal       Decimal? // 标准成本合价 = 暂定数量 × 标准成本单价，自动计算
+  sortOrder      Int      @default(0) // 行号，可手动调整
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, materialBaseId]) // 同一物资在一个合同内只能出现一次
+  @@index([contractId])
 }
 
 // ---------------- 结算 ----------------

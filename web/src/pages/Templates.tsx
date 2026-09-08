@@ -333,7 +333,21 @@ export default function Templates() {
                 showIcon
                 style={{ marginBottom: 12 }}
                 message="可用变量占位符（在模板内容中使用如 {合同编号}、{供应商名称} 等，生成时将自动替换）"
-                description={VARIABLES.map((v) => <Tag key={v}>{`{${v}}`}</Tag>)}
+                description={
+                  <Space size={4} wrap>
+                    {VARIABLES.map((v) => <Tag key={v}>{`{${v}}`}</Tag>)}
+                    <Tag color="purple">{'{{MATERIAL_CODE_TABLE}}'}</Tag>
+                    <Tag color="purple">{'{{CONTRACT_ITEM_TABLE}}'}</Tag>
+                  </Space>
+                }
+              />
+            </Col>
+            <Col xs={24}>
+              <Alert
+                type="success"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="表格占位符：{{MATERIAL_CODE_TABLE}} 生成「物料编码清单」（序号/物资名称/规格型号/MDM/DSC），{{CONTRACT_ITEM_TABLE}} 生成「合同清单」（序号/名称/规格/计量单位/暂定数量/税前单价/增值税/含税单价/暂定含税合价/备注），均取自合同物资清单并重新编号，可放在模板任意位置"
               />
             </Col>
             <Col xs={24}>

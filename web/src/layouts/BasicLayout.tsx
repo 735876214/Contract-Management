@@ -3,6 +3,8 @@ import { Layout, Menu, Dropdown, Space, Badge, Button, Avatar, Typography, theme
 import {
   DashboardOutlined,
   AppstoreOutlined,
+  DatabaseOutlined,
+  ProfileOutlined,
   ProjectOutlined,
   ShopOutlined,
   FileTextOutlined,
@@ -37,6 +39,8 @@ const MENUS = [
   { key: '/templates', icon: <FileSearchOutlined />, label: '合同模板', perm: 'template:view' },
   { key: '/daily', icon: <CalendarOutlined />, label: '日报管理', perm: 'daily:view' },
   { key: '/items', icon: <UnorderedListOutlined />, label: '合同清单', perm: 'item:view' },
+  { key: '/materials', icon: <DatabaseOutlined />, label: '物资基础库', perm: 'material:view' },
+  { key: '/contract-materials', icon: <ProfileOutlined />, label: '合同物资清单', perm: 'material:view' },
   { key: '/settlements', icon: <AccountBookOutlined />, label: '结算管理', perm: 'settlement:view' },
   { key: '/payments', icon: <WalletOutlined />, label: '付款管理', perm: 'payment:view' },
   { key: '/invoices', icon: <ReconciliationOutlined />, label: '发票管理', perm: 'invoice:view' },

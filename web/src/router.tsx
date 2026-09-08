@@ -12,6 +12,8 @@ import Contracts from '@/pages/Contracts';
 import Templates from '@/pages/Templates';
 import DailyReports from '@/pages/DailyReports';
 import ContractItems from '@/pages/ContractItems';
+import Materials from '@/pages/Materials';
+import ContractMaterials from '@/pages/ContractMaterials';
 import Settlements from '@/pages/Settlements';
 import Payments from '@/pages/Payments';
 import Invoices from '@/pages/Invoices';
@@ -72,6 +74,8 @@ export const routes: RouteObject[] = [
       { path: 'templates', element: <Templates /> },
       { path: 'daily', element: <DailyReports /> },
       { path: 'items', element: <ContractItems /> },
+      { path: 'materials', element: <Materials /> },
+      { path: 'contract-materials', element: <ContractMaterials /> },
       { path: 'settlements', element: <Settlements /> },
       { path: 'payments', element: <Payments /> },
       { path: 'invoices', element: <Invoices /> },
