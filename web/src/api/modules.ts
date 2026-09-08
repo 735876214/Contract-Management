@@ -68,8 +68,6 @@ export const paymentApi = {
   createApply: (data: any) => http.post<any, any>('/payments/applies', data),
   updateApply: (id: string, data: any) => http.put<any, any>(`/payments/applies/${id}`, data),
   removeApply: (id: string) => http.delete<any, any>(`/payments/applies/${id}`),
-  approveApply: (id: string, action: string, comment?: string) =>
-    http.post<any, any>(`/payments/applies/${id}/approve`, { action, comment }),
   records: (params?: any) => http.get<any, any>('/payments/records', { params }),
   createRecord: (data: any) => http.post<any, any>('/payments/records', data),
   updateRecord: (id: string, data: any) => http.put<any, any>(`/payments/records/${id}`, data),
@@ -89,7 +87,6 @@ export const invoiceApi = {
   verify: (id: string) => http.post<any, any>(`/invoices/${id}/verify`),
   applies: (params?: any) => http.get<any, any>('/invoices/applies', { params }),
   createApply: (data: any) => http.post<any, any>('/invoices/applies', data),
-  approveApply: (id: string, action: string) => http.post<any, any>(`/invoices/applies/${id}/approve`, { action }),
   removeApply: (id: string) => http.delete<any, any>(`/invoices/applies/${id}`),
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
@@ -112,17 +109,6 @@ export const repaymentApi = {
   suggestCode: () => http.get<any, any>('/repayments/suggest-code'),
   checkCode: (code: string, excludeId?: string) => http.get<any, any>('/repayments/check-code', { params: { code, excludeId } }),
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
-};
-
-export const approvalApi = {
-  todo: (params?: any) => http.get<any, any>('/approvals/todo', { params }),
-  done: (params?: any) => http.get<any, any>('/approvals/done', { params }),
-  mine: (params?: any) => http.get<any, any>('/approvals/mine', { params }),
-  handle: (id: string, action: string, comment?: string) => http.post<any, any>(`/approvals/${id}/approve`, { action, comment }),
-  flows: () => http.get<any, any>('/approvals/flows'),
-  createFlow: (data: any) => http.post<any, any>('/approvals/flows', data),
-  updateFlow: (id: string, data: any) => http.put<any, any>(`/approvals/flows/${id}`, data),
-  removeFlow: (id: string) => http.delete<any, any>(`/approvals/flows/${id}`),
 };
 
 export const notificationApi = {

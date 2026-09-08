@@ -185,7 +185,7 @@ export class DictService {
   private usageMap: Record<string, { model: string; label: string; fields: string[] }[]> = {
     contract_type: [{ model: 'contract', label: '合同', fields: ['typeCode'] }],
     contract_execution_status: [{ model: 'contract', label: '合同', fields: ['execStatus'] }],
-    approval_status: [{ model: 'contract', label: '合同', fields: ['approvalStatus'] }, { model: 'paymentApply', label: '付款申请', fields: ['statusCode'] }],
+    approval_status: [{ model: 'paymentApply', label: '付款申请', fields: ['statusCode'] }],
     supplement_agreement_type: [{ model: 'contract', label: '合同', fields: ['supplementTypeCode'] }],
     asset_status: [{ model: 'dailyReport', label: '日报', fields: ['assetStatus'] }],
     material_source: [{ model: 'dailyReport', label: '日报', fields: ['sourceCode'] }],

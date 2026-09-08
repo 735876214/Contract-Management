@@ -135,11 +135,6 @@ export class InvoiceService {
     });
   }
 
-  async approveApply(id: string, action: string) {
-    if (!['APPROVED', 'REJECTED'].includes(action)) throw new BadRequestException('审批动作不合法');
-    return this.prisma.invoiceApply.update({ where: { id }, data: { statusCode: action } });
-  }
-
   async removeApply(id: string) {
     await this.prisma.invoiceApply.delete({ where: { id } });
     return true;

@@ -62,12 +62,6 @@ export class PaymentController {
   }
 
   @RequirePermissions('payment:edit')
-  @Post('applies/:id/approve')
-  approveApply(@Param('id') id: string, @Body() body: { action: string; comment?: string }, @CurrentUser() user: JwtUser) {
-    return this.service.approveApply(id, body.action, body.comment, user);
-  }
-
-  @RequirePermissions('payment:edit')
   @Delete('applies/:id')
   removeApply(@Param('id') id: string) {
     return this.service.removeApply(id);

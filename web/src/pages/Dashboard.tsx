@@ -90,21 +90,7 @@ export default function Dashboard() {
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card title="待办审批" extra={<Tag color="blue">{reminders.pendingApprovals?.length || 0}</Tag>}>
-            <List
-              dataSource={reminders.pendingApprovals || []}
-              locale={{ emptyText: <Empty description="暂无待办" /> }}
-              renderItem={(item: any) => (
-                <List.Item>
-                  <List.Item.Meta title={item.title} description={`${item.applicant || ''} · ${item.bizType}`} />
-                  <Tag color="processing">审批中</Tag>
-                </List.Item>
-              )}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
+        <Col xs={24}>
           <Card title="逾期付款计划" extra={<Tag color="red">{reminders.overduePlans?.length || 0}</Tag>}>
             <List
               dataSource={reminders.overduePlans || []}

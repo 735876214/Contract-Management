@@ -124,13 +124,6 @@ export class PaymentService {
     return this.prisma.paymentApply.update({ where: { id }, data: payload });
   }
 
-  async approveApply(id: string, action: string, comment: string, user: any) {
-    if (!['APPROVED', 'REJECTED'].includes(action)) throw new BadRequestException('审批动作不合法');
-    const apply = await this.prisma.paymentApply.findUnique({ where: { id } });
-    if (!apply) throw new NotFoundException('付款申请不存在');
-    return this.prisma.paymentApply.update({ where: { id }, data: { statusCode: action } });
-  }
-
   async removeApply(id: string) {
     await this.prisma.paymentApply.delete({ where: { id } });
     return true;

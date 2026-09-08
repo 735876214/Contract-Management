@@ -15,7 +15,6 @@ export class DashboardService {
       this.prisma.settlement.findMany({ where: { projectId } }),
     ]);
     const sumBy = (list: any[], f: string) => list.reduce((s, i: any) => s + (num(i[f]) || 0), 0);
-    const pendingApprovals = await this.prisma.approvalInstance.count({ where: { projectId, status: 'PENDING' } });
     return {
       contractCount: contracts.length,
       contractAmount: Number(sumBy(contracts, 'amount').toFixed(2)),
@@ -23,7 +22,6 @@ export class DashboardService {
       paidAmount: Number(sumBy(payments, 'amount').toFixed(2)),
       invoiceAmount: Number(sumBy(invoices, 'amountWithTax').toFixed(2)),
       settlementCount: settlements.length,
-      pendingApprovals,
       executingCount: contracts.filter((c: any) => c.execStatus === 'EXECUTING').length,
     };
   }
@@ -75,17 +73,16 @@ export class DashboardService {
     };
   }
 
-  /** 提醒：到期/逾期付款计划、待审批、发票待查验 */
+  /** 提醒：到期/逾期付款计划、发票待查验 */
   async reminders(projectId: string, user: any) {
     const today = new Date();
     const soon = new Date(today.getTime() + 15 * 86400000);
-    const [overduePlans, pendingApprovals, pendingInvoices] = await Promise.all([
+    const [overduePlans, pendingInvoices] = await Promise.all([
       this.prisma.paymentPlan.findMany({
         where: { projectId, statusCode: { not: 'PAID' }, planDate: { lt: today } },
         include: { contract: { select: { code: true, name: true, supplier: { select: { name: true } } } } },
         take: 10,
       }),
-      this.prisma.approvalInstance.findMany({ where: { projectId, status: 'PENDING' }, take: 10, orderBy: { createdAt: 'desc' } }),
       this.prisma.invoice.findMany({ where: { projectId, statusCode: 'WAIT_VERIFY' }, take: 10 }),
     ]);
     const duePlans = await this.prisma.paymentPlan.findMany({
@@ -95,7 +92,6 @@ export class DashboardService {
     return {
       overduePlans,
       duePlans,
-      pendingApprovals,
       pendingInvoices,
     };
   }

@@ -46,7 +46,6 @@ const MENUS = [
   { key: '/invoices', icon: <ReconciliationOutlined />, label: '发票管理', perm: 'invoice:view' },
   { key: '/ledger', icon: <TableOutlined />, label: '合同台账', perm: 'ledger:view' },
   { key: '/repayments', icon: <SafetyCertificateOutlined />, label: '还款协议', perm: 'repayment:view' },
-  { key: '/approvals', icon: <BellOutlined />, label: '审批中心', perm: 'approval:handle' },
   { key: '/messages', icon: <BellOutlined />, label: '消息中心', perm: '' },
   { key: '/reports', icon: <BarChartOutlined />, label: '统计报表', perm: 'dashboard:view' },
   { key: '/system', icon: <SettingOutlined />, label: '系统管理', perm: 'system:user' },

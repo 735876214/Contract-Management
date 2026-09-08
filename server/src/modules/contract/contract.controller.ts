@@ -95,18 +95,6 @@ export class ContractController {
   }
 
   @RequirePermissions('contract:edit')
-  @Post(':id/submit')
-  submit(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.contractService.submit(id, user);
-  }
-
-  @RequirePermissions('contract:approve')
-  @Post(':id/approve')
-  approve(@Param('id') id: string, @Body() body: { action: string; comment?: string }, @CurrentUser() user: JwtUser) {
-    return this.contractService.approve(id, body.action, body.comment, user);
-  }
-
-  @RequirePermissions('contract:edit')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {

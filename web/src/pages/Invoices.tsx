@@ -282,12 +282,6 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
     setModal(true);
   };
 
-  const approve = async (id: string, action: string) => {
-    await invoiceApi.approveApply(id, action);
-    message.success(action === 'APPROVED' ? '已通过' : '已驳回');
-    reload();
-  };
-
   return (
     <>
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
@@ -319,13 +313,11 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
           { title: '备注', dataIndex: 'remark', width: 160 },
           {
             title: '操作',
-            width: 200,
+            width: 140,
             fixed: 'right',
             render: (_, row) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Button type="link" size="small" onClick={() => approve(row.id, 'APPROVED')}>通过</Button>
-                <Button type="link" size="small" danger onClick={() => approve(row.id, 'REJECTED')}>驳回</Button>
                 <Popconfirm title="确认删除？" onConfirm={async () => { await invoiceApi.removeApply(row.id); message.success('已删除'); reload(); }}>
                   <Button type="link" size="small" danger>删除</Button>
                 </Popconfirm>

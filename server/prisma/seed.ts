@@ -33,10 +33,9 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
     ],
   },
   approval_status: {
-    name: '审批状态',
+    name: '申请状态',
     items: [
-      { itemCode: 'DRAFT', itemName: '草稿', color: 'default' },
-      { itemCode: 'PENDING', itemName: '审批中', color: 'processing' },
+      { itemCode: 'PENDING', itemName: '待处理', color: 'processing' },
       { itemCode: 'APPROVED', itemName: '已通过', color: 'green' },
       { itemCode: 'REJECTED', itemName: '已驳回', color: 'red' },
     ],
@@ -180,7 +179,7 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
     name: '结算状态',
     items: [
       { itemCode: 'DRAFT', itemName: '草稿', color: 'default' },
-      { itemCode: 'PENDING', itemName: '审批中', color: 'processing' },
+      { itemCode: 'PENDING', itemName: '待确认', color: 'processing' },
       { itemCode: 'CONFIRMED', itemName: '已确认', color: 'blue' },
       { itemCode: 'INVOICED', itemName: '已开票', color: 'cyan' },
       { itemCode: 'PAID', itemName: '已付款', color: 'green' },
@@ -287,7 +286,6 @@ const PERMISSIONS = [
   { code: 'supplier:edit', name: '维护供应商', module: '供应商库' },
   { code: 'contract:view', name: '查看合同', module: '合同管理' },
   { code: 'contract:edit', name: '维护合同', module: '合同管理' },
-  { code: 'contract:approve', name: '合同审批', module: '合同管理' },
   { code: 'template:view', name: '查看模板', module: '合同模板' },
   { code: 'template:edit', name: '维护模板', module: '合同模板' },
   { code: 'daily:view', name: '查看日报', module: '日报管理' },
@@ -305,7 +303,6 @@ const PERMISSIONS = [
   { code: 'ledger:view', name: '查看合同台账', module: '合同台账' },
   { code: 'repayment:view', name: '查看还款协议', module: '还款协议' },
   { code: 'repayment:edit', name: '维护还款协议', module: '还款协议' },
-  { code: 'approval:handle', name: '处理审批', module: '审批流' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
@@ -359,7 +356,7 @@ async function main() {
   const roleManager = await prisma.role.upsert({
     where: { code: 'PROJECT_MANAGER' },
     update: {},
-    create: { code: 'PROJECT_MANAGER', name: '项目管理员', remark: '项目管理与审批' },
+    create: { code: 'PROJECT_MANAGER', name: '项目管理员', remark: '项目管理' },
   });
   const roleStaff = await prisma.role.upsert({
     where: { code: 'STAFF' },
@@ -526,28 +523,28 @@ async function main() {
       code: 'HT-2026-0001', name: '滨江项目钢筋采购合同', typeCode: 'PURCHASE_EXEC',
       supplierIdx: 1, amount: 8600000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
       isFramework: 'N', isSupplement: 'N', signDate: new Date('2026-01-15'),
-      execStatus: 'EXECUTING', approvalStatus: 'APPROVED',
+      execStatus: 'EXECUTING',
       ext: { financeCode: 'FIN-2026-0001', procurementSrc: 'BID', isDirectPurchase: 'N', bidName: '滨江项目钢筋招标', currentPayRatio: 0.75, supplierCategory: 'MATERIAL', bidStartDate: new Date('2025-12-01'), bidWinDate: new Date('2025-12-20'), disclosureDate: new Date('2026-01-10') },
     },
     {
       code: 'HT-2026-0002', name: '滨江项目塔吊租赁合同', typeCode: 'LEASE_EXEC',
       supplierIdx: 2, amount: 2400000, taxRate: 0.09, paymentMethodCode: 'ACCEPTANCE',
       isFramework: 'N', isSupplement: 'N', signDate: new Date('2026-02-01'),
-      execStatus: 'EXECUTING', approvalStatus: 'APPROVED',
+      execStatus: 'EXECUTING',
       ext: { financeCode: 'FIN-2026-0002', procurementSrc: 'INQUIRY', isDirectPurchase: 'N', bidName: '塔吊租赁询价', currentPayRatio: 0.6, supplierCategory: 'LEASE', bidStartDate: new Date('2026-01-05'), bidWinDate: new Date('2026-01-20') },
     },
     {
       code: 'HT-2026-0003', name: '滨江项目商品砼框架协议', typeCode: 'FRAMEWORK',
       supplierIdx: 0, amount: 15000000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
       isFramework: 'Y', isSupplement: 'N', signDate: new Date('2026-01-05'),
-      execStatus: 'EXECUTING', approvalStatus: 'APPROVED',
+      execStatus: 'EXECUTING',
       ext: { procurementSrc: 'FRAMEWORK', isDirectPurchase: 'Y', supplierCategory: 'MATERIAL' },
     },
     {
       code: 'HT-2026-0004', name: '钢筋采购合同涨价补充协议', typeCode: 'PURCHASE',
       supplierIdx: 1, amount: 600000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
       isFramework: 'N', isSupplement: 'Y', supplementTypeCode: 'PRICE_UP', signDate: new Date('2026-03-10'),
-      execStatus: 'DRAFT', approvalStatus: 'DRAFT',
+      execStatus: 'DRAFT',
       ext: { supplierCategory: 'MATERIAL' },
     },
   ];
@@ -562,7 +559,7 @@ async function main() {
         supplierId: suppliers[c.supplierIdx].id,
         amount: c.amount, taxRate: c.taxRate, paymentMethodCode: c.paymentMethodCode,
         isFramework: c.isFramework, isSupplement: c.isSupplement, supplementTypeCode: (c as any).supplementTypeCode,
-        signDate: c.signDate, execStatus: c.execStatus, approvalStatus: c.approvalStatus,
+        signDate: c.signDate, execStatus: c.execStatus,
         createdBy: admin.id,
         ext: { create: c.ext as any },
       },
@@ -733,30 +730,10 @@ async function main() {
     });
   }
 
-  // ---------- 审批流程 ----------
-  if ((await prisma.approvalFlow.count()) === 0) {
-    const flow = await prisma.approvalFlow.create({
-      data: {
-        code: 'FLOW_CONTRACT',
-        name: '合同审批流程',
-        bizType: 'CONTRACT',
-        status: 1,
-        nodes: {
-          create: [
-            { nodeName: '项目经理审批', nodeType: 'ANY', approverIds: manager.id, orderNo: 1 },
-            { nodeName: '采购负责人审批', nodeType: 'ANY', approverIds: admin.id, orderNo: 2 },
-          ],
-        },
-      },
-    });
-    console.log('  审批流程:', flow.name);
-  }
-
   // ---------- 通知 ----------
   if ((await prisma.notification.count()) === 0) {
     await prisma.notification.createMany({
       data: [
-        { userId: admin.id, title: '合同待审批', content: '合同 HT-2026-0004 已提交，等待审批', type: 'APPROVAL', bizType: 'CONTRACT', bizId: contracts[3].id, projectId: project.id },
         { userId: admin.id, title: '付款计划逾期', content: '塔吊租赁合同付款计划已逾期', type: 'WARNING', projectId: project.id },
       ],
     });

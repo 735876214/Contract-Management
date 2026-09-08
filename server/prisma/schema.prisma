@@ -175,7 +175,6 @@ model Contract {
   isSupplement       String? // dict: yes_no
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
-  approvalStatus     String   @default("DRAFT") // dict: approval_status
   remark             String?
   createdBy          String?
   createdAt          DateTime  @default(now())
@@ -606,67 +605,6 @@ model RepaymentDetail {
   createdAt   DateTime  @default(now())
 
   agreement RepaymentAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-}
-
-// ---------------- 审批 ----------------
-
-model ApprovalFlow {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  bizType   String
-  status    Int      @default(1)
-  remark    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  nodes     ApprovalNode[]
-  instances ApprovalInstance[]
-}
-
-model ApprovalNode {
-  id          String @id @default(cuid())
-  flowId      String
-  nodeName    String
-  nodeType    String @default("ANY") // ALL 会签 / ANY 或签
-  approverIds String @db.Text
-  orderNo     Int    @default(1)
-  condition   String?
-
-  flow ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
-}
-
-model ApprovalInstance {
-  id           String    @id @default(cuid())
-  flowId       String?
-  bizType      String
-  bizId        String
-  projectId    String?
-  title        String?
-  applicantId  String?
-  applicant    String?
-  status       String    @default("PENDING") // dict: approval_status
-  currentNode  Int       @default(1)
-  submittedAt  DateTime  @default(now())
-  finishedAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  flow    ApprovalFlow?    @relation(fields: [flowId], references: [id])
-  records ApprovalRecord[]
-}
-
-model ApprovalRecord {
-  id         String   @id @default(cuid())
-  instanceId String
-  nodeName   String?
-  approverId String?
-  approver   String?
-  action     String // SUBMIT / APPROVED / REJECTED / TRANSFER
-  comment    String?
-  createdAt  DateTime @default(now())
-
-  instance ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
 
 // ---------------- 通知与日志 ----------------

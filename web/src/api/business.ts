@@ -9,7 +9,6 @@ export {
   invoiceApi,
   ledgerApi,
   repaymentApi,
-  approvalApi,
   notificationApi,
   dashboardApi,
 } from './modules';
@@ -49,8 +48,6 @@ export const contractApi = {
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
-  submit: (id: string) => http.post<any, any>(`/contracts/${id}/submit`),
-  approve: (id: string, action: string, comment?: string) => http.post<any, any>(`/contracts/${id}/approve`, { action, comment }),
   exportUrl: () => `${http.defaults.baseURL}/contracts/export`,
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,
 };

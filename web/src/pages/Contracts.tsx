@@ -153,7 +153,6 @@ export default function Contracts() {
         <Form.Item name="keyword"><Input placeholder="合同编号/名称" allowClear prefix={<SearchOutlined />} /></Form.Item>
         <Form.Item name="typeCode"><DictSelect typeCode="contract_type" placeholder="合同类型" /></Form.Item>
         <Form.Item name="execStatus"><DictSelect typeCode="contract_execution_status" placeholder="执行情况" /></Form.Item>
-        <Form.Item name="approvalStatus"><DictSelect typeCode="approval_status" placeholder="审批状态" /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
 
@@ -172,24 +171,15 @@ export default function Contracts() {
           { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
           { title: '签订日期', dataIndex: 'signDate', width: 120, render: (v) => v?.slice(0, 10) },
           { title: '执行情况', dataIndex: 'execStatus', width: 120, render: (v) => <DictTag typeCode="contract_execution_status" value={v} /> },
-          { title: '审批状态', dataIndex: 'approvalStatus', width: 110, render: (v) => <DictTag typeCode="approval_status" value={v} /> },
           {
             title: '操作',
-            width: 280,
+            width: 200,
             fixed: 'right',
             render: (_, row) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openDetail(row)}>详情</Button>
                 <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Button
-                  type="link"
-                  size="small"
-                  disabled={row.approvalStatus === 'PENDING' || row.approvalStatus === 'APPROVED'}
-                  onClick={async () => { await contractApi.submit(row.id); message.success('已提交审批'); reload(); }}
-                >
-                  提交审批
-                </Button>
-                <Popconfirm title="仅草稿状态可删除" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
+                <Popconfirm title="确认删除该合同？关联的清单、结算、付款等数据将一并删除。" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
                   <Button type="link" size="small" danger>删除</Button>
                 </Popconfirm>
               </Space>
@@ -379,7 +369,6 @@ export default function Contracts() {
                     <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
                     <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
                     <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
-                    <Descriptions.Item label="审批状态"><DictTag typeCode="approval_status" value={detail.approvalStatus} /></Descriptions.Item>
                     <Descriptions.Item label="备注" span={2}>{detail.remark || '-'}</Descriptions.Item>
                     {detail.attachments?.length ? (
                       <Descriptions.Item label="附件" span={2}>
@@ -414,16 +403,6 @@ export default function Contracts() {
           />
         ) : (
           <Spin />
-        )}
-        {detail && detail.approvalStatus === 'PENDING' && (
-          <Space style={{ marginTop: 16 }}>
-            <Button type="primary" onClick={async () => { await contractApi.approve(detail.id, 'APPROVED'); message.success('已通过'); setDetail(null); reload(); }}>
-              审批通过
-            </Button>
-            <Button danger onClick={async () => { await contractApi.approve(detail.id, 'REJECTED'); message.success('已驳回'); setDetail(null); reload(); }}>
-              驳回
-            </Button>
-          </Space>
         )}
       </Drawer>
     </Card>

@@ -9,7 +9,7 @@ import { ExcelService } from '../../common/services/excel.service';
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'supplierId', 'signDate', 'amount', 'taxRate',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
-  'approvalStatus', 'remark', 'createdBy',
+  'remark', 'createdBy',
 ];
 const EXT_FIELDS = [
   'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
@@ -29,7 +29,6 @@ const FIELD_LABELS: Record<string, string> = {
   isSupplement: '是否补充协议',
   supplementTypeCode: '补充协议类型',
   execStatus: '合同执行情况',
-  approvalStatus: '审批状态',
   remark: '备注',
 };
 
@@ -51,7 +50,6 @@ export class ContractService {
     if (query.typeCode) where.typeCode = query.typeCode;
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.execStatus) where.execStatus = query.execStatus;
-    if (query.approvalStatus) where.approvalStatus = query.approvalStatus;
     if (query.startDate || query.endDate) {
       where.signDate = {};
       if (query.startDate) where.signDate.gte = new Date(query.startDate);
@@ -118,7 +116,6 @@ export class ContractService {
     if (data.isSupplement === 'Y') {
       await this.dict.validate('supplement_agreement_type', data.supplementTypeCode, true);
     }
-    if (data.approvalStatus) await this.dict.validate('approval_status', data.approvalStatus);
   }
 
   async create(data: any, projectId: string, user: any) {
@@ -203,83 +200,9 @@ export class ContractService {
   }
 
   async remove(id: string) {
-    const c = await this.findOne(id);
-    if (c.approvalStatus !== 'DRAFT') throw new BadRequestException('仅草稿状态的合同可删除');
+    await this.findOne(id);
     await this.prisma.contract.delete({ where: { id } });
     return true;
-  }
-
-  async submit(id: string, user: any) {
-    const c = await this.findOne(id);
-    if (c.approvalStatus === 'PENDING') throw new BadRequestException('合同已在审批中');
-    await this.dict.validate('approval_status', 'PENDING');
-    await this.prisma.contract.update({ where: { id }, data: { approvalStatus: 'PENDING' } });
-    const flow = await this.prisma.approvalFlow.findFirst({ where: { bizType: 'CONTRACT', status: 1 } });
-    const instance = await this.prisma.approvalInstance.create({
-      data: {
-        flowId: flow?.id,
-        bizType: 'CONTRACT',
-        bizId: id,
-        projectId: c.projectId,
-        title: `合同审批：${c.name}（${c.code}）`,
-        applicantId: user?.userId,
-        applicant: user?.realName || user?.username,
-        status: 'PENDING',
-        currentNode: 1,
-      },
-    });
-    await this.prisma.approvalRecord.create({
-      data: { instanceId: instance.id, nodeName: '提交', approverId: user?.userId, approver: user?.realName, action: 'SUBMIT' },
-    });
-    // 通知项目管理员
-    if (flow) {
-      const nodes = await this.prisma.approvalNode.findMany({ where: { flowId: flow.id }, orderBy: { orderNo: 'asc' } });
-      const approverIds = (nodes[0]?.approverIds || '').split(',').filter(Boolean);
-      for (const uid of approverIds) {
-        await this.prisma.notification.create({
-          data: {
-            userId: uid,
-            title: '合同待审批',
-            content: `${c.code} ${c.name} 提交审批`,
-            type: 'APPROVAL',
-            bizType: 'CONTRACT',
-            bizId: id,
-            projectId: c.projectId,
-          },
-        });
-      }
-    }
-    return this.findOne(id);
-  }
-
-  async approve(id: string, action: string, comment: string, user: any) {
-    if (!['APPROVED', 'REJECTED'].includes(action)) throw new BadRequestException('审批动作不合法');
-    await this.dict.validate('approval_status', action === 'APPROVED' ? 'APPROVED' : 'REJECTED');
-    const c = await this.findOne(id);
-    if (c.approvalStatus !== 'PENDING') throw new BadRequestException('合同不在审批中');
-    await this.prisma.contract.update({ where: { id }, data: { approvalStatus: action } });
-    const instance = await this.prisma.approvalInstance.findFirst({ where: { bizType: 'CONTRACT', bizId: id }, orderBy: { createdAt: 'desc' } });
-    if (instance) {
-      await this.prisma.approvalInstance.update({
-        where: { id: instance.id },
-        data: { status: action, finishedAt: new Date() },
-      });
-      await this.prisma.approvalRecord.create({
-        data: { instanceId: instance.id, nodeName: `第 ${instance.currentNode} 节点`, approverId: user?.userId, approver: user?.realName, action, comment },
-      });
-      await this.prisma.notification.create({
-        data: {
-          userId: instance.applicantId,
-          title: action === 'APPROVED' ? '合同审批通过' : '合同审批驳回',
-          content: `${c.code} ${c.name} ${action === 'APPROVED' ? '已通过' : '被驳回'}：${comment || ''}`,
-          type: 'APPROVAL',
-          bizType: 'CONTRACT',
-          bizId: id,
-          projectId: c.projectId,
-        },
-      });
-    }
-    return this.findOne(id);
   }
 
   async saveExt(contractId: string, data: any) {
@@ -321,7 +244,6 @@ export class ContractService {
       { header: '合同额', key: 'amount', width: 16 },
       { header: '税率', key: 'taxRate', width: 10 },
       { header: '执行情况', key: 'execName', width: 14 },
-      { header: '审批状态', key: 'approvalStatus', width: 12 },
       { header: '备注', key: 'remark', width: 26 },
     ];
     const rows = (res.list as any[]).map((c) => ({
@@ -333,7 +255,6 @@ export class ContractService {
       amount: num(c.amount),
       taxRate: num(c.taxRate),
       execName: execMap[c.execStatus]?.name || c.execStatus,
-      approvalStatus: c.approvalStatus,
       remark: c.remark,
     }));
     return this.excel.export(columns, rows, '合同列表');

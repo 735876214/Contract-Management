@@ -59,12 +59,6 @@ export class InvoiceController {
   }
 
   @RequirePermissions('invoice:edit')
-  @Post('applies/:id/approve')
-  approveApply(@Param('id') id: string, @Body() body: { action: string }) {
-    return this.service.approveApply(id, body.action);
-  }
-
-  @RequirePermissions('invoice:edit')
   @Delete('applies/:id')
   removeApply(@Param('id') id: string) {
     return this.service.removeApply(id);
