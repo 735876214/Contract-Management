@@ -21,7 +21,9 @@ import { supplierApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 
 const money = (v: any) =>
-  v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  v == null || v === '' ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+
+const fmtDate = (v: any) => (v ? String(v).slice(0, 10) : '-');
 
 export default function Repayments() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -55,12 +57,13 @@ export default function Repayments() {
     setCodeHelp('');
     const detail: any = await repaymentApi.detail(row.id);
     form.resetFields();
+    // 注意：表单字段名必须与后端 RepaymentAgreement / RepaymentDetail 保持一致
     form.setFieldsValue({
       ...detail,
-      contractDate: detail.contractDate ? dayjs(detail.contractDate) : undefined,
+      signDate: detail.signDate ? dayjs(detail.signDate) : undefined,
       details: (detail.details && detail.details.length ? detail.details : [{}]).map((d: any) => ({
         ...d,
-        date: d.date ? dayjs(d.date) : undefined,
+        dueDate: d.dueDate ? dayjs(d.dueDate) : undefined,
       })),
     });
     setModal(true);
@@ -74,7 +77,7 @@ export default function Repayments() {
       return;
     }
     const res: any = await repaymentApi.checkCode(code, editing?.id);
-    if (res?.available === false) {
+    if (res?.exists) {
       setCodeStatus('error');
       setCodeHelp(res?.message || '该协议编号已被占用');
     } else {
@@ -106,10 +109,10 @@ export default function Repayments() {
     const values: any = await form.validateFields();
     const payload = {
       ...values,
-      contractDate: values.contractDate ? dayjs(values.contractDate).format('YYYY-MM-DD') : undefined,
+      signDate: values.signDate ? dayjs(values.signDate).format('YYYY-MM-DD') : undefined,
       details: (values.details || []).map((d: any) => ({
         ...d,
-        date: d.date ? dayjs(d.date).format('YYYY-MM-DD') : undefined,
+        dueDate: d.dueDate ? dayjs(d.dueDate).format('YYYY-MM-DD') : undefined,
       })),
     };
     if (editing) await repaymentApi.update(editing.id, payload);
@@ -129,7 +132,19 @@ export default function Repayments() {
         </Space>
       }
     >
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} form={queryForm} onFinish={(v) => search(v)}>
+      <Form
+        layout="inline"
+        style={{ marginBottom: 16, rowGap: 8 }}
+        form={queryForm}
+        onFinish={(v: any) => {
+          const { signRange, ...rest } = v || {};
+          search({
+            ...rest,
+            startDate: signRange?.[0] ? dayjs(signRange[0]).format('YYYY-MM-DD') : undefined,
+            endDate: signRange?.[1] ? dayjs(signRange[1]).format('YYYY-MM-DD') : undefined,
+          });
+        }}
+      >
         <Form.Item name="code"><Input placeholder="协议编号" allowClear prefix={<SearchOutlined />} /></Form.Item>
         <Form.Item name="supplierId">
           <Select
@@ -141,7 +156,7 @@ export default function Repayments() {
             options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
           />
         </Form.Item>
-        <Form.Item name="contractDateStart">
+        <Form.Item name="signRange">
           <DatePicker.RangePicker placeholder={['签订日期起', '签订日期止']} />
         </Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
@@ -156,16 +171,21 @@ export default function Repayments() {
         scroll={{ x: 1800 }}
         columns={[
           { title: '协议编号', dataIndex: 'code', width: 180, fixed: 'left' },
-          { title: '供应商名称', dataIndex: 'supplierName', width: 200 },
-          { title: '供应材料', dataIndex: 'material', width: 160 },
-          { title: '签订日期', dataIndex: 'contractDate', width: 120 },
+          { title: '供应商名称', dataIndex: ['supplier', 'name'], width: 200, render: (v) => v || '-' },
+          { title: '供应材料', dataIndex: 'material', width: 160, render: (v) => v || '-' },
+          { title: '签订日期', dataIndex: 'signDate', width: 120, render: fmtDate },
           { title: '结算金额', dataIndex: 'settleAmount', width: 140, render: money },
-          { title: '协议约定欠款金额', dataIndex: 'debtAmount', width: 160, render: money },
-          { title: '截至签订已付款', dataIndex: 'paidBefore', width: 140, render: money },
-          { title: '签订后付款', dataIndex: 'paidAfter', width: 130, render: money },
-          { title: '到期未付款', dataIndex: 'unpaidDue', width: 130, render: money },
-          { title: '备注', dataIndex: 'remark', width: 180, ellipsis: true },
-          { title: '明细条数', dataIndex: 'detailCount', width: 90, render: (v) => v ?? 0 },
+          { title: '协议约定欠款金额', dataIndex: 'agreedDebtAmount', width: 160, render: money },
+          { title: '截至签订已付款', dataIndex: 'paidBeforeSign', width: 140, render: money },
+          { title: '签订后付款', dataIndex: 'paidAfterSign', width: 130, render: money },
+          { title: '到期未付款', dataIndex: 'overdueUnpaid', width: 130, render: money },
+          { title: '备注', dataIndex: 'remark', width: 180, ellipsis: true, render: (v) => v || '-' },
+          {
+            title: '明细条数',
+            dataIndex: 'details',
+            width: 90,
+            render: (v) => (Array.isArray(v) ? v.length : 0),
+          },
           {
             title: '操作',
             width: 160,
@@ -225,7 +245,7 @@ export default function Repayments() {
             <Input placeholder="自动带出，可修改" />
           </Form.Item>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <Form.Item label="签订日期" name="contractDate" style={{ flex: 1, minWidth: 200 }}>
+            <Form.Item label="签订日期" name="signDate" style={{ flex: 1, minWidth: 200 }}>
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item label="结算金额" name="settleAmount" style={{ flex: 1, minWidth: 200 }}>
@@ -233,18 +253,18 @@ export default function Repayments() {
             </Form.Item>
           </div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <Form.Item label="协议约定欠款金额" name="debtAmount" style={{ flex: 1, minWidth: 200 }}>
+            <Form.Item label="协议约定欠款金额" name="agreedDebtAmount" style={{ flex: 1, minWidth: 200 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
             </Form.Item>
-            <Form.Item label="截至签订已付款" name="paidBefore" style={{ flex: 1, minWidth: 200 }}>
+            <Form.Item label="截至签订已付款" name="paidBeforeSign" style={{ flex: 1, minWidth: 200 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
             </Form.Item>
           </div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <Form.Item label="签订后付款" name="paidAfter" style={{ flex: 1, minWidth: 200 }}>
+            <Form.Item label="签订后付款" name="paidAfterSign" style={{ flex: 1, minWidth: 200 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
             </Form.Item>
-            <Form.Item label="到期未付款" name="unpaidDue" style={{ flex: 1, minWidth: 200 }}>
+            <Form.Item label="到期未付款" name="overdueUnpaid" style={{ flex: 1, minWidth: 200 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
             </Form.Item>
           </div>
@@ -267,7 +287,7 @@ export default function Repayments() {
                     </Form.Item>
                     <Form.Item
                       label="约定还款日期"
-                      name={[field.name, 'date']}
+                      name={[field.name, 'dueDate']}
                       rules={[{ required: true, message: '请选择日期' }]}
                     >
                       <DatePicker style={{ width: 180 }} />

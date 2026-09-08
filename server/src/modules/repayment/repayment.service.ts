@@ -64,13 +64,33 @@ export class RepaymentService {
     return { exists: !!exist };
   }
 
+  /**
+   * 只保留 RepaymentAgreement 的真实字段，避免前端传入未对齐的字段名时
+   * Prisma 直接抛 Unknown argument 造成 500。
+   */
   private normalize(data: any) {
-    const payload: any = { ...data };
+    const payload: any = {};
+    [
+      'code', 'supplierId', 'contractId', 'material',
+      'settleAmount', 'agreedDebtAmount', 'paidBeforeSign', 'paidAfterSign', 'overdueUnpaid', 'remark',
+    ].forEach((f) => {
+      if (data[f] !== undefined) payload[f] = data[f];
+    });
     ['settleAmount', 'agreedDebtAmount', 'paidBeforeSign', 'paidAfterSign', 'overdueUnpaid'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     if (data.signDate) payload.signDate = toDate(data.signDate);
     return payload;
+  }
+
+  /** 明细字段归一化，兼容传入 date/amount 等别名 */
+  private normalizeDetail(d: any, i: number) {
+    return {
+      period: Number(d.period) || i + 1,
+      amount: num(d.amount),
+      dueDate: toDate(d.dueDate ?? d.date),
+      remark: d.remark,
+    };
   }
 
   async create(data: any, projectId: string) {
@@ -85,12 +105,7 @@ export class RepaymentService {
         ...this.normalize(rest),
         projectId,
         details: {
-          create: details.map((d: any, i: number) => ({
-            period: Number(d.period) || i + 1,
-            amount: num(d.amount),
-            dueDate: toDate(d.dueDate),
-            remark: d.remark,
-          })),
+          create: details.map((d: any, i: number) => this.normalizeDetail(d, i)),
         },
       },
       include: { details: true, supplier: true },
@@ -110,13 +125,7 @@ export class RepaymentService {
     if (details) {
       await this.prisma.repaymentDetail.deleteMany({ where: { agreementId: id } });
       await this.prisma.repaymentDetail.createMany({
-        data: details.map((d: any, i: number) => ({
-          agreementId: id,
-          period: Number(d.period) || i + 1,
-          amount: num(d.amount),
-          dueDate: toDate(d.dueDate),
-          remark: d.remark,
-        })),
+        data: details.map((d: any, i: number) => ({ agreementId: id, ...this.normalizeDetail(d, i) })),
       });
     }
     return this.findOne(id);
