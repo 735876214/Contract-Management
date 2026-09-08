@@ -96,6 +96,11 @@ model Project {
   id          String   @id @default(cuid())
   code        String   @unique
   name        String
+  nameAbbr    String? // 项目简称（文字版）
+  codeAbbr    String? @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
+  undertaker  String? // 承接单位
+  selfContractAmount Decimal? @db.Decimal(18, 2) // 项目自施合同额（万元）
+  industryType String? // dict: industry_type 项目业态
   status      String?  // dict: project_status
   description String?
   startDate   DateTime?
@@ -182,6 +187,8 @@ model Contract {
 
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   supplier     Supplier?            @relation(fields: [supplierId], references: [id])
+  parentContract Contract?          @relation("SupplementChain", fields: [parentContractId], references: [id])
+  supplements  Contract[]           @relation("SupplementChain")
   ext          ContractExt?
   attachments  ContractAttachment[]
   changeLogs   ContractChangeLog[]

@@ -53,6 +53,18 @@ export class ContractController {
   }
 
   @RequirePermissions('contract:view')
+  @Get('next-code')
+  nextCode(@Query() query: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) {
+    return this.contractService.nextCode(query);
+  }
+
+  @RequirePermissions('contract:view')
+  @Get(':id/next-supplement-code')
+  nextSupplementCode(@Param('id') id: string) {
+    return this.contractService.nextSupplementCode(id);
+  }
+
+  @RequirePermissions('contract:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.contractService.findOne(id);

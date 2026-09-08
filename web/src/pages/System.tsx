@@ -15,7 +15,7 @@ import {
   InputNumber,
   message,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
 
@@ -341,7 +341,61 @@ const PARAM_REMARK: Record<string, string> = {
   'multi.project.enabled': '是否启用多项目模式',
   'repayment.code.prefix': '还款协议编号前缀',
   'contract.code.prefix': '合同编号前缀',
+  'contract.code.fixed_prefix': '合同编号固定前缀（第1段，如 CSCEC）',
+  'contract.code.type_mapping': '合同类型→编号第2段映射（按字典「合同类型」项名称匹配）',
+  'contract.code.sub_type_mapping': '合同子类型→编号第4段映射（按字典「合同子类型」项名称匹配）',
+  'contract.code.seq_digits': '合同编号顺序码位数（如 3 → 001）',
+  'contract.code.year_reset': '顺序码是否按年重置（true/false）',
 };
+
+/** JSON 映射表编辑器（名称 ↔ 编码段，支持增删改） */
+function MappingEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  let entries: [string, string][] = [];
+  try {
+    entries = Object.entries(JSON.parse(value || '{}'));
+  } catch {
+    /* JSON 损坏时视为空，保存后修复 */
+  }
+  const update = (list: [string, string][]) => {
+    const out: Record<string, string> = {};
+    list.forEach(([k, v]) => {
+      if (k.trim()) out[k.trim()] = v.trim();
+    });
+    onChange(JSON.stringify(out));
+  };
+  return (
+    <div>
+      {entries.map(([k, v], i) => (
+        <Space.Compact key={i} style={{ marginBottom: 4, display: 'flex' }}>
+          <Input
+            style={{ width: 150 }}
+            value={k}
+            placeholder="字典项名称"
+            onChange={(e) => {
+              const list = [...entries];
+              list[i] = [e.target.value, v];
+              update(list);
+            }}
+          />
+          <Input
+            style={{ width: 100 }}
+            value={v}
+            placeholder="编码段"
+            onChange={(e) => {
+              const list = [...entries];
+              list[i] = [k, e.target.value];
+              update(list);
+            }}
+          />
+          <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => update(entries.filter((_, j) => j !== i))} />
+        </Space.Compact>
+      ))}
+      <Button size="small" icon={<PlusOutlined />} onClick={() => update([...entries, ['', '']] as [string, string][])}>
+        添加映射
+      </Button>
+    </div>
+  );
+}
 
 function ParamsTab() {
   const [params, setParams] = useState<any[]>([]);
@@ -372,10 +426,13 @@ function ParamsTab() {
           {
             title: '参数值',
             dataIndex: 'value',
-            width: 280,
-            render: (v: any, row: any) => (
-              <Input value={v} onChange={(e) => onChangeValue(row.key, e.target.value)} />
-            ),
+            width: 340,
+            render: (v: any, row: any) =>
+              row.key.endsWith('_mapping') ? (
+                <MappingEditor value={v} onChange={(nv) => onChangeValue(row.key, nv)} />
+              ) : (
+                <Input value={v} onChange={(e) => onChangeValue(row.key, e.target.value)} />
+              ),
           },
           {
             title: '说明',

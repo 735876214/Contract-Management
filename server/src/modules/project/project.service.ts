@@ -4,7 +4,11 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 
-const PROJECT_FIELDS = ['code', 'name', 'status', 'description', 'startDate', 'endDate', 'managerId'];
+const PROJECT_FIELDS = [
+  'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'selfContractAmount', 'industryType',
+  'status', 'description', 'startDate', 'endDate', 'managerId',
+];
+const CODE_ABBR_RE = /^[A-Z0-9]+$/;
 
 @Injectable()
 export class ProjectService {
@@ -40,17 +44,31 @@ export class ProjectService {
     return p;
   }
 
+  /** 字母版简称校验：非空时仅限大写字母和数字，且全局唯一 */
+  private async assertCodeAbbr(codeAbbr: string | undefined, excludeId?: string) {
+    if (codeAbbr === undefined || codeAbbr === null || codeAbbr === '') return;
+    if (!CODE_ABBR_RE.test(codeAbbr)) {
+      throw new BadRequestException('项目简称（字母版）仅允许大写字母和数字');
+    }
+    const exist = await this.prisma.project.findFirst({ where: { codeAbbr, ...(excludeId ? { id: { not: excludeId } } : {}) } });
+    if (exist) throw new BadRequestException(`项目简称（字母版）${codeAbbr} 已存在（用于合同编号，须唯一）`);
+  }
+
   async create(data: any) {
     if (!data.code) throw new BadRequestException('项目编码不能为空');
     const exist = await this.prisma.project.findUnique({ where: { code: data.code } });
     if (exist) throw new BadRequestException('项目编码已存在');
     await this.dict.validate('project_status', data.status);
+    await this.dict.validate('industry_type', data.industryType);
+    await this.assertCodeAbbr(data.codeAbbr);
     return this.prisma.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
   }
 
   async update(id: string, data: any) {
     await this.findOne(id);
     if (data.status) await this.dict.validate('project_status', data.status);
+    await this.dict.validate('industry_type', data.industryType);
+    await this.assertCodeAbbr(data.codeAbbr, id);
     return this.prisma.project.update({ where: { id }, data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
   }
 

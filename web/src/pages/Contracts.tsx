@@ -5,8 +5,9 @@ import {
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { contractApi, supplierApi } from '@/api/business';
+import { contractApi, supplierApi, projectApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
+import { useAuthStore } from '@/store/auth';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 
@@ -26,10 +27,47 @@ export default function Contracts() {
   const [detail, setDetail] = useState<any>(null);
   const [changes, setChanges] = useState<any[]>([]);
   const [codeTimer, setCodeTimer] = useState<any>(null);
+  const [currentProject, setCurrentProject] = useState<any>(null);
+  const [supModal, setSupModal] = useState(false);
+  const [supForm] = Form.useForm();
 
   useEffect(() => {
     supplierApi.options().then((res: any) => setSuppliers(res || []));
   }, []);
+
+  // 当前项目（用于编号第3段字母简称）
+  const currentProjectId = useAuthStore((s) => s.currentProjectId);
+  useEffect(() => {
+    if (currentProjectId) projectApi.detail(currentProjectId).then((res: any) => setCurrentProject(res));
+  }, [currentProjectId]);
+
+  // 自动生成合同编号（类型/子类型/项目变化时刷新）
+  const genCode = async (typeCode?: string, subTypeCode?: string) => {
+    if (editing) return; // 编辑态编号不可变更
+    try {
+      const res: any = await contractApi.nextCode({
+        typeCode: typeCode ?? form.getFieldValue('typeCode'),
+        subTypeCode: subTypeCode ?? form.getFieldValue('subTypeCode'),
+        projectId: currentProjectId,
+      });
+      if (res?.code) {
+        form.setFieldsValue({ code: res.code });
+        setCodeStatus('success');
+        setCodeMsg('已自动生成（可手动微调，保存后不可变更）');
+        if (res.missing?.length) setCodeMsg(`已生成，但缺少：${res.missing.join('；')}`);
+      }
+    } catch {
+      /* 映射缺失时静默，由用户手填 */
+    }
+  };
+
+  // 监听类型/子类型变化自动刷新编号预览
+  const watchedType = Form.useWatch('typeCode', form);
+  const watchedSubType = Form.useWatch('subTypeCode', form);
+  useEffect(() => {
+    if (modal && !editing) genCode(watchedType, watchedSubType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedType, watchedSubType, modal, editing]);
 
   // 合同编号实时查重
   const checkCode = (code: string) => {
@@ -225,6 +263,11 @@ export default function Contracts() {
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
+                      <Form.Item name="subTypeCode" label="合同子类型" rules={[{ required: true }]}>
+                        <DictSelect typeCode="contract_sub_type" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
                       <Form.Item name="supplierId" label="供应商" rules={[{ required: true }]}>
                         <Select
                           showSearch
@@ -350,7 +393,8 @@ export default function Contracts() {
 
       <Drawer title="合同详情" width={720} open={!!detail} onClose={() => setDetail(null)}>
         {detail ? (
-          <Tabs
+          <>
+            <Tabs
             items={[
               {
                 key: 'info',
@@ -360,6 +404,13 @@ export default function Contracts() {
                     <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
                     <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
                     <Descriptions.Item label="合同类型"><DictTag typeCode="contract_type" value={detail.typeCode} /></Descriptions.Item>
+                    <Descriptions.Item label="合同子类型"><DictTag typeCode="contract_sub_type" value={detail.subTypeCode} /></Descriptions.Item>
+                    {detail.codeAbbrUsed && <Descriptions.Item label="编号项目简称">{detail.codeAbbrUsed}</Descriptions.Item>}
+                    {detail.parentContractId && (
+                      <Descriptions.Item label="父合同" span={2}>
+                        {detail.parentContract ? `${detail.parentContract.code} ${detail.parentContract.name}` : '-'}
+                      </Descriptions.Item>
+                    )}
                     <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
                     <Descriptions.Item label="法人">{detail.supplier?.legalPerson || '-'}</Descriptions.Item>
                     <Descriptions.Item label="授权人">{detail.supplier?.contractAuthPerson || '-'}</Descriptions.Item>
@@ -401,10 +452,72 @@ export default function Contracts() {
               },
             ]}
           />
+          {detail.isSupplement !== 'Y' && (
+            <div style={{ marginTop: 16 }}>
+              <Space wrap>
+                {detail.supplements?.map((s: any) => (
+                  <Tag key={s.id} color="blue">{s.code}</Tag>
+                ))}
+              </Space>
+              <Button
+                type="primary"
+                size="small"
+                style={{ marginLeft: 8 }}
+                onClick={async () => {
+                  const res: any = await contractApi.nextSupplementCode(detail.id);
+                  supForm.setFieldsValue({
+                    code: res.code,
+                    name: `${res.parentName}补充协议`,
+                    supplementTypeCode: undefined,
+                  });
+                  setSupModal(true);
+                }}
+              >
+                新增补充协议
+              </Button>
+            </div>
+          )}
+          </>
         ) : (
           <Spin />
         )}
       </Drawer>
+
+      <Modal
+        title="新增补充协议"
+        open={supModal}
+        onOk={async () => {
+          const v = await supForm.validateFields();
+          await contractApi.create({
+            ...v,
+            signDate: v.signDate ? v.signDate.format('YYYY-MM-DD') : null,
+            isSupplement: 'Y',
+            parentContractId: detail.id,
+            typeCode: detail.typeCode,
+            supplierId: detail.supplierId,
+          });
+          message.success('补充协议已创建');
+          setSupModal(false);
+          supForm.resetFields();
+          const res: any = await contractApi.detail(detail.id);
+          setDetail(res);
+          reload();
+        }}
+        onCancel={() => setSupModal(false)}
+        destroyOnClose
+      >
+        <Form form={supForm} layout="vertical">
+          <Form.Item name="code" label="补充协议编号（自动生成，可微调）" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="name" label="协议名称" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="supplementTypeCode" label="补充协议类型" rules={[{ required: true, message: '请选择补充协议类型' }]}>
+            <DictSelect typeCode="supplement_agreement_type" />
+          </Form.Item>
+          <Form.Item name="signDate" label="签订日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+        </Form>
+      </Modal>
     </Card>
   );
 }

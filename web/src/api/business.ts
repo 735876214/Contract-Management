@@ -45,6 +45,9 @@ export const contractApi = {
   remove: (id: string) => http.delete<any, any>(`/contracts/${id}`),
   checkCode: (code: string, excludeId?: string) =>
     http.get<any, any>('/contracts/check-code', { params: { code, excludeId } }),
+  nextCode: (params: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) =>
+    http.get<any, any>('/contracts/next-code', { params }),
+  nextSupplementCode: (id: string) => http.get<any, any>(`/contracts/${id}/next-supplement-code`),
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),

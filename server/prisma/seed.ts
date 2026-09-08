@@ -12,6 +12,26 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
       { itemCode: 'N', itemName: '否', color: 'default' },
     ],
   },
+  industry_type: {
+    name: '项目业态',
+    items: [
+      { itemCode: 'FACTORY', itemName: '厂房', color: 'blue' },
+      { itemCode: 'RESIDENCE', itemName: '住宅', color: 'green' },
+      { itemCode: 'RAIL_TRANSIT', itemName: '轨道交通', color: 'purple' },
+      { itemCode: 'MUNICIPAL', itemName: '市政', color: 'cyan' },
+      { itemCode: 'BRIDGE', itemName: '桥梁', color: 'orange' },
+      { itemCode: 'RAILWAY', itemName: '铁路', color: 'geekblue' },
+      { itemCode: 'PIPE_GALLERY', itemName: '管廊', color: 'gold' },
+      { itemCode: 'OTHER', itemName: '其他', color: 'default' },
+    ],
+  },
+  contract_sub_type: {
+    name: '合同子类型',
+    items: [
+      { itemCode: 'SINGLE', itemName: '单项', color: 'blue' },
+      { itemCode: 'EXEC', itemName: '执行', color: 'geekblue' },
+    ],
+  },
   contract_type: {
     name: '合同类型',
     items: [
@@ -309,6 +329,11 @@ const PERMISSIONS = [
 ];
 
 const SYS_PARAMS = [
+  { key: 'contract.code.fixed_prefix', value: 'CSCEC', remark: '合同编号固定前缀（第1段，只读）' },
+  { key: 'contract.code.type_mapping', value: '{"框架协议":"WZCG","采购合同":"WZCG","采购执行合同":"WZCG","租赁合同":"WZZL","租赁执行合同":"WZZL"}', remark: '合同类型→编号第2段映射（JSON，按字典项名称匹配）' },
+  { key: 'contract.code.sub_type_mapping', value: '{"单项":"G1","执行":"G2"}', remark: '合同子类型→编号第4段映射（JSON，按字典项名称匹配）' },
+  { key: 'contract.code.seq_digits', value: '3', remark: '合同编号顺序码位数' },
+  { key: 'contract.code.year_reset', value: 'true', remark: '顺序码是否按年重置' },
   { key: 'contract.code.unique.scope', value: 'GLOBAL', remark: '合同编号唯一性范围：GLOBAL 全局唯一 / PROJECT 项目内唯一' },
   { key: 'multi.project.enabled', value: 'true', remark: '是否启用多项目' },
   { key: 'supplier.share.scope', value: 'GLOBAL', remark: '供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离' },
@@ -455,10 +480,15 @@ async function main() {
   // ---------- 项目 ----------
   const project = await prisma.project.upsert({
     where: { code: 'PRJ-DEMO-001' },
-    update: {},
+    update: { nameAbbr: '滨江商务中心', codeAbbr: 'BJWSZX', undertaker: '中建三局', selfContractAmount: 58000.00, industryType: 'RESIDENCE' },
     create: {
       code: 'PRJ-DEMO-001',
       name: '滨江商务中心项目',
+      nameAbbr: '滨江商务中心',
+      codeAbbr: 'BJWSZX',
+      undertaker: '中建三局',
+      selfContractAmount: 58000.00,
+      industryType: 'RESIDENCE',
       status: 'ONGOING',
       description: '演示项目：含土建、安装、装饰全过程',
       startDate: new Date('2026-01-01'),
@@ -468,7 +498,7 @@ async function main() {
   const project2 = await prisma.project.upsert({
     where: { code: 'PRJ-DEMO-002' },
     update: {},
-    create: { code: 'PRJ-DEMO-002', name: '城南安置房项目', status: 'ONGOING', managerId: manager.id },
+    create: { code: 'PRJ-DEMO-002', name: '城南安置房项目', nameAbbr: '城南安置房', codeAbbr: 'CNAZF', undertaker: '中建三局', selfContractAmount: 32000.00, industryType: 'RESIDENCE', status: 'ONGOING', managerId: manager.id },
   });
   for (const [u, roleCode] of [
     [admin, 'ADMIN'],

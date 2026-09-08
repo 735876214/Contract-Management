@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Button, Form, Input, Space, Modal, Select, Popconfirm, message, Drawer, Tag, Row, Col } from 'antd';
+import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Drawer, Tag, Row, Col } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
@@ -65,12 +65,17 @@ export default function Projects() {
         loading={loading}
         dataSource={list}
         pagination={pagination}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1500 }}
         columns={[
-          { title: '项目编码', dataIndex: 'code', width: 160 },
-          { title: '项目名称', dataIndex: 'name', width: 220 },
+          { title: '项目编码', dataIndex: 'code', width: 150 },
+          { title: '项目全称', dataIndex: 'name', width: 220 },
+          { title: '简称（文字）', dataIndex: 'nameAbbr', width: 150 },
+          { title: '简称（字母）', dataIndex: 'codeAbbr', width: 120, render: (v) => <Tag color="geekblue">{v || '-'}</Tag> },
+          { title: '承接单位', dataIndex: 'undertaker', width: 150 },
+          { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })) },
+          { title: '项目业态', dataIndex: 'industryType', width: 110, render: (v) => <DictTag typeCode="industry_type" value={v} /> },
           { title: '项目状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="project_status" value={v} /> },
-          { title: '描述', dataIndex: 'description' },
+          { title: '描述', dataIndex: 'description', ellipsis: true },
           {
             title: '成员数',
             width: 90,
@@ -96,10 +101,48 @@ export default function Projects() {
 
       <Modal title={editing ? '编辑项目' : '新建项目'} open={modal} onOk={submit} onCancel={() => setModal(false)} destroyOnClose>
         <Form form={form} layout="vertical">
-          <Form.Item name="code" label="项目编码" rules={[{ required: true }]}><Input disabled={!!editing} /></Form.Item>
-          <Form.Item name="name" label="项目名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>
-          <Form.Item name="description" label="项目描述"><Input.TextArea rows={3} /></Form.Item>
+          <Row gutter={12}>
+            <Col xs={24} md={12}>
+              <Form.Item name="code" label="项目编码" rules={[{ required: true }]}><Input disabled={!!editing} /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="name" label="项目全称" rules={[{ required: true }]}><Input /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="nameAbbr" label="项目简称（文字版）" rules={[{ required: true }]}><Input maxLength={50} /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="codeAbbr"
+                label="项目简称（字母版，用于合同编号）"
+                rules={[
+                  { required: true, message: '字母简称用于合同编号，必填' },
+                  { pattern: /^[A-Z0-9]+$/, message: '仅允许大写字母和数字' },
+                ]}
+              >
+                <Input maxLength={20} placeholder="如 ZJJXM" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="undertaker" label="承接单位" rules={[{ required: true }]}><Input maxLength={100} /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="selfContractAmount" label="项目自施合同额（万元）" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="industryType" label="项目业态" rules={[{ required: true }]}>
+                <DictSelect typeCode="industry_type" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item name="description" label="项目描述"><Input.TextArea rows={3} /></Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 

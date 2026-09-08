@@ -7,7 +7,8 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 
 const CONTRACT_FIELDS = [
-  'projectId', 'code', 'name', 'typeCode', 'supplierId', 'signDate', 'amount', 'taxRate',
+  'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
+  'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRate',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   'remark', 'createdBy',
 ];
@@ -84,7 +85,14 @@ export class ContractService {
   async findOne(id: string) {
     const c = await this.prisma.contract.findUnique({
       where: { id },
-      include: { supplier: true, ext: true, attachments: true, project: { select: { id: true, name: true } } },
+      include: {
+        supplier: true,
+        ext: true,
+        attachments: true,
+        project: { select: { id: true, name: true, codeAbbr: true, industryType: true } },
+        parentContract: { select: { id: true, code: true, name: true } },
+        supplements: { select: { id: true, code: true, name: true }, orderBy: { supplementSeq: 'asc' } },
+      },
     });
     if (!c) throw new NotFoundException('合同不存在');
     return c;
@@ -107,8 +115,114 @@ export class ContractService {
     }
   }
 
+  // ==================== 合同编号自动生成 ====================
+
+  /** 读取编号规则系统参数 */
+  private async codeConfig() {
+    const [prefix, typeMapping, subTypeMapping, seqDigits, yearReset] = await Promise.all([
+      this.sysParam.get('contract.code.fixed_prefix', 'CSCEC'),
+      this.sysParam.get('contract.code.type_mapping', '{}'),
+      this.sysParam.get('contract.code.sub_type_mapping', '{}'),
+      this.sysParam.get('contract.code.seq_digits', '3'),
+      this.sysParam.get('contract.code.year_reset', 'true'),
+    ]);
+    const parseJson = (s: string) => {
+      try { return JSON.parse(s) || {}; } catch { return {}; }
+    };
+    return {
+      prefix: prefix || 'CSCEC',
+      typeMap: parseJson(typeMapping) as Record<string, string>,
+      subTypeMap: parseJson(subTypeMapping) as Record<string, string>,
+      seqDigits: Math.max(1, Number(seqDigits) || 3),
+      yearReset: String(yearReset) !== 'false',
+    };
+  }
+
+  /**
+   * 生成标准合同编号：前缀-类型码-项目字母简称-子类型码-年份顺序码
+   * 各段可缺失时在 missing 中提示，不阻断（允许用户手动补齐编号）
+   */
+  async nextCode(params: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) {
+    const cfg = await this.codeConfig();
+    const missing: string[] = [];
+
+    // 第1段：固定前缀
+    const seg1 = cfg.prefix;
+
+    // 第2段：合同类型 → 按字典项名称匹配映射
+    let seg2 = '';
+    if (params.typeCode) {
+      const typeNames = await this.dict.nameMap('contract_type');
+      const typeName = typeNames[params.typeCode]?.name || params.typeCode;
+      seg2 = cfg.typeMap[typeName] || '';
+    }
+    if (!seg2) missing.push('合同类型码（检查类型选择或参数 contract.code.type_mapping）');
+
+    // 第3段：项目字母简称（关联项目优先带出，否则用手填值）
+    let seg3 = (params.codeAbbr || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (params.projectId) {
+      const proj = await this.prisma.project.findUnique({ where: { id: params.projectId } });
+      if (proj?.codeAbbr) seg3 = proj.codeAbbr;
+    }
+    if (!seg3) missing.push('项目字母简称（关联项目或手动输入）');
+
+    // 第4段：合同子类型 → 按字典项名称匹配映射
+    let seg4 = '';
+    if (params.subTypeCode) {
+      const subNames = await this.dict.nameMap('contract_sub_type');
+      const subName = subNames[params.subTypeCode]?.name || params.subTypeCode;
+      seg4 = cfg.subTypeMap[subName] || '';
+    }
+    if (!seg4) missing.push('合同子类型码（检查子类型选择或参数 contract.code.sub_type_mapping）');
+
+    // 第5段：年份 + 顺序码（取已用最大顺序码 +1）
+    const year = new Date().getFullYear();
+    const yearPrefix = String(year);
+    const sameYear = await this.prisma.contract.findMany({
+      where: cfg.yearReset ? { yearSeq: { startsWith: yearPrefix } } : { yearSeq: { not: null } },
+      select: { yearSeq: true },
+    });
+    let maxSeq = 0;
+    for (const c of sameYear) {
+      const digits = cfg.yearReset ? (c.yearSeq || '').slice(yearPrefix.length) : (c.yearSeq || '');
+      const n = parseInt(digits, 10);
+      if (!isNaN(n) && n > maxSeq) maxSeq = n;
+    }
+    const seq = String(maxSeq + 1).padStart(cfg.seqDigits, '0');
+    const yearSeq = `${yearPrefix}${seq}`;
+
+    const segments = [seg1, seg2, seg3, seg4, yearSeq].filter(Boolean);
+    const code = segments.join('-');
+    return {
+      code,
+      segments: { prefix: seg1, typeSeg: seg2, abbr: seg3, subTypeSeg: seg4, yearSeq },
+      missing,
+      nextSeq: maxSeq + 1,
+    };
+  }
+
+  /** 补充协议编号：原合同编号（N+1），N 为该合同已有补充协议数 */
+  async nextSupplementCode(parentId: string) {
+    const parent = await this.findOne(parentId);
+    if (parent.isSupplement === 'Y') throw new BadRequestException('补充协议不能再派生补充协议，请选择主合同');
+    const count = await this.prisma.contract.count({ where: { parentContractId: parentId } });
+    return {
+      code: `${parent.code}（${count + 1}）`,
+      seq: count + 1,
+      parentCode: parent.code,
+      parentName: parent.name,
+    };
+  }
+
+  /** 从合同编号尾部提取年份顺序码（如 ...-2026002 → 2026002），用于固化 yearSeq */
+  private extractYearSeq(code: string): string | null {
+    const m = code.match(/(\d{4})(\d{2,})\s*$/);
+    return m ? `${m[1]}${m[2]}` : null;
+  }
+
   private async validateDict(data: any) {
     await this.dict.validate('contract_type', data.typeCode);
+    await this.dict.validate('contract_sub_type', data.subTypeCode);
     await this.dict.validate('yes_no', data.isFramework);
     await this.dict.validate('yes_no', data.isSupplement);
     await this.dict.validate('payment_method', data.paymentMethodCode);
@@ -122,6 +236,29 @@ export class ContractService {
     if (!data.code) throw new BadRequestException('合同编号不能为空');
     await this.assertCodeUnique(data.code, projectId);
     await this.validateDict(data);
+
+    // 编号段落固化：yearSeq / codeAbbrUsed 未传时自动补齐
+    if (!data.yearSeq) data.yearSeq = this.extractYearSeq(data.code);
+    if (!data.codeAbbrUsed) {
+      const proj = await this.prisma.project.findUnique({ where: { id: projectId } });
+      data.codeAbbrUsed = proj?.codeAbbr || null;
+    }
+
+    // 补充协议：未传编号/顺序码时按「原合同编号（N+1）」自动生成
+    if (data.isSupplement === 'Y' && data.parentContractId) {
+      const parent = await this.prisma.contract.findUnique({ where: { id: data.parentContractId } });
+      if (!parent) throw new BadRequestException('父合同不存在');
+      if (parent.isSupplement === 'Y') throw new BadRequestException('补充协议不能再派生补充协议，请选择主合同');
+      if (parent.projectId !== projectId) throw new BadRequestException('父合同与当前项目不一致');
+      if (!data.supplementSeq) {
+        const count = await this.prisma.contract.count({ where: { parentContractId: data.parentContractId } });
+        data.supplementSeq = count + 1;
+      }
+      if (!data.code) data.code = `${parent.code}（${data.supplementSeq}）`;
+      if (!data.yearSeq) data.yearSeq = parent.yearSeq;
+      await this.assertCodeUnique(data.code, projectId);
+    }
+
     const { attachments, ext, ...rest } = data;
     const contract = await this.prisma.contract.create({
       data: {
@@ -144,7 +281,11 @@ export class ContractService {
 
   async update(id: string, data: any, user: any) {
     const before = await this.findOne(id);
-    if (data.code && data.code !== before.code) await this.assertCodeUnique(data.code, before.projectId, id);
+    // 合同编号正式生成后不可变更（历史数据固化）
+    if (data.code && data.code !== before.code) {
+      throw new BadRequestException('合同编号生成后不可变更');
+    }
+    delete data.code;
     await this.validateDict({ ...before, ...data });
     const { attachments, ext, ...rest } = data;
     const contract = await this.prisma.contract.update({

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { DictService } from '../dict/dict.service';
 
 const BASE_FIELDS = ['name', 'spec', 'mdmCode', 'dscCode', 'status', 'remark'];
 const ROW_FIELDS = [
@@ -19,7 +20,18 @@ function round(n: number | null | undefined, digits = 4): number | null {
 
 @Injectable()
 export class MaterialService {
-  constructor(private prisma: PrismaClient, private excel: ExcelService) {}
+  constructor(private prisma: PrismaClient, private excel: ExcelService, private dict: DictService) {}
+
+  /** 业态编码 → 名称（导出表头用） */
+  private async industryTypeName(code: string | null | undefined): Promise<string> {
+    if (!code) return '';
+    try {
+      const map = await this.dict.nameMap('industry_type');
+      return map[code]?.name || code;
+    } catch {
+      return code;
+    }
+  }
 
   // ==================== 物资基础库 ====================
 
@@ -199,7 +211,7 @@ export class MaterialService {
   async findRows(contractId: string) {
     const contract = await this.prisma.contract.findUnique({
       where: { id: contractId },
-      include: { supplier: { select: { id: true, name: true } } },
+      include: { supplier: { select: { id: true, name: true } }, project: { select: { name: true, industryType: true } } },
     });
     if (!contract) throw new NotFoundException('合同不存在');
     const list = await this.prisma.contractMaterial.findMany({
@@ -213,6 +225,8 @@ export class MaterialService {
         code: contract.code,
         name: contract.name,
         supplierName: (contract as any).supplier?.name || '',
+        projectName: (contract as any).project?.name || '',
+        industryType: (contract as any).project?.industryType || '',
         signDate: contract.signDate,
       },
       list,
@@ -388,6 +402,8 @@ export class MaterialService {
       lines.push(`合同名称,${esc(contract.name)}`);
       lines.push(`供应商名称,${esc(contract.supplierName)}`);
       lines.push(`合同编号,${esc(contract.code)}`);
+      lines.push(`项目名称,${esc(contract.projectName)}`);
+      lines.push(`项目业态,${esc(await this.industryTypeName(contract.industryType))}`);
       lines.push('');
       lines.push(headers.map(esc).join(','));
       rows.forEach((r) => lines.push(r.map(esc).join(',')));
@@ -403,10 +419,12 @@ export class MaterialService {
     const ExcelJS = wb.default || wb;
     const workbook = new (ExcelJS as any).Workbook();
     const ws = workbook.addWorksheet('合同物资清单');
-    // 合同头信息（3 行固定头部）
+    // 合同头信息（固定头部）
     ws.addRow(['合同名称', contract.name || '']);
     ws.addRow(['供应商名称', contract.supplierName || '']);
     ws.addRow(['合同编号', contract.code || '']);
+    ws.addRow(['项目名称', contract.projectName || '']);
+    ws.addRow(['项目业态', await this.industryTypeName(contract.industryType)]);
     ws.addRow([]);
     const headerRowIndex = ws.rowCount + 1;
     ws.addRow(headers).font = { bold: true };
