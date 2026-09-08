@@ -97,8 +97,8 @@ function PlanTab({ contracts, contractOptions }: { contracts: any[]; contractOpt
           { title: '期次', dataIndex: 'period', width: 100 },
           { title: '计划金额', dataIndex: 'planAmount', width: 140, render: money },
           { title: '计划付款日期', dataIndex: 'planDate', width: 130, render: (v) => v?.slice(0, 10) },
-          { title: '付款条件', dataIndex: 'payCondition', width: 200 },
-          { title: '状态', dataIndex: 'status', width: 120, render: (v) => <DictTag typeCode="payment_plan_status" value={v} /> },
+          { title: '付款条件', dataIndex: 'condition', width: 200 },
+          { title: '状态', dataIndex: 'statusCode', width: 120, render: (v) => <DictTag typeCode="payment_plan_status" value={v} /> },
           {
             title: '操作',
             width: 160,
@@ -138,10 +138,10 @@ function PlanTab({ contracts, contractOptions }: { contracts: any[]; contractOpt
               <Form.Item name="planDate" label="计划付款日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
             <Col xs={24}>
-              <Form.Item name="payCondition" label="付款条件"><Input.TextArea rows={2} /></Form.Item>
+              <Form.Item name="condition" label="付款条件"><Input.TextArea rows={2} /></Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="status" label="状态"><DictSelect typeCode="payment_plan_status" /></Form.Item>
+              <Form.Item name="statusCode" label="状态"><DictSelect typeCode="payment_plan_status" /></Form.Item>
             </Col>
           </Row>
         </Form>
@@ -222,10 +222,10 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
           { title: '收款方', dataIndex: 'payee', width: 180 },
           { title: '银行名称', dataIndex: 'bankName', width: 200 },
           { title: '银行账号', dataIndex: 'bankAccount', width: 200 },
-          { title: '申请金额', dataIndex: 'amount', width: 140, render: money },
+          { title: '申请金额', dataIndex: 'applyAmount', width: 140, render: money },
           { title: '付款日期', dataIndex: 'payDate', width: 120, render: (v) => v?.slice(0, 10) },
-          { title: '付款方式', dataIndex: 'method', width: 110, render: (v) => <DictTag typeCode="payment_method" value={v} /> },
-          { title: '状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="approval_status" value={v} /> },
+          { title: '付款方式', dataIndex: 'methodCode', width: 110, render: (v) => <DictTag typeCode="payment_method" value={v} /> },
+          { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="approval_status" value={v} /> },
           { title: '备注', dataIndex: 'remark', width: 160 },
           {
             title: '操作',
@@ -267,10 +267,10 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
             <Col xs={24} md={12}><Form.Item name="bankName" label="银行名称"><Input /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="bankAccount" label="银行账号"><Input /></Form.Item></Col>
             <Col xs={24} md={12}>
-              <Form.Item name="amount" label="申请金额" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+              <Form.Item name="applyAmount" label="申请金额" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
             </Col>
             <Col xs={24} md={12}><Form.Item name="payDate" label="付款日期"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="method" label="付款方式"><DictSelect typeCode="payment_method" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="methodCode" label="付款方式"><DictSelect typeCode="payment_method" /></Form.Item></Col>
             <Col xs={24}>
               <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
             </Col>
@@ -426,7 +426,7 @@ function OverdueTab() {
         { title: '计划金额', dataIndex: 'planAmount', width: 140, render: money },
         { title: '计划日期', dataIndex: 'planDate', width: 130, render: (v) => v?.slice(0, 10) },
         { title: '逾期天数', dataIndex: 'overdueDays', width: 100, render: (v) => <span style={{ color: '#cf1322', fontWeight: 600 }}>{v}</span> },
-        { title: '状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="payment_plan_status" value={v} /> },
+        { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="payment_plan_status" value={v} /> },
       ]}
     />
   );

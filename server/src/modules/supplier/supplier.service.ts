@@ -1,8 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+
+const SUPPLIER_FIELDS = [
+  'name', 'legalPerson', 'legalPhone', 'contractAuthPerson', 'contractAuthPhone',
+  'contractAuthIdNo', 'contactName', 'contactPhone', 'contactEmail', 'bankName',
+  'bankAccount', 'address', 'remark', 'status', 'projectId',
+];
 
 @Injectable()
 export class SupplierService {
@@ -65,7 +72,8 @@ export class SupplierService {
     const exist = await this.prisma.supplier.findUnique({ where: { name: data.name } });
     if (exist) throw new BadRequestException('供应商名称已存在（系统内唯一）');
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
-    return this.prisma.supplier.create({ data: { ...data, projectId: scope === 'PROJECT' ? projectId : null } });
+    const payload = pickFields(data, SUPPLIER_FIELDS, { label: '供应商' });
+    return this.prisma.supplier.create({ data: { ...payload, projectId: scope === 'PROJECT' ? projectId : null } });
   }
 
   async update(id: string, data: any) {
@@ -74,7 +82,7 @@ export class SupplierService {
       const exist = await this.prisma.supplier.findUnique({ where: { name: data.name } });
       if (exist) throw new BadRequestException('供应商名称已存在（系统内唯一）');
     }
-    return this.prisma.supplier.update({ where: { id }, data });
+    return this.prisma.supplier.update({ where: { id }, data: pickFields(data, SUPPLIER_FIELDS, { label: '供应商' }) });
   }
 
   async remove(id: string) {

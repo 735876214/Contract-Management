@@ -90,7 +90,7 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
           { title: '扣款金额', dataIndex: 'deductAmount', width: 140, render: money },
           { title: '实际结算金额', dataIndex: 'actualAmount', width: 150, render: money },
           { title: '结算日期', dataIndex: 'settleDate', width: 120, render: (v) => v?.slice(0, 10) },
-          { title: '结算状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="settlement_status" value={v} /> },
+          { title: '结算状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="settlement_status" value={v} /> },
           { title: '备注', dataIndex: 'remark', width: 160 },
           {
             title: '操作',
@@ -142,7 +142,7 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
               <Form.Item name="settleDate" label="结算日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
             <Col xs={24} md={8}>
-              <Form.Item name="status" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>
+              <Form.Item name="statusCode" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>
             </Col>
             <Col xs={24}>
               <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
@@ -183,7 +183,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
         <Form.Item name="contractId"><Select2 options={contractOptions} placeholder="合同" /></Form.Item>
         <Form.Item name="settleMonth"><Input placeholder="结算月份(YYYY-MM)" allowClear /></Form.Item>
-        <Form.Item name="hangUp"><DictSelect typeCode="yes_no" placeholder="是否挂账" /></Form.Item>
+        <Form.Item name="isOnAccount"><DictSelect typeCode="yes_no" placeholder="是否挂账" /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
 
@@ -218,7 +218,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
           { title: '逾期利息', dataIndex: 'overdueInterest', width: 120, render: money },
           { title: '本年结算对应收入', dataIndex: 'yearSettleIncome', width: 150, render: money },
           { title: '开累结算对应收入', dataIndex: 'cumSettleIncome', width: 160, render: money },
-          { title: '是否挂账', dataIndex: 'hangUp', width: 100, render: (v) => <DictTag typeCode="yes_no" value={v} /> },
+          { title: '是否挂账', dataIndex: 'isOnAccount', width: 100, render: (v) => <DictTag typeCode="yes_no" value={v} /> },
           {
             title: '操作',
             width: 160,
@@ -264,7 +264,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
             <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="cumSettleIncome" label="开累结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="hangUp" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="isOnAccount" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>
           </Row>
         </Form>
       </Modal>

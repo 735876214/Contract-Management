@@ -77,7 +77,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
     const payload = {
       ...v,
       invoiceDate: v.invoiceDate ? dayjs(v.invoiceDate).format('YYYY-MM-DD') : null,
-      receiveTime: v.receiveTime ? dayjs(v.receiveTime).format('YYYY-MM-DD') : null,
+      receiveDate: v.receiveDate ? dayjs(v.receiveDate).format('YYYY-MM-DD') : null,
       imageUrl: images?.[0]?.url,
       images,
     };
@@ -98,7 +98,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
     form.setFieldsValue({
       ...row,
       invoiceDate: row.invoiceDate ? dayjs(row.invoiceDate) : null,
-      receiveTime: row.receiveTime ? dayjs(row.receiveTime) : null,
+      receiveDate: row.receiveDate ? dayjs(row.receiveDate) : null,
     });
     setImages(row.images || []);
     setNoStatus('');
@@ -171,14 +171,14 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
           { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v) => v?.slice(0, 10) },
           { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
           { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
-          { title: '税前金额', dataIndex: 'preTaxAmount', width: 140, render: money },
+          { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, render: money },
           { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-          { title: '含税金额', dataIndex: 'taxIncludedAmount', width: 140, render: money },
-          { title: '发票收取时间', dataIndex: 'receiveTime', width: 130, render: (v) => v?.slice(0, 10) },
+          { title: '含税金额', dataIndex: 'amountWithTax', width: 140, render: money },
+          { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v) => v?.slice(0, 10) },
           { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v) => <DictTag typeCode="invoice_review_status" value={v} /> },
-          { title: '责任人', dataIndex: 'responsible', width: 120 },
-          { title: '财务移交情况', dataIndex: 'transferStatus', width: 130, render: (v) => <DictTag typeCode="finance_transfer_status" value={v} /> },
-          { title: '状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
+          { title: '责任人', dataIndex: 'responsiblePerson', width: 120 },
+          { title: '财务移交情况', dataIndex: 'financeTransferStatus', width: 130, render: (v) => <DictTag typeCode="finance_transfer_status" value={v} /> },
+          { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
           { title: '备注', dataIndex: 'remark', width: 160 },
           {
             title: '操作',
@@ -232,14 +232,14 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
                 <Input onChange={(e) => checkNo(e.target.value)} />
               </Form.Item>
             </Col>
-            <Col xs={24} md={8}><Form.Item name="preTaxAmount" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="taxIncludedAmount" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="receiveTime" label="发票收取时间"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="responsible" label="责任人"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="transferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="status" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
             <Col xs={24}>
               <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
             </Col>
@@ -315,7 +315,7 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
           { title: '金额', dataIndex: 'amount', width: 140, render: money },
           { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
           { title: '购方信息', dataIndex: 'buyerInfo', width: 220 },
-          { title: '状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
+          { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
           { title: '备注', dataIndex: 'remark', width: 160 },
           {
             title: '操作',
@@ -358,7 +358,7 @@ function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
               <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
             </Col>
             <Col xs={24} md={12}><Form.Item name="buyerInfo" label="购方信息"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="status" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
             <Col xs={24}>
               <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
             </Col>

@@ -1,9 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
+
+const CONTRACT_FIELDS = [
+  'projectId', 'code', 'name', 'typeCode', 'supplierId', 'signDate', 'amount', 'taxRate',
+  'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
+  'approvalStatus', 'remark', 'createdBy',
+];
+const EXT_FIELDS = [
+  'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
+  'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
+];
 
 const FIELD_LABELS: Record<string, string> = {
   code: '合同编号',
@@ -117,7 +128,7 @@ export class ContractService {
     const { attachments, ext, ...rest } = data;
     const contract = await this.prisma.contract.create({
       data: {
-        ...rest,
+        ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
         projectId,
         signDate: data.signDate ? new Date(data.signDate) : null,
         amount: num(data.amount),
@@ -142,7 +153,7 @@ export class ContractService {
     const contract = await this.prisma.contract.update({
       where: { id },
       data: {
-        ...rest,
+        ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
         signDate: data.signDate ? new Date(data.signDate) : null,
         amount: num(data.amount),
         taxRate: num(data.taxRate),

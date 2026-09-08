@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+
+const SETTLE_FIELDS = [
+  'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
+  'settleDate', 'statusCode', 'remark',
+];
+const LEDGER_FIELDS = [
+  'projectId', 'contractId', 'settleMonth', 'monthSettleAmount', 'monthInvoiceAmount', 'settleCount',
+  'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount', 'monthActualPurchase',
+  'factoringDiscount', 'overdueInterest', 'yearSettleIncome', 'cumSettleIncome', 'isOnAccount', 'remark',
+];
 
 @Injectable()
 export class SettlementService {
@@ -38,7 +49,7 @@ export class SettlementService {
     const actual = data.actualAmount ?? (num(data.amount) || 0) - (num(data.deductAmount) || 0);
     return this.prisma.settlement.create({
       data: {
-        ...data, projectId,
+        ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
         amount: num(data.amount), deductAmount: num(data.deductAmount), actualAmount: num(actual),
         settleDate: toDate(data.settleDate),
       },
@@ -49,7 +60,7 @@ export class SettlementService {
     await this.findOne(id);
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, SETTLE_FIELDS, { label: '结算单' });
     ['amount', 'deductAmount', 'actualAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -88,7 +99,7 @@ export class SettlementService {
 
   async createLedger(data: any, projectId: string) {
     await this.dict.validate('yes_no', data.isOnAccount);
-    const payload: any = { ...data, projectId };
+    const payload: any = { ...pickFields(data, LEDGER_FIELDS, { label: '结算台账' }), projectId };
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
       'monthActualPurchase', 'factoringDiscount', 'overdueInterest', 'yearSettleIncome', 'cumSettleIncome'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
@@ -100,7 +111,7 @@ export class SettlementService {
   async updateLedger(id: string, data: any) {
     await this.ledgerOne(id);
     await this.dict.validate('yes_no', data.isOnAccount);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, LEDGER_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
       'monthActualPurchase', 'factoringDiscount', 'overdueInterest', 'yearSettleIncome', 'cumSettleIncome'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);

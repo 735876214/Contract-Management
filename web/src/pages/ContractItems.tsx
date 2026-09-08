@@ -45,9 +45,9 @@ export default function ContractItems() {
     const payload = {
       ...values,
       taxRate: values.taxRate == null ? undefined : Number(values.taxRate),
-      quantity: values.quantity == null ? undefined : Number(values.quantity),
+      qty: values.qty == null ? undefined : Number(values.qty),
       costPrice: values.costPrice == null ? undefined : Number(values.costPrice),
-      compositePrice: values.compositePrice == null ? undefined : Number(values.compositePrice),
+      comprehensivePrice: values.comprehensivePrice == null ? undefined : Number(values.comprehensivePrice),
     };
     if (editing) await itemApi.update(editing.id, payload);
     else await itemApi.create(payload);
@@ -131,7 +131,7 @@ export default function ContractItems() {
             options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
           />
         </Form.Item>
-        <Form.Item name="categoryCode"><DictSelect typeCode="material_category" placeholder="物资类别" /></Form.Item>
+        <Form.Item name="materialCategory"><DictSelect typeCode="material_category" placeholder="物资类别" /></Form.Item>
         <Form.Item name="keyword"><Input placeholder="材料名称/规格" allowClear prefix={<SearchOutlined />} /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
@@ -144,15 +144,15 @@ export default function ContractItems() {
         scroll={{ x: 1600 }}
         columns={[
           { title: '供应商名称', width: 200, fixed: 'left', render: (_, row) => row.contract?.supplier?.name || '-' },
-          { title: '供应物资类别', dataIndex: 'categoryCode', width: 140, render: (v) => <DictTag typeCode="material_category" value={v} /> },
+          { title: '供应物资类别', dataIndex: 'materialCategory', width: 140, render: (v) => <DictTag typeCode="material_category" value={v} /> },
           { title: '合同编号', width: 160, render: (_, row) => row.contract?.code || '-' },
           { title: '材料名称', dataIndex: 'materialName', width: 200 },
           { title: '规格型号', dataIndex: 'spec', width: 160 },
-          { title: '计量单位', dataIndex: 'unitCode', width: 120, render: (v) => <DictTag typeCode="measurement_unit" value={v} /> },
-          { title: '数量', dataIndex: 'quantity', width: 120, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN')) },
+          { title: '计量单位', dataIndex: 'unit', width: 120, render: (v) => <DictTag typeCode="measurement_unit" value={v} /> },
+          { title: '数量', dataIndex: 'qty', width: 120, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN')) },
           { title: '成本单价', dataIndex: 'costPrice', width: 140, render: money },
           { title: '税率', dataIndex: 'taxRate', width: 100, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-          { title: '综合单价', dataIndex: 'compositePrice', width: 140, render: money },
+          { title: '综合单价', dataIndex: 'comprehensivePrice', width: 140, render: money },
           { title: '备注', dataIndex: 'remark', width: 200, ellipsis: true },
           {
             title: '操作',
@@ -196,18 +196,18 @@ export default function ContractItems() {
               options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
             />
           </Form.Item>
-          <Form.Item name="categoryCode" label="供应物资类别" rules={[{ required: true }]}>
+          <Form.Item name="materialCategory" label="供应物资类别" rules={[{ required: true }]}>
             <DictSelect typeCode="material_category" />
           </Form.Item>
           <Form.Item name="materialName" label="材料名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="spec" label="规格型号"><Input /></Form.Item>
-          <Form.Item name="unitCode" label="计量单位" rules={[{ required: true }]}>
+          <Form.Item name="unit" label="计量单位" rules={[{ required: true }]}>
             <DictSelect typeCode="measurement_unit" />
           </Form.Item>
-          <Form.Item name="quantity" label="数量"><InputNumber style={{ width: '100%' }} min={0} precision={3} /></Form.Item>
+          <Form.Item name="qty" label="数量"><InputNumber style={{ width: '100%' }} min={0} precision={3} /></Form.Item>
           <Form.Item name="costPrice" label="成本单价（元）"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
           <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
-          <Form.Item name="compositePrice" label="综合单价（元）"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+          <Form.Item name="comprehensivePrice" label="综合单价（元）"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
           <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>

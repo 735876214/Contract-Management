@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+
+const PROJECT_FIELDS = ['code', 'name', 'status', 'description', 'startDate', 'endDate', 'managerId'];
 
 @Injectable()
 export class ProjectService {
@@ -42,13 +45,13 @@ export class ProjectService {
     const exist = await this.prisma.project.findUnique({ where: { code: data.code } });
     if (exist) throw new BadRequestException('项目编码已存在');
     await this.dict.validate('project_status', data.status);
-    return this.prisma.project.create({ data });
+    return this.prisma.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
   }
 
   async update(id: string, data: any) {
     await this.findOne(id);
     if (data.status) await this.dict.validate('project_status', data.status);
-    return this.prisma.project.update({ where: { id }, data });
+    return this.prisma.project.update({ where: { id }, data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
   }
 
   async remove(id: string) {

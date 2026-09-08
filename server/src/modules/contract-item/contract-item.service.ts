@@ -1,8 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+
+const ALLOWED = [
+  'projectId', 'contractId', 'supplierId', 'materialCategory', 'materialName',
+  'spec', 'unit', 'qty', 'costPrice', 'taxRate', 'comprehensivePrice', 'remark',
+];
 
 @Injectable()
 export class ContractItemService {
@@ -41,7 +47,7 @@ export class ContractItemService {
 
   async create(data: any, projectId: string) {
     await this.validate(data);
-    const payload: any = { ...data, projectId };
+    const payload: any = { ...pickFields(data, ALLOWED, { label: '合同清单' }), projectId };
     ['qty', 'costPrice', 'taxRate', 'comprehensivePrice'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -55,7 +61,7 @@ export class ContractItemService {
   async update(id: string, data: any) {
     await this.findOne(id);
     await this.validate(data);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, ALLOWED, { label: '合同清单' });
     ['qty', 'costPrice', 'taxRate', 'comprehensivePrice'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });

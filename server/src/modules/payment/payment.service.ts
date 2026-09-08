@@ -1,8 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+
+const PLAN_FIELDS = [
+  'projectId', 'contractId', 'period', 'planAmount', 'planDate', 'condition', 'statusCode', 'remark',
+];
+const APPLY_FIELDS = [
+  'projectId', 'contractId', 'settlementId', 'invoiceId', 'code', 'applyAmount', 'payee',
+  'bankName', 'bankAccount', 'payDate', 'methodCode', 'statusCode', 'remark', 'createdBy',
+];
+const RECORD_FIELDS = [
+  'projectId', 'contractId', 'applyId', 'payMonth', 'amount', 'methodCode', 'payDate',
+  'receiptUrl', 'statusCode', 'remark',
+];
 
 @Injectable()
 export class PaymentService {
@@ -28,13 +41,13 @@ export class PaymentService {
   async createPlan(data: any, projectId: string) {
     await this.dict.validate('payment_plan_status', data.statusCode);
     return this.prisma.paymentPlan.create({
-      data: { ...data, projectId, planAmount: num(data.planAmount), planDate: toDate(data.planDate), period: Number(data.period) || null },
+      data: { ...pickFields(data, PLAN_FIELDS, { label: '付款计划' }), projectId, planAmount: num(data.planAmount), planDate: toDate(data.planDate), period: Number(data.period) || null },
     });
   }
 
   async updatePlan(id: string, data: any) {
     await this.dict.validate('payment_plan_status', data.statusCode);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, PLAN_FIELDS, { label: '付款计划' });
     if (payload.planAmount !== undefined) payload.planAmount = num(payload.planAmount);
     if (payload.planDate) payload.planDate = toDate(payload.planDate);
     if (payload.period !== undefined) payload.period = Number(payload.period) || null;
@@ -96,7 +109,7 @@ export class PaymentService {
     }
     return this.prisma.paymentApply.create({
       data: {
-        ...data, projectId, payee, bankName, bankAccount,
+        ...pickFields(data, APPLY_FIELDS, { label: '付款申请' }), projectId, payee, bankName, bankAccount,
         applyAmount: num(data.applyAmount), payDate: toDate(data.payDate),
       },
     });
@@ -105,7 +118,7 @@ export class PaymentService {
   async updateApply(id: string, data: any) {
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('approval_status', data.statusCode);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, APPLY_FIELDS, { label: '付款申请' });
     if (payload.applyAmount !== undefined) payload.applyAmount = num(payload.applyAmount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     return this.prisma.paymentApply.update({ where: { id }, data: payload });
@@ -141,14 +154,14 @@ export class PaymentService {
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('payment_status', data.statusCode);
     return this.prisma.paymentRecord.create({
-      data: { ...data, projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
+      data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });
   }
 
   async updateRecord(id: string, data: any) {
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('payment_status', data.statusCode);
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, RECORD_FIELDS, { label: '付款记录' });
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     return this.prisma.paymentRecord.update({ where: { id }, data: payload });

@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+
+const INVOICE_FIELDS = [
+  'projectId', 'contractId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
+  'typeCode', 'invoiceDate', 'issuer', 'receiver', 'amountBeforeTax', 'taxRate',
+  'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
+  'imageUrl', 'statusCode', 'remark',
+];
+const INVOICE_APPLY_FIELDS = [
+  'projectId', 'contractId', 'typeCode', 'amount', 'taxRate', 'buyerInfo', 'statusCode', 'remark',
+];
 
 @Injectable()
 export class InvoiceService {
@@ -57,7 +68,7 @@ export class InvoiceService {
       const { exists } = await this.checkNo(data.invoiceNo, projectId);
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
     }
-    const payload: any = { ...data, projectId };
+    const payload: any = { ...pickFields(data, INVOICE_FIELDS, { label: '发票' }), projectId };
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -78,7 +89,7 @@ export class InvoiceService {
       const { exists } = await this.checkNo(data.invoiceNo, before.projectId, id);
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
     }
-    const payload: any = { ...data };
+    const payload: any = pickFields(data, INVOICE_FIELDS, { label: '发票' });
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -118,8 +129,9 @@ export class InvoiceService {
   async createApply(data: any, projectId: string, user: any) {
     await this.dict.validate('invoice_type', data.typeCode);
     await this.dict.validate('invoice_status', data.statusCode);
+    const payload: any = pickFields(data, INVOICE_APPLY_FIELDS, { label: '开票申请' });
     return this.prisma.invoiceApply.create({
-      data: { ...data, projectId, amount: num(data.amount), taxRate: num(data.taxRate), createdBy: user?.userId },
+      data: { ...payload, projectId, amount: num(data.amount), taxRate: num(data.taxRate), createdBy: user?.userId },
     });
   }
 

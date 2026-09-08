@@ -1,7 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+
+const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'projectId', 'parentId', 'createdBy'];
+const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'status', 'createdBy'];
 
 @Injectable()
 export class TemplateService {
@@ -35,9 +39,10 @@ export class TemplateService {
   async create(data: any, user: any) {
     await this.dict.validate('contract_template_category', data.categoryCode);
     const { variables, ...rest } = data;
+    const payload = pickFields(rest, TPL_FIELDS, { label: '合同模板' });
     return this.prisma.contractTemplate.create({
       data: {
-        ...rest,
+        ...payload,
         version: 1,
         parentId: null,
         createdBy: user?.userId,
@@ -57,9 +62,10 @@ export class TemplateService {
       _max: { version: true },
     });
     const { variables, ...rest } = data;
+    const payload = pickFields(rest, TPL_FIELDS, { label: '合同模板' });
     const created = await this.prisma.contractTemplate.create({
       data: {
-        ...rest,
+        ...payload,
         name: data.name || old.name,
         categoryCode: data.categoryCode || old.categoryCode,
         version: (max._max.version || 1) + 1,
@@ -187,11 +193,11 @@ export class TemplateService {
   }
 
   async createClause(data: any, user: any) {
-    return this.prisma.clause.create({ data: { ...data, createdBy: user?.userId } });
+    return this.prisma.clause.create({ data: { ...pickFields(data, CLAUSE_FIELDS, { label: '条款' }), createdBy: user?.userId } });
   }
 
   async updateClause(id: string, data: any) {
-    return this.prisma.clause.update({ where: { id }, data });
+    return this.prisma.clause.update({ where: { id }, data: pickFields(data, CLAUSE_FIELDS, { label: '条款' }) });
   }
 
   async removeClause(id: string) {
