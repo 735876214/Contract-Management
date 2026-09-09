@@ -224,7 +224,16 @@ export class TemplateService {
     const sup: any = (contract as any).supplier || {};
     const taxRate = num(contract.taxRate);
 
+    // 模板变量中配置了默认值的，作为兜底值（系统值与手工填写值优先）
+    const varDefaults: Record<string, any> = {};
+    (template.variables || []).forEach((v: any) => {
+      if (v.defaultValue !== null && v.defaultValue !== undefined && v.defaultValue !== '') {
+        varDefaults[v.varKey] = v.defaultValue;
+      }
+    });
+
     const values: Record<string, any> = {
+      ...varDefaults,
       合同编号: contract.code,
       合同名称: contract.name,
       合同类型: typeMap[contract.typeCode]?.name || contract.typeCode || '',

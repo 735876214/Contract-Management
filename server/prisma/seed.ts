@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { PURCHASE_EXEC_TEMPLATE } from './templates/purchase-exec-contract';
 
 const prisma = new PrismaClient();
 
@@ -838,6 +839,16 @@ async function main() {
     });
     await prisma.contractTemplate.create({
       data: { name: '涨价补充协议模板', categoryCode: 'PRICE_UP', status: 1, version: 1, content: '<h2 style="text-align:center">涨价补充协议</h2><p>原合同编号：{合同编号}</p><p>乙方：{供应商名称}</p>', createdBy: admin.id },
+    });
+    // 参考真实合同（紫金街项目步道砖、盲道砖采购合同）整理的采购执行合同模板
+    const { variables, ...purchaseExec } = PURCHASE_EXEC_TEMPLATE;
+    await prisma.contractTemplate.create({
+      data: {
+        ...purchaseExec,
+        version: 1,
+        createdBy: admin.id,
+        variables: { create: variables.map((v) => ({ ...v })) },
+      },
     });
     await prisma.clause.createMany({
       data: [
