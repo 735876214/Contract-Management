@@ -66,6 +66,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('cms_token');
     localStorage.removeItem('cms_project_id');
+    // 清除侧边栏菜单缓存，避免同标签页切换账号后读到上一账号的菜单树
+    sessionStorage.removeItem('scm_sider_menu_cache');
+    sessionStorage.removeItem('scm_sider_menu_cache_at');
     set({ token: '', user: null, permissions: [], projects: [], currentProjectId: '' });
   },
 

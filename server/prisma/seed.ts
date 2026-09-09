@@ -368,6 +368,8 @@ const PERMISSIONS = [
   { code: 'asset:view', name: '查看资产管理台账', module: '资产管理台账' },
   { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
+  { code: 'system:role', name: '角色管理', module: '系统管理' },
+  { code: 'system:dept', name: '部门管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
 ];
