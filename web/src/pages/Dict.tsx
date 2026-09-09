@@ -189,7 +189,10 @@ export default function Dict() {
                     const token = localStorage.getItem('cms_token');
                     const res = await fetch(dictApi.importUrl(currentType.code), {
                       method: 'POST',
-                      headers: { Authorization: `Bearer ${token}` },
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        'x-project-id': localStorage.getItem('cms_project_id') || '',
+                      },
                       body: fd,
                     });
                     const body = await res.json();

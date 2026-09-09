@@ -129,7 +129,10 @@ export default function DailyReports() {
       fd.append('file', file);
       const res = await fetch(dailyApi.importUrl(), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('cms_token')}` },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('cms_token')}`,
+          'x-project-id': localStorage.getItem('cms_project_id') || '',
+        },
         body: fd,
       });
       const body = await res.json();
