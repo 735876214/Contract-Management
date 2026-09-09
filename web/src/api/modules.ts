@@ -111,6 +111,26 @@ export const repaymentApi = {
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
 };
 
+export const financeApi = {
+  // 合同资金参数（付款模式/月利率/宽限期/上限比例）
+  contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),
+  saveContractParams: (contractId: string, data: any) => http.put<any, any>(`/finance/contract-params/${contractId}`, data),
+  // 保理费用台账
+  factoring: (contractId: string) => http.get<any, any>('/finance/factoring-costs', { params: { contractId } }),
+  createFactoring: (data: any) => http.post<any, any>('/finance/factoring-costs', data),
+  updateFactoring: (id: string, data: any) => http.put<any, any>(`/finance/factoring-costs/${id}`, data),
+  removeFactoring: (id: string) => http.delete<any, any>(`/finance/factoring-costs/${id}`),
+  exportFactoringUrl: (contractId: string) => `${http.defaults.baseURL}/finance/factoring-costs/export?contractId=${contractId}`,
+  // 逾期利息台账
+  overdue: (contractId: string) => http.get<any, any>('/finance/overdue-interests', { params: { contractId } }),
+  generateOverdue: (data: { contractId: string; settlementMonth: string; materialAmount: number }) =>
+    http.post<any, any>('/finance/overdue-interests/generate', data),
+  createOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests', data),
+  updateOverdue: (id: string, data: any) => http.put<any, any>(`/finance/overdue-interests/${id}`, data),
+  removeOverdue: (id: string) => http.delete<any, any>(`/finance/overdue-interests/${id}`),
+  exportOverdueUrl: (contractId: string) => `${http.defaults.baseURL}/finance/overdue-interests/export?contractId=${contractId}`,
+};
+
 export const notificationApi = {
   list: (params?: any) => http.get<any, any>('/notifications', { params }),
   unreadCount: () => http.get<any, any>('/notifications/unread-count'),

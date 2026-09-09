@@ -323,6 +323,8 @@ const PERMISSIONS = [
   { code: 'ledger:view', name: '查看合同台账', module: '合同台账' },
   { code: 'repayment:view', name: '查看还款协议', module: '还款协议' },
   { code: 'repayment:edit', name: '维护还款协议', module: '还款协议' },
+  { code: 'finance:view', name: '查看资金费用台账', module: '资金费用台账' },
+  { code: 'finance:edit', name: '维护资金费用台账', module: '资金费用台账' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
@@ -341,6 +343,12 @@ const SYS_PARAMS = [
   { key: 'repayment.code.prefix', value: 'HK', remark: '还款协议编号前缀' },
   { key: 'contract.code.prefix', value: 'HT', remark: '合同编号前缀' },
   { key: 'supplier.name.sync.history', value: 'KEEP', remark: '供应商名称变更时历史合同处理：KEEP 保留原值 / SYNC 同步更新' },
+  { key: 'finance.overdue.default_monthly_rate', value: '0.006', remark: '资金费用-默认延期月利率（合同可覆盖）' },
+  { key: 'finance.overdue.default_grace_days', value: '7', remark: '资金费用-默认逾期宽限天数（合同可覆盖）' },
+  { key: 'finance.overdue.interest_cap_ratio', value: '0.05', remark: '资金费用-逾期利息上限比例（合同可覆盖）' },
+  { key: 'finance.overdue.days360_method', value: 'true', remark: '资金费用-是否使用 DAYS360 计算逾期天数' },
+  { key: 'finance.payment.mode_100_description', value: '次月25日前支付100%（逾期宽限7天）', remark: '资金费用-100%付款模式描述' },
+  { key: 'finance.payment.mode_3382_description', value: '第3个月内支付当月结算价款的80%，在第6个月支付第一个月的100%（逾期宽限7天）', remark: '资金费用-3382付款模式描述' },
 ];
 
 async function main() {
@@ -767,6 +775,30 @@ async function main() {
         { userId: admin.id, title: '付款计划逾期', content: '塔吊租赁合同付款计划已逾期', type: 'WARNING', projectId: project.id },
       ],
     });
+  }
+
+  // ---------- 资金费用台账（保理费用 + 逾期利息） ----------
+  if ((await prisma.factoringCost.count()) === 0) {
+    await prisma.contract.update({
+      where: { id: contracts[0].id },
+      data: { paymentMode: '3382', monthlyRate: 0.006, graceDays: 7, interestCapRatio: 0.05 },
+    });
+    await prisma.factoringCost.createMany({
+      data: [
+        { contractId: contracts[0].id, seqNo: 1, financingDate: new Date('2026-02-10'), financingAmount: 500000, actualReceipt: 492500, financingInterest: 6500, handlingFee: 1000, totalCost: 7500, settlementMonth: '2026-01', remark: '某银行保理' },
+        { contractId: contracts[0].id, seqNo: 2, financingDate: new Date('2026-03-12'), financingAmount: 600000, actualReceipt: 591000, financingInterest: 7500, handlingFee: 1500, totalCost: 9000, settlementMonth: '2026-02', remark: '' },
+        { contractId: contracts[0].id, seqNo: 3, financingDate: new Date('2026-04-08'), financingAmount: 450000, actualReceipt: 443700, financingInterest: 5400, handlingFee: 900, totalCost: 6300, settlementMonth: '2026-03', remark: '费率下浮后重签' },
+      ],
+    });
+    await prisma.overdueInterest.createMany({
+      data: [
+        // 2026-01 结算：材料款 100 万 × 80%（3382 第3个月付80%），应付款 2026-04-25，逾期起始 2026-05-03
+        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 1000000, paymentRatio: 0.8, payableAmount: 800000, payableDate: new Date('2026-04-25'), overdueStartDate: new Date('2026-05-03'), paymentDate: new Date('2026-05-10'), paymentAmount: 500000, interestAmount: 500000, overdueDays: 7, monthlyRate: 0.006, overdueInterest: 700, isSettlementPeriod: true, periodSeq: 1, prevCumulative: 0 },
+        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 0, paymentRatio: 0.8, payableAmount: 800000, payableDate: new Date('2026-04-25'), overdueStartDate: new Date('2026-05-03'), paymentDate: new Date('2026-06-20'), paymentAmount: 300000, interestAmount: 300000, overdueDays: 47, monthlyRate: 0.006, overdueInterest: 2820, isSettlementPeriod: true, periodSeq: 2 },
+        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 0, paymentRatio: 0.8, payableAmount: 800000, overdueStartDate: new Date('2026-05-03'), paymentAmount: 0, interestAmount: 0, overdueDays: 0, monthlyRate: 0.006, overdueInterest: 0, remark: '剩余款尚未支付，付款后自动计息', isSettlementPeriod: true, periodSeq: 3 },
+      ],
+    });
+    console.log('  资金费用台账: 保理费用 3 行 / 逾期利息 3 行');
   }
 
   console.log('>>> 初始化完成');

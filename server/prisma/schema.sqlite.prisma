@@ -99,7 +99,7 @@ model Project {
   nameAbbr    String? // 项目简称（文字版）
   codeAbbr    String? @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
   undertaker  String? // 承接单位
-  selfContractAmount Decimal? // 项目自施合同额（万元）
+  selfContractAmount Decimal?  // 项目自施合同额（万元）
   industryType String? // dict: industry_type 项目业态
   status      String?  // dict: project_status
   description String?
@@ -171,11 +171,6 @@ model Contract {
   code               String // 合同编号
   name               String
   typeCode           String? // dict: contract_type
-  subTypeCode        String? // dict: contract_sub_type 合同子类型（编号第4段）
-  codeAbbrUsed       String? // 编号第3段：实际使用的项目字母简称（生成时固化）
-  yearSeq            String? // 编号第5段完整值，如 2026002
-  parentContractId   String? // 补充协议的父合同
-  supplementSeq      Int? // 补充协议顺序码（1,2,3...）
   supplierId         String?
   signDate           DateTime?
   amount             Decimal?  
@@ -183,9 +178,16 @@ model Contract {
   paymentMethodCode  String? // dict: payment_method
   isFramework        String? // dict: yes_no
   isSupplement       String? // dict: yes_no
+  parentContractId   String? // 主合同ID（补充协议链）
+  yearSeq            String? // 年度顺序码（合同编号生成规则，如 2026001）
+  supplementSeq      Int?    // 补充协议序号
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
   remark             String?
+  paymentMode        String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
+  monthlyRate        Decimal?  // 延期月利率（如 0.006 表示 0.6%）
+  graceDays          Int?     // 逾期宽限天数
+  interestCapRatio   Decimal?  // 逾期利息上限比例（如 0.05 表示 5%）
   createdBy          String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -208,6 +210,8 @@ model Contract {
   invoiceApplies InvoiceApply[]
   repayments   RepaymentAgreement[]
   materials    ContractMaterial[]
+  factoringCosts   FactoringCost[]
+  overdueInterests OverdueInterest[]
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
@@ -398,23 +402,23 @@ model MaterialBase {
 // ---------------- 合同物资清单（合同 × 物资 实例行） ----------------
 
 model ContractMaterial {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   contractId     String
   materialBaseId String // 引用物资基础库，不重复录入名称/规格/编码
   unit           String // 计量单位（针对本合同的计量方式）
-  qty            Decimal? // 暂定数量 18,4
-  priceBeforeTax Decimal? // 税前单价 18,4
-  taxRatePct     Decimal? // 增值税（百分比，如 13.00）
-  priceWithTax   Decimal? // 含税单价 = 税前单价 × (1 + 增值税/100)，自动计算
-  totalWithTax   Decimal? // 暂定含税合价 = 暂定数量 × 含税单价，自动计算
+  qty            Decimal?   // 暂定数量
+  priceBeforeTax Decimal?   // 税前单价
+  taxRatePct     Decimal?   // 增值税（百分比，如 13.00）
+  priceWithTax   Decimal?   // 含税单价 = 税前单价 × (1 + 增值税/100)
+  totalWithTax   Decimal?   // 暂定含税合价 = 暂定数量 × 含税单价
   remark         String?
-  incomePrice    Decimal? // 收入单价
-  incomeTotal    Decimal? // 收入合价 = 暂定数量 × 收入单价，自动计算
-  stdPrice       Decimal? // 标准成本单价
-  stdTotal       Decimal? // 标准成本合价 = 暂定数量 × 标准成本单价，自动计算
-  sortOrder      Int      @default(0) // 行号，可手动调整
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  incomePrice    Decimal?   // 收入单价
+  incomeTotal    Decimal?   // 收入合价 = 暂定数量 × 收入单价
+  stdPrice       Decimal?   // 标准成本单价
+  stdTotal       Decimal?   // 标准成本合价 = 暂定数量 × 标准成本单价
+  sortOrder      Int       @default(0) // 行号，可手动调整
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
   materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
@@ -617,6 +621,58 @@ model RepaymentDetail {
   createdAt   DateTime  @default(now())
 
   agreement RepaymentAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 资金费用台账 ----------------
+
+// 保理费用台账：供应商保理融资产生的利息、手续费（费用合计 = 融资利息 + 手续费，含税）
+model FactoringCost {
+  id                String    @id @default(cuid())
+  contractId        String
+  seqNo             Int       @default(0) // 序号
+  financingDate     DateTime? // 融资到账时间
+  financingAmount   Decimal?   // 融资金额
+  actualReceipt     Decimal?   // 实际到账金额
+  financingInterest Decimal?   // 融资利息
+  handlingFee       Decimal?   // 手续费
+  totalCost         Decimal?   // 费用合计（含税）= 融资利息 + 手续费，服务端自动计算
+  settlementMonth   String?   // 结算月份（YYYY-MM，"某年某月已办结算"）
+  remark            String?   // 备注
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+}
+
+// 逾期利息台账：仅材料款计息，DAYS360，公式 = ROUND(计息金额 × 逾期天数 × 月利率 ÷ 30, 2)
+model OverdueInterest {
+  id                 String    @id @default(cuid())
+  contractId         String
+  settlementMonth    String    // 结算月份（YYYY-MM）
+  materialAmount     Decimal?   // 材料款金额（不含资金费用）
+  paymentRatio       Decimal?    // 付款比例（0.8 = 80%）
+  payableAmount      Decimal?   // 应付款金额 = 材料款 × 付款比例，服务端自动计算
+  payableDate        DateTime? // 应付款日期（按付款模式推导，可手动覆盖）
+  overdueStartDate   DateTime? // 逾期起始日期 = 应付款日期 + 宽限期 + 1 天，服务端自动计算
+  paymentDate        DateTime? // 实际付款日期
+  paymentAmount      Decimal?   // 本次付款金额（0 表示对剩余金额计息一次）
+  interestAmount     Decimal?   // 计息金额：有付款 = 付款金额；无付款 = 剩余未付金额，服务端自动计算
+  overdueDays        Int?      // 逾期天数 = DAYS360(逾期起始日期, 付款日期)，服务端自动计算
+  monthlyRate        Decimal?   // 延期月利率（行级快照，取合同覆盖值或系统默认）
+  overdueInterest    Decimal?   // 逾期利息（含税），服务端自动计算
+  waived             Boolean   @default(false)    // 谈判减免：为 true 时利息记 0
+  prevCumulative     Decimal?   // 上期开累逾期利息（期初，手动录入或自动取上一结算月份）
+  remark             String?
+  isSettlementPeriod Boolean   @default(true) // 是否为本期结算行（区分开累/本期）
+  periodSeq          Int       @default(0)    // 同一结算月份内的行序号（多笔付款）
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId, settlementMonth])
 }
 
 // ---------------- 通知与日志 ----------------

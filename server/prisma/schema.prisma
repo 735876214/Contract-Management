@@ -178,9 +178,16 @@ model Contract {
   paymentMethodCode  String? // dict: payment_method
   isFramework        String? // dict: yes_no
   isSupplement       String? // dict: yes_no
+  parentContractId   String? // 主合同ID（补充协议链）
+  yearSeq            String? // 年度顺序码（合同编号生成规则，如 2026001）
+  supplementSeq      Int?    // 补充协议序号
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
   remark             String?
+  paymentMode        String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
+  monthlyRate        Decimal? @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
+  graceDays          Int?     // 逾期宽限天数
+  interestCapRatio   Decimal? @db.Decimal(9, 4) // 逾期利息上限比例（如 0.05 表示 5%）
   createdBy          String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -203,6 +210,8 @@ model Contract {
   invoiceApplies InvoiceApply[]
   repayments   RepaymentAgreement[]
   materials    ContractMaterial[]
+  factoringCosts   FactoringCost[]
+  overdueInterests OverdueInterest[]
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
@@ -612,6 +621,58 @@ model RepaymentDetail {
   createdAt   DateTime  @default(now())
 
   agreement RepaymentAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+}
+
+// ---------------- 资金费用台账 ----------------
+
+// 保理费用台账：供应商保理融资产生的利息、手续费（费用合计 = 融资利息 + 手续费，含税）
+model FactoringCost {
+  id                String    @id @default(cuid())
+  contractId        String
+  seqNo             Int       @default(0) // 序号
+  financingDate     DateTime? // 融资到账时间
+  financingAmount   Decimal?  @db.Decimal(18, 2) // 融资金额
+  actualReceipt     Decimal?  @db.Decimal(18, 2) // 实际到账金额
+  financingInterest Decimal?  @db.Decimal(18, 2) // 融资利息
+  handlingFee       Decimal?  @db.Decimal(18, 2) // 手续费
+  totalCost         Decimal?  @db.Decimal(18, 2) // 费用合计（含税）= 融资利息 + 手续费，服务端自动计算
+  settlementMonth   String?   // 结算月份（YYYY-MM，"某年某月已办结算"）
+  remark            String?   // 备注
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+}
+
+// 逾期利息台账：仅材料款计息，DAYS360，公式 = ROUND(计息金额 × 逾期天数 × 月利率 ÷ 30, 2)
+model OverdueInterest {
+  id                 String    @id @default(cuid())
+  contractId         String
+  settlementMonth    String    // 结算月份（YYYY-MM）
+  materialAmount     Decimal?  @db.Decimal(18, 2) // 材料款金额（不含资金费用）
+  paymentRatio       Decimal?  @db.Decimal(9, 4)  // 付款比例（0.8 = 80%）
+  payableAmount      Decimal?  @db.Decimal(18, 2) // 应付款金额 = 材料款 × 付款比例，服务端自动计算
+  payableDate        DateTime? // 应付款日期（按付款模式推导，可手动覆盖）
+  overdueStartDate   DateTime? // 逾期起始日期 = 应付款日期 + 宽限期 + 1 天，服务端自动计算
+  paymentDate        DateTime? // 实际付款日期
+  paymentAmount      Decimal?  @db.Decimal(18, 2) // 本次付款金额（0 表示对剩余金额计息一次）
+  interestAmount     Decimal?  @db.Decimal(18, 2) // 计息金额：有付款 = 付款金额；无付款 = 剩余未付金额，服务端自动计算
+  overdueDays        Int?      // 逾期天数 = DAYS360(逾期起始日期, 付款日期)，服务端自动计算
+  monthlyRate        Decimal?  @db.Decimal(18, 6) // 延期月利率（行级快照，取合同覆盖值或系统默认）
+  overdueInterest    Decimal?  @db.Decimal(18, 2) // 逾期利息（含税），服务端自动计算
+  waived             Boolean   @default(false)    // 谈判减免：为 true 时利息记 0
+  prevCumulative     Decimal?  @db.Decimal(18, 2) // 上期开累逾期利息（期初，手动录入或自动取上一结算月份）
+  remark             String?
+  isSettlementPeriod Boolean   @default(true) // 是否为本期结算行（区分开累/本期）
+  periodSeq          Int       @default(0)    // 同一结算月份内的行序号（多笔付款）
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId, settlementMonth])
 }
 
 // ---------------- 通知与日志 ----------------
