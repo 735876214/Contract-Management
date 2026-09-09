@@ -20,6 +20,7 @@ import Invoices from '@/pages/Invoices';
 import Ledger from '@/pages/Ledger';
 import Repayments from '@/pages/Repayments';
 import Finance from '@/pages/Finance';
+import Assets from '@/pages/Assets';
 import Messages from '@/pages/Messages';
 import Reports from '@/pages/Reports';
 import System from '@/pages/System';
@@ -82,6 +83,7 @@ export const routes: RouteObject[] = [
       { path: 'ledger', element: <Ledger /> },
       { path: 'repayments', element: <Repayments /> },
       { path: 'finance', element: <Finance /> },
+      { path: 'assets', element: <Assets /> },
       { path: 'messages', element: <Messages /> },
       { path: 'reports', element: <Reports /> },
       { path: 'system', element: <System /> },

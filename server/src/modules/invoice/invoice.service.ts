@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const INVOICE_FIELDS = [
@@ -144,6 +145,64 @@ export class InvoiceService {
   async removeApply(id: string) {
     await this.prisma.invoiceApply.delete({ where: { id } });
     return true;
+  }
+
+  // ---------------- 批量识别 ----------------
+  /** 上传发票图片，解码左上角二维码提取发票代码/号码/日期/金额 */
+  recognize(files: any[]) {
+    return files.map((f) => {
+      const r = recognizeInvoiceImage(f.buffer);
+      return r.ok
+        ? { filename: f.originalname, ok: true as const, data: r.data }
+        : { filename: f.originalname, ok: false as const, error: (r as any).error };
+    });
+  }
+
+  /** 批量写入发票台账（识别结果由用户匹配合同、补全税率后提交） */
+  async batchCreate(items: any[], projectId: string, user: any) {
+    let created = 0;
+    const errors: string[] = [];
+    for (const [i, it] of items.entries()) {
+      try {
+        if (!String(it.invoiceNo || '').trim()) throw new Error('发票号码为空');
+        const dup = await this.prisma.invoice.findFirst({ where: { projectId, invoiceNo: String(it.invoiceNo) } });
+        if (dup) throw new Error(`发票号码 ${it.invoiceNo} 已存在`);
+        const contract = it.contractId ? await this.prisma.contract.findUnique({ where: { id: it.contractId } }) : null;
+        if (it.contractId && !contract) throw new Error('关联合同不存在');
+        const rate = num(it.taxRate);
+        const beforeTax = num(it.amountBeforeTax);
+        const withTax = rate !== null && beforeTax !== null
+          ? Number((beforeTax * (1 + rate)).toFixed(2))
+          : (num(it.amountWithTax) ?? null);
+        const invoiceDate = it.invoiceDate ? new Date(it.invoiceDate) : null;
+        const d = invoiceDate && !isNaN(invoiceDate.getTime()) ? invoiceDate : null;
+        await this.prisma.invoice.create({
+          data: {
+            projectId,
+            contractId: contract?.id ?? null,
+            goodsCategory: it.goodsCategory || null,
+            settlePeriod: d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : null,
+            invoiceCode: it.invoiceCode || null,
+            invoiceNo: String(it.invoiceNo),
+            typeCode: it.typeCode || 'VAT_SPECIAL',
+            invoiceDate: d,
+            issuer: it.issuer || null,
+            amountBeforeTax: beforeTax,
+            taxRate: rate,
+            amountWithTax: withTax,
+            receiveDate: new Date(),
+            reviewStatus: 'PENDING',
+            financeTransferStatus: 'NOT_TRANSFERRED',
+            statusCode: 'WAIT_VERIFY',
+            remark: it.remark || '批量识别导入',
+          },
+        });
+        created += 1;
+      } catch (e: any) {
+        errors.push(`第 ${i + 1} 条：${e.message}`);
+      }
+    }
+    return { created, errors };
   }
 
   // ---------------- Excel ----------------

@@ -51,7 +51,6 @@ export const contractApi = {
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
-  exportUrl: () => `${http.defaults.baseURL}/contracts/export`,
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,
 };
 

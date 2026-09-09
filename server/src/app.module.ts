@@ -21,6 +21,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SystemModule } from './modules/system/system.module';
 import { FileModule } from './modules/file/file.module';
+import { AssetModule } from './modules/asset/asset.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { FileModule } from './modules/file/file.module';
     DashboardModule,
     SystemModule,
     FileModule,
+    AssetModule,
   ],
 })
 export class AppModule {}

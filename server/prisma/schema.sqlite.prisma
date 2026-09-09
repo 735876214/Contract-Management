@@ -120,6 +120,7 @@ model Project {
   payments     PaymentRecord[]
   invoices     Invoice[]
   repayments   RepaymentAgreement[]
+  assets       AssetLedger[]
 }
 
 model ProjectMember {
@@ -161,6 +162,7 @@ model Supplier {
   reports     DailyReport[]
   items       ContractItem[]
   repayments  RepaymentAgreement[]
+  assets      AssetLedger[]
 }
 
 // ---------------- 合同 ----------------
@@ -673,6 +675,48 @@ model OverdueInterest {
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
 
   @@index([contractId, settlementMonth])
+}
+
+// ---------------- 资产管理台账 ----------------
+
+// 资产进出与状态变动：在用/闲置/报废/丢失互斥统计；原值固定不随周转变动
+model AssetLedger {
+  id                String    @id @default(cuid())
+  projectId         String
+  date              DateTime? // 日期
+  sourceCode        String? // dict: asset_ledger_source（采购/调入/调出/调入费/维保费/处置出售/处置出租）
+  categoryL1Code    String? // dict: asset_category_l1（资产类别一级）
+  categoryFocusCode String? // dict: asset_category_focus（重点关注类别）
+  name              String? // 资产名称
+  spec              String? // 规格型号
+  unit              String? // dict: measurement_unit
+  qty               Decimal?   // 进/出场数量（调入费行为空）
+  price             Decimal?   // 进/出场单价
+  totalAmount       Decimal?   // 进/出场总额（资产现值）= 数量 × 单价，服务端自动计算
+  supplierId        String?
+  receiveUnit       String? // 领用单位/部门
+  responsible       String? // 责任人
+  inUseQty          Decimal?   // 在用数量
+  idleQty           Decimal?   // 闲置数量
+  scrapQty          Decimal?   // 报废数量
+  lostQty           Decimal?   // 丢失数量
+  inUseAmount       Decimal?   // 在用金额 = 在用数量 × 单价，自动
+  idleAmount        Decimal?   // 闲置金额，自动
+  scrapAmount       Decimal?   // 报废金额，自动
+  lostAmount        Decimal?   // 丢失金额，自动
+  remark            String?
+  turnoverCount     Int? // 周转次数（含本次）
+  originalPrice     Decimal?   // 原值单价（固定不变）
+  originalTotal     Decimal?   // 原值总额 = 原值单价 × 数量，自动
+  transferOutPrice  Decimal?   // 调出物资本项目进场时单价
+  transferOutAmount Decimal?   // 调出金额 = 调出单价 × 数量，自动
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([projectId])
 }
 
 // ---------------- 通知与日志 ----------------

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker,
+  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker, Upload, Alert,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { invoiceApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
@@ -41,6 +41,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
   const [noStatus, setNoStatus] = useState<'' | 'error' | 'success'>('');
   const [noMsg, setNoMsg] = useState('');
   const [noTimer, setNoTimer] = useState<any>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const checkNo = (no: string) => {
     if (!no) {
@@ -149,6 +150,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
+          <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>批量识别</Button>
           <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
           <Button icon={<ExportOutlined />} onClick={() => window.open(invoiceApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setImages([]); setNoStatus(''); setNoMsg(''); setModal(true); }}>
@@ -251,6 +253,13 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
           </Row>
         </Form>
       </Modal>
+
+      <BatchRecognizeModal
+        open={batchOpen}
+        contractOptions={contractOptions}
+        onClose={() => setBatchOpen(false)}
+        onDone={() => { setBatchOpen(false); reload(); }}
+      />
     </>
   );
 }
@@ -373,5 +382,217 @@ function Select2({ value, options, placeholder, onChange }: { value?: any; optio
       options={options}
       onChange={onChange}
     />
+  );
+}
+
+/**
+ * 批量识别发票：上传发票照片 → 服务端解码二维码（发票代码/号码/金额/日期）
+ * → 用户逐行选择关联合同、确认税率 → 批量写入发票台账。
+ */
+function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
+  open: boolean;
+  contractOptions: any[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [recognizing, setRecognizing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [items, setItems] = useState<any[]>([]);
+  const [done, setDone] = useState(false);
+
+  const reset = () => {
+    setFiles([]);
+    setItems([]);
+    setDone(false);
+  };
+
+  const handleUpload = (fileList: any[]) => {
+    setFiles(fileList.map((f: any) => (f.originFileObj as File) || f).filter(Boolean));
+    setItems([]); // 重新选图后清空上次识别结果
+    setDone(false);
+  };
+
+  const doRecognize = async () => {
+    if (!files.length) {
+      message.warning('请先选择发票图片');
+      return;
+    }
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f));
+    setRecognizing(true);
+    try {
+      const res: any[] = await invoiceApi.recognize(fd);
+      setItems(
+        res.map((r, i) => ({
+          key: String(i),
+          filename: r.filename,
+          ok: r.ok,
+          error: r.error,
+          ...(r.ok ? r.data : {}),
+          contractId: undefined,
+          taxRate: 0.13,
+          goodsCategory: undefined,
+        })),
+      );
+      setDone(false);
+      const okCount = res.filter((r) => r.ok).length;
+      if (okCount === 0) message.error('没有识别到有效的发票二维码');
+      else if (okCount < res.length) message.warning(`识别完成：成功 ${okCount} 张，失败 ${res.length - okCount} 张`);
+      else message.success(`识别完成：成功 ${okCount} 张`);
+    } finally {
+      setRecognizing(false);
+    }
+  };
+
+  const patch = (key: string, data: any) =>
+    setItems((list) => list.map((it) => (it.key === key ? { ...it, ...data } : it)));
+
+  const doSubmit = async () => {
+    const okItems = items.filter((it) => it.ok);
+    if (!okItems.length) return;
+    const missing = okItems.filter((it) => !it.contractId);
+    if (missing.length) {
+      message.warning(`还有 ${missing.length} 条未选择关联合同`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res: any = await invoiceApi.batchCreate(
+        okItems.map((it) => ({
+          contractId: it.contractId,
+          goodsCategory: it.goodsCategory,
+          invoiceCode: it.invoiceCode,
+          invoiceNo: it.invoiceNo,
+          amountBeforeTax: it.amountBeforeTax,
+          taxRate: it.taxRate,
+          invoiceDate: it.invoiceDate,
+          remark: '批量识别导入',
+        })),
+      );
+      const errs = res?.errors || [];
+      message.success(`已添加 ${res?.created ?? 0} 条到发票台账${errs.length ? `，失败 ${errs.length} 条` : ''}`);
+      if (errs.length) {
+        Modal.warning({
+          title: '部分发票未入库',
+          width: 520,
+          content: (
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {errs.map((e: string, i: number) => (
+                <li key={i} style={{ color: '#d4380d' }}>{e}</li>
+              ))}
+            </ul>
+          ),
+        });
+      }
+      setDone(true);
+      onDone();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const okCount = items.filter((it) => it.ok).length;
+
+  return (
+    <Modal
+      title="批量识别发票"
+      open={open}
+      onCancel={() => { onClose(); reset(); }}
+      width={1080}
+      destroyOnClose
+      footer={
+        done
+          ? [<Button key="close" type="primary" onClick={() => { onClose(); reset(); }}>完成</Button>]
+          : [
+              <Button key="cancel" onClick={() => { onClose(); reset(); }}>取消</Button>,
+              <Button key="rec" loading={recognizing} onClick={doRecognize}>开始识别</Button>,
+              <Button key="ok" type="primary" loading={submitting} disabled={!okCount} onClick={doSubmit}>
+                添加到台账（{okCount}）
+              </Button>,
+            ]
+      }
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="上传发票照片（支持 PNG/JPG，单次最多 20 张），系统自动识别发票左上角二维码中的发票代码、号码、不含税金额与开票日期；识别后请为每张发票选择对应合同再入台账。"
+      />
+      <Upload.Dragger
+        multiple
+        accept="image/png,image/jpeg"
+        fileList={[] as any}
+        beforeUpload={() => false}
+        onChange={({ fileList }) => handleUpload(fileList)}
+        style={{ marginBottom: 16 }}
+        disabled={recognizing}
+      >
+        <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+        <p className="ant-upload-text">点击或拖拽发票图片到此处（可多选）</p>
+        <p className="ant-upload-hint">{files.length ? `已选择 ${files.length} 张图片` : '仅支持 PNG / JPG 图片'}</p>
+      </Upload.Dragger>
+
+      {items.length > 0 && (
+        <Table
+          rowKey="key"
+          size="small"
+          dataSource={items}
+          pagination={false}
+          scroll={{ x: 1200 }}
+          columns={[
+            { title: '图片', dataIndex: 'filename', width: 180, ellipsis: true },
+            {
+              title: '识别结果',
+              width: 420,
+              render: (_, it) =>
+                it.ok ? (
+                  <span>
+                    代码：{it.invoiceCode || '（全电票）'}｜号码：<b>{it.invoiceNo}</b>
+                    <br />
+                    金额：¥{it.amountBeforeTax ?? '-'}｜日期：{it.invoiceDate || '-'}
+                  </span>
+                ) : (
+                  <span style={{ color: '#d4380d' }}>{it.error}</span>
+                ),
+            },
+            {
+              title: '关联合同',
+              width: 260,
+              render: (_, it) =>
+                it.ok ? (
+                  <Select2
+                    value={it.contractId}
+                    options={contractOptions}
+                    onChange={(v: string) => patch(it.key, { contractId: v })}
+                  />
+                ) : null,
+            },
+            {
+              title: '税率',
+              width: 120,
+              render: (_, it) =>
+                it.ok ? (
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    precision={4}
+                    value={it.taxRate}
+                    onChange={(v) => patch(it.key, { taxRate: v })}
+                  />
+                ) : null,
+            },
+            {
+              title: '商品类别',
+              width: 160,
+              render: (_, it) =>
+                it.ok ? <DictSelect typeCode="goods_category" value={it.goodsCategory} onChange={(v: string) => patch(it.key, { goodsCategory: v })} /> : null,
+            },
+          ]}
+        />
+      )}
+    </Modal>
   );
 }

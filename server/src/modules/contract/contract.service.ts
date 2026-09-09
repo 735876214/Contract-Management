@@ -372,35 +372,6 @@ export class ContractService {
   }
 
   // ---------------- Excel ----------------
-  async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 1000 }, projectId);
-    const typeMap = await this.dict.nameMap('contract_type');
-    const execMap = await this.dict.nameMap('contract_execution_status');
-    const columns = [
-      { header: '合同编号', key: 'code', width: 20 },
-      { header: '合同名称', key: 'name', width: 34 },
-      { header: '合同类型', key: 'typeName', width: 16 },
-      { header: '供应商', key: 'supplierName', width: 30 },
-      { header: '签订日期', key: 'signDate', width: 14 },
-      { header: '合同额', key: 'amount', width: 16 },
-      { header: '税率', key: 'taxRate', width: 10 },
-      { header: '执行情况', key: 'execName', width: 14 },
-      { header: '备注', key: 'remark', width: 26 },
-    ];
-    const rows = (res.list as any[]).map((c) => ({
-      code: c.code,
-      name: c.name,
-      typeName: typeMap[c.typeCode]?.name || c.typeCode,
-      supplierName: c.supplier?.name,
-      signDate: fmtDate(c.signDate),
-      amount: num(c.amount),
-      taxRate: num(c.taxRate),
-      execName: execMap[c.execStatus]?.name || c.execStatus,
-      remark: c.remark,
-    }));
-    return this.excel.export(columns, rows, '合同列表');
-  }
-
   async import(buffer: Buffer, projectId: string, user: any) {
     const rows = await this.excel.parse(buffer);
     // 导入时支持填写字典项编码或名称，自动解析为编码

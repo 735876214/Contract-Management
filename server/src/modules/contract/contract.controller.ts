@@ -44,15 +44,6 @@ export class ContractController {
   }
 
   @RequirePermissions('contract:view')
-  @Get('export')
-  async export(@ProjectId() projectId: string, @Res() res: Response) {
-    const buffer = await this.contractService.export(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=contracts.xlsx');
-    res.end(buffer);
-  }
-
-  @RequirePermissions('contract:view')
   @Get('next-code')
   nextCode(@Query() query: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) {
     return this.contractService.nextCode(query);

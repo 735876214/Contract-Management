@@ -12,7 +12,8 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { UploadedFiles } from '@nestjs/common';
 import { Response } from 'express';
 import { InvoiceService } from './invoice.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -92,6 +93,19 @@ export class InvoiceController {
   @Post(':id/verify')
   verify(@Param('id') id: string) {
     return this.service.verify(id);
+  }
+
+  @RequirePermissions('invoice:edit')
+  @Post('recognize')
+  @UseInterceptors(FilesInterceptor('files', 20))
+  recognize(@UploadedFiles() files: any[]) {
+    return this.service.recognize(files || []);
+  }
+
+  @RequirePermissions('invoice:edit')
+  @Post('batch')
+  batchCreate(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.service.batchCreate(body?.items || [], projectId, user);
   }
 
   @RequirePermissions('invoice:edit')

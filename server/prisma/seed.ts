@@ -80,6 +80,48 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
       { itemCode: 'DISPOSED', itemName: '处置', color: 'orange' },
     ],
   },
+  asset_ledger_source: {
+    name: '资产来源',
+    items: [
+      { itemCode: 'PURCHASE', itemName: '采购', color: 'blue' },
+      { itemCode: 'TRANSFER_IN', itemName: '调入', color: 'cyan' },
+      { itemCode: 'TRANSFER_OUT', itemName: '调出', color: 'orange' },
+      { itemCode: 'TRANSFER_IN_FEE', itemName: '调入费', color: 'default' },
+      { itemCode: 'MAINTENANCE', itemName: '维保费', color: 'default' },
+      { itemCode: 'DISPOSE_SALE', itemName: '处置（出售）', color: 'red' },
+      { itemCode: 'DISPOSE_RENT', itemName: '处置（出租）', color: 'purple' },
+    ],
+  },
+  asset_category_l1: {
+    name: '资产类别（一级）',
+    items: [
+      { itemCode: 'LARGE_EQUIP', itemName: '大型设备' },
+      { itemCode: 'MACHINE', itemName: '机械设备' },
+      { itemCode: 'OFFICE', itemName: '办公设施' },
+      { itemCode: 'LIVING', itemName: '生活设施' },
+      { itemCode: 'SAFETY', itemName: '安全文明施工设施' },
+      { itemCode: 'TEMP_BUILD', itemName: '临建设施' },
+      { itemCode: 'TOOLS', itemName: '工具用具' },
+      { itemCode: 'TURNOVER', itemName: '周转料具' },
+      { itemCode: 'OTHER', itemName: '其他资产' },
+    ],
+  },
+  asset_category_focus: {
+    name: '资产类别（重点关注）',
+    items: [
+      { itemCode: 'STEEL_FORM', itemName: '钢模板' },
+      { itemCode: 'POWER', itemName: '配电设施' },
+      { itemCode: 'CABLE', itemName: '电线电缆' },
+      { itemCode: 'TEMP_HOUSE', itemName: '临时用房' },
+      { itemCode: 'BOOTH', itemName: '亭棚类' },
+      { itemCode: 'WEIGHING', itemName: '称重类' },
+      { itemCode: 'SMART_SITE', itemName: '智慧工地' },
+      { itemCode: 'FENCE', itemName: '施工围挡' },
+      { itemCode: 'BRIDGE_PART', itemName: '钢便桥零件' },
+      { itemCode: 'ROAD_STEEL', itemName: '道路钢板' },
+      { itemCode: 'NONE', itemName: '非重点关注资产' },
+    ],
+  },
   material_source: {
     name: '来源',
     items: [
@@ -325,6 +367,8 @@ const PERMISSIONS = [
   { code: 'repayment:edit', name: '维护还款协议', module: '还款协议' },
   { code: 'finance:view', name: '查看资金费用台账', module: '资金费用台账' },
   { code: 'finance:edit', name: '维护资金费用台账', module: '资金费用台账' },
+  { code: 'asset:view', name: '查看资产管理台账', module: '资产管理台账' },
+  { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
@@ -799,6 +843,18 @@ async function main() {
       ],
     });
     console.log('  资金费用台账: 保理费用 3 行 / 逾期利息 3 行');
+  }
+
+  // ---------- 资产管理台账 ----------
+  if ((await prisma.assetLedger.count({ where: { projectId: project.id } })) === 0) {
+    await prisma.assetLedger.createMany({
+      data: [
+        { projectId: project.id, date: new Date('2026-01-15'), sourceCode: 'PURCHASE', categoryL1Code: 'TEMP_BUILD', categoryFocusCode: 'TEMP_HOUSE', name: '箱式房', spec: '3×6m 标准间', unit: '间', qty: 12, price: 8500, supplierId: suppliers[2]?.id, receiveUnit: '项目部办公区', responsible: '王强', inUseQty: 10, idleQty: 2, scrapQty: 0, lostQty: 0, turnoverCount: 1, originalPrice: 8500, remark: '' },
+        { projectId: project.id, date: new Date('2026-02-20'), sourceCode: 'TRANSFER_IN', categoryL1Code: 'TURNOVER', categoryFocusCode: 'STEEL_FORM', name: '钢模板', spec: 'P3015 平面模板', unit: '块', qty: 300, price: 220, supplierId: suppliers[2]?.id, receiveUnit: '木工班组', responsible: '赵磊', inUseQty: 260, idleQty: 40, scrapQty: 0, lostQty: 0, turnoverCount: 3, originalPrice: 240, remark: '分公司内部调入' },
+        { projectId: project.id, date: new Date('2026-03-10'), sourceCode: 'PURCHASE', categoryL1Code: 'SAFETY', categoryFocusCode: 'FENCE', name: '施工围挡', spec: '2.5m 高彩钢围挡', unit: 'm', qty: 800, price: 95, receiveUnit: '施工现场', responsible: '王强', inUseQty: 800, idleQty: 0, scrapQty: 0, lostQty: 0, turnoverCount: 1, originalPrice: 95, remark: '' },
+      ],
+    });
+    console.log('  资产管理台账: 3 行');
   }
 
   console.log('>>> 初始化完成');

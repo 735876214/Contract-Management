@@ -88,8 +88,19 @@ export const invoiceApi = {
   applies: (params?: any) => http.get<any, any>('/invoices/applies', { params }),
   createApply: (data: any) => http.post<any, any>('/invoices/applies', data),
   removeApply: (id: string) => http.delete<any, any>(`/invoices/applies/${id}`),
+  // 批量识别：上传发票图片解码二维码 → 用户选合同后批量入台账
+  recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
+  batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
+};
+
+export const assetApi = {
+  list: (params?: any) => http.get<any, any>('/assets', { params }),
+  create: (data: any) => http.post<any, any>('/assets', data),
+  update: (id: string, data: any) => http.put<any, any>(`/assets/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/assets/${id}`),
+  exportUrl: () => `${http.defaults.baseURL}/assets/export`,
 };
 
 export const ledgerApi = {

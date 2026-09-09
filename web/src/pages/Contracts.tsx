@@ -180,7 +180,6 @@ export default function Contracts() {
       extra={
         <Space>
           <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
-          <Button icon={<ExportOutlined />} onClick={() => window.open(contractApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); extForm.resetFields(); setSupplier(null); setAttachments([]); setModal(true); }}>
             新建合同
           </Button>
