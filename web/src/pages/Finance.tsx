@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Tabs, Table, Button, Form, Input, InputNumber, Select, Space, Modal, Popconfirm,
   message, Statistic, Descriptions, Collapse, Tag, DatePicker, Switch, Alert, Empty,
@@ -278,7 +279,7 @@ export default function Finance() {
                       message="填制说明" description={FACTORING_HELP} />
                     <Space style={{ marginBottom: 12 }}>
                       <Button type="primary" icon={<PlusOutlined />} onClick={() => { setFactoringEditing(null); factoringForm.resetFields(); setFactoringModal(true); }}>新增记录</Button>
-                      <Button icon={<ExportOutlined />} onClick={() => window.open(financeApi.exportFactoringUrl(contractId))}>导出 Excel</Button>
+                      <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(financeApi.exportFactoringUrl(contractId)))}>导出 Excel</Button>
                     </Space>
                     <Table
                       rowKey="id"
@@ -324,7 +325,7 @@ export default function Finance() {
                     <Space style={{ marginBottom: 12 }}>
                       <Button type="primary" icon={<PlusOutlined />} onClick={() => { generateForm.resetFields(); setGenerateModal(true); }}>按付款模式生成应付款行</Button>
                       <Button icon={<PlusOutlined />} onClick={() => { setOverdueEditing(null); overdueForm.resetFields(); setOverdueModal(true); }}>手动新增行</Button>
-                      <Button icon={<ExportOutlined />} onClick={() => window.open(financeApi.exportOverdueUrl(contractId))}>导出计算表</Button>
+                      <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(financeApi.exportOverdueUrl(contractId)))}>导出计算表</Button>
                     </Space>
                     <Table
                       rowKey="id"

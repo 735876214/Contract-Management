@@ -60,11 +60,8 @@ interface Props {
   extraHint?: string;
 }
 
-/** 为下载链接附加 token（window.open 无法携带 Authorization 头，后端 JWT 策略支持 ?token=） */
-function withToken(url: string): string {
-  const token = localStorage.getItem('cms_token') || '';
-  return url + (url.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
-}
+// withToken 已抽到 utils/download，供各页面导出按钮共用
+import { withToken } from '../utils/download';
 
 export default function ImportButton({
   moduleName,

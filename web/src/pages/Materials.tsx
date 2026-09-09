@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { materialApi } from '@/api/modules';
@@ -41,7 +42,7 @@ export default function Materials() {
       extra={
         <Space>
           <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(materialApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(materialApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModal(true); }}>新增物资</Button>
         </Space>
       }

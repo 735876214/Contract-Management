@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { withToken } from '../utils/download';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Drawer, Select } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { supplierApi } from '@/api/business';
@@ -44,7 +45,7 @@ export default function Suppliers() {
       extra={
         <Space>
           <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(supplierApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(supplierApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
             新增供应商
           </Button>

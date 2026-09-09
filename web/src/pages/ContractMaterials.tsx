@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, Select, Descriptions, Alert, Tag,
 } from 'antd';
@@ -175,14 +176,14 @@ export default function ContractMaterials() {
           <Button
             icon={<ExportOutlined />}
             disabled={!contractId}
-            onClick={() => window.open(contractMaterialApi.exportUrl(contractId!, 'xlsx'))}
+            onClick={() => window.open(withToken(contractMaterialApi.exportUrl(contractId!, 'xlsx')))}
           >
             导出 Excel
           </Button>
           <Button
             icon={<ExportOutlined />}
             disabled={!contractId}
-            onClick={() => window.open(contractMaterialApi.exportUrl(contractId!, 'csv'))}
+            onClick={() => window.open(withToken(contractMaterialApi.exportUrl(contractId!, 'csv')))}
           >
             导出 CSV
           </Button>

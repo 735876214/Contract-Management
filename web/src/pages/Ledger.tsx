@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card,
   Table,
@@ -110,7 +111,7 @@ export default function Ledger() {
       title="合同台账"
       extra={
         <Space>
-          <Button icon={<ExportOutlined />} onClick={() => window.open(ledgerApi.exportUrl())}>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(ledgerApi.exportUrl()))}>
             导出
           </Button>
           <Button icon={<SettingOutlined />} onClick={openColModal}>

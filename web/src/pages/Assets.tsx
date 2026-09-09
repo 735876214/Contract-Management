@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert,
 } from 'antd';
@@ -135,7 +136,7 @@ export default function Assets() {
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
           <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} onUpload={(f) => assetApi.import(f)} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(assetApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(assetApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增台账</Button>
         </Space>
       </div>

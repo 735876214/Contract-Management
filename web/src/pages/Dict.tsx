@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm,
   InputNumber, Select, Tooltip, Upload, Descriptions,
@@ -206,7 +207,7 @@ export default function Dict() {
               <Button
                 icon={<ExportOutlined />}
                 disabled={!currentType}
-                onClick={() => window.open(dictApi.exportUrl(currentType.code))}
+                onClick={() => window.open(withToken(dictApi.exportUrl(currentType.code)))}
               >
                 导出
               </Button>

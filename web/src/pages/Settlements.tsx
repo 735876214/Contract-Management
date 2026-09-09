@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker,
 } from 'antd';
@@ -224,7 +225,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
         <Space>
           <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>自动生成台账</Button>
           <ImportButton moduleName="结算台账" templateUrl={settlementApi.ledgerTemplateUrl()} uploadUrl={settlementApi.ledgerImportUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(settlementApi.exportLedgerUrl())}>导出台账</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>导出台账</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
             新增台账
           </Button>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker, Upload, Alert,
 } from 'antd';
@@ -129,7 +130,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
         <Space>
           <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>批量识别</Button>
           <ImportButton moduleName="发票台账" templateUrl={invoiceApi.templateUrl()} uploadUrl={invoiceApi.importUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(invoiceApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setImages([]); setNoStatus(''); setNoMsg(''); setModal(true); }}>
             收票登记
           </Button>

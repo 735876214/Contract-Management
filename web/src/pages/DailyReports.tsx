@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, DatePicker, Row, Col, Select } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -175,7 +176,7 @@ export default function DailyReports() {
       extra={
         <Space>
           <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
-          <Button icon={<ExportOutlined />} onClick={() => window.open(dailyApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(dailyApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增日报</Button>
         </Space>
       }

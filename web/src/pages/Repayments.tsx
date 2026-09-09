@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card,
   Table,
@@ -127,7 +128,7 @@ export default function Repayments() {
       title="还款协议管理"
       extra={
         <Space>
-          <Button icon={<ExportOutlined />} onClick={() => window.open(repaymentApi.exportUrl())}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(repaymentApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增协议</Button>
         </Space>
       }

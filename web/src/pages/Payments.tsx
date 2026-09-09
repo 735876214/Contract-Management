@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber,
 } from 'antd';
@@ -60,7 +61,7 @@ function RecordTab({ contractOptions }: { contractOptions: any[] }) {
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
           <ImportButton moduleName="付款台账" templateUrl={paymentApi.recordsTemplateUrl()} uploadUrl={paymentApi.recordsImportUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(paymentApi.exportRecordsUrl())}>导出台账</Button>
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(paymentApi.exportRecordsUrl()))}>导出台账</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
             新增台账
           </Button>
