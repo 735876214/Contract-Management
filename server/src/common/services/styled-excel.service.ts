@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
+import { CSCEC_LOGO_PNG_BASE64 } from './cscec-logo.base64';
 
 /**
  * 中建项目管理表格样式导出服务
@@ -77,18 +78,17 @@ export class StyledExcelService {
 
     // ---- 第 1~2 行：表头块 ----
     if (opts.logoColumn) {
-      // 左列 logo 块：上=中建蓝方块（白字），下=「中建」书法字；右侧两行分别为品牌行与标题行
-      const logoTop = ws.getCell(1, 1);
-      logoTop.value = '中国建筑';
-      logoTop.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
-      logoTop.alignment = { horizontal: 'center', vertical: 'middle' };
-      logoTop.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF005BAC' } };
-      logoTop.border = thin;
-      const logoBottom = ws.getCell(2, 1);
-      logoBottom.value = '中建';
-      logoBottom.font = { bold: true, size: 22, name: '华文行楷' };
-      logoBottom.alignment = { horizontal: 'center', vertical: 'middle' };
-      logoBottom.border = thin;
+      // 左列 logo 块：合并 A1:A2 嵌入中建 logo 图片（上=CSCEC 蓝块，下=书法「中建」）
+      ws.mergeCells(1, 1, 2, 1);
+      const logoCell = ws.getCell(1, 1);
+      logoCell.border = thin;
+      logoCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      const logoId = wb.addImage({
+        // exceljs 的 buffer 类型定义基于旧版 @types/node，用 any 断言兼容
+        buffer: Buffer.from(CSCEC_LOGO_PNG_BASE64, 'base64') as any,
+        extension: 'png',
+      });
+      ws.addImage(logoId, 'A1:A2');
 
       ws.mergeCells(1, 2, 1, Math.max(colCount, 4));
       const brandCell = ws.getCell(1, 2);
@@ -134,6 +134,10 @@ export class StyledExcelService {
       cell.border = thin;
       ws.getColumn(i + 1).width = Math.max(6, Math.round((c.width || 100) / 7));
     });
+    if (opts.logoColumn) {
+      // logo 图片区域（A1:A2 合并单元格）保持接近原图 345x323 的宽高比
+      ws.getColumn(1).width = Math.max(ws.getColumn(1).width, 12);
+    }
     headerRow.height = 24;
 
     // ---- 数据行 ----
