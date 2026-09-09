@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -631,18 +632,33 @@ function LogsTab() {
   );
 }
 
+/** 需求 2.4：菜单路由 ↔ Tab 双向映射，/system/xxx 点击后展示对应管理页面 */
+const TAB_TO_PATH: Record<string, string> = {
+  users: '/system/user',
+  roles: '/system/role',
+  depts: '/system/dept',
+  params: '/system/params',
+  logs: '/system/log',
+};
+const PATH_TO_TAB: Record<string, string> = Object.fromEntries(
+  Object.entries(TAB_TO_PATH).map(([tab, path]) => [path, tab]),
+);
+
 export default function System() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeKey = PATH_TO_TAB[location.pathname] ?? 'users';
+  const handleTabChange = (key: string) => navigate(TAB_TO_PATH[key] ?? '/system/user');
+
   return (
     <Card title="系统管理">
-      <Tabs
-        items={[
-          { key: 'users', label: '用户管理', children: <UsersTab /> },
-          { key: 'roles', label: '角色管理', children: <RolesTab /> },
-          { key: 'depts', label: '部门管理', children: <DeptsTab /> },
-          { key: 'params', label: '系统参数', children: <ParamsTab /> },
-          { key: 'logs', label: '日志', children: <LogsTab /> },
-        ]}
-      />
+      <Tabs activeKey={activeKey} onChange={handleTabChange} items={[
+        { key: 'users', label: '用户管理', children: <UsersTab /> },
+        { key: 'roles', label: '角色管理', children: <RolesTab /> },
+        { key: 'depts', label: '部门管理', children: <DeptsTab /> },
+        { key: 'params', label: '系统参数', children: <ParamsTab /> },
+        { key: 'logs', label: '日志', children: <LogsTab /> },
+      ]} />
     </Card>
   );
 }

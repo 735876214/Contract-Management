@@ -9,13 +9,7 @@ import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import RichTextEditor from '@/components/RichTextEditor';
 import { exportWord, printHtml, highlightPlaceholders } from '@/utils/docExport';
-
-/** 模板内容可用变量占位符说明 */
-const VARIABLES = [
-  '合同编号', '合同名称', '合同类型', '合同额', '税率', '签订日期', '合同约定付款方式',
-  '项目名称', '供应商名称', '公司地址', '银行名称', '银行账号', '法人姓名', '法人电话',
-  '合同授权人姓名', '合同授权人电话', '合同授权人身份证号', '联系人姓名', '联系人电话', '联系人邮箱',
-];
+import { VARIABLES } from './Clauses';
 
 export default function Templates() {
   const { loading, list, params, search, reload, pagination } = useTable<any>(
@@ -46,24 +40,13 @@ export default function Templates() {
   const [gHtml, setGHtml] = useState<string>('');
   const [genLoading, setGenLoading] = useState(false);
 
-  // 条款库
-  const [clauseOpen, setClauseOpen] = useState(false);
-  const [clauseModal, setClauseModal] = useState(false);
-  const [clauseEditing, setClauseEditing] = useState<any>(null);
-  const [clauseForm] = Form.useForm();
-  const [clauses, setClauses] = useState<any[]>([]);
+  // 条款库已迁移至独立页面 Clauses（需求 2.3），此处仅保留模板管理
 
   useEffect(() => {
     if (versionOpen && versionRow) {
       templateApi.versions(versionRow.id).then((res: any) => setVersions(res?.list || res || []));
     }
   }, [versionOpen, versionRow]);
-
-  useEffect(() => {
-    if (clauseOpen) {
-      templateApi.clauses().then((res: any) => setClauses(res?.list || res || []));
-    }
-  }, [clauseOpen]);
 
   const openEdit = (row?: any) => {
     setEditing(row || null);
@@ -180,32 +163,6 @@ export default function Templates() {
     return `${c?.name || c?.code || '合同'}-${t?.name || '正文'}`.replace(/[\\/:*?"<>|]/g, '_');
   };
 
-  // ---- 条款库 ----
-  const openClauseEdit = (row?: any) => {
-    setClauseEditing(row || null);
-    clauseForm.resetFields();
-    if (row) clauseForm.setFieldsValue(row);
-    setClauseModal(true);
-  };
-
-  const submitClause = async () => {
-    const values = await clauseForm.validateFields();
-    if (clauseEditing) await templateApi.updateClause(clauseEditing.id, values);
-    else await templateApi.createClause(values);
-    message.success('保存成功');
-    setClauseModal(false);
-    setClauseEditing(null);
-    const res: any = await templateApi.clauses();
-    setClauses(res?.list || res || []);
-  };
-
-  const removeClause = async (id: string) => {
-    await templateApi.removeClause(id);
-    message.success('已删除');
-    const res: any = await templateApi.clauses();
-    setClauses(res?.list || res || []);
-  };
-
   const onSearch = (v: any) => {
     search({ ...v, includeHistory });
   };
@@ -266,38 +223,6 @@ export default function Templates() {
             },
           ]}
         />
-      </Card>
-
-      <Card title="条款库" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openClauseEdit()}>新增条款</Button>}>
-        <Button type="link" style={{ padding: 0, marginBottom: 8 }} onClick={() => setClauseOpen((o) => !o)}>
-          {clauseOpen ? '收起条款列表' : '展开条款列表'}
-        </Button>
-        {clauseOpen && (
-          <Table
-            rowKey="id"
-            size="small"
-            dataSource={clauses}
-            pagination={{ pageSize: 10, showTotal: (t: number) => `共 ${t} 条` }}
-            scroll={{ x: 900 }}
-            columns={[
-              { title: '条款标题', dataIndex: 'title', width: 240 },
-              { title: '分类', dataIndex: 'categoryCode', width: 160, render: (v) => <DictTag typeCode="contract_template_category" value={v} /> },
-              { title: '内容', dataIndex: 'content', width: 400, ellipsis: true },
-              {
-                title: '操作',
-                width: 160,
-                render: (_, row) => (
-                  <Space size={4}>
-                    <Button type="link" size="small" onClick={() => openClauseEdit(row)}>编辑</Button>
-                    <Popconfirm title="确认删除该条款？" onConfirm={() => removeClause(row.id)}>
-                      <Button type="link" size="small" danger>删除</Button>
-                    </Popconfirm>
-                  </Space>
-                ),
-              },
-            ]}
-          />
-        )}
       </Card>
 
       {/* 新增/编辑模板 */}
@@ -501,26 +426,6 @@ export default function Templates() {
             </div>
           )}
         </div>
-      </Modal>
-
-      {/* 新增/编辑条款 */}
-      <Modal
-        title={clauseEditing ? '编辑条款' : '新增条款'}
-        open={clauseModal}
-        onOk={submitClause}
-        onCancel={() => setClauseModal(false)}
-        width={640}
-        destroyOnClose
-      >
-        <Form form={clauseForm} layout="vertical">
-          <Form.Item name="title" label="条款标题" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="categoryCode" label="分类">
-            <DictSelect typeCode="contract_template_category" />
-          </Form.Item>
-          <Form.Item name="content" label="条款内容" rules={[{ required: true }]}>
-            <RichTextEditor variables={VARIABLES} minHeight={200} placeholder="条款正文，支持富文本排版与变量占位符" />
-          </Form.Item>
-        </Form>
       </Modal>
     </Space>
   );

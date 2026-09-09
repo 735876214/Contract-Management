@@ -49,6 +49,20 @@ export class ContractController {
     return this.contractService.nextCode(query);
   }
 
+  /** 合同起草：当前用户草稿列表（需求 2.1，须声明在 :id 通配路由之前） */
+  @RequirePermissions('contract:view')
+  @Get('drafts')
+  drafts(@CurrentUser() user: JwtUser, @ProjectId() projectId: string) {
+    return this.contractService.findDrafts(user.userId, projectId);
+  }
+
+  /** 删除草稿（仅本人创建且未提交，服务端二次校验） */
+  @RequirePermissions('contract:view')
+  @Delete('drafts/:id')
+  removeDraft(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.contractService.removeDraft(id, user.userId);
+  }
+
   @RequirePermissions('contract:view')
   @Get(':id/next-supplement-code')
   nextSupplementCode(@Param('id') id: string) {

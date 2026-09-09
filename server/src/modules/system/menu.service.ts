@@ -25,6 +25,7 @@ const MENU_TREE: MenuNode[] = [
     children: [
       { key: 'contract-list', label: '合同台账', icon: 'UnorderedListOutlined', path: '/contract/list', permission: 'contract:view' },
       { key: 'contract-material', label: '合同物资清单', icon: 'AppstoreOutlined', path: '/contract/material', permission: 'material:view' },
+      { key: 'contract-draft', label: '合同起草', icon: 'FileAddOutlined', path: '/contract/draft', permission: 'contract:view' },
     ],
   },
   {
@@ -60,7 +61,15 @@ const MENU_TREE: MenuNode[] = [
       { key: 'base-supplier', label: '供应商库', icon: 'TeamOutlined', path: '/base/supplier', permission: 'supplier:view' },
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
-      { key: 'base-clause', label: '合同条款', icon: 'FileTextOutlined', path: '/base/clause', permission: 'template:view' },
+      {
+        key: 'base-clause',
+        label: '合同条款',
+        icon: 'FileTextOutlined',
+        permission: 'template:view',
+        children: [
+          { key: 'base-clause-library', label: '条款库', icon: 'FileSearchOutlined', path: '/base/clause', permission: 'template:view' },
+        ],
+      },
     ],
   },
   {

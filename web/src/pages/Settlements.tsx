@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker,
 } from 'antd';
@@ -14,15 +15,23 @@ const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 export default function Settlements() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [contracts, setContracts] = useState<any[]>([]);
   useEffect(() => {
     contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
   }, []);
   const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
 
+  // 需求 2.2：菜单路由驱动 Tab —— /settlement/order 展示结算单，/settlement/ledger 展示结算台账
+  const activeKey = location.pathname.includes('/settlement/ledger') ? 'ledger' : 'bill';
+  const handleTabChange = (key: string) => navigate(key === 'ledger' ? '/settlement/ledger' : '/settlement/order');
+
   return (
     <Card title="结算管理">
       <Tabs
+        activeKey={activeKey}
+        onChange={handleTabChange}
         items={[
           { key: 'bill', label: '结算单', children: <SettlementsTab contracts={contracts} contractOptions={contractOptions} /> },
           { key: 'ledger', label: '结算台账', children: <LedgerTab contracts={contracts} contractOptions={contractOptions} /> },

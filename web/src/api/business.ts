@@ -60,6 +60,9 @@ export const contractApi = {
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,
+  // 合同起草（需求 2.1）
+  drafts: () => http.get<any, any>('/contracts/drafts'),
+  removeDraft: (id: string) => http.delete<any, any>(`/contracts/drafts/${id}`),
 };
 
 export const templateApi = {

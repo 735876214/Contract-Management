@@ -23,6 +23,8 @@ import Assets from '@/pages/Assets';
 import Messages from '@/pages/Messages';
 import Reports from '@/pages/Reports';
 import System from '@/pages/System';
+import Clauses from '@/pages/Clauses';
+import ContractDraft from '@/pages/ContractDraft';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -90,6 +92,7 @@ export const routes: RouteObject[] = [
       // 合同管理
       { path: 'contract/list', element: <Ledger /> },
       { path: 'contract/material', element: <ContractMaterials /> },
+      { path: 'contract/draft', element: <ContractDraft /> },
       // 日报管理
       { path: 'daily/report', element: <DailyReports /> },
       { path: 'daily/asset', element: <Assets /> },
@@ -108,7 +111,7 @@ export const routes: RouteObject[] = [
       { path: 'base/supplier', element: <Suppliers /> },
       { path: 'base/material', element: <Materials /> },
       { path: 'base/template', element: <Templates /> },
-      { path: 'base/clause', element: <Templates /> },
+      { path: 'base/clause', element: <Clauses /> },
       // 系统管理
       { path: 'system/user', element: <System /> },
       { path: 'system/role', element: <System /> },

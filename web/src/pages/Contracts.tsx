@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Tabs,
   Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select,
@@ -156,6 +157,27 @@ export default function Contracts() {
     const ch: any = await contractApi.changes(row.id);
     setChanges(ch || []);
   };
+
+  // 需求 2.1：合同起草页「继续编辑」携带 ?edit=<id> 跳入，自动拉取详情并打开编辑弹窗
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editParam = searchParams.get('edit');
+  useEffect(() => {
+    if (!editParam) return;
+    let alive = true;
+    contractApi
+      .detail(editParam)
+      .then((res: any) => {
+        if (alive && res) openEdit(res);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setSearchParams({}, { replace: true });
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam]);
 
 
   return (

@@ -363,6 +363,37 @@ export class ContractService {
     return true;
   }
 
+  // ==================== 合同起草（需求 2.1） ====================
+
+  /** 草稿判定：执行情况为 DRAFT 或尚未填写，且为当前用户创建（projectId 缺省时不限项目） */
+  private draftWhere(userId: string, projectId?: string) {
+    const where: any = {
+      createdBy: userId,
+      OR: [{ execStatus: 'DRAFT' }, { execStatus: null }],
+    };
+    if (projectId) where.projectId = projectId;
+    return where;
+  }
+
+  /** 当前用户的草稿列表（数据隔离：仅本人创建） */
+  async findDrafts(userId: string, projectId?: string) {
+    return this.prisma.contract.findMany({
+      where: this.draftWhere(userId, projectId),
+      orderBy: { updatedAt: 'desc' },
+      include: { supplier: { select: { id: true, name: true } } },
+    });
+  }
+
+  /** 删除草稿：仅本人创建且未提交的合同可删（物理删除，草稿无关联业务数据） */
+  async removeDraft(id: string, userId: string) {
+    const c = await this.prisma.contract.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException('草稿不存在');
+    if (c.createdBy !== userId) throw new BadRequestException('只能删除本人创建的草稿');
+    if (c.execStatus && c.execStatus !== 'DRAFT') throw new BadRequestException('该合同已提交，不能作为草稿删除');
+    await this.prisma.contract.delete({ where: { id } });
+    return true;
+  }
+
   async saveExt(contractId: string, data: any, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.dict.validate('procurement_source', data.procurementSrc);

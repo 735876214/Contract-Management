@@ -1,11 +1,78 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, List, Tag, Empty, Spin } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Card, Col, Row, Statistic, List, Tag, Empty, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined, ReconciliationOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import dayjs from 'dayjs';
 import { dashboardApi } from '@/api/modules';
+import { contractApi } from '@/api/business';
 import { useDictStore } from '@/store/dict';
 
 const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+
+/** 草稿超时阈值（需求 2.1.3：新增后 2 小时内未完成） */
+const OVERDUE_HOURS = 2;
+/** 工作台超时提醒自动刷新间隔：5 分钟 */
+const OVERDUE_CHECK_INTERVAL = 5 * 60 * 1000;
+
+/**
+ * 合同草稿超时提醒（需求 2.1.3）
+ * 每次挂载时检查一次，之后每 5 分钟自动刷新；点击提醒跳转合同起草页；
+ * 草稿提交（execStatus 变更）或删除后，下一次检查自动消除。
+ */
+function OverdueDraftReminder() {
+  const navigate = useNavigate();
+  const [overdue, setOverdue] = useState<any[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      contractApi
+        .drafts()
+        .then((res: any) => {
+          if (!alive) return;
+          const list = Array.isArray(res) ? res : res?.list || [];
+          setOverdue(list.filter((c: any) => dayjs().diff(dayjs(c.createdAt), 'minute') >= OVERDUE_HOURS * 60));
+        })
+        .catch(() => undefined);
+    check();
+    const timer = window.setInterval(check, OVERDUE_CHECK_INTERVAL);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  if (!overdue.length) return null;
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      style={{ marginBottom: 16 }}
+      message={
+        <span>
+          您有 {overdue.length} 份合同草稿已超时未完成，请及时处理
+          <Button type="link" size="small" onClick={() => navigate('/contract/draft')}>
+            前往处理
+          </Button>
+        </span>
+      }
+      description={
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {overdue.slice(0, 5).map((c) => (
+            <li key={c.id} style={{ cursor: 'pointer' }} onClick={() => navigate('/contract/draft')}>
+              {c.code ? `${c.code} ` : ''}
+              {c.name || '未命名合同'}
+              （创建于 {dayjs(c.createdAt).format('YYYY-MM-DD HH:mm')}，已超时{' '}
+              {dayjs().diff(dayjs(c.createdAt), 'hour')} 小时）
+            </li>
+          ))}
+          {overdue.length > 5 && <li>…等共 {overdue.length} 份</li>}
+        </ul>
+      }
+    />
+  );
+}
 
 export default function Dashboard() {
   const [overview, setOverview] = useState<any>({});
@@ -61,6 +128,7 @@ export default function Dashboard() {
 
   return (
     <>
+      <OverdueDraftReminder />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
