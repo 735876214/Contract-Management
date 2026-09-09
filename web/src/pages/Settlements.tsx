@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import { settlementApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
+import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 const money = (v: number) =>
@@ -189,6 +190,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
+          <ImportButton moduleName="结算台账" templateUrl={settlementApi.ledgerTemplateUrl()} uploadUrl={settlementApi.ledgerImportUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(settlementApi.exportLedgerUrl())}>导出台账</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
             新增台账

@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { ProjectService } from './project.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -16,6 +18,16 @@ export class ProjectController {
     return this.projectService.findAll(query, user);
   }
 
+  /** 下载填写模板（需求 3.3） */
+  @RequirePermissions('project:view')
+  @Get('template')
+  async template(@Res() res: Response) {
+    const { buffer, filename } = await this.projectService.template();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
   @RequirePermissions('project:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -26,6 +38,15 @@ export class ProjectController {
   @Post()
   create(@Body() body: any) {
     return this.projectService.create(body);
+  }
+
+  /** 上传导入数据（需求 3.4） */
+  @RequirePermissions('project:edit')
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  import(@UploadedFile() file: any) {
+    if (!file) return { created: 0, errors: ['未上传文件'] };
+    return this.projectService.importProjects(file.buffer);
   }
 
   @RequirePermissions('project:edit')

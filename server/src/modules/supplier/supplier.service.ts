@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult } from '../../common/utils/helpers';
+import { paginate, buildResult, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
 const SUPPLIER_FIELDS = [
@@ -17,6 +18,7 @@ export class SupplierService {
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private tpl: ImportTemplateService,
   ) {}
 
   /** 供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离 */
@@ -123,14 +125,16 @@ export class SupplierService {
   }
 
   async import(buffer: Buffer, projectId?: string) {
-    const rows = await this.excel.parse(buffer);
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
     let created = 0;
     let updated = 0;
     const errors: string[] = [];
     for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
       const name = String(r['供应商名称'] ?? '').trim();
       if (!name) {
-        errors.push(`第 ${index + 2} 行：供应商名称为空`);
+        errors.push(`第 ${rowNo} 行：供应商名称为必填项`);
         continue;
       }
       const data: any = {
@@ -159,5 +163,26 @@ export class SupplierService {
       }
     }
     return { created, updated, errors };
+  }
+
+  /** 供应商信息填写模板（需求 3.3，实际字段口径） */
+  async template() {
+    const columns: TemplateColumn[] = [
+      { label: '供应商名称', key: 'name', required: true, width: 26, example: '某某钢铁贸易有限公司', desc: '全局唯一' },
+      { label: '法人姓名', key: 'legalPerson', type: 'text', width: 12, example: '张三' },
+      { label: '法人电话', key: 'legalPhone', type: 'text', width: 14, example: '13800000001' },
+      { label: '合同授权人姓名', key: 'contractAuthPerson', type: 'text', width: 14, example: '李四' },
+      { label: '合同授权人电话', key: 'contractAuthPhone', type: 'text', width: 16, example: '13800000002' },
+      { label: '合同授权人身份证号', key: 'contractAuthIdNo', type: 'text', width: 20, example: '310101199001010011' },
+      { label: '联系人姓名', key: 'contactName', type: 'text', width: 12, example: '王五' },
+      { label: '联系人电话', key: 'contactPhone', type: 'text', width: 14, example: '13800000003' },
+      { label: '联系人邮箱', key: 'contactEmail', type: 'text', width: 20, example: 'wangwu@example.com' },
+      { label: '银行名称', key: 'bankName', type: 'text', width: 22, example: '中国建设银行上海分行' },
+      { label: '银行账号', key: 'bankAccount', type: 'text', width: 22, example: '31001234567890123456' },
+      { label: '公司地址', key: 'address', type: 'text', width: 30, example: '上海市浦东新区某某路 88 号' },
+      { label: '状态', key: 'status', type: 'select', width: 10, example: '启用', options: ['启用', '停用'] },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '供应商信息', sheetName: '数据', columns });
   }
 }

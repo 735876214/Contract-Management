@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExportOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { materialApi } from '@/api/modules';
 import { useTable } from '@/hooks/useTable';
+import ImportButton from '@/components/ImportButton';
 
 export default function Materials() {
   const { loading, list, params, search, reload, pagination } = useTable<any>((p) => materialApi.list(p));
@@ -33,36 +34,13 @@ export default function Materials() {
     }
   };
 
-  const importExcel = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(materialApi.importUrl(), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('cms_token')}` },
-        body: fd,
-      });
-      const body = await res.json();
-      if (body.code === 0) {
-        const d = body.data || {};
-        message.success(`导入完成：新增 ${d.created || 0}，更新 ${d.updated || 0}${d.errors?.length ? `，失败 ${d.errors.length} 条（首条：${d.errors[0]}）` : ''}`);
-        reload();
-      } else message.error(body.message);
-    };
-    input.click();
-  };
 
   return (
     <Card
       title="物资基础库"
       extra={
         <Space>
-          <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
+          <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(materialApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModal(true); }}>新增物资</Button>
         </Space>

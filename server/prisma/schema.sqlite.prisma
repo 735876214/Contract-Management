@@ -112,7 +112,6 @@ model Project {
   members      ProjectMember[]
   contracts    Contract[]
   dailyReports DailyReport[]
-  items        ContractItem[]
   settlements  Settlement[]
   ledgers      SettlementLedger[]
   plans        PaymentPlan[]
@@ -160,7 +159,6 @@ model Supplier {
 
   contracts   Contract[]
   reports     DailyReport[]
-  items       ContractItem[]
   repayments  RepaymentAgreement[]
   assets      AssetLedger[]
 }
@@ -182,6 +180,7 @@ model Contract {
   isSupplement       String? // dict: yes_no
   parentContractId   String? // 主合同ID（补充协议链）
   yearSeq            String? // 年度顺序码（合同编号生成规则，如 2026001）
+  codeAbbrUsed       String? // 编号第3段项目字母简称（生成时固化）
   supplementSeq      Int?    // 补充协议序号
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
@@ -201,7 +200,6 @@ model Contract {
   ext          ContractExt?
   attachments  ContractAttachment[]
   changeLogs   ContractChangeLog[]
-  items        ContractItem[]
   reports      DailyReport[]
   settlements  Settlement[]
   ledgers      SettlementLedger[]
@@ -359,30 +357,6 @@ model DailyReport {
   supplier Supplier? @relation(fields: [supplierId], references: [id])
 
   @@index([projectId, contractId])
-}
-
-// ---------------- 合同清单 ----------------
-
-model ContractItem {
-  id                String   @id @default(cuid())
-  projectId         String
-  contractId        String?
-  supplierId        String?
-  materialCategory  String?  // dict: material_category
-  materialName      String?
-  spec              String?
-  unit              String?  // dict: measurement_unit
-  qty               Decimal? 
-  costPrice         Decimal? 
-  taxRate           Decimal? 
-  comprehensivePrice Decimal? 
-  remark            String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  supplier Supplier? @relation(fields: [supplierId], references: [id])
 }
 
 // ---------------- 物资基础库 ----------------

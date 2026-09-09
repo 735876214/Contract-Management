@@ -9,6 +9,7 @@ import { supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import ImportButton from '@/components/ImportButton';
 
 const money = (v: any) =>
   v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -133,6 +134,7 @@ export default function Assets() {
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
+          <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} onUpload={(f) => assetApi.import(f)} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(assetApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增台账</Button>
         </Space>

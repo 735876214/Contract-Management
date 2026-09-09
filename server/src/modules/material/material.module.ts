@@ -7,5 +7,6 @@ import { DictModule } from '../dict/dict.module';
   imports: [DictModule],
   controllers: [MaterialController],
   providers: [MaterialService],
+  exports: [MaterialService],
 })
 export class MaterialModule {}

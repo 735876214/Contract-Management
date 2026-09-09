@@ -3,10 +3,11 @@ import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Tabs,
   Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { contractApi, supplierApi, projectApi } from '@/api/business';
+import { contractApi, supplierApi, projectApi, materialApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
+import ImportButton from '@/components/ImportButton';
 import { useAuthStore } from '@/store/auth';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
@@ -20,6 +21,7 @@ export default function Contracts() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
   const [supplier, setSupplier] = useState<any>(null);
   const [attachments, setAttachments] = useState<UploadFile[]>([]);
   const [codeStatus, setCodeStatus] = useState<'' | 'error' | 'success'>('');
@@ -33,6 +35,7 @@ export default function Contracts() {
 
   useEffect(() => {
     supplierApi.options().then((res: any) => setSuppliers(res || []));
+    materialApi.options().then((res: any) => setMaterials(res || []));
   }, []);
 
   // 当前项目（用于编号第3段字母简称）
@@ -107,15 +110,18 @@ export default function Contracts() {
       message.error('合同编号已存在，请修改');
       return;
     }
+    const materialIds = values.materialIds;
+    delete values.materialIds;
     const payload = {
       ...values,
       signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
       attachments,
       ext: extForm.getFieldsValue(),
+      materialIds: editing ? undefined : materialIds, // 仅创建时派生清单
     };
     if (editing) await contractApi.update(editing.id, payload);
     else await contractApi.create(payload);
-    message.success('保存成功');
+    message.success(editing ? '保存成功' : '保存成功，已按所选物资生成合同物资清单');
     setModal(false);
     form.resetFields();
     extForm.resetFields();
@@ -151,35 +157,13 @@ export default function Contracts() {
     setChanges(ch || []);
   };
 
-  const importExcel = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(contractApi.importUrl(), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('cms_token')}` },
-        body: fd,
-      });
-      const body = await res.json();
-      if (body.code === 0) {
-        message.success(`导入完成：新增 ${body.data.created} 条${body.data.errors?.length ? `，${body.data.errors.length} 条失败` : ''}`);
-        reload();
-      } else message.error(body.message);
-    };
-    input.click();
-  };
 
   return (
     <Card
       title="合同管理"
       extra={
         <Space>
-          <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
+          <ImportButton moduleName="合同台账" templateUrl={contractApi.templateUrl()} uploadUrl={contractApi.importUrl()} onDone={reload} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); extForm.resetFields(); setSupplier(null); setAttachments([]); setModal(true); }}>
             新建合同
           </Button>
@@ -280,6 +264,25 @@ export default function Contracts() {
                     <Col xs={24} md={8}>
                       <Form.Item name="signDate" label="签订日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
                     </Col>
+                    {!editing && (
+                      <Col xs={24} md={16}>
+                        <Form.Item
+                          name="materialIds"
+                          label="初始物资（从项目物资清单派生合同清单，可多选）"
+                          extra="创建合同后将按所选物资自动生成合同物资清单（唯一数据源），也可之后在「合同物资清单」页面派生或导入。"
+                        >
+                          <Select
+                            mode="multiple"
+                            showSearch
+                            optionFilterProp="label"
+                            allowClear
+                            maxTagCount={4}
+                            placeholder="选择物资（可留空，稍后在合同物资清单中派生）"
+                            options={materials.map((m) => ({ value: m.id, label: `${m.name} / ${m.spec}` }))}
+                          />
+                        </Form.Item>
+                      </Col>
+                    )}
                     <Col xs={24} md={8}>
                       <Form.Item name="amount" label="合同额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
                     </Col>

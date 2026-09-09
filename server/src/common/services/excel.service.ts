@@ -20,22 +20,39 @@ export class ExcelService {
     return Buffer.from(buf);
   }
 
-  /** 解析上传的 Excel：表头 -> 数据行（对象数组） */
-  async parse(buffer: Buffer): Promise<any[]> {
+  /**
+   * 解析上传的 Excel：表头 -> 数据行（对象数组）
+   * @param skipRowNumbers 需要跳过的行号（1 基），如填写模板的示例行固定为第 2 行
+   */
+  async parse(buffer: Buffer, skipRowNumbers: number[] = []): Promise<any[]> {
+    const skip = new Set(skipRowNumbers);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as any);
     const ws = wb.worksheets[0];
     if (!ws) return [];
     const headers: string[] = [];
-    ws.getRow(1).eachCell((cell) => headers.push(String(cell.value ?? '').trim()));
+    ws.getRow(1).eachCell((cell) => {
+      // 填写模板表头的必填列带 * 前缀，解析时统一去除，导入端按原始列名取值
+      headers.push(String(cell.value ?? '').trim().replace(/^\*/, ''));
+    });
     const rows: any[] = [];
     ws.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
+      if (rowNumber === 1 || skip.has(rowNumber)) return;
       const obj: any = {};
       headers.forEach((h, i) => {
         if (!h) return;
         const cell: any = row.getCell(i + 1).value;
-        obj[h] = cell && typeof cell === 'object' && 'text' in cell ? cell.text : cell;
+        let v: any;
+        if (cell && typeof cell === 'object' && 'text' in cell) v = cell.text;
+        else if (cell && typeof cell === 'object' && 'result' in cell) v = cell.result;
+        else v = cell;
+        // 日期单元格统一为 YYYY-MM-DD 字符串，便于各模块按文本日期解析
+        if (v instanceof Date) {
+          v = Number.isNaN(v.getTime())
+            ? null
+            : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+        }
+        obj[h] = v;
       });
       if (Object.values(obj).some((v) => v !== null && v !== undefined && v !== '')) rows.push(obj);
     });

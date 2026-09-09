@@ -352,8 +352,6 @@ const PERMISSIONS = [
   { code: 'template:edit', name: '维护模板', module: '合同模板' },
   { code: 'daily:view', name: '查看日报', module: '日报管理' },
   { code: 'daily:edit', name: '维护日报', module: '日报管理' },
-  { code: 'item:view', name: '查看合同清单', module: '合同清单' },
-  { code: 'item:edit', name: '维护合同清单', module: '合同清单' },
   { code: 'material:view', name: '查看物资基础库', module: '物资管理' },
   { code: 'material:edit', name: '维护物资与合同物资清单', module: '物资管理' },
   { code: 'settlement:view', name: '查看结算', module: '结算管理' },
@@ -649,16 +647,30 @@ async function main() {
     contracts.push(created);
   }
 
-  // ---------- 合同清单 ----------
-  if ((await prisma.contractItem.count({ where: { projectId: project.id } })) === 0) {
-    await prisma.contractItem.createMany({
-      data: [
-        { projectId: project.id, contractId: contracts[0].id, supplierId: suppliers[1].id, materialCategory: 'ENG', materialName: '螺纹钢 HRB400E Φ20', spec: 'Φ20', unit: 'T', qty: 1200, costPrice: 3850, taxRate: 0.13, comprehensivePrice: 4350.5 },
-        { projectId: project.id, contractId: contracts[0].id, supplierId: suppliers[1].id, materialCategory: 'ENG', materialName: '盘螺 HRB400E Φ8', spec: 'Φ8', unit: 'T', qty: 600, costPrice: 3720, taxRate: 0.13, comprehensivePrice: 4203.6 },
-        { projectId: project.id, contractId: contracts[1].id, supplierId: suppliers[2].id, materialCategory: 'LEASE', materialName: '塔吊 QTZ63', spec: 'QTZ63', unit: 'UNIT', qty: 4, costPrice: 28000, taxRate: 0.09, comprehensivePrice: 30520 },
-        { projectId: project.id, contractId: contracts[2].id, supplierId: suppliers[0].id, materialCategory: 'ENG', materialName: '商品砼 C30', spec: 'C30', unit: 'M3', qty: 20000, costPrice: 420, taxRate: 0.13, comprehensivePrice: 474.6 },
-      ],
-    });
+  // ---------- 物资基础库 + 合同物资清单（统一数据源：由物资库派生） ----------
+  if ((await prisma.materialBase.count()) === 0) {
+    const bases: any[] = [];
+    for (const b of [
+      { name: '螺纹钢 HRB400E', spec: 'Φ20', mdmCode: 'MDM-GC-001', dscCode: 'DSC-001' },
+      { name: '盘螺 HRB400E', spec: 'Φ8', mdmCode: 'MDM-GC-002', dscCode: 'DSC-002' },
+      { name: '塔吊', spec: 'QTZ63', mdmCode: 'MDM-JX-001', dscCode: 'DSC-003' },
+      { name: '商品砼', spec: 'C30', mdmCode: 'MDM-SC-001', dscCode: 'DSC-004' },
+    ]) {
+      bases.push(await prisma.materialBase.create({ data: b }));
+    }
+    const pick = (name: string, spec: string) => bases.find((b: any) => b.name === name && b.spec === spec)!;
+    const rows: any[] = [
+      { contractId: contracts[0].id, materialBaseId: pick('螺纹钢 HRB400E', 'Φ20').id, unit: 'T', qty: 1200, priceBeforeTax: 3850, taxRatePct: 13, remark: '' },
+      { contractId: contracts[0].id, materialBaseId: pick('盘螺 HRB400E', 'Φ8').id, unit: 'T', qty: 600, priceBeforeTax: 3720, taxRatePct: 13, remark: '' },
+      { contractId: contracts[1].id, materialBaseId: pick('塔吊', 'QTZ63').id, unit: '台', qty: 4, priceBeforeTax: 28000, taxRatePct: 9, remark: '' },
+      { contractId: contracts[2].id, materialBaseId: pick('商品砼', 'C30').id, unit: 'm³', qty: 20000, priceBeforeTax: 420, taxRatePct: 13, remark: '' },
+    ];
+    for (const [i, r] of rows.entries()) {
+      const priceWithTax = Math.round(r.priceBeforeTax * (1 + r.taxRatePct / 100) * 10000) / 10000;
+      await prisma.contractMaterial.create({
+        data: { ...r, sortOrder: i + 1, priceWithTax, totalWithTax: Math.round(r.qty * priceWithTax * 10000) / 10000 },
+      });
+    }
   }
 
   // ---------- 日报 ----------

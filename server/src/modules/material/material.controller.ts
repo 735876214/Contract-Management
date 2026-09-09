@@ -47,6 +47,16 @@ export class MaterialController {
     res.end(buffer);
   }
 
+  /** 下载填写模板（需求 3.3） */
+  @RequirePermissions('material:view')
+  @Get('materials/template')
+  async templateBases(@Res() res: Response) {
+    const { buffer, filename } = await this.service.templateBases();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
   @RequirePermissions('material:edit')
   @Post('materials/import')
   @UseInterceptors(FileInterceptor('file'))
@@ -85,6 +95,23 @@ export class MaterialController {
   @Get('contract-materials')
   findRows(@Query('contractId') contractId: string) {
     return this.service.findRows(contractId);
+  }
+
+  /** 下载填写模板（需求 3.3） */
+  @RequirePermissions('material:view')
+  @Get('contract-materials/template')
+  async templateRows(@Res() res: Response) {
+    const { buffer, filename } = await this.service.templateRows();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
+  /** 派生清单（需求 2.3）：从物资基础库按所选物资重新生成，序号从 1 开始 */
+  @RequirePermissions('material:edit')
+  @Post('contract-materials/derive')
+  derive(@Body() body: any) {
+    return this.service.derive(String(body?.contractId || ''), Array.isArray(body?.materialIds) ? body.materialIds : []);
   }
 
   @RequirePermissions('material:view')

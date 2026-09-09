@@ -47,6 +47,16 @@ export class InvoiceController {
     res.end(buffer);
   }
 
+  /** 下载填写模板（需求 3.3） */
+  @RequirePermissions('invoice:view')
+  @Get('template')
+  async template(@ProjectId() projectId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.service.template(projectId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
   @RequirePermissions('invoice:view')
   @Get('applies')
   findApplies(@Query() query: any, @ProjectId() projectId: string) {

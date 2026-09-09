@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, fmtDate, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
+import { MaterialService } from '../material/material.service';
 
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
@@ -40,6 +42,8 @@ export class ContractService {
     private dict: DictService,
     private sysParam: SysParamService,
     private excel: ExcelService,
+    private tpl: ImportTemplateService,
+    private material: MaterialService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -276,6 +280,12 @@ export class ContractService {
         data: attachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
       });
     }
+    // 需求 2.1/2.3：创建合同时可从物资基础库（项目物资清单数据源）选择物资，
+    // 派生生成合同物资清单（唯一数据源），序号从 1 开始
+    const materialIds = Array.isArray(data.materialIds) ? data.materialIds : [];
+    if (materialIds.length) {
+      await this.material.derive(contract.id, materialIds);
+    }
     return this.findOne(contract.id);
   }
 
@@ -373,7 +383,8 @@ export class ContractService {
 
   // ---------------- Excel ----------------
   async import(buffer: Buffer, projectId: string, user: any) {
-    const rows = await this.excel.parse(buffer);
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
     // 导入时支持填写字典项编码或名称，自动解析为编码
     const resolve = async (type: string, val: any) => {
       if (!val) return null;
@@ -384,28 +395,42 @@ export class ContractService {
     let created = 0;
     const errors: string[] = [];
     for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
       const code = String(r['合同编号'] ?? '').trim();
       if (!code) {
-        errors.push(`第 ${index + 2} 行：合同编号为空`);
+        errors.push(`第 ${rowNo} 行：合同编号为必填项`);
         continue;
       }
       const { exists } = await this.checkCode(code, projectId);
       if (exists) {
-        errors.push(`第 ${index + 2} 行：合同编号 ${code} 已存在`);
+        errors.push(`第 ${rowNo} 行：唯一性校验失败，合同编号 ${code} 已存在`);
         continue;
       }
       const supplierName = String(r['供应商'] ?? '').trim();
-      const supplier = supplierName ? await this.prisma.supplier.findFirst({ where: { name: supplierName } }) : null;
+      if (!supplierName) {
+        errors.push(`第 ${rowNo} 行：供应商为必填项`);
+        continue;
+      }
+      const supplier = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
+      if (!supplier) {
+        errors.push(`第 ${rowNo} 行：关联校验失败，供应商库中不存在「${supplierName}」`);
+        continue;
+      }
+      const amount = num(r['合同额']);
+      if (amount === null) {
+        errors.push(`第 ${rowNo} 行：合同额为必填数字`);
+        continue;
+      }
       try {
         await this.create(
           {
             code,
             name: r['合同名称'] || code,
             typeCode: await resolve('contract_type', r['合同类型']),
-            supplierId: supplier?.id,
+            supplierId: supplier.id,
             signDate: r['签订日期'] || null,
-            amount: num(r['合同额']),
-            taxRate: num(r['税率']),
+            amount,
+            taxRate: num(r['税率(%)']) != null ? num(r['税率(%)']) : num(r['税率']),
             remark: r['备注'] || null,
           },
           projectId,
@@ -413,9 +438,25 @@ export class ContractService {
         );
         created++;
       } catch (e: any) {
-        errors.push(`第 ${index + 2} 行：${e.message}`);
+        errors.push(`第 ${rowNo} 行：${e.message}`);
       }
     }
     return { created, errors };
+  }
+
+  /** 合同台账填写模板（需求 3.3，实际字段口径） */
+  async template(projectId: string) {
+    const types = await this.dict.options('contract_type');
+    const columns: TemplateColumn[] = [
+      { label: '合同编号', key: 'code', required: true, width: 20, example: 'HT-2026-0001', desc: '项目内唯一，按编号规则填写' },
+      { label: '合同名称', key: 'name', required: true, width: 28, example: '螺纹钢采购合同' },
+      { label: '合同类型', key: 'typeCode', type: 'select', width: 16, example: '采购合同', options: types.map((i: any) => i.itemName).filter(Boolean) },
+      { label: '供应商', key: 'supplier', required: true, width: 26, example: '某某钢铁贸易有限公司', desc: '须为供应商库中已存在的供应商名称' },
+      { label: '签订日期', key: 'signDate', type: 'date', width: 14, example: '2026-08-20' },
+      { label: '合同额', key: 'amount', required: true, type: 'money', width: 16, example: 6900000 },
+      { label: '税率(%)', key: 'taxRatePct', type: 'number', width: 10, example: 13, desc: '百分比数字，常见值 13、9、6、3、1' },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '合同台账', sheetName: '数据', columns });
   }
 }

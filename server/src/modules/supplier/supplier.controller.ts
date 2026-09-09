@@ -46,6 +46,16 @@ export class SupplierController {
     res.end(buffer);
   }
 
+  /** 下载填写模板（需求 3.3，须声明在 :id 通配路由之前） */
+  @RequirePermissions('supplier:view')
+  @Get('template')
+  async template(@Res() res: Response) {
+    const { buffer, filename } = await this.supplierService.template();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
   @RequirePermissions('supplier:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -83,4 +93,5 @@ export class SupplierController {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
     return this.supplierService.import(file.buffer, projectId);
   }
+
 }

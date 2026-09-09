@@ -1,3 +1,5 @@
+import { BadRequestException } from '@nestjs/common';
+
 /** Decimal / null 安全转 number */
 export function num(v: any): number | null {
   if (v === null || v === undefined || v === '') return null;
@@ -56,4 +58,21 @@ export function fmtDate(v: any): string | null {
   if (!d) return null;
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 单次导入最大行数（需求 3.4 性能要求） */
+export const IMPORT_MAX_ROWS = 5000;
+
+/** 导入行数上限校验，超出时抛错提示分批 */
+export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
+  if (rows.length > max) {
+    throw new BadRequestException(`单次导入最多 ${max} 行，当前 ${rows.length} 行，请分批导入（每批不超过 ${max} 行）`);
+  }
+}
+
+/** 数字单元格取值：空串/非法数字返回 null */
+export function numOrNull(v: any): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }

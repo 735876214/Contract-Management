@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { SettlementService } from './settlement.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,6 +31,25 @@ export class SettlementController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=settlement-ledger.xlsx');
     res.end(buffer);
+  }
+
+  /** 下载填写模板（需求 3.3） */
+  @RequirePermissions('settlement:view')
+  @Get('ledger/template')
+  async templateLedger(@ProjectId() projectId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.service.templateLedger(projectId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
+  /** 上传导入数据（需求 3.4） */
+  @RequirePermissions('settlement:edit')
+  @Post('ledger/import')
+  @UseInterceptors(FileInterceptor('file'))
+  importLedger(@UploadedFile() file: any, @ProjectId() projectId: string) {
+    if (!file) return { created: 0, errors: ['未上传文件'] };
+    return this.service.importLedger(file.buffer, projectId);
   }
 
   @RequirePermissions('settlement:view')

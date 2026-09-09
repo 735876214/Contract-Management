@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict/dict.service';
 
@@ -23,6 +24,7 @@ export class AssetService {
     private dict: DictService,
     private excel: ExcelService,
     private styled: StyledExcelService,
+    private tpl: ImportTemplateService,
   ) {}
 
   /** 计算派生金额字段（需求 2.6：数量 × 单价 自动） */
@@ -172,5 +174,105 @@ export class AssetService {
       },
     });
     return { buffer, filename: `资产管理台账-${project?.name || ''}.xlsx` };
+  }
+
+  /** 资产管理台账填写模板（需求 3.3，实际字段口径） */
+  async template() {
+    const [source, catL1, catFocus, unit] = await Promise.all([
+      this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
+      this.dict.options('asset_category_focus'), this.dict.options('measurement_unit'),
+    ]);
+    const names = (list: any[]) => list.map((i: any) => i.itemName).filter(Boolean);
+    const columns: TemplateColumn[] = [
+      { label: '日期', key: 'date', required: true, type: 'date', width: 14, example: '2026-09-01' },
+      { label: '来源', key: 'sourceName', required: true, type: 'select', width: 14, example: '采购', options: names(source) },
+      { label: '资产类别（一级）', key: 'categoryL1Name', required: true, type: 'select', width: 18, example: '大型设备', options: names(catL1) },
+      { label: '资产类别（重点关注）', key: 'categoryFocusName', type: 'select', width: 20, example: '', options: names(catFocus) },
+      { label: '资产名称', key: 'name', required: true, type: 'text', width: 20, example: '塔式起重机' },
+      { label: '规格型号', key: 'spec', type: 'text', width: 18, example: 'QTZ80' },
+      { label: '单位', key: 'unitName', type: 'select', width: 10, example: '台', options: names(unit) },
+      { label: '进/出场数量', key: 'qty', type: 'qty', width: 14, example: 2, desc: '「调入费/维保费」行无需填写' },
+      { label: '进/出场单价（金额）', key: 'price', required: true, type: 'money', width: 20, example: 5000.5 },
+      { label: '领用单位/部门', key: 'receiveUnit', type: 'text', width: 18, example: '一标段' },
+      { label: '责任人', key: 'responsible', type: 'text', width: 12, example: '王强' },
+      { label: '在用数量', key: 'inUseQty', type: 'qty', width: 12, example: 1, desc: '在用/闲置/报废/丢失数量合计应等于进/出场数量' },
+      { label: '闲置数量', key: 'idleQty', type: 'qty', width: 12, example: 1 },
+      { label: '报废数量', key: 'scrapQty', type: 'qty', width: 12, example: 0 },
+      { label: '丢失数量', key: 'lostQty', type: 'qty', width: 12, example: 0 },
+      { label: '周转次数（含本次）', key: 'turnoverCount', type: 'int', width: 16, example: 1 },
+      { label: '原值单价', key: 'originalPrice', type: 'money', width: 12, example: 6000 },
+      { label: '调出物资本项目进场时单价', key: 'transferOutPrice', type: 'money', width: 24, example: 0 },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({
+      moduleName: '资产管理台账',
+      sheetName: '数据',
+      columns,
+      extraNotes: ['提示：进/出场总额、在用/闲置/报废/丢失金额、原值总额、调出进场金额均由系统按「数量 × 单价」自动计算，无需填写。'],
+    });
+  }
+
+  /** 资产管理台账上传导入（需求 3.4）：字典名称→编码解析、状态数量校验、新增不覆盖 */
+  async importAssets(buffer: Buffer, projectId: string) {
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
+    const [source, catL1, catFocus, unit] = await Promise.all([
+      this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
+      this.dict.options('asset_category_focus'), this.dict.options('measurement_unit'),
+    ]);
+    const codeOf = (items: any[], val: any) =>
+      val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
+    let created = 0;
+    const errors: string[] = [];
+    for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
+      try {
+        const name = String(r['资产名称'] ?? '').trim();
+        if (!name) throw new Error('资产名称为必填项');
+        const sourceVal = String(r['来源'] ?? '').trim();
+        if (!sourceVal) throw new Error('来源为必填项');
+        const sourceCode = codeOf(source, sourceVal);
+        if (!sourceCode) throw new Error(`下拉校验失败：「${sourceVal}」不在资产来源选项范围内`);
+        const catL1Val = String(r['资产类别（一级）'] ?? '').trim();
+        if (!catL1Val) throw new Error('资产类别（一级）为必填项');
+        const categoryL1Code = codeOf(catL1, catL1Val);
+        if (!categoryL1Code) throw new Error(`下拉校验失败：「${catL1Val}」不在资产类别选项范围内`);
+        const price = num(r['进/出场单价（金额）']);
+        if (price === null) throw new Error('进/出场单价（金额）为必填数字');
+        const qty = num(r['进/出场数量']);
+        const statusSum = (num(r['在用数量']) || 0) + (num(r['闲置数量']) || 0) + (num(r['报废数量']) || 0) + (num(r['丢失数量']) || 0);
+        if (qty !== null && statusSum > 0 && Math.abs(statusSum - qty) > 0.0001) {
+          throw new Error(`在用/闲置/报废/丢失数量合计（${statusSum}）应等于进/出场数量（${qty}）`);
+        }
+        await this.create(
+          {
+            date: r['日期'] || null,
+            sourceCode,
+            categoryL1Code,
+            categoryFocusCode: codeOf(catFocus, r['资产类别（重点关注）']),
+            name,
+            spec: String(r['规格型号'] ?? '').trim() || null,
+            unit: codeOf(unit, r['单位']),
+            qty,
+            price,
+            receiveUnit: String(r['领用单位/部门'] ?? '').trim() || null,
+            responsible: String(r['责任人'] ?? '').trim() || null,
+            inUseQty: num(r['在用数量']),
+            idleQty: num(r['闲置数量']),
+            scrapQty: num(r['报废数量']),
+            lostQty: num(r['丢失数量']),
+            turnoverCount: num(r['周转次数（含本次）']),
+            originalPrice: num(r['原值单价']),
+            transferOutPrice: num(r['调出物资本项目进场时单价']),
+            remark: String(r['备注'] ?? '').trim() || null,
+          },
+          projectId,
+        );
+        created++;
+      } catch (e: any) {
+        errors.push(`第 ${rowNo} 行：${e.message}`);
+      }
+    }
+    return { created, errors };
   }
 }

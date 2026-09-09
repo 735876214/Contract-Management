@@ -3,12 +3,12 @@ import http from './http';
 // 其余业务模块的 API 定义在 modules.ts 中，此处统一再导出，便于页面按需引入
 export {
   dailyApi,
-  itemApi,
   settlementApi,
   paymentApi,
   invoiceApi,
   ledgerApi,
   repaymentApi,
+  materialApi,
   notificationApi,
   dashboardApi,
 } from './modules';
@@ -22,6 +22,12 @@ export const projectApi = {
   members: (id: string) => http.get<any, any>(`/projects/${id}/members`),
   addMember: (id: string, data: { userId: string; roleCode: string }) => http.post<any, any>(`/projects/${id}/members`, data),
   removeMember: (id: string, userId: string) => http.delete<any, any>(`/projects/${id}/members/${userId}`),
+  templateUrl: () => `${http.defaults.baseURL}/projects/template`,
+  import: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post<any, any>('/projects/import', fd);
+  },
 };
 
 export const supplierApi = {
@@ -33,6 +39,7 @@ export const supplierApi = {
   remove: (id: string) => http.delete<any, any>(`/suppliers/${id}`),
   toggle: (id: string) => http.post<any, any>(`/suppliers/${id}/toggle`),
   exportUrl: () => `${http.defaults.baseURL}/suppliers/export`,
+  templateUrl: () => `${http.defaults.baseURL}/suppliers/template`,
   importUrl: () => `${http.defaults.baseURL}/suppliers/import`,
 };
 
@@ -48,6 +55,7 @@ export const contractApi = {
   nextCode: (params: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) =>
     http.get<any, any>('/contracts/next-code', { params }),
   nextSupplementCode: (id: string) => http.get<any, any>(`/contracts/${id}/next-supplement-code`),
+  templateUrl: () => `${http.defaults.baseURL}/contracts/template`,
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),

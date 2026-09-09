@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 
@@ -24,6 +25,7 @@ export class InvoiceService {
     private dict: DictService,
     private excel: ExcelService,
     private styled: StyledExcelService,
+    private tpl: ImportTemplateService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -258,7 +260,8 @@ export class InvoiceService {
   }
 
   async import(buffer: Buffer, projectId: string) {
-    const rows = await this.excel.parse(buffer);
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
@@ -267,12 +270,18 @@ export class InvoiceService {
     let created = 0;
     const errors: string[] = [];
     for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
       try {
         const contractCode = String(r['合同编号'] ?? '').trim();
-        const contract = contractCode ? await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } }) : null;
+        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
+        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
+        // 税率支持两种口径：13（百分比）或 0.13（小数）
+        const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
+        const taxRate = taxRaw !== null && taxRaw > 1 ? taxRaw / 100 : taxRaw;
         await this.create(
           {
-            contractId: contract?.id,
+            contractId: contract.id,
             goodsCategory: codeOf(goods, r['商品类别']),
             settlePeriod: r['结算账期'] || null,
             issuer: r['开票单位'] || null,
@@ -280,7 +289,7 @@ export class InvoiceService {
             invoiceCode: r['发票代码'] || null,
             invoiceNo: r['发票号码'] || null,
             amountBeforeTax: num(r['税前金额']),
-            taxRate: num(r['税率']),
+            taxRate,
             amountWithTax: num(r['含税金额']),
             receiveDate: r['发票收取时间'] ? new Date(r['发票收取时间']) : null,
             reviewStatus: codeOf(review, r['发票信息审核']),
@@ -294,9 +303,38 @@ export class InvoiceService {
         );
         created++;
       } catch (e: any) {
-        errors.push(`第 ${index + 2} 行：${e.message}`);
+        errors.push(`第 ${rowNo} 行：${e.message}`);
       }
     }
     return { created, errors };
+  }
+
+  /** 发票台账填写模板（需求 3.3，实际字段口径） */
+  async template(projectId: string) {
+    const [goods, review, finance, status, types] = await Promise.all([
+      this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
+      this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
+    ]);
+    const names = (list: any[]) => list.map((i: any) => i.itemName).filter(Boolean);
+    const columns: TemplateColumn[] = [
+      { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },
+      { label: '发票类型', key: 'typeCode', type: 'select', width: 16, example: '增值税专用发票', options: names(types) },
+      { label: '商品类别', key: 'goodsCategory', type: 'select', width: 16, example: '工程物资', options: names(goods) },
+      { label: '结算账期', key: 'settlePeriod', type: 'text', width: 14, example: '2026-09', desc: '格式 YYYY-MM' },
+      { label: '开票单位', key: 'issuer', type: 'text', width: 26, example: '某某钢铁贸易有限公司' },
+      { label: '开票日期', key: 'invoiceDate', type: 'date', width: 14, example: '2026-09-01' },
+      { label: '发票代码', key: 'invoiceCode', type: 'text', width: 18, example: '5110231140', desc: '全电发票可留空' },
+      { label: '发票号码', key: 'invoiceNo', required: true, type: 'text', width: 18, example: '26358871', desc: '同项目内唯一' },
+      { label: '税前金额', key: 'amountBeforeTax', type: 'money', width: 14, example: 12345.67 },
+      { label: '税率(%)', key: 'taxRatePct', type: 'number', width: 10, example: 13, desc: '百分比数字，如 13 表示 13%' },
+      { label: '含税金额', key: 'amountWithTax', type: 'money', width: 14, example: 13950.61 },
+      { label: '发票收取时间', key: 'receiveDate', type: 'date', width: 14, example: '2026-09-05' },
+      { label: '发票信息审核', key: 'reviewStatus', type: 'select', width: 16, example: '待审核', options: names(review) },
+      { label: '责任人', key: 'responsiblePerson', type: 'text', width: 12, example: '王强' },
+      { label: '财务移交情况', key: 'financeTransferStatus', type: 'select', width: 16, example: '未移交', options: names(finance) },
+      { label: '状态', key: 'statusCode', type: 'select', width: 14, example: '待查验', options: names(status) },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '发票台账', sheetName: '数据', columns });
   }
 }

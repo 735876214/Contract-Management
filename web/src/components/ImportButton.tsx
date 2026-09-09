@@ -1,0 +1,186 @@
+import { useRef, useState } from 'react';
+import { Button, Modal, message, Alert, Typography } from 'antd';
+import { ImportOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
+import http from '@/api/http';
+
+/**
+ * 通用「导入」二级菜单按钮（需求 3.1 / 3.2）
+ *
+ * 点击「导入」→ 弹出二级菜单：
+ *  ① 📄 下载填写模板 —— 导出空白模板（表头带 * 必填标注、示例行、下拉/日期/数字验证、填写说明页）
+ *  ② 📤 上传导入数据 —— 上传填写好的模板文件，校验后写入数据库，并展示导入结果/错误报告
+ */
+
+export interface ImportResult {
+  created?: number;
+  updated?: number;
+  errors?: string[];
+}
+
+interface Props {
+  /** 模块名称，如「合同物资清单」，用于弹窗标题 */
+  moduleName: string;
+  /** 填写模板下载地址（自动附加 ?token= 以支持浏览器直接下载） */
+  templateUrl?: string | (() => string);
+  /** 上传导入地址（POST multipart/form-data，字段名 file）；函数形式可动态构造（如携带 contractId） */
+  uploadUrl?: string | ((file: File) => string);
+  /** 自定义上传实现（优先级高于 uploadUrl），返回 { created, updated, errors } */
+  onUpload?: (file: File) => Promise<ImportResult>;
+  disabled?: boolean;
+  /** 导入成功后回调（如刷新列表） */
+  onDone?: () => void;
+  /** 上传完成的额外提示（如「重复行将被跳过」） */
+  extraHint?: string;
+}
+
+/** 为下载链接附加 token（window.open 无法携带 Authorization 头，后端 JWT 策略支持 ?token=） */
+function withToken(url: string): string {
+  const token = localStorage.getItem('cms_token') || '';
+  return url + (url.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
+}
+
+export default function ImportButton({
+  moduleName,
+  templateUrl,
+  uploadUrl,
+  onUpload,
+  disabled,
+  onDone,
+  extraHint,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<'menu' | 'result'>('menu');
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const reset = () => {
+    setStage('menu');
+    setResult(null);
+    setUploading(false);
+  };
+
+  const doDownload = () => {
+    if (!templateUrl) return;
+    const url = typeof templateUrl === 'function' ? templateUrl() : templateUrl;
+    window.open(withToken(url));
+    message.success('填写模板已开始下载');
+  };
+
+  const pickFile = () => {
+    fileRef.current?.click();
+  };
+
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      let res: ImportResult;
+      if (onUpload) {
+        res = await onUpload(file);
+      } else {
+        const url = typeof uploadUrl === 'function' ? uploadUrl(file) : uploadUrl || '';
+        const fd = new FormData();
+        fd.append('file', file);
+        res = await http.post<any, ImportResult>(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+      setResult(res || {});
+      setStage('result');
+      const errs = res?.errors || [];
+      if (errs.length) message.warning(`导入完成，${errs.length} 行失败，详见报告`);
+      else message.success(`导入成功：新增 ${res?.created ?? 0}${res?.updated != null ? `，更新 ${res?.updated}` : ''}`);
+      onDone?.();
+    } catch {
+      // 错误已由 http 拦截器统一提示
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const errCount = result?.errors?.length || 0;
+
+  return (
+    <>
+      <Button icon={<ImportOutlined />} disabled={disabled} onClick={() => { reset(); setOpen(true); }}>
+        导入
+      </Button>
+      <Modal
+        title={`【${moduleName}】导入数据`}
+        open={open}
+        onCancel={() => setOpen(false)}
+        width={520}
+        destroyOnClose
+        footer={
+          stage === 'menu'
+            ? [<Button key="cancel" onClick={() => setOpen(false)}>取消</Button>]
+            : [
+                <Button key="back" onClick={reset}>返回</Button>,
+                <Button key="close" type="primary" onClick={() => setOpen(false)}>关闭</Button>,
+              ]
+        }
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          style={{ display: 'none' }}
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+        {stage === 'menu' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+            <div style={{ marginBottom: 4 }}>
+              <Typography.Text type="secondary">请选择操作：</Typography.Text>
+            </div>
+            <Button
+              size="large"
+              style={{ textAlign: 'left', height: 72, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center' }}
+              icon={<DownloadOutlined style={{ fontSize: 22, color: '#1677ff' }} />}
+              onClick={doDownload}
+              disabled={!templateUrl}
+            >
+              <span style={{ fontWeight: 600 }}>下载填写模板</span>
+              <span style={{ fontSize: 12, color: '#999' }}>导出空白 Excel 模板，按格式要求填写数据</span>
+            </Button>
+            <Button
+              size="large"
+              style={{ textAlign: 'left', height: 72, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center' }}
+              icon={<UploadOutlined style={{ fontSize: 22, color: '#52c41a' }} />}
+              onClick={pickFile}
+              loading={uploading}
+              disabled={!uploadUrl && !onUpload}
+            >
+              <span style={{ fontWeight: 600 }}>上传导入数据</span>
+              <span style={{ fontSize: 12, color: '#999' }}>上传已填写好的模板文件，校验通过后写入系统</span>
+            </Button>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              单次导入最多 5000 行；导入默认为新增数据，不覆盖已有数据。{extraHint || ''}
+            </Typography.Text>
+          </div>
+        ) : (
+          <div style={{ padding: '8px 0' }}>
+            <Alert
+              type={errCount ? 'warning' : 'success'}
+              showIcon
+              message={`导入完成：新增 ${result?.created ?? 0}${result?.updated != null ? `，更新 ${result?.updated}` : ''}${errCount ? `，失败 ${errCount} 行` : ''}`}
+              style={{ marginBottom: 12 }}
+            />
+            {errCount > 0 && (
+              <Alert
+                type="error"
+                message="错误报告（行号 + 原因）"
+                description={
+                  <ul style={{ maxHeight: 240, overflowY: 'auto', paddingLeft: 18, margin: '4px 0 0' }}>
+                    {result!.errors!.map((e, i) => (
+                      <li key={i} style={{ color: '#d4380d', lineHeight: '20px' }}>{e}</li>
+                    ))}
+                  </ul>
+                }
+              />
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}

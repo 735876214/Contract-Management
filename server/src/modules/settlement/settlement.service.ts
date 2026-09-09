@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const SETTLE_FIELDS = [
@@ -23,6 +24,7 @@ export class SettlementService {
     private dict: DictService,
     private excel: ExcelService,
     private styled: StyledExcelService,
+    private tpl: ImportTemplateService,
   ) {}
 
   // ---------------- 结算单 ----------------
@@ -285,5 +287,74 @@ export class SettlementService {
       totalsKeys: ['monthSettleAmount', 'monthInvoiceAmount', 'monthActualPurchase', 'factoringDiscount', 'overdueInterest'],
       totalsLabel: '汇总',
     });
+  }
+
+  /** 结算台账填写模板（需求 3.3，实际字段口径） */
+  async templateLedger(projectId: string) {
+    const yesNo = await this.dict.options('yes_no');
+    const columns: TemplateColumn[] = [
+      { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },
+      { label: '结算月份', key: 'settleMonth', required: true, type: 'text', width: 14, example: '2026-08', desc: '格式 YYYY-MM' },
+      { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89 },
+      { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72 },
+      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2 },
+      { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000 },
+      { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000 },
+      { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000 },
+      { label: '保理贴息', key: 'factoringDiscount', type: 'money', width: 14, example: 12345.67 },
+      { label: '逾期利息', key: 'overdueInterest', type: 'money', width: 14, example: 0 },
+      { label: '本年结算收入', key: 'yearSettleIncome', type: 'money', width: 16, example: 8000000 },
+      { label: '开累结算收入', key: 'cumSettleIncome', type: 'money', width: 16, example: 9000000 },
+      { label: '是否挂账', key: 'isOnAccount', type: 'select', width: 10, example: '否', options: yesNo.map((i: any) => i.itemName).filter(Boolean) },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '结算台账', sheetName: '数据', columns });
+  }
+
+  /** 结算台账上传导入（需求 3.4）：新增不覆盖，逐行校验并输出错误报告 */
+  async importLedger(buffer: Buffer, projectId: string) {
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
+    let created = 0;
+    const errors: string[] = [];
+    for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
+      try {
+        const contractCode = String(r['合同编号'] ?? '').trim();
+        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
+        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
+        const month = String(r['结算月份'] ?? '').trim();
+        if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('结算月份为必填项，格式 YYYY-MM（如 2026-08）');
+        const dup = await this.prisma.settlementLedger.findFirst({
+          where: { projectId, contractId: contract.id, settleMonth: month },
+        });
+        if (dup) throw new Error(`唯一性校验失败：该合同 ${month} 的结算台账已存在，导入不覆盖已有数据`);
+        const isOnAccount = String(r['是否挂账'] ?? '').trim();
+        await this.createLedger(
+          {
+            contractId: contract.id,
+            settleMonth: month,
+            monthSettleAmount: num(r['本月结算额']),
+            monthInvoiceAmount: num(r['本月开票额']),
+            settleCount: num(r['结算次数']),
+            cumPurchaseAmount: num(r['开累采购额']),
+            startSettleAmount: num(r['开工结算额']),
+            monthActualPurchase: num(r['本月实际采购额']),
+            factoringDiscount: num(r['保理贴息']),
+            overdueInterest: num(r['逾期利息']),
+            yearSettleIncome: num(r['本年结算收入']),
+            cumSettleIncome: num(r['开累结算收入']),
+            isOnAccount: isOnAccount || null,
+            remark: String(r['备注'] ?? '').trim() || null,
+          },
+          projectId,
+        );
+        created++;
+      } catch (e: any) {
+        errors.push(`第 ${rowNo} 行：${e.message}`);
+      }
+    }
+    return { created, errors };
   }
 }

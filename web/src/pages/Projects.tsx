@@ -4,6 +4,7 @@ import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
+import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 export default function Projects() {
@@ -49,9 +50,12 @@ export default function Projects() {
     <Card
       title="项目管理"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
-          新建项目
-        </Button>
+        <Space>
+          <ImportButton moduleName="项目信息" templateUrl={projectApi.templateUrl()} onUpload={(f) => projectApi.import(f)} onDone={reload} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
+            新建项目
+          </Button>
+        </Space>
       }
     >
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>

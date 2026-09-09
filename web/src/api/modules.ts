@@ -11,17 +11,6 @@ export const dailyApi = {
   importUrl: () => `${http.defaults.baseURL}/daily-reports/import`,
 };
 
-export const itemApi = {
-  list: (params?: any) => http.get<any, any>('/contract-items', { params }),
-  detail: (id: string) => http.get<any, any>(`/contract-items/${id}`),
-  create: (data: any) => http.post<any, any>('/contract-items', data),
-  update: (id: string, data: any) => http.put<any, any>(`/contract-items/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/contract-items/${id}`),
-  generate: (contractId: string) => http.post<any, any>(`/contract-items/generate/${contractId}`),
-  exportUrl: () => `${http.defaults.baseURL}/contract-items/export`,
-  importUrl: () => `${http.defaults.baseURL}/contract-items/import`,
-};
-
 export const materialApi = {
   list: (params?: any) => http.get<any, any>('/materials', { params }),
   options: (keyword?: string) => http.get<any, any>('/materials/options', { params: { keyword } }),
@@ -30,11 +19,15 @@ export const materialApi = {
   remove: (id: string) => http.delete<any, any>(`/materials/${id}`),
   toggle: (id: string) => http.post<any, any>(`/materials/${id}/toggle`),
   exportUrl: () => `${http.defaults.baseURL}/materials/export`,
+  templateUrl: () => `${http.defaults.baseURL}/materials/template`,
   importUrl: () => `${http.defaults.baseURL}/materials/import`,
 };
 
 export const contractMaterialApi = {
   list: (contractId: string) => http.get<any, any>('/contract-materials', { params: { contractId } }),
+  derive: (contractId: string, materialIds: string[]) =>
+    http.post<any, any>('/contract-materials/derive', { contractId, materialIds }),
+  templateUrl: () => `${http.defaults.baseURL}/contract-materials/template`,
   create: (data: any) => http.post<any, any>('/contract-materials', data),
   update: (id: string, data: any) => http.put<any, any>(`/contract-materials/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/contract-materials/${id}`),
@@ -56,6 +49,13 @@ export const settlementApi = {
   updateLedger: (id: string, data: any) => http.put<any, any>(`/settlements/ledger/${id}`, data),
   removeLedger: (id: string) => http.delete<any, any>(`/settlements/ledger/${id}`),
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
+  ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
+  ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
+  ledgerImport: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post<any, any>('/settlements/ledger/import', fd);
+  },
 };
 
 export const paymentApi = {
@@ -75,6 +75,13 @@ export const paymentApi = {
   verifications: () => http.get<any, any>('/payments/verifications'),
   overdue: () => http.get<any, any>('/payments/overdue'),
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
+  recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
+  recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
+  recordsImport: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post<any, any>('/payments/records/import', fd);
+  },
 };
 
 export const invoiceApi = {
@@ -92,11 +99,18 @@ export const invoiceApi = {
   recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
   batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
+  templateUrl: () => `${http.defaults.baseURL}/invoices/template`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
 };
 
 export const assetApi = {
   list: (params?: any) => http.get<any, any>('/assets', { params }),
+  templateUrl: () => `${http.defaults.baseURL}/assets/template`,
+  import: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post<any, any>('/assets/import', fd);
+  },
   create: (data: any) => http.post<any, any>('/assets', data),
   update: (id: string, data: any) => http.put<any, any>(`/assets/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/assets/${id}`),

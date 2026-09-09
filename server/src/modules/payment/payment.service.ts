@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const PLAN_FIELDS = [
@@ -25,6 +26,7 @@ export class PaymentService {
     private dict: DictService,
     private excel: ExcelService,
     private styled: StyledExcelService,
+    private tpl: ImportTemplateService,
   ) {}
 
   private contractInclude = {
@@ -243,5 +245,71 @@ export class PaymentService {
         overdueDays: Math.floor((today.getTime() - new Date(p.planDate).getTime()) / 86400000),
         statusCode: p.statusCode,
       }));
+  }
+
+  /** 付款台账填写模板（需求 3.3，实际字段口径） */
+  async templateRecords(projectId: string) {
+    const [methods, status] = await Promise.all([
+      this.dict.options('payment_method'), this.dict.options('payment_status'),
+    ]);
+    const columns: TemplateColumn[] = [
+      { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },
+      { label: '付款月份', key: 'payMonth', required: true, type: 'text', width: 14, example: '2026-09', desc: '格式 YYYY-MM' },
+      { label: '付款金额', key: 'amount', required: true, type: 'money', width: 16, example: 1234567.89 },
+      { label: '付款方式', key: 'methodCode', type: 'select', width: 14, example: '银行转账', options: methods.map((i: any) => i.itemName).filter(Boolean) },
+      { label: '付款日期', key: 'payDate', type: 'date', width: 14, example: '2026-09-15' },
+      { label: '状态', key: 'statusCode', type: 'select', width: 12, example: '已付款', options: status.map((i: any) => i.itemName).filter(Boolean) },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '付款台账', sheetName: '数据', columns });
+  }
+
+  /** 付款台账上传导入（需求 3.4）：新增不覆盖，逐行校验并输出错误报告 */
+  async importRecords(buffer: Buffer, projectId: string) {
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    assertImportRows(rows);
+    const methods = await this.dict.options('payment_method');
+    const status = await this.dict.options('payment_status');
+    const codeOf = (items: any[], val: any) =>
+      val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
+    let created = 0;
+    const errors: string[] = [];
+    for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3;
+      try {
+        const contractCode = String(r['合同编号'] ?? '').trim();
+        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
+        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
+        const payMonth = String(r['付款月份'] ?? '').trim();
+        if (!/^\d{4}-\d{2}$/.test(payMonth)) throw new Error('付款月份为必填项，格式 YYYY-MM（如 2026-09）');
+        const amount = num(r['付款金额']);
+        if (amount === null) throw new Error('付款金额为必填数字');
+        const methodName = String(r['付款方式'] ?? '').trim();
+        if (methodName && codeOf(methods, methodName) === null) {
+          throw new Error(`下拉校验失败：「${methodName}」不在付款方式选项范围内`);
+        }
+        const statusName = String(r['状态'] ?? '').trim();
+        if (statusName && codeOf(status, statusName) === null) {
+          throw new Error(`下拉校验失败：「${statusName}」不在状态选项范围内`);
+        }
+        await this.createRecord(
+          {
+            contractId: contract.id,
+            payMonth,
+            amount,
+            methodCode: codeOf(methods, methodName),
+            payDate: r['付款日期'] || null,
+            statusCode: codeOf(status, statusName),
+            remark: String(r['备注'] ?? '').trim() || null,
+          },
+          projectId,
+        );
+        created++;
+      } catch (e: any) {
+        errors.push(`第 ${rowNo} 行：${e.message}`);
+      }
+    }
+    return { created, errors };
   }
 }

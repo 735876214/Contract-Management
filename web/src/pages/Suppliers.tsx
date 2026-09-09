@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Drawer, Select } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
+import ImportButton from '@/components/ImportButton';
 
 const FIELDS = [
   ['legalPerson', '法人姓名'],
@@ -36,35 +37,13 @@ export default function Suppliers() {
     reload();
   };
 
-  const importExcel = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(supplierApi.importUrl(), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('cms_token')}` },
-        body: fd,
-      });
-      const body = await res.json();
-      if (body.code === 0) {
-        message.success(`导入完成：新增 ${body.data.created}，更新 ${body.data.updated}`);
-        reload();
-      } else message.error(body.message);
-    };
-    input.click();
-  };
 
   return (
     <Card
       title="供应商库"
       extra={
         <Space>
-          <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
+          <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(supplierApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
             新增供应商

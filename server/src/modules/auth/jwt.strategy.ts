@@ -8,7 +8,11 @@ import { AuthService } from './auth.service';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaClient, private authService: AuthService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // 支持 Bearer 头与 URL ?token= 两种方式（后者用于文件下载链接，window.open 无法携带请求头）
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req: any) => req?.query?.token || null,
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'cms-super-secret-key',
     });

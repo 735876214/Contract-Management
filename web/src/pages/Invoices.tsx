@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import {
   Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker, Upload, Alert,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, ExportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { invoiceApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
+import ImportButton from '@/components/ImportButton';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -113,29 +114,6 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
     reload();
   };
 
-  const importExcel = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(invoiceApi.importUrl(), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('cms_token')}` },
-        body: fd,
-      });
-      const body = await res.json();
-      if (body.code === 0) {
-        message.success(`导入完成：新增 ${body.data.created}，更新 ${body.data.updated}`);
-        reload();
-      } else message.error(body.message);
-    };
-    input.click();
-  };
-
   return (
     <>
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
@@ -151,7 +129,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
           <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>批量识别</Button>
-          <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
+          <ImportButton moduleName="发票台账" templateUrl={invoiceApi.templateUrl()} uploadUrl={invoiceApi.importUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(invoiceApi.exportUrl())}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setImages([]); setNoStatus(''); setNoMsg(''); setModal(true); }}>
             收票登记

@@ -89,7 +89,10 @@ export class LedgerService {
 
     // 批量聚合（一次性查询后在内存分组，避免 N+1）
     const [items, reports, ledger, settlements, invoices, payments] = await Promise.all([
-      this.prisma.contractItem.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, materialName: true } }),
+      this.prisma.contractMaterial.findMany({
+        where: { contractId: { in: contractIds } },
+        select: { contractId: true, materialBase: { select: { name: true } } },
+      }),
       this.prisma.dailyReport.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, entryDate: true } }),
       this.prisma.settlementLedger.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, settleMonth: true, monthSettleAmount: true } }),
       this.prisma.settlement.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, actualAmount: true } }),
@@ -126,8 +129,8 @@ export class LedgerService {
       const taxRate = num(c.taxRate);
       const amount = num(c.amount) || 0;
 
-      // 供应材料：来自合同清单
-      const materialNames = Array.from(new Set((itemMap[c.id] || []).map((i: any) => i.materialName).filter(Boolean))).join('、');
+      // 供应材料：来自合同物资清单
+      const materialNames = Array.from(new Set((itemMap[c.id] || []).map((i: any) => i.materialBase?.name).filter(Boolean))).join('、');
 
       // 首次进场时间：该合同下日报最早进场日期
       const entryDates = (reportMap[c.id] || []).map((r: any) => r.entryDate).filter(Boolean);

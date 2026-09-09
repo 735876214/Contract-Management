@@ -11,7 +11,6 @@ import Suppliers from '@/pages/Suppliers';
 import Contracts from '@/pages/Contracts';
 import Templates from '@/pages/Templates';
 import DailyReports from '@/pages/DailyReports';
-import ContractItems from '@/pages/ContractItems';
 import Materials from '@/pages/Materials';
 import ContractMaterials from '@/pages/ContractMaterials';
 import Settlements from '@/pages/Settlements';
@@ -74,7 +73,6 @@ export const routes: RouteObject[] = [
       { path: 'contracts', element: <Contracts /> },
       { path: 'templates', element: <Templates /> },
       { path: 'daily', element: <DailyReports /> },
-      { path: 'items', element: <ContractItems /> },
       { path: 'materials', element: <Materials /> },
       { path: 'contract-materials', element: <ContractMaterials /> },
       { path: 'settlements', element: <Settlements /> },

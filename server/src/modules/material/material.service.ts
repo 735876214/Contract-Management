@@ -1,14 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertImportRows } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict/dict.service';
 
 const BASE_FIELDS = ['name', 'spec', 'mdmCode', 'dscCode', 'status', 'remark'];
+// 统一合同物资清单：排除收入单价/合价、标准成本单价/合价（需求 2.2 排除字段）
 const ROW_FIELDS = [
-  'contractId', 'materialBaseId', 'unit', 'qty', 'priceBeforeTax', 'taxRatePct',
-  'remark', 'incomePrice', 'stdPrice', 'sortOrder',
+  'contractId', 'materialBaseId', 'unit', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder',
 ];
 
 /** 金额四舍五入到 4 位小数（模拟 BigDecimal 精度控制，避免浮点误差累积） */
@@ -20,7 +21,12 @@ function round(n: number | null | undefined, digits = 4): number | null {
 
 @Injectable()
 export class MaterialService {
-  constructor(private prisma: PrismaClient, private excel: ExcelService, private dict: DictService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private excel: ExcelService,
+    private dict: DictService,
+    private tpl: ImportTemplateService,
+  ) {}
 
   /** 业态编码 → 名称（导出表头用） */
   private async industryTypeName(code: string | null | undefined): Promise<string> {
@@ -144,9 +150,21 @@ export class MaterialService {
     return this.excel.export(columns, rows, '物资基础库');
   }
 
-  /** 批量导入：按「物资名称+规格型号」匹配，存在则更新，否则新建 */
+  /** 物资基础库填写模板（需求 3.3，实际字段口径） */
+  async templateBases() {
+    const columns: TemplateColumn[] = [
+      { label: '物资名称', key: 'name', required: true, width: 26, example: '螺纹钢 HRB400E' },
+      { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20' },
+      { label: 'MDM编码', key: 'mdmCode', type: 'text', width: 18, example: 'MDM-GC-001' },
+      { label: 'DSC编码', key: 'dscCode', type: 'text', width: 18, example: 'DSC-001' },
+      { label: '备注', key: 'remark', type: 'text', width: 24, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '物资基础库', sheetName: '数据', columns });
+  }
+
+  /** 批量导入：按「物资名称+规格型号」匹配，存在则更新，否则新建（填写模板示例行自动忽略） */
   async importBases(buffer: Buffer) {
-    const rows = await this.excel.parse(buffer);
+    const rows = await this.excel.parse(buffer, [2]);
     let created = 0;
     let updated = 0;
     const errors: string[] = [];
@@ -178,29 +196,20 @@ export class MaterialService {
 
   // ==================== 合同物资清单 ====================
 
-  /** 服务端自动计算派生金额（基于输入行） */
+  /** 服务端自动计算派生金额（含税单价/暂定含税合价，基于输入行） */
   private computeAmounts(row: any) {
     const qty = num(row.qty);
     const priceBeforeTax = num(row.priceBeforeTax);
     const taxPct = num(row.taxRatePct);
-    const incomePrice = num(row.incomePrice);
-    const stdPrice = num(row.stdPrice);
-    return {
-      priceWithTax: priceBeforeTax !== null ? round(priceBeforeTax * (1 + (taxPct || 0) / 100)) : null,
-      totalWithTax: null as number | null,
-      incomeTotal: incomePrice !== null && qty !== null ? round(qty * incomePrice) : null,
-      stdTotal: stdPrice !== null && qty !== null ? round(qty * stdPrice) : null,
-    };
+    const priceWithTax = priceBeforeTax !== null ? round(priceBeforeTax * (1 + (taxPct || 0) / 100)) : null;
+    const totalWithTax = priceWithTax !== null && qty !== null ? round(qty * priceWithTax) : null;
+    return { priceWithTax, totalWithTax };
   }
 
   private normalizeRow(payload: any) {
     const computed = this.computeAmounts(payload);
-    const qty = num(payload.qty);
-    if (computed.priceWithTax !== null && qty !== null) {
-      computed.totalWithTax = round(qty * computed.priceWithTax);
-    }
     const data: any = pickFields(payload, ROW_FIELDS, { label: '合同物资清单' });
-    ['qty', 'priceBeforeTax', 'taxRatePct', 'incomePrice', 'stdPrice'].forEach((f) => {
+    ['qty', 'priceBeforeTax', 'taxRatePct'].forEach((f) => {
       if (data[f] !== undefined) data[f] = num(data[f]);
     });
     if (data.sortOrder !== undefined) data.sortOrder = Math.trunc(Number(data.sortOrder) || 0);
@@ -264,8 +273,6 @@ export class MaterialService {
         ...payload,
         priceWithTax: computed.priceWithTax,
         totalWithTax: computed.totalWithTax,
-        incomeTotal: computed.incomeTotal,
-        stdTotal: computed.stdTotal,
         sortOrder: payload.sortOrder ?? (maxSort._max.sortOrder || 0) + 1,
       },
       include: { materialBase: true },
@@ -287,14 +294,8 @@ export class MaterialService {
       where: { id },
       data: {
         ...payload,
-        ...(Object.keys(computed).length
-          ? {
-              priceWithTax: computed.priceWithTax,
-              totalWithTax: computed.totalWithTax,
-              incomeTotal: computed.incomeTotal,
-              stdTotal: computed.stdTotal,
-            }
-          : {}),
+        priceWithTax: computed.priceWithTax,
+        totalWithTax: computed.totalWithTax,
       },
       include: { materialBase: true },
     });
@@ -319,67 +320,134 @@ export class MaterialService {
     return true;
   }
 
-  /** 批量导入：按「物资名称+规格型号」匹配基础库，匹配失败则报行级错误 */
+  /**
+   * 上传导入数据（统一口径，需求 3.4 / 6.3 / 6.4）：
+   * - 仅支持填写模板格式（第 2 行为示例行，自动忽略）
+   * - 物资名称+规格型号 须在物资基础库中存在（关联校验）
+   * - 同一合同下物资名称+规格型号不能重复（唯一性校验）
+   * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
+   * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
+   */
   async importRows(contractId: string, buffer: Buffer) {
     await this.assertContract(contractId);
-    const rows = await this.excel.parse(buffer);
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
+    assertImportRows(rows);
     let created = 0;
-    let updated = 0;
     const errors: string[] = [];
+    const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
     for (const [index, r] of rows.entries()) {
+      const rowNo = index + 3; // 数据从第 3 行开始
       try {
         const name = String(r['物资名称'] ?? '').trim();
         const spec = String(r['规格型号'] ?? '').trim();
         const unit = String(r['计量单位'] ?? '').trim();
-        if (!name || !spec) throw new Error('物资名称与规格型号均为必填');
-        if (!unit) throw new Error('计量单位为必填');
+        if (!name) throw new Error('物资名称为必填项');
+        if (!spec) throw new Error('规格型号为必填项');
+        if (!unit) throw new Error('计量单位为必填项');
+        const qty = num(r['暂定数量']);
+        const price = num(r['税前单价']);
+        const tax = num(r['税率']);
+        if (qty === null) throw new Error('暂定数量为必填数字');
+        if (price === null) throw new Error('税前单价为必填数字');
+        if (tax === null) throw new Error('税率为必填数字（如 13 表示 13%）');
         const base = await this.prisma.materialBase.findFirst({ where: { name, spec } });
-        if (!base) throw new Error(`基础库中不存在「${name} / ${spec}」，请先维护物资基础库`);
-        const payload = {
-          contractId,
-          materialBaseId: base.id,
-          unit,
-          qty: num(r['暂定数量']),
-          priceBeforeTax: num(r['税前单价']),
-          taxRatePct: num(r['增值税']),
-          incomePrice: num(r['收入单价']),
-          stdPrice: num(r['标准成本单价']),
-          remark: String(r['备注'] ?? '').trim() || null,
-        };
-        const exist = await this.prisma.contractMaterial.findUnique({
+        if (!base) throw new Error(`关联校验失败：物资基础库中不存在「${name} / ${spec}」，请先维护物资基础库`);
+        const dup = await this.prisma.contractMaterial.findUnique({
           where: { contractId_materialBaseId: { contractId, materialBaseId: base.id } },
         });
-        if (exist) {
-          await this.updateRow(exist.id, payload);
-          updated++;
-        } else {
-          await this.createRow(payload);
-          created++;
-        }
+        if (dup) throw new Error(`唯一性校验失败：该合同下已存在「${name} / ${spec}」，导入不覆盖已有数据`);
+        const computed = this.computeAmounts({ qty, priceBeforeTax: price, taxRatePct: tax });
+        await this.prisma.contractMaterial.create({
+          data: {
+            contractId,
+            materialBaseId: base.id,
+            unit,
+            qty,
+            priceBeforeTax: price,
+            taxRatePct: tax,
+            remark: String(r['备注'] ?? '').trim() || null,
+            sortOrder: maxSort + created + 1,
+            priceWithTax: computed.priceWithTax,
+            totalWithTax: computed.totalWithTax,
+          },
+        });
+        created++;
       } catch (e: any) {
-        errors.push(`第 ${index + 2} 行：${e.message}`);
+        errors.push(`第 ${rowNo} 行：${e.message}`);
       }
     }
-    return { created, updated, errors };
+    return { created, errors };
+  }
+
+  /** 填写模板（需求 3.3）：下拉/数字/格式验证 + 示例行 */
+  async templateRows() {
+    const units = await this.dict.options('measurement_unit');
+    const columns: TemplateColumn[] = [
+      { label: '物资名称', key: 'name', required: true, width: 24, example: '螺纹钢 HRB400E', desc: '须与物资基础库中的物资名称一致' },
+      { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20', desc: '须与物资基础库中的规格型号一致' },
+      {
+        label: '计量单位', key: 'unit', required: true, type: 'select', width: 12, example: '吨',
+        options: units.map((u: any) => u.itemName).filter(Boolean), desc: '下拉选择，来自字典「计量单位」',
+      },
+      { label: '暂定数量', key: 'qty', required: true, type: 'qty', width: 14, example: 1200 },
+      { label: '税前单价', key: 'priceBeforeTax', required: true, type: 'money', width: 14, example: 3850 },
+      { label: '税率', key: 'taxRatePct', required: true, type: 'number', width: 10, example: 13, desc: '百分比数字，常见值 13、9、6、3、1（如 13 表示 13%）' },
+      { label: '备注', key: 'remark', type: 'text', width: 20, example: '示例行：导入时自动忽略' },
+    ];
+    return this.tpl.buildTemplate({ moduleName: '合同物资清单', sheetName: '数据', columns });
   }
 
   /**
-   * 独立导出：固定头部（合同名称/供应商/合同编号）+ 明细行
+   * 派生清单（需求 2.3）：从物资基础库（项目物资清单数据源）按选定物资重新生成
+   * 重新编号（序号从 1 开始），仅复制统一字段模型中的字段，自动计算含税单价与暂定含税合价。
+   */
+  async derive(contractId: string, materialIds: string[]) {
+    await this.assertContract(contractId);
+    if (!Array.isArray(materialIds) || !materialIds.length) {
+      throw new BadRequestException('请选择要派生的物资（来自物资基础库）');
+    }
+    const bases = await this.prisma.materialBase.findMany({ where: { id: { in: materialIds }, status: 1 } });
+    if (!bases.length) throw new BadRequestException('所选物资不存在或已停用');
+    await this.prisma.contractMaterial.deleteMany({ where: { contractId } });
+    for (const [i, base] of bases.entries()) {
+      // 物资基础库只提供名称/规格/编码等主数据，派生行的数量/价格/税率
+      // 由用户补录后按统一规则自动计算（含税单价 = 税前单价 × (1 + 税率/100)）
+      await this.prisma.contractMaterial.create({
+        data: {
+          contractId,
+          materialBaseId: base.id,
+          unit: '',
+          qty: null,
+          priceBeforeTax: null,
+          taxRatePct: null,
+          priceWithTax: null,
+          totalWithTax: null,
+          sortOrder: i + 1,
+          remark: '由物资基础库派生',
+        },
+      });
+    }
+    return { created: bases.length, removed: true };
+  }
+
+  /**
+   * 独立导出（统一字段模型，需求 2.2）：固定头部（合同名称/供应商/合同编号/项目名称）+ 明细行
+   * 排除字段：收入单价/合价、标准成本单价/合价、MDM/DSC 编码不出现在合同清单中
    * format: xlsx | csv
    */
   async exportRows(contractId: string, format: 'xlsx' | 'csv' = 'xlsx'): Promise<{ buffer: Buffer; filename: string; mime: string }> {
     const { contract, list } = await this.findRows(contractId);
     const headers = [
-      '序号', '物资名称', '规格型号', 'MDM编码', 'DSC编码', '计量单位',
-      '暂定数量', '税前单价', '增值税(%)', '含税单价', '暂定含税合价', '备注',
-      '收入单价', '收入合价', '标准成本单价', '标准成本合价',
+      '序号', '合同编号', '项目名称', '供应商名称', '物资名称', '规格型号', '计量单位',
+      '暂定数量', '税前单价', '税率(%)', '含税单价', '暂定含税合价', '备注',
     ];
     const rows = (list as any[]).map((r, i) => [
       i + 1,
+      contract.code || '',
+      contract.projectName || '',
+      contract.supplierName || '',
       r.materialBase?.name || '',
       r.materialBase?.spec || '',
-      r.materialBase?.mdmCode || '',
-      r.materialBase?.dscCode || '',
       r.unit || '',
       num(r.qty) ?? '',
       num(r.priceBeforeTax) ?? '',
@@ -387,10 +455,6 @@ export class MaterialService {
       num(r.priceWithTax) ?? '',
       num(r.totalWithTax) ?? '',
       r.remark || '',
-      num(r.incomePrice) ?? '',
-      num(r.incomeTotal) ?? '',
-      num(r.stdPrice) ?? '',
-      num(r.stdTotal) ?? '',
     ]);
 
     if (format === 'csv') {
@@ -430,8 +494,8 @@ export class MaterialService {
     ws.addRow(headers).font = { bold: true };
     rows.forEach((r) => ws.addRow(r));
     ws.columns = headers.map((h, i) => ({ header: h, width: h.length > 6 ? 16 : 12 }));
-    ws.getColumn(2).width = 26;
-    ws.getColumn(12).width = 24;
+    ws.getColumn(5).width = 26; // 物资名称
+    ws.getColumn(13).width = 24; // 备注
     const buf = await workbook.xlsx.writeBuffer();
     return {
       buffer: Buffer.from(buf),

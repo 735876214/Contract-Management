@@ -31,7 +31,7 @@ export class ContractController {
     return this.contractService.findAll(query, projectId);
   }
 
-  @RequirePermissions('contract:view', 'daily:edit', 'settlement:edit', 'payment:edit', 'invoice:edit', 'repayment:edit', 'item:edit')
+  @RequirePermissions('contract:view', 'daily:edit', 'settlement:edit', 'payment:edit', 'invoice:edit', 'repayment:edit')
   @Get('options')
   options(@ProjectId() projectId: string, @Query('keyword') keyword?: string) {
     return this.contractService.options(projectId, keyword);
@@ -53,6 +53,16 @@ export class ContractController {
   @Get(':id/next-supplement-code')
   nextSupplementCode(@Param('id') id: string) {
     return this.contractService.nextSupplementCode(id);
+  }
+
+  /** 下载填写模板（需求 3.3，须声明在 :id 通配路由之前） */
+  @RequirePermissions('contract:view')
+  @Get('template')
+  async template(@ProjectId() projectId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.contractService.template(projectId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
   }
 
   @RequirePermissions('contract:view')
@@ -104,4 +114,5 @@ export class ContractController {
     if (!file) return { created: 0, errors: ['未上传文件'] };
     return this.contractService.import(file.buffer, projectId, user);
   }
+
 }
