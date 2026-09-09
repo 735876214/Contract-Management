@@ -37,6 +37,8 @@ export interface StyledTableOptions {
   totalsLabel?: string;
   /** 下拉数据验证：列 key → 选项列表 */
   dropdowns?: Record<string, string[]>;
+  /** 表头采用「左列中建 logo 块 + 右侧两行文字」布局（默认 false 为整行品牌行） */
+  logoColumn?: boolean;
 }
 
 const NUMFMT: Record<string, string> = {
@@ -73,21 +75,53 @@ export class StyledExcelService {
     });
     const colCount = opts.columns.length;
 
-    // ---- 第 1 行：品牌标识行 ----
-    ws.mergeCells(1, 1, 1, Math.max(colCount, 4));
-    const brandCell = ws.getCell(1, 1);
-    brandCell.value = `${opts.brand || '〖中国建筑〗中国建筑土木建设有限公司物资管理表格'}`;
-    brandCell.font = { bold: true, size: 14, name: '微软雅黑' };
-    brandCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    ws.getRow(1).height = 26;
+    // ---- 第 1~2 行：表头块 ----
+    if (opts.logoColumn) {
+      // 左列 logo 块：上=中建蓝方块（白字），下=「中建」书法字；右侧两行分别为品牌行与标题行
+      const logoTop = ws.getCell(1, 1);
+      logoTop.value = '中国建筑';
+      logoTop.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+      logoTop.alignment = { horizontal: 'center', vertical: 'middle' };
+      logoTop.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF005BAC' } };
+      logoTop.border = thin;
+      const logoBottom = ws.getCell(2, 1);
+      logoBottom.value = '中建';
+      logoBottom.font = { bold: true, size: 22, name: '华文行楷' };
+      logoBottom.alignment = { horizontal: 'center', vertical: 'middle' };
+      logoBottom.border = thin;
 
-    // ---- 第 2 行：表格标题 ----
-    ws.mergeCells(2, 1, 2, Math.max(colCount, 4));
-    const titleCell = ws.getCell(2, 1);
-    titleCell.value = opts.title;
-    titleCell.font = { bold: true, size: 13, name: '微软雅黑' };
-    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getRow(2).height = 24;
+      ws.mergeCells(1, 2, 1, Math.max(colCount, 4));
+      const brandCell = ws.getCell(1, 2);
+      brandCell.value = opts.brand || '中国建筑土木建设有限公司物资管理表格';
+      brandCell.font = { size: 10, name: '微软雅黑' };
+      brandCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      brandCell.border = thin;
+
+      ws.mergeCells(2, 2, 2, Math.max(colCount, 4));
+      const titleCell = ws.getCell(2, 2);
+      titleCell.value = opts.title;
+      titleCell.font = { bold: true, size: 14, name: '微软雅黑' };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      titleCell.border = thin;
+      ws.getRow(1).height = 22;
+      ws.getRow(2).height = 34;
+    } else {
+      // 整行品牌行
+      ws.mergeCells(1, 1, 1, Math.max(colCount, 4));
+      const brandCell = ws.getCell(1, 1);
+      brandCell.value = `${opts.brand || '〖中国建筑〗中国建筑土木建设有限公司物资管理表格'}`;
+      brandCell.font = { bold: true, size: 14, name: '微软雅黑' };
+      brandCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getRow(1).height = 26;
+
+      // ---- 第 2 行：表格标题 ----
+      ws.mergeCells(2, 1, 2, Math.max(colCount, 4));
+      const titleCell = ws.getCell(2, 1);
+      titleCell.value = opts.title;
+      titleCell.font = { bold: true, size: 13, name: '微软雅黑' };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(2).height = 24;
+    }
 
     // ---- 第 3 行：表头 ----
     const headerRow = ws.getRow(3);

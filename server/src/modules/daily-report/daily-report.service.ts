@@ -203,7 +203,8 @@ export class DailyReportService {
     const names = (list: any[]) => list.map((i: any) => i.itemName).filter(Boolean);
     const buffer = await this.styled.exportTable({
       sheetName: '物资进出场台账',
-      title: `物资进出场台账（${project?.name || ''}）`,
+      title: `物资进出台账台账（${project?.name || ''}）`,
+      logoColumn: true,
       columns: [
         { header: '账期/年', key: 'periodYear', width: 80, type: 'center' },
         { header: '账期/月', key: 'periodMonth', width: 100, type: 'center' },
