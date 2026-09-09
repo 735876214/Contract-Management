@@ -160,6 +160,18 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
   const [form] = Form.useForm();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const doRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res: any = await settlementApi.refreshLedger();
+      message.success(`自动生成完成：新增 ${res?.created ?? 0} 条，更新 ${res?.updated ?? 0} 条`);
+      reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const submit = async () => {
     const v = await form.validateFields();
@@ -190,6 +202,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
+          <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>自动生成台账</Button>
           <ImportButton moduleName="结算台账" templateUrl={settlementApi.ledgerTemplateUrl()} uploadUrl={settlementApi.ledgerImportUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(settlementApi.exportLedgerUrl())}>导出台账</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
@@ -255,15 +268,15 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
             <Col xs={24} md={12}>
               <Form.Item name="settleMonth" label="结算月份(YYYY-MM)" rules={[{ required: true }]}><Input placeholder="如 2026-09" /></Form.Item>
             </Col>
-            <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数"><InputNumber style={{ width: '100%' }} min={0} precision={0} /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（自动抓取结算单）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（自动统计）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（自动抓取资金费用）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（自动抓取资金费用）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="cumSettleIncome" label="开累结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="isOnAccount" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>

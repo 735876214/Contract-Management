@@ -7,13 +7,6 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 
-const PLAN_FIELDS = [
-  'projectId', 'contractId', 'period', 'planAmount', 'planDate', 'condition', 'statusCode', 'remark',
-];
-const APPLY_FIELDS = [
-  'projectId', 'contractId', 'settlementId', 'invoiceId', 'code', 'applyAmount', 'payee',
-  'bankName', 'bankAccount', 'payDate', 'methodCode', 'statusCode', 'remark', 'createdBy',
-];
 const RECORD_FIELDS = [
   'projectId', 'contractId', 'applyId', 'payMonth', 'amount', 'methodCode', 'payDate',
   'receiptUrl', 'statusCode', 'remark',
@@ -32,110 +25,6 @@ export class PaymentService {
   private contractInclude = {
     contract: { select: { id: true, code: true, name: true, supplier: { select: { id: true, name: true, bankName: true, bankAccount: true } } } },
   };
-
-  // ---------------- 付款计划 ----------------
-  async findPlans(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
-    const where: any = { projectId };
-    if (query.contractId) where.contractId = query.contractId;
-    if (query.statusCode) where.statusCode = query.statusCode;
-    const [list, total] = await Promise.all([
-      this.prisma.paymentPlan.findMany({ where, skip, take, orderBy: [{ planDate: 'asc' }], include: this.contractInclude }),
-      this.prisma.paymentPlan.count({ where }),
-    ]);
-    return buildResult(list, total, query);
-  }
-
-  async createPlan(data: any, projectId: string) {
-    await this.dict.validate('payment_plan_status', data.statusCode);
-    return this.prisma.paymentPlan.create({
-      data: { ...pickFields(data, PLAN_FIELDS, { label: '付款计划' }), projectId, planAmount: num(data.planAmount), planDate: toDate(data.planDate), period: Number(data.period) || null },
-    });
-  }
-
-  async updatePlan(id: string, data: any) {
-    await this.dict.validate('payment_plan_status', data.statusCode);
-    const payload: any = pickFields(data, PLAN_FIELDS, { label: '付款计划' });
-    if (payload.planAmount !== undefined) payload.planAmount = num(payload.planAmount);
-    if (payload.planDate) payload.planDate = toDate(payload.planDate);
-    if (payload.period !== undefined) payload.period = Number(payload.period) || null;
-    return this.prisma.paymentPlan.update({ where: { id }, data: payload });
-  }
-
-  async removePlan(id: string) {
-    await this.prisma.paymentPlan.delete({ where: { id } });
-    return true;
-  }
-
-  /** 根据合同自动生成付款计划（按付款比例拆分 3 期示例：预付/进度/尾款） */
-  async generatePlans(contractId: string, projectId: string, payload: any = {}) {
-    const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
-    if (!contract) throw new NotFoundException('合同不存在');
-    const amount = num(contract.amount) || 0;
-    const ratios: number[] = payload.ratios || [0.3, 0.6, 0.1];
-    const months: number[] = payload.months || [1, 6, 12];
-    const base = contract.signDate || new Date();
-    const data = ratios.map((r, i) => ({
-      projectId,
-      contractId,
-      period: i + 1,
-      planAmount: Number((amount * r).toFixed(2)),
-      planDate: new Date(base.getTime() + months[i] * 30 * 24 * 3600 * 1000),
-      condition: `第 ${i + 1} 期`,
-      statusCode: 'WAIT',
-    }));
-    await this.prisma.paymentPlan.createMany({ data });
-    return { created: data.length };
-  }
-
-  // ---------------- 付款申请 ----------------
-  async findApplies(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
-    const where: any = { projectId };
-    if (query.contractId) where.contractId = query.contractId;
-    if (query.statusCode) where.statusCode = query.statusCode;
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { payee: { contains: query.keyword } }];
-    const [list, total] = await Promise.all([
-      this.prisma.paymentApply.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: this.contractInclude }),
-      this.prisma.paymentApply.count({ where }),
-    ]);
-    return buildResult(list, total, query);
-  }
-
-  async createApply(data: any, projectId: string) {
-    await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('approval_status', data.statusCode);
-    // 收款方与银行信息通过合同关联供应商库自动带出
-    let payee = data.payee;
-    let bankName = data.bankName;
-    let bankAccount = data.bankAccount;
-    if (data.contractId && !payee) {
-      const c = await this.prisma.contract.findUnique({ where: { id: data.contractId }, include: { supplier: true } });
-      payee = (c as any)?.supplier?.name;
-      bankName = bankName || (c as any)?.supplier?.bankName;
-      bankAccount = bankAccount || (c as any)?.supplier?.bankAccount;
-    }
-    return this.prisma.paymentApply.create({
-      data: {
-        ...pickFields(data, APPLY_FIELDS, { label: '付款申请' }), projectId, payee, bankName, bankAccount,
-        applyAmount: num(data.applyAmount), payDate: toDate(data.payDate),
-      },
-    });
-  }
-
-  async updateApply(id: string, data: any) {
-    await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('approval_status', data.statusCode);
-    const payload: any = pickFields(data, APPLY_FIELDS, { label: '付款申请' });
-    if (payload.applyAmount !== undefined) payload.applyAmount = num(payload.applyAmount);
-    if (payload.payDate) payload.payDate = toDate(payload.payDate);
-    return this.prisma.paymentApply.update({ where: { id }, data: payload });
-  }
-
-  async removeApply(id: string) {
-    await this.prisma.paymentApply.delete({ where: { id } });
-    return true;
-  }
 
   // ---------------- 付款执行 / 付款台账 ----------------
   async findRecords(query: any = {}, projectId: string) {
@@ -198,55 +87,7 @@ export class PaymentService {
     });
   }
 
-  // ---------------- 核销 & 逾期 ----------------
-  /** 核销：付款 vs 发票 / 结算，展示未核销金额 */
-  async verifications(projectId: string) {
-    const [contracts, records, invoices, ledger] = await Promise.all([
-      this.prisma.contract.findMany({ where: { projectId }, include: { supplier: { select: { id: true, name: true } } } }),
-      this.prisma.paymentRecord.findMany({ where: { projectId } }),
-      this.prisma.invoice.findMany({ where: { projectId } }),
-      this.prisma.settlementLedger.findMany({ where: { projectId } }),
-    ]);
-    return contracts.map((c: any) => {
-      const settleAmount = ledger.filter((l: any) => l.contractId === c.id).reduce((s, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
-      const invoiceAmount = invoices.filter((i: any) => i.contractId === c.id).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
-      const paidAmount = records.filter((r: any) => r.contractId === c.id).reduce((s, r: any) => s + (num(r.amount) || 0), 0);
-      return {
-        contractId: c.id,
-        contractCode: c.code,
-        contractName: c.name,
-        supplierName: c.supplier?.name,
-        settleAmount,
-        invoiceAmount,
-        paidAmount,
-        unpaidSettlement: settleAmount - paidAmount,
-        unpaidInvoice: invoiceAmount - paidAmount,
-      };
-    });
-  }
-
-  /** 逾期提醒：应付未付 */
-  async overdue(projectId: string) {
-    const today = new Date();
-    const plans = await this.prisma.paymentPlan.findMany({
-      where: { projectId, statusCode: { not: 'PAID' } },
-      include: { contract: { select: { id: true, code: true, name: true, supplier: { select: { name: true } } } } },
-    });
-    return plans
-      .filter((p: any) => p.planDate && new Date(p.planDate) < today)
-      .map((p: any) => ({
-        id: p.id,
-        contractCode: p.contract?.code,
-        contractName: p.contract?.name,
-        supplierName: p.contract?.supplier?.name,
-        period: p.period,
-        planAmount: num(p.planAmount),
-        planDate: p.planDate,
-        overdueDays: Math.floor((today.getTime() - new Date(p.planDate).getTime()) / 86400000),
-        statusCode: p.statusCode,
-      }));
-  }
-
+  // ---------------- 付款台账模板与导入 ----------------
   /** 付款台账填写模板（需求 3.3，实际字段口径） */
   async templateRecords(projectId: string) {
     const [methods, status] = await Promise.all([

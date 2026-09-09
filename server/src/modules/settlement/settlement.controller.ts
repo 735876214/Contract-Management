@@ -52,6 +52,13 @@ export class SettlementController {
     return this.service.importLedger(file.buffer, projectId);
   }
 
+  /** 一键自动生成/刷新结算台账：从结算单、收票登记、资金费用台账自动抓取 */
+  @RequirePermissions('settlement:edit')
+  @Post('ledger/refresh')
+  refreshLedger(@ProjectId() projectId: string) {
+    return this.service.refreshLedger(projectId);
+  }
+
   @RequirePermissions('settlement:view')
   @Get('compliance-sheet')
   async exportComplianceSheet(

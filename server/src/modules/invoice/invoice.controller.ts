@@ -58,24 +58,6 @@ export class InvoiceController {
   }
 
   @RequirePermissions('invoice:view')
-  @Get('applies')
-  findApplies(@Query() query: any, @ProjectId() projectId: string) {
-    return this.service.findApplies(query, projectId);
-  }
-
-  @RequirePermissions('invoice:edit')
-  @Post('applies')
-  createApply(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
-    return this.service.createApply(body, projectId, user);
-  }
-
-  @RequirePermissions('invoice:edit')
-  @Delete('applies/:id')
-  removeApply(@Param('id') id: string) {
-    return this.service.removeApply(id);
-  }
-
-  @RequirePermissions('invoice:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);

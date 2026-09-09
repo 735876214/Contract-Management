@@ -185,7 +185,6 @@ export class DictService {
   private usageMap: Record<string, { model: string; label: string; fields: string[] }[]> = {
     contract_type: [{ model: 'contract', label: '合同', fields: ['typeCode'] }],
     contract_execution_status: [{ model: 'contract', label: '合同', fields: ['execStatus'] }],
-    approval_status: [{ model: 'paymentApply', label: '付款申请', fields: ['statusCode'] }],
     supplement_agreement_type: [{ model: 'contract', label: '合同', fields: ['supplementTypeCode'] }],
     asset_status: [{ model: 'dailyReport', label: '日报', fields: ['assetStatus'] }],
     material_source: [{ model: 'dailyReport', label: '日报', fields: ['sourceCode'] }],
@@ -196,7 +195,6 @@ export class DictService {
     settlement_status: [{ model: 'settlement', label: '结算单', fields: ['statusCode'] }],
     payment_method: [{ model: 'contract', label: '合同', fields: ['paymentMethodCode'] }, { model: 'paymentRecord', label: '付款记录', fields: ['methodCode'] }],
     payment_status: [{ model: 'paymentRecord', label: '付款记录', fields: ['statusCode'] }],
-    payment_plan_status: [{ model: 'paymentPlan', label: '付款计划', fields: ['statusCode'] }],
     project_status: [{ model: 'project', label: '项目', fields: ['status'] }],
     invoice_type: [{ model: 'invoice', label: '发票', fields: ['typeCode'] }],
     invoice_status: [{ model: 'invoice', label: '发票', fields: ['statusCode'] }],

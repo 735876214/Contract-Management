@@ -51,6 +51,7 @@ export const settlementApi = {
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
+  refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
   ledgerImport: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -59,21 +60,10 @@ export const settlementApi = {
 };
 
 export const paymentApi = {
-  plans: (params?: any) => http.get<any, any>('/payments/plans', { params }),
-  createPlan: (data: any) => http.post<any, any>('/payments/plans', data),
-  updatePlan: (id: string, data: any) => http.put<any, any>(`/payments/plans/${id}`, data),
-  removePlan: (id: string) => http.delete<any, any>(`/payments/plans/${id}`),
-  generatePlans: (data: any) => http.post<any, any>('/payments/plans/generate', data),
-  applies: (params?: any) => http.get<any, any>('/payments/applies', { params }),
-  createApply: (data: any) => http.post<any, any>('/payments/applies', data),
-  updateApply: (id: string, data: any) => http.put<any, any>(`/payments/applies/${id}`, data),
-  removeApply: (id: string) => http.delete<any, any>(`/payments/applies/${id}`),
   records: (params?: any) => http.get<any, any>('/payments/records', { params }),
   createRecord: (data: any) => http.post<any, any>('/payments/records', data),
   updateRecord: (id: string, data: any) => http.put<any, any>(`/payments/records/${id}`, data),
   removeRecord: (id: string) => http.delete<any, any>(`/payments/records/${id}`),
-  verifications: () => http.get<any, any>('/payments/verifications'),
-  overdue: () => http.get<any, any>('/payments/overdue'),
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
   recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
   recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
@@ -92,9 +82,6 @@ export const invoiceApi = {
   remove: (id: string) => http.delete<any, any>(`/invoices/${id}`),
   checkNo: (no: string, excludeId?: string) => http.get<any, any>('/invoices/check-no', { params: { no, excludeId } }),
   verify: (id: string) => http.post<any, any>(`/invoices/${id}/verify`),
-  applies: (params?: any) => http.get<any, any>('/invoices/applies', { params }),
-  createApply: (data: any) => http.post<any, any>('/invoices/applies', data),
-  removeApply: (id: string) => http.delete<any, any>(`/invoices/applies/${id}`),
   // 批量识别：上传发票图片解码二维码 → 用户选合同后批量入台账
   recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
   batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),

@@ -707,19 +707,6 @@ async function main() {
 
   // ---------- 付款 ----------
   if ((await prisma.paymentRecord.count({ where: { projectId: project.id } })) === 0) {
-    await prisma.paymentPlan.createMany({
-      data: [
-        { projectId: project.id, contractId: contracts[0].id, period: 1, planAmount: 1000000, planDate: new Date('2026-02-15'), condition: '到货验收后 15 日', statusCode: 'PAID' },
-        { projectId: project.id, contractId: contracts[0].id, period: 2, planAmount: 800000, planDate: new Date('2026-03-15'), condition: '月度结算后付款', statusCode: 'WAIT' },
-        { projectId: project.id, contractId: contracts[1].id, period: 1, planAmount: 61040, planDate: new Date('2026-03-20'), condition: '租赁月度结算', statusCode: 'OVERDUE' },
-      ],
-    });
-    await prisma.paymentApply.createMany({
-      data: [
-        { projectId: project.id, contractId: contracts[0].id, code: 'FK-2026-0001', applyAmount: 1000000, payee: suppliers[1].name, bankName: suppliers[1].bankName, bankAccount: suppliers[1].bankAccount, payDate: new Date('2026-02-20'), methodCode: 'TRANSFER', statusCode: 'APPROVED', createdBy: admin.id },
-        { projectId: project.id, contractId: contracts[1].id, code: 'FK-2026-0002', applyAmount: 61040, payee: suppliers[2].name, bankName: suppliers[2].bankName, bankAccount: suppliers[2].bankAccount, payDate: new Date('2026-03-25'), methodCode: 'ACCEPTANCE', statusCode: 'PENDING', createdBy: admin.id },
-      ],
-    });
     await prisma.paymentRecord.createMany({
       data: [
         { projectId: project.id, contractId: contracts[0].id, payMonth: '2026-02', amount: 1000000, methodCode: 'TRANSFER', payDate: new Date('2026-02-20'), statusCode: 'PAID', remark: '第一期进度款' },

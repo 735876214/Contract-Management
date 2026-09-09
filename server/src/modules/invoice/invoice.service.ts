@@ -14,9 +14,6 @@ const INVOICE_FIELDS = [
   'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
   'imageUrl', 'statusCode', 'remark',
 ];
-const INVOICE_APPLY_FIELDS = [
-  'projectId', 'contractId', 'typeCode', 'amount', 'taxRate', 'buyerInfo', 'statusCode', 'remark',
-];
 
 @Injectable()
 export class InvoiceService {
@@ -122,31 +119,6 @@ export class InvoiceService {
       where: { id },
       data: { statusCode: inv.statusCode === 'WAIT_VERIFY' ? 'VERIFIED' : inv.statusCode },
     });
-  }
-
-  // ---------------- 开票申请 ----------------
-  async findApplies(query: any = {}, projectId: string) {
-    const where: any = { projectId };
-    if (query.contractId) where.contractId = query.contractId;
-    if (query.statusCode) where.statusCode = query.statusCode;
-    return this.prisma.invoiceApply.findMany({
-      where, orderBy: { createdAt: 'desc' },
-      include: { contract: { select: { id: true, code: true, name: true } } },
-    });
-  }
-
-  async createApply(data: any, projectId: string, user: any) {
-    await this.dict.validate('invoice_type', data.typeCode);
-    await this.dict.validate('invoice_status', data.statusCode);
-    const payload: any = pickFields(data, INVOICE_APPLY_FIELDS, { label: '开票申请' });
-    return this.prisma.invoiceApply.create({
-      data: { ...payload, projectId, amount: num(data.amount), taxRate: num(data.taxRate), createdBy: user?.userId },
-    });
-  }
-
-  async removeApply(id: string) {
-    await this.prisma.invoiceApply.delete({ where: { id } });
-    return true;
   }
 
   // ---------------- 批量识别 ----------------

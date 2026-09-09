@@ -26,7 +26,6 @@ export default function Invoices() {
       <Tabs
         items={[
           { key: 'invoice', label: '收票登记', children: <InvoiceTab contracts={contracts} contractOptions={contractOptions} /> },
-          { key: 'apply', label: '开票申请', children: <ApplyTab contractOptions={contractOptions} /> },
         ]}
       />
     </Card>
@@ -238,112 +237,6 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
         onClose={() => setBatchOpen(false)}
         onDone={() => { setBatchOpen(false); reload(); }}
       />
-    </>
-  );
-}
-
-function ApplyTab({ contractOptions }: { contractOptions: any[] }) {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => invoiceApi.applies(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    if (editing) {
-      // 后端未提供apply更新接口，按创建口径提交
-      await invoiceApi.createApply(v);
-    } else {
-      await invoiceApi.createApply(v);
-    }
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    reload();
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue(row);
-    setModal(true);
-  };
-
-  return (
-    <>
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
-        <Form.Item name="contractId"><Select2 options={contractOptions} placeholder="合同" /></Form.Item>
-        <Form.Item name="typeCode"><DictSelect typeCode="invoice_type" placeholder="发票类型" /></Form.Item>
-        <Form.Item name="status"><DictSelect typeCode="invoice_status" placeholder="状态" /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-      </Form>
-
-      <div style={{ marginBottom: 16, textAlign: 'right' }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
-          申请开票
-        </Button>
-      </div>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 1500 }}
-        columns={[
-          { title: '合同', width: 260, render: (_, r) => r.contract?.code || '-' },
-          { title: '发票类型', dataIndex: 'typeCode', width: 120, render: (v) => <DictTag typeCode="invoice_type" value={v} /> },
-          { title: '金额', dataIndex: 'amount', width: 140, render: money },
-          { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-          { title: '购方信息', dataIndex: 'buyerInfo', width: 220 },
-          { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
-          { title: '备注', dataIndex: 'remark', width: 160 },
-          {
-            title: '操作',
-            width: 140,
-            fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Popconfirm title="确认删除？" onConfirm={async () => { await invoiceApi.removeApply(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
-      />
-
-      <Modal
-        title={editing ? '编辑开票申请' : '申请开票'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={720}
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="合同" rules={[{ required: true }]}><Select2 options={contractOptions} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="amount" label="金额" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}><Form.Item name="buyerInfo" label="购方信息"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
-            <Col xs={24}>
-              <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
     </>
   );
 }

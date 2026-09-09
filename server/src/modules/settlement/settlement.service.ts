@@ -83,6 +83,91 @@ export class SettlementService {
   }
 
   // ---------------- 结算台账 ----------------
+
+  /** 日期 → YYYY-MM */
+  private monthOf(d: any): string | null {
+    if (!d) return null;
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return null;
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * 结算台账自动抓取字段（数据自动生成，不依赖手工录入）：
+   * - 本月结算额 / 结算次数：按结算月份从结算单（Settlement.settleDate）抓取实结金额
+   * - 本月开票额：从发票管理收票登记（Invoice）按结算账期抓取，无账期时回落到开票日期月份
+   * - 保理贴息：从资金费用台账保理费用（FactoringCost，融资利息 + 手续费）按结算月份抓取
+   * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
+   */
+  async computeLedgerAutoFields(contractId: string, settleMonth: string) {
+    const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+    const [y, m] = settleMonth.split('-').map(Number);
+    let start: Date | null = null;
+    let end: Date | null = null;
+    if (y && m) {
+      start = new Date(y, m - 1, 1);
+      end = new Date(y, m, 1);
+    }
+    const [settlements, invoices, factoring, overdue] = await Promise.all([
+      start && end
+        ? this.prisma.settlement.findMany({ where: { contractId, settleDate: { gte: start, lt: end } } })
+        : Promise.resolve([] as any[]),
+      this.prisma.invoice.findMany({ where: { contractId } }),
+      this.prisma.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
+      this.prisma.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
+    ]);
+    const monthSettleAmount = round2(settlements.reduce((s: number, r: any) => s + (num(r.actualAmount ?? r.amount) || 0), 0));
+    const settleCount = settlements.length;
+    const monthInvoiceAmount = round2(
+      invoices
+        .filter((i: any) => (i.settlePeriod || this.monthOf(i.invoiceDate)) === settleMonth)
+        .reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0),
+    );
+    const factoringDiscount = round2(
+      factoring.reduce((s: number, r: any) => {
+        const cost = num(r.totalCost) ?? (num(r.financingInterest) || 0) + (num(r.handlingFee) || 0);
+        return s + (cost || 0);
+      }, 0),
+    );
+    const overdueSum = round2(overdue.reduce((s: number, r: any) => (r.waived ? s : s + (num(r.overdueInterest) || 0)), 0));
+    return { monthSettleAmount, monthInvoiceAmount, settleCount, factoringDiscount, overdueInterest: overdueSum };
+  }
+
+  /** 一键自动生成/刷新台账：扫描结算单、收票登记、资金费用台账中的合同+月份组合，自动生成缺失行并刷新自动字段 */
+  async refreshLedger(projectId: string) {
+    const [settlements, invoices, factoring, overdue, contracts] = await Promise.all([
+      this.prisma.settlement.findMany({ where: { projectId }, select: { contractId: true, settleDate: true } }),
+      this.prisma.invoice.findMany({ where: { projectId }, select: { contractId: true, settlePeriod: true, invoiceDate: true } }),
+      this.prisma.factoringCost.findMany({ select: { contractId: true, settlementMonth: true } }),
+      this.prisma.overdueInterest.findMany({ select: { contractId: true, settlementMonth: true } }),
+      this.prisma.contract.findMany({ where: { projectId }, select: { id: true } }),
+    ]);
+    const contractIds = new Set(contracts.map((c: any) => c.id));
+    const combos = new Set<string>();
+    const add = (contractId: string | null, month: string | null) => {
+      if (contractId && month) combos.add(`${contractId}|${month}`);
+    };
+    for (const s of settlements) add(s.contractId, this.monthOf(s.settleDate));
+    for (const i of invoices) add(i.contractId, i.settlePeriod || this.monthOf(i.invoiceDate));
+    for (const f of factoring) if (contractIds.has(f.contractId)) add(f.contractId, f.settlementMonth);
+    for (const o of overdue) if (contractIds.has(o.contractId)) add(o.contractId, o.settlementMonth);
+    let created = 0;
+    let updated = 0;
+    for (const combo of combos) {
+      const [contractId, settleMonth] = combo.split('|');
+      const auto = await this.computeLedgerAutoFields(contractId, settleMonth);
+      const exist = await this.prisma.settlementLedger.findFirst({ where: { projectId, contractId, settleMonth } });
+      if (exist) {
+        await this.prisma.settlementLedger.update({ where: { id: exist.id }, data: auto });
+        updated++;
+      } else {
+        await this.prisma.settlementLedger.create({ data: { projectId, contractId, settleMonth, ...auto } });
+        created++;
+      }
+    }
+    return { created, updated };
+  }
+
   async findLedger(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
@@ -113,11 +198,15 @@ export class SettlementService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     if (payload.settleCount !== undefined) payload.settleCount = Number(payload.settleCount) || null;
+    // 自动生成：本月结算额/本月开票额/结算次数/保理贴息/逾期利息 从业务数据自动抓取，忽略手工传入
+    if (payload.contractId && payload.settleMonth) {
+      Object.assign(payload, await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth));
+    }
     return this.prisma.settlementLedger.create({ data: payload });
   }
 
   async updateLedger(id: string, data: any) {
-    await this.ledgerOne(id);
+    const old = await this.ledgerOne(id);
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = pickFields(data, LEDGER_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -125,6 +214,12 @@ export class SettlementService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     if (payload.settleCount !== undefined) payload.settleCount = Number(payload.settleCount) || null;
+    // 自动生成：以本次变更后的合同+月份为准重新抓取
+    const contractId = payload.contractId ?? old.contractId;
+    const settleMonth = payload.settleMonth ?? old.settleMonth;
+    if (contractId && settleMonth) {
+      Object.assign(payload, await this.computeLedgerAutoFields(contractId, settleMonth));
+    }
     return this.prisma.settlementLedger.update({ where: { id }, data: payload });
   }
 

@@ -73,26 +73,9 @@ export class DashboardService {
     };
   }
 
-  /** 提醒：到期/逾期付款计划、发票待查验 */
+  /** 提醒：发票待查验 */
   async reminders(projectId: string, user: any) {
-    const today = new Date();
-    const soon = new Date(today.getTime() + 15 * 86400000);
-    const [overduePlans, pendingInvoices] = await Promise.all([
-      this.prisma.paymentPlan.findMany({
-        where: { projectId, statusCode: { not: 'PAID' }, planDate: { lt: today } },
-        include: { contract: { select: { code: true, name: true, supplier: { select: { name: true } } } } },
-        take: 10,
-      }),
-      this.prisma.invoice.findMany({ where: { projectId, statusCode: 'WAIT_VERIFY' }, take: 10 }),
-    ]);
-    const duePlans = await this.prisma.paymentPlan.findMany({
-      where: { projectId, statusCode: { not: 'PAID' }, planDate: { gte: today, lte: soon } },
-      take: 10,
-    });
-    return {
-      overduePlans,
-      duePlans,
-      pendingInvoices,
-    };
+    const pendingInvoices = await this.prisma.invoice.findMany({ where: { projectId, statusCode: 'WAIT_VERIFY' }, take: 10 });
+    return { pendingInvoices };
   }
 }

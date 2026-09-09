@@ -91,17 +91,17 @@ export default function Dashboard() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
-          <Card title="逾期付款计划" extra={<Tag color="red">{reminders.overduePlans?.length || 0}</Tag>}>
+          <Card title="待查验发票" extra={<Tag color="red">{reminders.pendingInvoices?.length || 0}</Tag>}>
             <List
-              dataSource={reminders.overduePlans || []}
-              locale={{ emptyText: <Empty description="暂无逾期" /> }}
+              dataSource={reminders.pendingInvoices || []}
+              locale={{ emptyText: <Empty description="暂无待查验发票" /> }}
               renderItem={(item: any) => (
                 <List.Item>
                   <List.Item.Meta
-                    title={item.contract?.name || '-'}
-                    description={`${item.contract?.supplier?.name || ''} · 第 ${item.period} 期 · 计划日期 ${item.planDate?.slice(0, 10)}`}
+                    title={item.issuer || '-'}
+                    description={`发票号码 ${item.invoiceNo || '-'} · 开票日期 ${item.invoiceDate?.slice(0, 10) || '-'}`}
                   />
-                  <span style={{ color: '#cf1322' }}>{money(item.planAmount)}</span>
+                  <span style={{ color: '#cf1322' }}>{money(item.amountWithTax)}</span>
                 </List.Item>
               )}
             />
