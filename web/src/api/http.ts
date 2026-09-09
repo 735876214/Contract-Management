@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { message } from 'antd';
+import { useAuthStore } from '@/store/auth';
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -8,7 +9,9 @@ const http = axios.create({
 
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('cms_token');
-  const projectId = localStorage.getItem('cms_project_id');
+  // 项目上下文：localStorage 优先，store 兜底（防止旧标签页 localStorage 被清导致 x-project-id 缺失）
+  const projectId =
+    localStorage.getItem('cms_project_id') || useAuthStore.getState().currentProjectId;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   if (projectId) config.headers['x-project-id'] = projectId;
   return config;
