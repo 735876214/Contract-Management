@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -19,6 +20,7 @@ export class SupplierService {
     private excel: ExcelService,
     private sysParam: SysParamService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   /** 供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离 */
@@ -79,12 +81,15 @@ export class SupplierService {
   }
 
   async update(id: string, data: any) {
-    await this.findOne(id);
-    if (data.name && data.name !== (await this.findOne(id)).name) {
+    const before = await this.findOne(id);
+    assertVersion(before, data);
+    if (data.name && data.name !== before.name) {
       const exist = await this.prisma.supplier.findUnique({ where: { name: data.name } });
       if (exist) throw new BadRequestException('供应商名称已存在（系统内唯一）');
     }
-    return this.prisma.supplier.update({ where: { id }, data: pickFields(data, SUPPLIER_FIELDS, { label: '供应商' }) });
+    const payload: any = pickFields(data, SUPPLIER_FIELDS, { label: '供应商' });
+    delete payload.version;
+    return this.prisma.supplier.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async remove(id: string) {
@@ -124,45 +129,53 @@ export class SupplierService {
     return this.excel.export(this.columns(), rows, '供应商库');
   }
 
+  /** 供应商信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async import(buffer: Buffer, projectId?: string) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
-    let created = 0;
-    let updated = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      const name = String(r['供应商名称'] ?? '').trim();
-      if (!name) {
-        errors.push(`第 ${rowNo} 行：供应商名称为必填项`);
-        continue;
-      }
-      const data: any = {
-        name,
-        legalPerson: r['法人姓名'] || null,
-        legalPhone: r['法人电话'] || null,
-        contractAuthPerson: r['合同授权人姓名'] || null,
-        contractAuthPhone: r['合同授权人电话'] || null,
-        contractAuthIdNo: r['合同授权人身份证号'] || null,
-        contactName: r['联系人姓名'] || null,
-        contactPhone: r['联系人电话'] || null,
-        contactEmail: r['联系人邮箱'] || null,
-        bankName: r['银行名称'] || null,
-        bankAccount: r['银行账号'] || null,
-        address: r['公司地址'] || null,
-        remark: r['备注'] || null,
-        status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
-      };
-      const exist = await this.prisma.supplier.findUnique({ where: { name } });
-      if (exist) {
-        await this.prisma.supplier.update({ where: { id: exist.id }, data });
-        updated++;
-      } else {
-        await this.create(data, projectId);
-        created++;
-      }
-    }
-    return { created, updated, errors };
+    const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
+    const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r, { rowNo }) => {
+        const name = String(r['供应商名称'] ?? '').trim();
+        if (!name) throw new RowError('供应商名称为必填项', '供应商名称');
+        notDup(name, `供应商名称「${name}」在本次导入中重复`, '供应商名称');
+        return {
+          name,
+          payload: {
+            name,
+            legalPerson: r['法人姓名'] || null,
+            legalPhone: r['法人电话'] || null,
+            contractAuthPerson: r['合同授权人姓名'] || null,
+            contractAuthPhone: r['合同授权人电话'] || null,
+            contractAuthIdNo: r['合同授权人身份证号'] || null,
+            contactName: r['联系人姓名'] || null,
+            contactPhone: r['联系人电话'] || null,
+            contactEmail: r['联系人邮箱'] || null,
+            bankName: r['银行名称'] || null,
+            bankAccount: r['银行账号'] || null,
+            address: r['公司地址'] || null,
+            remark: r['备注'] || null,
+            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+          },
+        };
+      },
+      write: async (plans, tx) => {
+        let created = 0;
+        let updated = 0;
+        for (const p of plans) {
+          const exist = await tx.supplier.findUnique({ where: { name: p.name } });
+          if (exist) {
+            await tx.supplier.update({ where: { id: exist.id }, data: { ...p.payload, version: { increment: 1 } } });
+            updated++;
+          } else {
+            await tx.supplier.create({ data: { ...p.payload, projectId: ownerProjectId } });
+            created++;
+          }
+        }
+        return { created, updated };
+      },
+    });
   }
 
   /** 供应商信息填写模板（需求 3.3，实际字段口径） */

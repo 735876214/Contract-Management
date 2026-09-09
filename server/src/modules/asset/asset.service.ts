@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -25,6 +26,7 @@ export class AssetService {
     private excel: ExcelService,
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   /** 计算派生金额字段（需求 2.6：数量 × 单价 自动） */
@@ -72,7 +74,8 @@ export class AssetService {
     }
   }
 
-  async create(data: any, projectId: string) {
+  async create(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     this.validate(data);
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
     payload.projectId = projectId;
@@ -82,12 +85,13 @@ export class AssetService {
     }
     if (payload.turnoverCount !== undefined) payload.turnoverCount = payload.turnoverCount === null || payload.turnoverCount === '' ? null : Number(payload.turnoverCount);
     Object.assign(payload, this.derived({ ...payload }));
-    return this.prisma.assetLedger.create({ data: payload });
+    return db.assetLedger.create({ data: payload });
   }
 
   async update(id: string, data: any) {
     const old = await this.prisma.assetLedger.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('资产台账记录不存在');
+    assertVersion(old, data);
     this.validate({ ...old, ...data });
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
     if (data.date !== undefined) payload.date = data.date ? new Date(data.date) : null;
@@ -212,40 +216,36 @@ export class AssetService {
     });
   }
 
-  /** 资产管理台账上传导入（需求 3.4）：字典名称→编码解析、状态数量校验、新增不覆盖 */
+  /** 资产管理台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importAssets(buffer: Buffer, projectId: string) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
       this.dict.options('asset_category_focus'), this.dict.options('measurement_unit'),
     ]);
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      try {
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const name = String(r['资产名称'] ?? '').trim();
-        if (!name) throw new Error('资产名称为必填项');
+        if (!name) throw new RowError('资产名称为必填项', '资产名称');
         const sourceVal = String(r['来源'] ?? '').trim();
-        if (!sourceVal) throw new Error('来源为必填项');
+        if (!sourceVal) throw new RowError('来源为必填项', '来源');
         const sourceCode = codeOf(source, sourceVal);
-        if (!sourceCode) throw new Error(`下拉校验失败：「${sourceVal}」不在资产来源选项范围内`);
+        if (!sourceCode) throw new RowError(`下拉校验失败：「${sourceVal}」不在资产来源选项范围内`, '来源');
         const catL1Val = String(r['资产类别（一级）'] ?? '').trim();
-        if (!catL1Val) throw new Error('资产类别（一级）为必填项');
+        if (!catL1Val) throw new RowError('资产类别（一级）为必填项', '资产类别（一级）');
         const categoryL1Code = codeOf(catL1, catL1Val);
-        if (!categoryL1Code) throw new Error(`下拉校验失败：「${catL1Val}」不在资产类别选项范围内`);
+        if (!categoryL1Code) throw new RowError(`下拉校验失败：「${catL1Val}」不在资产类别选项范围内`, '资产类别（一级）');
         const price = num(r['进/出场单价（金额）']);
-        if (price === null) throw new Error('进/出场单价（金额）为必填数字');
+        if (price === null) throw new RowError('进/出场单价（金额）为必填数字', '进/出场单价（金额）');
         const qty = num(r['进/出场数量']);
         const statusSum = (num(r['在用数量']) || 0) + (num(r['闲置数量']) || 0) + (num(r['报废数量']) || 0) + (num(r['丢失数量']) || 0);
         if (qty !== null && statusSum > 0 && Math.abs(statusSum - qty) > 0.0001) {
-          throw new Error(`在用/闲置/报废/丢失数量合计（${statusSum}）应等于进/出场数量（${qty}）`);
+          throw new RowError(`在用/闲置/报废/丢失数量合计（${statusSum}）应等于进/出场数量（${qty}）`, '在用数量');
         }
-        await this.create(
-          {
+        return {
+          data: {
             date: r['日期'] || null,
             sourceCode,
             categoryL1Code,
@@ -266,13 +266,12 @@ export class AssetService {
             transferOutPrice: num(r['调出物资本项目进场时单价']),
             remark: String(r['备注'] ?? '').trim() || null,
           },
-          projectId,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.create(p.data, projectId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 }

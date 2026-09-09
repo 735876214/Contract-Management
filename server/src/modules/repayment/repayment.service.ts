@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -114,6 +114,7 @@ export class RepaymentService {
 
   async update(id: string, data: any) {
     const before = await this.findOne(id);
+    assertVersion(before, data);
     if (data.code && data.code !== before.code) {
       const { exists } = await this.checkCode(data.code, before.projectId, id);
       if (exists) throw new BadRequestException('协议编号在当前项目中已存在');
@@ -121,13 +122,18 @@ export class RepaymentService {
     const details = Array.isArray(data.details) ? data.details : null;
     if (details && !details.length) throw new BadRequestException('至少需保留一条约定还款明细');
     const { details: _d, ...rest } = data;
-    await this.prisma.repaymentAgreement.update({ where: { id }, data: this.normalize(rest) });
-    if (details) {
-      await this.prisma.repaymentDetail.deleteMany({ where: { agreementId: id } });
-      await this.prisma.repaymentDetail.createMany({
-        data: details.map((d: any, i: number) => ({ agreementId: id, ...this.normalizeDetail(d, i) })),
-      });
-    }
+    const payload: any = this.normalize(rest);
+    delete payload.version;
+    // 需求 2.1：主表 + 明细在同一事务内写入，任一步失败整体回滚
+    await this.prisma.$transaction(async (tx) => {
+      await tx.repaymentAgreement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      if (details) {
+        await tx.repaymentDetail.deleteMany({ where: { agreementId: id } });
+        await tx.repaymentDetail.createMany({
+          data: details.map((d: any, i: number) => ({ agreementId: id, ...this.normalizeDetail(d, i) })),
+        });
+      }
+    });
     return this.findOne(id);
   }
 

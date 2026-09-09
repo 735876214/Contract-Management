@@ -139,7 +139,27 @@ export class SystemService {
     const where: any = {};
     if (query.userId) where.userId = query.userId;
     if (query.module) where.module = query.module;
-    if (query.keyword) where.OR = [{ username: { contains: query.keyword } }, { action: { contains: query.keyword } }];
+    if (query.action) where.action = query.action;
+    if (query.result) where.result = query.result;
+    if (query.bizType) where.bizType = query.bizType;
+    if (query.projectId) where.projectId = query.projectId;
+    if (query.keyword) {
+      where.OR = [
+        { username: { contains: query.keyword } },
+        { action: { contains: query.keyword } },
+        { url: { contains: query.keyword } },
+        { bizId: { contains: query.keyword } },
+      ];
+    }
+    if (query.startDate || query.endDate) {
+      where.createdAt = {};
+      if (query.startDate) where.createdAt.gte = new Date(query.startDate);
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
     const [list, total] = await Promise.all([
       this.prisma.operationLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
       this.prisma.operationLog.count({ where }),

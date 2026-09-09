@@ -11,10 +11,28 @@ import http from '@/api/http';
  *  ② 📤 上传导入数据 —— 上传填写好的模板文件，校验后写入数据库，并展示导入结果/错误报告
  */
 
+export interface ImportRowError {
+  /** Excel 中的实际行号 */
+  row?: number;
+  /** 出错字段（表头名） */
+  field?: string;
+  message?: string;
+}
+
 export interface ImportResult {
+  total?: number;
   created?: number;
   updated?: number;
-  errors?: string[];
+  errors?: (ImportRowError | string)[];
+}
+
+/** 统一渲染一条错误（兼容旧的字符串格式） */
+function renderError(e: ImportRowError | string): string {
+  if (typeof e === 'string') return e;
+  const parts: string[] = [];
+  if (e.row) parts.push(`第 ${e.row} 行`);
+  if (e.field) parts.push(`【${e.field}】`);
+  return `${parts.join('')}${parts.length ? '：' : ''}${e.message || '未知错误'}`;
 }
 
 interface Props {
@@ -87,7 +105,7 @@ export default function ImportButton({
       setResult(res || {});
       setStage('result');
       const errs = res?.errors || [];
-      if (errs.length) message.warning(`导入完成，${errs.length} 行失败，详见报告`);
+      if (errs.length) message.warning(`导入未完成：${errs.length} 行校验失败，已全部回滚，未写入任何数据`);
       else message.success(`导入成功：新增 ${res?.created ?? 0}${res?.updated != null ? `，更新 ${res?.updated}` : ''}`);
       onDone?.();
     } catch {
@@ -154,7 +172,7 @@ export default function ImportButton({
               <span style={{ fontSize: 12, color: '#999' }}>上传已填写好的模板文件，校验通过后写入系统</span>
             </Button>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              单次导入最多 5000 行；导入默认为新增数据，不覆盖已有数据。{extraHint || ''}
+              单次导入最多 5000 行；采用「全成功或全失败」策略：任一行校验失败即整体回滚，不会写入部分数据。{extraHint || ''}
             </Typography.Text>
           </div>
         ) : (
@@ -162,17 +180,21 @@ export default function ImportButton({
             <Alert
               type={errCount ? 'warning' : 'success'}
               showIcon
-              message={`导入完成：新增 ${result?.created ?? 0}${result?.updated != null ? `，更新 ${result?.updated}` : ''}${errCount ? `，失败 ${errCount} 行` : ''}`}
+              message={
+                errCount
+                  ? `导入未完成：${errCount} 行校验失败，已全部回滚，未写入任何数据`
+                  : `导入完成：新增 ${result?.created ?? 0}${result?.updated != null ? `，更新 ${result?.updated}` : ''}`
+              }
               style={{ marginBottom: 12 }}
             />
             {errCount > 0 && (
               <Alert
                 type="error"
-                message="错误报告（行号 + 原因）"
+                message="错误报告（行号 + 字段 + 原因）"
                 description={
                   <ul style={{ maxHeight: 240, overflowY: 'auto', paddingLeft: 18, margin: '4px 0 0' }}>
                     {result!.errors!.map((e, i) => (
-                      <li key={i} style={{ color: '#d4380d', lineHeight: '20px' }}>{e}</li>
+                      <li key={i} style={{ color: '#d4380d', lineHeight: '20px' }}>{renderError(e)}</li>
                     ))}
                   </ul>
                 }

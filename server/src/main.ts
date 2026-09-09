@@ -3,7 +3,10 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { OperationLogInterceptor } from './common/interceptors/operation-log.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { LogService } from './common/services/log.service';
+import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -13,7 +16,11 @@ async function bootstrap() {
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalInterceptors(
+    new ResponseInterceptor(),
+    // 需求 2.6：全部写操作（增删改、导入）自动留痕
+    new OperationLogInterceptor(app.get(PrismaClient), app.get(LogService)),
+  );
   app.useGlobalFilters(new AllExceptionsFilter());
 
   const uploadDir = process.env.UPLOAD_DIR || './uploads';

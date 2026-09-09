@@ -447,9 +447,27 @@ function ParamsTab() {
 }
 
 /* ---------------- 日志 ---------------- */
+/** 尝试把 JSON 字符串格式化展示，失败原样输出 */
+function tryPretty(v: any): string {
+  if (!v) return '-';
+  try {
+    return JSON.stringify(JSON.parse(v), null, 2);
+  } catch {
+    return String(v);
+  }
+}
+
 function LogsTab() {
   const op = useTable<any>((p) => systemApi.operationLogs(p));
   const login = useTable<any>((p) => systemApi.loginLogs(p));
+  const [filters, setFilters] = useState<any>({});
+  const [detail, setDetail] = useState<any>(null);
+
+  const applyFilters = () => op.search(filters);
+  const resetFilters = () => {
+    setFilters({});
+    op.search({ keyword: undefined, module: undefined, action: undefined, result: undefined });
+  };
 
   return (
     <Card title="日志">
@@ -459,21 +477,133 @@ function LogsTab() {
             key: 'op',
             label: '操作日志',
             children: (
-              <Table
-                rowKey="id"
-                loading={op.loading}
-                dataSource={op.list}
-                pagination={op.pagination}
-                scroll={{ x: 1200 }}
-                columns={[
-                  { title: '用户', dataIndex: 'user', width: 140 },
-                  { title: '模块', dataIndex: 'module', width: 160 },
-                  { title: '动作', dataIndex: 'action', width: 140 },
-                  { title: '请求', dataIndex: 'request', ellipsis: true },
-                  { title: 'IP', dataIndex: 'ip', width: 140 },
-                  { title: '时间', dataIndex: 'time', width: 180 },
-                ]}
-              />
+              <>
+                <Space style={{ marginBottom: 12 }} wrap>
+                  <Input
+                    allowClear
+                    placeholder="关键字（用户 / 动作 / 请求 / 业务ID）"
+                    style={{ width: 240 }}
+                    value={filters.keyword}
+                    onChange={(e) => setFilters((f: any) => ({ ...f, keyword: e.target.value }))}
+                  />
+                  <Select
+                    allowClear
+                    placeholder="模块"
+                    style={{ width: 150 }}
+                    value={filters.module}
+                    onChange={(v) => setFilters((f: any) => ({ ...f, module: v }))}
+                    options={[
+                      '项目信息', '供应商库', '合同台账', '合同物资清单', '物资基础库', '物资日报',
+                      '结算单', '结算台账', '付款台账', '发票台账', '还款协议', '资产管理台账',
+                      '数据字典', '合同模板', '资金费用', '系统管理',
+                    ].map((v) => ({ label: v, value: v }))}
+                  />
+                  <Select
+                    allowClear
+                    placeholder="动作"
+                    style={{ width: 110 }}
+                    value={filters.action}
+                    onChange={(v) => setFilters((f: any) => ({ ...f, action: v }))}
+                    options={['新增', '修改', '删除', '导入', '导出', '启停'].map((v) => ({ label: v, value: v }))}
+                  />
+                  <Select
+                    allowClear
+                    placeholder="结果"
+                    style={{ width: 110 }}
+                    value={filters.result}
+                    onChange={(v) => setFilters((f: any) => ({ ...f, result: v }))}
+                    options={[{ label: '成功', value: 'SUCCESS' }, { label: '失败', value: 'FAIL' }]}
+                  />
+                  <Button type="primary" onClick={applyFilters}>查询</Button>
+                  <Button onClick={resetFilters}>重置</Button>
+                  <Button icon={<ReloadOutlined />} onClick={op.reload}>刷新</Button>
+                </Space>
+                <Table
+                  rowKey="id"
+                  loading={op.loading}
+                  dataSource={op.list}
+                  pagination={op.pagination}
+                  scroll={{ x: 1500 }}
+                  columns={[
+                    { title: '用户', dataIndex: 'username', width: 120, render: (v: any) => v || '-' },
+                    { title: '模块', dataIndex: 'module', width: 130 },
+                    { title: '动作', dataIndex: 'action', width: 80 },
+                    {
+                      title: '结果',
+                      dataIndex: 'result',
+                      width: 80,
+                      render: (v: any) => <Tag color={v === 'FAIL' ? 'red' : 'green'}>{v === 'FAIL' ? '失败' : '成功'}</Tag>,
+                    },
+                    { title: '请求', dataIndex: 'url', ellipsis: true },
+                    {
+                      title: '导入统计',
+                      dataIndex: 'importRows',
+                      width: 130,
+                      render: (v: any, row: any) =>
+                        v == null ? '-' : (
+                          <span>
+                            共 {v} 行，成功 <span style={{ color: '#3f8600' }}>{row.successCount ?? 0}</span>
+                            {row.failCount ? <span style={{ color: '#cf1322' }}>，失败 {row.failCount}</span> : null}
+                          </span>
+                        ),
+                    },
+                    { title: '耗时(ms)', dataIndex: 'duration', width: 90, render: (v: any) => v ?? '-' },
+                    { title: 'IP', dataIndex: 'ip', width: 130 },
+                    {
+                      title: '时间',
+                      dataIndex: 'createdAt',
+                      width: 180,
+                      render: (v: any) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
+                    },
+                    {
+                      title: '操作',
+                      width: 80,
+                      fixed: 'right',
+                      render: (_: any, row: any) => (
+                        <Button type="link" size="small" onClick={() => setDetail(row)}>详情</Button>
+                      ),
+                    },
+                  ]}
+                />
+                <Modal
+                  title="操作日志详情"
+                  open={!!detail}
+                  onCancel={() => setDetail(null)}
+                  footer={null}
+                  width={860}
+                >
+                  {detail && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div>
+                        <strong>请求参数</strong>
+                        <pre style={{ maxHeight: 200, overflow: 'auto', background: '#fafafa', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                          {tryPretty(detail.params)}
+                        </pre>
+                      </div>
+                      <div>
+                        <strong>变更前数据</strong>
+                        <pre style={{ maxHeight: 240, overflow: 'auto', background: '#fff7e6', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                          {tryPretty(detail.beforeData)}
+                        </pre>
+                      </div>
+                      <div>
+                        <strong>变更后数据</strong>
+                        <pre style={{ maxHeight: 240, overflow: 'auto', background: '#f6ffed', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                          {tryPretty(detail.afterData)}
+                        </pre>
+                      </div>
+                      {detail.message && (
+                        <div>
+                          <strong>错误信息</strong>
+                          <pre style={{ background: '#fff1f0', padding: 8, borderRadius: 4, margin: '4px 0 0', color: '#cf1322' }}>
+                            {detail.message}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Modal>
+              </>
             ),
           },
           {

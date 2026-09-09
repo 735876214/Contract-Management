@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 /** Decimal / null 安全转 number */
 export function num(v: any): number | null {
@@ -75,4 +75,14 @@ export function numOrNull(v: any): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** 乐观锁校验：客户端提交的版本号与库中不一致时拒绝更新（需求 2.2） */
+export function assertVersion(oldRow: any, data: any) {
+  if (!oldRow || oldRow.version === undefined || oldRow.version === null) return;
+  const v = data?.version;
+  if (v === undefined || v === null || v === '') return; // 未提供版本号时不阻断（兼容旧客户端）
+  if (Number(v) !== Number(oldRow.version)) {
+    throw new ConflictException('数据已被其他用户修改，请刷新后重试');
+  }
 }

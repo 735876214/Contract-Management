@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -17,6 +18,7 @@ export class DailyReportService {
     private dict: DictService,
     private excel: ExcelService,
     private styled: StyledExcelService,
+    private runner: ImportRunnerService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -86,15 +88,19 @@ export class DailyReportService {
     return payload;
   }
 
-  async create(data: any, projectId: string) {
+  async create(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.validate(data);
-    return this.prisma.dailyReport.create({ data: { ...this.normalize(data), projectId } });
+    return db.dailyReport.create({ data: { ...this.normalize(data), projectId } });
   }
 
   async update(id: string, data: any) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
+    assertVersion(before, data);
     await this.validate(data);
-    return this.prisma.dailyReport.update({ where: { id }, data: this.normalize(data) });
+    const payload: any = this.normalize(data);
+    delete payload.version;
+    return this.prisma.dailyReport.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async remove(id: string) {
@@ -246,6 +252,7 @@ export class DailyReportService {
     return buffer;
   }
 
+  /** 物资日报导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async import(buffer: Buffer, projectId: string) {
     const rows = await this.excel.parse(buffer);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
@@ -256,65 +263,79 @@ export class DailyReportService {
       const hit = items.find((i: any) => i.itemName === name || i.itemCode === name);
       return hit?.itemCode || null;
     };
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      try {
+    return this.runner.run<any>(rows, {
+      startRowNo: 2,
+      plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
         const supplierName = String(r['供应单位'] ?? '').trim();
-        const contract = contractCode ? await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } }) : null;
-        const supplier = supplierName ? await this.prisma.supplier.findFirst({ where: { name: supplierName } }) : null;
-        await this.create(
-          {
-            periodYear: Number(r['账期/年']) || null,
-            periodMonth: Number(r['账期/月']) || null,
-            entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
-            contractId: contract?.id,
-            isAsset: codeOf(yesNo, r['是否资产']),
-            assetSupervision: r['资产监管'] || null,
-            department: r['部门'] || null,
-            personnel: r['人员'] || null,
-            assetStatus: codeOf(assetStatus, r['资产状态']),
-            sourceCode: codeOf(source, r['来源']),
-            materialCategory: codeOf(category, r['材料类别']),
-            materialType: codeOf(type, r['物资种类']),
-            materialName: r['物资名称'] || null,
-            steelBrand: r['钢筋品牌'] || null,
-            steelCount: Number(r['钢筋件数']) || null,
-            spec: r['规格型号'] || null,
-            unit: codeOf(unit, r['计量单位']),
-            weighQty: num(r['过磅数量/t']),
-            deductQty: num(r['扣重/t']),
-            settleQty: num(r['结算数量']),
-            isWeighed: codeOf(yesNo, r['是否过磅']),
-            noAcceptReason: r['未云筑验收原因'] || null,
-            priceBeforeTax: num(r['单价/元(税前)']),
-            taxRate: num(r['税率']),
-            priceAfterTax: num(r['单价/元(税后)']),
-            amountBeforeTax: num(r['金额/元(税前)']),
-            amountAfterTax: num(r['金额/元(税后)']),
-            supplierId: supplier?.id,
-            receiveUnit: r['领用单位'] || null,
-            receiver: r['领料人'] || null,
-            laborContract: r['劳务合同'] || null,
-            usePosition: r['使用部位'] || null,
-            isProxy: codeOf(yesNo, r['是否代购']),
-            plateNo: r['车牌号'] || null,
-            receiptNo: r['收领单编号'] || null,
-            remark: r['备注'] || null,
-            subcontractPeriod: r['分包计价账期'] || null,
-            incomePrice: num(r['收入单价']),
-            incomeAmount: num(r['收入合价']),
-            stdPrice: num(r['标准单价']),
-            stdAmount: num(r['标准合价']),
-          },
-          projectId,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${index + 2} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        const contract = contractCode
+          ? await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } })
+          : null;
+        if (contractCode && !contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
+        const supplier = supplierName
+          ? await this.prisma.supplier.findFirst({ where: { name: supplierName } })
+          : null;
+        if (supplierName && !supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应单位');
+        // 物资名称/规格型号统一取自物资基础库，日报通过 materialBaseId 关联（需求 2.5）
+        const materialName = String(r['物资名称'] ?? '').trim() || null;
+        const spec = String(r['规格型号'] ?? '').trim() || null;
+        let materialBaseId: string | null = null;
+        if (materialName && spec) {
+          const base = await this.prisma.materialBase.findFirst({ where: { name: materialName, spec } });
+          if (!base) throw new RowError(`关联校验失败：物资基础库中不存在「${materialName} / ${spec}」，请先维护物资基础库`, '物资名称');
+          materialBaseId = base.id;
+        }
+        const data: any = {
+          periodYear: Number(r['账期/年']) || null,
+          periodMonth: Number(r['账期/月']) || null,
+          entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
+          contractId: contract?.id,
+          isAsset: codeOf(yesNo, r['是否资产']),
+          assetSupervision: r['资产监管'] || null,
+          department: r['部门'] || null,
+          personnel: r['人员'] || null,
+          assetStatus: codeOf(assetStatus, r['资产状态']),
+          sourceCode: codeOf(source, r['来源']),
+          materialCategory: codeOf(category, r['材料类别']),
+          materialType: codeOf(type, r['物资种类']),
+          materialBaseId,
+          materialName,
+          steelBrand: r['钢筋品牌'] || null,
+          steelCount: Number(r['钢筋件数']) || null,
+          spec,
+          unit: codeOf(unit, r['计量单位']),
+          weighQty: num(r['过磅数量/t']),
+          deductQty: num(r['扣重/t']),
+          settleQty: num(r['结算数量']),
+          isWeighed: codeOf(yesNo, r['是否过磅']),
+          noAcceptReason: r['未云筑验收原因'] || null,
+          priceBeforeTax: num(r['单价/元(税前)']),
+          taxRate: num(r['税率']),
+          priceAfterTax: num(r['单价/元(税后)']),
+          amountBeforeTax: num(r['金额/元(税前)']),
+          amountAfterTax: num(r['金额/元(税后)']),
+          supplierId: supplier?.id,
+          receiveUnit: r['领用单位'] || null,
+          receiver: r['领料人'] || null,
+          laborContract: r['劳务合同'] || null,
+          usePosition: r['使用部位'] || null,
+          isProxy: codeOf(yesNo, r['是否代购']),
+          plateNo: r['车牌号'] || null,
+          receiptNo: r['收领单编号'] || null,
+          remark: r['备注'] || null,
+          subcontractPeriod: r['分包计价账期'] || null,
+          incomePrice: num(r['收入单价']),
+          incomeAmount: num(r['收入合价']),
+          stdPrice: num(r['标准单价']),
+          stdAmount: num(r['标准合价']),
+        };
+        await this.validate(data);
+        return { data };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.create(p.data, projectId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 }

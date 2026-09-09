@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -19,6 +20,7 @@ export class ProjectService {
     private dict: DictService,
     private excel: ExcelService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   async findAll(query: any = {}, user: any) {
@@ -61,22 +63,26 @@ export class ProjectService {
     if (exist) throw new BadRequestException(`项目简称（字母版）${codeAbbr} 已存在（用于合同编号，须唯一）`);
   }
 
-  async create(data: any) {
+  async create(data: any, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     if (!data.code) throw new BadRequestException('项目编码不能为空');
     const exist = await this.prisma.project.findUnique({ where: { code: data.code } });
     if (exist) throw new BadRequestException('项目编码已存在');
     await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr);
-    return this.prisma.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
+    return db.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
   }
 
   async update(id: string, data: any) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
+    assertVersion(before, data);
     if (data.status) await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr, id);
-    return this.prisma.project.update({ where: { id }, data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
+    const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
+    delete payload.version;
+    return this.prisma.project.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async remove(id: string) {
@@ -133,33 +139,32 @@ export class ProjectService {
     return this.tpl.buildTemplate({ moduleName: '项目信息', sheetName: '数据', columns });
   }
 
-  /** 项目信息上传导入（需求 3.4）：新增不覆盖，逐行校验并输出错误报告 */
+  /** 项目信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importProjects(buffer: Buffer) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
     const [industry, status] = await Promise.all([
       this.dict.options('industry_type'), this.dict.options('project_status'),
     ]);
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      try {
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const code = String(r['项目编码'] ?? '').trim();
-        if (!code) throw new Error('项目编码为必填项');
+        if (!code) throw new RowError('项目编码为必填项', '项目编码');
         const name = String(r['项目名称'] ?? '').trim();
-        if (!name) throw new Error('项目名称为必填项');
+        if (!name) throw new RowError('项目名称为必填项', '项目名称');
+        notDup(code, `项目编码「${code}」在本次导入中重复`, '项目编码');
         const exist = await this.prisma.project.findUnique({ where: { code } });
-        if (exist) throw new Error(`唯一性校验失败：项目编码 ${code} 已存在，导入不覆盖已有数据`);
+        if (exist) throw new RowError(`唯一性校验失败：项目编码 ${code} 已存在，导入不覆盖已有数据`, '项目编码');
         const industryVal = String(r['项目业态'] ?? '').trim();
         const industryType = codeOf(industry, industryVal);
-        if (industryVal && industryType === null) throw new Error(`下拉校验失败：「${industryVal}」不在项目业态选项范围内`);
+        if (industryVal && industryType === null) throw new RowError(`下拉校验失败：「${industryVal}」不在项目业态选项范围内`, '项目业态');
         const statusVal = String(r['状态'] ?? '').trim();
         const statusCode = codeOf(status, statusVal);
-        if (statusVal && statusCode === null) throw new Error(`下拉校验失败：「${statusVal}」不在项目状态选项范围内`);
-        await this.create({
+        if (statusVal && statusCode === null) throw new RowError(`下拉校验失败：「${statusVal}」不在项目状态选项范围内`, '状态');
+        return {
+          data: {
           code,
           name,
           nameAbbr: String(r['项目简称（文字）'] ?? '').trim() || null,
@@ -171,12 +176,13 @@ export class ProjectService {
           startDate: r['开工日期'] || null,
           endDate: r['竣工日期'] || null,
           description: String(r['描述'] ?? '').trim() || null,
-        });
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+          },
+        };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.create(p.data, tx);
+        return { created: plans.length };
+      },
+    });
   }
 }

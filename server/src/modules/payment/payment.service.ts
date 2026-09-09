@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
@@ -20,6 +21,7 @@ export class PaymentService {
     private excel: ExcelService,
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   private contractInclude = {
@@ -40,21 +42,25 @@ export class PaymentService {
     return buildResult(list, total, query);
   }
 
-  async createRecord(data: any, projectId: string) {
+  async createRecord(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('payment_status', data.statusCode);
-    return this.prisma.paymentRecord.create({
+    return db.paymentRecord.create({
       data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });
   }
 
   async updateRecord(id: string, data: any) {
+    const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
+    assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('payment_status', data.statusCode);
     const payload: any = pickFields(data, RECORD_FIELDS, { label: '付款记录' });
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
-    return this.prisma.paymentRecord.update({ where: { id }, data: payload });
+    delete payload.version;
+    return this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async removeRecord(id: string) {
@@ -105,37 +111,33 @@ export class PaymentService {
     return this.tpl.buildTemplate({ moduleName: '付款台账', sheetName: '数据', columns });
   }
 
-  /** 付款台账上传导入（需求 3.4）：新增不覆盖，逐行校验并输出错误报告 */
+  /** 付款台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importRecords(buffer: Buffer, projectId: string) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
     const methods = await this.dict.options('payment_method');
     const status = await this.dict.options('payment_status');
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      try {
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
-        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
-        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
+        if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
         const payMonth = String(r['付款月份'] ?? '').trim();
-        if (!/^\d{4}-\d{2}$/.test(payMonth)) throw new Error('付款月份为必填项，格式 YYYY-MM（如 2026-09）');
+        if (!/^\d{4}-\d{2}$/.test(payMonth)) throw new RowError('付款月份为必填项，格式 YYYY-MM（如 2026-09）', '付款月份');
         const amount = num(r['付款金额']);
-        if (amount === null) throw new Error('付款金额为必填数字');
+        if (amount === null) throw new RowError('付款金额为必填数字', '付款金额');
         const methodName = String(r['付款方式'] ?? '').trim();
         if (methodName && codeOf(methods, methodName) === null) {
-          throw new Error(`下拉校验失败：「${methodName}」不在付款方式选项范围内`);
+          throw new RowError(`下拉校验失败：「${methodName}」不在付款方式选项范围内`, '付款方式');
         }
         const statusName = String(r['状态'] ?? '').trim();
         if (statusName && codeOf(status, statusName) === null) {
-          throw new Error(`下拉校验失败：「${statusName}」不在状态选项范围内`);
+          throw new RowError(`下拉校验失败：「${statusName}」不在状态选项范围内`, '状态');
         }
-        await this.createRecord(
-          {
+        return {
+          data: {
             contractId: contract.id,
             payMonth,
             amount,
@@ -144,13 +146,12 @@ export class PaymentService {
             statusCode: codeOf(status, statusName),
             remark: String(r['备注'] ?? '').trim() || null,
           },
-          projectId,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.createRecord(p.data, projectId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 }

@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, fmtDate, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -44,6 +45,7 @@ export class ContractService {
     private excel: ExcelService,
     private tpl: ImportTemplateService,
     private material: MaterialService,
+    private runner: ImportRunnerService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -236,7 +238,8 @@ export class ContractService {
     }
   }
 
-  async create(data: any, projectId: string, user: any) {
+  async create(data: any, projectId: string, user: any, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     if (!data.code) throw new BadRequestException('合同编号不能为空');
     await this.assertCodeUnique(data.code, projectId);
     await this.validateDict(data);
@@ -244,18 +247,18 @@ export class ContractService {
     // 编号段落固化：yearSeq / codeAbbrUsed 未传时自动补齐
     if (!data.yearSeq) data.yearSeq = this.extractYearSeq(data.code);
     if (!data.codeAbbrUsed) {
-      const proj = await this.prisma.project.findUnique({ where: { id: projectId } });
+      const proj = await db.project.findUnique({ where: { id: projectId } });
       data.codeAbbrUsed = proj?.codeAbbr || null;
     }
 
     // 补充协议：未传编号/顺序码时按「原合同编号（N+1）」自动生成
     if (data.isSupplement === 'Y' && data.parentContractId) {
-      const parent = await this.prisma.contract.findUnique({ where: { id: data.parentContractId } });
+      const parent = await db.contract.findUnique({ where: { id: data.parentContractId } });
       if (!parent) throw new BadRequestException('父合同不存在');
       if (parent.isSupplement === 'Y') throw new BadRequestException('补充协议不能再派生补充协议，请选择主合同');
       if (parent.projectId !== projectId) throw new BadRequestException('父合同与当前项目不一致');
       if (!data.supplementSeq) {
-        const count = await this.prisma.contract.count({ where: { parentContractId: data.parentContractId } });
+        const count = await db.contract.count({ where: { parentContractId: data.parentContractId } });
         data.supplementSeq = count + 1;
       }
       if (!data.code) data.code = `${parent.code}（${data.supplementSeq}）`;
@@ -264,7 +267,7 @@ export class ContractService {
     }
 
     const { attachments, ext, ...rest } = data;
-    const contract = await this.prisma.contract.create({
+    const contract = await db.contract.create({
       data: {
         ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
         projectId,
@@ -274,9 +277,9 @@ export class ContractService {
         createdBy: user?.userId,
       },
     });
-    if (ext) await this.saveExt(contract.id, ext);
+    if (ext) await this.saveExt(contract.id, ext, tx);
     if (Array.isArray(attachments)) {
-      await this.prisma.contractAttachment.createMany({
+      await db.contractAttachment.createMany({
         data: attachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
       });
     }
@@ -284,13 +287,14 @@ export class ContractService {
     // 派生生成合同物资清单（唯一数据源），序号从 1 开始
     const materialIds = Array.isArray(data.materialIds) ? data.materialIds : [];
     if (materialIds.length) {
-      await this.material.derive(contract.id, materialIds);
+      if (!tx) await this.material.derive(contract.id, materialIds); // 导入事务中不派生，避免跨连接锁等待
     }
     return this.findOne(contract.id);
   }
 
   async update(id: string, data: any, user: any) {
     const before = await this.findOne(id);
+    assertVersion(before, data); // 乐观锁：版本号不一致说明已被他人修改
     // 合同编号正式生成后不可变更（历史数据固化）
     if (data.code && data.code !== before.code) {
       throw new BadRequestException('合同编号生成后不可变更');
@@ -305,6 +309,7 @@ export class ContractService {
         signDate: data.signDate ? new Date(data.signDate) : null,
         amount: num(data.amount),
         taxRate: num(data.taxRate),
+        version: { increment: 1 },
       },
     });
     if (ext) await this.saveExt(id, ext);
@@ -356,7 +361,8 @@ export class ContractService {
     return true;
   }
 
-  async saveExt(contractId: string, data: any) {
+  async saveExt(contractId: string, data: any, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.dict.validate('procurement_source', data.procurementSrc);
     await this.dict.validate('is_direct_purchase', data.isDirectPurchase);
     await this.dict.validate('supplier_category', data.supplierCategory);
@@ -372,9 +378,9 @@ export class ContractService {
       disclosureDate: data.disclosureDate ? new Date(data.disclosureDate) : null,
       complaint: data.complaint,
     };
-    const exist = await this.prisma.contractExt.findUnique({ where: { contractId } });
-    if (exist) return this.prisma.contractExt.update({ where: { contractId }, data: payload });
-    return this.prisma.contractExt.create({ data: { contractId, ...payload } });
+    const exist = await db.contractExt.findUnique({ where: { contractId } });
+    if (exist) return db.contractExt.update({ where: { contractId }, data: payload });
+    return db.contractExt.create({ data: { contractId, ...payload } });
   }
 
   async getExt(contractId: string) {
@@ -382,66 +388,49 @@ export class ContractService {
   }
 
   // ---------------- Excel ----------------
+  /**
+   * 批量导入（需求 2.1）：全成功或全失败
+   * 先全量校验（必填 + 合同编号唯一 + 供应商关联），任一失败不写库；全部通过后在事务内写入
+   */
   async import(buffer: Buffer, projectId: string, user: any) {
-    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
-    // 导入时支持填写字典项编码或名称，自动解析为编码
+    const rows = await this.excel.parse(buffer, [2]);
     const resolve = async (type: string, val: any) => {
       if (!val) return null;
       const items = await this.dict.options(type);
       const hit = items.find((i: any) => i.itemCode === val || i.itemName === val);
       return hit ? hit.itemCode : null;
     };
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      const code = String(r['合同编号'] ?? '').trim();
-      if (!code) {
-        errors.push(`第 ${rowNo} 行：合同编号为必填项`);
-        continue;
-      }
-      const { exists } = await this.checkCode(code, projectId);
-      if (exists) {
-        errors.push(`第 ${rowNo} 行：唯一性校验失败，合同编号 ${code} 已存在`);
-        continue;
-      }
-      const supplierName = String(r['供应商'] ?? '').trim();
-      if (!supplierName) {
-        errors.push(`第 ${rowNo} 行：供应商为必填项`);
-        continue;
-      }
-      const supplier = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
-      if (!supplier) {
-        errors.push(`第 ${rowNo} 行：关联校验失败，供应商库中不存在「${supplierName}」`);
-        continue;
-      }
-      const amount = num(r['合同额']);
-      if (amount === null) {
-        errors.push(`第 ${rowNo} 行：合同额为必填数字`);
-        continue;
-      }
-      try {
-        await this.create(
-          {
-            code,
-            name: r['合同名称'] || code,
-            typeCode: await resolve('contract_type', r['合同类型']),
-            supplierId: supplier.id,
-            signDate: r['签订日期'] || null,
-            amount,
-            taxRate: num(r['税率(%)']) != null ? num(r['税率(%)']) : num(r['税率']),
-            remark: r['备注'] || null,
-          },
-          projectId,
-          user,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
+        const code = String(r['合同编号'] ?? '').trim();
+        if (!code) throw new RowError('合同编号为必填项', '合同编号');
+        notDup(code, `批内重复：合同编号 ${code} 在导入文件中出现多次`, '合同编号');
+        const { exists } = await this.checkCode(code, projectId);
+        if (exists) throw new RowError(`唯一性校验失败：合同编号 ${code} 已存在`, '合同编号');
+        const supplierName = String(r['供应商'] ?? '').trim();
+        if (!supplierName) throw new RowError('供应商为必填项', '供应商');
+        const supplier = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
+        if (!supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应商');
+        const amount = num(r['合同额']);
+        if (amount === null) throw new RowError('合同额为必填数字', '合同额');
+        const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
+        return {
+          code,
+          name: r['合同名称'] || code,
+          typeCode: await resolve('contract_type', r['合同类型']),
+          supplierId: supplier.id,
+          signDate: r['签订日期'] || null,
+          amount,
+          taxRate: taxRaw !== null ? (taxRaw > 1 ? taxRaw / 100 : taxRaw) : null,
+          remark: r['备注'] || null,
+        };
+      },
+      write: async (plans, tx: TxClient) => {
+        for (const p of plans) await this.create(p, projectId, user, tx);
+        return { created: plans.length };
+      },
+    });
   }
 
   /** 合同台账填写模板（需求 3.3，实际字段口径） */

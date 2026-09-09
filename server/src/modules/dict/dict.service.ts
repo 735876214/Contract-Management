@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -19,6 +20,7 @@ export class DictService {
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private runner: ImportRunnerService,
   ) {}
 
   // ---------------- 缓存 ----------------
@@ -271,32 +273,48 @@ export class DictService {
     return this.excel.export(columns, rows, type?.name || typeCode);
   }
 
+  /** 字典项导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importItems(typeCode: string, buffer: Buffer) {
     const rows = await this.excel.parse(buffer);
-    let created = 0;
-    let updated = 0;
-    for (const r of rows) {
-      const itemCode = String(r['字典项编码'] ?? '').trim();
-      const itemName = String(r['字典项名称'] ?? '').trim();
-      if (!itemCode || !itemName) continue;
-      const data: any = {
-        itemName,
-        sortOrder: Number(r['排序号']) || 0,
-        status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
-        color: r['颜色'] || null,
-        extField1: r['扩展字段1'] || null,
-        remark: r['备注'] || null,
-      };
-      const exist = await this.prisma.dictItem.findUnique({ where: { typeCode_itemCode: { typeCode, itemCode } } });
-      if (exist) {
-        await this.prisma.dictItem.update({ where: { id: exist.id }, data });
-        updated++;
-      } else {
-        await this.prisma.dictItem.create({ data: { typeCode, itemCode, ...data } });
-        created++;
-      }
-    }
+    const type = await this.prisma.dictType.findUnique({ where: { code: typeCode } });
+    if (!type) throw new NotFoundException(`字典类型 ${typeCode} 不存在`);
+    const notDup = this.runner.batchDup();
+    const outcome = await this.runner.run<any>(rows, {
+      startRowNo: 2,
+      plan: async (r) => {
+        const itemCode = String(r['字典项编码'] ?? '').trim();
+        const itemName = String(r['字典项名称'] ?? '').trim();
+        if (!itemCode || !itemName) return null;
+        notDup(itemCode, `字典项编码「${itemCode}」在本次导入中重复`, '字典项编码');
+        return {
+          itemCode,
+          payload: {
+            itemName,
+            sortOrder: Number(r['排序号']) || 0,
+            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+            color: r['颜色'] || null,
+            extField1: r['扩展字段1'] || null,
+            remark: r['备注'] || null,
+          },
+        };
+      },
+      write: async (plans, tx) => {
+        let created = 0;
+        let updated = 0;
+        for (const p of plans) {
+          const exist = await tx.dictItem.findUnique({ where: { typeCode_itemCode: { typeCode, itemCode: p.itemCode } } });
+          if (exist) {
+            await tx.dictItem.update({ where: { id: exist.id }, data: p.payload });
+            updated++;
+          } else {
+            await tx.dictItem.create({ data: { typeCode, itemCode: p.itemCode, ...p.payload } });
+            created++;
+          }
+        }
+        return { created, updated };
+      },
+    });
     await this.refreshCache(typeCode);
-    return { created, updated };
+    return outcome;
   }
 }

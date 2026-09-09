@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
@@ -23,6 +24,7 @@ export class InvoiceService {
     private excel: ExcelService,
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -68,7 +70,8 @@ export class InvoiceService {
     await this.dict.validate('goods_category', data.goodsCategory);
   }
 
-  async create(data: any, projectId: string) {
+  async create(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.validate(data);
     if (data.invoiceNo) {
       const { exists } = await this.checkNo(data.invoiceNo, projectId);
@@ -85,11 +88,12 @@ export class InvoiceService {
       const c = await this.prisma.contract.findUnique({ where: { id: payload.contractId }, include: { supplier: true } });
       payload.issuer = (c as any)?.supplier?.name;
     }
-    return this.prisma.invoice.create({ data: payload });
+    return db.invoice.create({ data: payload });
   }
 
   async update(id: string, data: any) {
     const before = await this.findOne(id);
+    assertVersion(before, data);
     await this.validate({ ...before, ...data });
     if (data.invoiceNo && data.invoiceNo !== before.invoiceNo) {
       const { exists } = await this.checkNo(data.invoiceNo, before.projectId, id);
@@ -101,7 +105,8 @@ export class InvoiceService {
     });
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
-    return this.prisma.invoice.update({ where: { id }, data: payload });
+    delete payload.version;
+    return this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async remove(id: string) {
@@ -231,28 +236,29 @@ export class InvoiceService {
     });
   }
 
+  /** 发票台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async import(buffer: Buffer, projectId: string) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
     ]);
     const codeOf = (items: any[], name: string) => items.find((i: any) => i.itemName === name || i.itemCode === name)?.itemCode || null;
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      try {
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
-        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
-        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
-        // 税率支持两种口径：13（百分比）或 0.13（小数）
+        if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
+        // 税率统一取自合同台账（需求 2.4）：子表未填时继承合同税率
         const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
-        const taxRate = taxRaw !== null && taxRaw > 1 ? taxRaw / 100 : taxRaw;
-        await this.create(
-          {
+        let taxRate = taxRaw !== null && taxRaw > 1 ? taxRaw / 100 : taxRaw;
+        if (taxRate === null && (contract as any).taxRate != null) {
+          const ct = Number((contract as any).taxRate);
+          taxRate = ct > 1 ? ct / 100 : ct;
+        }
+        return {
+          data: {
             contractId: contract.id,
             goodsCategory: codeOf(goods, r['商品类别']),
             settlePeriod: r['结算账期'] || null,
@@ -271,14 +277,13 @@ export class InvoiceService {
             statusCode: codeOf(status, r['状态']),
             remark: r['备注'] || null,
           },
-          projectId,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.create(p.data, projectId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 
   /** 发票台账填写模板（需求 3.3，实际字段口径） */

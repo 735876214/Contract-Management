@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
-import { num } from '../../common/utils/helpers';
+import { num, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -178,8 +178,10 @@ export class FinanceService {
   async updateFactoring(id: string, data: any) {
     const old = await this.prisma.factoringCost.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('保理费用记录不存在');
-    const payload = this.factoringPayload(data, old);
-    return this.prisma.factoringCost.update({ where: { id }, data: payload });
+    assertVersion(old, data);
+    const payload: any = this.factoringPayload(data, old);
+    delete payload.version;
+    return this.prisma.factoringCost.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async removeFactoring(id: string) {
@@ -331,6 +333,7 @@ export class FinanceService {
   async updateOverdue(id: string, data: any) {
     const old = await this.prisma.overdueInterest.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('逾期利息记录不存在');
+    assertVersion(old, data);
     await this.validateOverdue(data, old);
     const payload = pickFields(data, OVERDUE_FIELDS.filter((f) => f !== 'contractId'), { label: '逾期利息' });
     for (const k of ['materialAmount', 'paymentRatio', 'paymentAmount', 'prevCumulative']) {
@@ -343,7 +346,8 @@ export class FinanceService {
         payload[k] = d && !isNaN(d.getTime()) ? d : null;
       }
     }
-    await this.prisma.overdueInterest.update({ where: { id }, data: payload });
+    delete payload.version;
+    await this.prisma.overdueInterest.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
     await this.recalcOverdue(old.contractId);
     return this.prisma.overdueInterest.findUnique({ where: { id } });
   }

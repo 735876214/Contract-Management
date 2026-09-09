@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict/dict.service';
+import { SettlementService } from '../settlement/settlement.service';
 
 const BASE_FIELDS = ['name', 'spec', 'mdmCode', 'dscCode', 'status', 'remark'];
 // 统一合同物资清单：排除收入单价/合价、标准成本单价/合价（需求 2.2 排除字段）
@@ -26,7 +28,27 @@ export class MaterialService {
     private excel: ExcelService,
     private dict: DictService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
+    private settlement: SettlementService,
   ) {}
+
+  /** 计量单位统一取自字典「measurement_unit」，禁止手输（需求 2.4） */
+  private async resolveUnit(unit: any): Promise<string> {
+    const raw = String(unit ?? '').trim();
+    if (!raw) throw new BadRequestException('计量单位不能为空');
+    const units = await this.dict.options('measurement_unit');
+    const hit = units.find((u: any) => u.itemName === raw || u.itemCode === raw);
+    if (!hit) throw new BadRequestException(`计量单位「${raw}」不在字典「计量单位」范围内，请从下拉中选择`);
+    return hit.itemName;
+  }
+
+  /** 税率统一取自合同主表：子表未填写时按合同税率自动带出（需求 2.4） */
+  private async resolveTaxRate(contract: any, taxRatePct: any): Promise<number | null> {
+    const raw = num(taxRatePct);
+    if (raw !== null) return raw;
+    const contractRate = num(contract?.taxRate);
+    return contractRate === null ? null : Math.round(contractRate * 10000) / 100;
+  }
 
   /** 业态编码 → 名称（导出表头用） */
   private async industryTypeName(code: string | null | undefined): Promise<string> {
@@ -162,17 +184,22 @@ export class MaterialService {
     return this.tpl.buildTemplate({ moduleName: '物资基础库', sheetName: '数据', columns });
   }
 
-  /** 批量导入：按「物资名称+规格型号」匹配，存在则更新，否则新建（填写模板示例行自动忽略） */
+  /**
+   * 批量导入（需求 2.1/2.2）：全成功或全失败
+   * - 先逐行校验（必填 + 批内重复 + 数据库唯一约束「物资名称 + 规格型号」）
+   * - 任一行失败即返回错误报告，不写入任何数据
+   * - 全部通过后在同一事务内写入
+   */
   async importBases(buffer: Buffer) {
     const rows = await this.excel.parse(buffer, [2]);
-    let created = 0;
-    let updated = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      try {
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const name = String(r['物资名称'] ?? '').trim();
         const spec = String(r['规格型号'] ?? '').trim();
-        if (!name || !spec) throw new Error('物资名称与规格型号均为必填');
+        if (!name) throw new RowError('物资名称为必填项', '物资名称');
+        if (!spec) throw new RowError('规格型号为必填项', '规格型号');
+        notDup(`${name}|${spec}`, `批内重复：第 ${name} / ${spec} 在导入文件中出现多次`, '物资名称');
         const payload = {
           name, spec,
           mdmCode: String(r['MDM编码'] ?? '').trim() || null,
@@ -181,17 +208,27 @@ export class MaterialService {
         };
         const exist = await this.prisma.materialBase.findFirst({ where: { name, spec } });
         if (exist) {
-          await this.prisma.materialBase.update({ where: { id: exist.id }, data: payload });
-          updated++;
-        } else {
-          await this.prisma.materialBase.create({ data: payload });
-          created++;
+          const dupOther = await this.prisma.materialBase.findFirst({ where: { name, spec, id: { not: exist.id } } });
+          if (dupOther) throw new RowError(`唯一性校验失败：「${name} / ${spec}」存在重复主数据，请先清理`, '物资名称');
+          return { mode: 'update' as const, id: exist.id, payload };
         }
-      } catch (e: any) {
-        errors.push(`第 ${index + 2} 行：${e.message}`);
-      }
-    }
-    return { created, updated, errors };
+        return { mode: 'create' as const, payload };
+      },
+      write: async (plans, tx: TxClient) => {
+        let created = 0;
+        let updated = 0;
+        for (const p of plans) {
+          if (p.mode === 'create') {
+            await tx.materialBase.create({ data: p.payload });
+            created++;
+          } else {
+            await tx.materialBase.update({ where: { id: p.id }, data: { ...p.payload, version: { increment: 1 } } });
+            updated++;
+          }
+        }
+        return { created, updated };
+      },
+    });
   }
 
   // ==================== 合同物资清单 ====================
@@ -257,18 +294,21 @@ export class MaterialService {
   }
 
   async createRow(data: any) {
-    await this.assertContract(data.contractId);
+    const contract = await this.assertContract(data.contractId);
     if (!data.materialBaseId) throw new BadRequestException('请从物资基础库中选择物资');
     const base = await this.prisma.materialBase.findUnique({ where: { id: data.materialBaseId } });
     if (!base) throw new NotFoundException('物资基础信息不存在，请先在物资基础库中维护');
-    if (!String(data.unit || '').trim()) throw new BadRequestException('计量单位不能为空');
+    // 计量单位字典校验 + 税率继承合同主表
+    data.unit = await this.resolveUnit(data.unit);
+    const taxRate = await this.resolveTaxRate(contract, data.taxRatePct);
+    if (taxRate !== null) data.taxRatePct = taxRate;
     await this.assertNoDup(data.contractId, data.materialBaseId);
     const { data: payload, computed } = this.normalizeRow(data);
     const maxSort = await this.prisma.contractMaterial.aggregate({
       where: { contractId: data.contractId },
       _max: { sortOrder: true },
     });
-    return this.prisma.contractMaterial.create({
+    const row = await this.prisma.contractMaterial.create({
       data: {
         ...payload,
         priceWithTax: computed.priceWithTax,
@@ -277,11 +317,19 @@ export class MaterialService {
       },
       include: { materialBase: true },
     });
+    // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
+    await this.settlement.syncLedgerByContract(row.contractId);
+    return row;
   }
 
   async updateRow(id: string, data: any) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
+    assertVersion(old, data); // 乐观锁：版本号不一致说明已被他人修改
+    const contract = await this.assertContract(old.contractId);
+    if (data.unit !== undefined) data.unit = await this.resolveUnit(data.unit ?? old.unit);
+    const taxRate = await this.resolveTaxRate(contract, data.taxRatePct ?? old.taxRatePct);
+    if (taxRate !== null) data.taxRatePct = taxRate;
     const merged: any = { ...old, ...data };
     if (data.materialBaseId && data.materialBaseId !== old.materialBaseId) {
       const base = await this.prisma.materialBase.findUnique({ where: { id: data.materialBaseId } });
@@ -290,21 +338,27 @@ export class MaterialService {
     }
     if (!String(merged.unit || '').trim()) throw new BadRequestException('计量单位不能为空');
     const { data: payload, computed } = this.normalizeRow(data);
-    return this.prisma.contractMaterial.update({
+    const row = await this.prisma.contractMaterial.update({
       where: { id },
       data: {
         ...payload,
         priceWithTax: computed.priceWithTax,
         totalWithTax: computed.totalWithTax,
+        version: { increment: 1 },
       },
       include: { materialBase: true },
     });
+    // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
+    await this.settlement.syncLedgerByContract(row.contractId);
+    return row;
   }
 
   async removeRow(id: string) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
     await this.prisma.contractMaterial.delete({ where: { id } });
+    // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
+    await this.settlement.syncLedgerByContract(old.contractId);
     return true;
   }
 
@@ -329,54 +383,54 @@ export class MaterialService {
    * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
    */
   async importRows(contractId: string, buffer: Buffer) {
-    await this.assertContract(contractId);
+    const contract = await this.assertContract(contractId);
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
-    assertImportRows(rows);
-    let created = 0;
-    const errors: string[] = [];
     const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3; // 数据从第 3 行开始
-      try {
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r, { index }) => {
         const name = String(r['物资名称'] ?? '').trim();
         const spec = String(r['规格型号'] ?? '').trim();
-        const unit = String(r['计量单位'] ?? '').trim();
-        if (!name) throw new Error('物资名称为必填项');
-        if (!spec) throw new Error('规格型号为必填项');
-        if (!unit) throw new Error('计量单位为必填项');
+        if (!name) throw new RowError('物资名称为必填项', '物资名称');
+        if (!spec) throw new RowError('规格型号为必填项', '规格型号');
+        const unit = await this.resolveUnit(r['计量单位']);
         const qty = num(r['暂定数量']);
         const price = num(r['税前单价']);
-        const tax = num(r['税率']);
-        if (qty === null) throw new Error('暂定数量为必填数字');
-        if (price === null) throw new Error('税前单价为必填数字');
-        if (tax === null) throw new Error('税率为必填数字（如 13 表示 13%）');
+        let tax = num(r['税率']);
+        if (qty === null) throw new RowError('暂定数量为必填数字', '暂定数量');
+        if (price === null) throw new RowError('税前单价为必填数字', '税前单价');
+        // 税率未填时按合同主表税率自动带出
+        tax = tax === null ? await this.resolveTaxRate(contract, null) : tax;
+        if (tax === null) throw new RowError('税率为必填数字（如 13 表示 13%），或先在合同台账中维护税率', '税率');
         const base = await this.prisma.materialBase.findFirst({ where: { name, spec } });
-        if (!base) throw new Error(`关联校验失败：物资基础库中不存在「${name} / ${spec}」，请先维护物资基础库`);
+        if (!base) throw new RowError(`关联校验失败：物资基础库中不存在「${name} / ${spec}」，请先维护物资基础库`, '物资名称');
+        // 唯一性：合同编号 + 物资名称 + 规格型号（数据库唯一约束 + 批内去重）
+        notDup(`${contractId}|${base.id}`, `批内重复：「${name} / ${spec}」在导入文件中出现多次`, '物资名称');
         const dup = await this.prisma.contractMaterial.findUnique({
           where: { contractId_materialBaseId: { contractId, materialBaseId: base.id } },
         });
-        if (dup) throw new Error(`唯一性校验失败：该合同下已存在「${name} / ${spec}」，导入不覆盖已有数据`);
+        if (dup) throw new RowError(`唯一性校验失败：该合同下已存在「${name} / ${spec}」，导入不覆盖已有数据`, '物资名称');
         const computed = this.computeAmounts({ qty, priceBeforeTax: price, taxRatePct: tax });
-        await this.prisma.contractMaterial.create({
-          data: {
-            contractId,
-            materialBaseId: base.id,
-            unit,
-            qty,
-            priceBeforeTax: price,
-            taxRatePct: tax,
-            remark: String(r['备注'] ?? '').trim() || null,
-            sortOrder: maxSort + created + 1,
-            priceWithTax: computed.priceWithTax,
-            totalWithTax: computed.totalWithTax,
-          },
-        });
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        return {
+          contractId,
+          materialBaseId: base.id,
+          unit,
+          qty,
+          priceBeforeTax: price,
+          taxRatePct: tax,
+          remark: String(r['备注'] ?? '').trim() || null,
+          sortOrder: maxSort + index + 1,
+          priceWithTax: computed.priceWithTax,
+          totalWithTax: computed.totalWithTax,
+        };
+      },
+      write: async (plans, tx: TxClient) => {
+        for (const p of plans) await tx.contractMaterial.create({ data: p });
+        // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
+        await this.settlement.syncLedgerByContract(contractId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 
   /** 填写模板（需求 3.3）：下拉/数字/格式验证 + 示例行 */

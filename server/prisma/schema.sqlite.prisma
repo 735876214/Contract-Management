@@ -107,6 +107,7 @@ model Project {
   endDate     DateTime?
   managerId   String?
   createdAt   DateTime @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt   DateTime @updatedAt
 
   members      ProjectMember[]
@@ -118,6 +119,7 @@ model Project {
   invoices     Invoice[]
   repayments   RepaymentAgreement[]
   assets       AssetLedger[]
+  @@index([createdAt])
 }
 
 model ProjectMember {
@@ -153,6 +155,7 @@ model Supplier {
   status             Int      @default(1) // 1 启用 0 停用
   projectId          String? // 全局共享时为空
   createdAt          DateTime @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime @updatedAt
 
   contracts   Contract[]
@@ -189,6 +192,7 @@ model Contract {
   interestCapRatio   Decimal?  // 逾期利息上限比例（如 0.05 表示 5%）
   createdBy          String?
   createdAt          DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime  @updatedAt
 
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -303,6 +307,7 @@ model Clause {
 model DailyReport {
   id               String    @id @default(cuid())
   projectId        String
+  materialBaseId   String? // 物资主数据（物资名称/规格型号来源，禁止手输，应用层同步快照）
   periodYear       Int?
   periodMonth      Int?
   entryDate        DateTime? // 进场日期
@@ -345,13 +350,20 @@ model DailyReport {
   stdPrice         Decimal?  
   stdAmount        Decimal?  
   createdAt        DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt        DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id])
   supplier Supplier? @relation(fields: [supplierId], references: [id])
+  materialBase MaterialBase? @relation(fields: [materialBaseId], references: [id])
 
   @@index([projectId, contractId])
+  @@index([contractId])
+  @@index([supplierId])
+  @@index([materialBaseId])
+  @@index([entryDate])
+  @@index([projectId, createdAt])
 }
 
 // ---------------- 物资基础库 ----------------
@@ -365,9 +377,14 @@ model MaterialBase {
   status    Int      @default(1) // 1 启用 0 停用（软删除）
   remark    String?
   createdAt DateTime @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt DateTime @updatedAt
 
   contractMaterials ContractMaterial[]
+  reports           DailyReport[]
+
+  @@unique([name, spec]) // 物资名称 + 规格型号 组合唯一（主数据唯一约束）
+  @@index([name])
 }
 
 // ---------------- 合同物资清单（合同 × 物资 实例行） ----------------
@@ -389,6 +406,7 @@ model ContractMaterial {
   stdTotal       Decimal?   // 标准成本合价 = 暂定数量 × 标准成本单价
   sortOrder      Int       @default(0) // 行号，可手动调整
   createdAt      DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt      DateTime  @updatedAt
 
   contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -413,10 +431,14 @@ model Settlement {
   statusCode   String?   // dict: settlement_status
   remark       String?
   createdAt    DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt    DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  @@index([projectId, contractId])
+  @@index([settleDate])
+  @@index([projectId, createdAt])
 }
 
 model SettlementLedger {
@@ -438,10 +460,16 @@ model SettlementLedger {
   isOnAccount        String?  // dict: yes_no 是否挂账
   remark             String?
   createdAt          DateTime @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, contractId, settleMonth]) // 同一合同同一结算月份仅一条台账
+  @@index([contractId, settleMonth])
+  @@index([settleMonth])
+  @@index([projectId, createdAt])
 }
 
 // ---------------- 付款 ----------------
@@ -459,10 +487,14 @@ model PaymentRecord {
   statusCode String?   // dict: payment_status
   remark     String?
   createdAt  DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt  DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  @@index([contractId])
+  @@index([payMonth])
+  @@index([projectId, createdAt])
 }
 
 // ---------------- 发票 ----------------
@@ -490,12 +522,16 @@ model Invoice {
   statusCode           String?   // dict: invoice_status
   remark               String?
   createdAt            DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt            DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, invoiceNo])
+  @@index([contractId])
+  @@index([settlePeriod])
+  @@index([projectId, createdAt])
 }
 
 // ---------------- 还款协议 ----------------
@@ -515,6 +551,7 @@ model RepaymentAgreement {
   overdueUnpaid    Decimal?  
   remark           String?
   createdAt        DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt        DateTime  @updatedAt
 
   project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -523,6 +560,8 @@ model RepaymentAgreement {
   details   RepaymentDetail[]
 
   @@unique([projectId, code])
+  @@index([contractId])
+  @@index([supplierId])
 }
 
 model RepaymentDetail {
@@ -553,6 +592,7 @@ model FactoringCost {
   settlementMonth   String?   // 结算月份（YYYY-MM，"某年某月已办结算"）
   remark            String?   // 备注
   createdAt         DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt         DateTime  @updatedAt
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -582,6 +622,7 @@ model OverdueInterest {
   isSettlementPeriod Boolean   @default(true) // 是否为本期结算行（区分开累/本期）
   periodSeq          Int       @default(0)    // 同一结算月份内的行序号（多笔付款）
   createdAt          DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime  @updatedAt
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -623,6 +664,7 @@ model AssetLedger {
   transferOutPrice  Decimal?   // 调出物资本项目进场时单价
   transferOutAmount Decimal?   // 调出金额 = 调出单价 × 数量，自动
   createdAt         DateTime  @default(now())
+  version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt         DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -658,9 +700,70 @@ model OperationLog {
   url       String?
   params    String?  
   ip        String?
+  // —— 审计增强：变更前/后数据、结果、耗时、业务标识 ——
+  beforeData String? 
+  afterData  String? 
+  result     String? // SUCCESS / FAIL
+  message    String?
+  duration   Int?
+  bizType    String?
+  bizId      String?
+  projectId  String?
+  // —— 导入专项统计 ——
+  importFile   String?
+  importRows   Int?
+  successCount Int?
+  failCount    Int?
+  errorFileUrl String?
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([module, action])
+}
+
+// ---------------- 异步导入任务 ----------------
+
+model ImportTask {
+  id            String   @id @default(cuid())
+  module        String // 业务模块标识，如 contract / supplier / material
+  moduleName    String? // 模块中文名
+  fileName      String?
+  totalRows     Int      @default(0)
+  processedRows Int      @default(0)
+  successCount  Int      @default(0)
+  failCount     Int      @default(0)
+  status        String   @default("PENDING") // PENDING / RUNNING / SUCCESS / FAILED
+  errorFileUrl  String?
+  message       String?
+  projectId     String?
+  userId        String?
+  username      String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ---------------- 数据归档记录 ----------------
+
+model ArchiveLog {
+  id        String   @id @default(cuid())
+  table     String // 归档来源表
+  fromDate  DateTime?
+  toDate    DateTime?
+  rows      Int      @default(0)
+  filePath  String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model LoginLog {

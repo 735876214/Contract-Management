@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertImportRows } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
@@ -25,6 +26,7 @@ export class SettlementService {
     private excel: ExcelService,
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
+    private runner: ImportRunnerService,
   ) {}
 
   // ---------------- 结算单 ----------------
@@ -51,11 +53,12 @@ export class SettlementService {
     return s;
   }
 
-  async create(data: any, projectId: string) {
+  async create(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     const actual = data.actualAmount ?? (num(data.amount) || 0) - (num(data.deductAmount) || 0);
-    return this.prisma.settlement.create({
+    return db.settlement.create({
       data: {
         ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
         amount: num(data.amount), deductAmount: num(data.deductAmount), actualAmount: num(actual),
@@ -65,7 +68,8 @@ export class SettlementService {
   }
 
   async update(id: string, data: any) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
+    assertVersion(before, data);
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     const payload: any = pickFields(data, SETTLE_FIELDS, { label: '结算单' });
@@ -73,7 +77,8 @@ export class SettlementService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     if (data.settleDate) payload.settleDate = toDate(data.settleDate);
-    return this.prisma.settlement.update({ where: { id }, data: payload });
+    delete payload.version;
+    return this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async remove(id: string) {
@@ -133,6 +138,24 @@ export class SettlementService {
     return { monthSettleAmount, monthInvoiceAmount, settleCount, factoringDiscount, overdueInterest: overdueSum };
   }
 
+  /**
+   * 需求 2.3：合同物资/金额变更时，自动重新派生该合同下全部结算台账的自动抓取字段
+   * （本月结算额、本月开票额、结算次数、保理贴息、逾期利息）
+   */
+  async syncLedgerByContract(contractId: string, tx?: TxClient) {
+    if (!contractId) return 0;
+    const db: any = tx || this.prisma;
+    const rows = await db.settlementLedger.findMany({
+      where: { contractId },
+      select: { id: true, settleMonth: true },
+    });
+    for (const r of rows) {
+      const auto = await this.computeLedgerAutoFields(contractId, r.settleMonth);
+      await db.settlementLedger.update({ where: { id: r.id }, data: { ...auto, version: { increment: 1 } } });
+    }
+    return rows.length;
+  }
+
   /** 一键自动生成/刷新台账：扫描结算单、收票登记、资金费用台账中的合同+月份组合，自动生成缺失行并刷新自动字段 */
   async refreshLedger(projectId: string) {
     const [settlements, invoices, factoring, overdue, contracts] = await Promise.all([
@@ -190,7 +213,8 @@ export class SettlementService {
     return l;
   }
 
-  async createLedger(data: any, projectId: string) {
+  async createLedger(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = { ...pickFields(data, LEDGER_FIELDS, { label: '结算台账' }), projectId };
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -202,11 +226,12 @@ export class SettlementService {
     if (payload.contractId && payload.settleMonth) {
       Object.assign(payload, await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth));
     }
-    return this.prisma.settlementLedger.create({ data: payload });
+    return db.settlementLedger.create({ data: payload });
   }
 
   async updateLedger(id: string, data: any) {
     const old = await this.ledgerOne(id);
+    assertVersion(old, data);
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = pickFields(data, LEDGER_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -220,7 +245,8 @@ export class SettlementService {
     if (contractId && settleMonth) {
       Object.assign(payload, await this.computeLedgerAutoFields(contractId, settleMonth));
     }
-    return this.prisma.settlementLedger.update({ where: { id }, data: payload });
+    delete payload.version;
+    return this.prisma.settlementLedger.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
   async removeLedger(id: string) {
@@ -406,28 +432,26 @@ export class SettlementService {
     return this.tpl.buildTemplate({ moduleName: '结算台账', sheetName: '数据', columns });
   }
 
-  /** 结算台账上传导入（需求 3.4）：新增不覆盖，逐行校验并输出错误报告 */
+  /** 结算台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importLedger(buffer: Buffer, projectId: string) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
-    assertImportRows(rows);
-    let created = 0;
-    const errors: string[] = [];
-    for (const [index, r] of rows.entries()) {
-      const rowNo = index + 3;
-      try {
+    const notDup = this.runner.batchDup();
+    return this.runner.run<any>(rows, {
+      plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
-        if (!contractCode) throw new Error('合同编号为必填项（关联校验）');
+        if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
-        if (!contract) throw new Error(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`);
+        if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
         const month = String(r['结算月份'] ?? '').trim();
-        if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('结算月份为必填项，格式 YYYY-MM（如 2026-08）');
+        if (!/^\d{4}-\d{2}$/.test(month)) throw new RowError('结算月份为必填项，格式 YYYY-MM（如 2026-08）', '结算月份');
+        notDup(`${contract.id}|${month}`, `唯一性校验失败：该合同 ${month} 的记录在本次导入中重复`, '结算月份');
         const dup = await this.prisma.settlementLedger.findFirst({
           where: { projectId, contractId: contract.id, settleMonth: month },
         });
-        if (dup) throw new Error(`唯一性校验失败：该合同 ${month} 的结算台账已存在，导入不覆盖已有数据`);
+        if (dup) throw new RowError(`唯一性校验失败：该合同 ${month} 的结算台账已存在，导入不覆盖已有数据`, '结算月份');
         const isOnAccount = String(r['是否挂账'] ?? '').trim();
-        await this.createLedger(
-          {
+        return {
+          data: {
             contractId: contract.id,
             settleMonth: month,
             monthSettleAmount: num(r['本月结算额']),
@@ -443,13 +467,12 @@ export class SettlementService {
             isOnAccount: isOnAccount || null,
             remark: String(r['备注'] ?? '').trim() || null,
           },
-          projectId,
-        );
-        created++;
-      } catch (e: any) {
-        errors.push(`第 ${rowNo} 行：${e.message}`);
-      }
-    }
-    return { created, errors };
+        };
+      },
+      write: async (plans, tx) => {
+        for (const p of plans) await this.createLedger(p.data, projectId, tx);
+        return { created: plans.length };
+      },
+    });
   }
 }
