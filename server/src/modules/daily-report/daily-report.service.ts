@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -19,6 +20,7 @@ export class DailyReportService {
     private excel: ExcelService,
     private styled: StyledExcelService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -253,7 +255,7 @@ export class DailyReportService {
   }
 
   /** 物资日报导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId: string) {
+  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.options('yes_no'), this.dict.options('asset_status'), this.dict.options('material_source'),
@@ -263,7 +265,7 @@ export class DailyReportService {
       const hit = items.find((i: any) => i.itemName === name || i.itemCode === name);
       return hit?.itemCode || null;
     };
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'daily-report', moduleName: '物资日报', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       startRowNo: 2,
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();

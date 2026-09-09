@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -30,6 +31,7 @@ export class MaterialService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private settlement: SettlementService,
+    private tasks: ImportTaskService,
   ) {}
 
   /** 计量单位统一取自字典「measurement_unit」，禁止手输（需求 2.4） */
@@ -190,10 +192,10 @@ export class MaterialService {
    * - 任一行失败即返回错误报告，不写入任何数据
    * - 全部通过后在同一事务内写入
    */
-  async importBases(buffer: Buffer) {
+  async importBases(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer, [2]);
     const notDup = this.runner.batchDup();
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'material-base', moduleName: '物资基础库', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const name = String(r['物资名称'] ?? '').trim();
         const spec = String(r['规格型号'] ?? '').trim();
@@ -382,12 +384,12 @@ export class MaterialService {
    * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
    * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
    */
-  async importRows(contractId: string, buffer: Buffer) {
+  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
     const contract = await this.assertContract(contractId);
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
     const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
     const notDup = this.runner.batchDup();
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'contract-material', moduleName: '合同物资清单', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r, { index }) => {
         const name = String(r['物资名称'] ?? '').trim();
         const spec = String(r['规格型号'] ?? '').trim();

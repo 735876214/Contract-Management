@@ -5,7 +5,7 @@ import { AssetService } from './asset.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { ProjectId } from '../../common/decorators/user.decorator';
+import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('assets')
@@ -41,9 +41,9 @@ export class AssetController {
   @RequirePermissions('asset:edit')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
-  importAssets(@UploadedFile() file: any, @ProjectId() projectId: string) {
+  importAssets(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.importAssets(file.buffer, projectId);
+    return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('asset:edit')

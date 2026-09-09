@@ -42,9 +42,9 @@ export class PaymentController {
   @RequirePermissions('payment:edit')
   @Post('records/import')
   @UseInterceptors(FileInterceptor('file'))
-  importRecords(@UploadedFile() file: any, @ProjectId() projectId: string) {
+  importRecords(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.importRecords(file.buffer, projectId);
+    return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('payment:edit')

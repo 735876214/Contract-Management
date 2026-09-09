@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -15,29 +16,42 @@ import { SysParamService } from '../../common/services/sys-param.service';
 export class DictService {
   private readonly logger = new Logger(DictService.name);
   private cache: Map<string, any[]> = new Map();
+  /** 缓存写入时间戳（需求 2.10：24 小时 TTL） */
+  private cacheAt: Map<string, number> = new Map();
+  private static readonly CACHE_TTL = 24 * 60 * 60 * 1000;
 
   constructor(
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   // ---------------- 缓存 ----------------
   async refreshCache(typeCode?: string) {
-    if (typeCode) this.cache.delete(typeCode);
-    else this.cache.clear();
+    if (typeCode) {
+      this.cache.delete(typeCode);
+      this.cacheAt.delete(typeCode);
+    } else {
+      this.cache.clear();
+      this.cacheAt.clear();
+    }
   }
 
   /** 获取启用中的字典项（带缓存） */
   async options(typeCode: string, extValue?: string) {
-    let items = this.cache.get(typeCode);
+    // 需求 2.10：24 小时 TTL，过期自动重新加载
+    const cachedAt = this.cacheAt.get(typeCode);
+    const fresh = !!cachedAt && Date.now() - cachedAt < DictService.CACHE_TTL;
+    let items = fresh ? this.cache.get(typeCode) : undefined;
     if (!items) {
       items = await this.prisma.dictItem.findMany({
         where: { typeCode, status: 1 },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       });
       this.cache.set(typeCode, items);
+      this.cacheAt.set(typeCode, Date.now());
     }
     if (extValue) return items.filter((i: any) => !i.extField1 || i.extField1 === extValue);
     return items;
@@ -274,12 +288,12 @@ export class DictService {
   }
 
   /** 字典项导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importItems(typeCode: string, buffer: Buffer) {
+  async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer);
     const type = await this.prisma.dictType.findUnique({ where: { code: typeCode } });
     if (!type) throw new NotFoundException(`字典类型 ${typeCode} 不存在`);
     const notDup = this.runner.batchDup();
-    const outcome = await this.runner.run<any>(rows, {
+    const outcome = await this.tasks.submit<any>({ module: 'dict', moduleName: '数据字典', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       startRowNo: 2,
       plan: async (r) => {
         const itemCode = String(r['字典项编码'] ?? '').trim();

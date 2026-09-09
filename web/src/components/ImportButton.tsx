@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, Modal, message, Alert, Typography } from 'antd';
+import { Button, Modal, message, Alert, Typography, Progress } from 'antd';
 import { ImportOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import http from '@/api/http';
 
@@ -24,6 +24,15 @@ export interface ImportResult {
   created?: number;
   updated?: number;
   errors?: (ImportRowError | string)[];
+  /** 异步导入：>1000 行时后端立即返回任务 ID */
+  taskId?: string;
+  async?: boolean;
+  status?: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+  processedRows?: number;
+  totalRows?: number;
+  successCount?: number;
+  failCount?: number;
+  errorFileUrl?: string;
 }
 
 /** 统一渲染一条错误（兼容旧的字符串格式） */
@@ -67,7 +76,7 @@ export default function ImportButton({
   extraHint,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [stage, setStage] = useState<'menu' | 'result'>('menu');
+  const [stage, setStage] = useState<'menu' | 'result' | 'progress'>('menu');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,6 +98,29 @@ export default function ImportButton({
     fileRef.current?.click();
   };
 
+  /** 轮询异步导入任务进度（需求 2.7） */
+  const pollTask = (taskId: string) => {
+    const timer = setInterval(async () => {
+      try {
+        const t: any = await http.get(`/import-tasks/${taskId}`);
+        setResult((r) => ({ ...(r || {}), ...t }));
+        if (t?.status === 'SUCCESS' || t?.status === 'FAILED') {
+          clearInterval(timer);
+          setStage('result');
+          if (t.status === 'SUCCESS') {
+            message.success(`后台导入完成：成功写入 ${t.successCount ?? 0} 行`);
+            onDone?.();
+          } else {
+            message.warning(`后台导入未完成：${t.failCount ?? 0} 行校验失败，已全部回滚，未写入任何数据`);
+          }
+        }
+      } catch {
+        clearInterval(timer);
+        setStage('result');
+      }
+    }, 1500);
+  };
+
   const handleFile = async (file?: File) => {
     if (!file) return;
     setUploading(true);
@@ -101,6 +133,13 @@ export default function ImportButton({
         const fd = new FormData();
         fd.append('file', file);
         res = await http.post<any, ImportResult>(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+      if (res?.async && res?.taskId) {
+        // 异步导入（>1000 行）：立即返回任务 ID，进入进度轮询
+        message.info(`数据量较大（${res.totalRows ?? res.total ?? '-'} 行），已转为后台导入，请稍候…`);
+        setStage('progress');
+        pollTask(res.taskId);
+        return;
       }
       setResult(res || {});
       setStage('result');
@@ -132,6 +171,8 @@ export default function ImportButton({
         footer={
           stage === 'menu'
             ? [<Button key="cancel" onClick={() => setOpen(false)}>取消</Button>]
+            : stage === 'progress'
+              ? [<Button key="close" onClick={() => setOpen(false)}>后台运行，关闭窗口</Button>]
             : [
                 <Button key="back" onClick={reset}>返回</Button>,
                 <Button key="close" type="primary" onClick={() => setOpen(false)}>关闭</Button>,
@@ -145,7 +186,17 @@ export default function ImportButton({
           style={{ display: 'none' }}
           onChange={(e) => handleFile(e.target.files?.[0])}
         />
-        {stage === 'menu' ? (
+        {stage === 'progress' ? (
+          <div style={{ padding: '16px 4px', textAlign: 'center' }}>
+            <Progress
+              percent={Math.min(99, Math.round(((result?.processedRows ?? 0) / Math.max(1, result?.totalRows ?? result?.total ?? 1)) * 100))}
+              status="active"
+            />
+            <Typography.Text type="secondary">
+              后台导入中…已校验 {result?.processedRows ?? 0} / {result?.totalRows ?? result?.total ?? '-'} 行，完成后将在消息中心通知
+            </Typography.Text>
+          </div>
+        ) : stage === 'menu' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
             <div style={{ marginBottom: 4 }}>
               <Typography.Text type="secondary">请选择操作：</Typography.Text>
@@ -183,10 +234,22 @@ export default function ImportButton({
               message={
                 errCount
                   ? `导入未完成：${errCount} 行校验失败，已全部回滚，未写入任何数据`
-                  : `导入完成：新增 ${result?.created ?? 0}${result?.updated != null ? `，更新 ${result?.updated}` : ''}`
+                  : `导入完成：新增 ${result?.created ?? result?.successCount ?? 0}${result?.updated != null ? `，更新 ${result?.updated}` : ''}`
               }
               style={{ marginBottom: 12 }}
             />
+            {result?.errorFileUrl && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={
+                  <a href={withToken(result.errorFileUrl)} target="_blank" rel="noreferrer">
+                    下载错误报告（Excel，含行号 / 字段 / 原因）
+                  </a>
+                }
+              />
+            )}
             {errCount > 0 && (
               <Alert
                 type="error"

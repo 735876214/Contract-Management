@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -27,6 +28,7 @@ export class AssetService {
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   /** 计算派生金额字段（需求 2.6：数量 × 单价 自动） */
@@ -217,7 +219,7 @@ export class AssetService {
   }
 
   /** 资产管理台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importAssets(buffer: Buffer, projectId: string) {
+  async importAssets(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
@@ -225,7 +227,7 @@ export class AssetService {
     ]);
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'asset', moduleName: '资产管理台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const name = String(r['资产名称'] ?? '').trim();
         if (!name) throw new RowError('资产名称为必填项', '资产名称');

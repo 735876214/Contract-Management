@@ -13,8 +13,10 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResult<T>> 
     return next.handle().pipe(
       map((raw) => {
         // 已经是标准结构则直接返回
-        if (raw && typeof raw === 'object' && 'code' in raw && 'data' in raw && 'message' in raw) return raw;
-        return { code: 0, data: raw ?? null, message: 'ok' };
+        if (raw && typeof raw === 'object' && 'code' in raw && 'data' in raw && 'message' in raw) {
+          return { ...raw, timestamp: Date.now() };
+        }
+        return { code: 0, data: raw ?? null, message: 'ok', timestamp: Date.now() };
       }),
     );
   }

@@ -103,8 +103,8 @@ export class InvoiceController {
   @RequirePermissions('invoice:edit')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
-  import(@UploadedFile() file: any, @ProjectId() projectId: string) {
+  import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.import(file.buffer, projectId);
+    return this.service.import(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 }

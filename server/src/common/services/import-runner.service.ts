@@ -36,6 +36,8 @@ export interface RunOptions<T> {
   /** 数据起始行号（用于错误报告行号对齐 Excel） */
   startRowNo?: number;
   maxRows?: number;
+  /** 进度回调：每校验完一行触发（异步导入任务用于刷新进度） */
+  onProgress?: (processed: number, total: number) => void | Promise<void>;
 }
 
 /**
@@ -63,6 +65,7 @@ export class ImportRunnerService {
       } catch (e: any) {
         errors.push({ row: rowNo, field: e?.field, message: e?.message || String(e) });
       }
+      if (opts.onProgress) await opts.onProgress(index + 1, rows.length);
     }
 
     // 任一行校验失败：不写入任何数据

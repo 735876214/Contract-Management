@@ -5,7 +5,7 @@ import { SettlementService } from './settlement.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { ProjectId } from '../../common/decorators/user.decorator';
+import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('settlements')
@@ -47,9 +47,9 @@ export class SettlementController {
   @RequirePermissions('settlement:edit')
   @Post('ledger/import')
   @UseInterceptors(FileInterceptor('file'))
-  importLedger(@UploadedFile() file: any, @ProjectId() projectId: string) {
+  importLedger(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.importLedger(file.buffer, projectId);
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
   /** 一键自动生成/刷新结算台账：从结算单、收票登记、资金费用台账自动抓取 */

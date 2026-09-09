@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -21,6 +22,7 @@ export class SupplierService {
     private sysParam: SysParamService,
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   /** 供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离 */
@@ -130,12 +132,12 @@ export class SupplierService {
   }
 
   /** 供应商信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId?: string) {
+  async import(buffer: Buffer, projectId?: string, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
     const notDup = this.runner.batchDup();
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'supplier', moduleName: '供应商库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r, { rowNo }) => {
         const name = String(r['供应商名称'] ?? '').trim();
         if (!name) throw new RowError('供应商名称为必填项', '供应商名称');

@@ -44,9 +44,9 @@ export class ProjectController {
   @RequirePermissions('project:edit')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
-  import(@UploadedFile() file: any) {
+  import(@UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.projectService.importProjects(file.buffer);
+    return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('project:edit')

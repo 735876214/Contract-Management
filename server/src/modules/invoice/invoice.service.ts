@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
@@ -25,6 +26,7 @@ export class InvoiceService {
     private styled: StyledExcelService,
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -237,14 +239,14 @@ export class InvoiceService {
   }
 
   /** 发票台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId: string) {
+  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
     ]);
     const codeOf = (items: any[], name: string) => items.find((i: any) => i.itemName === name || i.itemCode === name)?.itemCode || null;
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'invoice', moduleName: '发票台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
         if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');

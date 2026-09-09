@@ -18,6 +18,7 @@ import { DictService } from './dict.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CurrentUser } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('dict')
@@ -128,9 +129,9 @@ export class DictController {
   @RequirePermissions('dict:edit', 'system:config')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
-  async import(@Query('typeCode') typeCode: string, @UploadedFile() file: any) {
+  async import(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0 };
-    return this.dictService.importItems(typeCode, file.buffer);
+    return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('dict:edit', 'system:config')

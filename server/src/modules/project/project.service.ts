@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -21,6 +22,7 @@ export class ProjectService {
     private excel: ExcelService,
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   async findAll(query: any = {}, user: any) {
@@ -140,7 +142,7 @@ export class ProjectService {
   }
 
   /** 项目信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importProjects(buffer: Buffer) {
+  async importProjects(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [industry, status] = await Promise.all([
       this.dict.options('industry_type'), this.dict.options('project_status'),
@@ -148,7 +150,7 @@ export class ProjectService {
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
     const notDup = this.runner.batchDup();
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'project', moduleName: '项目信息', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const code = String(r['项目编码'] ?? '').trim();
         if (!code) throw new RowError('项目编码为必填项', '项目编码');

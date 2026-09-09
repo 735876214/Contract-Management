@@ -18,6 +18,7 @@ import { MaterialService } from './material.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CurrentUser } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
@@ -60,9 +61,9 @@ export class MaterialController {
   @RequirePermissions('material:edit')
   @Post('materials/import')
   @UseInterceptors(FileInterceptor('file'))
-  importBases(@UploadedFile() file: any) {
+  importBases(@UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
-    return this.service.importBases(file.buffer);
+    return this.service.importBases(file.buffer, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('material:edit')
@@ -129,9 +130,9 @@ export class MaterialController {
   @RequirePermissions('material:edit')
   @Post('contract-materials/import')
   @UseInterceptors(FileInterceptor('file'))
-  importRows(@Query('contractId') contractId: string, @UploadedFile() file: any) {
+  importRows(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
-    return this.service.importRows(contractId, file.buffer);
+    return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user });
   }
 
   @RequirePermissions('material:edit')

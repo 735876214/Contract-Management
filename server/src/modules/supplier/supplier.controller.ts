@@ -18,7 +18,7 @@ import { SupplierService } from './supplier.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { ProjectId } from '../../common/decorators/user.decorator';
+import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('suppliers')
@@ -89,9 +89,9 @@ export class SupplierController {
   @RequirePermissions('supplier:edit')
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))
-  import(@UploadedFile() file: any, @ProjectId() projectId: string) {
+  import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
-    return this.supplierService.import(file.buffer, projectId);
+    return this.supplierService.import(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
 }

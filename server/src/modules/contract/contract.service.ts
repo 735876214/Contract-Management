@@ -4,6 +4,7 @@ import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
+import { ImportTaskService } from '../../common/services/import-task.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -46,6 +47,7 @@ export class ContractService {
     private tpl: ImportTemplateService,
     private material: MaterialService,
     private runner: ImportRunnerService,
+    private tasks: ImportTaskService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -392,7 +394,7 @@ export class ContractService {
    * 批量导入（需求 2.1）：全成功或全失败
    * 先全量校验（必填 + 合同编号唯一 + 供应商关联），任一失败不写库；全部通过后在事务内写入
    */
-  async import(buffer: Buffer, projectId: string, user: any) {
+  async import(buffer: Buffer, projectId: string, user: any, fileName?: string) {
     const rows = await this.excel.parse(buffer, [2]);
     const resolve = async (type: string, val: any) => {
       if (!val) return null;
@@ -401,7 +403,7 @@ export class ContractService {
       return hit ? hit.itemCode : null;
     };
     const notDup = this.runner.batchDup();
-    return this.runner.run<any>(rows, {
+    return this.tasks.submit<any>({ module: 'contract', moduleName: '合同台账', projectId, fileName, userId: user?.userId, username: user?.username }, rows, {
       plan: async (r) => {
         const code = String(r['合同编号'] ?? '').trim();
         if (!code) throw new RowError('合同编号为必填项', '合同编号');
