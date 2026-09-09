@@ -210,6 +210,7 @@ export class InvoiceService {
     const names = (list: any[]) => list.map((x: any) => x.itemName).filter(Boolean);
     return this.styled.exportTable({
       sheetName: '发票台账',
+      logoColumn: true,
       title: `发票台账（${project?.name || ''}）`,
       columns: [
         { header: '序号', key: 'index', width: 60, type: 'int' },

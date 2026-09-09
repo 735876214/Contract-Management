@@ -69,6 +69,41 @@ const colLetter = (n: number): string => {
 @Injectable()
 export class StyledExcelService {
   /** 生成带中建样式的表格，返回 xlsx Buffer */
+  /**
+   * 在工作表顶部写入中建 logo 表头（第 1~2 行）：A 列合并单元格嵌 logo 图片，
+   * B1 品牌行 + B2 标题行。调用方的表头/数据从第 3 行开始。
+   */
+  writeLogoHeader(ws: ExcelJS.Worksheet, opts: { title: string; brand?: string; lastCol: number }): void {
+    ws.mergeCells(1, 1, 2, 1);
+    const logoCell = ws.getCell(1, 1);
+    logoCell.border = thin;
+    logoCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    const logoId = ws.workbook.addImage({
+      // exceljs 的 buffer 类型定义基于旧版 @types/node，用 any 断言兼容
+      buffer: Buffer.from(CSCEC_LOGO_PNG_BASE64, 'base64') as any,
+      extension: 'png',
+    });
+    ws.addImage(logoId, 'A1:A2');
+
+    ws.mergeCells(1, 2, 1, Math.max(opts.lastCol, 4));
+    const brandCell = ws.getCell(1, 2);
+    brandCell.value = opts.brand || '中国建筑土木建设有限公司物资管理表格';
+    brandCell.font = { size: 10, name: '微软雅黑' };
+    brandCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    brandCell.border = thin;
+
+    ws.mergeCells(2, 2, 2, Math.max(opts.lastCol, 4));
+    const titleCell = ws.getCell(2, 2);
+    titleCell.value = opts.title;
+    titleCell.font = { bold: true, size: 14, name: '微软雅黑' };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    titleCell.border = thin;
+    ws.getRow(1).height = 22;
+    ws.getRow(2).height = 34;
+    // logo 图片区域保持接近原图 345x323 的宽高比
+    ws.getColumn(1).width = Math.max(ws.getColumn(1).width || 6, 12);
+  }
+
   async exportTable(opts: StyledTableOptions): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(opts.sheetName, {
@@ -78,33 +113,7 @@ export class StyledExcelService {
 
     // ---- 第 1~2 行：表头块 ----
     if (opts.logoColumn) {
-      // 左列 logo 块：合并 A1:A2 嵌入中建 logo 图片（上=CSCEC 蓝块，下=书法「中建」）
-      ws.mergeCells(1, 1, 2, 1);
-      const logoCell = ws.getCell(1, 1);
-      logoCell.border = thin;
-      logoCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      const logoId = wb.addImage({
-        // exceljs 的 buffer 类型定义基于旧版 @types/node，用 any 断言兼容
-        buffer: Buffer.from(CSCEC_LOGO_PNG_BASE64, 'base64') as any,
-        extension: 'png',
-      });
-      ws.addImage(logoId, 'A1:A2');
-
-      ws.mergeCells(1, 2, 1, Math.max(colCount, 4));
-      const brandCell = ws.getCell(1, 2);
-      brandCell.value = opts.brand || '中国建筑土木建设有限公司物资管理表格';
-      brandCell.font = { size: 10, name: '微软雅黑' };
-      brandCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      brandCell.border = thin;
-
-      ws.mergeCells(2, 2, 2, Math.max(colCount, 4));
-      const titleCell = ws.getCell(2, 2);
-      titleCell.value = opts.title;
-      titleCell.font = { bold: true, size: 14, name: '微软雅黑' };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      titleCell.border = thin;
-      ws.getRow(1).height = 22;
-      ws.getRow(2).height = 34;
+      this.writeLogoHeader(ws, { title: opts.title, brand: opts.brand, lastCol: colCount });
     } else {
       // 整行品牌行
       ws.mergeCells(1, 1, 1, Math.max(colCount, 4));

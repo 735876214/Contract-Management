@@ -4,6 +4,7 @@ import * as ExcelJS from 'exceljs';
 import { num, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculate,
@@ -35,6 +36,7 @@ export class FinanceService {
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private styled: StyledExcelService,
   ) {}
 
   // ==================== 合同资金参数 ====================
@@ -195,17 +197,14 @@ export class FinanceService {
     const { contract, list, totals } = { ...(await this.contractScope(contractId)), ...(await this.listFactoring(contractId)) } as any;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('保理费用台账');
-    const n = list.length + 3;
-    ws.mergeCells(1, 1, 1, 9);
-    ws.getCell(1, 1).value = `保理费用台账（${contract.supplier?.name || ''}）`;
-    ws.getCell(1, 1).font = { bold: true, size: 14 };
-    ws.getCell(1, 1).alignment = { horizontal: 'center' };
-    ws.getCell(2, 1).value = `合同编号：${contract.code}　合同名称：${contract.name}`;
+    const n = list.length + 4;
+    this.styled.writeLogoHeader(ws, { title: `保理费用台账（${contract.supplier?.name || ''}）`, lastCol: 9 });
+    ws.getCell(3, 1).value = `合同编号：${contract.code}　合同名称：${contract.name}`;
     const headers = ['序号', '融资到账时间', '融资金额', '实际到账金额', '融资利息', '手续费', '费用合计（含税）', '结算月份', '备注'];
-    ws.getRow(3).values = headers;
-    ws.getRow(3).font = { bold: true };
+    ws.getRow(4).values = headers;
+    ws.getRow(4).font = { bold: true };
     list.forEach((r: any, i: number) => {
-      ws.getRow(4 + i).values = [r.seqNo, fmt(r.financingDate), num(r.financingAmount), num(r.actualReceipt), num(r.financingInterest), num(r.handlingFee), num(r.totalCost), r.settlementMonth, r.remark || ''];
+      ws.getRow(5 + i).values = [r.seqNo, fmt(r.financingDate), num(r.financingAmount), num(r.actualReceipt), num(r.financingInterest), num(r.handlingFee), num(r.totalCost), r.settlementMonth, r.remark || ''];
     });
     ws.getRow(n + 1).values = ['合计', '', totals.financingAmount, totals.actualReceipt, totals.financingInterest, totals.handlingFee, totals.totalCost, '', ''];
     ws.getRow(n + 1).font = { bold: true };
@@ -365,24 +364,20 @@ export class FinanceService {
     const { contract, list, stats } = await this.listOverdue(contractId, query);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('逾期利息计算表');
-    ws.mergeCells(1, 1, 1, 11);
-    ws.getCell(1, 1).value = '逾期利息计算表';
-    ws.getCell(1, 1).font = { bold: true, size: 16 };
-    ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getRow(1).height = 28;
-    ws.getCell(2, 1).value = `供应商：${contract.supplierName}　　付款条件：${contract.paymentMode === '3382' ? contract.mode3382Description : contract.mode100Description}`;
-    ws.getCell(2, 2).value = '';
+    this.styled.writeLogoHeader(ws, { title: '逾期利息计算表', lastCol: 11 });
+    ws.getCell(3, 1).value = `供应商：${contract.supplierName}　　付款条件：${contract.paymentMode === '3382' ? contract.mode3382Description : contract.mode100Description}`;
+    ws.getCell(3, 2).value = '';
     const headers = ['结算月份', '材料款金额', '应付款日期', '逾期起始日期', '付款日期', '付款金额', '计息金额', '逾期天数', '延期月利率', '逾期利息（含税）', '备注'];
-    ws.getRow(3).values = headers;
-    ws.getRow(3).font = { bold: true };
+    ws.getRow(4).values = headers;
+    ws.getRow(4).font = { bold: true };
     list.forEach((r: any, i: number) => {
-      ws.getRow(4 + i).values = [
+      ws.getRow(5 + i).values = [
         r.settlementMonth, num(r.materialAmount), fmt(r.payableDate), fmt(r.overdueStartDate), fmt(r.paymentDate),
         num(r.paymentAmount), num(r.interestAmount), r.waived ? '减免' : num(r.overdueDays),
         num(r.monthlyRate), r.waived ? 0 : num(r.overdueInterest), r.remark || '',
       ];
     });
-    let rowIdx = 4 + list.length;
+    let rowIdx = 5 + list.length;
     const statRows: (string | number | null)[][] = [
       ['合计', stats.totalMaterial, '', '', '', stats.totalPayment, '', '', '', stats.currentCumulative, ''],
       [`合同约定逾期利息上限比例：${(stats.capRatio * 100).toFixed(2)}%`, `上限金额：${stats.capAmount}`, '', '', '', '', '', '', '', `本期开累逾期利息占比：${stats.interestRatio}%`, ''],

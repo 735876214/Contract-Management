@@ -385,6 +385,7 @@ export class SettlementService {
     }));
     return this.styled.exportTable({
       sheetName: '结算台账',
+      logoColumn: true,
       title: `结算台账（${project?.name || ''}）`,
       columns: [
         { header: '项目', key: 'projectName', width: 140, type: 'center' },

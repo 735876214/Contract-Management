@@ -5,6 +5,7 @@ import { ImportRunnerService, RowError, TxClient } from '../../common/services/i
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict/dict.service';
 import { SettlementService } from '../settlement/settlement.service';
@@ -27,6 +28,7 @@ export class MaterialService {
   constructor(
     private prisma: PrismaClient,
     private excel: ExcelService,
+    private styled: StyledExcelService,
     private dict: DictService,
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
@@ -539,6 +541,8 @@ export class MaterialService {
     const ExcelJS = wb.default || wb;
     const workbook = new (ExcelJS as any).Workbook();
     const ws = workbook.addWorksheet('合同物资清单');
+    // 中建 logo 表头（第 1~2 行）
+    this.styled.writeLogoHeader(ws as any, { title: '合同物资清单', lastCol: headers.length });
     // 合同头信息（固定头部）
     ws.addRow(['合同名称', contract.name || '']);
     ws.addRow(['供应商名称', contract.supplierName || '']);

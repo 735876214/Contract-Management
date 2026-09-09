@@ -140,6 +140,7 @@ export class AssetService {
     }));
     const buffer = await this.styled.exportTable({
       sheetName: '资产管理台账',
+      logoColumn: true,
       title: `资 产 管 理 台 账（${project?.name || ''}）`,
       columns: [
         { header: '日期', key: 'date', width: 100, type: 'center' },

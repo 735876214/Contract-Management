@@ -293,6 +293,7 @@ export class LedgerService {
     }));
     const buffer = await this.styled.exportTable({
       sheetName: '合同台账',
+      logoColumn: true,
       title: `合同台账（${project?.name || ''}）`,
       columns: [
         { header: '序号', key: 'index', width: 60, type: 'int' },

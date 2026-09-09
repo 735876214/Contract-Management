@@ -80,6 +80,7 @@ export class PaymentService {
     }));
     return this.styled.exportTable({
       sheetName: '付款台账',
+      logoColumn: true,
       title: `付款台账（${project?.name || ''}）`,
       columns: [
         { header: '项目', key: 'projectName', width: 140, type: 'center' },

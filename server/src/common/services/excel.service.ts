@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
+import { StyledExcelService } from './styled-excel.service';
 
 export interface ExcelColumn {
   header: string;
@@ -9,13 +10,26 @@ export interface ExcelColumn {
 
 @Injectable()
 export class ExcelService {
-  /** 生成 Excel 文件 Buffer */
+  constructor(private readonly styled: StyledExcelService) {}
+
+  /** 生成 Excel 文件 Buffer（含中建 logo 表头：第 1~2 行，列表头第 3 行，数据第 4 行起） */
   async export(columns: ExcelColumn[], rows: any[], sheetName = 'Sheet1'): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(sheetName);
-    ws.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width || 18 }));
-    ws.getRow(1).font = { bold: true };
-    rows.forEach((r) => ws.addRow(r));
+    this.styled.writeLogoHeader(ws, { title: sheetName, lastCol: columns.length });
+    ws.getRow(3).values = columns.map((c) => c.header);
+    ws.getRow(3).font = { bold: true };
+    ws.getRow(3).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    columns.forEach((c, i) => {
+      ws.getColumn(i + 1).width = c.width || 18;
+      ws.getCell(3, i + 1).border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } },
+      };
+    });
+    rows.forEach((r) => ws.addRow(columns.map((c) => r[c.key] ?? null)));
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);
   }
