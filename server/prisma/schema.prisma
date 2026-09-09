@@ -172,6 +172,7 @@ model Contract {
   code               String // 合同编号
   name               String
   typeCode           String? // dict: contract_type
+  subTypeCode        String? // dict: contract_sub_type 合同子类型（编号第4段）
   supplierId         String?
   signDate           DateTime?
   amount             Decimal?  @db.Decimal(18, 2)
