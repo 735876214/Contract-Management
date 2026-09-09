@@ -49,11 +49,78 @@ export class ContractController {
     return this.contractService.nextCode(query);
   }
 
+  /** 合同名称规则预览（需求 3.4） */
+  @RequirePermissions('contract:view')
+  @Get('name-preview')
+  namePreview(@Query() query: any) {
+    return this.contractService.namePreview(query);
+  }
+
   /** 合同起草：当前用户草稿列表（需求 2.1，须声明在 :id 通配路由之前） */
   @RequirePermissions('contract:view')
   @Get('drafts')
-  drafts(@CurrentUser() user: JwtUser, @ProjectId() projectId: string) {
-    return this.contractService.findDrafts(user.userId, projectId);
+  drafts(@CurrentUser() user: JwtUser, @ProjectId() projectId: string, @Query('status') status?: string) {
+    return this.contractService.findDrafts(user.userId, projectId, status);
+  }
+
+  // ---------------- 合同起草：物料编码清单（Tab1） ----------------
+
+  @RequirePermissions('contract:view')
+  @Get(':id/material-pool')
+  poolList(@Param('id') id: string) {
+    return this.contractService.poolList(id);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post(':id/material-pool')
+  poolAdd(@Param('id') id: string, @Body() body: { materialIds: string[] }) {
+    return this.contractService.poolAdd(id, body?.materialIds || []);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Delete(':id/material-pool/:poolId')
+  poolRemove(@Param('id') id: string, @Param('poolId') poolId: string) {
+    return this.contractService.poolRemove(id, poolId);
+  }
+
+  // ---------------- 合同起草：合同清单（Tab2） ----------------
+
+  @RequirePermissions('contract:view')
+  @Get(':id/draft-materials')
+  draftList(@Param('id') id: string) {
+    return this.contractService.draftList(id);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post(':id/draft-materials')
+  draftDerive(@Param('id') id: string, @Body() body: { materialBaseIds: string[] }) {
+    return this.contractService.draftDerive(id, body?.materialBaseIds || []);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Put(':id/draft-materials')
+  draftSave(@Param('id') id: string, @Body() body: { rows: any[] }) {
+    return this.contractService.draftSave(id, body?.rows || []);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Delete(':id/draft-materials/:rowId')
+  draftRemove(@Param('id') id: string, @Param('rowId') rowId: string) {
+    return this.contractService.draftRemove(id, rowId);
+  }
+
+  // ---------------- 合同起草：发布与状态流转 ----------------
+
+  @RequirePermissions('contract:edit')
+  @Post(':id/publish')
+  publish(@Param('id') id: string) {
+    return this.contractService.publish(id);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Put(':id/status')
+  setStatus(@Param('id') id: string, @Body() body: { status: string }) {
+    return this.contractService.setStatus(id, body?.status);
   }
 
   /** 删除草稿（仅本人创建且未提交，服务端二次校验） */

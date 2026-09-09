@@ -186,6 +186,10 @@ model Contract {
   supplementSeq      Int?    // 补充协议序号
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
+  status             String? // dict: contract_status 起草流转状态：DRAFT 草稿中 / COMPLETED 已完成
+  templateId         String? // 关联合同模板 ID（起草时选择，用于回填与预览）
+  formData           String? // 模板变量填写值（JSON 文本，key=变量键）
+  materialDescription String? // 物资名称（合同名称第4段，用户手填，如：PE管）
   technicalClauseId  String? // 技术条款 ID（需求 2.3：创建合同时选择）
   qualityClauseId    String? // 质量条款 ID
   paymentClauseId    String? // 付款条件 ID
@@ -214,6 +218,8 @@ model Contract {
   invoices     Invoice[]
   repayments   RepaymentAgreement[]
   materials    ContractMaterial[]
+  materialPools    ContractMaterialPool[]
+  draftMaterials   ContractDraftMaterial[]
   factoringCosts   FactoringCost[]
   overdueInterests OverdueInterest[]
 
@@ -388,6 +394,8 @@ model MaterialBase {
   updatedAt DateTime @updatedAt
 
   contractMaterials ContractMaterial[]
+  contractPools     ContractMaterialPool[]
+  draftMaterials    ContractDraftMaterial[]
   reports           DailyReport[]
 
   @@unique([name, spec]) // 物资名称 + 规格型号 组合唯一（主数据唯一约束）
@@ -420,6 +428,46 @@ model ContractMaterial {
   materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
 
   @@unique([contractId, materialBaseId]) // 同一物资在一个合同内只能出现一次
+  @@index([contractId])
+}
+
+// ---------------- 合同起草：物料编码清单（合同专属物资池） ----------------
+model ContractMaterialPool {
+  id             String   @id @default(cuid())
+  contractId     String
+  materialBaseId String   // 引用物资基础库
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, materialBaseId])
+  @@index([contractId])
+}
+
+// ---------------- 合同起草：草稿合同清单（发布后推送至 ContractMaterial） ----------------
+model ContractDraftMaterial {
+  id             String   @id @default(cuid())
+  contractId     String
+  materialBaseId String
+  seqNo          Int?     // 序号
+  unit           String?  // 计量单位
+  qty            Decimal? // 暂定数量
+  priceBeforeTax Decimal? // 税前单价
+  taxRatePct     Decimal? // 税率（百分比，如 13.00）
+  priceWithTax   Decimal? // 含税单价 = 税前单价 × (1 + 税率/100)
+  totalWithTax   Decimal? // 暂定含税合价 = 含税单价 × 暂定数量
+  remark         String?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, materialBaseId])
   @@index([contractId])
 }
 

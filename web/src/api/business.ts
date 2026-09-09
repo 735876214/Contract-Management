@@ -63,6 +63,26 @@ export const contractApi = {
   // 合同起草（需求 2.1）
   drafts: () => http.get<any, any>('/contracts/drafts'),
   removeDraft: (id: string) => http.delete<any, any>(`/contracts/drafts/${id}`),
+  // 名称预览（TMHB-CG-项目-物资-类型-供应商）
+  namePreview: (params: any) => http.get<any, any>('/contracts/name-preview', { params }),
+  // Tab1 物料编码清单（合同专属物资池）
+  poolList: (id: string) => http.get<any, any>(`/contracts/${id}/material-pool`),
+  poolAdd: (id: string, materialIds: string[]) =>
+    http.post<any, any>(`/contracts/${id}/material-pool`, { materialIds }),
+  poolRemove: (id: string, poolId: string) =>
+    http.delete<any, any>(`/contracts/${id}/material-pool/${poolId}`),
+  // Tab2 合同清单（草稿明细，从物料池派生）
+  draftList: (id: string) => http.get<any, any>(`/contracts/${id}/draft-materials`),
+  draftDerive: (id: string, materialBaseIds: string[]) =>
+    http.post<any, any>(`/contracts/${id}/draft-materials`, { materialBaseIds }),
+  draftSave: (id: string, rows: any[]) =>
+    http.put<any, any>(`/contracts/${id}/draft-materials`, { rows }),
+  draftRemove: (id: string, rowId: string) =>
+    http.delete<any, any>(`/contracts/${id}/draft-materials/${rowId}`),
+  // 状态流转：保存草稿 / 发布完成
+  publish: (id: string) => http.post<any, any>(`/contracts/${id}/publish`),
+  setStatus: (id: string, status: string) =>
+    http.put<any, any>(`/contracts/${id}/status`, { status }),
 };
 
 export const templateApi = {

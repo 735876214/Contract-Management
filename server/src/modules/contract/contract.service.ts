@@ -16,7 +16,13 @@ const CONTRACT_FIELDS = [
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
+  // 合同起草（需求重构）：起草流转状态、关联模板、物资名称、模板变量值
+  'status', 'templateId', 'materialDescription', 'formData',
 ];
+
+/** 合同起草状态（dict: contract_status） */
+const STATUS_DRAFT = 'DRAFT';
+const STATUS_COMPLETED = 'COMPLETED';
 const EXT_FIELDS = [
   'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
   'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
@@ -144,10 +150,11 @@ export class ContractService {
 
   /** 读取编号规则系统参数 */
   private async codeConfig() {
-    const [prefix, typeMapping, subTypeMapping, seqDigits, yearReset] = await Promise.all([
+    const [prefix, typeMapping, subTypeMapping, levelMapping, seqDigits, yearReset] = await Promise.all([
       this.sysParam.get('contract.code.fixed_prefix', 'CSCEC'),
       this.sysParam.get('contract.code.type_mapping', '{}'),
       this.sysParam.get('contract.code.sub_type_mapping', '{}'),
+      this.sysParam.get('contract.code.level_mapping', '{}'),
       this.sysParam.get('contract.code.seq_digits', '3'),
       this.sysParam.get('contract.code.year_reset', 'true'),
     ]);
@@ -158,6 +165,8 @@ export class ContractService {
       prefix: prefix || 'CSCEC',
       typeMap: parseJson(typeMapping) as Record<string, string>,
       subTypeMap: parseJson(subTypeMapping) as Record<string, string>,
+      // 合同层级：采购合同/租赁合同 G1、采购执行/租赁执行 G2、框架协议 G3
+      levelMap: parseJson(levelMapping) as Record<string, string>,
       seqDigits: Math.max(1, Number(seqDigits) || 3),
       yearReset: String(yearReset) !== 'false',
     };
@@ -191,14 +200,20 @@ export class ContractService {
     }
     if (!seg3) missing.push('项目字母简称（关联项目或手动输入）');
 
-    // 第4段：合同子类型 → 按字典项名称匹配映射
+    // 第4段：合同层级 G1/G2/G3 —— 优先按「合同类型」映射（采购 G1 / 执行 G2 / 框架 G3），
+    // 未配置时回退到旧的「合同子类型」映射（兼容历史参数）
     let seg4 = '';
-    if (params.subTypeCode) {
+    if (params.typeCode) {
+      const typeNames = await this.dict.nameMap('contract_type');
+      const typeName = typeNames[params.typeCode]?.name || params.typeCode;
+      seg4 = cfg.levelMap[typeName] || '';
+    }
+    if (!seg4 && params.subTypeCode) {
       const subNames = await this.dict.nameMap('contract_sub_type');
       const subName = subNames[params.subTypeCode]?.name || params.subTypeCode;
       seg4 = cfg.subTypeMap[subName] || '';
     }
-    if (!seg4) missing.push('合同子类型码（检查子类型选择或参数 contract.code.sub_type_mapping）');
+    if (!seg4) missing.push('合同层级码（检查合同类型或参数 contract.code.level_mapping）');
 
     // 第5段：年份 + 顺序码（取已用最大顺序码 +1）
     const year = new Date().getFullYear();
@@ -220,7 +235,7 @@ export class ContractService {
     const code = segments.join('-');
     return {
       code,
-      segments: { prefix: seg1, typeSeg: seg2, abbr: seg3, subTypeSeg: seg4, yearSeq },
+      segments: { prefix: seg1, typeSeg: seg2, abbr: seg3, subTypeSeg: seg4, levelSeg: seg4, yearSeq },
       missing,
       nextSeq: maxSeq + 1,
     };
@@ -237,6 +252,289 @@ export class ContractService {
       parentCode: parent.code,
       parentName: parent.name,
     };
+  }
+
+  // ==================== 合同名称自动生成（需求 3.4） ====================
+
+  /**
+   * 合同名称规则：TMHB-{类型代码}-{项目简称}-{物资名称}-{合同类型}-{供应商名称}
+   * - 类型代码：采购类 CG / 租赁类 ZL（系统参数 contract.name.type_mapping，按合同类型字典项名称匹配）
+   * - 项目简称：关联项目的文字版简称 nameAbbr，缺省回退项目名称
+   * - 物资名称：用户手填 materialDescription
+   * - 合同类型：合同类型字典项名称（如「采购执行合同」）
+   * - 供应商名称：所选供应商全称
+   */
+  async buildName(params: {
+    typeCode?: string;
+    materialDescription?: string;
+    supplierId?: string;
+    projectId?: string;
+    supplierName?: string;
+    projectShortName?: string;
+    typeName?: string;
+  }) {
+    const nameMapping = await this.sysParam.get('contract.name.type_mapping', '{}');
+    let typeMap: Record<string, string> = {};
+    try {
+      typeMap = JSON.parse(nameMapping) || {};
+    } catch {
+      typeMap = {};
+    }
+
+    let typeName = params.typeName || '';
+    let typeAbbr = '';
+    if (params.typeCode) {
+      const names = await this.dict.nameMap('contract_type');
+      const hit = names[params.typeCode];
+      typeName = typeName || hit?.name || params.typeCode;
+      typeAbbr = typeMap[typeName] || (String(params.typeCode).startsWith('LEASE') ? 'ZL' : 'CG');
+    }
+
+    let projectShort = params.projectShortName || '';
+    if (!projectShort && params.projectId) {
+      const proj = await this.prisma.project.findUnique({ where: { id: params.projectId } });
+      projectShort = proj?.nameAbbr || proj?.name || '';
+    }
+
+    let supplierName = params.supplierName || '';
+    if (!supplierName && params.supplierId) {
+      const sup = await this.prisma.supplier.findUnique({ where: { id: params.supplierId } });
+      supplierName = sup?.name || '';
+    }
+
+    const parts = ['TMHB', typeAbbr, projectShort, params.materialDescription || '', typeName, supplierName];
+    const name = parts.filter((p) => p !== '').join('-');
+    return {
+      name,
+      segments: { prefix: 'TMHB', typeAbbr, projectShort, material: params.materialDescription || '', typeName, supplierName },
+      missing: [
+        !typeAbbr && '合同类型代码',
+        !projectShort && '项目简称',
+        !params.materialDescription && '物资名称',
+        !typeName && '合同类型',
+        !supplierName && '供应商名称',
+      ].filter(Boolean) as string[],
+    };
+  }
+
+  /** 名称预览（起草页实时拼接展示） */
+  async namePreview(params: any) {
+    return this.buildName(params);
+  }
+
+  // ==================== 合同起草：物料编码清单（Tab1，合同专属物资池） ====================
+
+  /** 物料编码清单：物资名称/规格型号/MDM编码/DSC编码 */
+  async poolList(contractId: string) {
+    await this.assertContractExists(contractId);
+    const rows = await this.prisma.contractMaterialPool.findMany({
+      where: { contractId },
+      orderBy: { sortOrder: 'asc' },
+      include: { materialBase: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      materialBaseId: r.materialBaseId,
+      sortOrder: r.sortOrder,
+      name: r.materialBase.name,
+      spec: r.materialBase.spec,
+      mdmCode: r.materialBase.mdmCode,
+      dscCode: r.materialBase.dscCode,
+    }));
+  }
+
+  /** 从物资基础库批量导入（追加，已存在则跳过） */
+  async poolAdd(contractId: string, materialIds: string[]) {
+    await this.assertContractExists(contractId);
+    if (!Array.isArray(materialIds) || !materialIds.length) throw new BadRequestException('请选择要导入的物资');
+    const bases = await this.prisma.materialBase.findMany({ where: { id: { in: materialIds }, status: 1 } });
+    if (!bases.length) throw new BadRequestException('所选物资不存在或已停用');
+    const existed = await this.prisma.contractMaterialPool.findMany({
+      where: { contractId },
+      select: { materialBaseId: true },
+    });
+    const has = new Set(existed.map((e) => e.materialBaseId));
+    let maxSort = existed.length;
+    let added = 0;
+    for (const b of bases) {
+      if (has.has(b.id)) continue;
+      await this.prisma.contractMaterialPool.create({
+        data: { contractId, materialBaseId: b.id, sortOrder: ++maxSort },
+      });
+      added += 1;
+    }
+    return { added, skipped: bases.length - added };
+  }
+
+  async poolRemove(contractId: string, poolId: string) {
+    const row = await this.prisma.contractMaterialPool.findFirst({ where: { id: poolId, contractId } });
+    if (!row) throw new NotFoundException('物料不存在');
+    await this.prisma.contractMaterialPool.delete({ where: { id: poolId } });
+    // 同步移除草稿清单中对应物资，避免 Tab2 残留 Tab1 已删除的数据
+    await this.prisma.contractDraftMaterial.deleteMany({
+      where: { contractId, materialBaseId: row.materialBaseId },
+    });
+    return true;
+  }
+
+  // ==================== 合同起草：合同清单（Tab2，草稿明细） ====================
+
+  /** 草稿清单行（含主数据字段与自动计算金额） */
+  async draftList(contractId: string) {
+    await this.assertContractExists(contractId);
+    const rows = await this.prisma.contractDraftMaterial.findMany({
+      where: { contractId },
+      orderBy: { sortOrder: 'asc' },
+      include: { materialBase: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      materialBaseId: r.materialBaseId,
+      seqNo: r.seqNo,
+      name: r.materialBase.name,
+      spec: r.materialBase.spec,
+      unit: r.unit,
+      qty: r.qty != null ? Number(r.qty) : null,
+      priceBeforeTax: r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null,
+      taxRatePct: r.taxRatePct != null ? Number(r.taxRatePct) : null,
+      priceWithTax: r.priceWithTax != null ? Number(r.priceWithTax) : null,
+      totalWithTax: r.totalWithTax != null ? Number(r.totalWithTax) : null,
+      remark: r.remark,
+      sortOrder: r.sortOrder,
+    }));
+  }
+
+  /** 从物料编码清单（Tab1）勾选派生到合同清单（Tab2），追加不覆盖 */
+  async draftDerive(contractId: string, materialBaseIds: string[]) {
+    await this.assertContractExists(contractId);
+    if (!Array.isArray(materialBaseIds) || !materialBaseIds.length) {
+      throw new BadRequestException('请先在「物料编码清单」中勾选物资');
+    }
+    const pool = await this.prisma.contractMaterialPool.findMany({
+      where: { contractId, materialBaseId: { in: materialBaseIds } },
+      orderBy: { sortOrder: 'asc' },
+    });
+    if (!pool.length) throw new BadRequestException('所选物资不在本合同的物料编码清单中');
+    const existed = await this.prisma.contractDraftMaterial.findMany({
+      where: { contractId },
+      select: { materialBaseId: true, sortOrder: true },
+    });
+    const has = new Set(existed.map((e) => e.materialBaseId));
+    let maxSort = existed.reduce((m, e) => Math.max(m, e.sortOrder || 0), 0);
+    let added = 0;
+    for (const p of pool) {
+      if (has.has(p.materialBaseId)) continue;
+      await this.prisma.contractDraftMaterial.create({
+        data: {
+          contractId,
+          materialBaseId: p.materialBaseId,
+          seqNo: ++maxSort,
+          unit: '',
+          sortOrder: maxSort,
+          remark: '由物料编码清单派生',
+        },
+      });
+      added += 1;
+    }
+    return { added, skipped: pool.length - added };
+  }
+
+  /** 保存草稿清单行（含税单价 / 暂定含税合价 服务端统一计算，4 位精度） */
+  async draftSave(contractId: string, rows: any[]) {
+    await this.assertContractExists(contractId);
+    if (!Array.isArray(rows)) throw new BadRequestException('参数格式错误');
+    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
+    let saved = 0;
+    for (const [i, r] of rows.entries()) {
+      if (!r?.id) continue;
+      const qty = r.qty == null || r.qty === '' ? null : Number(r.qty);
+      const price = r.priceBeforeTax == null || r.priceBeforeTax === '' ? null : Number(r.priceBeforeTax);
+      const tax = r.taxRatePct == null || r.taxRatePct === '' ? null : Number(r.taxRatePct);
+      const priceWithTax = price != null && tax != null ? round4(price * (1 + tax / 100)) : null;
+      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      await this.prisma.contractDraftMaterial.update({
+        where: { id: r.id },
+        data: {
+          seqNo: r.seqNo ?? i + 1,
+          unit: r.unit ?? '',
+          qty,
+          priceBeforeTax: price,
+          taxRatePct: tax,
+          priceWithTax,
+          totalWithTax,
+          remark: r.remark ?? null,
+          sortOrder: r.sortOrder ?? i + 1,
+        },
+      });
+      saved += 1;
+    }
+    return { saved };
+  }
+
+  async draftRemove(contractId: string, id: string) {
+    const row = await this.prisma.contractDraftMaterial.findFirst({ where: { id, contractId } });
+    if (!row) throw new NotFoundException('清单行不存在');
+    await this.prisma.contractDraftMaterial.delete({ where: { id } });
+    return true;
+  }
+
+  // ==================== 合同起草：发布与状态流转（需求 3.2） ====================
+
+  /**
+   * 发布：草稿清单 → 正式【合同物资清单】模块持久化，状态置为「已完成」
+   * 全量同步：先清除该合同旧清单，再按草稿行写入，保证两处一致
+   */
+  async publish(contractId: string) {
+    const contract = await this.findOne(contractId);
+    if (!contract.templateId) throw new BadRequestException('请先在基础信息中选择合同模板');
+    const drafts = await this.prisma.contractDraftMaterial.findMany({
+      where: { contractId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    await this.prisma.contractMaterial.deleteMany({ where: { contractId } });
+    let pushed = 0;
+    for (const [i, d] of drafts.entries()) {
+      await this.prisma.contractMaterial.create({
+        data: {
+          contractId,
+          materialBaseId: d.materialBaseId,
+          unit: d.unit || '',
+          qty: d.qty,
+          priceBeforeTax: d.priceBeforeTax,
+          taxRatePct: d.taxRatePct,
+          priceWithTax: d.priceWithTax,
+          totalWithTax: d.totalWithTax,
+          remark: d.remark,
+          sortOrder: d.sortOrder || i + 1,
+        },
+      });
+      pushed += 1;
+    }
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { status: STATUS_COMPLETED, version: { increment: 1 } },
+    });
+    return { pushed, status: STATUS_COMPLETED };
+  }
+
+  /** 状态互转：草稿中 ↔ 已完成（已完成退回草稿时可继续编辑） */
+  async setStatus(contractId: string, status: string) {
+    if (![STATUS_DRAFT, STATUS_COMPLETED].includes(status)) {
+      throw new BadRequestException('状态取值非法（DRAFT / COMPLETED）');
+    }
+    await this.assertContractExists(contractId);
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { status, version: { increment: 1 } },
+    });
+    return { status };
+  }
+
+  /** 合同是否存在（用于起草子资源校验） */
+  private async assertContractExists(contractId: string) {
+    const c = await this.prisma.contract.findUnique({ where: { id: contractId } });
+    if (!c) throw new NotFoundException('合同不存在');
+    return c;
   }
 
   /** 从合同编号尾部提取年份顺序码（如 ...-2026002 → 2026002），用于固化 yearSeq */
@@ -262,6 +560,21 @@ export class ContractService {
     if (!data.code) throw new BadRequestException('合同编号不能为空');
     await this.assertCodeUnique(data.code, projectId);
     await this.validateDict(data);
+
+    // 名称自动生成（需求 3.4）：未手填名称或显式 autoName 时按规则拼接并锁定
+    if (data.autoName !== false && (!data.name || data.autoName === true)) {
+      const built = await this.buildName({
+        typeCode: data.typeCode,
+        materialDescription: data.materialDescription,
+        supplierId: data.supplierId,
+        projectId,
+      });
+      if (built.name) data.name = built.name;
+    }
+    // 模板变量值统一按 JSON 文本持久化
+    if (data.formData && typeof data.formData !== 'string') {
+      data.formData = JSON.stringify(data.formData);
+    }
 
     // 编号段落固化：yearSeq / codeAbbrUsed 未传时自动补齐
     if (!data.yearSeq) data.yearSeq = this.extractYearSeq(data.code);
@@ -320,6 +633,19 @@ export class ContractService {
     }
     delete data.code;
     await this.validateDict({ ...before, ...data });
+    // 名称自动生成（需求 3.4）：起草页传 autoName=true 时按规则重算并锁定
+    if (data.autoName === true) {
+      const built = await this.buildName({
+        typeCode: data.typeCode ?? before.typeCode,
+        materialDescription: data.materialDescription ?? before.materialDescription,
+        supplierId: data.supplierId ?? before.supplierId,
+        projectId: before.projectId,
+      });
+      if (built.name) data.name = built.name;
+    }
+    if (data.formData && typeof data.formData !== 'string') {
+      data.formData = JSON.stringify(data.formData);
+    }
     const { attachments, ext, ...rest } = data;
     const contract = await this.prisma.contract.update({
       where: { id },
@@ -383,19 +709,22 @@ export class ContractService {
   // ==================== 合同起草（需求 2.1） ====================
 
   /** 草稿判定：执行情况为 DRAFT 或尚未填写，且为当前用户创建（projectId 缺省时不限项目） */
-  private draftWhere(userId: string, projectId?: string) {
-    const where: any = {
-      createdBy: userId,
-      OR: [{ execStatus: 'DRAFT' }, { execStatus: null }],
-    };
+  private draftWhere(userId: string, projectId?: string, status?: string) {
+    // 需求重构：起草列表展示本人创建的全部合同（草稿中 / 已完成），
+    // 支持按起草状态筛选，便于「已完成」合同退回草稿继续编辑
+    const where: any = { createdBy: userId };
     if (projectId) where.projectId = projectId;
+    if (status) {
+      where.OR = [{ status }, { status: null, execStatus: 'DRAFT' }];
+      if (status === 'DRAFT') where.OR.push({ status: null, execStatus: null });
+    }
     return where;
   }
 
   /** 当前用户的草稿列表（数据隔离：仅本人创建） */
-  async findDrafts(userId: string, projectId?: string) {
+  async findDrafts(userId: string, projectId?: string, status?: string) {
     return this.prisma.contract.findMany({
-      where: this.draftWhere(userId, projectId),
+      where: this.draftWhere(userId, projectId, status),
       orderBy: { updatedAt: 'desc' },
       include: { supplier: { select: { id: true, name: true } } },
     });

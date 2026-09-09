@@ -53,6 +53,13 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
       { itemCode: 'DONE_SETTLED', itemName: '已完已结', color: 'green' },
     ],
   },
+  contract_status: {
+    name: '合同起草状态',
+    items: [
+      { itemCode: 'DRAFT', itemName: '草稿中', color: 'orange' },
+      { itemCode: 'COMPLETED', itemName: '已完成', color: 'green' },
+    ],
+  },
   approval_status: {
     name: '申请状态',
     items: [
@@ -378,7 +385,9 @@ const PERMISSIONS = [
 const SYS_PARAMS = [
   { key: 'contract.code.fixed_prefix', value: 'CSCEC', remark: '合同编号固定前缀（第1段，只读）' },
   { key: 'contract.code.type_mapping', value: '{"框架协议":"WZCG","采购合同":"WZCG","采购执行合同":"WZCG","租赁合同":"WZZL","租赁执行合同":"WZZL"}', remark: '合同类型→编号第2段映射（JSON，按字典项名称匹配）' },
-  { key: 'contract.code.sub_type_mapping', value: '{"单项":"G1","执行":"G2"}', remark: '合同子类型→编号第4段映射（JSON，按字典项名称匹配）' },
+  { key: 'contract.code.sub_type_mapping', value: '{"单项":"G1","执行":"G2"}', remark: '合同子类型→编号第4段映射（JSON，按字典项名称匹配，合同层级映射缺失时回退）' },
+  { key: 'contract.code.level_mapping', value: '{"框架协议":"G3","采购合同":"G1","采购执行合同":"G2","租赁合同":"G1","租赁执行合同":"G2"}', remark: '合同类型→编号第4段合同层级（G1 采购/租赁、G2 执行类、G3 框架协议）' },
+  { key: 'contract.name.type_mapping', value: '{"框架协议":"CG","采购合同":"CG","采购执行合同":"CG","租赁合同":"ZL","租赁执行合同":"ZL"}', remark: '合同类型→合同名称第2段类型代码（CG 采购 / ZL 租赁）' },
   { key: 'contract.code.seq_digits', value: '3', remark: '合同编号顺序码位数' },
   { key: 'contract.code.year_reset', value: 'true', remark: '顺序码是否按年重置' },
   { key: 'contract.code.unique.scope', value: 'GLOBAL', remark: '合同编号唯一性范围：GLOBAL 全局唯一 / PROJECT 项目内唯一' },

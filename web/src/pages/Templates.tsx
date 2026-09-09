@@ -3,7 +3,7 @@ import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Steps, Alert, Select,
   Row, Col, Tabs, InputNumber, Divider, Typography,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, FileTextOutlined, HistoryOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, HistoryOutlined } from '@ant-design/icons';
 import { templateApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
@@ -26,19 +26,7 @@ export default function Templates() {
   const [versionRow, setVersionRow] = useState<any>(null);
   const [versions, setVersions] = useState<any[]>([]);
 
-  // 生成合同向导
-  const [genOpen, setGenOpen] = useState(false);
-  const [genStep, setGenStep] = useState(0);
-  const [gIsFramework, setGIsFramework] = useState<string>();
-  const [gIsSupplement, setGIsSupplement] = useState<string>();
-  const [gCats, setGCats] = useState<any[]>([]);
-  const [gCatCode, setGCatCode] = useState<string>();
-  const [gContracts, setGContracts] = useState<any[]>([]);
-  const [gContractId, setGContractId] = useState<string>();
-  const [gTemplates, setGTemplates] = useState<any[]>([]);
-  const [gTemplateId, setGTemplateId] = useState<string>();
-  const [gHtml, setGHtml] = useState<string>('');
-  const [genLoading, setGenLoading] = useState(false);
+  const onSearch = (v: any) => search(v);
 
   // 条款库已迁移至独立页面 Clauses（需求 2.3），此处仅保留模板管理
 
@@ -78,94 +66,6 @@ export default function Templates() {
     reload();
   };
 
-  // ---- 生成合同向导 ----
-  const openGen = async () => {
-    setGenOpen(true);
-    setGenStep(0);
-    setGIsFramework(undefined);
-    setGIsSupplement(undefined);
-    setGCats([]);
-    setGCatCode(undefined);
-    setGContractId(undefined);
-    setGTemplateId(undefined);
-    setGHtml('');
-    const res: any = await contractApi.options();
-    setGContracts(res || []);
-  };
-
-  const genNext = async () => {
-    if (genStep === 0) {
-      if (!gIsFramework) return message.warning('请选择是否框架协议');
-      return setGenStep(1);
-    }
-    if (genStep === 1) {
-      if (gIsFramework === 'Y') {
-        // 框架协议下无需补充协议，直接跳过
-        setGIsSupplement('N');
-        const res: any = await templateApi.guideCategories({
-          isFramework: gIsFramework,
-          isSupplement: 'N',
-          contractType: undefined,
-        });
-        const cats = res?.list || res || [];
-        setGCats(
-          cats.map((c: any) => ({ value: c.value || c.code || c.categoryCode, label: c.label || c.name || c.categoryName })),
-        );
-        return setGenStep(2);
-      }
-      if (gIsSupplement === undefined) return message.warning('请选择是否补充协议');
-      const res: any = await templateApi.guideCategories({
-        isFramework: gIsFramework,
-        isSupplement: gIsSupplement,
-        contractType: undefined,
-      });
-      const cats = res?.list || res || [];
-      setGCats(
-        cats.map((c: any) => ({ value: c.value || c.code || c.categoryCode, label: c.label || c.name || c.categoryName })),
-      );
-      return setGenStep(2);
-    }
-    if (genStep === 2) {
-      if (!gCatCode) return message.warning('请选择模板分类');
-      const res: any = await templateApi.list({ categoryCode: gCatCode, includeHistory: true });
-      setGTemplates(res?.list || res || []);
-      return setGenStep(3);
-    }
-  };
-
-  const genPrev = () => setGenStep((s) => Math.max(0, s - 1));
-
-  const doGenerate = async () => {
-    if (!gContractId) return message.warning('请选择合同');
-    if (!gTemplateId) return message.warning('请选择模板');
-    setGenLoading(true);
-    try {
-      const res: any = await templateApi.generate({ templateId: gTemplateId, contractId: gContractId });
-      const html = res?.html ?? res?.data?.html ?? '';
-      setGHtml(html || '<p style="color:#999">生成成功，但未返回 HTML 内容</p>');
-      message.success('合同已生成');
-    } finally {
-      setGenLoading(false);
-    }
-  };
-
-  const copyHtml = () => {
-    navigator.clipboard.writeText(gHtml).then(
-      () => message.success('HTML 已复制到剪贴板'),
-      () => message.error('复制失败，请手动复制'),
-    );
-  };
-
-  /** 导出文件名：合同名称-模板名称 */
-  const genFileName = () => {
-    const c = gContracts.find((x: any) => x.id === gContractId);
-    const t = gTemplates.find((x: any) => x.id === gTemplateId);
-    return `${c?.name || c?.code || '合同'}-${t?.name || '正文'}`.replace(/[\\/:*?"<>|]/g, '_');
-  };
-
-  const onSearch = (v: any) => {
-    search({ ...v, includeHistory });
-  };
 
   const toggleHistory = (checked: boolean) => {
     setIncludeHistory(checked);
@@ -178,7 +78,6 @@ export default function Templates() {
         title="合同模板管理"
         extra={
           <Space>
-            <Button icon={<FileTextOutlined />} onClick={openGen}>生成合同</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增模板</Button>
           </Space>
         }
@@ -308,125 +207,6 @@ export default function Templates() {
         />
       </Drawer>
 
-      {/* 生成合同向导 */}
-      <Modal
-        title="生成合同"
-        open={genOpen}
-        onCancel={() => setGenOpen(false)}
-        footer={
-          gHtml
-            ? [
-                <Button key="close" onClick={() => setGenOpen(false)}>关闭</Button>,
-                <Button key="copy" onClick={copyHtml}>复制 HTML</Button>,
-                <Button key="word" type="primary" onClick={() => exportWord(gHtml, `${genFileName()}.doc`)}>导出 Word</Button>,
-              ]
-            : [
-                <Button key="prev" disabled={genStep === 0} onClick={genPrev}>上一步</Button>,
-                genStep < 3
-                  ? <Button key="next" type="primary" onClick={genNext}>下一步</Button>
-                  : <Button key="gen" type="primary" loading={genLoading} onClick={doGenerate}>生成</Button>,
-              ]
-        }
-        width={820}
-        destroyOnClose
-      >
-        <Steps
-          current={genStep}
-          size="small"
-          style={{ marginBottom: 24 }}
-          items={[
-            { title: '框架协议' },
-            { title: '补充协议' },
-            { title: '选择分类' },
-            { title: '生成' },
-          ]}
-        />
-        <div style={{ minHeight: 240 }}>
-          {genStep === 0 && (
-            <Form layout="vertical">
-              <Form.Item label="是否框架协议" required>
-                <DictSelect typeCode="yes_no" value={gIsFramework} onChange={setGIsFramework} placeholder="请选择" />
-              </Form.Item>
-            </Form>
-          )}
-          {genStep === 1 && (
-            <Form layout="vertical">
-              <Form.Item label="是否补充协议" required>
-                <DictSelect
-                  typeCode="yes_no"
-                  value={gIsSupplement}
-                  onChange={setGIsSupplement}
-                  disabled={gIsFramework === 'Y'}
-                  placeholder={gIsFramework === 'Y' ? '框架协议无需补充协议' : '请选择'}
-                />
-              </Form.Item>
-              {gIsFramework === 'Y' && (
-                <Alert type="info" showIcon message="已选择框架协议，补充协议步骤自动跳过。" />
-              )}
-            </Form>
-          )}
-          {genStep === 2 && (
-            <Form layout="vertical">
-              <Form.Item label="选择模板分类" required>
-                <Select
-                  style={{ minWidth: 200 }}
-                  value={gCatCode}
-                  onChange={(v) => setGCatCode(v)}
-                  placeholder="请选择模板分类"
-                  options={gCats}
-                  showSearch
-                  optionFilterProp="label"
-                />
-              </Form.Item>
-            </Form>
-          )}
-          {genStep === 3 && (
-            <Form layout="vertical">
-              <Form.Item label="选择合同" required>
-                <Select
-                  style={{ minWidth: 200 }}
-                  value={gContractId}
-                  onChange={(v) => setGContractId(v)}
-                  placeholder="请选择合同"
-                  options={gContracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
-                  showSearch
-                  optionFilterProp="label"
-                />
-              </Form.Item>
-              <Form.Item label="选择模板" required>
-                <Select
-                  style={{ minWidth: 200 }}
-                  value={gTemplateId}
-                  onChange={(v) => setGTemplateId(v)}
-                  placeholder="请选择模板"
-                  options={gTemplates.map((t: any) => ({ value: t.id, label: `${t.name || ''} (v${t.version || 1})` }))}
-                  showSearch
-                  optionFilterProp="label"
-                />
-              </Form.Item>
-            </Form>
-          )}
-          {gHtml && (
-            <div>
-              <Space style={{ marginBottom: 8 }} wrap>
-                <Button onClick={copyHtml} ghost>复制 HTML</Button>
-                <Button type="primary" onClick={() => exportWord(gHtml, `${genFileName()}.doc`)}>导出 Word</Button>
-                <Button onClick={() => printHtml(gHtml, genFileName())}>打印 / 存为 PDF</Button>
-              </Space>
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 8 }}
-                message="黄色高亮部分为未被替换的变量占位符，请核对合同或供应商信息是否完整"
-              />
-              <div
-                style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: 16, background: '#fff', maxHeight: 420, overflow: 'auto' }}
-                dangerouslySetInnerHTML={{ __html: highlightPlaceholders(gHtml) }}
-              />
-            </div>
-          )}
-        </div>
-      </Modal>
     </Space>
   );
 }
