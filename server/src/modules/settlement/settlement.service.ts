@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -17,7 +18,12 @@ const LEDGER_FIELDS = [
 
 @Injectable()
 export class SettlementService {
-  constructor(private prisma: PrismaClient, private dict: DictService, private excel: ExcelService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private excel: ExcelService,
+    private styled: StyledExcelService,
+  ) {}
 
   // ---------------- 结算单 ----------------
   async findAll(query: any = {}, projectId: string) {
@@ -126,36 +132,158 @@ export class SettlementService {
     return true;
   }
 
+  /** 月度结算单合规性检查表（需求 2.7）：表头信息 + 检查项清单 + 签字区 */
+  async exportComplianceSheet(contractId: string, projectId: string, year?: number, month?: number) {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      include: { supplier: { select: { name: true } }, project: { select: { name: true } } },
+    });
+    if (!contract) throw new NotFoundException('合同不存在');
+    const project = contract.project || (await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }));
+    const info = [
+      ['项目名称', project?.name || ''],
+      ['分供方名称', contract.supplier?.name || ''],
+      ['合同名称', contract.name],
+      ['年度 / 月份', `${year || '____'} 年 ${month || '__'} 月`],
+    ];
+    const CHECKS: [string, string][] = [
+      ['进场依据（首期月度结算填报）', '开始招标时间'],
+      ['', '首次进场时间'],
+      ['', '是否为先进场后招标（是 □　否 □）'],
+      ['', '定标时间'],
+      ['', '是否为先进场后定标（是 □　否 □）'],
+      ['', '合同签订时间'],
+      ['', '是否为先进场后签合同（是 □　否 □）'],
+      ['结算增项情况', '结算清单未超合同清单（是 □　否 □）'],
+      ['收验货系统', '是否为上传收验货系统物资（是 □　否 □）'],
+      ['', '上传收验货系统数量'],
+      ['', '上传收验货系统数量占比'],
+      ['', '未传收验货系统数量'],
+      ['', '未传收验货系统数量占比'],
+      ['结算增量情况', '结算额占合同额比例（未超100% □　100%-110% □　110%-130% □　130%以上 □）'],
+      ['签字盖章合规性', '供应商签字为法人或授权委托人签字（是 □　否 □）'],
+      ['', '（分包）收料人员签字有材料员授权委托书（是 □　否 □）'],
+      ['', '盖章为公章或公章授权章（是 □　否 □）'],
+      ['对账周期', '按对账周期结算（是 □　否 □）'],
+      ['结算支撑材料', '结算依据充足准确（是 □　否 □）'],
+      ['结算办理严谨性', '物资名称、规格型号与合同清单相同（是 □　否 □）'],
+      ['', '基本信息无漏填（是 □　否 □）'],
+      ['', '资料格式美观整洁（是 □　否 □）'],
+    ];
+    let lastGroup = '';
+    const rows = CHECKS.map(([g, item]) => {
+      if (g) lastGroup = g;
+      return { group: lastGroup, item, result: '', note: '' };
+    });
+    return this.styled.withWorkbook(async (wb) => {
+      const ws = wb.addWorksheet('合规性检查表', { views: [{ state: 'frozen', ySplit: 8 }] });
+      const colCount = 4;
+      // 品牌行 + 标题行
+      ws.mergeCells(1, 1, 1, colCount);
+      const brand = ws.getCell(1, 1);
+      brand.value = '〖中国建筑〗中国建筑土木建设有限公司物资管理表格';
+      brand.font = { bold: true, size: 14, name: '微软雅黑' };
+      brand.alignment = { horizontal: 'left', vertical: 'middle' };
+      ws.getRow(1).height = 26;
+      ws.mergeCells(2, 1, 2, colCount);
+      const title = ws.getCell(2, 1);
+      title.value = '月度结算单合规性检查表';
+      title.font = { bold: true, size: 13, name: '微软雅黑' };
+      title.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(2).height = 24;
+      // 表头信息区
+      info.forEach(([label, value], i) => {
+        const r = 3 + i;
+        ws.getCell(r, 1).value = label;
+        ws.getCell(r, 1).font = { bold: true, size: 10.5, name: '微软雅黑' };
+        ws.mergeCells(r, 2, r, colCount);
+        ws.getCell(r, 2).value = value;
+        ws.getCell(r, 2).font = { size: 10.5, name: '微软雅黑' };
+        for (let c = 1; c <= colCount; c++) ws.getCell(r, c).border = {
+          top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' },
+        };
+      });
+      // 检查项表头
+      const headerRowIdx = 3 + info.length;
+      const header = ws.getRow(headerRowIdx);
+      ['检查分组', '检查项', '检查结果', '备注说明'].forEach((h, i) => {
+        const cell = header.getCell(i + 1);
+        cell.value = h;
+        cell.font = { bold: true, size: 11, name: '微软雅黑' };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+      header.height = 22;
+      // 检查项行
+      rows.forEach((r, ri) => {
+        const row = ws.getRow(headerRowIdx + 1 + ri);
+        [r.group, r.item, r.result, r.note].forEach((v, ci) => {
+          const cell = row.getCell(ci + 1);
+          cell.value = v || null;
+          cell.font = { size: 10.5, name: '微软雅黑' };
+          cell.alignment = { horizontal: ci === 1 ? 'left' : 'center', vertical: 'middle', wrapText: ci === 1 };
+          cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        });
+      });
+      // 签字区
+      const signRow = headerRowIdx + rows.length + 2;
+      ws.getCell(signRow, 1).value = '项目经办人签字：____________';
+      ws.getCell(signRow, 3).value = '物资部负责人复核：____________';
+      ws.getCell(signRow, 1).font = { size: 10.5, name: '微软雅黑' };
+      ws.getCell(signRow, 3).font = { size: 10.5, name: '微软雅黑' };
+      ws.getColumn(1).width = 24;
+      ws.getColumn(2).width = 56;
+      ws.getColumn(3).width = 22;
+      ws.getColumn(4).width = 20;
+      ws.pageSetup = {
+        paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+        printTitlesRow: `1:${headerRowIdx}`, margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.2, footer: 0.2 },
+      };
+    });
+  }
+
   async exportLedger(projectId: string) {
     const res = await this.findLedger({ pageSize: 2000 }, projectId);
     const yesNo = await this.dict.nameMap('yes_no');
-    const columns = [
-      { header: '供应商名称', key: 'supplierName', width: 28 },
-      { header: '合同名称', key: 'contractName', width: 30 },
-      { header: '合同编号', key: 'contractCode', width: 20 },
-      { header: '结算月份', key: 'settleMonth', width: 12 },
-      { header: '本月结算额', key: 'monthSettleAmount', width: 16 },
-      { header: '本月开票额', key: 'monthInvoiceAmount', width: 16 },
-      { header: '结算次数', key: 'settleCount', width: 10 },
-      { header: '本年结算额', key: 'yearSettleAmount', width: 16 },
-      { header: '截止当月开累采购额', key: 'cumPurchaseAmount', width: 20 },
-      { header: '开工结算额', key: 'startSettleAmount', width: 16 },
-      { header: '当月实际采购额', key: 'monthActualPurchase', width: 18 },
-      { header: '保理贴息', key: 'factoringDiscount', width: 14 },
-      { header: '逾期利息', key: 'overdueInterest', width: 14 },
-      { header: '本年结算对应收入', key: 'yearSettleIncome', width: 20 },
-      { header: '开累结算对应收入', key: 'cumSettleIncome', width: 20 },
-      { header: '是否挂账', key: 'isOnAccountName', width: 12 },
-    ];
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({
+      projectName: project?.name || '',
       supplierName: r.contract?.supplier?.name, contractName: r.contract?.name, contractCode: r.contract?.code,
       settleMonth: r.settleMonth, monthSettleAmount: num(r.monthSettleAmount), monthInvoiceAmount: num(r.monthInvoiceAmount),
-      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount), cumPurchaseAmount: num(r.cumPurchaseAmount),
+      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount), monthActualPurchaseReview: num(r.monthActualPurchase),
+      cumPurchaseAmount: num(r.cumPurchaseAmount),
       startSettleAmount: num(r.startSettleAmount), monthActualPurchase: num(r.monthActualPurchase),
       factoringDiscount: num(r.factoringDiscount), overdueInterest: num(r.overdueInterest),
       yearSettleIncome: num(r.yearSettleIncome), cumSettleIncome: num(r.cumSettleIncome),
       isOnAccountName: yesNo[r.isOnAccount]?.name || '',
     }));
-    return this.excel.export(columns, rows, '结算台账');
+    return this.styled.exportTable({
+      sheetName: '结算台账',
+      title: `结算台账（${project?.name || ''}）`,
+      columns: [
+        { header: '项目', key: 'projectName', width: 140, type: 'center' },
+        { header: '供应商名称', key: 'supplierName', width: 180 },
+        { header: '合同名称', key: 'contractName', width: 200 },
+        { header: '合同编号', key: 'contractCode', width: 180 },
+        { header: '结算月份', key: 'settleMonth', width: 100, type: 'center' },
+        { header: '本月结算额 a', key: 'monthSettleAmount', width: 140, type: 'money' },
+        { header: '本月开票额', key: 'monthInvoiceAmount', width: 130, type: 'money' },
+        { header: '结算次数', key: 'settleCount', width: 80, type: 'int' },
+        { header: '本年结算额', key: 'yearSettleAmount', width: 140, type: 'money' },
+        { header: '本月采购额（公式复核）', key: 'monthActualPurchaseReview', width: 160, type: 'money' },
+        { header: '截止当月开累采购额', key: 'cumPurchaseAmount', width: 160, type: 'money' },
+        { header: '开工结算额', key: 'startSettleAmount', width: 130, type: 'money' },
+        { header: '当月实际采购额 b', key: 'monthActualPurchase', width: 140, type: 'money' },
+        { header: '保理贴息 c', key: 'factoringDiscount', width: 110, type: 'money' },
+        { header: '逾期利息 d', key: 'overdueInterest', width: 110, type: 'money' },
+        { header: '本年结算对应收入（含税）', key: 'yearSettleIncome', width: 180, type: 'money' },
+        { header: '开累结算对应收入（含税）', key: 'cumSettleIncome', width: 180, type: 'money' },
+        { header: '是否挂账', key: 'isOnAccountName', width: 90, type: 'center' },
+      ],
+      rows,
+      totalsKeys: ['monthSettleAmount', 'monthInvoiceAmount', 'monthActualPurchase', 'factoringDiscount', 'overdueInterest'],
+      totalsLabel: '汇总',
+    });
   }
 }

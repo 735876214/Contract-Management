@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const DECIMAL_FIELDS = [
   'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRate', 'priceAfterTax',
@@ -11,7 +12,12 @@ const DECIMAL_FIELDS = [
 
 @Injectable()
 export class DailyReportService {
-  constructor(private prisma: PrismaClient, private dict: DictService, private excel: ExcelService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private excel: ExcelService,
+    private styled: StyledExcelService,
+  ) {}
 
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
@@ -149,24 +155,95 @@ export class DailyReportService {
       this.dict.nameMap('yes_no'), this.dict.nameMap('asset_status'), this.dict.nameMap('material_source'),
       this.dict.nameMap('material_category'), this.dict.nameMap('material_type'), this.dict.nameMap('measurement_unit'),
     ]);
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const rows = (res.list as any[]).map((r) => ({
-      periodYear: r.periodYear, periodMonth: r.periodMonth, entryDate: fmt(r.entryDate),
-      contractCode: r.contract?.code, isAssetName: yesNo[r.isAsset]?.name || '', assetSupervision: r.assetSupervision,
-      department: r.department, personnel: r.personnel,
-      assetStatusName: assetStatus[r.assetStatus]?.name || '', sourceName: source[r.sourceCode]?.name || '',
-      materialCategoryName: category[r.materialCategory]?.name || '', materialTypeName: type[r.materialType]?.name || '',
-      materialName: r.materialName, steelBrand: r.steelBrand, steelCount: r.steelCount, spec: r.spec,
-      unitName: unit[r.unit]?.name || '', weighQty: num(r.weighQty), deductQty: num(r.deductQty), settleQty: num(r.settleQty),
-      isWeighedName: yesNo[r.isWeighed]?.name || '', noAcceptReason: r.noAcceptReason,
-      priceBeforeTax: num(r.priceBeforeTax), taxRate: num(r.taxRate), priceAfterTax: num(r.priceAfterTax),
-      amountBeforeTax: num(r.amountBeforeTax), amountAfterTax: num(r.amountAfterTax),
-      supplierName: r.supplier?.name, receiveUnit: r.receiveUnit, receiver: r.receiver,
-      laborContract: r.laborContract, usePosition: r.usePosition, isProxyName: yesNo[r.isProxy]?.name || '',
-      plateNo: r.plateNo, receiptNo: r.receiptNo, remark: r.remark, subcontractPeriod: r.subcontractPeriod,
-      incomePrice: num(r.incomePrice), incomeAmount: num(r.incomeAmount), stdPrice: num(r.stdPrice), stdAmount: num(r.stdAmount),
-    }));
-    return this.excel.export(this.exportColumns(), rows, '日报');
+    const round4 = (n: any) => (n === null || n === undefined ? null : Math.round((Number(n) + Number.EPSILON) * 10000) / 10000);
+    const rows = (res.list as any[]).map((r) => {
+      const priceAfterTax = num(r.priceAfterTax);
+      const stdPrice = num(r.stdPrice);
+      const reduceAmount = stdPrice !== null && priceAfterTax !== null ? Math.round((stdPrice - priceAfterTax) * 100) / 100 : null;
+      const reduceRatio = stdPrice && reduceAmount !== null ? Math.round((reduceAmount / stdPrice) * 10000) / 10000 : null;
+      return {
+        periodYear: r.periodYear ? String(r.periodYear) : '',
+        periodMonth: r.periodMonth ? `${r.periodYear}年${r.periodMonth}月` : '',
+        entryDate: fmt(r.entryDate),
+        isAssetName: yesNo[r.isAsset]?.name || '',
+        assetSupervision: [r.department, r.personnel].filter(Boolean).join('，'),
+        assetStatusName: assetStatus[r.assetStatus]?.name || '',
+        sourceName: source[r.sourceCode]?.name || '',
+        materialCategoryName: category[r.materialCategory]?.name || '',
+        materialTypeName: type[r.materialType]?.name || '',
+        materialName: r.materialName,
+        brandCount: [r.steelBrand, r.steelCount ? `${r.steelCount}件` : ''].filter(Boolean).join(' '),
+        spec: r.spec,
+        unitName: unit[r.unit]?.name || '',
+        weighQty: num(r.weighQty), deductQty: num(r.deductQty), settleQty: num(r.settleQty),
+        isWeighedName: yesNo[r.isWeighed]?.name || '',
+        noAcceptReason: r.noAcceptReason,
+        priceBeforeTax: round4(r.priceBeforeTax), taxRate: num(r.taxRate), priceAfterTax,
+        amountBeforeTax: num(r.amountBeforeTax), amountAfterTax: num(r.amountAfterTax),
+        stdPrice,
+        reduceAmount, reduceRatio,
+        supplierName: r.supplier?.name, receiveUnit: r.receiveUnit, receiver: r.receiver,
+        laborContract: r.laborContract, usePosition: r.usePosition, isProxyName: yesNo[r.isProxy]?.name || '',
+      };
+    });
+    const [srcOpts, catOpts, typeOpts, yesOpts, assetOpts] = await Promise.all([
+      this.dict.options('material_source'), this.dict.options('material_category'), this.dict.options('material_type'),
+      this.dict.options('yes_no'), this.dict.options('asset_status'),
+    ]);
+    const names = (list: any[]) => list.map((i: any) => i.itemName).filter(Boolean);
+    const buffer = await this.styled.exportTable({
+      sheetName: '物资进出场台账',
+      title: `物资进出场台账（${project?.name || ''}）`,
+      columns: [
+        { header: '账期/年', key: 'periodYear', width: 80, type: 'center' },
+        { header: '账期/月', key: 'periodMonth', width: 100, type: 'center' },
+        { header: '进场日期', key: 'entryDate', width: 110, type: 'center' },
+        { header: '是否资产', key: 'isAssetName', width: 80, type: 'center' },
+        { header: '资产监管部门，人员', key: 'assetSupervision', width: 130, type: 'center' },
+        { header: '资产状态', key: 'assetStatusName', width: 80, type: 'center' },
+        { header: '来源', key: 'sourceName', width: 120, type: 'center' },
+        { header: '材料类别', key: 'materialCategoryName', width: 100, type: 'center' },
+        { header: '物资种类', key: 'materialTypeName', width: 100, type: 'center' },
+        { header: '物资名称', key: 'materialName', width: 120 },
+        { header: '品牌+件数', key: 'brandCount', width: 100, type: 'center' },
+        { header: '规格型号', key: 'spec', width: 200 },
+        { header: '计量单位', key: 'unitName', width: 70, type: 'center' },
+        { header: '过磅数量/t', key: 'weighQty', width: 110, type: 'qty' },
+        { header: '扣重/t', key: 'deductQty', width: 90, type: 'qty' },
+        { header: '结算数量', key: 'settleQty', width: 110, type: 'qty' },
+        { header: '是否过磅', key: 'isWeighedName', width: 80, type: 'center' },
+        { header: '未云筑验收原因', key: 'noAcceptReason', width: 130 },
+        { header: '单价/元（税前）', key: 'priceBeforeTax', width: 120, type: 'qty' },
+        { header: '税率', key: 'taxRate', width: 70, type: 'pct' },
+        { header: '单价/元（税后）', key: 'priceAfterTax', width: 120, type: 'qty' },
+        { header: '金额/元（税前）', key: 'amountBeforeTax', width: 130, type: 'money' },
+        { header: '金额/元（税后）', key: 'amountAfterTax', width: 130, type: 'money' },
+        { header: '标准成本单价', key: 'stdPrice', width: 120, type: 'qty' },
+        { header: '成本降低额', key: 'reduceAmount', width: 120, type: 'money' },
+        { header: '成本降低率', key: 'reduceRatio', width: 110, type: 'pct' },
+        { header: '供应单位', key: 'supplierName', width: 150 },
+        { header: '领用单位', key: 'receiveUnit', width: 150 },
+        { header: '领料人', key: 'receiver', width: 80, type: 'center' },
+        { header: '劳务合同', key: 'laborContract', width: 100, type: 'center' },
+        { header: '使用部位', key: 'usePosition', width: 150 },
+        { header: '是否代购', key: 'isProxyName', width: 80, type: 'center' },
+      ],
+      rows,
+      totalsKeys: ['settleQty', 'amountBeforeTax', 'amountAfterTax'],
+      totalsLabel: '汇总',
+      dropdowns: {
+        sourceName: names(srcOpts),
+        materialCategoryName: names(catOpts),
+        materialTypeName: names(typeOpts),
+        isAssetName: names(yesOpts),
+        assetStatusName: names(assetOpts),
+        isWeighedName: names(yesOpts),
+        isProxyName: names(yesOpts),
+      },
+    });
+    return buffer;
   }
 
   async import(buffer: Buffer, projectId: string) {

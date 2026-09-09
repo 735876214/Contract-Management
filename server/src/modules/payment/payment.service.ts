@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const PLAN_FIELDS = [
   'projectId', 'contractId', 'period', 'planAmount', 'planDate', 'condition', 'statusCode', 'remark',
@@ -19,7 +20,12 @@ const RECORD_FIELDS = [
 
 @Injectable()
 export class PaymentService {
-  constructor(private prisma: PrismaClient, private dict: DictService, private excel: ExcelService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private excel: ExcelService,
+    private styled: StyledExcelService,
+  ) {}
 
   private contractInclude = {
     contract: { select: { id: true, code: true, name: true, supplier: { select: { id: true, name: true, bankName: true, bankAccount: true } } } },
@@ -167,18 +173,27 @@ export class PaymentService {
 
   async exportRecords(projectId: string) {
     const res = await this.findRecords({ pageSize: 2000 }, projectId);
-    const columns = [
-      { header: '供应商名称', key: 'supplierName', width: 28 },
-      { header: '合同名称', key: 'contractName', width: 30 },
-      { header: '合同编号', key: 'contractCode', width: 20 },
-      { header: '付款月份', key: 'payMonth', width: 12 },
-      { header: '本月付款额', key: 'amount', width: 16 },
-    ];
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({
+      projectName: project?.name || '',
       supplierName: r.contract?.supplier?.name, contractName: r.contract?.name,
       contractCode: r.contract?.code, payMonth: r.payMonth, amount: num(r.amount),
     }));
-    return this.excel.export(columns, rows, '付款台账');
+    return this.styled.exportTable({
+      sheetName: '付款台账',
+      title: `付款台账（${project?.name || ''}）`,
+      columns: [
+        { header: '项目', key: 'projectName', width: 140, type: 'center' },
+        { header: '供应商名称', key: 'supplierName', width: 180 },
+        { header: '合同名称', key: 'contractName', width: 200 },
+        { header: '合同编号', key: 'contractCode', width: 180 },
+        { header: '付款月份', key: 'payMonth', width: 100, type: 'center' },
+        { header: '本月付款额', key: 'amount', width: 140, type: 'money' },
+      ],
+      rows,
+      totalsKeys: ['amount'],
+      totalsLabel: '汇总',
+    });
   }
 
   // ---------------- 核销 & 逾期 ----------------

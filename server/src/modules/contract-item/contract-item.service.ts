@@ -4,6 +4,7 @@ import { paginate, buildResult, num } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const ALLOWED = [
   'projectId', 'contractId', 'supplierId', 'materialCategory', 'materialName',
@@ -12,7 +13,12 @@ const ALLOWED = [
 
 @Injectable()
 export class ContractItemService {
-  constructor(private prisma: PrismaClient, private dict: DictService, private excel: ExcelService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private excel: ExcelService,
+    private styled: StyledExcelService,
+  ) {}
 
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
@@ -109,26 +115,40 @@ export class ContractItemService {
   async export(projectId: string) {
     const res = await this.findAll({ pageSize: 2000 }, projectId);
     const [category, unit] = await Promise.all([this.dict.nameMap('material_category'), this.dict.nameMap('measurement_unit')]);
-    const columns = [
-      { header: '供应商名称', key: 'supplierName', width: 28 },
-      { header: '供应物资类别', key: 'materialCategoryName', width: 14 },
-      { header: '合同编号', key: 'contractCode', width: 20 },
-      { header: '材料名称', key: 'materialName', width: 22 },
-      { header: '规格型号', key: 'spec', width: 14 },
-      { header: '计量单位', key: 'unitName', width: 12 },
-      { header: '数量', key: 'qty', width: 12 },
-      { header: '成本单价', key: 'costPrice', width: 14 },
-      { header: '税率', key: 'taxRate', width: 10 },
-      { header: '综合单价', key: 'comprehensivePrice', width: 14 },
-      { header: '备注', key: 'remark', width: 22 },
-    ];
-    const rows = (res.list as any[]).map((i) => ({
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    const rows = (res.list as any[]).map((i, idx) => ({
+      index: idx + 1,
+      projectName: project?.name || '',
       supplierName: i.supplier?.name, materialCategoryName: category[i.materialCategory]?.name || '',
       contractCode: i.contract?.code, materialName: i.materialName, spec: i.spec,
       unitName: unit[i.unit]?.name || '', qty: num(i.qty), costPrice: num(i.costPrice),
       taxRate: num(i.taxRate), comprehensivePrice: num(i.comprehensivePrice), remark: i.remark,
     }));
-    return this.excel.export(columns, rows, '合同清单');
+    const catOpts = await this.dict.options('material_category');
+    return this.styled.exportTable({
+      sheetName: '合同清单',
+      title: `合同清单（${project?.name || ''}）`,
+      columns: [
+        { header: '序号', key: 'index', width: 60, type: 'int' },
+        { header: '项目名称', key: 'projectName', width: 160, type: 'center' },
+        { header: '供应商名称', key: 'supplierName', width: 170 },
+        { header: '供应物资类别', key: 'materialCategoryName', width: 130, type: 'center' },
+        { header: '材料名称', key: 'materialName', width: 150 },
+        { header: '规格型号', key: 'spec', width: 160 },
+        { header: '计量单位', key: 'unitName', width: 90, type: 'center' },
+        { header: '数量', key: 'qty', width: 110, type: 'qty' },
+        { header: '成本单价', key: 'costPrice', width: 120, type: 'qty' },
+        { header: '税率', key: 'taxRate', width: 80, type: 'pct' },
+        { header: '综合单价', key: 'comprehensivePrice', width: 120, type: 'qty' },
+        { header: '备注', key: 'remark', width: 160 },
+      ],
+      rows,
+      totalsKeys: ['qty'],
+      totalsLabel: '汇总',
+      dropdowns: {
+        materialCategoryName: catOpts.map((x: any) => x.itemName).filter(Boolean),
+      },
+    });
   }
 
   async import(buffer: Buffer, projectId: string) {

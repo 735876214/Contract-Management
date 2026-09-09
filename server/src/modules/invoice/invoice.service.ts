@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 const INVOICE_FIELDS = [
   'projectId', 'contractId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
@@ -17,7 +18,12 @@ const INVOICE_APPLY_FIELDS = [
 
 @Injectable()
 export class InvoiceService {
-  constructor(private prisma: PrismaClient, private dict: DictService, private excel: ExcelService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private excel: ExcelService,
+    private styled: StyledExcelService,
+  ) {}
 
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
@@ -143,29 +149,12 @@ export class InvoiceService {
   // ---------------- Excel ----------------
   async export(projectId: string) {
     const res = await this.findAll({ pageSize: 2000 }, projectId);
-    const [goods, review, finance, status] = await Promise.all([
+    const [goods, review, finance] = await Promise.all([
       this.dict.nameMap('goods_category'), this.dict.nameMap('invoice_review_status'),
-      this.dict.nameMap('finance_transfer_status'), this.dict.nameMap('invoice_status'),
+      this.dict.nameMap('finance_transfer_status'),
     ]);
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const columns = [
-      { header: '序号', key: 'index', width: 8 },
-      { header: '商品类别', key: 'goodsCategoryName', width: 14 },
-      { header: '结算账期', key: 'settlePeriod', width: 12 },
-      { header: '开票单位', key: 'issuer', width: 28 },
-      { header: '开票日期', key: 'invoiceDate', width: 14 },
-      { header: '发票代码', key: 'invoiceCode', width: 16 },
-      { header: '发票号码', key: 'invoiceNo', width: 16 },
-      { header: '税前金额', key: 'amountBeforeTax', width: 16 },
-      { header: '税率', key: 'taxRate', width: 10 },
-      { header: '含税金额', key: 'amountWithTax', width: 16 },
-      { header: '发票收取时间', key: 'receiveDate', width: 14 },
-      { header: '发票信息审核', key: 'reviewStatusName', width: 14 },
-      { header: '责任人', key: 'responsiblePerson', width: 12 },
-      { header: '财务移交情况', key: 'financeTransferName', width: 14 },
-      { header: '状态', key: 'statusName', width: 12 },
-      { header: '备注', key: 'remark', width: 22 },
-    ];
     const rows = (res.list as any[]).map((i, idx) => ({
       index: idx + 1,
       goodsCategoryName: goods[i.goodsCategory]?.name || '',
@@ -173,10 +162,40 @@ export class InvoiceService {
       invoiceCode: i.invoiceCode, invoiceNo: i.invoiceNo, amountBeforeTax: num(i.amountBeforeTax),
       taxRate: num(i.taxRate), amountWithTax: num(i.amountWithTax), receiveDate: fmt(i.receiveDate),
       reviewStatusName: review[i.reviewStatus]?.name || '', responsiblePerson: i.responsiblePerson,
-      financeTransferName: finance[i.financeTransferStatus]?.name || '',
-      statusName: status[i.statusCode]?.name || '', remark: i.remark,
+      financeTransferName: finance[i.financeTransferStatus]?.name || '', remark: i.remark,
     }));
-    return this.excel.export(columns, rows, '发票台账');
+    const [goodsOpts, financeOpts] = await Promise.all([
+      this.dict.options('goods_category'), this.dict.options('finance_transfer_status'),
+    ]);
+    const names = (list: any[]) => list.map((x: any) => x.itemName).filter(Boolean);
+    return this.styled.exportTable({
+      sheetName: '发票台账',
+      title: `发票台账（${project?.name || ''}）`,
+      columns: [
+        { header: '序号', key: 'index', width: 60, type: 'int' },
+        { header: '商品类别', key: 'goodsCategoryName', width: 120, type: 'center' },
+        { header: '结算账期', key: 'settlePeriod', width: 110, type: 'center' },
+        { header: '开票单位', key: 'issuer', width: 180 },
+        { header: '开票日期', key: 'invoiceDate', width: 110, type: 'center' },
+        { header: '发票代码', key: 'invoiceCode', width: 140, type: 'center' },
+        { header: '发票号码', key: 'invoiceNo', width: 140, type: 'center' },
+        { header: '税前金额', key: 'amountBeforeTax', width: 140, type: 'money' },
+        { header: '税率', key: 'taxRate', width: 80, type: 'pct' },
+        { header: '含税金额', key: 'amountWithTax', width: 140, type: 'money' },
+        { header: '发票收取时间', key: 'receiveDate', width: 120, type: 'center' },
+        { header: '发票信息审核', key: 'reviewStatusName', width: 110, type: 'center' },
+        { header: '责任人', key: 'responsiblePerson', width: 90, type: 'center' },
+        { header: '财务移交情况', key: 'financeTransferName', width: 120, type: 'center' },
+        { header: '备注', key: 'remark', width: 160 },
+      ],
+      rows,
+      totalsKeys: ['amountBeforeTax', 'amountWithTax'],
+      totalsLabel: '累计发票金额',
+      dropdowns: {
+        goodsCategoryName: names(goodsOpts),
+        financeTransferName: names(financeOpts),
+      },
+    });
   }
 
   async import(buffer: Buffer, projectId: string) {

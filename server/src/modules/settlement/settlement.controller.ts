@@ -33,6 +33,21 @@ export class SettlementController {
   }
 
   @RequirePermissions('settlement:view')
+  @Get('compliance-sheet')
+  async exportComplianceSheet(
+    @Query('contractId') contractId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @ProjectId() projectId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.service.exportComplianceSheet(contractId, projectId, Number(year), Number(month));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('月度结算单合规性检查表.xlsx')}`);
+    res.end(buffer);
+  }
+
+  @RequirePermissions('settlement:view')
   @Get('ledger/:id')
   ledgerOne(@Param('id') id: string) {
     return this.service.ledgerOne(id);

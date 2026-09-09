@@ -4,6 +4,7 @@ import { paginate, buildResult, num, ratio, fmtDate } from '../../common/utils/h
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { StyledExcelService } from '../../common/services/styled-excel.service';
 
 /** 合同台账列定义（顺序固定，可配置显示/隐藏） */
 export const LEDGER_COLUMNS: { key: string; title: string; width?: number; defaultHidden?: boolean }[] = [
@@ -58,6 +59,7 @@ export class LedgerService {
     private dict: DictService,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private styled: StyledExcelService,
   ) {}
 
   /**
@@ -192,8 +194,8 @@ export class LedgerService {
         cumInputTax,
         cumInvoiceAmount: Number(cumInvoiceAmount.toFixed(2)),
         cumPaidAmount: Number(cumPaidAmount.toFixed(2)),
-        payableAmount: Number((cumSettleAmount - cumPaidAmount).toFixed(2)),
-        unpaidAmount: Number((cumSettleAmount - cumPaidAmount).toFixed(2)),
+        payableAmount: Number((auditedSettleAmount * (num(ext.currentPayRatio) || 0)).toFixed(2)),
+        unpaidAmount: Number((auditedSettleAmount * (num(ext.currentPayRatio) || 0) - cumPaidAmount).toFixed(2)),
         debt100: Number((amount - cumPaidAmount).toFixed(2)),
         settleRatio: ratio(cumSettleAmount, amount),
         paidRatio: ratio(cumPaidAmount, cumSettleAmount),
@@ -277,17 +279,70 @@ export class LedgerService {
 
   async export(projectId: string) {
     const res = await this.findAll({ pageSize: 5000 }, projectId);
-    const cols = await this.columns();
-    const visible = cols.filter((c: any) => c.visible);
-    const columns = visible.map((c: any) => ({ header: c.title, key: c.key, width: c.width }));
-    const rows = (res.list as any[]).map((r) => {
-      const row: any = {};
-      visible.forEach((c: any) => {
-        const v = r[c.key];
-        row[c.key] = typeof v === 'object' && v !== null ? Object.entries(v).map(([y, a]) => `${y}:${a}`).join(' ') : v;
-      });
-      return row;
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    const years = ['2024', '2025', '2026'];
+    const rows = (res.list as any[]).map((r) => ({
+      ...r,
+      settleRatioPct: r.settleRatio !== null && r.settleRatio !== undefined ? r.settleRatio / 100 : null,
+      paidRatioPct: r.paidRatio !== null && r.paidRatio !== undefined ? r.paidRatio / 100 : null,
+      ...Object.fromEntries(years.map((y) => [`yearSettle${y}`, (r.yearSettle || {})[y] ?? null])),
+      ...Object.fromEntries(years.map((y) => [`yearPaid${y}`, (r.yearPaid || {})[y] ?? null])),
+    }));
+    const buffer = await this.styled.exportTable({
+      sheetName: '合同台账',
+      title: `合同台账（${project?.name || ''}）`,
+      columns: [
+        { header: '序号', key: 'index', width: 60, type: 'int' },
+        { header: '合同编号', key: 'contractCode', width: 260 },
+        { header: '财务一体化合同编号', key: 'financeCode', width: 150 },
+        { header: '供应单位', key: 'supplierName', width: 180 },
+        { header: '供应材料', key: 'materialNames', width: 180 },
+        { header: '采购来源', key: 'procurementSource', width: 140, type: 'center' },
+        { header: '是否厂家直采', key: 'isDirectPurchase', width: 110, type: 'center' },
+        { header: '合同名称', key: 'contractName', width: 240 },
+        { header: '招标名称', key: 'bidName', width: 160 },
+        { header: '合同执行情况', key: 'execStatus', width: 110, type: 'center' },
+        { header: '分供方类别', key: 'supplierCategory', width: 100, type: 'center' },
+        { header: '法人', key: 'legalPerson', width: 90, type: 'center' },
+        { header: '授权人', key: 'authPerson', width: 90, type: 'center' },
+        { header: '联系人', key: 'contactName', width: 90, type: 'center' },
+        { header: '联系电话', key: 'contactPhone', width: 120, type: 'center' },
+        { header: '合同额', key: 'amount', width: 130, type: 'money' },
+        { header: '税率', key: 'taxRate', width: 70, type: 'pct' },
+        { header: '当前合同付款比例', key: 'currentPayRatio', width: 140, type: 'pct' },
+        { header: '合同约定付款方式', key: 'paymentMethod', width: 160, type: 'center' },
+        { header: '是否补充协议', key: 'isSupplement', width: 110, type: 'center' },
+        { header: '补充协议类型', key: 'supplementType', width: 120, type: 'center' },
+        { header: '开始招标时间', key: 'bidStartDate', width: 110, type: 'center' },
+        { header: '定标时间', key: 'bidWinDate', width: 110, type: 'center' },
+        { header: '合同签订时间', key: 'signDate', width: 110, type: 'center' },
+        { header: '合同交底时间', key: 'disclosureDate', width: 110, type: 'center' },
+        { header: '首次进场时间', key: 'firstEntryDate', width: 110, type: 'center' },
+        { header: '合规性问题', key: 'compliance', width: 140 },
+        { header: '投诉情况', key: 'complaint', width: 120 },
+        { header: '开累结算金额', key: 'cumSettleAmount', width: 140, type: 'money' },
+        { header: '审定结算额', key: 'auditedSettleAmount', width: 140, type: 'money' },
+        { header: '开累税前结算金额', key: 'cumSettleBeforeTax', width: 150, type: 'money' },
+        { header: '开累进项税额', key: 'cumInputTax', width: 130, type: 'money' },
+        { header: '开累发票金额', key: 'cumInvoiceAmount', width: 140, type: 'money' },
+        { header: '开累付款金额', key: 'cumPaidAmount', width: 140, type: 'money' },
+        { header: '应付款金额', key: 'payableAmount', width: 130, type: 'money' },
+        { header: '应付未付金额', key: 'unpaidAmount', width: 130, type: 'money' },
+        { header: '100%欠款', key: 'debt100', width: 130, type: 'money' },
+        { header: '已结算金额占合同比例', key: 'settleRatioPct', width: 150, type: 'pct' },
+        { header: '已付款金额占结算比例', key: 'paidRatioPct', width: 150, type: 'pct' },
+        { header: '总结算审减额', key: 'settleReduceAmount', width: 130, type: 'money' },
+        ...years.map((y) => ({ header: `${y}年结算金额`, key: `yearSettle${y}`, width: 130, type: 'money' as const })),
+        ...years.map((y) => ({ header: `${y}年付款金额`, key: `yearPaid${y}`, width: 130, type: 'money' as const })),
+      ],
+      rows,
+      totalsKeys: [
+        'amount', 'cumSettleAmount', 'auditedSettleAmount', 'cumSettleBeforeTax', 'cumInputTax',
+        'cumInvoiceAmount', 'cumPaidAmount', 'payableAmount', 'unpaidAmount', 'debt100', 'settleReduceAmount',
+        ...years.map((y) => `yearSettle${y}`), ...years.map((y) => `yearPaid${y}`),
+      ],
+      totalsLabel: '汇总',
     });
-    return this.excel.export(columns, rows, '合同台账');
+    return buffer;
   }
 }
