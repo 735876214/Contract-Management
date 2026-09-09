@@ -1,0 +1,219 @@
+// ==============================================
+// 左侧固定侧边导航栏（需求：三、布局与样式规范 / 十、样式要求）
+// ==============================================
+
+@app-sider-width: 220px;
+@app-sider-collapsed-width: 80px;
+@app-sider-bg: #001529;
+
+.app-sider {
+  position: sticky !important;
+  top: 0;
+  height: 100vh;
+  background: @app-sider-bg !important;
+  transition: all 0.3s ease;
+
+  // 内容纵向滚动区（Logo 与折叠按钮之间）
+  .app-sider__scroll {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 56px - 48px);
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+    }
+  }
+
+  // ---------- Logo ----------
+  .sider-logo {
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+    .sider-logo__mark {
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      display: none;
+    }
+
+    .sider-logo__text {
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+
+    &.is-collapsed {
+      .sider-logo__text {
+        display: none; // 折叠：文字隐藏（淡出 + overflow）
+        opacity: 0;
+      }
+      .sider-logo__mark {
+        display: inline; // 折叠：显示 SCM 缩写
+      }
+    }
+  }
+
+  // ---------- 搜索框 ----------
+  .sider-search {
+    padding: 12px 8px;
+
+    .sider-search__input {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+
+      input {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.65);
+
+        &::placeholder {
+          color: rgba(255, 255, 255, 0.35);
+        }
+      }
+
+      .ant-input-clear-icon {
+        color: rgba(255, 255, 255, 0.45);
+      }
+    }
+
+    // 搜索结果：平铺展示
+    .sider-search__results {
+      margin-top: 8px;
+      max-height: 320px;
+      overflow-y: auto;
+
+      .sider-search__result-item {
+        padding: 7px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        transition: background-color 0.3s ease;
+
+        &:hover {
+          background-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .sider-search__result-label {
+          color: rgba(255, 255, 255, 0.85);
+          font-size: 13px;
+        }
+
+        .sider-search__result-chain {
+          color: rgba(255, 255, 255, 0.4);
+          font-size: 12px;
+        }
+      }
+
+      .sider-search__empty {
+        margin: 12px 0;
+
+        .ant-empty-description {
+          color: rgba(255, 255, 255, 0.45);
+        }
+      }
+    }
+  }
+
+  // ---------- 菜单 ----------
+  .sider-loader {
+    flex: 1;
+    min-height: 0;
+
+    .sider-loader__fallback-tip {
+      margin: 0 8px 8px;
+    }
+
+    .ant-menu {
+      background: transparent;
+      border-inline-end: none !important;
+      padding: 4px 0;
+
+      // 菜单项：圆角 6px，左右边距 8px
+      .ant-menu-item,
+      .ant-menu-submenu-title {
+        margin: 2px 8px;
+        width: calc(100% - 16px);
+        border-radius: 6px;
+        transition: all 0.3s ease;
+      }
+
+      // 高亮
+      .ant-menu-item-selected {
+        background-color: rgba(255, 255, 255, 0.12) !important;
+      }
+    }
+  }
+
+  .sider-loader__status {
+    padding: 24px 8px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  // ---------- 底部折叠按钮 ----------
+  .app-sider__collapse-trigger {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 48px;
+    border: none;
+    background: transparent;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .app-sider__collapse-text {
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+  }
+
+  // ---------- 折叠态 ----------
+  &.is-collapsed {
+    .app-sider__collapse-trigger {
+      .app-sider__collapse-text {
+        opacity: 0;
+        width: 0;
+      }
+    }
+  }
+}
+
+// ==============================================
+// 面包屑（需求 5.3）：内容区顶部
+// ==============================================
+.sider-breadcrumb {
+  padding: 12px 0 4px;
+
+  .sider-breadcrumb__current {
+    color: rgba(0, 0, 0, 0.65);
+  }
+}

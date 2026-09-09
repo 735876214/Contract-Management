@@ -1,65 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Layout, Menu, Dropdown, Space, Badge, Button, Avatar, Typography, theme } from 'antd';
+import { Layout, Dropdown, Space, Badge, Button, Avatar, Typography, theme } from 'antd';
 import {
-  DashboardOutlined,
-  AppstoreOutlined,
-  DatabaseOutlined,
-  ProfileOutlined,
-  ProjectOutlined,
-  ShopOutlined,
-  FileTextOutlined,
-  FileSearchOutlined,
-  CalendarOutlined,
-  AccountBookOutlined,
-  WalletOutlined,
-  ReconciliationOutlined,
-  TableOutlined,
-  SafetyCertificateOutlined,
-  DollarOutlined,
-  FundOutlined,
-  BellOutlined,
-  BarChartOutlined,
-  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  BellOutlined,
   UserOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
 import ProjectSwitch from '@/components/ProjectSwitch';
+import AppSider, { BreadcrumbNav } from '@/components/Sider';
 import { notificationApi } from '@/api/modules';
 
-const { Header, Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
-const MENUS = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: '工作台', perm: 'dashboard:view' },
-  { key: '/projects', icon: <ProjectOutlined />, label: '项目管理', perm: 'project:view' },
-  { key: '/suppliers', icon: <ShopOutlined />, label: '供应商库', perm: 'supplier:view' },
-  { key: '/contracts', icon: <FileTextOutlined />, label: '合同管理', perm: 'contract:view' },
-  { key: '/templates', icon: <FileSearchOutlined />, label: '合同模板', perm: 'template:view' },
-  { key: '/daily', icon: <CalendarOutlined />, label: '日报管理', perm: 'daily:view' },
-  { key: '/materials', icon: <DatabaseOutlined />, label: '物资基础库', perm: 'material:view' },
-  { key: '/contract-materials', icon: <ProfileOutlined />, label: '合同物资清单', perm: 'material:view' },
-  { key: '/settlements', icon: <AccountBookOutlined />, label: '结算管理', perm: 'settlement:view' },
-  { key: '/payments', icon: <WalletOutlined />, label: '付款管理', perm: 'payment:view' },
-  { key: '/invoices', icon: <ReconciliationOutlined />, label: '发票管理', perm: 'invoice:view' },
-  { key: '/ledger', icon: <TableOutlined />, label: '合同台账', perm: 'ledger:view' },
-  { key: '/repayments', icon: <SafetyCertificateOutlined />, label: '还款协议', perm: 'repayment:view' },
-  { key: '/finance', icon: <DollarOutlined />, label: '资金费用台账', perm: 'finance:view' },
-  { key: '/assets', icon: <FundOutlined />, label: '资产管理台账', perm: 'asset:view' },
-  { key: '/messages', icon: <BellOutlined />, label: '消息中心', perm: '' },
-  { key: '/reports', icon: <BarChartOutlined />, label: '统计报表', perm: 'dashboard:view' },
-  { key: '/system', icon: <SettingOutlined />, label: '系统管理', perm: 'system:user' },
-  { key: '/dict', icon: <AppstoreOutlined />, label: '字典管理', perm: 'dict:view' },
-];
-
+/**
+ * 主布局（需求：九、组件结构）
+ * - 左侧固定侧边导航栏：components/Sider（菜单展示/搜索/折叠/动态加载）
+ * - 内容区顶部：面包屑导航（根据当前路由自动生成层级）
+ * - Header 保留项目切换 / 消息提醒 / 用户菜单
+ */
 export default function BasicLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [unread, setUnread] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, hasPermission } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const {
     token: { colorBgContainer },
   } = theme.useToken();
@@ -68,17 +35,10 @@ export default function BasicLayout() {
     notificationApi.unreadCount().then((res: any) => setUnread(res?.count || 0)).catch(() => undefined);
   }, [location.pathname]);
 
-  const menus = MENUS.filter((m) => !m.perm || hasPermission(m.perm));
-  const selected = menus.find((m) => location.pathname.startsWith(m.key))?.key || '/dashboard';
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} trigger={null} theme="light" width={208}>
-        <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 16, color: '#1677ff' }}>
-          {collapsed ? 'CMS' : '企业合同管理系统'}
-        </div>
-        <Menu mode="inline" selectedKeys={[selected]} items={menus} onClick={({ key }) => navigate(key)} />
-      </Sider>
+      {/* 左侧固定侧边导航栏：折叠状态内部持久化 localStorage，onCollapsedChange 同步给 Header 按钮 */}
+      <AppSider collapsed={collapsed} onCollapsedChange={setCollapsed} />
       <Layout>
         <Header
           style={{
@@ -100,7 +60,7 @@ export default function BasicLayout() {
           </Space>
           <Space size={16}>
             <Badge count={unread}>
-              <Button type="text" icon={<BellOutlined />} onClick={() => navigate('/messages')} />
+              <Button type="text" icon={<BellOutlined />} onClick={() => navigate('/message')} />
             </Badge>
             <Dropdown
               menu={{
@@ -125,6 +85,7 @@ export default function BasicLayout() {
           </Space>
         </Header>
         <Content style={{ margin: 16 }}>
+          <BreadcrumbNav />
           <Outlet />
         </Content>
       </Layout>

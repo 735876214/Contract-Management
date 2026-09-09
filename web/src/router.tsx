@@ -85,6 +85,37 @@ export const routes: RouteObject[] = [
       { path: 'messages', element: <Messages /> },
       { path: 'reports', element: <Reports /> },
       { path: 'system', element: <System /> },
+
+      // —— Sider 新菜单规范路径（需求：八、路径映射表），与旧路径并行兼容 ——
+      // 合同管理
+      { path: 'contract/list', element: <Ledger /> },
+      { path: 'contract/material', element: <ContractMaterials /> },
+      // 日报管理
+      { path: 'daily/report', element: <DailyReports /> },
+      { path: 'daily/asset', element: <Assets /> },
+      // 结算及付款管理
+      { path: 'settlement/order', element: <Settlements /> },
+      { path: 'settlement/fund', element: <Finance /> },
+      { path: 'settlement/ledger', element: <Settlements /> },
+      { path: 'settlement/payment', element: <Payments /> },
+      // 发票 / 还款 / 消息 / 报表
+      { path: 'invoice', element: <Invoices /> },
+      { path: 'repayment', element: <Repayments /> },
+      { path: 'message', element: <Messages /> },
+      { path: 'statistics', element: <Reports /> },
+      // 基础信息管理
+      { path: 'base/project', element: <Projects /> },
+      { path: 'base/supplier', element: <Suppliers /> },
+      { path: 'base/material', element: <Materials /> },
+      { path: 'base/template', element: <Templates /> },
+      { path: 'base/clause', element: <Templates /> },
+      // 系统管理
+      { path: 'system/user', element: <System /> },
+      { path: 'system/role', element: <System /> },
+      { path: 'system/dept', element: <System /> },
+      { path: 'system/params', element: <System /> },
+      { path: 'system/dict', element: <Dict /> },
+      { path: 'system/log', element: <System /> },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },
