@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker,
+  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -14,31 +13,43 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
-export default function Settlements() {
-  const location = useLocation();
-  const navigate = useNavigate();
+/** 加载合同下拉选项（结算单/结算台账共用） */
+function useContractOptions() {
   const [contracts, setContracts] = useState<any[]>([]);
   useEffect(() => {
     contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
   }, []);
   const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
+  return { contracts, contractOptions };
+}
 
-  // 需求 2.2：菜单路由驱动 Tab —— /settlement/order 展示结算单，/settlement/ledger 展示结算台账
-  const activeKey = location.pathname.includes('/settlement/ledger') ? 'ledger' : 'bill';
-  const handleTabChange = (key: string) => navigate(key === 'ledger' ? '/settlement/ledger' : '/settlement/order');
-
+/**
+ * 结算单页面（需求 2.2 修正：/settlement/order 直接展示结算单列表，无 Tab 切换）
+ */
+export function SettlementOrderPage() {
+  const { contracts, contractOptions } = useContractOptions();
   return (
-    <Card title="结算管理">
-      <Tabs
-        activeKey={activeKey}
-        onChange={handleTabChange}
-        items={[
-          { key: 'bill', label: '结算单', children: <SettlementsTab contracts={contracts} contractOptions={contractOptions} /> },
-          { key: 'ledger', label: '结算台账', children: <LedgerTab contracts={contracts} contractOptions={contractOptions} /> },
-        ]}
-      />
+    <Card title="结算单">
+      <SettlementsTab contracts={contracts} contractOptions={contractOptions} />
     </Card>
   );
+}
+
+/**
+ * 结算台账页面（需求 2.2 修正：/settlement/ledger 直接展示结算台账列表，无 Tab 切换）
+ */
+export function SettlementLedgerPage() {
+  const { contracts, contractOptions } = useContractOptions();
+  return (
+    <Card title="结算台账">
+      <LedgerTab contracts={contracts} contractOptions={contractOptions} />
+    </Card>
+  );
+}
+
+/** 默认导出兼容旧路由 /settlements：展示结算单页面 */
+export default function Settlements() {
+  return <SettlementOrderPage />;
 }
 
 function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; contractOptions: any[] }) {

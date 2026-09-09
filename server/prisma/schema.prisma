@@ -185,6 +185,10 @@ model Contract {
   supplementSeq      Int?    // 补充协议序号
   supplementTypeCode String? // dict: supplement_agreement_type
   execStatus         String? // dict: contract_execution_status
+  technicalClauseId  String? // 技术条款 ID（需求 2.3：创建合同时选择）
+  qualityClauseId    String? // 质量条款 ID
+  paymentClauseId    String? // 付款条件 ID
+  acceptanceClauseId String? // 验收方式 ID
   remark             String?
   paymentMode        String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
   monthlyRate        Decimal? @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
@@ -296,6 +300,8 @@ model Clause {
   title       String
   content     String   @db.Text
   categoryCode String?
+  type        String? // 条款类型（需求 2.3 固定四种）：technical 技术条款 / quality 质量条款 / payment 付款条件 / acceptance 验收方式
+  sortOrder   Int      @default(0)
   status      Int      @default(1)
   createdBy   String?
   createdAt   DateTime @default(now())

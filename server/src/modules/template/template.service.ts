@@ -5,7 +5,15 @@ import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'projectId', 'parentId', 'createdBy'];
-const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'status', 'createdBy'];
+const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
+
+/** 需求 2.3：合同条款固定四种类型 */
+export const CLAUSE_TYPES = [
+  { value: 'technical', label: '技术条款' },
+  { value: 'quality', label: '质量条款' },
+  { value: 'payment', label: '付款条件' },
+  { value: 'acceptance', label: '验收方式' },
+];
 
 @Injectable()
 export class TemplateService {
@@ -255,12 +263,21 @@ export class TemplateService {
     return { html, values, tables, templateName: template.name, variables: template.variables };
   }
 
-  // ---------------- 条款库 ----------------
+  // ---------------- 合同条款（需求 2.2/2.3：原条款库统一命名，固定四种类型） ----------------
   async clauses(query: any = {}) {
     const where: any = {};
     if (query.keyword) where.title = { contains: query.keyword };
     if (query.categoryCode) where.categoryCode = query.categoryCode;
-    return this.prisma.clause.findMany({ where, orderBy: { createdAt: 'desc' } });
+    if (query.type) where.type = query.type;
+    return this.prisma.clause.findMany({
+      where,
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  /** 条款类型固定枚举（供前端下拉使用） */
+  clauseTypes() {
+    return CLAUSE_TYPES;
   }
 
   async createClause(data: any, user: any) {

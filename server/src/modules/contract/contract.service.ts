@@ -14,6 +14,7 @@ const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
   'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRate',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
+  'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
 ];
 const EXT_FIELDS = [
@@ -103,7 +104,23 @@ export class ContractService {
       },
     });
     if (!c) throw new NotFoundException('合同不存在');
-    return c;
+    // 需求 2.3：附带四种条款内容，供合同详情/编辑回显
+    const clauseIds = [c.technicalClauseId, c.qualityClauseId, c.paymentClauseId, c.acceptanceClauseId];
+    const ids = clauseIds.filter(Boolean) as string[];
+    const clauseList = ids.length
+      ? await this.prisma.clause.findMany({ where: { id: { in: ids } } })
+      : [];
+    const clauseMap = new Map(clauseList.map((x: any) => [x.id, x]));
+    const pick = (cid: string | null) => (cid ? clauseMap.get(cid) || null : null);
+    return {
+      ...c,
+      clauses: {
+        technical: pick(c.technicalClauseId),
+        quality: pick(c.qualityClauseId),
+        payment: pick(c.paymentClauseId),
+        acceptance: pick(c.acceptanceClauseId),
+      },
+    };
   }
 
   /** 合同编号查重：scope = GLOBAL 全局唯一 / PROJECT 项目内唯一 */

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Card,
-  Tabs,
   Table,
   Button,
   Form,
@@ -458,7 +456,11 @@ function tryPretty(v: any): string {
   }
 }
 
-function LogsTab() {
+/**
+ * 日志页面（需求 2.1 修正：无 Tab 切换）
+ * 操作日志与登录日志以卡片分栏布局上下展示。
+ */
+function LogsPage() {
   const op = useTable<any>((p) => systemApi.operationLogs(p));
   const login = useTable<any>((p) => systemApi.loginLogs(p));
   const [filters, setFilters] = useState<any>({});
@@ -471,194 +473,179 @@ function LogsTab() {
   };
 
   return (
-    <Card title="日志">
-      <Tabs
-        items={[
-          {
-            key: 'op',
-            label: '操作日志',
-            children: (
-              <>
-                <Space style={{ marginBottom: 12 }} wrap>
-                  <Input
-                    allowClear
-                    placeholder="关键字（用户 / 动作 / 请求 / 业务ID）"
-                    style={{ width: 240 }}
-                    value={filters.keyword}
-                    onChange={(e) => setFilters((f: any) => ({ ...f, keyword: e.target.value }))}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="模块"
-                    style={{ width: 150 }}
-                    value={filters.module}
-                    onChange={(v) => setFilters((f: any) => ({ ...f, module: v }))}
-                    options={[
-                      '项目信息', '供应商库', '合同台账', '合同物资清单', '物资基础库', '物资日报',
-                      '结算单', '结算台账', '付款台账', '发票台账', '还款协议', '资产管理台账',
-                      '数据字典', '合同模板', '资金费用', '系统管理',
-                    ].map((v) => ({ label: v, value: v }))}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="动作"
-                    style={{ width: 110 }}
-                    value={filters.action}
-                    onChange={(v) => setFilters((f: any) => ({ ...f, action: v }))}
-                    options={['新增', '修改', '删除', '导入', '导出', '启停'].map((v) => ({ label: v, value: v }))}
-                  />
-                  <Select
-                    allowClear
-                    placeholder="结果"
-                    style={{ width: 110 }}
-                    value={filters.result}
-                    onChange={(v) => setFilters((f: any) => ({ ...f, result: v }))}
-                    options={[{ label: '成功', value: 'SUCCESS' }, { label: '失败', value: 'FAIL' }]}
-                  />
-                  <Button type="primary" onClick={applyFilters}>查询</Button>
-                  <Button onClick={resetFilters}>重置</Button>
-                  <Button icon={<ReloadOutlined />} onClick={op.reload}>刷新</Button>
-                </Space>
-                <Table
-                  rowKey="id"
-                  loading={op.loading}
-                  dataSource={op.list}
-                  pagination={op.pagination}
-                  scroll={{ x: 1500 }}
-                  columns={[
-                    { title: '用户', dataIndex: 'username', width: 120, render: (v: any) => v || '-' },
-                    { title: '模块', dataIndex: 'module', width: 130 },
-                    { title: '动作', dataIndex: 'action', width: 80 },
-                    {
-                      title: '结果',
-                      dataIndex: 'result',
-                      width: 80,
-                      render: (v: any) => <Tag color={v === 'FAIL' ? 'red' : 'green'}>{v === 'FAIL' ? '失败' : '成功'}</Tag>,
-                    },
-                    { title: '请求', dataIndex: 'url', ellipsis: true },
-                    {
-                      title: '导入统计',
-                      dataIndex: 'importRows',
-                      width: 130,
-                      render: (v: any, row: any) =>
-                        v == null ? '-' : (
-                          <span>
-                            共 {v} 行，成功 <span style={{ color: '#3f8600' }}>{row.successCount ?? 0}</span>
-                            {row.failCount ? <span style={{ color: '#cf1322' }}>，失败 {row.failCount}</span> : null}
-                          </span>
-                        ),
-                    },
-                    { title: '耗时(ms)', dataIndex: 'duration', width: 90, render: (v: any) => v ?? '-' },
-                    { title: 'IP', dataIndex: 'ip', width: 130 },
-                    {
-                      title: '时间',
-                      dataIndex: 'createdAt',
-                      width: 180,
-                      render: (v: any) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
-                    },
-                    {
-                      title: '操作',
-                      width: 80,
-                      fixed: 'right',
-                      render: (_: any, row: any) => (
-                        <Button type="link" size="small" onClick={() => setDetail(row)}>详情</Button>
-                      ),
-                    },
-                  ]}
-                />
-                <Modal
-                  title="操作日志详情"
-                  open={!!detail}
-                  onCancel={() => setDetail(null)}
-                  footer={null}
-                  width={860}
-                >
-                  {detail && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div>
-                        <strong>请求参数</strong>
-                        <pre style={{ maxHeight: 200, overflow: 'auto', background: '#fafafa', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
-                          {tryPretty(detail.params)}
-                        </pre>
-                      </div>
-                      <div>
-                        <strong>变更前数据</strong>
-                        <pre style={{ maxHeight: 240, overflow: 'auto', background: '#fff7e6', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
-                          {tryPretty(detail.beforeData)}
-                        </pre>
-                      </div>
-                      <div>
-                        <strong>变更后数据</strong>
-                        <pre style={{ maxHeight: 240, overflow: 'auto', background: '#f6ffed', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
-                          {tryPretty(detail.afterData)}
-                        </pre>
-                      </div>
-                      {detail.message && (
-                        <div>
-                          <strong>错误信息</strong>
-                          <pre style={{ background: '#fff1f0', padding: 8, borderRadius: 4, margin: '4px 0 0', color: '#cf1322' }}>
-                            {detail.message}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </Modal>
-              </>
-            ),
-          },
-          {
-            key: 'login',
-            label: '登录日志',
-            children: (
-              <Table
-                rowKey="id"
-                loading={login.loading}
-                dataSource={login.list}
-                pagination={login.pagination}
-                scroll={{ x: 800 }}
-                columns={[
-                  { title: '用户名', dataIndex: 'username', width: 160 },
-                  { title: 'IP', dataIndex: 'ip', width: 160 },
-                  { title: '结果', dataIndex: 'result', width: 120, render: (v: any) => <Tag color={v === '成功' || v === 1 ? 'green' : 'red'}>{v}</Tag> },
-                  { title: '时间', dataIndex: 'time', width: 200 },
-                ]}
-              />
-            ),
-          },
-        ]}
-      />
-    </Card>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card title="操作日志">
+        <Space style={{ marginBottom: 12 }} wrap>
+          <Input
+            allowClear
+            placeholder="关键字（用户 / 动作 / 请求 / 业务ID）"
+            style={{ width: 240 }}
+            value={filters.keyword}
+            onChange={(e) => setFilters((f: any) => ({ ...f, keyword: e.target.value }))}
+          />
+          <Select
+            allowClear
+            placeholder="模块"
+            style={{ width: 150 }}
+            value={filters.module}
+            onChange={(v) => setFilters((f: any) => ({ ...f, module: v }))}
+            options={[
+              '项目信息', '供应商库', '合同台账', '合同物资清单', '物资基础库', '物资日报',
+              '结算单', '结算台账', '付款台账', '发票台账', '还款协议', '资产管理台账',
+              '数据字典', '合同模板', '资金费用', '系统管理',
+            ].map((v) => ({ label: v, value: v }))}
+          />
+          <Select
+            allowClear
+            placeholder="动作"
+            style={{ width: 110 }}
+            value={filters.action}
+            onChange={(v) => setFilters((f: any) => ({ ...f, action: v }))}
+            options={['新增', '修改', '删除', '导入', '导出', '启停'].map((v) => ({ label: v, value: v }))}
+          />
+          <Select
+            allowClear
+            placeholder="结果"
+            style={{ width: 110 }}
+            value={filters.result}
+            onChange={(v) => setFilters((f: any) => ({ ...f, result: v }))}
+            options={[{ label: '成功', value: 'SUCCESS' }, { label: '失败', value: 'FAIL' }]}
+          />
+          <Button type="primary" onClick={applyFilters}>查询</Button>
+          <Button onClick={resetFilters}>重置</Button>
+          <Button icon={<ReloadOutlined />} onClick={op.reload}>刷新</Button>
+        </Space>
+        <Table
+          rowKey="id"
+          loading={op.loading}
+          dataSource={op.list}
+          pagination={op.pagination}
+          scroll={{ x: 1500 }}
+          columns={[
+            { title: '用户', dataIndex: 'username', width: 120, render: (v: any) => v || '-' },
+            { title: '模块', dataIndex: 'module', width: 130 },
+            { title: '动作', dataIndex: 'action', width: 80 },
+            {
+              title: '结果',
+              dataIndex: 'result',
+              width: 80,
+              render: (v: any) => <Tag color={v === 'FAIL' ? 'red' : 'green'}>{v === 'FAIL' ? '失败' : '成功'}</Tag>,
+            },
+            { title: '请求', dataIndex: 'url', ellipsis: true },
+            {
+              title: '导入统计',
+              dataIndex: 'importRows',
+              width: 130,
+              render: (v: any, row: any) =>
+                v == null ? '-' : (
+                  <span>
+                    共 {v} 行，成功 <span style={{ color: '#3f8600' }}>{row.successCount ?? 0}</span>
+                    {row.failCount ? <span style={{ color: '#cf1322' }}>，失败 {row.failCount}</span> : null}
+                  </span>
+                ),
+            },
+            { title: '耗时(ms)', dataIndex: 'duration', width: 90, render: (v: any) => v ?? '-' },
+            { title: 'IP', dataIndex: 'ip', width: 130 },
+            {
+              title: '时间',
+              dataIndex: 'createdAt',
+              width: 180,
+              render: (v: any) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
+            },
+            {
+              title: '操作',
+              width: 80,
+              fixed: 'right',
+              render: (_: any, row: any) => (
+                <Button type="link" size="small" onClick={() => setDetail(row)}>详情</Button>
+              ),
+            },
+          ]}
+        />
+        <Modal
+          title="操作日志详情"
+          open={!!detail}
+          onCancel={() => setDetail(null)}
+          footer={null}
+          width={860}
+        >
+          {detail && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <strong>请求参数</strong>
+                <pre style={{ maxHeight: 200, overflow: 'auto', background: '#fafafa', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                  {tryPretty(detail.params)}
+                </pre>
+              </div>
+              <div>
+                <strong>变更前数据</strong>
+                <pre style={{ maxHeight: 240, overflow: 'auto', background: '#fff7e6', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                  {tryPretty(detail.beforeData)}
+                </pre>
+              </div>
+              <div>
+                <strong>变更后数据</strong>
+                <pre style={{ maxHeight: 240, overflow: 'auto', background: '#f6ffed', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
+                  {tryPretty(detail.afterData)}
+                </pre>
+              </div>
+              {detail.message && (
+                <div>
+                  <strong>错误信息</strong>
+                  <pre style={{ background: '#fff1f0', padding: 8, borderRadius: 4, margin: '4px 0 0', color: '#cf1322' }}>
+                    {detail.message}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      </Card>
+
+      <Card title="登录日志">
+        <Table
+          rowKey="id"
+          loading={login.loading}
+          dataSource={login.list}
+          pagination={login.pagination}
+          scroll={{ x: 800 }}
+          columns={[
+            { title: '用户名', dataIndex: 'username', width: 160 },
+            { title: 'IP', dataIndex: 'ip', width: 160 },
+            { title: '结果', dataIndex: 'result', width: 120, render: (v: any) => <Tag color={v === '成功' || v === 1 ? 'green' : 'red'}>{v}</Tag> },
+            { title: '时间', dataIndex: 'time', width: 200 },
+          ]}
+        />
+      </Card>
+    </Space>
   );
 }
 
-/** 需求 2.4：菜单路由 ↔ Tab 双向映射，/system/xxx 点击后展示对应管理页面 */
-const TAB_TO_PATH: Record<string, string> = {
-  users: '/system/user',
-  roles: '/system/role',
-  depts: '/system/dept',
-  params: '/system/params',
-  logs: '/system/log',
-};
-const PATH_TO_TAB: Record<string, string> = Object.fromEntries(
-  Object.entries(TAB_TO_PATH).map(([tab, path]) => [path, tab]),
-);
+/**
+ * 需求 2.1 修正：每个二级菜单对应独立页面，无 Tab 切换。
+ * 各 Tab 组件本身已渲染带标题的 Card，直接作为页面导出。
+ */
+export function SystemUsersPage() {
+  return <UsersTab />;
+}
 
+export function SystemRolesPage() {
+  return <RolesTab />;
+}
+
+export function SystemDeptsPage() {
+  return <DeptsTab />;
+}
+
+export function SystemParamsPage() {
+  return <ParamsTab />;
+}
+
+export function SystemLogsPage() {
+  return <LogsPage />;
+}
+
+/** 兼容旧路由 /system：默认展示用户管理 */
 export default function System() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const activeKey = PATH_TO_TAB[location.pathname] ?? 'users';
-  const handleTabChange = (key: string) => navigate(TAB_TO_PATH[key] ?? '/system/user');
-
-  return (
-    <Card title="系统管理">
-      <Tabs activeKey={activeKey} onChange={handleTabChange} items={[
-        { key: 'users', label: '用户管理', children: <UsersTab /> },
-        { key: 'roles', label: '角色管理', children: <RolesTab /> },
-        { key: 'depts', label: '部门管理', children: <DeptsTab /> },
-        { key: 'params', label: '系统参数', children: <ParamsTab /> },
-        { key: 'logs', label: '日志', children: <LogsTab /> },
-      ]} />
-    </Card>
-  );
+  return <SystemUsersPage />;
 }

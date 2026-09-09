@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message } from 'antd';
+import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
-import DictSelect, { DictTag } from '@/components/DictSelect';
 import RichTextEditor from '@/components/RichTextEditor';
 
 /** 模板/条款内容可用变量占位符说明（需求 2.3：条款库从合同模板页迁移为独立页面） */
@@ -13,13 +12,25 @@ export const VARIABLES = [
 ];
 
 /**
- * 条款库页面（需求 2.3）
- * 原为「合同模板」页内嵌 Card，现迁移至「基础信息管理 → 合同条款 → 条款库」菜单，
- * 路由 /base/clause，接口与数据模型保持不变（/templates/clauses）。
+ * 合同条款页面（需求 2.2 修正：原「条款库」统一命名为「合同条款」，功能完整迁移至此）
+ * 路由 /base/clause，接口与数据模型不变（/templates/clauses）。
+ * 需求 2.3：条款固定四种类型（技术条款/质量条款/付款条件/验收方式），支持按类型筛选。
  */
+export const CLAUSE_TYPE_OPTIONS = [
+  { value: 'technical', label: '技术条款' },
+  { value: 'quality', label: '质量条款' },
+  { value: 'payment', label: '付款条件' },
+  { value: 'acceptance', label: '验收方式' },
+];
+
+/** 类型编码 → 名称 */
+export const CLAUSE_TYPE_LABEL: Record<string, string> = Object.fromEntries(
+  CLAUSE_TYPE_OPTIONS.map((t) => [t.value, t.label]),
+);
 export default function Clauses() {
   const [clauses, setClauses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterType, setFilterType] = useState<string | undefined>();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [form] = Form.useForm();
@@ -27,12 +38,12 @@ export default function Clauses() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res: any = await templateApi.clauses();
+      const res: any = await templateApi.clauses(filterType ? { type: filterType } : undefined);
       setClauses(res?.list || res || []);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterType]);
 
   useEffect(() => {
     load();
@@ -64,11 +75,21 @@ export default function Clauses() {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Card
-        title="条款库"
+        title="合同条款"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
-            新增条款
-          </Button>
+          <Space>
+            <Select
+              allowClear
+              placeholder="按条款类型筛选"
+              style={{ width: 160 }}
+              value={filterType}
+              onChange={(v) => setFilterType(v)}
+              options={CLAUSE_TYPE_OPTIONS}
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
+              新增条款
+            </Button>
+          </Space>
         }
       >
         <Table
@@ -76,14 +97,23 @@ export default function Clauses() {
           loading={loading}
           dataSource={clauses}
           pagination={{ pageSize: 10, showTotal: (t: number) => `共 ${t} 条` }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1100 }}
           columns={[
-            { title: '条款标题', dataIndex: 'title', width: 240 },
-            { title: '分类', dataIndex: 'categoryCode', width: 160, render: (v) => <DictTag typeCode="contract_template_category" value={v} /> },
-            { title: '内容', dataIndex: 'content', width: 400, ellipsis: true },
+            { title: '序号', key: 'index', width: 70, render: (_, __, i) => i + 1 },
+            { title: '条款名称', dataIndex: 'title', width: 220, ellipsis: true },
+            {
+              title: '条款类型',
+              dataIndex: 'type',
+              width: 120,
+              render: (v: string) => (v ? <Tag color="blue">{CLAUSE_TYPE_LABEL[v] || v}</Tag> : '-'),
+            },
+            { title: '条款内容', dataIndex: 'content', width: 380, ellipsis: true },
+            { title: '创建时间', dataIndex: 'createdAt', width: 170, render: (v) => v?.slice(0, 19).replace('T', ' ') },
+            { title: '更新时间', dataIndex: 'updatedAt', width: 170, render: (v) => v?.slice(0, 19).replace('T', ' ') },
             {
               title: '操作',
-              width: 160,
+              width: 140,
+              fixed: 'right',
               render: (_, row) => (
                 <Space size={4}>
                   <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
@@ -107,9 +137,9 @@ export default function Clauses() {
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="条款标题" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="categoryCode" label="分类">
-            <DictSelect typeCode="contract_template_category" />
+          <Form.Item name="title" label="条款名称" rules={[{ required: true }]}><Input placeholder="条款标题/名称" /></Form.Item>
+          <Form.Item name="type" label="条款类型" rules={[{ required: true, message: '请选择条款类型' }]}>
+            <Select placeholder="技术条款 / 质量条款 / 付款条件 / 验收方式" options={CLAUSE_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item name="content" label="条款内容" rules={[{ required: true }]}>
             <RichTextEditor variables={VARIABLES} minHeight={200} placeholder="条款正文，支持富文本排版与变量占位符" />

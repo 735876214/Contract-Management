@@ -424,6 +424,41 @@ async function main() {
     });
   }
 
+  // ---------- 条款示例（需求 2.3：固定四种类型，各预置一条） ----------
+  const SAMPLE_CLAUSES = [
+    {
+      id: 'clause-sample-technical',
+      title: '技术标准条款',
+      type: 'technical',
+      content: '<p><strong>技术标准：</strong>本工程所用主要材料须符合国家现行标准及设计要求，材料的规格、型号、性能应符合招标文件技术规范书的规定。</p><ul><li>提供原厂质量证明文件与检测报告；</li><li>进口材料须提供报关单及商检证明。</li></ul>',
+      sortOrder: 1,
+    },
+    {
+      id: 'clause-sample-quality',
+      title: '质量验收与质保条款',
+      type: 'quality',
+      content: '<p><strong>质量要求：</strong>货物质量须符合国家标准及行业标准，一次验收合格率不低于 98%。</p><ul><li>质保期：验收合格之日起 24 个月；</li><li>质保期内出现非人为质量问题的，供应商免费维修或更换。</li></ul>',
+      sortOrder: 2,
+    },
+    {
+      id: 'clause-sample-payment',
+      title: '付款方式条款',
+      type: 'payment',
+      content: '<p><strong>付款方式：</strong>按月计量支付，支付比例为当月已完工程量的 80%。</p><ul><li>合同生效后 7 日内支付预付款（合同额的 10%）；</li><li>竣工验收后支付至结算价的 97%；</li><li>预留 3% 质保金，质保期满无质量问题后 14 日内无息退还。</li></ul>',
+      sortOrder: 3,
+    },
+    {
+      id: 'clause-sample-acceptance',
+      title: '验收流程条款',
+      type: 'acceptance',
+      content: '<p><strong>验收方式：</strong>到货验收 + 安装调试后终验。</p><ul><li>到货后 3 个工作日内由采购人与供应商共同开箱验收；</li><li>安装调试完成后组织终验，验收资料一式三份；</li><li>验收不合格的，供应商应在 5 日内完成整改并重新报验。</li></ul>',
+      sortOrder: 4,
+    },
+  ];
+  for (const c of SAMPLE_CLAUSES) {
+    await prisma.clause.upsert({ where: { id: c.id }, update: { ...c }, create: { ...c, status: 1 } });
+  }
+
   // ---------- 角色 ----------
   const roleAdmin = await prisma.role.upsert({
     where: { code: 'SUPER_ADMIN' },

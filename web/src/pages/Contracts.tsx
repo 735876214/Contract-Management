@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Tabs,
-  Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select,
+  Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select, Typography,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -12,8 +12,18 @@ import ImportButton from '@/components/ImportButton';
 import { useAuthStore } from '@/store/auth';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
+import { templateApi } from '@/api/business';
+import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from './Clauses';
 
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
+
+/** 需求 2.3：四种条款类型对应的合同表单字段 */
+const CLAUSE_FIELDS: { type: string; field: string }[] = [
+  { type: 'technical', field: 'technicalClauseId' },
+  { type: 'quality', field: 'qualityClauseId' },
+  { type: 'payment', field: 'paymentClauseId' },
+  { type: 'acceptance', field: 'acceptanceClauseId' },
+];
 
 export default function Contracts() {
   const { loading, list, total, params, search, reload, pagination } = useTable<any>((p) => contractApi.list(p));
@@ -33,6 +43,20 @@ export default function Contracts() {
   const [currentProject, setCurrentProject] = useState<any>(null);
   const [supModal, setSupModal] = useState(false);
   const [supForm] = Form.useForm();
+
+  // 需求 2.3：合同条款（四种类型）选择
+  const [clauseList, setClauseList] = useState<any[]>([]);
+  const [clausePreview, setClausePreview] = useState<any[] | null>(null); // 预览全部条款
+  const [clauseView, setClauseView] = useState<{ label: string; content: string } | null>(null); // 查看单条内容
+  useEffect(() => {
+    if (modal) {
+      templateApi.clauses().then((res: any) => setClauseList(res?.list || res || []));
+    }
+  }, [modal]);
+  const clausesByType = useCallback(
+    (type: string) => clauseList.filter((c: any) => c.type === type),
+    [clauseList],
+  );
 
   useEffect(() => {
     supplierApi.options().then((res: any) => setSuppliers(res || []));
@@ -343,6 +367,61 @@ export default function Contracts() {
                     <Col xs={24}>
                       <Form.Item label="附件"><Uploader value={attachments} onChange={setAttachments} /></Form.Item>
                     </Col>
+                    {/* 需求 2.3：合同条款 —— 四种类型分别下拉选择已维护的条款 */}
+                    <Col xs={24}>
+                      <Card
+                        type="inner"
+                        title="合同条款"
+                        extra={
+                          <Button
+                            onClick={() => {
+                              const rows = CLAUSE_FIELDS.map(({ type, field }) => {
+                                const id = form.getFieldValue(field);
+                                return { type, clause: clauseList.find((c: any) => c.id === id) || null };
+                              });
+                              setClausePreview(rows);
+                            }}
+                          >
+                            预览全部条款
+                          </Button>
+                        }
+                      >
+                        <Row gutter={16}>
+                          {CLAUSE_FIELDS.map(({ type, field }) => (
+                            <Col xs={24} md={12} key={field}>
+                              <Form.Item label={CLAUSE_TYPE_LABEL[type]}>
+                                <Space.Compact style={{ width: '100%' }}>
+                                  <Form.Item noStyle name={field}>
+                                    <Select
+                                      allowClear
+                                      showSearch
+                                      optionFilterProp="label"
+                                      placeholder={`选择${CLAUSE_TYPE_LABEL[type]}`}
+                                      options={clausesByType(type).map((c: any) => ({ value: c.id, label: c.title }))}
+                                    />
+                                  </Form.Item>
+                                  <Button
+                                    onClick={() => {
+                                      const id = form.getFieldValue(field);
+                                      const clause = clauseList.find((c: any) => c.id === id);
+                                      if (!clause) return message.warning(`请先选择${CLAUSE_TYPE_LABEL[type]}`);
+                                      setClauseView({ label: `${CLAUSE_TYPE_LABEL[type]}：${clause.title}`, content: clause.content });
+                                    }}
+                                  >
+                                    查看内容
+                                  </Button>
+                                </Space.Compact>
+                              </Form.Item>
+                            </Col>
+                          ))}
+                        </Row>
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="条款内容在「基础信息管理 → 合同条款」中维护；此处选择后随合同一起保存。"
+                        />
+                      </Card>
+                    </Col>
                   </Row>
 
                   {supplier && (
@@ -413,6 +492,48 @@ export default function Contracts() {
             },
           ]}
         />
+      </Modal>
+
+      {/* 需求 2.3：查看单条条款内容 */}
+      <Modal
+        title={clauseView?.label || '条款内容'}
+        open={!!clauseView}
+        onCancel={() => setClauseView(null)}
+        footer={<Button type="primary" onClick={() => setClauseView(null)}>关闭</Button>}
+        width={680}
+      >
+        <div
+          style={{ maxHeight: 480, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 16, background: '#fff' }}
+          dangerouslySetInnerHTML={{ __html: clauseView?.content || '' }}
+        />
+      </Modal>
+
+      {/* 需求 2.3：预览当前合同所选的全部四种条款 */}
+      <Modal
+        title="预览全部条款"
+        open={!!clausePreview}
+        onCancel={() => setClausePreview(null)}
+        footer={<Button type="primary" onClick={() => setClausePreview(null)}>关闭</Button>}
+        width={760}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {(clausePreview || []).map(({ type, clause }) => (
+            <div key={type}>
+              <Typography.Title level={5} style={{ marginBottom: 8 }}>
+                {CLAUSE_TYPE_LABEL[type]}
+                {clause ? <Typography.Text type="secondary">（{clause.title}）</Typography.Text> : null}
+              </Typography.Title>
+              {clause ? (
+                <div
+                  style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fff' }}
+                  dangerouslySetInnerHTML={{ __html: clause.content }}
+                />
+              ) : (
+                <Typography.Text type="secondary">未选择</Typography.Text>
+              )}
+            </div>
+          ))}
+        </Space>
       </Modal>
 
       <Drawer title="合同详情" width={720} open={!!detail} onClose={() => setDetail(null)}>

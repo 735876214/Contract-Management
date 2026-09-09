@@ -13,7 +13,7 @@ import Templates from '@/pages/Templates';
 import DailyReports from '@/pages/DailyReports';
 import Materials from '@/pages/Materials';
 import ContractMaterials from '@/pages/ContractMaterials';
-import Settlements from '@/pages/Settlements';
+import Settlements, { SettlementLedgerPage } from '@/pages/Settlements';
 import Payments from '@/pages/Payments';
 import Invoices from '@/pages/Invoices';
 import Ledger from '@/pages/Ledger';
@@ -22,7 +22,13 @@ import Finance from '@/pages/Finance';
 import Assets from '@/pages/Assets';
 import Messages from '@/pages/Messages';
 import Reports from '@/pages/Reports';
-import System from '@/pages/System';
+import {
+  SystemUsersPage,
+  SystemRolesPage,
+  SystemDeptsPage,
+  SystemParamsPage,
+  SystemLogsPage,
+} from '@/pages/System';
 import Clauses from '@/pages/Clauses';
 import ContractDraft from '@/pages/ContractDraft';
 
@@ -86,7 +92,6 @@ export const routes: RouteObject[] = [
       { path: 'assets', element: <Assets /> },
       { path: 'messages', element: <Messages /> },
       { path: 'reports', element: <Reports /> },
-      { path: 'system', element: <System /> },
 
       // —— Sider 新菜单规范路径（需求：八、路径映射表），与旧路径并行兼容 ——
       // 合同管理
@@ -96,10 +101,10 @@ export const routes: RouteObject[] = [
       // 日报管理
       { path: 'daily/report', element: <DailyReports /> },
       { path: 'daily/asset', element: <Assets /> },
-      // 结算及付款管理
+      // 结算及付款管理（需求修正：每个二级菜单直接展示对应页面，无 Tab）
       { path: 'settlement/order', element: <Settlements /> },
       { path: 'settlement/fund', element: <Finance /> },
-      { path: 'settlement/ledger', element: <Settlements /> },
+      { path: 'settlement/ledger', element: <SettlementLedgerPage /> },
       { path: 'settlement/payment', element: <Payments /> },
       // 发票 / 还款 / 消息 / 报表
       { path: 'invoice', element: <Invoices /> },
@@ -112,13 +117,14 @@ export const routes: RouteObject[] = [
       { path: 'base/material', element: <Materials /> },
       { path: 'base/template', element: <Templates /> },
       { path: 'base/clause', element: <Clauses /> },
-      // 系统管理
-      { path: 'system/user', element: <System /> },
-      { path: 'system/role', element: <System /> },
-      { path: 'system/dept', element: <System /> },
-      { path: 'system/params', element: <System /> },
+      // 系统管理（需求修正：每个二级菜单直接展示对应页面，无 Tab）
+      { path: 'system', element: <Navigate to="/system/user" replace /> },
+      { path: 'system/user', element: <SystemUsersPage /> },
+      { path: 'system/role', element: <SystemRolesPage /> },
+      { path: 'system/dept', element: <SystemDeptsPage /> },
+      { path: 'system/params', element: <SystemParamsPage /> },
       { path: 'system/dict', element: <Dict /> },
-      { path: 'system/log', element: <System /> },
+      { path: 'system/log', element: <SystemLogsPage /> },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },
