@@ -12,7 +12,6 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   Upload,
   message,
 } from 'antd';
@@ -47,7 +46,9 @@ const MAX_SIZE = 20 * 1024 * 1024;
  * - 展示审批中/已签章的正式合同（起草发布后自动流转至此）
  * - 筛选：合同编号/名称关键词、供应商、签订日期范围
  * - 操作：合同签章（上传签章文件+签订日期，状态自动变为已签章）、查看详情、导出 Word、下载签章合同
- * - 发布后合同类型只读（后端同步校验）
+ * - 需求 2.1：合同类型只读（后端同步校验，发布后不可修改）
+ * - 需求 2.2：导出 Word 仅草稿中不可用，审批中/已签章均可导出
+ * - 需求 2.3：签章时选择的签订日期覆盖合同主表签订日期
  */
 export default function ContractQuery() {
   const [form] = Form.useForm();
@@ -106,10 +107,12 @@ export default function ContractQuery() {
     setDetailOpen(true);
   };
 
+  /** 需求 2.2：草稿中不可导出 Word，审批中 / 已签章均可导出 */
+  const canExportWord = (row: any) => row?.status !== 'DRAFT';
+
   const handleExport = (row: any) => {
-    // 状态强校验：仅已签章（已完成）的合同允许导出，与后端校验保持一致
-    if (row.status !== 'SIGNED') {
-      message.warning('仅已完成的合同支持导出 Word 文件');
+    if (!canExportWord(row)) {
+      message.warning('草稿中的合同不可导出，请先发布后再导出 Word 文件');
       return;
     }
     if (!row.templateId) {
@@ -123,8 +126,10 @@ export default function ContractQuery() {
     setSignTarget(row);
     setSignFile(null);
     signForm.resetFields();
+    // 需求 2.3：签订日期优先取合同主表 signDate，兼容历史签章记录 signedDate
+    const prev = row.signDate || row.signedDate;
     signForm.setFieldsValue({
-      signDate: row.signedDate ? dayjs(row.signedDate) : undefined,
+      signDate: prev ? dayjs(prev) : undefined,
       remark: row.signedRemark || '',
     });
     setSignOpen(true);
@@ -158,7 +163,7 @@ export default function ContractQuery() {
       fd.append('signDate', values.signDate.format('YYYY-MM-DD'));
       fd.append('remark', values.remark || '');
       await contractApi.sign(signTarget.id, fd);
-      message.success('签章信息已保存，合同状态：已签章');
+      message.success('签章信息已保存，签订日期已更新，合同状态：已签章');
       setSignOpen(false);
       setSignTarget(null);
       setSignFile(null);
@@ -238,14 +243,19 @@ export default function ContractQuery() {
               title: '合同类型',
               dataIndex: 'typeCode',
               width: 120,
+              // 需求 2.1：合同类型只读展示（发布后不可修改）
               render: (v) => (v ? <DictTag typeCode="contract_type" value={v} /> : '-'),
             },
             { title: '合同金额', dataIndex: 'amount', width: 140, align: 'right', render: money },
             {
               title: '签订日期',
-              dataIndex: 'signedDate',
+              dataIndex: 'signDate',
               width: 120,
-              render: (v) => (v ? String(v).slice(0, 10) : '-'),
+              // 需求 2.3：优先展示合同主表签订日期，兼容历史签章记录
+              render: (v, row: any) => {
+                const d = v || row.signedDate;
+                return d ? String(d).slice(0, 10) : '-';
+              },
             },
             {
               title: '状态',
@@ -266,17 +276,16 @@ export default function ContractQuery() {
                   <Button type="link" size="small" onClick={() => openDetail(row.id)}>
                     详情
                   </Button>
-                  <Tooltip title={row.status === 'SIGNED' ? '' : '仅已完成的合同支持导出 Word 文件'}>
+                  {canExportWord(row) && (
                     <Button
                       type="link"
                       size="small"
                       icon={<FileWordOutlined />}
-                      disabled={row.status !== 'SIGNED'}
                       onClick={() => handleExport(row)}
                     >
                       导出Word
                     </Button>
-                  </Tooltip>
+                  )}
                   {row.signedFilePath && (
                     <Button
                       type="link"
@@ -322,6 +331,7 @@ export default function ContractQuery() {
             name="signDate"
             label="签订日期"
             rules={[{ required: true, message: '请选择签订日期' }]}
+            extra="保存后将以本次选择的日期覆盖该合同的签订日期"
           >
             <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="YYYY-MM-DD" />
           </Form.Item>
@@ -343,10 +353,15 @@ export default function ContractQuery() {
               <p className="ant-upload-text">点击或拖拽文件到此处上传</p>
             </Upload.Dragger>
           </Form.Item>
-          {signTarget?.signedDate && (
+          {(signTarget?.signDate || signTarget?.signedDate) && (
             <Form.Item label="当前签章信息">
               <Space wrap>
-                <Tag color="green">签订日期：{String(signTarget.signedDate).slice(0, 10)}</Tag>
+                <Tag color="green">
+                  签订日期：{String(signTarget.signDate || signTarget.signedDate).slice(0, 10)}
+                </Tag>
+                {signTarget.signedAt && (
+                  <Tag>签章时间：{String(signTarget.signedAt).slice(0, 19).replace('T', ' ')}</Tag>
+                )}
                 {signTarget.signedFileName && <Tag>{signTarget.signedFileName}</Tag>}
               </Space>
             </Form.Item>
@@ -375,16 +390,15 @@ export default function ContractQuery() {
               <Button icon={<FileProtectOutlined />} size="small" onClick={() => { setDetailOpen(false); openSign(detail); }}>
                 合同签章
               </Button>
-              <Tooltip title={detail?.status === 'SIGNED' ? '' : '仅已完成的合同支持导出 Word 文件'}>
+              {detail && canExportWord(detail) && (
                 <Button
                   icon={<ExportOutlined />}
                   size="small"
-                  disabled={detail?.status !== 'SIGNED'}
                   onClick={() => handleExport(detail)}
                 >
                   导出Word
                 </Button>
-              </Tooltip>
+              )}
             </Space>
           )
         }
@@ -395,13 +409,20 @@ export default function ContractQuery() {
             <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
             <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
             <Descriptions.Item
-              label="合同类型（发布后只读）"
+              label="合同类型（只读）"
             >
               {detail.typeCode ? <DictTag typeCode="contract_type" value={detail.typeCode} /> : '-'}
             </Descriptions.Item>
-            <Descriptions.Item label="签订日期（签章记录）">
-              {detail.signedDate ? String(detail.signedDate).slice(0, 10) : '未签章'}
+            <Descriptions.Item label="签订日期">
+              {detail.signDate || detail.signedDate
+                ? String(detail.signDate || detail.signedDate).slice(0, 10)
+                : '未签订'}
             </Descriptions.Item>
+            {detail.signedAt && (
+              <Descriptions.Item label="签章操作时间">
+                {String(detail.signedAt).slice(0, 19).replace('T', ' ')}
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="合同金额">{money(detail.amount)}</Descriptions.Item>
             <Descriptions.Item label="执行状态">
               {detail.execStatus ? <DictTag typeCode="contract_execution_status" value={detail.execStatus} /> : '-'}

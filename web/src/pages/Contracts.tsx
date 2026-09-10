@@ -91,6 +91,8 @@ export default function Contracts() {
 
   // 监听类型/子类型变化自动刷新编号预览
   const watchedType = Form.useWatch('typeCode', form);
+  // 需求 2.1：合同发布后（审批中/已签章）合同类型固化；历史空状态在 UI 上按「审批中」展示，同样锁定
+  const typeLocked = !!editing && editing.status !== 'DRAFT';
   const watchedSubType = Form.useWatch('subTypeCode', form);
   useEffect(() => {
     if (modal && !editing) genCode(watchedType, watchedSubType);
@@ -287,13 +289,13 @@ export default function Contracts() {
                       <Form.Item name="name" label="合同名称" rules={[{ required: true }]}><Input /></Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
-                      {/* 需求修正5：发布后（审批中/已签章）合同类型只读，后端同步校验 */}
+                      {/* 需求 2.1：发布后（审批中/已签章）合同类型只读，后端同步校验 */}
                       <Form.Item
                         name="typeCode"
-                        label={editing?.status && editing.status !== 'DRAFT' ? '合同类型（发布后不可修改）' : '合同类型'}
+                        label={typeLocked ? '合同类型（发布后不可修改）' : '合同类型'}
                         rules={[{ required: true }]}
                       >
-                        <DictSelect typeCode="contract_type" disabled={!!editing?.status && editing.status !== 'DRAFT'} />
+                        <DictSelect typeCode="contract_type" disabled={typeLocked} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>

@@ -227,6 +227,7 @@ model Contract {
   signedFileName     String? // 签章合同原始文件名
   signedDate         DateTime? // 签章时记录的签订日期
   signedRemark       String? // 签章备注
+  signedAt           DateTime? // 签章操作时间（每次签章/重新签章刷新）
   remark             String?
   paymentMode        String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
   monthlyRate        Decimal?  // 延期月利率（如 0.006 表示 0.6%）

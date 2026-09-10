@@ -695,10 +695,12 @@ export class ContractService {
       throw new BadRequestException('合同编号生成后不可变更');
     }
     delete data.code;
-    // 需求修正5：发布后（审批中/已签章）合同类型不可修改
+    // 需求修正5 / 需求 2.1：发布后（审批中/已签章）合同类型固化不可修改；
+    // 历史空状态数据在 UI 上按「审批中」展示，同样视为已发布
     if (
-      before.status && before.status !== STATUS_DRAFT &&
-      data.typeCode !== undefined && data.typeCode !== before.typeCode
+      data.typeCode !== undefined &&
+      data.typeCode !== before.typeCode &&
+      (before.status ?? STATUS_APPROVING) !== STATUS_DRAFT
     ) {
       throw new BadRequestException('合同已发布，合同类型不可修改');
     }
@@ -717,11 +719,14 @@ export class ContractService {
       data.formData = JSON.stringify(data.formData);
     }
     const { attachments, ext, ...rest } = data;
+    // 签订日期仅在显式传入时更新，避免未携带该字段的编辑请求把已有签订日期清空
+    const signDatePatch =
+      data.signDate !== undefined ? { signDate: data.signDate ? new Date(data.signDate) : null } : {};
     const contract = await this.prisma.contract.update({
       where: { id },
       data: {
         ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
-        signDate: data.signDate ? new Date(data.signDate) : null,
+        ...signDatePatch,
         amount: num(data.amount),
         taxRate: num(data.taxRate),
         version: { increment: 1 },
@@ -848,16 +853,27 @@ export class ContractService {
   }
 
   /**
+   * 是否属于「未发布（草稿中）」：判定口径与「合同起草」草稿列表（draftWhere）保持一致
+   * 需求 2.2：草稿中不可导出 Word，审批中/已签章均可导出
+   */
+  private isDraftContract(c: { status?: string | null; execStatus?: string | null }) {
+    if (c.status === STATUS_DRAFT) return true;
+    // 历史遗留：合同状态为空时，执行情况为 DRAFT 或同样为空，均视为起草中的草稿
+    if (!c.status && (c.execStatus === STATUS_DRAFT || !c.execStatus)) return true;
+    return false;
+  }
+
+  /**
    * 导出 Word（.docx，需求 2.2）：按创建时选择的合同模板生成正文，
-   * 占位符替换后包含「物料编码清单」「合同清单」两张子表，文件名 {编号}_{名称}.docx
+   * 占位符替换后包含「物料编码清单」「合同清单」两张子表，文件名 {合同名称}.docx
    */
   async exportWord(id: string, projectId: string) {
     const contract = await this.prisma.contract.findUnique({ where: { id } });
     if (!contract) throw new NotFoundException('合同不存在');
     if (contract.projectId !== projectId) throw new BadRequestException('合同不属于当前项目');
-    // 状态强校验：仅「已签章」（即已完成）的合同允许导出 Word
-    if (contract.status !== STATUS_SIGNED) {
-      throw new BadRequestException('仅已完成的合同支持导出 Word 文件');
+    // 状态准入（需求 2.2）：草稿中不可导出；审批中 / 已签章均可导出
+    if (this.isDraftContract(contract)) {
+      throw new BadRequestException('草稿中的合同不可导出，请先发布后再导出 Word 文件');
     }
     if (!contract.templateId) throw new BadRequestException('该合同未关联合同模板，无法导出');
     let manual: Record<string, any> = {};
@@ -897,7 +913,8 @@ export class ContractService {
         post,
     );
     const buffer = (await HTMLtoDOCX(safeHtml, null, { table: { row: { cantSplit: true } } })) as Buffer;
-    return { buffer, filename: `${contract.code}_${contract.name}.docx` };
+    // 需求 2.2：导出文件名使用完整合同名称
+    return { buffer, filename: `${contract.name}.docx` };
   }
 
   // ==================== 合同签章（需求修正4） ====================
@@ -906,8 +923,10 @@ export class ContractService {
   private static readonly SIGNED_MAX_SIZE = 20 * 1024 * 1024;
 
   /**
-   * 上传签章合同：保存文件 + 记录签订日期/备注，状态置为「已签章」
-   * 支持重复上传覆盖旧文件，并允许修改签订日期
+   * 上传签章合同（需求修正4 / 需求 2.3）：保存文件 + 记录签订日期/备注，状态置为「已签章」
+   * - 本次选择的签订日期直接覆盖合同主表 signDate（原值有则覆盖、无则写入）
+   * - signedDate 保留同一日期以兼容历史逻辑，signedAt 记录本次签章操作时间
+   * - 支持重复上传覆盖旧文件，并允许修改签订日期
    */
   async sign(id: string, file: any, signDate?: string, remark?: string) {
     if (!file) throw new BadRequestException('请上传签章合同文件');
@@ -920,6 +939,8 @@ export class ContractService {
       throw new BadRequestException('签章文件大小不能超过 20MB');
     }
     if (!signDate) throw new BadRequestException('请选择签订日期');
+    const chosen = new Date(signDate);
+    if (Number.isNaN(chosen.getTime())) throw new BadRequestException('签订日期格式不正确');
     const uploadDir = process.env.UPLOAD_DIR || './uploads';
     const dir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
     const sub = path.join(dir, 'signed');
@@ -931,7 +952,9 @@ export class ContractService {
       data: {
         signedFilePath: path.join('signed', stored),
         signedFileName: file.originalname,
-        signedDate: new Date(signDate),
+        signDate: chosen, // 需求 2.3：覆盖合同主表签订日期
+        signedDate: chosen, // 兼容历史展示逻辑
+        signedAt: new Date(), // 签章操作时间
         signedRemark: remark || null,
         status: STATUS_SIGNED,
         version: { increment: 1 },

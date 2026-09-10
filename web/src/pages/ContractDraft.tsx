@@ -473,8 +473,12 @@ export default function ContractDraft() {
                 </Row>
                 <Row gutter={16}>
                   <Col span={8}>
+                    {/* 需求 2.1：合同发布后（审批中/已签章）合同类型固化不可修改 */}
                     <Form.Item name="typeCode" label="合同类型" rules={[{ required: true }]}>
-                      <DictSelect typeCode="contract_type" />
+                      <DictSelect
+                        typeCode="contract_type"
+                        disabled={!!editing.status && editing.status !== 'DRAFT'}
+                      />
                     </Form.Item>
                   </Col>
                   <Col span={8}>
