@@ -12,6 +12,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Upload,
   message,
 } from 'antd';
@@ -106,6 +107,11 @@ export default function ContractQuery() {
   };
 
   const handleExport = (row: any) => {
+    // 状态强校验：仅已签章（已完成）的合同允许导出，与后端校验保持一致
+    if (row.status !== 'SIGNED') {
+      message.warning('仅已完成的合同支持导出 Word 文件');
+      return;
+    }
     if (!row.templateId) {
       message.warning('该合同未关联合同模板，无法导出');
       return;
@@ -260,9 +266,17 @@ export default function ContractQuery() {
                   <Button type="link" size="small" onClick={() => openDetail(row.id)}>
                     详情
                   </Button>
-                  <Button type="link" size="small" icon={<FileWordOutlined />} onClick={() => handleExport(row)}>
-                    导出Word
-                  </Button>
+                  <Tooltip title={row.status === 'SIGNED' ? '' : '仅已完成的合同支持导出 Word 文件'}>
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<FileWordOutlined />}
+                      disabled={row.status !== 'SIGNED'}
+                      onClick={() => handleExport(row)}
+                    >
+                      导出Word
+                    </Button>
+                  </Tooltip>
                   {row.signedFilePath && (
                     <Button
                       type="link"
@@ -361,9 +375,16 @@ export default function ContractQuery() {
               <Button icon={<FileProtectOutlined />} size="small" onClick={() => { setDetailOpen(false); openSign(detail); }}>
                 合同签章
               </Button>
-              <Button icon={<ExportOutlined />} size="small" onClick={() => handleExport(detail)}>
-                导出Word
-              </Button>
+              <Tooltip title={detail?.status === 'SIGNED' ? '' : '仅已完成的合同支持导出 Word 文件'}>
+                <Button
+                  icon={<ExportOutlined />}
+                  size="small"
+                  disabled={detail?.status !== 'SIGNED'}
+                  onClick={() => handleExport(detail)}
+                >
+                  导出Word
+                </Button>
+              </Tooltip>
             </Space>
           )
         }

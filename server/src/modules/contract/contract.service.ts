@@ -855,6 +855,10 @@ export class ContractService {
     const contract = await this.prisma.contract.findUnique({ where: { id } });
     if (!contract) throw new NotFoundException('合同不存在');
     if (contract.projectId !== projectId) throw new BadRequestException('合同不属于当前项目');
+    // 状态强校验：仅「已签章」（即已完成）的合同允许导出 Word
+    if (contract.status !== STATUS_SIGNED) {
+      throw new BadRequestException('仅已完成的合同支持导出 Word 文件');
+    }
     if (!contract.templateId) throw new BadRequestException('该合同未关联合同模板，无法导出');
     let manual: Record<string, any> = {};
     if (contract.formData) {
@@ -881,7 +885,18 @@ export class ContractService {
       table { border-collapse: collapse; width: 100%; }
       th, td { border: 1px solid #000; padding: 4pt 6pt; font-size: 10.5pt; }
     </style></head><body>${body}</body></html>`;
-    const buffer = (await HTMLtoDOCX(full, null, { table: { row: { cantSplit: true } } })) as Buffer;
+    // html-to-docx 1.8 不支持单元格上的百分比宽度（<td style="width:50%"> 会抛 Invalid XML name: @w），
+    // 转换前将 td/th 的百分比宽度按 600px 版心换算为像素宽度，保留原列宽比例
+    const safeHtml = full.replace(
+      /(<t[dh]\b[^>]*\bstyle=")([^"]*)(")/gi,
+      (_m: string, pre: string, style: string, post: string) =>
+        pre +
+        style.replace(/width\s*:\s*([\d.]+)\s*%/gi, (_s: string, p: string) =>
+          `width: ${Math.round(parseFloat(p) * 6)}px`,
+        ) +
+        post,
+    );
+    const buffer = (await HTMLtoDOCX(safeHtml, null, { table: { row: { cantSplit: true } } })) as Buffer;
     return { buffer, filename: `${contract.code}_${contract.name}.docx` };
   }
 
