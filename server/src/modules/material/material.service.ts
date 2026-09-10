@@ -10,7 +10,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { DictService } from '../dict/dict.service';
 import { SettlementService } from '../settlement/settlement.service';
 
-const BASE_FIELDS = ['name', 'spec', 'mdmCode', 'dscCode', 'status', 'remark'];
+const BASE_FIELDS = ['name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode', 'status', 'remark'];
 // 统一合同物资清单：排除收入单价/合价、标准成本单价/合价（需求 2.2 排除字段）
 const ROW_FIELDS = [
   'contractId', 'materialBaseId', 'unit', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder',
@@ -79,6 +79,8 @@ export class MaterialService {
       ];
     }
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
+    if (query.categoryLevel1) where.categoryLevel1 = query.categoryLevel1;
+    if (query.categoryLevel2) where.categoryLevel2 = query.categoryLevel2;
     const [list, total] = await Promise.all([
       this.prisma.materialBase.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
       this.prisma.materialBase.count({ where }),
@@ -121,7 +123,7 @@ export class MaterialService {
     await this.validateBase(data);
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
     const dup = await this.prisma.materialBase.findFirst({ where: { name: payload.name, spec: payload.spec } });
-    if (dup) throw new BadRequestException('相同「物资名称 + 规格型号」的基础物资已存在');
+    if (dup) throw new BadRequestException('该材料已创建');
     return this.prisma.materialBase.create({ data: payload });
   }
 
@@ -134,7 +136,7 @@ export class MaterialService {
       const dup = await this.prisma.materialBase.findFirst({
         where: { name: payload.name || old.name, spec: payload.spec || old.spec, id: { not: id } },
       });
-      if (dup) throw new BadRequestException('相同「物资名称 + 规格型号」的基础物资已存在');
+      if (dup) throw new BadRequestException('该材料已创建');
     }
     return this.prisma.materialBase.update({ where: { id }, data: payload });
   }
@@ -163,6 +165,8 @@ export class MaterialService {
     const columns = [
       { header: '物资名称', key: 'name', width: 26 },
       { header: '规格型号', key: 'spec', width: 18 },
+      { header: '一级分类', key: 'categoryLevel1', width: 14 },
+      { header: '二级分类', key: 'categoryLevel2', width: 14 },
       { header: 'MDM编码', key: 'mdmCode', width: 18 },
       { header: 'DSC编码', key: 'dscCode', width: 18 },
       { header: '状态', key: 'statusName', width: 10 },
@@ -170,7 +174,9 @@ export class MaterialService {
       { header: '备注', key: 'remark', width: 24 },
     ];
     const rows = (res.list as any[]).map((i) => ({
-      name: i.name, spec: i.spec, mdmCode: i.mdmCode || '', dscCode: i.dscCode || '',
+      name: i.name, spec: i.spec,
+      categoryLevel1: i.categoryLevel1 || '', categoryLevel2: i.categoryLevel2 || '',
+      mdmCode: i.mdmCode || '', dscCode: i.dscCode || '',
       statusName: i.status === 1 ? '启用' : '停用', refCount: i.refCount, remark: i.remark || '',
     }));
     return this.excel.export(columns, rows, '物资基础库');
@@ -181,6 +187,8 @@ export class MaterialService {
     const columns: TemplateColumn[] = [
       { label: '物资名称', key: 'name', required: true, width: 26, example: '螺纹钢 HRB400E' },
       { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20' },
+      { label: '一级分类', key: 'categoryLevel1', type: 'text', width: 14, example: '工程材料' },
+      { label: '二级分类', key: 'categoryLevel2', type: 'text', width: 14, example: '钢筋' },
       { label: 'MDM编码', key: 'mdmCode', type: 'text', width: 18, example: 'MDM-GC-001' },
       { label: 'DSC编码', key: 'dscCode', type: 'text', width: 18, example: 'DSC-001' },
       { label: '备注', key: 'remark', type: 'text', width: 24, example: '示例行：导入时自动忽略' },

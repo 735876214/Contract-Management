@@ -15,9 +15,14 @@ async function bootstrap() {
 
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');
+  // 授权委托书等需要返回「打印就绪 HTML」的接口，跳过统一 JSON 包装，
+  // 否则前端拿到的会是 {code,data,message} 而非可直接 write 的文档
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalInterceptors(
-    new ResponseInterceptor(),
+    new ResponseInterceptor((ctx) => {
+      const req = ctx.switchToHttp().getRequest();
+      return req.headers['x-raw-response'] === '1';
+    }),
     // 需求 2.6：全部写操作（增删改、导入）自动留痕
     new OperationLogInterceptor(app.get(PrismaClient), app.get(LogService)),
   );

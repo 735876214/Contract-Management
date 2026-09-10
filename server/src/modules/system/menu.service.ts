@@ -63,6 +63,8 @@ const MENU_TREE: MenuNode[] = [
     children: [
       { key: 'base-project', label: '项目管理', icon: 'ProjectOutlined', path: '/base/project', permission: 'project:view' },
       { key: 'base-supplier', label: '供应商库', icon: 'TeamOutlined', path: '/base/supplier', permission: 'supplier:view' },
+      // 需求 2.1：新增「分包商库」，通过分包材料员授权委托书同步信息
+      { key: 'base-subcontractor', label: '分包商库', icon: 'SolutionOutlined', path: '/base/subcontractor', permission: 'subcontractor:view' },
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
       { key: 'base-clause', label: '合同条款', icon: 'FileTextOutlined', path: '/base/clause', permission: 'template:view' },

@@ -43,6 +43,64 @@ const DICTS: Record<string, { name: string; remark?: string; items: any[] }> = {
       { itemCode: 'LEASE_EXEC', itemName: '租赁执行合同', color: 'magenta' },
     ],
   },
+  // 物资一级分类（需求 2.2.1，7 类；可在字典管理中继续扩展）
+  material_category_l1: {
+    name: '物资一级分类',
+    remark: '物资基础库一级分类，与字典管理共享同一份数据源',
+    items: [
+      { itemCode: 'GC', itemName: '工程材料', color: 'blue' },
+      { itemCode: 'ZZ', itemName: '周转材料', color: 'cyan' },
+      { itemCode: 'AQ', itemName: '安全材料', color: 'red' },
+      { itemCode: 'LX', itemName: '零星材料', color: 'orange' },
+      { itemCode: 'CI', itemName: 'CI类材料', color: 'purple' },
+      { itemCode: 'ZL', itemName: '租赁物资', color: 'geekblue' },
+      { itemCode: 'ZJ', itemName: '资金费用', color: 'gold' },
+    ],
+  },
+  // 物资二级分类（需求 2.2.1；extField1 记录所属一级分类名称，用于级联选择）
+  material_category_l2: {
+    name: '物资二级分类',
+    remark: '物资基础库二级分类，与字典管理共享同一份数据源',
+    items: [
+      { itemCode: 'GC-GJ', itemName: '钢筋', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'GC-XG', itemName: '型钢', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'GC-DC', itemName: '地材', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'GC-ST', itemName: '商砼', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'GC-QTG', itemName: '其他钢材', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'GC-QT', itemName: '其他', color: 'blue', extField1: '工程材料' },
+      { itemCode: 'ZZ-MB', itemName: '模板', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'ZZ-XF', itemName: '箱房', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'ZZ-BF', itemName: '板房', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'ZZ-DB', itemName: '地磅', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'ZZ-ZHGD', itemName: '智慧工地', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'ZZ-QT', itemName: '其他', color: 'cyan', extField1: '周转材料' },
+      { itemCode: 'AQ-PDX', itemName: '配电箱', color: 'red', extField1: '安全材料' },
+      { itemCode: 'AQ-DLX', itemName: '电缆线', color: 'red', extField1: '安全材料' },
+      { itemCode: 'AQ-TGCL', itemName: '土工材料', color: 'red', extField1: '安全材料' },
+      { itemCode: 'AQ-QT', itemName: '其他', color: 'red', extField1: '安全材料' },
+      { itemCode: 'LX-LX', itemName: '零星材料', color: 'orange', extField1: '零星材料' },
+      { itemCode: 'CI-CI', itemName: 'CI类材料', color: 'purple', extField1: 'CI类材料' },
+      { itemCode: 'ZJ-BDTX', itemName: '保底贴息', color: 'gold', extField1: '资金费用' },
+      { itemCode: 'ZJ-YQLX', itemName: '逾期利息', color: 'gold', extField1: '资金费用' },
+    ],
+  },
+  // 收领单「供应单位 / 领用单位」项目类数据源（需求 2.4.1 / 2.4.2）
+  // 本项目 / 其他项目均可在字典管理中维护
+  self_project: {
+    name: '本项目',
+    remark: '收领单「本项目」下拉数据源，可在字典管理中维护',
+    items: [
+      { itemCode: 'SELF-001', itemName: '滨江商务中心项目', color: 'blue' },
+    ],
+  },
+  other_project: {
+    name: '其他项目',
+    remark: '收领单「其他项目」下拉数据源，可在字典管理中维护',
+    items: [
+      { itemCode: 'OTHER-001', itemName: '城东产业园项目', color: 'cyan' },
+      { itemCode: 'OTHER-002', itemName: '南站枢纽项目', color: 'cyan' },
+    ],
+  },
   contract_execution_status: {
     name: '合同执行情况',
     items: [
@@ -354,6 +412,8 @@ const PERMISSIONS = [
   { code: 'project:edit', name: '维护项目', module: '项目管理' },
   { code: 'supplier:view', name: '查看供应商', module: '供应商库' },
   { code: 'supplier:edit', name: '维护供应商', module: '供应商库' },
+  { code: 'subcontractor:view', name: '查看分包商库', module: '基础信息管理' },
+  { code: 'subcontractor:edit', name: '维护分包商与授权委托书', module: '基础信息管理' },
   { code: 'contract:view', name: '查看合同', module: '合同管理' },
   { code: 'contract:edit', name: '维护合同', module: '合同管理' },
   { code: 'template:view', name: '查看模板', module: '合同模板' },

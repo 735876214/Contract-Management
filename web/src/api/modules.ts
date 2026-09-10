@@ -171,8 +171,49 @@ export const receiptOrderApi = {
   nextNo: () => http.get<any, any>('/receipt-orders/next-no'),
   contractMaterials: (contractId: string) =>
     http.get<any, any>('/receipt-orders/contract-materials', { params: { contractId } }),
+  // 需求 2.4.1 供应单位 4 类 Tab 数据源（供应商/其他项目/分包商/本项目）
+  partyOptions: (keyword?: string) =>
+    http.get<any, any>('/receipt-orders/party-options', { params: { keyword } }),
+  // 需求 2.4.2 领用单位 3 类 Tab 数据源（分包商/本项目/其他项目）
+  receivingUnitOptions: (keyword?: string) =>
+    http.get<any, any>('/receipt-orders/receiving-unit-options', { params: { keyword } }),
+  // 需求 2.5 互锁：按分包商带出其关联分包合同
+  subcontractorContracts: (subcontractorId: string) =>
+    http.get<any, any>('/receipt-orders/subcontractor-contracts', { params: { subcontractorId } }),
   create: (data: any) => http.post<any, any>('/receipt-orders', data),
   update: (id: string, data: any) => http.put<any, any>(`/receipt-orders/${id}`, data),
   push: (id: string) => http.post<any, any>(`/receipt-orders/${id}/push`),
   remove: (id: string) => http.delete<any, any>(`/receipt-orders/${id}`),
+};
+
+/**
+ * 分包商库（基础信息管理 → 分包商库）
+ * 数据来源：分包材料员授权委托书；导出 PDF 后落库为「编辑中」，
+ * 上传签字盖章版 + 签字截图后流转为「已完成」。
+ */
+export const subcontractorApi = {
+  list: (params?: any) => http.get<any, any>('/subcontractors', { params }),
+  options: (keyword?: string) => http.get<any, any>('/subcontractors/options', { params: { keyword } }),
+  detail: (id: string) => http.get<any, any>(`/subcontractors/${id}`),
+  create: (data: any) => http.post<any, any>('/subcontractors', data),
+  update: (id: string, data: any) => http.put<any, any>(`/subcontractors/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/subcontractors/${id}`),
+  /** 导出 PDF 后落库（编辑中），同分包商 + 同授权人去重 */
+  exportMark: (data: any) => http.post<any, any>('/subcontractors/export-mark', data),
+  /** 上传签字盖章版委托书 + 签字截图 → 已完成 */
+  complete: (id: string, data: any) => http.post<any, any>(`/subcontractors/${id}/complete`, data),
+  /** 授权委托书正文 HTML（打印就绪），用于预览与导出 PDF */
+  letterHtml: (id: string) =>
+    http.get<any, string>(`/subcontractors/${id}/letter`, {
+      responseType: 'text',
+      headers: { 'x-raw-response': '1' },
+      transformResponse: [(d: any) => d],
+    } as any),
+  /** 按表单值实时渲染委托书 HTML（未落库前预览） */
+  previewHtml: (data: any) =>
+    http.post<any, string>('/subcontractors/preview', data, {
+      responseType: 'text',
+      headers: { 'x-raw-response': '1' },
+      transformResponse: [(d: any) => d],
+    } as any),
 };

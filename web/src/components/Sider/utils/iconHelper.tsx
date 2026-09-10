@@ -29,6 +29,8 @@ import {
   FileAddOutlined,
   FileOutlined,
   ContainerOutlined,
+  SolutionOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -63,6 +65,8 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   FileSearchOutlined,
   FileAddOutlined,
   ContainerOutlined,
+  SolutionOutlined,
+  SearchOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */

@@ -44,6 +44,32 @@ export class ReceiptOrderController {
     return this.service.loadContractMaterials(contractId);
   }
 
+  /**
+   * 供应单位数据源（4 类 Tab：供应商 / 其他项目 / 分包商 / 本项目）
+   * 支持 keyword 在各 Tab 范围内搜索
+   */
+  @RequirePermissions('receipt:view')
+  @Get('party-options')
+  partyOptions(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.supplierOptions(projectId, query.keyword);
+  }
+
+  /**
+   * 领用单位数据源（3 类 Tab：分包商 / 本项目 / 其他项目）
+   */
+  @RequirePermissions('receipt:view')
+  @Get('receiving-unit-options')
+  receivingUnitOptions(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.receivingUnitOptions(projectId, query.keyword);
+  }
+
+  /** 互锁：按分包商查询其关联的分包合同 */
+  @RequirePermissions('receipt:view')
+  @Get('subcontractor-contracts')
+  subcontractorContracts(@Query('subcontractorId') subcontractorId: string, @ProjectId() projectId: string) {
+    return this.service.subcontractorContracts(subcontractorId, projectId);
+  }
+
   @RequirePermissions('receipt:view')
   @Get(':id')
   findOne(@Param('id') id: string) {

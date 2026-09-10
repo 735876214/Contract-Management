@@ -36,6 +36,14 @@ const DETAIL_ALLOWED_FIELDS = [
   'sortOrder',
 ];
 
+/** 供应单位 / 领用单位类型（需求 2.4.1 / 2.4.2） */
+export const PARTY_TYPE = {
+  SUPPLIER: 'SUPPLIER', // 供应商（合同已签章的供应商）
+  OTHER_PROJECT: 'OTHER_PROJECT', // 其他项目（字典维护的项目列表）
+  SUBCONTRACTOR: 'SUBCONTRACTOR', // 分包商（分包商库）
+  SELF_PROJECT: 'SELF_PROJECT', // 本项目（字典维护的当前项目）
+} as const;
+
 const round4 = (n: number) => Math.round((n + Number.EPSILON) * 1e4) / 1e4;
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 1e2) / 1e2;
 
@@ -167,8 +175,9 @@ export class ReceiptOrderService {
         // 行唯一标识（前端本地 key，落库时忽略）
         key: r.id,
         materialId: r.materialBaseId,
-        categoryLevel1: null as string | null, // 一级分类（物资基础库未建模，留空待扩展）
-        categoryLevel2: null as string | null, // 二级分类
+        // 一二级分类由物资基础库按「物资名称 + 规格型号」唯一对应带出（需求 2.3.2）
+        categoryLevel1: r.materialBase?.categoryLevel1 || null,
+        categoryLevel2: r.materialBase?.categoryLevel2 || null,
         materialName: r.materialBase?.name || '',
         specModel: r.materialBase?.spec || '',
         unit: r.unit || '',
@@ -201,6 +210,153 @@ export class ReceiptOrderService {
     };
   }
 
+  // ==================== 供应单位 / 领用单位数据源（需求 2.4.1 / 2.4.2） ====================
+
+  /**
+   * 供应单位选项（4 类）
+   *  - SUPPLIER      供应商：合同已签章的供应商名称（去重）
+   *  - OTHER_PROJECT 其他项目：字典 project_list 维护的项目列表
+   *  - SUBCONTRACTOR 分包商：分包商库中 编辑中 + 已完成
+   *  - SELF_PROJECT  本项目：字典维护的当前项目
+   */
+  async supplierOptions(projectId: string, keyword?: string) {
+    const [suppliers, subcontractors, otherProjects, selfProject] = await Promise.all([
+      this.contractSupplierOptions(projectId, keyword),
+      this.subcontractorOptions(projectId, keyword),
+      this.dictProjectOptions('other_project', keyword),
+      this.dictProjectOptions('self_project', keyword, projectId),
+    ]);
+    return {
+      SUPPLIER: suppliers,
+      OTHER_PROJECT: otherProjects,
+      SUBCONTRACTOR: subcontractors,
+      SELF_PROJECT: selfProject,
+    };
+  }
+
+  /**
+   * 领用单位选项（3 类）
+   *  - SUBCONTRACTOR 分包商（默认选中）
+   *  - SELF_PROJECT  本项目
+   *  - OTHER_PROJECT 其他项目
+   */
+  async receivingUnitOptions(projectId: string, keyword?: string) {
+    const [subcontractors, selfProject, otherProjects] = await Promise.all([
+      this.subcontractorOptions(projectId, keyword),
+      this.dictProjectOptions('self_project', keyword, projectId),
+      this.dictProjectOptions('other_project', keyword),
+    ]);
+    return {
+      SUBCONTRACTOR: subcontractors,
+      SELF_PROJECT: selfProject,
+      OTHER_PROJECT: otherProjects,
+    };
+  }
+
+  /** 供应商：合同已签章的供应商（status 为 APPROVING / SIGNED / COMPLETED 视为已签章） */
+  private async contractSupplierOptions(projectId: string, keyword?: string) {
+    const where: any = {
+      projectId,
+      supplierId: { not: null },
+      OR: [{ status: { in: ['APPROVING', 'SIGNED', 'COMPLETED'] } }, { signedFilePath: { not: null } }],
+    };
+    const contracts = await this.prisma.contract.findMany({
+      where,
+      select: { supplierId: true, supplier: { select: { id: true, name: true, legalPerson: true, contactName: true, contactPhone: true } } },
+    });
+    const seen = new Set<string>();
+    const list: any[] = [];
+    for (const c of contracts) {
+      const s: any = (c as any).supplier;
+      if (!s || seen.has(s.id)) continue;
+      if (keyword && !String(s.name || '').includes(keyword)) continue;
+      seen.add(s.id);
+      list.push({ ...s, _type: PARTY_TYPE.SUPPLIER, _label: s.name });
+    }
+    return list;
+  }
+
+  /** 分包商：分包商库中 编辑中 + 已完成 */
+  private async subcontractorOptions(projectId: string, keyword?: string) {
+    const where: any = { status: { in: ['EDITING', 'COMPLETED'] }, projectId };
+    if (keyword) {
+      where.OR = [
+        { subcontractorName: { contains: keyword } },
+        { authorizedPerson: { contains: keyword } },
+      ];
+    }
+    const rows = await this.prisma.subcontractor.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
+    return rows.map((r: any) => ({
+      id: r.id,
+      name: r.subcontractorName,
+      creditCode: null,
+      contactName: r.authorizedPerson || null,
+      contactPhone: null,
+      legalPerson: r.legalPerson || null,
+      authorizedPerson: r.authorizedPerson || null,
+      subcontractContent: r.subcontractContent || null,
+      subcontractId: r.subcontractId || null,
+      status: r.status,
+      _type: PARTY_TYPE.SUBCONTRACTOR,
+      _label: r.subcontractorName,
+    }));
+  }
+
+  /** 项目类选项：优先取字典维护的项目列表，缺失时回退到项目表 */
+  private async dictProjectOptions(dictCode: string, keyword?: string, projectId?: string) {
+    let items: any[] = [];
+    try {
+      items = await this.prisma.dictItem.findMany({
+        where: { typeCode: dictCode, status: 1 },
+        orderBy: { sortOrder: 'asc' },
+      });
+    } catch {
+      items = [];
+    }
+    let list = items.map((i: any) => ({
+      id: i.itemCode,
+      name: i.itemName,
+      creditCode: null,
+      contactName: null,
+      contactPhone: null,
+      _type: dictCode === 'self_project' ? PARTY_TYPE.SELF_PROJECT : PARTY_TYPE.OTHER_PROJECT,
+      _label: i.itemName,
+    }));
+    // 本项目：字典未维护时回退为当前项目自身
+    if (dictCode === 'self_project' && !list.length && projectId) {
+      const p = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (p) {
+        list = [{
+          id: p.id, name: p.name, creditCode: null, contactName: null, contactPhone: null,
+          _type: PARTY_TYPE.SELF_PROJECT, _label: p.name,
+        }];
+      }
+    }
+    if (keyword) list = list.filter((i) => String(i.name || '').includes(keyword));
+    return list;
+  }
+
+  /**
+   * 分包商关联的分包合同（互锁：分包商 ↔ 分包合同）
+   * 优先返回分包商库中登记的 subcontractId 对应合同；未登记时按「租赁执行合同」兜底，
+   * 保证仍可下拉选择，不阻塞业务。
+   */
+  async subcontractorContracts(subcontractorId: string, projectId: string) {
+    const sub = await this.prisma.subcontractor.findUnique({ where: { id: subcontractorId } });
+    if (!sub) throw new NotFoundException('分包商不存在');
+    const ids: string[] = [];
+    if (sub.subcontractId) ids.push(sub.subcontractId);
+    const where: any = { projectId };
+    if (ids.length) where.id = { in: ids };
+    else where.typeCode = { in: ['LEASE_EXEC', 'LEASE'] };
+    const list = await this.prisma.contract.findMany({
+      where,
+      select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return list;
+  }
+
   // ==================== 写入 ====================
 
   private async validate(data: any) {
@@ -211,15 +367,43 @@ export class ReceiptOrderService {
     }
   }
 
+  /**
+   * 按供应单位/领用单位类型做动态必填校验（需求 2.4.3）
+   *  - 供应单位 = 分包商 → 必填「供应分包合同」，且不校验物资合同
+   *  - 供应单位 = 供应商 → 必填「物资合同」
+   *  - 供应单位 = 本项目 / 其他项目 → 两者都不必填
+   *  - 领用单位 = 分包商 → 必填「分包合同」
+   */
+  private validateDynamic(data: any) {
+    const supplierType = data?.supplierType || null;
+    const receivingUnitType = data?.receivingUnitType || null;
+
+    if (supplierType === PARTY_TYPE.SUBCONTRACTOR) {
+      if (!data?.supplySubcontractId) throw new BadRequestException('供应单位为分包商时，请选择供应分包合同');
+    } else if (supplierType === PARTY_TYPE.SUPPLIER) {
+      if (!data?.materialContractId) throw new BadRequestException('供应单位为供应商时，请选择物资合同');
+    }
+    // 本项目 / 其他项目：不校验合同字段
+
+    if (receivingUnitType === PARTY_TYPE.SUBCONTRACTOR) {
+      if (!data?.subcontractId) throw new BadRequestException('领用单位为分包商时，请选择分包合同');
+    }
+  }
+
   /** 主表单头归一化（不含明细） */
   private normalizeHeader(data: any) {
     const p: any = {};
     p.supplierId = data.supplierId || null;
     p.supplierName = data.supplierName ?? null;
+    p.supplierType = data.supplierType || null;
     p.receivingUnitId = data.receivingUnitId || null;
     p.receivingUnitName = data.receivingUnitName ?? null;
+    p.receivingUnitType = data.receivingUnitType || null;
     p.subcontractId = data.subcontractId || null;
     p.subcontractName = data.subcontractName ?? null;
+    p.supplySubcontractId = data.supplySubcontractId || null;
+    p.supplySubcontractName = data.supplySubcontractName ?? null;
+    p.subcontractorId = data.subcontractorId || null;
     p.receiver = data.receiver ?? null;
     p.materialContractId = data.materialContractId || null;
     p.materialContractNo = data.materialContractNo ?? null;
@@ -254,9 +438,10 @@ export class ReceiptOrderService {
   }
 
   async create(data: any, projectId: string, user?: any) {
-    if (!data?.materialContractId) throw new BadRequestException('请选择物资合同');
     if (!data?.supplierId) throw new BadRequestException('请选择供应单位');
+    if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
     if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    this.validateDynamic(data);
     await this.validate(data);
 
     const { orderNo } = await this.nextOrderNo(projectId);
@@ -281,6 +466,7 @@ export class ReceiptOrderService {
   async update(id: string, data: any) {
     const before = await this.findOne(id);
     assertVersion(before, data);
+    this.validateDynamic(data);
     await this.validate(data);
 
     const details = (Array.isArray(data.details) ? data.details : []).map((d: any, i: number) =>

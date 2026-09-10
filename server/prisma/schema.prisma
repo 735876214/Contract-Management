@@ -166,6 +166,33 @@ model Supplier {
   receiptOrders ReceiptOrder[]
 }
 
+// ---------------- 分包商库（分包材料员授权委托书） ----------------
+
+model Subcontractor {
+  id                    String   @id @default(cuid())
+  projectId             String? // 所属项目，全局共享时为空
+  subcontractorName     String // 分包商名称
+  subcontractContent    String? // 分包合同内容（关联的分包合同说明）
+  subcontractId         String? // 关联的分包合同 ID（用于与分包合同互锁）
+  legalPerson           String? // 法人姓名
+  authorizedPerson      String? // 材料授权人姓名
+  authorizedPersonIdNo  String? // 材料授权人身份证号
+  projectName           String? // 项目名称（授权委托书内填写）
+  idCardFront           String? // 材料授权人身份证照片正面
+  idCardBack            String? // 材料授权人身份证照片反面
+  signatureScreenshot   String? // 材料授权人签字部分截图
+  signedAuthFile        String? // 签字盖章版委托书（扫描件/PDF）
+  status                String   @default("EDITING") // EDITING 编辑中 / COMPLETED 已完成
+  remark                String?
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  version               Int      @default(0)
+  updatedAt             DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([subcontractorName])
+}
+
 // ---------------- 合同 ----------------
 
 model Contract {
@@ -230,6 +257,7 @@ model Contract {
   overdueInterests OverdueInterest[]
   receiptAsMaterialContract ReceiptOrder[] @relation("ReceiptMaterialContract")
   receiptAsSubcontract       ReceiptOrder[] @relation("ReceiptSubcontract")
+  receiptAsSupplySubcontract ReceiptOrder[] @relation("ReceiptSupplySubcontract")
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
@@ -393,6 +421,8 @@ model MaterialBase {
   id        String   @id @default(cuid())
   name      String // 物资名称
   spec      String // 规格型号
+  categoryLevel1 String? // 一级分类（dict: material_category_l1）
+  categoryLevel2 String? // 二级分类（dict: material_category_l2）
   mdmCode   String? // MDM编码
   dscCode   String? // DSC编码
   status    Int      @default(1) // 1 启用 0 停用（软删除）
@@ -890,10 +920,15 @@ model ReceiptOrder {
   orderNo            String // 收领单编号，自动生成（如 SO00009cy000217）
   supplierId         String? // 供应单位
   supplierName       String? // 供应单位名称（快照）
+  supplierType       String? // 供应单位类型：SUPPLIER 供应商 / OTHER_PROJECT 其他项目 / SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目
   receivingUnitId    String? // 领用单位 ID
   receivingUnitName  String? // 领用单位名称（快照）
-  subcontractId      String? // 分包合同 ID
+  receivingUnitType  String? // 领用单位类型：SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目 / OTHER_PROJECT 其他项目
+  subcontractId      String? // 分包合同 ID（领用单位选分包商时）
   subcontractName    String? // 分包合同名称（快照）
+  supplySubcontractId   String? // 供应分包合同 ID（供应单位选分包商时）
+  supplySubcontractName String? // 供应分包合同名称（快照）
+  subcontractorId    String? // 关联分包商 ID（供应单位/领用单位选分包商时，用于领料人下拉与合同互锁）
   orderDate          DateTime? // 日期
   receiver           String? // 领料人（最长 50 字符）
   materialContractId String? // 物资合同 ID
@@ -911,6 +946,7 @@ model ReceiptOrder {
   supplier         Supplier?           @relation(fields: [supplierId], references: [id])
   materialContract Contract?           @relation("ReceiptMaterialContract", fields: [materialContractId], references: [id])
   subcontract      Contract?           @relation("ReceiptSubcontract", fields: [subcontractId], references: [id])
+  supplySubcontract Contract?          @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
   details          ReceiptOrderDetail[]
 
   @@unique([projectId, orderNo])

@@ -8,6 +8,7 @@ import Dashboard from '@/pages/Dashboard';
 import Dict from '@/pages/Dict';
 import Projects from '@/pages/Projects';
 import Suppliers from '@/pages/Suppliers';
+import Subcontractors from '@/pages/Subcontractors';
 import Contracts from '@/pages/Contracts';
 import Templates from '@/pages/Templates';
 import DailyReports from '@/pages/DailyReports';
@@ -80,6 +81,7 @@ export const routes: RouteObject[] = [
       { path: 'dict', element: <Dict /> },
       { path: 'projects', element: <Projects /> },
       { path: 'suppliers', element: <Suppliers /> },
+      { path: 'subcontractors', element: <Subcontractors /> },
       { path: 'contracts', element: <Contracts /> },
       { path: 'templates', element: <Templates /> },
       { path: 'daily', element: <DailyReports /> },
@@ -120,6 +122,7 @@ export const routes: RouteObject[] = [
       // 基础信息管理
       { path: 'base/project', element: <Projects /> },
       { path: 'base/supplier', element: <Suppliers /> },
+      { path: 'base/subcontractor', element: <Subcontractors /> },
       { path: 'base/material', element: <Materials /> },
       { path: 'base/template', element: <Templates /> },
       { path: 'base/clause', element: <Clauses /> },
