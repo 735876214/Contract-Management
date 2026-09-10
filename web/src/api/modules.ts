@@ -159,3 +159,20 @@ export const dashboardApi = {
   invoiceStats: () => http.get<any, any>('/dashboard/invoice-stats'),
   reminders: () => http.get<any, any>('/dashboard/reminders'),
 };
+
+/**
+ * 收领单（日报管理 → 收领单，与总日报平级）
+ * - contractMaterials：选择物资合同后带出该合同的合同物资清单
+ * - push：把明细推送到总日报
+ */
+export const receiptOrderApi = {
+  list: (params?: any) => http.get<any, any>('/receipt-orders', { params }),
+  detail: (id: string) => http.get<any, any>(`/receipt-orders/${id}`),
+  nextNo: () => http.get<any, any>('/receipt-orders/next-no'),
+  contractMaterials: (contractId: string) =>
+    http.get<any, any>('/receipt-orders/contract-materials', { params: { contractId } }),
+  create: (data: any) => http.post<any, any>('/receipt-orders', data),
+  update: (id: string, data: any) => http.put<any, any>(`/receipt-orders/${id}`, data),
+  push: (id: string) => http.post<any, any>(`/receipt-orders/${id}/push`),
+  remove: (id: string) => http.delete<any, any>(`/receipt-orders/${id}`),
+};

@@ -36,6 +36,8 @@ const MENU_TREE: MenuNode[] = [
     icon: 'CalendarOutlined',
     children: [
       { key: 'daily-report', label: '总日报', icon: 'FileExcelOutlined', path: '/daily/report', permission: 'daily:view' },
+      // 需求：收领单与总日报平级
+      { key: 'daily-receipt', label: '收领单', icon: 'ContainerOutlined', path: '/daily/receipt', permission: 'receipt:view' },
       { key: 'daily-asset', label: '资产台账', icon: 'FundOutlined', path: '/daily/asset', permission: 'asset:view' },
     ],
   },

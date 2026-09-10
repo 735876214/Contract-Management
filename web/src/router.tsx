@@ -11,6 +11,7 @@ import Suppliers from '@/pages/Suppliers';
 import Contracts from '@/pages/Contracts';
 import Templates from '@/pages/Templates';
 import DailyReports from '@/pages/DailyReports';
+import ReceiptOrders from '@/pages/ReceiptOrders';
 import Materials from '@/pages/Materials';
 import ContractMaterials from '@/pages/ContractMaterials';
 import Settlements, { SettlementLedgerPage } from '@/pages/Settlements';
@@ -82,6 +83,7 @@ export const routes: RouteObject[] = [
       { path: 'contracts', element: <Contracts /> },
       { path: 'templates', element: <Templates /> },
       { path: 'daily', element: <DailyReports /> },
+      { path: 'receipt-orders', element: <ReceiptOrders /> },
       { path: 'materials', element: <Materials /> },
       { path: 'contract-materials', element: <ContractMaterials /> },
       { path: 'settlements', element: <Settlements /> },
@@ -102,6 +104,8 @@ export const routes: RouteObject[] = [
       { path: 'contract/query', element: <ContractQuery /> },
       // 日报管理
       { path: 'daily/report', element: <DailyReports /> },
+      // 需求：收领单（日报管理下，与总日报平级）
+      { path: 'daily/receipt', element: <ReceiptOrders /> },
       { path: 'daily/asset', element: <Assets /> },
       // 结算及付款管理（需求修正：每个二级菜单直接展示对应页面，无 Tab）
       { path: 'settlement/order', element: <Settlements /> },

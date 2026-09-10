@@ -21,6 +21,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SystemModule } from './modules/system/system.module';
 import { FileModule } from './modules/file/file.module';
 import { AssetModule } from './modules/asset/asset.module';
+import { ReceiptOrderModule } from './modules/receipt-order/receipt-order.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AssetModule } from './modules/asset/asset.module';
     SystemModule,
     FileModule,
     AssetModule,
+    ReceiptOrderModule,
   ],
 })
 export class AppModule {}

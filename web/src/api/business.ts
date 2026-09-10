@@ -11,6 +11,7 @@ export {
   materialApi,
   notificationApi,
   dashboardApi,
+  receiptOrderApi,
 } from './modules';
 
 export const projectApi = {

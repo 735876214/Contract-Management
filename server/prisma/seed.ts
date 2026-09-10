@@ -360,6 +360,8 @@ const PERMISSIONS = [
   { code: 'template:edit', name: '维护模板', module: '合同模板' },
   { code: 'daily:view', name: '查看日报', module: '日报管理' },
   { code: 'daily:edit', name: '维护日报', module: '日报管理' },
+  { code: 'receipt:view', name: '查看收领单', module: '日报管理' },
+  { code: 'receipt:edit', name: '维护收领单', module: '日报管理' },
   { code: 'material:view', name: '查看物资基础库', module: '物资管理' },
   { code: 'material:edit', name: '维护物资与合同物资清单', module: '物资管理' },
   { code: 'settlement:view', name: '查看结算', module: '结算管理' },
