@@ -283,8 +283,38 @@ export class MaterialService {
     };
   }
 
-  private async assertContract(contractId: string) {
-    if (!contractId) throw new BadRequestException('缺少合同 ID');
+  /**
+   * 项目下所有合同物资清单（需求修正3）：平铺展示 + 组合筛选
+   * 筛选：供应商名称（模糊）、合同物资名称（模糊）、合同编号（模糊）、合同（精确）
+   * 数据按项目隔离
+   */
+  async findAllRows(query: any = {}, projectId: string) {
+    const { skip, take } = paginate(query);
+    const and: any[] = [{ contract: { projectId } }];
+    if (query.contractId) and.push({ contractId: query.contractId });
+    if (query.supplierName) {
+      and.push({ contract: { supplier: { name: { contains: query.supplierName } } } });
+    }
+    if (query.materialName) and.push({ materialBase: { name: { contains: query.materialName } } });
+    if (query.contractCode) and.push({ contract: { code: { contains: query.contractCode } } });
+    const where = { AND: and };
+    const [list, total] = await Promise.all([
+      this.prisma.contractMaterial.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ contract: { code: 'asc' } }, { sortOrder: 'asc' }],
+        include: {
+          materialBase: true,
+          contract: { include: { supplier: { select: { id: true, name: true } } } },
+        },
+      }),
+      this.prisma.contractMaterial.count({ where }),
+    ]);
+    return buildResult(list, total, query);
+  }
+
+  private async assertContract(contractId: string) {    if (!contractId) throw new BadRequestException('缺少合同 ID');
     const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
     if (!contract) throw new NotFoundException('合同不存在');
     return contract;

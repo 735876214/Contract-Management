@@ -25,6 +25,8 @@ export const materialApi = {
 
 export const contractMaterialApi = {
   list: (contractId: string) => http.get<any, any>('/contract-materials', { params: { contractId } }),
+  // 项目下所有合同物资清单（需求修正3）：供应商/物资名称/合同编号组合筛选
+  listAll: (params?: any) => http.get<any, any>('/contract-materials/all', { params }),
   derive: (contractId: string, materialIds: string[]) =>
     http.post<any, any>('/contract-materials/derive', { contractId, materialIds }),
   templateUrl: () => `${http.defaults.baseURL}/contract-materials/template`,

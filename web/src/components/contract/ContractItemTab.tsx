@@ -12,8 +12,8 @@ const calcTotal = (priceWithTax?: number | null, qty?: number | null) =>
 
 /**
  * 合同起草 · Tab2：合同清单（交易明细 / 执行池）
- * - 数据由「物料编码清单」勾选派生
- * - 数量、税前单价可编辑；税率为只读，自动从基础信息带出（需求 2.1）
+ * - 独立维护，可通过「从物料编码清单添加」手动从 Tab1 同步（不再自动派生）
+ * - 数量、税前单价可编辑；税率为只读，统一来源于合同基本信息中的「合同税率」（需求修正2）
  * - 含税单价与暂定含税合价实时自动计算
  */
 export default function ContractItemTab({ contractId }: { contractId: string }) {
@@ -91,7 +91,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
     [rows],
   );
 
-  /** 需求 2.1：存在未维护税率的行时给出红色提示 */
+  /** 需求修正2：存在未维护税率的行时给出红色提示（税率来源：合同基本信息的合同税率） */
   const missingTax = useMemo(() => rows.some((r) => r.taxRatePct == null), [rows]);
 
   return (
@@ -101,7 +101,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
           type="error"
           showIcon
           message="请先在物资基础信息中维护税率"
-          description="部分清单行的税率尚未维护，带出后含税单价与暂定含税合价将自动重新计算。"
+          description="部分清单行的税率尚未维护。请在上方「基础信息」中填写合同税率并保存，保存后所有物料税率将自动同步。"
         />
       )}
       <Space wrap>
@@ -200,7 +200,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
             title: '税率(%)',
             dataIndex: 'taxRatePct',
             width: 100,
-            // 需求 2.1：税率只读，由服务端自动从基础信息带出（合同物资清单 → 项目物资清单）
+            // 需求修正2：税率只读，统一来源于合同基本信息中的「合同税率」
             render: (v) =>
               v == null ? (
                 <Tag color="red">未维护</Tag>

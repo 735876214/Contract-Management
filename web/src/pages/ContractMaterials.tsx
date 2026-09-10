@@ -3,9 +3,9 @@ import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, Select, Descriptions, Alert, Tag,
 } from 'antd';
-import { PlusOutlined, ExportOutlined, ArrowUpOutlined, ArrowDownOutlined, ImportOutlined, SwapOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, ArrowUpOutlined, ArrowDownOutlined, SwapOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { contractMaterialApi, materialApi } from '@/api/modules';
-import { contractApi } from '@/api/business';
+import { contractApi, supplierApi } from '@/api/business';
 import ImportButton from '@/components/ImportButton';
 
 /** 前端实时计算（与服务端同口径：4 位小数） */
@@ -13,12 +13,26 @@ const round4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 const fmtNum = (v: any, digits = 4) =>
   v == null || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: digits });
 
+/**
+ * 合同物资清单（需求修正3）
+ * - 默认展示当前项目下**所有合同**的物资清单（按行平铺）
+ * - 支持供应商名称 / 合同物资名称 / 合同编号 多条件组合筛选（查询/重置）
+ * - 选中具体合同后进入单合同维护视图（添加/派生/导入/排序等操作仍按合同维度）
+ */
 export default function ContractMaterials() {
   const [contracts, setContracts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [contractId, setContractId] = useState<string>();
   const [header, setHeader] = useState<any>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // 筛选（全项目视图）
+  const [filters, setFilters] = useState<{ supplierName?: string; materialName?: string; contractCode?: string }>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [filterForm] = Form.useForm();
 
   // 行编辑弹窗
   const [modal, setModal] = useState(false);
@@ -38,12 +52,47 @@ export default function ContractMaterials() {
   const [deriveIds, setDeriveIds] = useState<string[]>([]);
   const [deriveSubmitting, setDeriveSubmitting] = useState(false);
 
-  const loadRows = async (cid: string) => {
+  const contractMap = useMemo(
+    () => Object.fromEntries((contracts || []).map((c: any) => [c.id, c])),
+    [contracts],
+  );
+
+  /** 行数据补齐合同维度字段（单合同视图下从 header/合同下拉补齐） */
+  const enrich = (list: any[]) =>
+    (list || []).map((r: any) => ({
+      ...r,
+      contractCode: r.contract?.code || header?.code || contractMap[r.contractId]?.code || '-',
+      contractName: r.contract?.name || header?.name || contractMap[r.contractId]?.name || '-',
+      supplierName:
+        r.contract?.supplier?.name || header?.supplierName || contractMap[r.contractId]?.supplierName || '-',
+    }));
+
+  const loadRows = async (
+    cid: string | undefined = contractId,
+    f: typeof filters = filters,
+    p = page,
+    ps = pageSize,
+  ) => {
     setLoading(true);
     try {
-      const res: any = await contractMaterialApi.list(cid);
-      setHeader(res?.contract || null);
-      setRows(res?.list || []);
+      if (cid) {
+        const res: any = await contractMaterialApi.list(cid);
+        setHeader(res?.contract || null);
+        const list = enrich(res?.list || []);
+        setRows(list);
+        setTotal(list.length);
+      } else {
+        setHeader(null);
+        const res: any = await contractMaterialApi.listAll({
+          ...f,
+          page: p,
+          pageSize: ps,
+        });
+        const data = res?.data ?? res;
+        const list = enrich(data?.list || []);
+        setRows(list);
+        setTotal(data?.total ?? list.length);
+      }
     } finally {
       setLoading(false);
     }
@@ -51,12 +100,13 @@ export default function ContractMaterials() {
 
   useEffect(() => {
     contractApi.options().then((res: any) => setContracts(res || []));
+    supplierApi.options().then((res: any) => setSuppliers(res || []));
   }, []);
 
   useEffect(() => {
-    if (contractId) loadRows(contractId);
-    else { setHeader(null); setRows([]); }
-  }, [contractId]);
+    loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractId, page, pageSize]);
 
   const loadBases = (keyword: string) => {
     setBaseLoading(true);
@@ -71,9 +121,22 @@ export default function ContractMaterials() {
     setPickerOpen(true);
   };
 
+  // ---------- 筛选 ----------
+  const handleSearch = () => {
+    setPage(1);
+    loadRows(contractId || undefined, filters, 1, pageSize);
+  };
+
+  const handleReset = () => {
+    filterForm.resetFields();
+    setFilters({});
+    setPage(1);
+    loadRows(contractId || undefined, {}, 1, pageSize);
+  };
+
   // ---------- 行编辑 ----------
   const openEdit = (row?: any) => {
-    if (!contractId) return message.warning('请先选择合同');
+    if (!contractId) return message.warning('请先在上方选择合同，再维护该合同的物资清单');
     setEditing(row || null);
     setPicked(row?.materialBase || null);
     form.resetFields();
@@ -96,6 +159,8 @@ export default function ContractMaterials() {
     setPickerOpen(false);
   };
 
+  const reload = () => loadRows(contractId || undefined, filters, page, pageSize);
+
   const submit = async () => {
     const values = await form.validateFields();
     setSaving(true);
@@ -110,7 +175,7 @@ export default function ContractMaterials() {
       setModal(false);
       setEditing(null);
       setPicked(null);
-      if (contractId) loadRows(contractId);
+      reload();
     } finally {
       setSaving(false);
     }
@@ -119,7 +184,7 @@ export default function ContractMaterials() {
   const removeRow = async (row: any) => {
     await contractMaterialApi.remove(row.id);
     message.success('已删除');
-    if (contractId) loadRows(contractId);
+    reload();
   };
 
   const moveRow = async (index: number, dir: -1 | 1) => {
@@ -131,7 +196,7 @@ export default function ContractMaterials() {
       { id: a.id, sortOrder: b.sortOrder },
       { id: b.id, sortOrder: a.sortOrder },
     ]);
-    if (contractId) loadRows(contractId);
+    reload();
   };
 
   const doDerive = async () => {
@@ -140,10 +205,10 @@ export default function ContractMaterials() {
     setDeriveSubmitting(true);
     try {
       const res: any = await contractMaterialApi.derive(contractId, deriveIds);
-      message.success(`派生完成：已按所选物资重新生成 ${res?.created || 0} 行清单（请补录数量/单价/税率）`);
+      message.success(`派生完成：已按所选物资重新生成 ${res?.created || 0} 行清单（请补录数量/单价，税率将自动继承合同税率）`);
       setDeriveOpen(false);
       setDeriveIds([]);
-      loadRows(contractId);
+      reload();
     } finally {
       setDeriveSubmitting(false);
     }
@@ -170,7 +235,7 @@ export default function ContractMaterials() {
             templateUrl={contractMaterialApi.templateUrl()}
             uploadUrl={contractId ? contractMaterialApi.importUrl(contractId) : ''}
             disabled={!contractId}
-            onDone={() => contractId && loadRows(contractId)}
+            onDone={reload}
             extraHint="物资名称 + 规格型号须与物资基础库一致。"
           />
           <Button
@@ -198,15 +263,55 @@ export default function ContractMaterials() {
         </Space>
       }
     >
+      {/* 筛选区（需求修正3）：供应商名称 / 合同物资名称 / 合同编号，支持组合与重置 */}
+      <Form form={filterForm} layout="inline" style={{ marginBottom: 12, rowGap: 8 }}>
+        <Form.Item name="supplierName" label="供应商名称">
+          <Select
+            showSearch
+            allowClear
+            optionFilterProp="label"
+            placeholder="选择或输入关键词"
+            style={{ width: 200 }}
+            options={suppliers.map((s: any) => ({ value: s.name, label: s.name }))}
+            onChange={(v) => setFilters((prev) => ({ ...prev, supplierName: v || undefined }))}
+          />
+        </Form.Item>
+        <Form.Item name="materialName" label="合同物资名称">
+          <Input
+            allowClear
+            placeholder="物资名称关键词"
+            style={{ width: 180 }}
+            onChange={(e) => setFilters((prev) => ({ ...prev, materialName: e.target.value || undefined }))}
+            onPressEnter={handleSearch}
+          />
+        </Form.Item>
+        <Form.Item name="contractCode" label="合同编号">
+          <Input
+            allowClear
+            placeholder="合同编号关键词"
+            style={{ width: 200 }}
+            onChange={(e) => setFilters((prev) => ({ ...prev, contractCode: e.target.value || undefined }))}
+            onPressEnter={handleSearch}
+          />
+        </Form.Item>
+        <Form.Item>
+          <Space>
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>查询</Button>
+            <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+          </Space>
+        </Form.Item>
+      </Form>
+
+      {/* 合同切换（可选：进入单合同维护视图） */}
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
           showSearch
           optionFilterProp="label"
-          placeholder="请选择合同"
+          placeholder="按合同查看 / 维护（可留空查看全部）"
           allowClear
           style={{ minWidth: 360 }}
           value={contractId}
-          onChange={setContractId}
+          onChange={(v) => { setContractId(v); setPage(1); }}
           options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
         />
       </Space>
@@ -225,37 +330,58 @@ export default function ContractMaterials() {
         />
       )}
 
-      {!contractId && <Alert type="info" showIcon message="请先在上方选择合同，再维护该合同下的物资清单。合同物资清单由创建合同时从项目物资清单派生生成，也可在此通过「从物资库派生」重新生成。" />}
+      {!contractId && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="当前展示项目下所有合同的物资清单；可按供应商名称 / 合同物资名称 / 合同编号组合筛选。选择具体合同后可维护该合同清单（添加/派生/导入/排序）。"
+        />
+      )}
 
       <Table
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        pagination={false}
-        scroll={{ x: 1500 }}
-        locale={{ emptyText: contractId ? '当前合同暂无物资清单，可「从物资库派生」或「添加物资」' : '请先选择合同' }}
+        pagination={
+          contractId
+            ? false
+            : {
+                current: page,
+                pageSize,
+                total,
+                showSizeChanger: true,
+                showTotal: (t: number) => `共 ${t} 条`,
+                onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+              }
+        }
+        scroll={{ x: 1800 }}
+        locale={{ emptyText: contractId ? '当前合同暂无物资清单，可「从物资库派生」或「添加物资」' : '暂无合同物资清单数据' }}
         columns={[
-          { title: '序号', width: 70, fixed: 'left', render: (_, __, i) => i + 1 },
-          { title: '物资名称', width: 200, fixed: 'left', render: (_, r) => r.materialBase?.name || '-' },
-          { title: '规格型号', width: 160, render: (_, r) => r.materialBase?.spec || '-' },
+          { title: '序号', width: 70, fixed: 'left', render: (_, __, i) => (contractId ? i + 1 : (page - 1) * pageSize + i + 1) },
+          { title: '合同编号', dataIndex: 'contractCode', width: 200, fixed: 'left', render: (v) => v || '-' },
+          { title: '合同名称', dataIndex: 'contractName', width: 200, ellipsis: true, render: (v) => v || '-' },
+          { title: '供应商名称', dataIndex: 'supplierName', width: 170, ellipsis: true, render: (v) => v || '-' },
+          { title: '物资名称', width: 180, render: (_, r) => r.materialBase?.name || '-' },
+          { title: '规格型号', width: 150, render: (_, r) => r.materialBase?.spec || '-' },
           { title: '计量单位', dataIndex: 'unit', width: 100 },
           { title: '暂定数量', dataIndex: 'qty', width: 120, align: 'right', render: (v) => fmtNum(v) },
           { title: '税前单价', dataIndex: 'priceBeforeTax', width: 130, align: 'right', render: (v) => fmtNum(v, 2) },
           { title: '税率(%)', dataIndex: 'taxRatePct', width: 100, align: 'right', render: (v) => (v == null ? '-' : `${Number(v).toFixed(2)}`) },
           { title: '含税单价（自动）', dataIndex: 'priceWithTax', width: 150, align: 'right', render: (v) => <Tag color="geekblue">{fmtNum(v, 2)}</Tag> },
           { title: '暂定含税合价（自动）', dataIndex: 'totalWithTax', width: 170, align: 'right', render: (v) => <Tag color="geekblue">{fmtNum(v, 2)}</Tag> },
-          { title: '备注', dataIndex: 'remark', width: 180, ellipsis: true, render: (v) => v || '-' },
+          { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true, render: (v) => v || '-' },
           {
             title: '操作',
             width: 200,
             fixed: 'right',
             render: (_, row, i) => (
               <Space size={2}>
-                <Button type="link" size="small" icon={<ArrowUpOutlined />} disabled={i === 0} onClick={() => moveRow(i, -1)} />
-                <Button type="link" size="small" icon={<ArrowDownOutlined />} disabled={i === rows.length - 1} onClick={() => moveRow(i, 1)} />
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
+                <Button type="link" size="small" icon={<ArrowUpOutlined />} disabled={!contractId || i === 0} onClick={() => moveRow(i, -1)} />
+                <Button type="link" size="small" icon={<ArrowDownOutlined />} disabled={!contractId || i === rows.length - 1} onClick={() => moveRow(i, 1)} />
+                <Button type="link" size="small" disabled={!contractId} onClick={() => openEdit(row)}>编辑</Button>
                 <Popconfirm title="删除该行不影响物资基础库，确认删除？" onConfirm={() => removeRow(row)}>
-                  <Button type="link" size="small" danger>删除</Button>
+                  <Button type="link" size="small" danger disabled={!contractId}>删除</Button>
                 </Popconfirm>
               </Space>
             ),
@@ -296,8 +422,8 @@ export default function ContractMaterials() {
             <Form.Item name="priceBeforeTax" label="税前单价" style={{ width: 160 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={4} />
             </Form.Item>
-            <Form.Item name="taxRatePct" label="税率 (%)" style={{ width: 140 }}>
-              <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} placeholder="如 13.00" />
+            <Form.Item name="taxRatePct" label="税率 (%，留空继承合同税率)" style={{ width: 200 }}>
+              <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} placeholder="留空自动继承" />
             </Form.Item>
             <Form.Item name="sortOrder" label="序号" style={{ width: 120 }}>
               <InputNumber style={{ width: '100%' }} precision={0} />
@@ -331,7 +457,7 @@ export default function ContractMaterials() {
           allowClear
           enterButton
           onSearch={(v) => loadBases(v)}
-          onChange={(e) => { if (!e.target.value) loadBases(''); }}
+          onChange={(e) => { if (e.target.value) return; setPickerKeyword(''); loadBases(''); }}
           style={{ marginBottom: 12 }}
         />
         <Table
@@ -367,7 +493,7 @@ export default function ContractMaterials() {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="派生将清空当前合同已有清单行，并按所选物资重新编号生成（序号从 1 开始）。生成后请补录数量、单价与税率，含税金额将自动计算。"
+          message="派生将清空当前合同已有清单行，并按所选物资重新编号生成（序号从 1 开始）。税率自动继承合同税率，生成后请补录数量与单价，含税金额将自动计算。"
         />
         <Select
           mode="multiple"

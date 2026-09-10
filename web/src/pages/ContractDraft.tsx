@@ -7,6 +7,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   Modal,
   Row,
   Select,
@@ -137,7 +138,8 @@ export default function ContractDraft() {
       materialDescription: detail.materialDescription,
       templateId: detail.templateId,
       signDate: detail.signDate,
-      taxRate: detail.taxRate,
+      // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
+      taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
     });
     setActiveTab('pool');
     setEditorOpen(true);
@@ -156,11 +158,16 @@ export default function ContractDraft() {
         materialDescription: values.materialDescription,
         templateId: values.templateId,
         signDate: values.signDate || null,
-        taxRate: values.taxRate ?? null,
+        // 合同级税率：用户填 13 → 后端按小数 0.13 存储；保存后 Tab2 所有物料税率自动同步
+        taxRate: values.taxRate != null && values.taxRate !== '' ? Number(values.taxRate) / 100 : null,
       });
       const detail: any = await contractApi.detail(editing.id);
       setEditing(detail);
-      basicForm.setFieldsValue({ code: detail.code, name: detail.name });
+      basicForm.setFieldsValue({
+        code: detail.code,
+        name: detail.name,
+        taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
+      });
       if (!silent) message.success('已保存');
       return true;
     } finally {
@@ -202,8 +209,9 @@ export default function ContractDraft() {
           <p>发布后将执行以下动作，确认继续？</p>
           <ol style={{ paddingLeft: 20, margin: 0 }}>
             <li>合同清单推送至「合同物资」，作为正式执行数据；</li>
-            <li>合同状态置为「已完成」，从草稿列表移除；</li>
-            <li>按所选模板生成合同正文（可先点击「预览合同」确认）。</li>
+            <li>合同状态置为「审批中」，从草稿列表移除并进入「合同查询」；</li>
+            <li>按所选模板生成合同正文（可先点击「预览合同」确认）；</li>
+            <li>发布后合同类型不可再修改，可在「合同查询」中上传签章。</li>
           </ol>
         </div>
       ),
@@ -215,7 +223,7 @@ export default function ContractDraft() {
         setPublishing(true);
         try {
           await contractApi.publish(editing.id);
-          message.success('合同已发布完成');
+          message.success('合同已发布，状态：审批中');
           setEditorOpen(false);
           setEditing(null);
           load();
@@ -289,7 +297,7 @@ export default function ContractDraft() {
               title: '状态',
               dataIndex: 'status',
               width: 100,
-              render: (v) => (v === 'COMPLETED' ? <Tag color="green">已完成</Tag> : <Tag color="blue">草稿中</Tag>),
+              render: () => <Tag color="default">草稿中</Tag>,
             },
             {
               title: '超时提醒',
@@ -384,7 +392,13 @@ export default function ContractDraft() {
           <Space>
             <span>合同起草</span>
             {editing?.code && <Tag color="geekblue">{editing.code}</Tag>}
-            {editing?.status === 'COMPLETED' ? <Tag color="green">已完成</Tag> : <Tag color="blue">草稿中</Tag>}
+            {editing?.status === 'SIGNED' ? (
+              <Tag color="green">已签章</Tag>
+            ) : editing?.status === 'APPROVING' ? (
+              <Tag color="blue">审批中</Tag>
+            ) : (
+              <Tag color="default">草稿中</Tag>
+            )}
           </Space>
         }
         placement="right"
@@ -471,8 +485,12 @@ export default function ContractDraft() {
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item name="taxRate" label="税率(%)">
-                      <Input type="number" placeholder="如 13" />
+                    <Form.Item
+                      name="taxRate"
+                      label="合同税率(%)"
+                      extra="整个合同的统一税率（如 13 表示 13%）。保存后 Tab2 合同清单所有物料税率自动同步为该值（只读）"
+                    >
+                      <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} placeholder="如 13" />
                     </Form.Item>
                   </Col>
                 </Row>

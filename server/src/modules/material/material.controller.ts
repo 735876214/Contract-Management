@@ -18,7 +18,7 @@ import { MaterialService } from './material.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { CurrentUser } from '../../common/decorators/user.decorator';
+import { CurrentUser, ProjectId } from '../../common/decorators/user.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
@@ -96,6 +96,13 @@ export class MaterialController {
   @Get('contract-materials')
   findRows(@Query('contractId') contractId: string) {
     return this.service.findRows(contractId);
+  }
+
+  /** 项目下所有合同物资清单（需求修正3）：平铺展示 + 供应商/物资名称/合同编号组合筛选 */
+  @RequirePermissions('material:view')
+  @Get('contract-materials/all')
+  findAllRows(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.findAllRows(query, projectId);
   }
 
   /** 下载填写模板（需求 3.3） */

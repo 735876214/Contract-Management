@@ -86,6 +86,9 @@ export const contractApi = {
   // 合同查询（需求 2.2）：已发布/正式合同
   published: (params?: any) => http.get<any, any>('/contracts/published', { params }),
   exportWordUrl: (id: string) => `${http.defaults.baseURL}/contracts/${id}/export-word`,
+  // 合同签章（需求修正4）：上传签章文件+签订日期，状态置已签章
+  sign: (id: string, fd: FormData) => http.post<any, any>(`/contracts/${id}/sign`, fd),
+  signedFileUrl: (id: string) => `${http.defaults.baseURL}/contracts/${id}/signed-file`,
 };
 
 export const templateApi = {

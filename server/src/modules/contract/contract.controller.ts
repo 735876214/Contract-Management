@@ -80,6 +80,28 @@ export class ContractController {
     res.end(buffer);
   }
 
+  /** 合同签章：上传签章合同文件 + 签订日期，状态置为「已签章」（需求修正4） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/sign')
+  @UseInterceptors(FileInterceptor('file'))
+  sign(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Body() body: { signDate?: string; remark?: string },
+  ) {
+    return this.contractService.sign(id, file, body?.signDate, body?.remark);
+  }
+
+  /** 合同签章：下载签章合同文件 */
+  @RequirePermissions('contract:view')
+  @Get(':id/signed-file')
+  async signedFile(@Param('id') id: string, @Res() res: Response) {
+    const { buffer, filename } = await this.contractService.signedFile(id);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
+  }
+
   // ---------------- 合同起草：物料编码清单（Tab1） ----------------
 
   @RequirePermissions('contract:view')

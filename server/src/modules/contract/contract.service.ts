@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
@@ -22,9 +24,11 @@ const CONTRACT_FIELDS = [
   'status', 'templateId', 'materialDescription', 'formData',
 ];
 
-/** 合同起草状态（dict: contract_status） */
+/** 合同起草状态（需求修正：统一为 DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
 const STATUS_DRAFT = 'DRAFT';
-const STATUS_COMPLETED = 'COMPLETED';
+const STATUS_APPROVING = 'APPROVING';
+const STATUS_SIGNED = 'SIGNED';
+const PUBLISHED_STATUSES = [STATUS_APPROVING, STATUS_SIGNED];
 const EXT_FIELDS = [
   'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
   'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
@@ -373,45 +377,50 @@ export class ContractService {
     const row = await this.prisma.contractMaterialPool.findFirst({ where: { id: poolId, contractId } });
     if (!row) throw new NotFoundException('物料不存在');
     await this.prisma.contractMaterialPool.delete({ where: { id: poolId } });
-    // 同步移除草稿清单中对应物资，避免 Tab2 残留 Tab1 已删除的数据
-    await this.prisma.contractDraftMaterial.deleteMany({
-      where: { contractId, materialBaseId: row.materialBaseId },
-    });
+    // 需求修正1：Tab1（物料编码清单）与 Tab2（合同清单）独立维护，删除 Tab1 物料不再级联删除 Tab2 行
     return true;
   }
 
   // ==================== 合同起草：合同清单（Tab2，草稿明细） ====================
 
   /**
-   * 税率自动带出（需求 2.1）：合同清单税率只读，自动从关联基础信息解析
-   * 优先级：① 合同物资清单（ContractMaterial.taxRatePct，百分比）→ ② 项目物资清单（DailyReport.taxRate，小数，需 ×100）
-   * 均未维护时返回 null（前端提示「请先在物资基础信息中维护税率」）
+   * 合同级税率（需求修正2）：Tab2 合同清单物料税率统一来源于合同主表 taxRate
+   * 存储规范：Contract.taxRate 为小数（0.13 = 13%），物料 taxRatePct 为百分比数值（13）
    */
-  private async resolveTaxPct(contractId: string, materialBaseId: string): Promise<number | null> {
-    const cm = await this.prisma.contractMaterial.findFirst({
-      where: { contractId, materialBaseId, taxRatePct: { not: null } },
-      orderBy: { updatedAt: 'desc' },
+  private async contractTaxPct(contractId: string): Promise<number | null> {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { taxRate: true },
     });
-    if (cm?.taxRatePct != null) return Number(cm.taxRatePct);
-    const dr = await this.prisma.dailyReport.findFirst({
-      where: { materialBaseId, taxRate: { not: null } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (dr?.taxRate != null) {
-      const frac = Number(dr.taxRate);
-      // 物资日报税率按小数（如 0.13）存储，转百分比；兼容个别直接存百分比的历史数据
-      return frac > 1 ? Math.round(frac * 100) / 100 : Math.round(frac * 10000) / 100;
-    }
-    return null;
+    const frac = contract?.taxRate != null ? Number(contract.taxRate) : null;
+    return frac == null ? null : Math.round(frac * 10000) / 100;
   }
 
-  /** 列表加载时自动补齐缺失税率并重算含税单价/暂定含税合价（持久化，保证展示与数据一致） */
-  private async backfillDraftTax(contractId: string, rows: any[]) {
+  /** 合同税率变更后：Tab2 合同清单所有物料税率同步更新，并按税前单价/数量重算含税金额 */
+  private async syncDraftTaxFromContract(contractId: string) {
+    const pct = await this.contractTaxPct(contractId);
+    const rows = await this.prisma.contractDraftMaterial.findMany({ where: { contractId } });
     const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
     for (const r of rows) {
+      const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
+      const qty = r.qty != null ? Number(r.qty) : null;
+      const priceWithTax = pct != null && price != null ? round4(price * (1 + pct / 100)) : null;
+      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      await this.prisma.contractDraftMaterial.update({
+        where: { id: r.id },
+        data: { taxRatePct: pct, priceWithTax, totalWithTax },
+      });
+    }
+  }
+
+  /** 列表加载时按合同税率补齐物料税率并重算含税单价/暂定含税合价（持久化，保证展示与数据一致） */
+  private async backfillDraftTax(contractId: string, rows: any[]) {
+    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
+    const pct = await this.contractTaxPct(contractId);
+    if (pct == null) return;
+    for (const r of rows) {
       if (r.taxRatePct != null) continue;
-      const tax = await this.resolveTaxPct(contractId, r.materialBaseId);
-      if (tax == null) continue;
+      const tax = pct;
       const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
       const qty = r.qty != null ? Number(r.qty) : null;
       const priceWithTax = price != null ? round4(price * (1 + tax / 100)) : null;
@@ -497,15 +506,9 @@ export class ContractService {
       if (!r?.id) continue;
       const qty = r.qty == null || r.qty === '' ? null : Number(r.qty);
       const price = r.priceBeforeTax == null || r.priceBeforeTax === '' ? null : Number(r.priceBeforeTax);
-      // 需求 2.1：税率为只读自动带出，前端不再传值；为空时服务端兜底解析
+      // 需求修正2：税率为只读，统一来源于合同主表税率；为空时服务端按合同税率兜底
       let tax = r.taxRatePct == null || r.taxRatePct === '' ? null : Number(r.taxRatePct);
-      if (tax == null) {
-        const cur = await this.prisma.contractDraftMaterial.findUnique({
-          where: { id: r.id },
-          select: { materialBaseId: true },
-        });
-        if (cur) tax = await this.resolveTaxPct(contractId, cur.materialBaseId);
-      }
+      if (tax == null) tax = await this.contractTaxPct(contractId);
       const priceWithTax = price != null && tax != null ? round4(price * (1 + tax / 100)) : null;
       const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
       await this.prisma.contractDraftMaterial.update({
@@ -568,15 +571,15 @@ export class ContractService {
     }
     await this.prisma.contract.update({
       where: { id: contractId },
-      data: { status: STATUS_COMPLETED, version: { increment: 1 } },
+      data: { status: STATUS_APPROVING, version: { increment: 1 } },
     });
-    return { pushed, status: STATUS_COMPLETED };
+    return { pushed, status: STATUS_APPROVING };
   }
 
-  /** 状态互转：草稿中 ↔ 已完成（已完成退回草稿时可继续编辑） */
+  /** 状态互转（需求修正：DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
   async setStatus(contractId: string, status: string) {
-    if (![STATUS_DRAFT, STATUS_COMPLETED].includes(status)) {
-      throw new BadRequestException('状态取值非法（DRAFT / COMPLETED）');
+    if (![STATUS_DRAFT, STATUS_APPROVING, STATUS_SIGNED].includes(status)) {
+      throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
     }
     await this.assertContractExists(contractId);
     await this.prisma.contract.update({
@@ -688,6 +691,13 @@ export class ContractService {
       throw new BadRequestException('合同编号生成后不可变更');
     }
     delete data.code;
+    // 需求修正5：发布后（审批中/已签章）合同类型不可修改
+    if (
+      before.status && before.status !== STATUS_DRAFT &&
+      data.typeCode !== undefined && data.typeCode !== before.typeCode
+    ) {
+      throw new BadRequestException('合同已发布，合同类型不可修改');
+    }
     await this.validateDict({ ...before, ...data });
     // 名称自动生成（需求 3.4）：起草页传 autoName=true 时按规则重算并锁定
     if (data.autoName === true) {
@@ -714,6 +724,10 @@ export class ContractService {
       },
     });
     if (ext) await this.saveExt(id, ext);
+    // 需求修正2：合同税率变更 → Tab2 合同清单所有物料税率同步更新并重算金额
+    if (data.taxRate !== undefined) {
+      await this.syncDraftTaxFromContract(id);
+    }
     if (Array.isArray(attachments)) {
       await this.prisma.contractAttachment.deleteMany({ where: { contractId: id } });
       if (attachments.length) {
@@ -799,13 +813,14 @@ export class ContractService {
   // ==================== 合同查询（需求 2.2：已发布/正式合同） ====================
 
   /**
-   * 合同查询列表：展示除草稿外的正式合同（status=COMPLETED 或历史正式数据 status 为空）
+   * 合同查询列表：展示审批中/已签章的正式合同（发布后流转至此；历史空状态数据一并兼容展示）
    * 筛选：编号/名称关键词、供应商、签订日期范围
    */
   async findPublished(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const and: any[] = [{ projectId }];
-    and.push({ OR: [{ status: STATUS_COMPLETED }, { status: null }] });
+    // 需求修正6：审批中/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
+    and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, 'COMPLETED'] } }, { status: null }] });
     if (query.keyword) {
       and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
     }
@@ -864,6 +879,58 @@ export class ContractService {
     </style></head><body>${body}</body></html>`;
     const buffer = (await HTMLtoDOCX(full, null, { table: { row: { cantSplit: true } } })) as Buffer;
     return { buffer, filename: `${contract.code}_${contract.name}.docx` };
+  }
+
+  // ==================== 合同签章（需求修正4） ====================
+
+  private static readonly SIGNED_ALLOWED_EXT = ['.pdf', '.jpg', '.jpeg', '.png', '.docx'];
+  private static readonly SIGNED_MAX_SIZE = 20 * 1024 * 1024;
+
+  /**
+   * 上传签章合同：保存文件 + 记录签订日期/备注，状态置为「已签章」
+   * 支持重复上传覆盖旧文件，并允许修改签订日期
+   */
+  async sign(id: string, file: any, signDate?: string, remark?: string) {
+    if (!file) throw new BadRequestException('请上传签章合同文件');
+    await this.assertContractExists(id);
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!ContractService.SIGNED_ALLOWED_EXT.includes(ext)) {
+      throw new BadRequestException('签章文件仅支持 PDF/JPG/PNG/DOCX 格式');
+    }
+    if (file.size > ContractService.SIGNED_MAX_SIZE) {
+      throw new BadRequestException('签章文件大小不能超过 20MB');
+    }
+    if (!signDate) throw new BadRequestException('请选择签订日期');
+    const uploadDir = process.env.UPLOAD_DIR || './uploads';
+    const dir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
+    const sub = path.join(dir, 'signed');
+    if (!fs.existsSync(sub)) fs.mkdirSync(sub, { recursive: true });
+    const stored = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    fs.writeFileSync(path.join(sub, stored), file.buffer);
+    await this.prisma.contract.update({
+      where: { id },
+      data: {
+        signedFilePath: path.join('signed', stored),
+        signedFileName: file.originalname,
+        signedDate: new Date(signDate),
+        signedRemark: remark || null,
+        status: STATUS_SIGNED,
+        version: { increment: 1 },
+      },
+    });
+    return this.findOne(id);
+  }
+
+  /** 下载签章合同文件（按合同 ID 返回文件流） */
+  async signedFile(id: string) {
+    const c = await this.prisma.contract.findUnique({ where: { id } });
+    if (!c?.signedFilePath) throw new NotFoundException('该合同尚未上传签章文件');
+    const uploadDir = process.env.UPLOAD_DIR || './uploads';
+    const abs = path.isAbsolute(uploadDir)
+      ? path.join(uploadDir, c.signedFilePath)
+      : path.join(process.cwd(), uploadDir, c.signedFilePath);
+    if (!fs.existsSync(abs)) throw new NotFoundException('签章文件已丢失，请重新上传');
+    return { buffer: fs.readFileSync(abs), filename: c.signedFileName || path.basename(abs) };
   }
 
   async saveExt(contractId: string, data: any, tx?: TxClient) {
