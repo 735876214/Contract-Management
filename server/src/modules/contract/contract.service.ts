@@ -463,10 +463,13 @@ export class ContractService {
 
   /** 从物料编码清单（Tab1）勾选派生到合同清单（Tab2），追加不覆盖 */
   async draftDerive(contractId: string, materialBaseIds: string[]) {
-    await this.assertContractExists(contractId);
+    const contract = await this.assertContractExists(contractId);
     if (!Array.isArray(materialBaseIds) || !materialBaseIds.length) {
       throw new BadRequestException('请先在「物料编码清单」中勾选物资');
     }
+    // 需求修正2：新增行预填合同税率（物料税率实时绑定合同税率）
+    const frac = contract.taxRate != null ? Number(contract.taxRate) : null;
+    const contractPct = frac == null ? null : Math.round(frac * 10000) / 100;
     const pool = await this.prisma.contractMaterialPool.findMany({
       where: { contractId, materialBaseId: { in: materialBaseIds } },
       orderBy: { sortOrder: 'asc' },
@@ -487,6 +490,7 @@ export class ContractService {
           materialBaseId: p.materialBaseId,
           seqNo: ++maxSort,
           unit: '',
+          taxRatePct: contractPct,
           sortOrder: maxSort,
           remark: '由物料编码清单派生',
         },
@@ -501,14 +505,14 @@ export class ContractService {
     await this.assertContractExists(contractId);
     if (!Array.isArray(rows)) throw new BadRequestException('参数格式错误');
     const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
+    // 需求修正2：物料税率不独立存储，保存时一律以合同主表税率为准（前端传值忽略）
+    const contractPct = await this.contractTaxPct(contractId);
     let saved = 0;
     for (const [i, r] of rows.entries()) {
       if (!r?.id) continue;
       const qty = r.qty == null || r.qty === '' ? null : Number(r.qty);
       const price = r.priceBeforeTax == null || r.priceBeforeTax === '' ? null : Number(r.priceBeforeTax);
-      // 需求修正2：税率为只读，统一来源于合同主表税率；为空时服务端按合同税率兜底
-      let tax = r.taxRatePct == null || r.taxRatePct === '' ? null : Number(r.taxRatePct);
-      if (tax == null) tax = await this.contractTaxPct(contractId);
+      const tax = contractPct;
       const priceWithTax = price != null && tax != null ? round4(price * (1 + tax / 100)) : null;
       const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
       await this.prisma.contractDraftMaterial.update({

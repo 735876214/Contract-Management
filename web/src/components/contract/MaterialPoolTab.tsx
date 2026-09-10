@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Popconfirm, Space, Table, message } from 'antd';
-import { DeleteOutlined, ImportOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 import MaterialPickerModal from './MaterialPickerModal';
 
 /**
  * 合同起草 · Tab1：物料编码清单（合同专属物资池）
- * - 从【物资基础库】检索并勾选/全选导入
+ * - 「添加物料」：从物资基础库检索勾选，或手动新增物料（需求修正1：合并原两个重复按钮）
  * - 展示 4 个核心字段：物资名称、规格型号、MDM编码、DSC编码
- * - 支持删除误导入的物料（删除时同步移除其在合同清单中的行）
+ * - 支持删除误导入的物料（Tab1 与 Tab2 独立维护，删除不影响合同清单）
  */
 export default function MaterialPoolTab({
   contractId,
@@ -37,9 +37,9 @@ export default function MaterialPoolTab({
   }, [load]);
 
   const handleImport = async (ids: string[]) => {
-    if (!ids.length) return message.warning('请勾选要导入的物料');
+    if (!ids.length) return message.warning('请勾选要添加的物料');
     const res: any = await contractApi.poolAdd(contractId, ids);
-    message.success(`已导入 ${res?.added ?? ids.length} 项${res?.skipped ? `，跳过重复 ${res.skipped} 项` : ''}`);
+    message.success(`已添加 ${res?.added ?? ids.length} 项${res?.skipped ? `，跳过重复 ${res.skipped} 项` : ''}`);
     setPicker(false);
     load();
     onChanged?.();
@@ -57,9 +57,6 @@ export default function MaterialPoolTab({
       <Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setPicker(true)}>
           添加物料
-        </Button>
-        <Button icon={<ImportOutlined />} onClick={() => setPicker(true)}>
-          从物资基础库导入
         </Button>
       </Space>
       <Table

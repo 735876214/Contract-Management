@@ -313,7 +313,7 @@ export default function Contracts() {
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="signDate" label="签订日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
+                      <Form.Item name="signDate" label="签订日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
                     </Col>
                     {!editing && (
                       <Col xs={24} md={16}>
@@ -480,13 +480,13 @@ export default function Contracts() {
                       <Form.Item name="currentPayRatio" label="当前合同付款比例"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="bidStartDate" label="开始招标时间"><DatePicker style={{ width: '100%' }} /></Form.Item>
+                      <Form.Item name="bidStartDate" label="开始招标时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="bidWinDate" label="定标时间"><DatePicker style={{ width: '100%' }} /></Form.Item>
+                      <Form.Item name="bidWinDate" label="定标时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="disclosureDate" label="合同交底时间"><DatePicker style={{ width: '100%' }} /></Form.Item>
+                      <Form.Item name="disclosureDate" label="合同交底时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
                     </Col>
                     <Col xs={24}>
                       <Form.Item name="complaint" label="投诉情况"><Input.TextArea rows={2} /></Form.Item>
@@ -664,7 +664,7 @@ export default function Contracts() {
           <Form.Item name="supplementTypeCode" label="补充协议类型" rules={[{ required: true, message: '请选择补充协议类型' }]}>
             <DictSelect typeCode="supplement_agreement_type" />
           </Form.Item>
-          <Form.Item name="signDate" label="签订日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="signDate" label="签订日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>

@@ -205,7 +205,7 @@ export default function DailyReports() {
         </Form.Item>
         <Form.Item name="assetStatus"><DictSelect typeCode="asset_status" placeholder="资产状态" /></Form.Item>
         <Form.Item name="source"><DictSelect typeCode="material_source" placeholder="来源" /></Form.Item>
-        <Form.Item name="entryDate"><DatePicker.RangePicker placeholder={['进场起', '进场止']} /></Form.Item>
+        <Form.Item name="entryDate"><DatePicker.RangePicker format="YYYY-MM-DD" placeholder={['进场起', '进场止']} /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
 
@@ -248,7 +248,7 @@ export default function DailyReports() {
                   </Form.Item>
                 )}
                 {f.kind === 'date' && (
-                  <Form.Item name={f.key} label={f.label}><DatePicker style={{ width: '100%' }} /></Form.Item>
+                  <Form.Item name={f.key} label={f.label}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
                 )}
                 {f.kind === 'number' && (
                   <Form.Item name={f.key} label={f.label}>

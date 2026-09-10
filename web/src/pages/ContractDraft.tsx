@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Drawer,
   Form,
   Input,
@@ -19,6 +20,7 @@ import {
   message,
 } from 'antd';
 import {
+  CheckOutlined,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
@@ -72,6 +74,12 @@ export default function ContractDraft() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [activeTab, setActiveTab] = useState('pool');
+  // 需求修正3：发布前必须预览确认；内容变更后重新禁用
+  const [previewed, setPreviewed] = useState(false);
+  // 需求修正2：合同税率实时值（状态提升，Tab2 物料税率实时绑定）
+  const watchTaxRate = Form.useWatch('taxRate', basicForm);
+  const contractTaxPct =
+    watchTaxRate == null || watchTaxRate === '' ? null : Number(watchTaxRate);
 
   // ===== 预览 =====
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -137,11 +145,12 @@ export default function ContractDraft() {
       supplierId: detail.supplierId,
       materialDescription: detail.materialDescription,
       templateId: detail.templateId,
-      signDate: detail.signDate,
+      signDate: detail.signDate ? dayjs(detail.signDate) : null,
       // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
       taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
     });
     setActiveTab('pool');
+    setPreviewed(false); // 需求修正3：打开/切换草稿时重置预览确认状态
     setEditorOpen(true);
   };
 
@@ -157,7 +166,7 @@ export default function ContractDraft() {
         supplierId: values.supplierId,
         materialDescription: values.materialDescription,
         templateId: values.templateId,
-        signDate: values.signDate || null,
+        signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
         // 合同级税率：用户填 13 → 后端按小数 0.13 存储；保存后 Tab2 所有物料税率自动同步
         taxRate: values.taxRate != null && values.taxRate !== '' ? Number(values.taxRate) / 100 : null,
       });
@@ -166,16 +175,19 @@ export default function ContractDraft() {
       basicForm.setFieldsValue({
         code: detail.code,
         name: detail.name,
+        signDate: detail.signDate ? dayjs(detail.signDate) : null,
         taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
       });
       if (!silent) message.success('已保存');
+      // 需求修正3：基础信息变更后需重新预览确认，发布按钮重新禁用
+      setPreviewed(false);
       return true;
     } finally {
       setSaving(false);
     }
   };
 
-  // ==================== 预览确认（需求 2.4） ====================
+  // ==================== 预览确认（需求 2.4 / 需求修正3：发布前必须预览） ====================
   const handlePreview = async () => {
     const ok = await saveBasic(true);
     if (!ok) return;
@@ -194,8 +206,20 @@ export default function ContractDraft() {
     }
   };
 
+  /** 预览「确认无误」后发布按钮才可用（需求修正3） */
+  const handlePreviewConfirm = () => {
+    setPreviewed(true);
+    setPreviewOpen(false);
+    message.success('预览确认完成，现在可以发布合同');
+  };
+
   // ==================== 发布（完成） ====================
   const handlePublish = async () => {
+    // 需求修正3：必须先预览确认才能发布
+    if (!previewed) {
+      message.warning('请先点击「预览合同」并在预览中确认无误后，再发布');
+      return;
+    }
     if (!basicForm.getFieldValue('templateId')) {
       message.warning('发布前请先选择合同模板并保存');
       setActiveTab('basic');
@@ -417,7 +441,15 @@ export default function ContractDraft() {
             <Button icon={<EyeOutlined />} loading={previewLoading} onClick={handlePreview}>
               预览合同
             </Button>
-            <Button type="primary" icon={<SendOutlined />} loading={publishing} onClick={handlePublish}>
+            {/* 需求修正3：预览确认无误后发布按钮才可用 */}
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              loading={publishing}
+              disabled={!previewed}
+              title={previewed ? '发布合同' : '请先点击「预览合同」并确认无误'}
+              onClick={handlePublish}
+            >
               发布（完成）
             </Button>
           </Space>
@@ -480,8 +512,12 @@ export default function ContractDraft() {
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item name="signDate" label="签订日期">
-                      <Input placeholder="YYYY-MM-DD" />
+                    <Form.Item
+                      name="signDate"
+                      label="签订日期"
+                      extra="支持日期选择器或按 YYYY-MM-DD 手动输入"
+                    >
+                      <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="yyyy-mm-dd" />
                     </Form.Item>
                   </Col>
                   <Col span={8}>
@@ -502,8 +538,27 @@ export default function ContractDraft() {
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 items={[
-                  { key: 'pool', label: 'Tab1 · 物料编码清单', children: <MaterialPoolTab contractId={editing.id} /> },
-                  { key: 'items', label: 'Tab2 · 合同清单', children: <ContractItemTab contractId={editing.id} /> },
+                  {
+                    key: 'pool',
+                    label: 'Tab1 · 物料编码清单',
+                    children: (
+                      <MaterialPoolTab
+                        contractId={editing.id}
+                        onChanged={() => setPreviewed(false)}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'items',
+                    label: 'Tab2 · 合同清单',
+                    children: (
+                      <ContractItemTab
+                        contractId={editing.id}
+                        contractTaxPct={contractTaxPct}
+                        onDirty={() => setPreviewed(false)}
+                      />
+                    ),
+                  },
                 ]}
               />
             </Card>
@@ -513,30 +568,28 @@ export default function ContractDraft() {
         )}
       </Drawer>
 
-      {/* ==================== 合同正文预览 ==================== */}
+      {/* ==================== 合同正文预览（需求修正3：确认无误后发布才可用） ==================== */}
       <Modal
         title={`预览确认 · ${preview?.templateName || ''}`}
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={[
-          <Button key="close" onClick={() => setPreviewOpen(false)}>
-            关闭预览
+          <Button key="back" onClick={() => setPreviewOpen(false)}>
+            返回修改
           </Button>,
-          <Button
-            key="publish"
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={() => {
-              setPreviewOpen(false);
-              handlePublish();
-            }}
-          >
-            预览无误，去发布
+          <Button key="confirm" type="primary" icon={<CheckOutlined />} onClick={handlePreviewConfirm}>
+            确认无误
           </Button>,
         ]}
         width={900}
         destroyOnClose
       >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="请核对合同完整内容；点击「确认无误」后「发布」按钮才可用。若返回修改合同内容，需重新预览确认。"
+        />
         <div
           style={{ maxHeight: 520, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }}
           dangerouslySetInnerHTML={{ __html: preview?.html || '' }}

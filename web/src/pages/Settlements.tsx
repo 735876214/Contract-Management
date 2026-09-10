@@ -161,7 +161,7 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
               <Form.Item name="actualAmount" label="实际结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
             </Col>
             <Col xs={24} md={8}>
-              <Form.Item name="settleDate" label="结算日期"><DatePicker style={{ width: '100%' }} /></Form.Item>
+              <Form.Item name="settleDate" label="结算日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
             </Col>
             <Col xs={24} md={8}>
               <Form.Item name="statusCode" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>

@@ -12,11 +12,21 @@ const calcTotal = (priceWithTax?: number | null, qty?: number | null) =>
 
 /**
  * 合同起草 · Tab2：合同清单（交易明细 / 执行池）
- * - 独立维护，可通过「从物料编码清单添加」手动从 Tab1 同步（不再自动派生）
- * - 数量、税前单价可编辑；税率为只读，统一来源于合同基本信息中的「合同税率」（需求修正2）
+ * - 独立维护，可通过「从物料编码清单添加」手动从 Tab1 同步（不自动派生）
+ * - 数量、税前单价可编辑
+ * - 税率为只读，实时绑定合同基本信息中的「合同税率」（需求修正2）：
+ *   合同税率变化时所有行立即同步并重算，无需保存；后端保存时同样以合同税率为准
  * - 含税单价与暂定含税合价实时自动计算
  */
-export default function ContractItemTab({ contractId }: { contractId: string }) {
+export default function ContractItemTab({
+  contractId,
+  contractTaxPct,
+  onDirty,
+}: {
+  contractId: string;
+  contractTaxPct?: number | null;
+  onDirty?: () => void;
+}) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -24,6 +34,9 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]); // 派生勾选项
   const [deriveOpen, setDeriveOpen] = useState(false);
   const dirtyRef = useRef(false);
+
+  /** 生效税率：优先取合同基本信息中实时填写的合同税率 */
+  const effectiveTax = contractTaxPct ?? null;
 
   const load = useCallback(async () => {
     if (!contractId) return;
@@ -44,14 +57,31 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
     load();
   }, [load]);
 
+  /** 合同税率实时变化 → 所有行税率立即同步并重算（需求修正2，无需保存） */
+  useEffect(() => {
+    setRows((prev) =>
+      prev.map((r) => {
+        const priceWithTax = calcPriceWithTax(r.priceBeforeTax, effectiveTax);
+        return {
+          ...r,
+          taxRatePct: effectiveTax,
+          priceWithTax,
+          totalWithTax: calcTotal(priceWithTax, r.qty),
+        };
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveTax]);
+
   /** 本地改值：同步更新当前行并重算派生列（前端实时计算，保存时服务端二次校验） */
   const patch = (id: string, key: string, value: any) => {
     dirtyRef.current = true;
+    onDirty?.();
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
         const next = { ...r, [key]: value };
-        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, next.taxRatePct);
+        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, effectiveTax);
         next.priceWithTax = priceWithTax;
         next.totalWithTax = calcTotal(priceWithTax, next.qty);
         return next;
@@ -72,9 +102,9 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
   };
 
   const handleDerive = async () => {
-    if (!selectedRowKeys.length) return message.warning('请勾选要派生的物料');
+    if (!selectedRowKeys.length) return message.warning('请勾选要添加的物料');
     const res: any = await contractApi.draftDerive(contractId, selectedRowKeys);
-    message.success(`已派生 ${res?.added ?? 0} 行${res?.skipped ? `，跳过已存在 ${res.skipped} 行` : ''}`);
+    message.success(`已添加 ${res?.added ?? 0} 行${res?.skipped ? `，跳过已存在 ${res.skipped} 行` : ''}`);
     setDeriveOpen(false);
     setSelectedRowKeys([]);
     load();
@@ -83,6 +113,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
   const handleRemove = async (id: string) => {
     await contractApi.draftRemove(contractId, id);
     message.success('已删除');
+    onDirty?.();
     load();
   };
 
@@ -91,8 +122,8 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
     [rows],
   );
 
-  /** 需求修正2：存在未维护税率的行时给出红色提示（税率来源：合同基本信息的合同税率） */
-  const missingTax = useMemo(() => rows.some((r) => r.taxRatePct == null), [rows]);
+  /** 需求修正2：合同税率未填写时给出红色提示 */
+  const missingTax = effectiveTax == null && rows.length > 0;
 
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -101,7 +132,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
           type="error"
           showIcon
           message="请先在物资基础信息中维护税率"
-          description="部分清单行的税率尚未维护。请在上方「基础信息」中填写合同税率并保存，保存后所有物料税率将自动同步。"
+          description="请在上方的「基础信息」中填写合同税率，填写后所有物料税率将实时自动填充。"
         />
       )}
       <Space wrap>
@@ -138,7 +169,7 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
                 全选
               </Button>
               <Button size="small" type="primary" onClick={handleDerive}>
-                确认派生到合同清单
+                确认添加到合同清单
               </Button>
             </Space>
           )}
@@ -200,12 +231,12 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
             title: '税率(%)',
             dataIndex: 'taxRatePct',
             width: 100,
-            // 需求修正2：税率只读，统一来源于合同基本信息中的「合同税率」
-            render: (v) =>
-              v == null ? (
+            // 需求修正2：税率只读，实时绑定合同基本信息中的「合同税率」
+            render: () =>
+              effectiveTax == null ? (
                 <Tag color="red">未维护</Tag>
               ) : (
-                <Tag color="green">{Number(v).toFixed(2)}</Tag>
+                <Tag color="green">{Number(effectiveTax).toFixed(2)}</Tag>
               ),
           },
           {

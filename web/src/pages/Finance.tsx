@@ -376,7 +376,7 @@ export default function Finance() {
         <Form form={factoringForm} layout="vertical">
           <Space size={16} style={{ display: 'flex' }}>
             <Form.Item name="financingDate" label="融资到账时间" rules={[{ required: true, message: '请选择融资到账时间' }]}>
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="settlementMonth" label="结算月份">
               <Input placeholder="如 2026-04（已办结算月份）" />
@@ -436,10 +436,10 @@ export default function Finance() {
           </Space>
           <Space size={16} style={{ display: 'flex' }}>
             <Form.Item name="payableDate" label="应付款日期" tooltip="留空时由系统按付款模式推导">
-              <DatePicker style={{ width: 160 }} />
+              <DatePicker format="YYYY-MM-DD" style={{ width: 160 }} />
             </Form.Item>
             <Form.Item name="paymentDate" label="实际付款日期">
-              <DatePicker style={{ width: 160 }} />
+              <DatePicker format="YYYY-MM-DD" style={{ width: 160 }} />
             </Form.Item>
             <Form.Item name="paymentAmount" label="付款金额">
               <InputNumber style={{ width: 140 }} min={0} precision={2} />

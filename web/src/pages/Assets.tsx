@@ -189,7 +189,7 @@ function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; un
     <Form form={form} layout="vertical">
       <Row gutter={16}>
         <Col xs={24} md={6}>
-          <Form.Item name="date" label="日期" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="date" label="日期" rules={[{ required: true }]}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
         </Col>
         <Col xs={24} md={6}>
           <Form.Item name="sourceCode" label="来源" rules={[{ required: true }]}><DictSelect typeCode="asset_ledger_source" /></Form.Item>

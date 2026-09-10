@@ -158,7 +158,7 @@ export default function Repayments() {
           />
         </Form.Item>
         <Form.Item name="signRange">
-          <DatePicker.RangePicker placeholder={['签订日期起', '签订日期止']} />
+          <DatePicker.RangePicker format="YYYY-MM-DD" placeholder={['签订日期起', '签订日期止']} />
         </Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
         <Form.Item><Button onClick={() => { queryForm.resetFields(); search({}); }}>重置</Button></Form.Item>
@@ -247,7 +247,7 @@ export default function Repayments() {
           </Form.Item>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <Form.Item label="签订日期" name="signDate" style={{ flex: 1, minWidth: 200 }}>
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item label="结算金额" name="settleAmount" style={{ flex: 1, minWidth: 200 }}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
@@ -291,7 +291,7 @@ export default function Repayments() {
                       name={[field.name, 'dueDate']}
                       rules={[{ required: true, message: '请选择日期' }]}
                     >
-                      <DatePicker style={{ width: 180 }} />
+                      <DatePicker format="YYYY-MM-DD" style={{ width: 180 }} />
                     </Form.Item>
                     <Form.Item label="期数（可空）" name={[field.name, 'period']}>
                       <InputNumber min={0} placeholder="自动编号" style={{ width: 120 }} />

@@ -193,7 +193,7 @@ export default function ContractQuery() {
             />
           </Form.Item>
           <Form.Item name="signRange">
-            <DatePicker.RangePicker placeholder={['签订日期起', '签订日期止']} style={{ width: 240 }} />
+            <DatePicker.RangePicker format="YYYY-MM-DD" placeholder={['签订日期起', '签订日期止']} style={{ width: 240 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
@@ -309,7 +309,7 @@ export default function ContractQuery() {
             label="签订日期"
             rules={[{ required: true, message: '请选择签订日期' }]}
           >
-            <DatePicker style={{ width: '100%' }} placeholder="YYYY-MM-DD" />
+            <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="YYYY-MM-DD" />
           </Form.Item>
           <Form.Item
             label="签章合同文件"

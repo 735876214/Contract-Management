@@ -198,7 +198,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
             </Col>
             <Col xs={24} md={12}><Form.Item name="settlePeriod" label="结算账期"><Input /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="issuer" label="开票单位"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="invoiceCode" label="发票代码"><Input /></Form.Item></Col>
             <Col xs={24} md={12}>
               <Form.Item
@@ -215,7 +215,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
             <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
