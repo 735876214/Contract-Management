@@ -56,11 +56,28 @@ export class ContractController {
     return this.contractService.namePreview(query);
   }
 
-  /** 合同起草：当前用户草稿列表（需求 2.1，须声明在 :id 通配路由之前） */
+  /** 合同起草：当前用户草稿列表（需求 2.1/2.3，默认仅未完成草稿，须声明在 :id 通配路由之前） */
   @RequirePermissions('contract:view')
   @Get('drafts')
   drafts(@CurrentUser() user: JwtUser, @ProjectId() projectId: string, @Query('status') status?: string) {
     return this.contractService.findDrafts(user.userId, projectId, status);
+  }
+
+  /** 合同查询：已发布/正式合同列表（需求 2.2，须声明在 :id 通配路由之前） */
+  @RequirePermissions('contract:view')
+  @Get('published')
+  published(@Query() query: any, @ProjectId() projectId: string) {
+    return this.contractService.findPublished(query, projectId);
+  }
+
+  /** 合同查询：导出 Word（按创建时模板生成，含两张子表，需求 2.2） */
+  @RequirePermissions('contract:view')
+  @Get(':id/export-word')
+  async exportWord(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.contractService.exportWord(id, projectId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.end(buffer);
   }
 
   // ---------------- 合同起草：物料编码清单（Tab1） ----------------

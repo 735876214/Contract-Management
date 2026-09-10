@@ -13,6 +13,8 @@ export const MENU_CONFIG: MenuItem[] = [
     icon: 'FileTextOutlined',
     children: [
       { key: 'contract-draft', label: '合同起草', icon: 'FileAddOutlined', path: '/contract/draft', permission: 'contract:view' },
+      // 需求 2.2：新增「合同查询」二级菜单（已发布/正式合同，含导出 Word）
+      { key: 'contract-query', label: '合同查询', icon: 'SearchOutlined', path: '/contract/query', permission: 'contract:view' },
       { key: 'contract-list', label: '合同台账', icon: 'UnorderedListOutlined', path: '/contract/list', permission: 'contract:view' },
       { key: 'contract-material', label: '合同物资清单', icon: 'AppstoreOutlined', path: '/contract/material', permission: 'material:view' },
     ],

@@ -9,6 +9,8 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
+import { TemplateService } from '../template/template.service';
+import HTMLtoDOCX from 'html-to-docx';
 
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
@@ -53,6 +55,7 @@ export class ContractService {
     private excel: ExcelService,
     private tpl: ImportTemplateService,
     private material: MaterialService,
+    private templateSvc: TemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
   ) {}
@@ -379,6 +382,50 @@ export class ContractService {
 
   // ==================== 合同起草：合同清单（Tab2，草稿明细） ====================
 
+  /**
+   * 税率自动带出（需求 2.1）：合同清单税率只读，自动从关联基础信息解析
+   * 优先级：① 合同物资清单（ContractMaterial.taxRatePct，百分比）→ ② 项目物资清单（DailyReport.taxRate，小数，需 ×100）
+   * 均未维护时返回 null（前端提示「请先在物资基础信息中维护税率」）
+   */
+  private async resolveTaxPct(contractId: string, materialBaseId: string): Promise<number | null> {
+    const cm = await this.prisma.contractMaterial.findFirst({
+      where: { contractId, materialBaseId, taxRatePct: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (cm?.taxRatePct != null) return Number(cm.taxRatePct);
+    const dr = await this.prisma.dailyReport.findFirst({
+      where: { materialBaseId, taxRate: { not: null } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (dr?.taxRate != null) {
+      const frac = Number(dr.taxRate);
+      // 物资日报税率按小数（如 0.13）存储，转百分比；兼容个别直接存百分比的历史数据
+      return frac > 1 ? Math.round(frac * 100) / 100 : Math.round(frac * 10000) / 100;
+    }
+    return null;
+  }
+
+  /** 列表加载时自动补齐缺失税率并重算含税单价/暂定含税合价（持久化，保证展示与数据一致） */
+  private async backfillDraftTax(contractId: string, rows: any[]) {
+    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
+    for (const r of rows) {
+      if (r.taxRatePct != null) continue;
+      const tax = await this.resolveTaxPct(contractId, r.materialBaseId);
+      if (tax == null) continue;
+      const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
+      const qty = r.qty != null ? Number(r.qty) : null;
+      const priceWithTax = price != null ? round4(price * (1 + tax / 100)) : null;
+      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      await this.prisma.contractDraftMaterial.update({
+        where: { id: r.id },
+        data: { taxRatePct: tax, priceWithTax, totalWithTax },
+      });
+      r.taxRatePct = tax;
+      r.priceWithTax = priceWithTax;
+      r.totalWithTax = totalWithTax;
+    }
+  }
+
   /** 草稿清单行（含主数据字段与自动计算金额） */
   async draftList(contractId: string) {
     await this.assertContractExists(contractId);
@@ -387,6 +434,7 @@ export class ContractService {
       orderBy: { sortOrder: 'asc' },
       include: { materialBase: true },
     });
+    await this.backfillDraftTax(contractId, rows as any[]);
     return rows.map((r) => ({
       id: r.id,
       materialBaseId: r.materialBaseId,
@@ -449,7 +497,15 @@ export class ContractService {
       if (!r?.id) continue;
       const qty = r.qty == null || r.qty === '' ? null : Number(r.qty);
       const price = r.priceBeforeTax == null || r.priceBeforeTax === '' ? null : Number(r.priceBeforeTax);
-      const tax = r.taxRatePct == null || r.taxRatePct === '' ? null : Number(r.taxRatePct);
+      // 需求 2.1：税率为只读自动带出，前端不再传值；为空时服务端兜底解析
+      let tax = r.taxRatePct == null || r.taxRatePct === '' ? null : Number(r.taxRatePct);
+      if (tax == null) {
+        const cur = await this.prisma.contractDraftMaterial.findUnique({
+          where: { id: r.id },
+          select: { materialBaseId: true },
+        });
+        if (cur) tax = await this.resolveTaxPct(contractId, cur.materialBaseId);
+      }
       const priceWithTax = price != null && tax != null ? round4(price * (1 + tax / 100)) : null;
       const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
       await this.prisma.contractDraftMaterial.update({
@@ -710,8 +766,8 @@ export class ContractService {
 
   /** 草稿判定：执行情况为 DRAFT 或尚未填写，且为当前用户创建（projectId 缺省时不限项目） */
   private draftWhere(userId: string, projectId?: string, status?: string) {
-    // 需求重构：起草列表展示本人创建的全部合同（草稿中 / 已完成），
-    // 支持按起草状态筛选，便于「已完成」合同退回草稿继续编辑
+    // 需求 2.3：起草菜单仅保留未完成草稿（status=DRAFT 或历史遗留空状态），
+    // 已发布/已完成合同统一展示在「合同查询」
     const where: any = { createdBy: userId };
     if (projectId) where.projectId = projectId;
     if (status) {
@@ -721,10 +777,10 @@ export class ContractService {
     return where;
   }
 
-  /** 当前用户的草稿列表（数据隔离：仅本人创建） */
+  /** 当前用户的草稿列表（数据隔离：仅本人创建；需求 2.3 默认仅返回未完成草稿） */
   async findDrafts(userId: string, projectId?: string, status?: string) {
     return this.prisma.contract.findMany({
-      where: this.draftWhere(userId, projectId, status),
+      where: this.draftWhere(userId, projectId, status || STATUS_DRAFT),
       orderBy: { updatedAt: 'desc' },
       include: { supplier: { select: { id: true, name: true } } },
     });
@@ -738,6 +794,76 @@ export class ContractService {
     if (c.execStatus && c.execStatus !== 'DRAFT') throw new BadRequestException('该合同已提交，不能作为草稿删除');
     await this.prisma.contract.delete({ where: { id } });
     return true;
+  }
+
+  // ==================== 合同查询（需求 2.2：已发布/正式合同） ====================
+
+  /**
+   * 合同查询列表：展示除草稿外的正式合同（status=COMPLETED 或历史正式数据 status 为空）
+   * 筛选：编号/名称关键词、供应商、签订日期范围
+   */
+  async findPublished(query: any = {}, projectId: string) {
+    const { skip, take } = paginate(query);
+    const and: any[] = [{ projectId }];
+    and.push({ OR: [{ status: STATUS_COMPLETED }, { status: null }] });
+    if (query.keyword) {
+      and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
+    }
+    if (query.supplierId) and.push({ supplierId: query.supplierId });
+    const signDate: any = {};
+    if (query.signDateStart) signDate.gte = new Date(query.signDateStart);
+    if (query.signDateEnd) signDate.lte = new Date(`${query.signDateEnd}T23:59:59`);
+    if (Object.keys(signDate).length) and.push({ signDate });
+    const where = { AND: and };
+    const [list, total] = await Promise.all([
+      this.prisma.contract.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { updatedAt: 'desc' },
+        include: { supplier: { select: { id: true, name: true } } },
+      }),
+      this.prisma.contract.count({ where }),
+    ]);
+    return buildResult(list, total, query);
+  }
+
+  /**
+   * 导出 Word（.docx，需求 2.2）：按创建时选择的合同模板生成正文，
+   * 占位符替换后包含「物料编码清单」「合同清单」两张子表，文件名 {编号}_{名称}.docx
+   */
+  async exportWord(id: string, projectId: string) {
+    const contract = await this.prisma.contract.findUnique({ where: { id } });
+    if (!contract) throw new NotFoundException('合同不存在');
+    if (contract.projectId !== projectId) throw new BadRequestException('合同不属于当前项目');
+    if (!contract.templateId) throw new BadRequestException('该合同未关联合同模板，无法导出');
+    let manual: Record<string, any> = {};
+    if (contract.formData) {
+      try {
+        manual = JSON.parse(contract.formData);
+      } catch {
+        /* formData 损坏时忽略，按空变量处理 */
+      }
+    }
+    const { html } = await this.templateSvc.generate(
+      { templateId: contract.templateId, contractId: id, manual },
+      projectId,
+    );
+    // 需求 2.2：导出 Word 必须包含「物料编码清单」「合同清单」两张子表；
+    // 模板未放置表格占位符时，自动追加到正文末尾
+    let body = html;
+    if (!/<table/i.test(body)) {
+      const tables = await this.templateSvc.buildMaterialTables(id);
+      body += `<h2>附件一：物料编码清单</h2>${tables.codeTable}`;
+      body += `<h2>附件二：合同清单</h2>${tables.itemTable}`;
+    }
+    const full = `<!DOCTYPE html><html><head><meta charset="utf-8" /><style>
+      body { font-family: '宋体', SimSun, serif; font-size: 12pt; line-height: 1.8; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #000; padding: 4pt 6pt; font-size: 10.5pt; }
+    </style></head><body>${body}</body></html>`;
+    const buffer = (await HTMLtoDOCX(full, null, { table: { row: { cantSplit: true } } })) as Buffer;
+    return { buffer, filename: `${contract.code}_${contract.name}.docx` };
   }
 
   async saveExt(contractId: string, data: any, tx?: TxClient) {

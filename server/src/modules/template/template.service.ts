@@ -163,8 +163,8 @@ export class TemplateService {
     return `<table style="border-collapse:collapse;width:100%;">${thead}${tbody}</table>`;
   }
 
-  /** 按合同物资清单派生两张子表 HTML（行号重新从 1 编号） */
-  private async buildMaterialTables(contractId: string): Promise<Record<string, string>> {
+  /** 按合同物资清单派生两张子表 HTML（行号重新从 1 编号）；导出 Word 时兜底使用（需求 2.2） */
+  async buildMaterialTables(contractId: string): Promise<Record<string, string>> {
     const rows = await this.prisma.contractMaterial.findMany({
       where: { contractId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],

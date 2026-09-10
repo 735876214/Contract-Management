@@ -435,7 +435,7 @@ model ContractMaterial {
 model ContractMaterialPool {
   id             String   @id @default(cuid())
   contractId     String
-  materialBaseId String   // 引用物资基础库
+  materialBaseId String // 引用物资基础库
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -452,13 +452,13 @@ model ContractDraftMaterial {
   id             String   @id @default(cuid())
   contractId     String
   materialBaseId String
-  seqNo          Int?     // 序号
-  unit           String?  // 计量单位
-  qty            Decimal? // 暂定数量
-  priceBeforeTax Decimal? // 税前单价
-  taxRatePct     Decimal? // 税率（百分比，如 13.00）
-  priceWithTax   Decimal? // 含税单价 = 税前单价 × (1 + 税率/100)
-  totalWithTax   Decimal? // 暂定含税合价 = 含税单价 × 暂定数量
+  seqNo          Int? // 序号
+  unit           String? // 计量单位
+  qty            Decimal?   // 暂定数量
+  priceBeforeTax Decimal?   // 税前单价
+  taxRatePct     Decimal?   // 税率（百分比，如 13.00）
+  priceWithTax   Decimal?   // 含税单价 = 税前单价 × (1 + 税率/100)
+  totalWithTax   Decimal?   // 暂定含税合价 = 含税单价 × 暂定数量
   remark         String?
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())

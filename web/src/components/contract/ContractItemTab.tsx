@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 
@@ -13,7 +13,8 @@ const calcTotal = (priceWithTax?: number | null, qty?: number | null) =>
 /**
  * 合同起草 · Tab2：合同清单（交易明细 / 执行池）
  * - 数据由「物料编码清单」勾选派生
- * - 数量、税前单价、税率可编辑；含税单价与暂定含税合价实时自动计算
+ * - 数量、税前单价可编辑；税率为只读，自动从基础信息带出（需求 2.1）
+ * - 含税单价与暂定含税合价实时自动计算
  */
 export default function ContractItemTab({ contractId }: { contractId: string }) {
   const [rows, setRows] = useState<any[]>([]);
@@ -90,8 +91,19 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
     [rows],
   );
 
+  /** 需求 2.1：存在未维护税率的行时给出红色提示 */
+  const missingTax = useMemo(() => rows.some((r) => r.taxRatePct == null), [rows]);
+
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {missingTax && (
+        <Alert
+          type="error"
+          showIcon
+          message="请先在物资基础信息中维护税率"
+          description="部分清单行的税率尚未维护，带出后含税单价与暂定含税合价将自动重新计算。"
+        />
+      )}
       <Space wrap>
         <Button icon={<PlusOutlined />} onClick={() => setDeriveOpen((v) => !v)}>
           {deriveOpen ? '收起物料列表' : '从物料编码清单添加'}
@@ -188,16 +200,13 @@ export default function ContractItemTab({ contractId }: { contractId: string }) 
             title: '税率(%)',
             dataIndex: 'taxRatePct',
             width: 100,
-            render: (v, row) => (
-              <InputNumber
-                defaultValue={v}
-                min={0}
-                max={100}
-                precision={2}
-                style={{ width: '100%' }}
-                onChange={(val) => patch(row.id, 'taxRatePct', val)}
-              />
-            ),
+            // 需求 2.1：税率只读，由服务端自动从基础信息带出（合同物资清单 → 项目物资清单）
+            render: (v) =>
+              v == null ? (
+                <Tag color="red">未维护</Tag>
+              ) : (
+                <Tag color="green">{Number(v).toFixed(2)}</Tag>
+              ),
           },
           {
             title: '含税单价（自动）',

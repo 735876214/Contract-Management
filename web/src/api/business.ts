@@ -83,6 +83,9 @@ export const contractApi = {
   publish: (id: string) => http.post<any, any>(`/contracts/${id}/publish`),
   setStatus: (id: string, status: string) =>
     http.put<any, any>(`/contracts/${id}/status`, { status }),
+  // 合同查询（需求 2.2）：已发布/正式合同
+  published: (params?: any) => http.get<any, any>('/contracts/published', { params }),
+  exportWordUrl: (id: string) => `${http.defaults.baseURL}/contracts/${id}/export-word`,
 };
 
 export const templateApi = {

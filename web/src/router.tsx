@@ -31,6 +31,7 @@ import {
 } from '@/pages/System';
 import Clauses from '@/pages/Clauses';
 import ContractDraft from '@/pages/ContractDraft';
+import ContractQuery from '@/pages/ContractQuery';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -98,6 +99,7 @@ export const routes: RouteObject[] = [
       { path: 'contract/list', element: <Ledger /> },
       { path: 'contract/material', element: <ContractMaterials /> },
       { path: 'contract/draft', element: <ContractDraft /> },
+      { path: 'contract/query', element: <ContractQuery /> },
       // 日报管理
       { path: 'daily/report', element: <DailyReports /> },
       { path: 'daily/asset', element: <Assets /> },
