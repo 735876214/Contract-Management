@@ -68,13 +68,22 @@ export class DailyReportService {
 
   private async validate(data: any) {
     await this.dict.validate('yes_no', data.isAsset);
+    await this.dict.validate('yes_no', data.isSafetyMaterial);
     await this.dict.validate('yes_no', data.isWeighed);
     await this.dict.validate('yes_no', data.isProxy);
     await this.dict.validate('asset_status', data.assetStatus);
     await this.dict.validate('material_source', data.sourceCode);
     await this.dict.validate('material_category', data.materialCategory);
     await this.dict.validate('material_type', data.materialType);
-    await this.dict.validate('measurement_unit', data.unit);
+    // 需求 2.3.2：计量单位默认取物资基础库，允许手输但必须存在于字典「measurement_unit」
+    // 接受字典编码或名称，统一归一为字典编码落库
+    const unitRaw = String(data.unit ?? '').trim();
+    if (unitRaw) {
+      const unitItems = await this.dict.options('measurement_unit');
+      const hit = unitItems.find((u: any) => u.itemCode === unitRaw || u.itemName === unitRaw);
+      if (!hit) throw new BadRequestException('计量单位不在字典范围内，请先在字典管理中添加');
+      data.unit = hit.itemCode;
+    }
   }
 
   private normalize(data: any) {
@@ -118,6 +127,7 @@ export class DailyReportService {
       { header: '进场日期', key: 'entryDate', width: 14 },
       { header: '合同编号', key: 'contractCode', width: 20 },
       { header: '是否资产', key: 'isAssetName', width: 10 },
+      { header: '是否安全物资', key: 'isSafetyMaterialName', width: 14 },
       { header: '资产监管', key: 'assetSupervision', width: 14 },
       { header: '部门', key: 'department', width: 14 },
       { header: '人员', key: 'personnel', width: 12 },
@@ -176,6 +186,7 @@ export class DailyReportService {
         periodMonth: r.periodMonth ? `${r.periodYear}年${r.periodMonth}月` : '',
         entryDate: fmt(r.entryDate),
         isAssetName: yesNo[r.isAsset]?.name || '',
+        isSafetyMaterialName: yesNo[r.isSafetyMaterial]?.name || '',
         assetSupervision: [r.department, r.personnel].filter(Boolean).join('，'),
         assetStatusName: assetStatus[r.assetStatus]?.name || '',
         sourceName: source[r.sourceCode]?.name || '',
@@ -210,6 +221,7 @@ export class DailyReportService {
         { header: '账期/月', key: 'periodMonth', width: 100, type: 'center' },
         { header: '进场日期', key: 'entryDate', width: 110, type: 'center' },
         { header: '是否资产', key: 'isAssetName', width: 80, type: 'center' },
+        { header: '是否安全物资', key: 'isSafetyMaterialName', width: 100, type: 'center' },
         { header: '资产监管部门，人员', key: 'assetSupervision', width: 130, type: 'center' },
         { header: '资产状态', key: 'assetStatusName', width: 80, type: 'center' },
         { header: '来源', key: 'sourceName', width: 120, type: 'center' },
@@ -247,6 +259,7 @@ export class DailyReportService {
         materialCategoryName: names(catOpts),
         materialTypeName: names(typeOpts),
         isAssetName: names(yesOpts),
+        isSafetyMaterialName: names(yesOpts),
         assetStatusName: names(assetOpts),
         isWeighedName: names(yesOpts),
         isProxyName: names(yesOpts),
@@ -294,6 +307,7 @@ export class DailyReportService {
           entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
           contractId: contract?.id,
           isAsset: codeOf(yesNo, r['是否资产']),
+          isSafetyMaterial: codeOf(yesNo, r['是否安全物资']),
           assetSupervision: r['资产监管'] || null,
           department: r['部门'] || null,
           personnel: r['人员'] || null,

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { DictService } from '../dict/dict.service';
+import { TxClient } from '../../common/services/import-runner.service';
 
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [
@@ -14,7 +15,10 @@ const DETAIL_DECIMAL_FIELDS = [
   'totalPrice',
 ];
 
-/** 明细中允许从前端接收的字段白名单（其余字段由服务端计算/带出，防止越权写入） */
+/**
+ * 明细中允许从前端接收的字段白名单（其余字段由服务端计算/带出，防止越权写入）
+ * 需求 2.1.2：「是否安全物资」已从收领单明细移除，改由物资基础库统一维护
+ */
 const DETAIL_ALLOWED_FIELDS = [
   'id',
   'materialId',
@@ -31,10 +35,12 @@ const DETAIL_ALLOWED_FIELDS = [
   'usagePart',
   'brand',
   'remark',
-  'isSafetyMaterial',
   'isAgentPurchase',
   'sortOrder',
 ];
+
+/** 资产台账来源默认值（需求 2.2.2：根据收领单类型判断，默认「采购」） */
+const ASSET_SOURCE_PURCHASE = 'PURCHASE';
 
 /** 供应单位 / 领用单位类型（需求 2.4.1 / 2.4.2） */
 export const PARTY_TYPE = {
@@ -53,9 +59,10 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 1e2) / 1e2;
  * 核心流程：
  * 1. 新建收领单 → 选择供应单位/领用单位/分包合同/物资合同
  * 2. 选择物资合同后，按合同带出「合同物资清单」到明细表格
- * 3. 用户手填送货数量/实收数量/使用部位/厂家品牌/备注/是否安全物资/是否代购
+ * 3. 用户手填送货数量/实收数量/使用部位/厂家品牌/备注/是否代购
  * 4. 综合单价 = 税前单价 × (1 + 税率/100)；综合总价 = 实收数量 × 综合单价（服务端二次计算，不信任前端）
- * 5. 保存后把明细推送到总日报（DailyReport），总日报可查询到该收领单记录
+ * 5. 保存后把明细推送到总日报（DailyReport）；「是否资产」「是否安全物资」由物资基础库按物资 ID 带出（需求 2.1.3）
+ * 6. 保存后对物资基础库标记为「资产」的明细自动写入资产台账（需求 2.2），按明细 ID 防重
  */
 @Injectable()
 export class ReceiptOrderService {
@@ -180,7 +187,8 @@ export class ReceiptOrderService {
         categoryLevel2: r.materialBase?.categoryLevel2 || null,
         materialName: r.materialBase?.name || '',
         specModel: r.materialBase?.spec || '',
-        unit: r.unit || '',
+        // 需求 2.3.2：计量单位默认从物资基础库带出（合同清单未维护时回退物资基础库单位）
+        unit: r.unit || r.materialBase?.unit || '',
         contractQty: num(r.qty),
         deliveryQty: null as number | null, // 手动填写
         receivedQty: null as number | null, // 手动填写
@@ -191,7 +199,6 @@ export class ReceiptOrderService {
         usagePart: null as string | null,
         brand: null as string | null,
         remark: null as string | null,
-        isSafetyMaterial: null as string | null,
         isAgentPurchase: null as string | null,
         sortOrder: i + 1,
       };
@@ -359,12 +366,41 @@ export class ReceiptOrderService {
 
   // ==================== 写入 ====================
 
+  /**
+   * 入参校验（需求 2.1.2 / 2.3.2）
+   * - 「是否资产」「是否安全物资」不再由收领单维护，故不再校验
+   * - 计量单位必须存在于字典「measurement_unit」（允许手输新单位，但须先加入字典）
+   */
   private async validate(data: any) {
-    await this.dict.validate('yes_no', data.isAsset);
-    for (const d of Array.isArray(data.details) ? data.details : []) {
-      await this.dict.validate('yes_no', d.isSafetyMaterial);
-      await this.dict.validate('yes_no', d.isAgentPurchase);
+    if (Array.isArray(data.details) && data.details.length) {
+      const units = await this.dict.options('measurement_unit');
+      const known = (v: any) => units.some((u: any) => u.itemCode === v || u.itemName === v);
+      for (const d of data.details) {
+        await this.dict.validate('yes_no', d.isAgentPurchase);
+        const unit = String(d.unit ?? '').trim();
+        if (unit && !known(unit)) {
+          throw new BadRequestException('计量单位不在字典范围内，请先在字典管理中添加');
+        }
+      }
     }
+  }
+
+  /** 计量单位 → 字典编码（日报 / 资产台账统一存编码，与既有数据口径一致） */
+  private async toUnitCode(unit?: string | null): Promise<string | null> {
+    const raw = String(unit ?? '').trim();
+    if (!raw) return null;
+    const items = await this.dict.options('measurement_unit');
+    const hit = items.find((i: any) => i.itemCode === raw || i.itemName === raw);
+    return hit ? hit.itemCode : raw;
+  }
+
+  /** 任意字典值 → 字典编码（资产类别等；未命中时保留原值，避免丢数据） */
+  private async toDictCode(typeCode: string, raw?: string | null): Promise<string | null> {
+    const v = String(raw ?? '').trim();
+    if (!v) return null;
+    const items = await this.dict.options(typeCode);
+    const hit = items.find((i: any) => i.itemCode === v || i.itemName === v);
+    return hit ? hit.itemCode : v;
   }
 
   /**
@@ -407,7 +443,6 @@ export class ReceiptOrderService {
     p.receiver = data.receiver ?? null;
     p.materialContractId = data.materialContractId || null;
     p.materialContractNo = data.materialContractNo ?? null;
-    p.isAsset = data.isAsset ?? null;
     p.remark = data.remark ?? null;
     if (data.orderDate !== undefined) p.orderDate = toDate(data.orderDate);
     return p;
@@ -449,17 +484,22 @@ export class ReceiptOrderService {
       this.normalizeDetail(d, i),
     );
 
-    return this.prisma.receiptOrder.create({
-      data: {
-        ...this.normalizeHeader(data),
-        orderNo,
-        projectId,
-        status: 'SAVED',
-        pushedAt: new Date(),
-        createdBy: user?.userId || user?.id || null,
-        details: { create: details },
-      },
-      include: { details: { orderBy: { sortOrder: 'asc' } } },
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.receiptOrder.create({
+        data: {
+          ...this.normalizeHeader(data),
+          orderNo,
+          projectId,
+          status: 'SAVED',
+          pushedAt: new Date(),
+          createdBy: user?.userId || user?.id || null,
+          details: { create: details },
+        },
+        include: { details: { orderBy: { sortOrder: 'asc' } } },
+      });
+      // 需求 2.2：资产物资自动写入资产台账
+      await this.syncAssetLedger(order.id, tx);
+      return order;
     });
   }
 
@@ -486,6 +526,8 @@ export class ReceiptOrderService {
           details: { create: details },
         },
       });
+      // 需求 2.2.3：收领单修改后，资产台账记录同步更新（含移除不再属于资产的明细行）
+      await this.syncAssetLedger(id, tx);
       return tx.receiptOrder.findUnique({
         where: { id },
         include: { details: { orderBy: { sortOrder: 'asc' } } },
@@ -495,10 +537,98 @@ export class ReceiptOrderService {
 
   async remove(id: string) {
     await this.findOne(id);
-    // 明细通过 onDelete: Cascade 级联删除
-    await this.prisma.receiptOrder.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      // 需求 2.2.3：收领单删除后，其自动入账的资产台账记录同步删除
+      await tx.assetLedger.deleteMany({ where: { receiptOrderId: id } });
+      // 明细通过 onDelete: Cascade 级联删除
+      await tx.receiptOrder.delete({ where: { id } });
+    });
     return true;
   }
+
+  /**
+   * 资产物资自动写入资产台账（需求 2.2）
+   * - 触发：收领单保存成功后，遍历明细，物资基础库标记为「是资产」的明细入账
+   * - 防重：以收领单明细 ID 作为唯一键（AssetLedger.receiptDetailId 唯一约束），重复保存更新而非新增
+   * - 清理：明细不再属于资产或已被删除时，删除对应台账记录
+   */
+  private async syncAssetLedger(orderId: string, tx: TxClient) {
+    const db: any = tx;
+    const order: any = await db.receiptOrder.findUnique({
+      where: { id: orderId },
+      include: { details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
+    });
+    if (!order) return { created: 0, updated: 0, removed: 0 };
+
+    const baseIds = Array.from(
+      new Set((order.details || []).map((d: any) => d.materialId).filter(Boolean)),
+    ) as string[];
+    const bases = baseIds.length
+      ? await db.materialBase.findMany({ where: { id: { in: baseIds } } })
+      : [];
+    const baseMap = new Map<string, any>(bases.map((b: any) => [b.id, b]));
+
+    const keep: string[] = [];
+    let created = 0;
+    let updated = 0;
+    for (const d of order.details || []) {
+      const base: any = d.materialId ? baseMap.get(d.materialId) : null;
+      if (!base?.isAsset) continue; // 非资产物资不入账
+      keep.push(d.id);
+
+      const qty = num(d.receivedQty);
+      const price = num(d.priceWithTax);
+      const total =
+        qty !== null && price !== null ? round2(qty * price) : (num(d.totalPrice) ?? null);
+      const payload: any = {
+        projectId: order.projectId,
+        date: order.orderDate ? new Date(order.orderDate) : null,
+        // 来源：默认「采购」（需求 2.2.2）
+        sourceCode: ASSET_SOURCE_PURCHASE,
+        categoryL1Code: await this.toDictCode('asset_category_l1', base.categoryLevel1),
+        categoryFocusCode: await this.toDictCode('asset_category_focus', base.categoryLevel2),
+        name: d.materialName || base.name || null,
+        spec: d.specModel || base.spec || null,
+        unit: await this.toUnitCode(d.unit || base.unit),
+        qty,
+        price,
+        totalAmount: total,
+        supplierId: order.supplierId || null,
+        receiveUnit: order.receivingUnitName || null,
+        responsible: order.receiver || null,
+        // 默认全部在用（需求 2.2.2）
+        inUseQty: qty,
+        inUseAmount: total,
+        idleQty: null,
+        scrapQty: null,
+        lostQty: null,
+        originalPrice: price,
+        originalTotal: total,
+        remark: order.remark || d.remark || null,
+        receiptOrderId: order.id,
+        receiptDetailId: d.id,
+      };
+
+      const exist = await db.assetLedger.findUnique({ where: { receiptDetailId: d.id } });
+      if (exist) {
+        await db.assetLedger.update({
+          where: { id: exist.id },
+          data: { ...payload, version: { increment: 1 } },
+        });
+        updated += 1;
+      } else {
+        await db.assetLedger.create({ data: payload });
+        created += 1;
+      }
+    }
+
+    // 清理：该收领单下不再需要入账的台账记录
+    const staleWhere: any = { receiptOrderId: orderId };
+    if (keep.length) staleWhere.receiptDetailId = { notIn: keep };
+    const removed = (await db.assetLedger.deleteMany({ where: staleWhere })).count;
+    return { created, updated, removed };
+  }
+
 
   /**
    * 推送总日报：把收领单明细逐行写入 DailyReport
@@ -510,18 +640,29 @@ export class ReceiptOrderService {
    *  - receiver        ← receiver（领料人）
    *  - receiptNo       ← orderNo（收领单编号）
    *  - subcontractPeriod ← subcontractName（分包合同）
-   *  - materialName/spec/unit ← 明细带出
+   *  - materialName/spec/unit ← 明细带出（unit 统一转字典编码）
    *  - settleQty       ← receivedQty（实收数量）
    *  - priceBeforeTax / taxRate / priceAfterTax ← 明细
    *  - amountBeforeTax ← 税前单价 × 实收数量；amountAfterTax ← 综合总价
    *  - usePosition     ← usagePart；isProxy ← isAgentPurchase
-   *  - isAsset         ← 主表 isAsset
+   *  - isAsset / isSafetyMaterial ← 物资基础库（按 materialId 关联，需求 2.1.3）
    */
   async pushToDailyReport(orderId: string) {
     const order: any = await this.findOne(orderId);
     if (!order.details?.length) return { pushed: 0 };
 
-    const rows = order.details.map((d: any) => {
+    // 需求 2.1.3：总日报的「是否资产」「是否安全物资」来源于物资基础库
+    const baseIds = Array.from(
+      new Set((order.details || []).map((d: any) => d.materialId).filter(Boolean)),
+    ) as string[];
+    const bases = baseIds.length
+      ? await this.prisma.materialBase.findMany({ where: { id: { in: baseIds } } })
+      : [];
+    const baseMap = new Map<string, any>(bases.map((b: any) => [b.id, b]));
+    const yesNo = (v: any) => (v === true ? 'Y' : v === false ? 'N' : null);
+
+    const rows = [];
+    for (const d of order.details) {
       const priceBeforeTax = num(d.priceBeforeTax);
       const taxRate = num(d.taxRate);
       const receivedQty = num(d.receivedQty);
@@ -530,19 +671,21 @@ export class ReceiptOrderService {
       const amountBeforeTax =
         priceBeforeTax != null && receivedQty != null ? round2(priceBeforeTax * receivedQty) : null;
       const entryDate = toDate(order.orderDate);
-      return {
+      const base: any = d.materialId ? baseMap.get(d.materialId) : null;
+      rows.push({
         projectId: order.projectId,
         materialBaseId: d.materialId || null,
         periodYear: entryDate ? entryDate.getFullYear() : null,
         periodMonth: entryDate ? entryDate.getMonth() + 1 : null,
         entryDate,
         contractId: order.materialContractId || null,
-        isAsset: order.isAsset ?? null,
+        isAsset: yesNo(base?.isAsset),
+        isSafetyMaterial: yesNo(base?.isSafetyMaterial),
         materialCategory: d.categoryLevel1 || null,
         materialType: d.categoryLevel2 || null,
         materialName: d.materialName || null,
         spec: d.specModel || null,
-        unit: d.unit || null,
+        unit: await this.toUnitCode(d.unit || base?.unit),
         settleQty: receivedQty,
         priceBeforeTax,
         taxRate,
@@ -557,8 +700,8 @@ export class ReceiptOrderService {
         receiptNo: order.orderNo || null,
         remark: d.remark || null,
         subcontractPeriod: order.subcontractName || null,
-      };
-    });
+      });
+    }
 
     // 幂等：同一收领单编号的历史推送先行清理，避免重复推送产生脏数据
     await this.prisma.$transaction(async (tx) => {

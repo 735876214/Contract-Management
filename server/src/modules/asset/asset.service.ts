@@ -76,10 +76,26 @@ export class AssetService {
     }
   }
 
+  /**
+   * 计量单位归一化（需求 2.3.2）：资产台账单位自动继承物资基础库，不可手工维护；
+   * 若前端传入，则必须存在于字典「measurement_unit」，统一落库为字典编码。
+   */
+  private async normalizeUnit(raw: any): Promise<string | null | undefined> {
+    if (raw === undefined) return undefined;
+    const v = String(raw ?? '').trim();
+    if (!v) return null;
+    const items = await this.dict.options('measurement_unit');
+    const hit = items.find((i: any) => i.itemCode === v || i.itemName === v);
+    if (!hit) throw new BadRequestException('计量单位不在字典范围内，请先在字典管理中添加');
+    return hit.itemCode;
+  }
+
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     this.validate(data);
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
+    const unit = await this.normalizeUnit(data.unit);
+    if (unit !== undefined) payload.unit = unit;
     payload.projectId = projectId;
     payload.date = data.date ? new Date(data.date) : null;
     for (const k of ['qty', 'price', 'inUseQty', 'idleQty', 'scrapQty', 'lostQty', 'originalPrice', 'transferOutPrice']) {
@@ -96,6 +112,8 @@ export class AssetService {
     assertVersion(old, data);
     this.validate({ ...old, ...data });
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
+    const unit = await this.normalizeUnit(data.unit);
+    if (unit !== undefined) payload.unit = unit;
     if (data.date !== undefined) payload.date = data.date ? new Date(data.date) : null;
     for (const k of ['qty', 'price', 'inUseQty', 'idleQty', 'scrapQty', 'lostQty', 'originalPrice', 'transferOutPrice']) {
       if (payload[k] !== undefined) payload[k] = payload[k] === null || payload[k] === '' ? null : Number(payload[k]);

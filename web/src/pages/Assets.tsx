@@ -207,8 +207,13 @@ function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; un
           <Form.Item name="spec" label="规格型号"><Input /></Form.Item>
         </Col>
         <Col xs={24} md={6}>
-          <Form.Item name="unit" label="单位">
-            <Select showSearch optionFilterProp="label" allowClear placeholder="计量单位" options={units.map((u) => ({ value: u.value, label: u.label }))} />
+          {/* 需求 2.3.2：资产台账计量单位自动继承物资基础库，不可手动修改 */}
+          <Form.Item name="unit" label="单位" extra="自动继承物资基础库，不可修改">
+            <Select
+              disabled
+              placeholder="自动继承"
+              options={units.map((u) => ({ value: u.value, label: u.label }))}
+            />
           </Form.Item>
         </Col>
         <Col xs={24} md={6}>

@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, DatePicker, Row, Col, Select } from 'antd';
+import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, DatePicker, Row, Col, Select, AutoComplete } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { dailyApi, contractApi, supplierApi } from '@/api/business';
+import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
 
-type Kind = 'text' | 'number' | 'money' | 'date' | 'dict' | 'contractSelect' | 'supplierSelect';
+type Kind = 'text' | 'number' | 'money' | 'date' | 'dict' | 'contractSelect' | 'supplierSelect' | 'unit';
 
 interface F {
   key: string;
@@ -20,6 +21,8 @@ interface F {
   fixed?: 'left' | 'right';
   step?: number;
   precision?: number;
+  /** 需求 2.1.4：来源为物资基础库的字段，总日报只读展示，不允许手工维护 */
+  readonly?: boolean;
 }
 
 // 列顺序严格按需求，请勿随意增删（无"合规性问题"列）
@@ -28,7 +31,9 @@ const FIELDS: F[] = [
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
-  { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100 },
+  // 需求 2.1.4：「是否资产」「是否安全物资」由物资基础库带出，日报只读展示
+  { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100, readonly: true },
+  { key: 'isSafetyMaterial', label: '是否安全物资', kind: 'dict', dict: 'yes_no', width: 120, readonly: true },
   { key: 'assetSupervision', label: '资产监管', kind: 'text', width: 120 },
   { key: 'dept', label: '部门', kind: 'text', width: 110 },
   { key: 'person', label: '人员', kind: 'text', width: 110 },
@@ -40,7 +45,8 @@ const FIELDS: F[] = [
   { key: 'steelBrand', label: '钢筋品牌', kind: 'text', width: 120 },
   { key: 'steelPieces', label: '钢筋件数', kind: 'number', width: 110 },
   { key: 'spec', label: '规格型号', kind: 'text', width: 150 },
-  { key: 'unit', label: '计量单位', kind: 'dict', dict: 'measurement_unit', width: 110 },
+  // 需求 2.3.2：默认带出物资基础库单位，允许手输，但必须存在于字典「measurement_unit」
+  { key: 'unit', label: '计量单位', kind: 'unit', width: 110 },
   { key: 'weighQty', label: '过磅数量/t', kind: 'number', step: 0.001, precision: 3, width: 120 },
   { key: 'deductWeight', label: '扣重/t', kind: 'number', step: 0.001, precision: 3, width: 100 },
   { key: 'settleQty', label: '结算数量', kind: 'number', step: 0.001, precision: 3, width: 110 },
@@ -66,6 +72,67 @@ const FIELDS: F[] = [
   { key: 'standardTotal', label: '标准合价', kind: 'money', width: 140 },
 ];
 
+// ==================== 计量单位输入（需求 2.3.2：默认带出，可手输，但必须存在于字典） ====================
+
+let unitDictCache: { value: string; label: string }[] | null = null;
+async function loadUnitDict(): Promise<{ value: string; label: string }[]> {
+  if (unitDictCache) return unitDictCache;
+  const res: any = await dictApi.options('measurement_unit');
+  unitDictCache = (res || []).map((u: any) => ({ value: u.value, label: u.label })).filter((u: any) => u.value);
+  return unitDictCache;
+}
+
+/** 输入文本 → 字典编码（同时接受编码与名称；不在字典内返回 null） */
+function normalizeUnit(raw: string, dict: { value: string; label: string }[]): string | null {
+  const v = String(raw ?? '').trim();
+  if (!v) return '';
+  const hit = dict.find((d) => d.value === v || d.label === v);
+  return hit ? hit.value : null;
+}
+
+/** 单位输入：下拉选项来自字典，允许手输，非字典值前端拦截 */
+function UnitInput({ value, onChange }: { value?: string; onChange?: (v: string) => void }) {
+  const [dict, setDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
+  const [text, setText] = useState<string>('');
+  const [invalid, setInvalid] = useState(false);
+
+  useEffect(() => {
+    loadUnitDict().then(setDict).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const hit = dict.find((d) => d.value === value);
+    setText(hit ? hit.label : value || '');
+    setInvalid(false);
+  }, [value, dict]);
+
+  return (
+    <div>
+      <AutoComplete
+        value={text}
+        options={dict.map((d) => ({ value: d.label }))}
+        style={{ width: '100%' }}
+        placeholder="计量单位（字典内）"
+        status={invalid ? 'error' : undefined}
+        filterOption={(input, option) => String(option?.value || '').includes(input)}
+        onChange={(v) => setText(v ?? '')}
+        onBlur={() => {
+          const code = normalizeUnit(text, dict);
+          if (code === null) {
+            setInvalid(true);
+            message.error('计量单位不在字典范围内，请先在字典管理中添加');
+            return;
+          }
+          setInvalid(false);
+          onChange?.(code);
+        }}
+      />
+      <div style={{ fontSize: 12, color: invalid ? '#ff4d4f' : '#999', marginTop: 2 }}>
+        {invalid ? '不在字典范围内，请先在字典管理中添加' : '默认取物资基础库，可输入字典内其他单位'}
+      </div>
+    </div>
+  );
+}
+
 export default function DailyReports() {
   const { loading, list, params, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
   const [form] = Form.useForm();
@@ -74,10 +141,12 @@ export default function DailyReports() {
 
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [unitDict, setUnitDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
 
   useEffect(() => {
     contractApi.options().then((res: any) => setContracts(res || []));
     supplierApi.options().then((res: any) => setSuppliers(res || []));
+    loadUnitDict().then(setUnitDict).catch(() => undefined);
   }, []);
 
   const openEdit = (row?: any) => {
@@ -153,6 +222,9 @@ export default function DailyReports() {
     }
     const base: any = { title: f.label, dataIndex: f.key, width: f.width };
     if (f.kind === 'dict') return { ...base, render: (v: string) => <DictTag typeCode={f.dict!} value={v} /> };
+    if (f.kind === 'unit') {
+      return { ...base, render: (v: string) => (v ? unitDict.find((u) => u.value === v)?.label || v : '-') };
+    }
     if (f.kind === 'money') return { ...base, render: money };
     if (f.kind === 'date') return { ...base, render: (v: string) => (v ? v.slice(0, 10) : '-') };
     if (f.kind === 'number') return { ...base, render: (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN')) };
@@ -243,8 +315,17 @@ export default function DailyReports() {
                   </Form.Item>
                 )}
                 {f.kind === 'dict' && (
+                  <Form.Item
+                    name={f.key}
+                    label={f.readonly ? `${f.label}（物资基础库带出）` : f.label}
+                    extra={f.readonly ? '由物资基础库自动带出，无需手工填写' : undefined}
+                  >
+                    <DictSelect typeCode={f.dict!} disabled={f.readonly} />
+                  </Form.Item>
+                )}
+                {f.kind === 'unit' && (
                   <Form.Item name={f.key} label={f.label}>
-                    <DictSelect typeCode={f.dict!} />
+                    <UnitInput />
                   </Form.Item>
                 )}
                 {f.kind === 'date' && (

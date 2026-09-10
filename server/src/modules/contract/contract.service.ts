@@ -507,6 +507,15 @@ export class ContractService {
     const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
     // 需求修正2：物料税率不独立存储，保存时一律以合同主表税率为准（前端传值忽略）
     const contractPct = await this.contractTaxPct(contractId);
+    // 需求 2.3.2：合同清单计量单位必须存在于字典「measurement_unit」（允许手输，但须先加入字典）
+    const unitItems = await this.dict.options('measurement_unit');
+    const normalizeUnit = (raw: any): string => {
+      const v = String(raw ?? '').trim();
+      if (!v) return '';
+      const hit = unitItems.find((u: any) => u.itemName === v || u.itemCode === v);
+      if (!hit) throw new BadRequestException('计量单位不在字典范围内，请先在字典管理中添加');
+      return hit.itemName;
+    };
     let saved = 0;
     for (const [i, r] of rows.entries()) {
       if (!r?.id) continue;
@@ -519,7 +528,7 @@ export class ContractService {
         where: { id: r.id },
         data: {
           seqNo: r.seqNo ?? i + 1,
-          unit: r.unit ?? '',
+          unit: normalizeUnit(r.unit),
           qty,
           priceBeforeTax: price,
           taxRatePct: tax,

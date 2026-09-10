@@ -10,7 +10,10 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { DictService } from '../dict/dict.service';
 import { SettlementService } from '../settlement/settlement.service';
 
-const BASE_FIELDS = ['name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode', 'status', 'remark'];
+const BASE_FIELDS = [
+  'name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode',
+  'unit', 'isAsset', 'isSafetyMaterial', 'status', 'remark',
+];
 // 统一合同物资清单：排除收入单价/合价、标准成本单价/合价（需求 2.2 排除字段）
 const ROW_FIELDS = [
   'contractId', 'materialBaseId', 'unit', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder',
@@ -42,8 +45,16 @@ export class MaterialService {
     if (!raw) throw new BadRequestException('计量单位不能为空');
     const units = await this.dict.options('measurement_unit');
     const hit = units.find((u: any) => u.itemName === raw || u.itemCode === raw);
-    if (!hit) throw new BadRequestException(`计量单位「${raw}」不在字典「计量单位」范围内，请从下拉中选择`);
+    if (!hit) throw new BadRequestException(`计量单位不在字典范围内，请先在字典管理中添加（当前值：「${raw}」）`);
     return hit.itemName;
+  }
+
+  /** 布尔属性归一化（需求 2.1.1：是否资产 / 是否安全物资 必填） */
+  private toBool(v: any, label: string): boolean {
+    if (v === true || v === false) return v;
+    if (v === 1 || v === '1' || v === 'true' || v === 'Y' || v === '是') return true;
+    if (v === 0 || v === '0' || v === 'false' || v === 'N' || v === '否') return false;
+    throw new BadRequestException(`${label}为必填项`);
   }
 
   /** 税率统一取自合同主表：子表未填写时按合同税率自动带出（需求 2.4） */
@@ -122,6 +133,11 @@ export class MaterialService {
   async createBase(data: any) {
     await this.validateBase(data);
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 需求 2.3.1：计量单位必填，且只能取自字典「measurement_unit」
+    payload.unit = await this.resolveUnit(data.unit);
+    // 需求 2.1.1：是否资产 / 是否安全物资 为必填布尔属性（由物资基础库统一维护）
+    payload.isAsset = this.toBool(data.isAsset, '是否资产');
+    payload.isSafetyMaterial = this.toBool(data.isSafetyMaterial, '是否安全物资');
     const dup = await this.prisma.materialBase.findFirst({ where: { name: payload.name, spec: payload.spec } });
     if (dup) throw new BadRequestException('该材料已创建');
     return this.prisma.materialBase.create({ data: payload });
@@ -132,6 +148,20 @@ export class MaterialService {
     if (!old) throw new NotFoundException('物资基础信息不存在');
     await this.validateBase({ ...old, ...data });
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 需求 2.3.1：计量单位创建后不可修改（历史空值允许一次性补齐）
+    if (data.unit !== undefined && data.unit !== null && String(data.unit).trim() !== '') {
+      const unit = await this.resolveUnit(data.unit);
+      if (old.unit && unit !== old.unit) {
+        throw new BadRequestException('计量单位创建后不可修改，如需新单位请先在字典管理中添加');
+      }
+      payload.unit = unit;
+    } else {
+      delete payload.unit;
+    }
+    if (data.isAsset !== undefined) payload.isAsset = this.toBool(data.isAsset, '是否资产');
+    if (data.isSafetyMaterial !== undefined) {
+      payload.isSafetyMaterial = this.toBool(data.isSafetyMaterial, '是否安全物资');
+    }
     if (payload.name || payload.spec) {
       const dup = await this.prisma.materialBase.findFirst({
         where: { name: payload.name || old.name, spec: payload.spec || old.spec, id: { not: id } },
@@ -167,6 +197,9 @@ export class MaterialService {
       { header: '规格型号', key: 'spec', width: 18 },
       { header: '一级分类', key: 'categoryLevel1', width: 14 },
       { header: '二级分类', key: 'categoryLevel2', width: 14 },
+      { header: '计量单位', key: 'unit', width: 12 },
+      { header: '是否资产', key: 'isAssetName', width: 10 },
+      { header: '是否安全物资', key: 'isSafetyMaterialName', width: 14 },
       { header: 'MDM编码', key: 'mdmCode', width: 18 },
       { header: 'DSC编码', key: 'dscCode', width: 18 },
       { header: '状态', key: 'statusName', width: 10 },
@@ -176,6 +209,9 @@ export class MaterialService {
     const rows = (res.list as any[]).map((i) => ({
       name: i.name, spec: i.spec,
       categoryLevel1: i.categoryLevel1 || '', categoryLevel2: i.categoryLevel2 || '',
+      unit: i.unit || '',
+      isAssetName: i.isAsset ? '是' : '否',
+      isSafetyMaterialName: i.isSafetyMaterial ? '是' : '否',
       mdmCode: i.mdmCode || '', dscCode: i.dscCode || '',
       statusName: i.status === 1 ? '启用' : '停用', refCount: i.refCount, remark: i.remark || '',
     }));
@@ -184,11 +220,25 @@ export class MaterialService {
 
   /** 物资基础库填写模板（需求 3.3，实际字段口径） */
   async templateBases() {
+    const units = await this.dict.options('measurement_unit');
     const columns: TemplateColumn[] = [
       { label: '物资名称', key: 'name', required: true, width: 26, example: '螺纹钢 HRB400E' },
       { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20' },
       { label: '一级分类', key: 'categoryLevel1', type: 'text', width: 14, example: '工程材料' },
       { label: '二级分类', key: 'categoryLevel2', type: 'text', width: 14, example: '钢筋' },
+      {
+        label: '计量单位', key: 'unit', required: true, type: 'select', width: 12, example: '吨(t)',
+        options: units.map((u: any) => u.itemName).filter(Boolean),
+        desc: '下拉选择，来自字典「计量单位」，创建后不可修改',
+      },
+      {
+        label: '是否资产', key: 'isAsset', required: true, type: 'select', width: 10, example: '否',
+        options: ['是', '否'],
+      },
+      {
+        label: '是否安全物资', key: 'isSafetyMaterial', required: true, type: 'select', width: 14, example: '否',
+        options: ['是', '否'],
+      },
       { label: 'MDM编码', key: 'mdmCode', type: 'text', width: 18, example: 'MDM-GC-001' },
       { label: 'DSC编码', key: 'dscCode', type: 'text', width: 18, example: 'DSC-001' },
       { label: '备注', key: 'remark', type: 'text', width: 24, example: '示例行：导入时自动忽略' },
@@ -212,8 +262,26 @@ export class MaterialService {
         if (!name) throw new RowError('物资名称为必填项', '物资名称');
         if (!spec) throw new RowError('规格型号为必填项', '规格型号');
         notDup(`${name}|${spec}`, `批内重复：第 ${name} / ${spec} 在导入文件中出现多次`, '物资名称');
+        const unitRaw = String(r['计量单位'] ?? '').trim();
+        if (!unitRaw) throw new RowError('计量单位为必填项', '计量单位');
+        let unit: string;
+        try {
+          unit = await this.resolveUnit(unitRaw);
+        } catch (e: any) {
+          throw new RowError(e?.message || '计量单位不在字典范围内', '计量单位');
+        }
+        const boolOf = (v: any, label: string): boolean => {
+          const s = String(v ?? '').trim();
+          if (['是', 'Y', 'y', '1', 'true', 'TRUE'].includes(s)) return true;
+          if (['否', 'N', 'n', '0', 'false', 'FALSE'].includes(s) || s === '') return false;
+          throw new RowError(`${label}仅支持填写「是」或「否」`, label);
+        };
+        const isAsset = boolOf(r['是否资产'], '是否资产');
+        const isSafetyMaterial = boolOf(r['是否安全物资'], '是否安全物资');
         const payload = {
-          name, spec,
+          name, spec, unit, isAsset, isSafetyMaterial,
+          categoryLevel1: String(r['一级分类'] ?? '').trim() || null,
+          categoryLevel2: String(r['二级分类'] ?? '').trim() || null,
           mdmCode: String(r['MDM编码'] ?? '').trim() || null,
           dscCode: String(r['DSC编码'] ?? '').trim() || null,
           remark: String(r['备注'] ?? '').trim() || null,
@@ -222,6 +290,10 @@ export class MaterialService {
         if (exist) {
           const dupOther = await this.prisma.materialBase.findFirst({ where: { name, spec, id: { not: exist.id } } });
           if (dupOther) throw new RowError(`唯一性校验失败：「${name} / ${spec}」存在重复主数据，请先清理`, '物资名称');
+          // 需求 2.3.1：计量单位创建后不可修改，已存在记录的既有单位不被导入覆盖
+          if (exist.unit && unit !== exist.unit) {
+            delete (payload as any).unit;
+          }
           return { mode: 'update' as const, id: exist.id, payload };
         }
         return { mode: 'create' as const, payload };
@@ -512,7 +584,8 @@ export class MaterialService {
         data: {
           contractId,
           materialBaseId: base.id,
-          unit: '',
+          // 需求 2.3.2：计量单位默认从物资基础库带出（后续可手动改为字典内的其他单位）
+          unit: base.unit || '',
           qty: null,
           priceBeforeTax: null,
           taxRatePct: null,

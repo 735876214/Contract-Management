@@ -206,7 +206,13 @@ export class DictService {
     material_source: [{ model: 'dailyReport', label: '日报', fields: ['sourceCode'] }],
     material_category: [{ model: 'dailyReport', label: '日报', fields: ['materialCategory'] }],
     material_type: [{ model: 'dailyReport', label: '日报', fields: ['materialType'] }],
-    measurement_unit: [{ model: 'dailyReport', label: '日报', fields: ['unit'] }],
+    measurement_unit: [
+      { model: 'dailyReport', label: '日报', fields: ['unit'] },
+      { model: 'materialBase', label: '物资基础库', fields: ['unit'] },
+      { model: 'contractMaterial', label: '合同清单', fields: ['unit'] },
+      { model: 'receiptOrderDetail', label: '收领单', fields: ['unit'] },
+      { model: 'assetLedger', label: '资产台账', fields: ['unit'] },
+    ],
     settlement_type: [{ model: 'settlement', label: '结算单', fields: ['typeCode'] }],
     settlement_status: [{ model: 'settlement', label: '结算单', fields: ['statusCode'] }],
     payment_method: [{ model: 'contract', label: '合同', fields: ['paymentMethodCode'] }, { model: 'paymentRecord', label: '付款记录', fields: ['methodCode'] }],
@@ -222,21 +228,24 @@ export class DictService {
     is_direct_purchase: [{ model: 'contractExt', label: '合同扩展', fields: ['isDirectPurchase'] }],
     yes_no: [
       { model: 'contract', label: '合同', fields: ['isFramework', 'isSupplement'] },
-      { model: 'dailyReport', label: '日报', fields: ['isAsset', 'isWeighed', 'isProxy'] },
+      { model: 'dailyReport', label: '日报', fields: ['isAsset', 'isSafetyMaterial', 'isWeighed', 'isProxy'] },
       { model: 'settlementLedger', label: '结算台账', fields: ['isOnAccount'] },
     ],
     contract_template_category: [{ model: 'contractTemplate', label: '合同模板', fields: ['categoryCode'] }],
   };
 
-  /** 检查字典项是否被业务数据引用 */
-  async checkItemUsage(typeCode: string, itemCode: string) {
+  /** 检查字典项是否被业务数据引用（同时按编码与名称匹配，兼容历史名称口径数据） */
+  async checkItemUsage(typeCode: string, itemCode: string, itemName?: string) {
     const targets = this.usageMap[typeCode] || [];
+    const values = Array.from(new Set([itemCode, itemName].filter(Boolean))) as string[];
     let count = 0;
     const tables: string[] = [];
     for (const t of targets) {
       const model = (this.prisma as any)[t.model];
       if (!model) continue;
-      const c = await model.count({ where: { OR: t.fields.map((f) => ({ [f]: itemCode })) } });
+      const c = await model.count({
+        where: { OR: t.fields.flatMap((f) => values.map((v) => ({ [f]: v }))) },
+      });
       if (c > 0) {
         count += c;
         tables.push(`${t.label}(${c})`);
@@ -249,7 +258,7 @@ export class DictService {
     const items = await this.prisma.dictItem.findMany({ where: { typeCode } });
     let count = 0;
     for (const item of items) {
-      const u = await this.checkItemUsage(typeCode, item.itemCode);
+      const u = await this.checkItemUsage(typeCode, item.itemCode, item.itemName);
       count += u.count;
     }
     return { used: count > 0, count };
@@ -259,7 +268,7 @@ export class DictService {
   async itemUsageById(id: string) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) return { count: 0, tables: [] };
-    return this.checkItemUsage(item.typeCode, item.itemCode);
+    return this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
   }
 
   // ---------------- 导入导出 ----------------

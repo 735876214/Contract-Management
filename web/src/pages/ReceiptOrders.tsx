@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
+  Alert, AutoComplete, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
   Row, Select, Space, Table, Tabs, Tag, Tooltip, message,
 } from 'antd';
 import {
@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { contractApi, receiptOrderApi } from '@/api/business';
+import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { DictTag } from '@/components/DictSelect';
 
@@ -51,6 +52,56 @@ const RECEIVING_TABS = [
 /** 生成稳定的行 key（新增行无后端 id 时使用） */
 let rowSeq = 0;
 const nextKey = () => `tmp-${Date.now()}-${(rowSeq += 1)}`;
+
+// ==================== 计量单位输入（需求 2.3.2：可手输，但必须存在于字典） ====================
+
+/** 字典「计量单位」选项缓存（下拉选项统一来自字典管理） */
+let unitOptionsCache: string[] | null = null;
+async function loadUnitOptions(): Promise<string[]> {
+  if (unitOptionsCache) return unitOptionsCache;
+  const res: any = await dictApi.options('measurement_unit');
+  unitOptionsCache = (res || []).map((u: any) => u.label).filter(Boolean);
+  return unitOptionsCache;
+}
+
+function UnitInput({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
+  const [options, setOptions] = useState<string[]>(unitOptionsCache || []);
+  const [text, setText] = useState<string>(value || '');
+  const [invalid, setInvalid] = useState(false);
+
+  useEffect(() => {
+    loadUnitOptions().then(setOptions).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    setText(value || '');
+    setInvalid(false);
+  }, [value]);
+
+  return (
+    <Tooltip title={invalid ? '计量单位不在字典范围内，请先在字典管理中添加' : '默认取物资基础库，可输入其他字典内单位'}>
+      <AutoComplete
+        value={text}
+        options={options.map((u) => ({ value: u }))}
+        style={{ width: '100%' }}
+        placeholder="计量单位"
+        status={invalid ? 'error' : undefined}
+        filterOption={(input, option) => String(option?.value || '').includes(input)}
+        onChange={(v) => setText(v ?? '')}
+        onBlur={() => {
+          const v = (text || '').trim();
+          // 需求 2.3.2：前端拦截字典以外的单位
+          if (v && options.length && !options.includes(v)) {
+            setInvalid(true);
+            message.error(`计量单位「${v}」不在字典范围内，请先在字典管理中添加`);
+            return;
+          }
+          setInvalid(false);
+          onChange(v);
+        }}
+      />
+    </Tooltip>
+  );
+}
 
 // ==================== 通用：Tab 名称选择弹窗（供应单位 / 领用单位） ====================
 
@@ -146,7 +197,13 @@ const DETAIL_COLUMNS = (
   { title: '二级分类', dataIndex: 'categoryLevel2', width: 110, render: (v: any) => v || '-' },
   { title: '物资名称', dataIndex: 'materialName', width: 160, fixed: 'left' as const, ellipsis: true, render: (v: any) => v || '-' },
   { title: '规格型号', dataIndex: 'specModel', width: 140, ellipsis: true, render: (v: any) => v || '-' },
-  { title: '计量单位', dataIndex: 'unit', width: 90, render: (v: any) => v || '-' },
+  {
+    title: '计量单位', dataIndex: 'unit', width: 130,
+    // 需求 2.3.2：默认从物资基础库带出，可手动输入，但必须存在于字典「计量单位」
+    render: (v: any, row: any) => (
+      <UnitInput value={v} onChange={(val) => patchDetail(row.key, 'unit', val)} />
+    ),
+  },
   { title: '合同数量', dataIndex: 'contractQty', width: 110, align: 'right' as const, render: (v: any) => fmtNum(v) },
   {
     title: '送货数量', dataIndex: 'deliveryQty', width: 130,
@@ -181,13 +238,6 @@ const DETAIL_COLUMNS = (
     title: '备注', dataIndex: 'remark', width: 160,
     render: (v: any, row: any) => (
       <Input value={v} placeholder="填写" onChange={(e) => patchDetail(row.key, 'remark', e.target.value)} />
-    ),
-  },
-  {
-    title: '是否安全物资', dataIndex: 'isSafetyMaterial', width: 140,
-    render: (v: any, row: any) => (
-      <Select allowClear style={{ width: '100%' }} placeholder="选择" value={v || undefined} options={YES_NO}
-        onChange={(val) => patchDetail(row.key, 'isSafetyMaterial', val)} />
     ),
   },
   {
@@ -376,7 +426,7 @@ export default function ReceiptOrders() {
     setReceiverOptions([]);
     // 默认：供应单位=供应商、领用单位=分包商（需求 2.4.4 / 2.4.5 默认选中项）
     let init: Record<string, any> = {
-      orderDate: dayjs(), isAsset: 'N',
+      orderDate: dayjs(),
       supplierType: 'SUPPLIER', receivingUnitType: 'SUBCONTRACTOR',
     };
     try {
@@ -412,7 +462,6 @@ export default function ReceiptOrders() {
         receiver: detail.receiver,
         materialContractId: detail.materialContractId,
         materialContractNo: detail.materialContractNo,
-        isAsset: detail.isAsset,
         remark: detail.remark,
       });
       // 回填互锁数据源
@@ -523,7 +572,6 @@ export default function ReceiptOrders() {
         usagePart: d.usagePart,
         brand: d.brand,
         remark: d.remark,
-        isSafetyMaterial: d.isSafetyMaterial,
         isAgentPurchase: d.isAgentPurchase,
         sortOrder: i + 1,
       })),
@@ -676,7 +724,6 @@ export default function ReceiptOrders() {
             { title: '供应分包合同', dataIndex: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
             { title: '分包合同', dataIndex: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
             { title: '领料人', dataIndex: 'receiver', width: 110, render: (v: any) => v || '-' },
-            { title: '是否资产', dataIndex: 'isAsset', width: 100, render: (v: any) => <DictTag typeCode="yes_no" value={v} /> },
             {
               title: '状态', dataIndex: 'status', width: 100,
               render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
@@ -857,11 +904,7 @@ export default function ReceiptOrders() {
               </Form.Item>
             </Col>
 
-            <Col xs={24} md={12}>
-              <Form.Item name="isAsset" label="是否资产" rules={[{ required: true, message: '请选择是否资产' }]}>
-                <Select placeholder="请选择" options={YES_NO} />
-              </Form.Item>
-            </Col>
+            {/* 需求 2.1.2：收领单不再维护「是否资产」「是否安全物资」，改由物资基础库统一维护 */}
 
             {/* 领料人：领用单位为分包商时为下拉（取分包商材料授权人），否则为手工输入 */}
             <Col xs={24} md={12}>

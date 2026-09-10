@@ -362,7 +362,8 @@ model DailyReport {
   periodMonth      Int?
   entryDate        DateTime? // 进场日期
   contractId       String?
-  isAsset          String?   // dict: yes_no
+  isAsset          String?   // dict: yes_no（来自物资基础库，禁止手工维护）
+  isSafetyMaterial String?   // dict: yes_no（来自物资基础库，禁止手工维护）
   assetSupervision String?   // 资产监管
   department       String?
   personnel        String?
@@ -426,6 +427,9 @@ model MaterialBase {
   categoryLevel2 String? // 二级分类（dict: material_category_l2）
   mdmCode   String? // MDM编码
   dscCode   String? // DSC编码
+  unit      String? // 计量单位（dict: measurement_unit，创建后不可修改）
+  isAsset          Boolean @default(false) // 是否资产（需求 2.1.1）
+  isSafetyMaterial Boolean @default(false) // 是否安全物资（需求 2.1.1）
   status    Int      @default(1) // 1 启用 0 停用（软删除）
   remark    String?
   createdAt DateTime @default(now())
@@ -757,6 +761,8 @@ model AssetLedger {
   originalTotal     Decimal?  @db.Decimal(18, 2) // 原值总额 = 原值单价 × 数量，自动
   transferOutPrice  Decimal?  @db.Decimal(18, 2) // 调出物资本项目进场时单价
   transferOutAmount Decimal?  @db.Decimal(18, 2) // 调出金额 = 调出单价 × 数量，自动
+  receiptOrderId    String? // 来源收领单 ID（收领单自动入账时写入）
+  receiptDetailId   String? // 来源收领单明细 ID（防重唯一键，需求 2.2.2）
   createdAt         DateTime  @default(now())
   version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt         DateTime  @updatedAt
@@ -764,7 +770,9 @@ model AssetLedger {
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   supplier Supplier? @relation(fields: [supplierId], references: [id])
 
+  @@unique([receiptDetailId])
   @@index([projectId])
+  @@index([receiptOrderId])
 }
 
 // ---------------- 通知与日志 ----------------
@@ -934,7 +942,6 @@ model ReceiptOrder {
   receiver           String? // 领料人（最长 50 字符）
   materialContractId String? // 物资合同 ID
   materialContractNo String? // 物资合同编号（快照）
-  isAsset            String? // 是否资产（dict: yes_no）
   status             String    @default("DRAFT") // DRAFT 草稿 / SAVED 已保存
   pushedAt           DateTime? // 推送总日报时间
   remark             String?
@@ -975,7 +982,6 @@ model ReceiptOrderDetail {
   usagePart         String? // 使用部位
   brand             String? // 厂家/品牌
   remark            String? // 备注
-  isSafetyMaterial  String? // 是否安全物资（dict: yes_no）
   isAgentPurchase   String? // 是否代购（dict: yes_no）
   sortOrder         Int      @default(0)
   createdAt         DateTime @default(now())

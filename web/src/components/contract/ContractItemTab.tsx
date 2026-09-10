@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
+import { dictApi } from '@/api/dict';
 
 /** 4 位精度计算：含税单价 = 税前单价 × (1 + 税率/100)；暂定含税合价 = 含税单价 × 暂定数量 */
 const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
@@ -33,7 +34,16 @@ export default function ContractItemTab({
   const [poolIds, setPoolIds] = useState<any[]>([]); // 物料编码清单（用于派生勾选）
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]); // 派生勾选项
   const [deriveOpen, setDeriveOpen] = useState(false);
+  // 需求 2.3.2：计量单位下拉选项统一来自字典「measurement_unit」
+  const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    dictApi
+      .options('measurement_unit')
+      .then((res: any) => setUnitOptions((res || []).map((u: any) => u.label).filter(Boolean)))
+      .catch(() => undefined);
+  }, []);
 
   /** 生效税率：优先取合同基本信息中实时填写的合同税率 */
   const effectiveTax = contractTaxPct ?? null;
@@ -190,12 +200,23 @@ export default function ContractItemTab({
           {
             title: '计量单位',
             dataIndex: 'unit',
-            width: 110,
+            width: 130,
+            // 需求 2.3.2：默认从物资基础库带出，可手动输入，但必须存在于字典「计量单位」
             render: (v, row) => (
-              <Input
-                defaultValue={v || ''}
-                onBlur={(e) => patch(row.id, 'unit', e.target.value)}
-                placeholder="如 吨/米"
+              <AutoComplete
+                value={v || ''}
+                options={unitOptions.map((u) => ({ value: u }))}
+                placeholder="如 吨(t)"
+                style={{ width: '100%' }}
+                filterOption={(input, option) => String(option?.value || '').includes(input)}
+                onChange={(val) => patch(row.id, 'unit', val ?? '')}
+                onBlur={() => {
+                  const cur = String(row.unit || '').trim();
+                  if (cur && unitOptions.length && !unitOptions.includes(cur)) {
+                    message.error(`计量单位「${cur}」不在字典范围内，请先在字典管理中添加`);
+                    patch(row.id, 'unit', '');
+                  }
+                }}
               />
             ),
           },
