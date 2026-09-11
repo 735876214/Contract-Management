@@ -21,24 +21,34 @@ cms/
 
 ## 快速开始
 
+> 项目使用 **pnpm**（lockfile 为 v9）。`server/package.json` 与 `web/package.json` 已通过 `packageManager` 字段锁定 pnpm 版本，启用 corepack 后会自动选用；构建脚本（prisma / @nestjs/core / esbuild）已在各目录的 `pnpm-workspace.yaml` 中放行，普通 `pnpm install` 即可完成依赖与构建。
+
 ```bash
-# 1. 启动数据库
+# 0. （可选）启用包管理器版本管理
+corepack enable && corepack prepare pnpm@12 --activate
+
+# 1. 准备数据库（二选一）
+#    方式 A · PostgreSQL（推荐，功能完整，需 Docker）
 cd cms && docker compose up -d
+#    方式 B · SQLite（本地快速体验，无需 Docker；.env 已默认 DATABASE_URL="file:./dev.db"）
+cd server && pnpm run demo:sqlite   # 自动生成 SQLite schema、建表、生成 Prisma Client 并写入种子数据
 
 # 2. 后端
 cd server
-cp .env.example .env
-npm install
-npx prisma generate
-npx prisma migrate deploy   # 首次可用 npx prisma migrate dev
-npm run seed
-npm run start:dev           # http://localhost:3000/api
+cp .env.example .env        # 已有 .env（指向 dev.db）可跳过；PostgreSQL 方式请改 DATABASE_URL
+pnpm install                # 安装依赖（构建脚本已在 pnpm-workspace.yaml 中放行）
+npx prisma generate --schema prisma/schema.sqlite.prisma   # SQLite 本地开发
+# 使用 PostgreSQL 时改为：npx prisma generate && npx prisma migrate deploy
+pnpm run seed               # 初始化字典 / 角色 / 演示数据（PostgreSQL 方式；SQLite 已由 demo:sqlite 完成）
+pnpm run start:dev         # http://localhost:3000/api
 
 # 3. 前端
 cd ../web
-npm install
-npm run dev                 # http://localhost:5173
+pnpm install
+pnpm run dev               # http://localhost:5173
 ```
+
+> 注意：`node_modules/`、`*.db`、`uploads/`、`.env` 等均已在 `.gitignore` 中忽略，请勿提交。
 
 默认账号：`admin / admin123`（超级管理员，拥有全部项目权限）；另有 `manager`、`staff` 演示账号（密码相同）。
 
@@ -79,7 +89,7 @@ server/src/
 
 - **Prisma 引擎下载慢/失败**：`npx prisma generate` 需要从网络下载查询引擎，若失败可配置镜像
   `PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma` 后重试。
-- **npm install 卡住**：可改用 `pnpm install`（依赖解析更快，磁盘占用更小）。
+- **依赖安装**：项目统一使用 `pnpm`（不要用 `npm`，否则会生成被 `.gitignore` 排除的 `package-lock.json`）。`pnpm install` 若提示构建脚本被拦截，确认对应目录 `pnpm-workspace.yaml` 中的 `allowBuilds` 已放行（prisma / @nestjs/core / esbuild）。
 - **上传目录**：默认 `server/uploads`，由 `/api/files/**` 静态映射，生产环境建议替换为对象存储
   （`FileController` 是唯一的写入点，替换实现即可）。
 - **MySQL 差异**：本模型使用 `Decimal(18,2)` 与 `String` 字典编码，MySQL 下同样适用；
