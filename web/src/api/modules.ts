@@ -7,6 +7,9 @@ export const dailyApi = {
   update: (id: string, data: any) => http.put<any, any>(`/daily-reports/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/daily-reports/${id}`),
   materialTypes: (category: string) => http.get<any, any>('/daily-reports/material-types', { params: { category } }),
+  // 按合同聚合日报「结算数量」合计（补充协议：原合同剩余数量 = 原合同数量 − 日报已发生数量）
+  contractSettledQty: (contractId: string) =>
+    http.get<any, any>('/daily-reports/contract-settled-qty', { params: { contractId } }),
   exportUrl: () => `${http.defaults.baseURL}/daily-reports/export`,
   importUrl: () => `${http.defaults.baseURL}/daily-reports/import`,
 };

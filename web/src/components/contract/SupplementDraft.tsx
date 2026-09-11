@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Table, message, Modal,
+  Alert, Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
 import { contractApi, templateApi } from '@/api/business';
+import { dailyApi } from '@/api/modules';
 import RichTextEditor from '@/components/RichTextEditor';
 import { amountToChineseCapital } from '@/utils/money';
 import { DictTag } from '@/components/DictSelect';
@@ -65,25 +66,34 @@ interface SuppParent {
   amount?: number | string | null;
 }
 
-interface PriceRow {
+/**
+ * 涨价/降价/增量协议行：由原合同清单自动带出（materialBaseId 非空时只读字段锁定），
+ * 或手动添加（materialBaseId 为空，全部字段可编辑）。
+ */
+interface SuppRow {
+  materialBaseId: string;
   name: string;
   spec: string;
   unit: string;
-  origQty: number;
-  remainQty: number;
-  origPrice: number;
-  newPrice: number;
+  origQty: number; // 原合同数量（清单「暂定数量」）
+  origPrice: number; // 原合同含税单价（清单「含税单价」）
+  settledQty: number; // 日报已发生数量（结算数量合计）
+  newPrice: number; // 涨价/降价：补充协议含税单价（可编辑）
+  addQty: number; // 增量：暂定新增数量（可编辑）
   remark: string;
 }
-interface QtyRow {
-  name: string;
-  spec: string;
-  unit: string;
-  origPrice: number;
-  origQty: number;
-  addQty: number;
-  remark: string;
+
+/** 原合同清单导入行（来自 contractApi.draftList，字段可能缺失） */
+interface OrigRow {
+  materialBaseId?: string | null;
+  name?: string | null;
+  spec?: string | null;
+  unit?: string | null;
+  qty?: number | string | null;
+  priceWithTax?: number | string | null;
+  totalWithTax?: number | string | null;
 }
+
 interface ItemRow {
   name: string;
   spec: string;
@@ -92,16 +102,6 @@ interface ItemRow {
   taxRate: number;
   addQty: number;
   remark: string;
-}
-/** 原合同清单导入行（来自 contractApi.draftList，字段可能缺失） */
-interface OrigRow {
-  name?: string | null;
-  spec?: string | null;
-  unit?: string | null;
-  priceWithTax?: number | string | null;
-  qty?: number | string | null;
-  totalWithTax?: number | string | null;
-  materialBase?: { name?: string | null; spec?: string | null } | null;
 }
 
 interface Props {
@@ -112,9 +112,16 @@ interface Props {
   onDone: () => void;
 }
 
-const blankPrice = (): PriceRow => ({ name: '', spec: '', unit: '', origQty: 0, remainQty: 0, origPrice: 0, newPrice: 0, remark: '' });
-const blankQty = (): QtyRow => ({ name: '', spec: '', unit: '', origPrice: 0, origQty: 0, addQty: 0, remark: '' });
+const blankSupp = (): SuppRow => ({
+  materialBaseId: '', name: '', spec: '', unit: '',
+  origQty: 0, origPrice: 0, settledQty: 0, newPrice: 0, addQty: 0, remark: '',
+});
 const blankItem = (): ItemRow => ({ name: '', spec: '', unit: '', priceBeforeTax: 0, taxRate: 13, addQty: 0, remark: '' });
+
+/** 原合同剩余数量 = 原合同数量 − 日报已发生数量（允许负数显示，计算金额时按 0） */
+const remainOf = (r: SuppRow): number => num(r.origQty) - num(r.settledQty);
+/** 计算用剩余数量：负数按 0 处理，避免出现负金额 */
+const remainForCalc = (r: SuppRow): number => Math.max(0, remainOf(r));
 
 /** 更新数组第 i 项指定字段（泛型，类型安全） */
 function update<T, K extends keyof T>(rows: T[], setter: (v: T[]) => void, i: number, field: K, value: T[K]): void {
@@ -133,8 +140,8 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
   const [saved, setSaved] = useState(false);
 
   // 各类型表数据
-  const [priceRows, setPriceRows] = useState<PriceRow[]>([blankPrice()]);
-  const [qtyRows, setQtyRows] = useState<QtyRow[]>([blankQty()]);
+  const [priceRows, setPriceRows] = useState<SuppRow[]>([]);
+  const [qtyRows, setQtyRows] = useState<SuppRow[]>([]);
   const [itemOrig, setItemOrig] = useState<OrigRow[]>([]);
   const [itemNew, setItemNew] = useState<ItemRow[]>([blankItem()]);
   const [otherHtml, setOtherHtml] = useState('');
@@ -144,16 +151,35 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
   const [previewing, setPreviewing] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
-  // 打开时初始化：拉取补充协议编号并导入原合同清单
+  /** 原合同清单行 → 补充协议行（只读字段自动带出，剩余数量 = 数量 − 日报结算合计） */
+  const toSuppRows = (orig: OrigRow[], settledMap: Map<string, number>): SuppRow[] =>
+    orig
+      .filter((r) => r?.materialBaseId || r?.name)
+      .map((r) => {
+        const materialBaseId = r?.materialBaseId ?? '';
+        const row: SuppRow = {
+          materialBaseId,
+          name: r?.name ?? '',
+          spec: r?.spec ?? '',
+          unit: r?.unit ?? '',
+          origQty: num(r?.qty),
+          origPrice: num(r?.priceWithTax),
+          settledQty: settledMap.get(materialBaseId) ?? 0,
+          newPrice: 0,
+          addQty: 0,
+          remark: '',
+        };
+        return row;
+      });
+
+  // 打开时初始化：拉取补充协议编号 + 原合同清单 + 日报结算数量合计
   useEffect(() => {
     if (!open || !parent?.id) return;
     setContractId(null);
     setSuppType('PRICE_UP');
     setSaved(false);
-    setPriceRows([blankPrice()]);
-    setQtyRows([blankQty()]);
-    setItemNew([blankItem()]);
     setOtherHtml('');
+    setItemNew([blankItem()]);
     setLoading(true);
     (async () => {
       try {
@@ -162,18 +188,28 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
           | undefined;
         setCode(nc?.code ?? '');
         setSeq(nc?.seq ?? 1);
-        // 导入原合同清单（增项协议展示用）
-        let orig: OrigRow[] = [];
-        try {
-          const m = (await contractApi.draftList(parent.id as string)) as
-            | OrigRow[]
-            | { list?: OrigRow[] }
-            | undefined;
-          orig = Array.isArray(m) ? m : (m?.list ?? []);
-        } catch {
-          /* 无清单则忽略 */
-        }
+        // 并行拉取：原合同清单 + 日报结算数量合计
+        const [m, sq] = await Promise.all([
+          contractApi
+            .draftList(parent.id as string)
+            .catch(() => undefined as unknown),
+          dailyApi
+            .contractSettledQty(parent.id as string)
+            .catch(() => undefined as unknown),
+        ]);
+        const orig: OrigRow[] = Array.isArray(m)
+          ? (m as OrigRow[])
+          : ((m as { list?: OrigRow[] } | undefined)?.list ?? []);
         setItemOrig(orig);
+        const settledEntries = Array.isArray(sq)
+          ? (sq as { materialBaseId: string; settleQty: number }[])
+          : [];
+        const settledMap = new Map<string, number>(
+          settledEntries.map((x) => [x.materialBaseId, num(x.settleQty)]),
+        );
+        // 涨价/降价/增量：自动带出原合同清单（含剩余数量），支持删除行
+        setPriceRows(toSuppRows(orig, settledMap));
+        setQtyRows(toSuppRows(orig, settledMap));
       } catch {
         message.error('获取补充协议编号失败');
       } finally {
@@ -218,18 +254,19 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       原合同名称: parent?.name ?? '',
     };
     if (suppType === 'PRICE_UP' || suppType === 'PRICE_DOWN') {
+      // 原合同剩余数量：显示允许负数；计算金额时负数按 0（避免负金额）
       const rows = priceRows.map((r, i) => {
         const origAmount = num(r.origQty) * num(r.origPrice);
         const diff = num(r.newPrice) - num(r.origPrice);
-        const newAmount = num(r.remainQty) * diff;
+        const newAmount = remainForCalc(r) * diff;
         return { ...r, origAmount, diff, newAmount, i };
       });
       const newTotal = rows.reduce((s, r) => s + r.newAmount, 0);
-      const qtyTotal = rows.reduce((s, r) => s + num(r.origQty), 0);
+      const qtyTotal = rows.reduce((s, r) => s + remainOf(r), 0);
       base['补充协议表'] = buildTableHtml(
         ['序号', '物资名称', '规格型号', '计量单位', '原合同数量', '原合同剩余数量', '原合同含税单价', '原合同金额',
           '补充协议含税单价', '原合同与补充协议价差', '新增合同金额', '累计占原合同金额比例', '备注'],
-        rows.map((r) => [r.i + 1, r.name, r.spec, r.unit, fmt(r.origQty), fmt(r.remainQty), fmt(r.origPrice), fmt(r.origAmount),
+        rows.map((r) => [r.i + 1, r.name, r.spec, r.unit, fmt(r.origQty), fmt(remainOf(r)), fmt(r.origPrice), fmt(r.origAmount),
           fmt(r.newPrice), fmt(r.diff), fmt(r.newAmount), fmtPct(parentAmount ? r.newAmount / parentAmount : 0), r.remark || '']),
       );
       base['原合同金额总价大写'] = amountToChineseCapital(parentAmount);
@@ -245,8 +282,8 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       const addTotal = rows.reduce((s, r) => s + r.addAmount, 0);
       const qtyTotal = rows.reduce((s, r) => s + num(r.addQty), 0);
       base['补充协议表'] = buildTableHtml(
-        ['序号', '物资名称', '规格型号', '计量单位', '原合同含税单价', '原合同数量', '暂定新增数量', '原合同金额', '暂定新增金额', '累计占原合同金额比例', '备注'],
-        rows.map((r) => [r.i + 1, r.name, r.spec, r.unit, fmt(r.origPrice), fmt(r.origQty), fmt(r.addQty), fmt(r.origAmount),
+        ['序号', '物资名称', '规格型号', '计量单位', '原合同含税单价', '原合同数量', '原合同剩余数量', '暂定新增数量', '原合同金额', '暂定新增金额', '累计占原合同金额比例', '备注'],
+        rows.map((r) => [r.i + 1, r.name, r.spec, r.unit, fmt(r.origPrice), fmt(r.origQty), fmt(remainOf(r)), fmt(r.addQty), fmt(r.origAmount),
           fmt(r.addAmount), fmtPct(parentAmount ? r.addAmount / parentAmount : 0), r.remark || '']),
       );
       base['原合同金额总价大写'] = amountToChineseCapital(parentAmount);
@@ -274,7 +311,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       if (itemOrig.length) {
         base['补充协议表'] =
           buildTableHtml(['序号', '物资名称', '规格型号', '计量单位', '原合同含税单价', '原合同数量', '原合同金额'],
-            itemOrig.map((r, i) => [i + 1, r?.materialBase?.name ?? r?.name ?? '', r?.materialBase?.spec ?? r?.spec ?? '',
+            itemOrig.map((r, i) => [i + 1, r?.name ?? '', r?.spec ?? '',
               r?.unit ?? '', fmt(r?.priceWithTax), fmt(r?.qty), fmt(r?.totalWithTax)])) + base['补充协议表'];
       }
     } else {
@@ -356,30 +393,57 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
   const isItem = suppType === 'ITEM_ADD';
   const isOther = suppType === 'OTHER';
 
-  const priceColumns: ColumnsType<PriceRow> = [
+  /** 只读文本（带出字段），负数红色提示 */
+  const readonlyText = (v: string | number): JSX.Element =>
+    num(v) < 0 ? <Typography.Text type="danger">{fmt(v)}</Typography.Text> : <span>{fmt(v)}</span>;
+
+  /** 带出行显示只读文本；手动添加行（materialBaseId 为空）允许编辑 */
+  const origCell = (
+    r: SuppRow,
+    key: 'name' | 'spec' | 'unit',
+    rows: SuppRow[],
+    setter: (v: SuppRow[]) => void,
+    i: number,
+  ): JSX.Element =>
+    r.materialBaseId ? (
+      <span>{r[key] || '-'}</span>
+    ) : (
+      <Input value={r[key]} onChange={(e) => update(rows, setter, i, key, e.target.value)} />
+    );
+
+  const priceColumns: ColumnsType<SuppRow> = [
     { title: '序号', width: 50, render: (_, __, i) => i + 1 },
-    { title: '物资名称', render: (_, r, i) => <Input value={r.name} onChange={(e) => update(priceRows, setPriceRows, i, 'name', e.target.value)} /> },
-    { title: '规格型号', render: (_, r, i) => <Input value={r.spec} onChange={(e) => update(priceRows, setPriceRows, i, 'spec', e.target.value)} /> },
-    { title: '计量单位', render: (_, r, i) => <Input value={r.unit} onChange={(e) => update(priceRows, setPriceRows, i, 'unit', e.target.value)} /> },
-    { title: '原合同数量', render: (_, r, i) => <InputNumber value={r.origQty} onChange={(v) => update(priceRows, setPriceRows, i, 'origQty', num(v))} /> },
-    { title: '原合同剩余数量', render: (_, r, i) => <InputNumber value={r.remainQty} onChange={(v) => update(priceRows, setPriceRows, i, 'remainQty', num(v))} /> },
-    { title: '原合同含税单价', render: (_, r, i) => <InputNumber value={r.origPrice} onChange={(v) => update(priceRows, setPriceRows, i, 'origPrice', num(v))} /> },
+    { title: '物资名称', render: (_, r, i) => origCell(r, 'name', priceRows, setPriceRows, i) },
+    { title: '规格型号', render: (_, r, i) => origCell(r, 'spec', priceRows, setPriceRows, i) },
+    { title: '计量单位', render: (_, r, i) => origCell(r, 'unit', priceRows, setPriceRows, i) },
+    { title: '原合同数量', render: (_, r, i) =>
+      r.materialBaseId ? readonlyText(r.origQty)
+        : <InputNumber value={r.origQty} onChange={(v) => update(priceRows, setPriceRows, i, 'origQty', num(v))} /> },
+    { title: '原合同剩余数量', render: (_, r) => readonlyText(remainOf(r)) },
+    { title: '原合同含税单价', render: (_, r, i) =>
+      r.materialBaseId ? readonlyText(r.origPrice)
+        : <InputNumber value={r.origPrice} onChange={(v) => update(priceRows, setPriceRows, i, 'origPrice', num(v))} /> },
     { title: '原合同金额', render: (_, r) => fmt(num(r.origQty) * num(r.origPrice)) },
     { title: '补充协议含税单价', render: (_, r, i) => <InputNumber value={r.newPrice} onChange={(v) => update(priceRows, setPriceRows, i, 'newPrice', num(v))} /> },
     { title: '价差', render: (_, r) => fmt(num(r.newPrice) - num(r.origPrice)) },
-    { title: '新增合同金额', render: (_, r) => fmt(num(r.remainQty) * (num(r.newPrice) - num(r.origPrice))) },
+    { title: '新增合同金额', render: (_, r) => fmt(remainForCalc(r) * (num(r.newPrice) - num(r.origPrice))) },
     { title: '备注', render: (_, r, i) => <Input value={r.remark} onChange={(e) => update(priceRows, setPriceRows, i, 'remark', e.target.value)} /> },
   ];
 
-  const qtyColumns: ColumnsType<QtyRow> = [
+  const qtyColumns: ColumnsType<SuppRow> = [
     { title: '序号', width: 50, render: (_, __, i) => i + 1 },
-    { title: '物资名称', render: (_, r, i) => <Input value={r.name} onChange={(e) => update(qtyRows, setQtyRows, i, 'name', e.target.value)} /> },
-    { title: '规格型号', render: (_, r, i) => <Input value={r.spec} onChange={(e) => update(qtyRows, setQtyRows, i, 'spec', e.target.value)} /> },
-    { title: '计量单位', render: (_, r, i) => <Input value={r.unit} onChange={(e) => update(qtyRows, setQtyRows, i, 'unit', e.target.value)} /> },
-    { title: '原合同含税单价', render: (_, r, i) => <InputNumber value={r.origPrice} onChange={(v) => update(qtyRows, setQtyRows, i, 'origPrice', num(v))} /> },
-    { title: '原合同数量', render: (_, r, i) => <InputNumber value={r.origQty} onChange={(v) => update(qtyRows, setQtyRows, i, 'origQty', num(v))} /> },
-    { title: '原合同金额', render: (_, r) => fmt(num(r.origQty) * num(r.origPrice)) },
+    { title: '物资名称', render: (_, r, i) => origCell(r, 'name', qtyRows, setQtyRows, i) },
+    { title: '规格型号', render: (_, r, i) => origCell(r, 'spec', qtyRows, setQtyRows, i) },
+    { title: '计量单位', render: (_, r, i) => origCell(r, 'unit', qtyRows, setQtyRows, i) },
+    { title: '原合同含税单价', render: (_, r, i) =>
+      r.materialBaseId ? readonlyText(r.origPrice)
+        : <InputNumber value={r.origPrice} onChange={(v) => update(qtyRows, setQtyRows, i, 'origPrice', num(v))} /> },
+    { title: '原合同数量', render: (_, r, i) =>
+      r.materialBaseId ? readonlyText(r.origQty)
+        : <InputNumber value={r.origQty} onChange={(v) => update(qtyRows, setQtyRows, i, 'origQty', num(v))} /> },
+    { title: '原合同剩余数量', render: (_, r) => readonlyText(remainOf(r)) },
     { title: '暂定新增数量', render: (_, r, i) => <InputNumber value={r.addQty} onChange={(v) => update(qtyRows, setQtyRows, i, 'addQty', num(v))} /> },
+    { title: '原合同金额', render: (_, r) => fmt(num(r.origQty) * num(r.origPrice)) },
     { title: '暂定新增金额', render: (_, r) => fmt(num(r.addQty) * num(r.origPrice)) },
     { title: '备注', render: (_, r, i) => <Input value={r.remark} onChange={(e) => update(qtyRows, setQtyRows, i, 'remark', e.target.value)} /> },
   ];
@@ -399,18 +463,22 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
 
   const origColumns: ColumnsType<OrigRow> = [
     { title: '序号', width: 50, render: (_, __, i) => i + 1 },
-    { title: '物资名称', render: (_, r) => r?.materialBase?.name ?? r?.name ?? '' },
-    { title: '规格型号', render: (_, r) => r?.materialBase?.spec ?? r?.spec ?? '' },
+    { title: '物资名称', render: (_, r) => r?.name ?? '' },
+    { title: '规格型号', render: (_, r) => r?.spec ?? '' },
     { title: '计量单位', render: (_, r) => r?.unit ?? '' },
     { title: '原合同含税单价', render: (_, r) => fmt(r?.priceWithTax) },
     { title: '原合同数量', render: (_, r) => fmt(r?.qty) },
     { title: '原合同金额', render: (_, r) => fmt(num(r?.totalWithTax)) },
   ];
 
+  const deleteBtn = (rows: SuppRow[], setter: (v: SuppRow[]) => void, i: number): JSX.Element => (
+    <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setter(rows.filter((_, j) => j !== i))} />
+  );
+
   return (
     <Drawer
       title={<Space>新增补充协议<DictTag typeCode="supplement_agreement_type" value={suppType} /></Space>}
-      width={1040}
+      width={1160}
       open={open}
       onClose={onClose}
       footer={
@@ -436,18 +504,36 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
           </Card>
 
           {isPrice && (
-            <Card size="small" title={`${suppName(suppType)} · 价格调整明细`} extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setPriceRows([...priceRows, blankPrice()])}>加一行</Button>}>
-              <Table<PriceRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={priceRows} pagination={false}
-                scroll={{ x: 1400 }}
-                columns={[...priceColumns, { title: '操作', width: 60, render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setPriceRows(priceRows.filter((_, j) => j !== i))} /> }]} />
+            <Card
+              size="small"
+              title={`${suppName(suppType)} · 价格调整明细（清单自动带出，仅可填补充协议含税单价）`}
+              extra={priceRows.length === 0 && (
+                <Button size="small" icon={<PlusOutlined />} onClick={() => setPriceRows([...priceRows, blankSupp()])}>手动加一行</Button>
+              )}
+            >
+              {priceRows.length === 0 && (
+                <Alert type="info" showIcon style={{ marginBottom: 8 }} message="原合同暂无合同清单，可手动添加物资行" />
+              )}
+              <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={priceRows} pagination={false}
+                scroll={{ x: 1560 }}
+                columns={[...priceColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(priceRows, setPriceRows, i) }]} />
             </Card>
           )}
 
           {isQty && (
-            <Card size="small" title="增量补充协议 · 数量增加明细" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setQtyRows([...qtyRows, blankQty()])}>加一行</Button>}>
-              <Table<QtyRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={qtyRows} pagination={false}
-                scroll={{ x: 1200 }}
-                columns={[...qtyColumns, { title: '操作', width: 60, render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setQtyRows(qtyRows.filter((_, j) => j !== i))} /> }]} />
+            <Card
+              size="small"
+              title="增量补充协议 · 数量增加明细（清单自动带出，仅可填暂定新增数量）"
+              extra={qtyRows.length === 0 && (
+                <Button size="small" icon={<PlusOutlined />} onClick={() => setQtyRows([...qtyRows, blankSupp()])}>手动加一行</Button>
+              )}
+            >
+              {qtyRows.length === 0 && (
+                <Alert type="info" showIcon style={{ marginBottom: 8 }} message="原合同暂无合同清单，可手动添加物资行" />
+              )}
+              <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={qtyRows} pagination={false}
+                scroll={{ x: 1500 }}
+                columns={[...qtyColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(qtyRows, setQtyRows, i) }]} />
             </Card>
           )}
 
@@ -467,6 +553,14 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
             <Card size="small" title="其他类补充协议 · 正文（富文本，支持文字 / 图片 / 表格）">
               <RichTextEditor value={otherHtml} onChange={setOtherHtml} minHeight={360} placeholder="请输入补充协议正文，可插入图片与表格" />
             </Card>
+          )}
+
+          {isPrice && (
+            <Alert
+              type="info"
+              showIcon
+              message="计算规则：原合同剩余数量 = 原合同数量 − 日报已发生数量（结算数量合计）；剩余数量允许为负数显示，但计算新增合同金额时按 0 处理"
+            />
           )}
 
           <Alert type="info" showIcon message={saved ? '已保存，可预览或发布' : '填写完成后请先「保存」，再「预览 / 发布」'} />

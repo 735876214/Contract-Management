@@ -47,6 +47,12 @@ export class DailyReportController {
   }
 
   @RequirePermissions('daily:view')
+  @Get('contract-settled-qty')
+  contractSettledQty(@Query('contractId') contractId: string, @ProjectId() projectId: string) {
+    return this.service.contractSettledQty(contractId, projectId);
+  }
+
+  @RequirePermissions('daily:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);

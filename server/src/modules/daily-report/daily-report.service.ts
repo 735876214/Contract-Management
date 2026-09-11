@@ -66,6 +66,23 @@ export class DailyReportService {
     return items.map((i: any) => ({ value: i.itemCode, label: i.itemName, extField1: i.extField1 }));
   }
 
+  /**
+   * 按合同聚合日报「结算数量」合计（按物资主数据分组）。
+   * 用途：补充协议「原合同剩余数量 = 原合同数量 − 日报已发生数量」。
+   */
+  async contractSettledQty(contractId: string, projectId: string) {
+    if (!contractId) return [];
+    const rows = await this.prisma.dailyReport.groupBy({
+      by: ['materialBaseId'],
+      where: { projectId, contractId, materialBaseId: { not: null } },
+      _sum: { settleQty: true },
+    });
+    return rows.map((r) => ({
+      materialBaseId: r.materialBaseId as string,
+      settleQty: num(r._sum?.settleQty),
+    }));
+  }
+
   private async validate(data: any) {
     await this.dict.validate('yes_no', data.isAsset);
     await this.dict.validate('yes_no', data.isSafetyMaterial);
