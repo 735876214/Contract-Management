@@ -12,6 +12,24 @@ export const procurementApi = {
   remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
 };
 
+/**
+ * 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理）
+ * 阶段链前置约束：前一任务未发布时后续任务禁用（编辑/发布均由后端校验）。
+ */
+export const procurementTaskApi = {
+  list: (params?: any) => http.get<any, any>('/procurement-tasks', { params }),
+  detail: (id: string) => http.get<any, any>(`/procurement-tasks/${id}`),
+  create: (data: { type: string; content: string; purpose?: string; preMeetingRequired?: boolean }) =>
+    http.post<any, any>('/procurement-tasks', data),
+  update: (id: string, data: { content?: string; purpose?: string; preMeetingRequired?: boolean }) =>
+    http.put<any, any>(`/procurement-tasks/${id}`, data),
+  /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */
+  publish: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/publish`),
+  /** 合同阶段状态同步（生成合同/合同状态变化后调用） */
+  syncContractStatus: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/sync-contract-status`),
+  remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
+};
+
 export const dailyApi = {
   list: (params?: any) => http.get<any, any>('/daily-reports', { params }),
   detail: (id: string) => http.get<any, any>(`/daily-reports/${id}`),

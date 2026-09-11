@@ -121,6 +121,7 @@ model Project {
   assets       AssetLedger[]
   receiptOrders ReceiptOrder[]
   procurementTemplates ProcurementTemplate[]
+  procurementTasks     ProcurementTask[]
   @@index([createdAt])
 }
 
@@ -1011,4 +1012,27 @@ model ProcurementTemplate {
 
   @@unique([projectId, moduleType]) // 每个业务类型每项目仅一个模板
   @@index([projectId])
+}
+// ---------------- 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态） ----------------
+
+model ProcurementTask {
+  id          String   @id @default(cuid())
+  projectId   String
+  taskNo      String // 采购编号：PROC-YYYYMMDD-XXX
+  type        String // FRAMEWORK 引用框架协议 | SINGLE 单项采购
+  content     String // 采购内容
+  purpose     String? // 采购用途
+  status      String   @default("NOT_STARTED") // 见 TASK_STATUSES 工作流状态
+  stage       Int      @default(0) // 已发布到的阶段序号（0=未发布任何阶段）
+  preMeetingRequired Boolean @default(false) // 单项采购：是否需要采前会会议纪要（金额≥100万）
+  totalListId String? // 总采购清单 ID（批次二后续任务关联）
+  contractId  String? // 生成的合同 ID
+  createdAt   DateTime @default(now())
+  version     Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, taskNo])
+  @@index([projectId, status])
 }

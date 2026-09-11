@@ -1,0 +1,57 @@
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ProcurementTaskService } from './procurement-task.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { ProjectId } from '../../common/decorators/user.decorator';
+
+/** 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理） */
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('procurement-tasks')
+export class ProcurementTaskController {
+  constructor(private service: ProcurementTaskService) {}
+
+  @RequirePermissions('contract:view')
+  @Get()
+  findAll(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.findAll(query, projectId);
+  }
+
+  @RequirePermissions('contract:view')
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.service.findOne(id);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post()
+  create(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.create(body, projectId);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Put(':id')
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.service.update(id, body);
+  }
+
+  /** 发布当前阶段子任务，状态自动流转 */
+  @RequirePermissions('contract:edit')
+  @Post(':id/publish')
+  publish(@Param('id') id: string) {
+    return this.service.publish(id);
+  }
+
+  /** 合同阶段状态同步（生成合同后由合同模块回调） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/sync-contract-status')
+  syncContractStatus(@Param('id') id: string) {
+    return this.service.syncContractStatus(id);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
+  }
+}
