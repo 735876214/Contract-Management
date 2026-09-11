@@ -13,6 +13,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { MaterialService } from '../material/material.service';
 import { TemplateService } from '../template/template.service';
 import HTMLtoDOCX from 'html-to-docx';
+import { patchDocx } from '../../common/utils/docx-patch';
 
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
@@ -893,10 +894,11 @@ export class ContractService {
         /* formData 损坏时忽略，按空变量处理 */
       }
     }
-    const { html } = await this.templateSvc.generate(
+    const gen = await this.templateSvc.generate(
       { templateId: contract.templateId, contractId: id, manual },
       projectId,
     );
+    const html = gen.html;
     // 需求 2.2：导出 Word 必须包含「物料编码清单」「合同清单」两张子表；
     // 模板未放置表格占位符时，自动追加到正文末尾
     let body = html;
@@ -921,7 +923,25 @@ export class ContractService {
         ) +
         post,
     );
-    const buffer = (await HTMLtoDOCX(safeHtml, null, { table: { row: { cantSplit: true } } })) as Buffer;
+    let buffer = (await HTMLtoDOCX(safeHtml, null, { table: { row: { cantSplit: true } } })) as Buffer;
+
+    // 功能四：页面设置（页边距/页眉/页码）底层 docx 补丁
+    if (gen.pageSetup) {
+      try {
+        const ps = typeof gen.pageSetup === 'string' ? JSON.parse(gen.pageSetup) : gen.pageSetup;
+        if (ps && (ps.margin || ps.header || ps.footerFormat)) {
+          // 解析页眉中的 {变量名}
+          const values: Record<string, any> = (gen as any).values || {};
+          let headerText = ps.header || '';
+          Object.entries(values).forEach(([k, v]) => {
+            headerText = headerText.split(`{${k}}`).join(String(v ?? ''));
+          });
+          buffer = await patchDocx(buffer, { ...ps, header: headerText });
+        }
+      } catch {
+        /* 页面设置解析失败时忽略，仍导出基础 docx */
+      }
+    }
     // 需求 2.2：导出文件名使用完整合同名称
     return { buffer, filename: `${contract.name}.docx` };
   }

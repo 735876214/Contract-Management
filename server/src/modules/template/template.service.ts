@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers';
+import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 
-const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'projectId', 'parentId', 'createdBy'];
+const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
 const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
 
 /** 需求 2.3：合同条款固定四种类型 */
@@ -164,7 +165,7 @@ export class TemplateService {
   }
 
   /** 按合同物资清单派生两张子表 HTML（行号重新从 1 编号）；导出 Word 时兜底使用（需求 2.2） */
-  async buildMaterialTables(contractId: string): Promise<Record<string, string>> {
+  async buildMaterialTables(contractId: string): Promise<{ codeTable: string; itemTable: string; materialTotal: number }> {
     const rows = await this.prisma.contractMaterial.findMany({
       where: { contractId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -202,13 +203,16 @@ export class TemplateService {
       ]),
     );
 
-    return { codeTable, itemTable };
+    // 暂定含税合价合计（用于「合同额大写」）
+    const materialTotal = rows.reduce((sum: number, r: any) => sum + (Number(r.totalWithTax) || 0), 0);
+
+    return { codeTable, itemTable, materialTotal };
   }
 
   /**
    * 生成合同正文：变量替换。
-   * 支持 {{MATERIAL_CODE_TABLE}}（物料编码清单）与 {{CONTRACT_ITEM_TABLE}}（合同清单）表格占位符，
-   * 也兼容中文别名 {物料编码清单} / {合同清单}。
+   * 表格占位符：新规范 {{物料编码清单}} / {{合同清单}}（双花括号）；
+   * 兼容旧模板 {{MATERIAL_CODE_TABLE}} / {{CONTRACT_ITEM_TABLE}} 与单花括号 {物料编码清单} / {合同清单}。
    */
   async generate(params: { templateId: string; contractId: string; manual?: Record<string, any> }, projectId: string) {
     const template = await this.findOne(params.templateId);
@@ -232,12 +236,19 @@ export class TemplateService {
       }
     });
 
+    // 表格占位符先生成，并据合同清单「暂定含税合价」合计计算合同额大写
+    const tables = await this.buildMaterialTables(params.contractId);
+    const materialTotal = (tables as any).materialTotal || 0;
+    const capitalBase = materialTotal > 0 ? materialTotal : num(contract.amount) ?? 0;
+
     const values: Record<string, any> = {
       ...varDefaults,
       合同编号: contract.code,
       合同名称: contract.name,
       合同类型: typeMap[contract.typeCode]?.name || contract.typeCode || '',
+      合同子类型: (contract as any).subTypeCode || '',
       合同额: num(contract.amount) ?? 0,
+      合同额大写: amountToChineseCapital(capitalBase),
       税率: taxRate !== null ? `${(taxRate * 100).toFixed(2)}%` : '',
       签订日期: fmtDate(contract.signDate) || '',
       合同约定付款方式: payMap[contract.paymentMethodCode]?.name || contract.paymentMethodCode || '',
@@ -254,22 +265,41 @@ export class TemplateService {
       联系人姓名: sup.contactName || '',
       联系人电话: sup.contactPhone || '',
       联系人邮箱: sup.contactEmail || '',
+      甲方名称: (contract as any).partyAName || sup.partyAName || '中国建筑第八工程局有限公司',
+      乙方名称: sup.name || '',
       当前日期: fmtDate(new Date()),
       ...(params.manual || {}),
     };
 
     // 表格占位符：双花括号（先于单花括号变量替换，避免嵌套冲突）
-    const tables = await this.buildMaterialTables(params.contractId);
     let html = template.content || '';
+    // 新规范中文占位符
+    html = html.split('{{物料编码清单}}').join(tables.codeTable);
+    html = html.split('{{合同清单}}').join(tables.itemTable);
+    // 兼容旧英文占位符
     html = html.split('{{MATERIAL_CODE_TABLE}}').join(tables.codeTable);
     html = html.split('{{CONTRACT_ITEM_TABLE}}').join(tables.itemTable);
+    // 兼容单花括号中文别名
     html = html.split('{物料编码清单}').join(tables.codeTable);
     html = html.split('{合同清单}').join(tables.itemTable);
+    // 合同额大写（双花括号与单花括号均支持）
+    html = html.split('{{合同额大写}}').join(String(values['合同额大写'] ?? ''));
+    html = html.split('{合同额大写}').join(String(values['合同额大写'] ?? ''));
 
     Object.entries(values).forEach(([key, value]) => {
       html = html.split(`{${key}}`).join(String(value ?? ''));
     });
-    return { html, values, tables, templateName: template.name, variables: template.variables };
+    return { html, values, tables, templateName: template.name, variables: template.variables, pageSetup: (template as any).pageSetup || null };
+  }
+
+  /** 将旧模板中的英文表格占位符批量替换为中文占位符（一键迁移） */
+  migratePlaceholders(content: string): string {
+    if (!content) return content;
+    return content
+      .split('{{MATERIAL_CODE_TABLE}}')
+      .join('{{物料编码清单}}')
+      .split('{{CONTRACT_ITEM_TABLE}}')
+      .join('{{合同清单}}');
   }
 
   // ---------------- 合同条款（需求 2.2/2.3：原条款库统一命名，固定四种类型） ----------------

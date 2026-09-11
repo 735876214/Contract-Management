@@ -4,12 +4,63 @@ import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
 import RichTextEditor from '@/components/RichTextEditor';
 
-/** 模板/条款内容可用变量占位符说明（需求 2.3：条款库从合同模板页迁移为独立页面） */
-export const VARIABLES = [
-  '合同编号', '合同名称', '合同类型', '合同额', '税率', '签订日期', '合同约定付款方式',
-  '项目名称', '供应商名称', '公司地址', '银行名称', '银行账号', '法人姓名', '法人电话',
-  '合同授权人姓名', '合同授权人电话', '合同授权人身份证号', '联系人姓名', '联系人电话', '联系人邮箱',
+/** 模板/条款内容可用变量占位符（按类别分组，供「插入变量」面板展示与搜索） */
+export interface VarItem {
+  key: string;
+  /** 插入到光标处的原始文本；缺省时为 {key} */
+  raw?: string;
+  tip?: string;
+}
+export interface VarGroup {
+  label: string;
+  items: VarItem[];
+}
+
+export const VARIABLE_GROUPS: VarGroup[] = [
+  {
+    label: '合同基本信息',
+    items: [
+      { key: '合同编号' },
+      { key: '合同名称' },
+      { key: '合同类型' },
+      { key: '合同子类型' },
+      { key: '项目名称' },
+      { key: '项目简称', tip: '项目字母简称（手工填写）' },
+      { key: '供应商名称', tip: '乙方' },
+      { key: '合同额', tip: '含税总金额（数字）' },
+      { key: '合同额大写', raw: '{{合同额大写}}', tip: '中文大写金额（自动计算）' },
+      { key: '签订日期' },
+      { key: '合同工期', tip: '工期描述（手工填写）' },
+      { key: '合同约定付款方式' },
+      { key: '甲方名称', tip: '需方/甲方' },
+      { key: '乙方名称', tip: '供方/乙方' },
+      { key: '当前日期', tip: '生成当天日期' },
+    ],
+  },
+  {
+    label: '合同条款',
+    items: [
+      { key: '技术条款' },
+      { key: '质量条款' },
+      { key: '付款条件' },
+      { key: '验收方式' },
+    ],
+  },
+  {
+    label: '合同清单/附件',
+    items: [
+      { key: '物料编码清单', raw: '{{物料编码清单}}', tip: '物料编码清单表格' },
+      { key: '合同清单', raw: '{{合同清单}}', tip: '合同清单表格' },
+    ],
+  },
+  {
+    label: '其他',
+    items: [{ key: '项目简称' }, { key: '合同工期' }],
+  },
 ];
+
+/** 兼容旧调用：扁平变量名数组 */
+export const VARIABLES = VARIABLE_GROUPS.flatMap((g) => g.items.map((i) => i.key));
 
 /**
  * 合同条款页面（需求 2.2 修正：原「条款库」统一命名为「合同条款」，功能完整迁移至此）

@@ -93,4 +93,10 @@ export class TemplateController {
   generate(@Body() body: { templateId: string; contractId: string; manual?: any }, @ProjectId() projectId: string) {
     return this.templateService.generate(body, projectId);
   }
+
+  @RequirePermissions('template:edit')
+  @Post('migrate')
+  migrate(@Body() body: { content?: string }) {
+    return { content: this.templateService.migratePlaceholders(body?.content || '') };
+  }
 }

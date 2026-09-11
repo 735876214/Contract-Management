@@ -318,6 +318,7 @@ model ContractTemplate {
   status      Int      @default(1)
   version     Int      @default(1)
   content     String?  @db.Text
+  pageSetup   String?  // 页面设置（JSON：页边距/页眉/页脚页码等），生成 Word 时生效
   projectId   String? // 空表示全局共享
   parentId    String? // 上一版本
   createdBy   String?
