@@ -22,10 +22,12 @@ import {
   ReloadOutlined,
   SearchOutlined,
   UploadOutlined,
+  PlusSquareOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
 import DictTag from '@/components/DictSelect';
+import SupplementDraft from '@/components/contract/SupplementDraft';
 import { withToken } from '../utils/download';
 
 const money = (v: number) =>
@@ -62,6 +64,10 @@ export default function ContractQuery() {
   // 详情抽屉
   const [detail, setDetail] = useState<any>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+
+  // 新增补充协议抽屉
+  const [suppOpen, setSuppOpen] = useState(false);
+  const [suppParent, setSuppParent] = useState<any>(null);
 
   // 合同签章弹窗
   const [signOpen, setSignOpen] = useState(false);
@@ -273,6 +279,9 @@ export default function ContractQuery() {
                   <Button type="link" size="small" icon={<FileProtectOutlined />} onClick={() => openSign(row)}>
                     {row.status === 'SIGNED' ? '重新签章' : '合同签章'}
                   </Button>
+                  <Button type="link" size="small" icon={<PlusSquareOutlined />} onClick={() => { setSuppParent(row); setSuppOpen(true); }}>
+                    新增补充协议
+                  </Button>
                   <Button type="link" size="small" onClick={() => openDetail(row.id)}>
                     详情
                   </Button>
@@ -452,6 +461,13 @@ export default function ContractQuery() {
           </Descriptions>
         )}
       </Drawer>
+
+      <SupplementDraft
+        parent={suppParent}
+        open={suppOpen}
+        onClose={() => setSuppOpen(false)}
+        onDone={() => { setSuppOpen(false); load(); }}
+      />
     </Space>
   );
 }

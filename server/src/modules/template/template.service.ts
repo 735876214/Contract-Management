@@ -289,7 +289,37 @@ export class TemplateService {
     Object.entries(values).forEach(([key, value]) => {
       html = html.split(`{${key}}`).join(String(value ?? ''));
     });
+
+    // 补充协议占位符：前端在 formData.supplement 中已解析好可直接注入的值（含表格 HTML 与各项汇总）
+    const supp = this.parseSupplement(contract);
+    Object.entries(supp).forEach(([key, value]) => {
+      html = html.split(`{{${key}}}`).join(String(value ?? ''));
+      html = html.split(`{${key}}`).join(String(value ?? ''));
+    });
+    Object.assign(values, supp);
+
     return { html, values, tables, templateName: template.name, variables: template.variables, pageSetup: (template as any).pageSetup || null };
+  }
+
+  /** 读取合同 formData.supplement 中由前端解析好的补充协议占位符值（已含表格 HTML 与各项汇总） */
+  private parseSupplement(contract: any): Record<string, any> {
+    try {
+      const data = JSON.parse(contract?.formData || '{}');
+      const sup = data?.supplement;
+      if (!sup || typeof sup !== 'object') return {};
+      // 仅注入已知补充协议占位符键，避免无关字段泄漏到正文
+      const keys = [
+        '补充协议编号', '补充协议类型', '原合同编号', '原合同名称', '补充协议表',
+        '原合同金额总价大写', '新增合同金额总价大写', '数量汇总', '累计补充协议占比', '其他补充协议内容',
+      ];
+      const out: Record<string, any> = {};
+      keys.forEach((k) => {
+        if (sup[k] !== undefined) out[k] = sup[k];
+      });
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   /** 将旧模板中的英文表格占位符批量替换为中文占位符（一键迁移） */

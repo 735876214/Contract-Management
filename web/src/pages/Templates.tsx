@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Steps, Alert, Select,
-  Row, Col, Tabs, InputNumber, Divider, Typography,
+  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Select,
+  Row, Col,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, HistoryOutlined, BranchesOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, HistoryOutlined } from '@ant-design/icons';
 import { templateApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
@@ -27,18 +27,6 @@ export default function Templates() {
     const merged = { ...ps, ...next };
     setPs(merged);
     form.setFieldValue('pageSetup', JSON.stringify(merged));
-  };
-
-  /** 一键迁移：将旧模板中的英文表格占位符批量替换为中文占位符 */
-  const migratePlaceholders = () => {
-    const content: string = form.getFieldValue('content') || '';
-    const migrated = content
-      .split('{{MATERIAL_CODE_TABLE}}')
-      .join('{{物料编码清单}}')
-      .split('{{CONTRACT_ITEM_TABLE}}')
-      .join('{{合同清单}}');
-    form.setFieldValue('content', migrated);
-    message.success('已将英文占位符迁移为 {{物料编码清单}} / {{合同清单}}');
   };
 
   // 版本抽屉
@@ -174,40 +162,6 @@ export default function Templates() {
             <Col xs={24} md={12}>
               <Form.Item name="status" label="状态" initialValue="Y">
                 <DictSelect typeCode="yes_no" />
-              </Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="可用变量占位符（在模板内容中使用如 {合同编号}、{供应商名称} 等，生成时将自动替换；点击「插入变量」按类别选择）"
-                description={
-                  <Space size={4} wrap>
-                    <Tag color="blue">{'{合同编号}'}</Tag>
-                    <Tag color="blue">{'{合同额大写}'}</Tag>
-                    <Tag color="purple">{'{{物料编码清单}}'}</Tag>
-                    <Tag color="purple">{'{{合同清单}}'}</Tag>
-                  </Space>
-                }
-              />
-            </Col>
-            <Col xs={24}>
-              <Alert
-                type="success"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="表格占位符：{{物料编码清单}} 生成「物料编码清单」（序号/物资名称/规格型号/MDM/DSC），{{合同清单}} 生成「合同清单」（序号/名称/规格/计量单位/暂定数量/税前单价/增值税/含税单价/暂定含税合价/备注），均取自合同物资清单并重新编号，可放在模板任意位置"
-              />
-            </Col>
-            <Col xs={24}>
-              <Form.Item label=" " colon={false}>
-                <Button icon={<BranchesOutlined />} onClick={migratePlaceholders}>
-                  一键迁移英文占位符
-                </Button>
-                <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
-                  将旧模板中的 {'{{MATERIAL_CODE_TABLE}}'} / {'{{CONTRACT_ITEM_TABLE}}'} 批量替换为中文占位符
-                </span>
               </Form.Item>
             </Col>
             <Col xs={24}>

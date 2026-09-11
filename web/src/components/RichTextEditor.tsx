@@ -22,6 +22,7 @@ import {
   FullscreenOutlined,
   FullscreenExitOutlined,
   SearchOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import { Button, Select, Space, Tooltip, Modal, Input, Tag, Divider, Collapse, Popover } from 'antd';
 import type { VarGroup } from '@/pages/Clauses';
@@ -315,6 +316,17 @@ export default function RichTextEditor({
     </div>
   );
 
+  const fileRef = useRef<HTMLInputElement>(null);
+  const insertImage = () => fileRef.current?.click();
+  const onImagePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => exec('insertImage', String(reader.result));
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const toolbar = (
     <div
       style={{
@@ -418,6 +430,9 @@ export default function RichTextEditor({
       <Tooltip title="插入表格">
         <Button size="small" type="text" icon={<TableOutlined />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={insertTable} />
       </Tooltip>
+      <Tooltip title="插入图片">
+        <Button size="small" type="text" icon={<PictureOutlined />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={insertImage} />
+      </Tooltip>
       <Tooltip title="插入分页符">
         <Button size="small" type="text" icon={<LineOutlined />} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={insertPageBreak} />
       </Tooltip>
@@ -487,6 +502,7 @@ export default function RichTextEditor({
         }}
         className="cms-rich-text"
       />
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onImagePicked} />
       <style>{`
         .cms-rich-text:empty::before {
           content: attr(data-placeholder);
