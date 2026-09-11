@@ -30,6 +30,20 @@ export class ProcurementTaskController {
     return this.service.totalList(id);
   }
 
+  /** 框架协议事前说明（任务 3.1；仅 FRAMEWORK 类型，状态由阶段推导：编辑中/已完成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/framework-explanation')
+  frameworkExplanation(@Param('id') id: string) {
+    return this.service.frameworkExplanation(id);
+  }
+
+  /** 保存框架协议事前说明（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/framework-explanation')
+  saveFrameworkExplanation(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveFrameworkExplanation(id, body);
+  }
+
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
   @RequirePermissions('contract:edit')
   @Put(':id/total-list')

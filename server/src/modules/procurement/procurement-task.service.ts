@@ -176,6 +176,13 @@ export class ProcurementTaskService {
       const count = await this.prisma.procurementTotalItem.count({ where: { taskId: current.id } });
       if (count === 0) throw new BadRequestException('请先编制总采购清单（至少一条明细）后再发布');
     }
+    // 任务 3.1：发布「框架协议事前说明」前必须已保存内容（框架简介为必填主内容）
+    if (current.stage === 1 && current.type === 'FRAMEWORK') {
+      const expl = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: current.id } });
+      if (!expl || !String(expl.frameworkIntro ?? '').trim()) {
+        throw new BadRequestException('请先编辑并保存框架协议事前说明（至少填写框架简介）后再发布');
+      }
+    }
 
     const nextStage = current.stage + 1;
     const nextStatus = this.deriveStatus(current.type, current.preMeetingRequired, nextStage, current.contractId);
@@ -183,6 +190,13 @@ export class ProcurementTaskService {
       where: { id },
       data: { stage: nextStage, status: nextStatus, version: { increment: 1 } },
     });
+    // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
+    if (current.stage === 1 && current.type === 'FRAMEWORK') {
+      await this.prisma.frameworkExplanation.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
   }
 
@@ -380,6 +394,129 @@ export class ProcurementTaskService {
       state: r.status === STATUS_COMPLETED ? 'done' : contractState,
     });
     return stages;
+  }
+
+  /**
+   * 框架协议事前说明（批次二 · 任务 3.1，仅 FRAMEWORK 类型任务）。
+   * 状态由阶段进度推导：stage=1 编辑中（仅保存），stage≥2 已完成（发布后，仍可重新编辑）。
+   */
+  async frameworkExplanation(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'FRAMEWORK') {
+      throw new BadRequestException('仅「引用框架协议」类型的采购任务可使用事前说明模块');
+    }
+    const record = await this.prisma.frameworkExplanation.findUnique({ where: { taskId } });
+    const published = task.stage >= 2;
+    return {
+      task: this.serialize(task),
+      editable: task.stage >= 1 && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      data: record ? this.serializeExplanation(record) : null,
+    };
+  }
+
+  /** 保存事前说明（编辑中/已完成均可保存；发布后重新编辑允许修改但保留 publishedAt） */
+  async saveFrameworkExplanation(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'FRAMEWORK') {
+      throw new BadRequestException('仅「引用框架协议」类型的采购任务可使用事前说明模块');
+    }
+    if (task.stage < 1) {
+      throw new BadRequestException('总采购清单发布后才能编辑框架协议事前说明');
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const num = (v: any): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) throw new BadRequestException('表格中的价格/占比必须为数字');
+      return n;
+    };
+    const rows = (v: any, fields: string[]): string | null => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) throw new BadRequestException('表格数据无效');
+      const normalized = v
+        .filter((r: any) => r != null && typeof r === 'object')
+        .map((r: any) => {
+          const row: Record<string, string | number | null> = {};
+          for (const f of fields) {
+            row[f] = f === 'rank' || f === 'totalPrice' || f === 'execPrice' || f === 'amount' || f === 'ratio'
+              ? num(r?.[f])
+              : text(r?.[f]);
+          }
+          return row;
+        });
+      return normalized.length ? JSON.stringify(normalized) : null;
+    };
+    const files = (v: any): string | null => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) throw new BadRequestException('附件数据无效');
+      const normalized = v
+        .filter((f: any) => f?.url)
+        .map((f: any) => ({ fileName: text(f.fileName) ?? '附件', url: String(f.url), size: num(f.size) }));
+      return normalized.length ? JSON.stringify(normalized) : null;
+    };
+
+    const payload = {
+      frameworkIntro: text(body?.frameworkIntro),
+      negotiation: text(body?.negotiation),
+      inquiryRows: rows(body?.inquiryRows, ['rank', 'unit', 'totalPrice', 'taxIncluded', 'type']),
+      priceCompareRows: rows(body?.priceCompareRows, ['unit', 'content', 'execPrice', 'note']),
+      execution: text(body?.execution),
+      costRows: rows(body?.costRows, ['item', 'amount', 'ratio', 'note']),
+      attachments: files(body?.attachments),
+    };
+
+    const saved = await this.prisma.frameworkExplanation.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializeExplanation(saved);
+  }
+
+  private serializeExplanation(r: {
+    id: string;
+    taskId: string;
+    frameworkIntro: string | null;
+    negotiation: string | null;
+    inquiryRows: string | null;
+    priceCompareRows: string | null;
+    execution: string | null;
+    costRows: string | null;
+    attachments: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    const parse = (s: string | null): any[] => {
+      if (!s) return [];
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr : [];
+      } catch {
+        return [];
+      }
+    };
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      frameworkIntro: r.frameworkIntro ?? '',
+      negotiation: r.negotiation ?? '',
+      inquiryRows: parse(r.inquiryRows),
+      priceCompareRows: parse(r.priceCompareRows),
+      execution: r.execution ?? '',
+      costRows: parse(r.costRows),
+      attachments: parse(r.attachments),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
   }
 
   private serialize(r: TaskRow) {

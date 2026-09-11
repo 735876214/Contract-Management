@@ -1034,6 +1034,7 @@ model ProcurementTask {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   totalItems ProcurementTotalItem[]
+  frameworkExplanation FrameworkExplanation?
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1064,4 +1065,28 @@ model ProcurementTotalItem {
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+// ---------------- 框架协议事前说明（批次二 · 任务 3.1，仅 FRAMEWORK 类型任务） ----------------
+
+model FrameworkExplanation {
+  id               String   @id @default(cuid())
+  projectId        String
+  taskId           String   @unique // 一个采购任务仅一份事前说明
+  frameworkIntro   String? // 一、框架简介（富文本 HTML）
+  negotiation      String? // 二、谈判情况（富文本 HTML）
+  inquiryRows      String? // 三、询价情况表 JSON: [{rank, unit, totalPrice, taxIncluded, type}]
+  priceCompareRows String? // 四、同城/相邻城市局其他单位执行合同价 JSON: [{unit, content, execPrice, note}]
+  execution        String? // 五、执行情况（富文本 HTML）
+  costRows         String? // 六、成本分析表 JSON: [{item, amount, ratio, note}]
+  attachments      String? // 七、附表 JSON: [{fileName, url, size}]
+  publishedAt      DateTime? // 发布时间（任务事前说明阶段发布后回填）
+  createdAt        DateTime @default(now())
+  version          Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

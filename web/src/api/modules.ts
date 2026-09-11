@@ -32,6 +32,21 @@ export const procurementTaskApi = {
   /** 保存总采购清单（全量替换；服务端校验基础库/字典/控制价并同步计量单位到基础库） */
   saveTotalList: (id: string, items: unknown[]) =>
     http.put<any, any>(`/procurement-tasks/${id}/total-list`, { items }),
+  /** 框架协议事前说明（任务 3.1）：仅 FRAMEWORK 类型任务可用 */
+  frameworkExplanation: (id: string) =>
+    http.get<any, any>(`/procurement-tasks/${id}/framework-explanation`),
+  saveFrameworkExplanation: (
+    id: string,
+    data: {
+      frameworkIntro?: string;
+      negotiation?: string;
+      inquiryRows?: unknown[];
+      priceCompareRows?: unknown[];
+      execution?: string;
+      costRows?: unknown[];
+      attachments?: unknown[];
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/framework-explanation`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 

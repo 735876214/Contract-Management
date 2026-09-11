@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -50,6 +51,7 @@ interface TaskRow {
 }
 
 export default function Initiate() {
+  const navigate = useNavigate();
   const { loading, list, pagination, search, reload, params, setParams } = useTable<TaskRow>((p) =>
     procurementTaskApi.list(p),
   );

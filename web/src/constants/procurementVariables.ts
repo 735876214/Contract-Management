@@ -93,7 +93,12 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     v('成交报告-拟推荐成交候选人表', '表格变量：替换为拟推荐成交候选人表', true),
   ],
   PRICE_COMPARE: [],
-  FRAMEWORK: [],
+  FRAMEWORK: [
+    v('采购内容'),
+    v('事前说明-询价情况', '表格变量：替换为询价情况表（排名/单位/总价/含税/类型）', true),
+    v('事前说明-价格对比表', '表格变量：替换为同城/相邻城市局其他单位执行合同价对比表', true),
+    v('事前说明-成本分析表', '表格变量：替换为成本分析表', true),
+  ],
   INSPECTION: [],
 };
 
