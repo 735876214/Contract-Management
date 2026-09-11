@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
-import DictTag from '@/components/DictSelect';
+import { DictTag } from '@/components/DictSelect';
 import SupplementDraft from '@/components/contract/SupplementDraft';
 import { withToken } from '../utils/download';
 
