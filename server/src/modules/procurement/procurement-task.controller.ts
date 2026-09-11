@@ -23,6 +23,20 @@ export class ProcurementTaskController {
     return this.service.findOne(id);
   }
 
+  /** 总采购清单明细（任务 2.2；frozen=true 表示已发布冻结） */
+  @RequirePermissions('contract:view')
+  @Get(':id/total-list')
+  totalList(@Param('id') id: string) {
+    return this.service.totalList(id);
+  }
+
+  /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/total-list')
+  saveTotalList(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveTotalList(id, body?.items ?? []);
+  }
+
   @RequirePermissions('contract:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {

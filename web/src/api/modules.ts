@@ -27,6 +27,11 @@ export const procurementTaskApi = {
   publish: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/publish`),
   /** 合同阶段状态同步（生成合同/合同状态变化后调用） */
   syncContractStatus: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/sync-contract-status`),
+  /** 总采购清单（任务 2.2）：frozen=true 表示已发布冻结 */
+  totalList: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/total-list`),
+  /** 保存总采购清单（全量替换；服务端校验基础库/字典/控制价并同步计量单位到基础库） */
+  saveTotalList: (id: string, items: unknown[]) =>
+    http.put<any, any>(`/procurement-tasks/${id}/total-list`, { items }),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 

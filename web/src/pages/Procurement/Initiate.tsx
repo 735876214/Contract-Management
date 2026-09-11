@@ -22,6 +22,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SendOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';
 import { useTable } from '@/hooks/useTable';
+import TotalListEditor from '@/components/procurement/TotalListEditor';
 import {
   BASIC_EDITABLE_STATUSES,
   PROCUREMENT_TASK_TYPES,
@@ -60,6 +61,8 @@ export default function Initiate() {
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  /** 总采购清单编辑抽屉（任务 2.2） */
+  const [listTask, setListTask] = useState<TaskRow | null>(null);
 
   const watchType = Form.useWatch('type', form);
 
@@ -173,6 +176,9 @@ export default function Initiate() {
           <Space size={2} wrap>
             <Button type="link" size="small" onClick={() => openDetail(row.id)}>
               查看
+            </Button>
+            <Button type="link" size="small" onClick={() => setListTask(row)}>
+              {row.stage >= 1 ? '清单(已冻结)' : '总采购清单'}
             </Button>
             <Tooltip title={basicEditable ? '编辑基本信息' : '已进入后续流程，基本信息不可修改'}>
               <Button type="link" size="small" disabled={!basicEditable} onClick={() => openEdit(row)}>
@@ -328,6 +334,14 @@ export default function Initiate() {
           </Space>
         )}
       </Drawer>
+
+      {/* 总采购清单编辑（任务 2.2） */}
+      <TotalListEditor
+        task={listTask ? { id: listTask.id, taskNo: listTask.taskNo, status: listTask.status, stage: listTask.stage } : null}
+        open={!!listTask}
+        onClose={() => setListTask(null)}
+        onPublished={reload}
+      />
     </Space>
   );
 }

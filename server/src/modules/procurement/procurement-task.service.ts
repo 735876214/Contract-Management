@@ -171,6 +171,11 @@ export class ProcurementTaskService {
     if (current.stage >= chain.length) {
       throw new BadRequestException('各阶段均已发布，任务处于合同阶段');
     }
+    // 任务 2.2：发布总采购清单前必须已编制至少一条明细
+    if (current.stage === 0) {
+      const count = await this.prisma.procurementTotalItem.count({ where: { taskId: current.id } });
+      if (count === 0) throw new BadRequestException('请先编制总采购清单（至少一条明细）后再发布');
+    }
 
     const nextStage = current.stage + 1;
     const nextStatus = this.deriveStatus(current.type, current.preMeetingRequired, nextStage, current.contractId);
@@ -179,6 +184,134 @@ export class ProcurementTaskService {
       data: { stage: nextStage, status: nextStatus, version: { increment: 1 } },
     });
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
+  }
+
+  /** 总采购清单明细（任务 2.2）。stage≥1 表示已发布 → 冻结 */
+  async totalList(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    const items = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    return {
+      frozen: task.stage >= 1,
+      status: task.status,
+      statusLabel: TASK_STATUS_LABELS[task.status] ?? task.status,
+      items: items.map((i) => this.serializeItem(i)),
+    };
+  }
+
+  /**
+   * 保存总采购清单（全量替换，仅「未发起」阶段可保存；发布后冻结）。
+   * 规则（需求 2.2）：
+   * - 物资名称/规格型号只能来自物资基础库（materialBaseId 必须存在）
+   * - 计量单位必须存在于字典「measurement_unit」，默认带出、可改为其他字典值
+   * - 控制价校验：预计采购单价 > 市场单价 → 拒绝保存
+   * - 计量单位与基础库默认值不符的行：提交时同步（物资名称+规格型号+计量单位）到物资基础库
+   */
+  async saveTotalList(taskId: string, items: any[]) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.stage >= 1) throw new BadRequestException('总采购清单已发布冻结，不可修改');
+    if (task.status !== STATUS_NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
+    if (!Array.isArray(items)) throw new BadRequestException('清单数据无效');
+
+    const num = (v: any): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) throw new BadRequestException('数量/单价必须为数字');
+      return n;
+    };
+
+    const normalized = items.map((raw) => {
+      const materialBaseId = String(raw?.materialBaseId ?? '').trim();
+      if (!materialBaseId) throw new BadRequestException('物资名称/规格型号必须从物资基础库选择');
+      const unit = String(raw?.unit ?? '').trim();
+      if (!unit) throw new BadRequestException('计量单位不能为空');
+      return {
+        materialBaseId,
+        materialName: String(raw?.materialName ?? '').trim(),
+        spec: String(raw?.spec ?? '').trim(),
+        unit,
+        qty: num(raw?.qty),
+        incomePrice: num(raw?.incomePrice),
+        stdCost: num(raw?.stdCost),
+        marketPrice: num(raw?.marketPrice),
+        infoPrice: num(raw?.infoPrice),
+        planPrice: num(raw?.planPrice),
+      };
+    });
+
+    // 基础库与字典校验
+    const baseIds = [...new Set(normalized.map((i) => i.materialBaseId))];
+    const bases = await this.prisma.materialBase.findMany({ where: { id: { in: baseIds } } });
+    const baseMap = new Map(bases.map((b) => [b.id, b]));
+    const dictUnits = await this.prisma.dictItem.findMany({
+      where: { typeCode: 'measurement_unit', status: 1 },
+    });
+    const unitNames = new Set(dictUnits.map((u) => u.itemName));
+
+    for (const row of normalized) {
+      const base = baseMap.get(row.materialBaseId);
+      if (!base) throw new BadRequestException('所选物资不存在于物资基础库，请重新选择');
+      // 名称/规格以基础库为准回填，防止前端篡改
+      row.materialName = base.name;
+      row.spec = base.spec;
+      if (!unitNames.has(row.unit)) {
+        throw new BadRequestException(`计量单位「${row.unit}」不在字典范围内，请先在字典管理中添加`);
+      }
+      if (row.planPrice != null && row.marketPrice != null && row.planPrice > row.marketPrice) {
+        throw new BadRequestException('控制价超市场单价，重新修改');
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procurementTotalItem.deleteMany({ where: { taskId } });
+      if (normalized.length) {
+        await tx.procurementTotalItem.createMany({
+          data: normalized.map((r, idx) => ({ ...r, projectId: task.projectId, taskId, sortOrder: idx })),
+        });
+      }
+      // 计量单位与基础库默认值不符 → 提交时同步到物资基础库（唯一键为 name+spec，更新该记录单位）
+      for (const row of normalized) {
+        const base = baseMap.get(row.materialBaseId);
+        if (base && base.unit !== row.unit) {
+          await tx.materialBase.update({ where: { id: base.id }, data: { unit: row.unit } });
+        }
+      }
+    });
+    return this.totalList(taskId);
+  }
+
+  private serializeItem(i: {
+    id: string;
+    materialBaseId: string;
+    materialName: string;
+    spec: string;
+    unit: string;
+    qty: number | null;
+    incomePrice: number | null;
+    stdCost: number | null;
+    marketPrice: number | null;
+    infoPrice: number | null;
+    planPrice: number | null;
+    sortOrder: number;
+  }) {
+    return {
+      id: i.id,
+      materialBaseId: i.materialBaseId,
+      materialName: i.materialName,
+      spec: i.spec,
+      unit: i.unit,
+      qty: i.qty,
+      incomePrice: i.incomePrice,
+      stdCost: i.stdCost,
+      marketPrice: i.marketPrice,
+      infoPrice: i.infoPrice,
+      planPrice: i.planPrice,
+      sortOrder: i.sortOrder,
+    };
   }
 
   /**

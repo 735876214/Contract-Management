@@ -122,6 +122,7 @@ model Project {
   receiptOrders ReceiptOrder[]
   procurementTemplates ProcurementTemplate[]
   procurementTasks     ProcurementTask[]
+  procurementTotalItems ProcurementTotalItem[]
   @@index([createdAt])
 }
 
@@ -1032,7 +1033,35 @@ model ProcurementTask {
   updatedAt   DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  totalItems ProcurementTotalItem[]
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
+}
+
+// ---------------- 总采购清单明细（批次二 · 任务 2.2） ----------------
+
+model ProcurementTotalItem {
+  id             String  @id @default(cuid())
+  projectId      String
+  taskId         String
+  materialBaseId String // 物资基础库记录（名称/规格只能从基础库选择）
+  materialName   String
+  spec           String
+  unit           String // 计量单位（默认带出，可改为字典值；提交时同步回基础库）
+  qty            Float? // 暂定数量
+  incomePrice    Float? // 收入单价
+  stdCost        Float? // 标准成本
+  marketPrice    Float? // 市场单价
+  infoPrice      Float? // 信息价
+  planPrice      Float? // 预计采购单价（控制价）
+  sortOrder      Int     @default(0)
+  createdAt      DateTime @default(now())
+  version        Int     @default(0)
+  updatedAt      DateTime @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
 }
