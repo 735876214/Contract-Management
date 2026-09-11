@@ -34,6 +34,16 @@ import {
 import Clauses from '@/pages/Clauses';
 import ContractDraft from '@/pages/ContractDraft';
 import ContractQuery from '@/pages/ContractQuery';
+// 批次一：采购管理模块（任务 1.1 占位页 + 任务 1.2 采购模板）
+import ProcurementTemplates from '@/pages/Procurement/Templates';
+import ProcurementInitiate from '@/pages/Procurement/Initiate';
+import ProcurementPreMeetingMinutes from '@/pages/Procurement/PreMeetingMinutes';
+import ProcurementNotice from '@/pages/Procurement/Notice';
+import ProcurementDocument from '@/pages/Procurement/Document';
+import ProcurementResultReport from '@/pages/Procurement/ResultReport';
+import ProcurementPriceCompare from '@/pages/Procurement/PriceCompare';
+import ProcurementFrameworkExplanation from '@/pages/Procurement/FrameworkExplanation';
+import ProcurementInspectionReport from '@/pages/Procurement/InspectionReport';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -104,6 +114,17 @@ export const routes: RouteObject[] = [
       { path: 'contract/material', element: <ContractMaterials /> },
       { path: 'contract/draft', element: <ContractDraft /> },
       { path: 'contract/query', element: <ContractQuery /> },
+      // 批次一 · 任务 1.1：采购管理（/procurement/*）
+      { path: 'procurement/initiate', element: <ProcurementInitiate /> },
+      { path: 'procurement/pre-meeting', element: <ProcurementPreMeetingMinutes /> },
+      { path: 'procurement/notice', element: <ProcurementNotice /> },
+      { path: 'procurement/document', element: <ProcurementDocument /> },
+      { path: 'procurement/result-report', element: <ProcurementResultReport /> },
+      { path: 'procurement/price-compare', element: <ProcurementPriceCompare /> },
+      { path: 'procurement/framework', element: <ProcurementFrameworkExplanation /> },
+      { path: 'procurement/inspection', element: <ProcurementInspectionReport /> },
+      // 批次一 · 任务 1.2：采购模板（基础信息管理下）
+      { path: 'base/procurement-template', element: <ProcurementTemplates /> },
       // 日报管理
       { path: 'daily/report', element: <DailyReports /> },
       // 需求：收领单（日报管理下，与总日报平级）

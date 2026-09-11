@@ -1,5 +1,17 @@
 import http from './http';
 
+/** 采购模板（批次一 · 任务 1.2）：每个业务类型仅一个模板，新增覆盖同类型旧模板 */
+export const procurementApi = {
+  list: () => http.get<any, any>('/procurement-templates'),
+  detail: (id: string) => http.get<any, any>(`/procurement-templates/${id}`),
+  // 同业务类型已有模板时后端执行覆盖（upsert），前端负责覆盖前确认
+  create: (data: { moduleType: string; templateName: string; content: string; variables?: string[] }) =>
+    http.post<any, any>('/procurement-templates', data),
+  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] }) =>
+    http.put<any, any>(`/procurement-templates/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
+};
+
 export const dailyApi = {
   list: (params?: any) => http.get<any, any>('/daily-reports', { params }),
   detail: (id: string) => http.get<any, any>(`/daily-reports/${id}`),

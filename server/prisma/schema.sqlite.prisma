@@ -120,6 +120,7 @@ model Project {
   repayments   RepaymentAgreement[]
   assets       AssetLedger[]
   receiptOrders ReceiptOrder[]
+  procurementTemplates ProcurementTemplate[]
   @@index([createdAt])
 }
 
@@ -991,4 +992,23 @@ model ReceiptOrderDetail {
   order ReceiptOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+}
+
+// ---------------- 采购模板（批次一 · 任务 1.2） ----------------
+
+model ProcurementTemplate {
+  id           String   @id @default(cuid())
+  projectId    String
+  moduleType   String // 采购模块类型：INITIATE/PRE_MEETING/NOTICE/DOCUMENT/RESULT_REPORT/PRICE_COMPARE/FRAMEWORK/INSPECTION
+  templateName String
+  content      String // 富文本内容（HTML）
+  variables    String? // 使用的变量列表（JSON 数组字符串）
+  createdAt    DateTime @default(now())
+  version      Int      @default(0) // 乐观锁版本号，更新时校验
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, moduleType]) // 每个业务类型每项目仅一个模板
+  @@index([projectId])
 }

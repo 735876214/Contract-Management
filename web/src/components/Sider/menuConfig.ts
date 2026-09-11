@@ -7,6 +7,22 @@ import type { MenuItem } from './types';
  */
 export const MENU_CONFIG: MenuItem[] = [
   { key: 'dashboard', label: '工作台', icon: 'DashboardOutlined', path: '/dashboard' },
+  // 批次一 · 任务 1.1：采购管理模块（位于合同管理上方）
+  {
+    key: 'procurement',
+    label: '采购管理',
+    icon: 'ShoppingCartOutlined',
+    children: [
+      { key: 'procurement-initiate', label: '采购发起', icon: 'RocketOutlined', path: '/procurement/initiate' },
+      { key: 'procurement-pre-meeting', label: '采前会会议纪要', icon: 'FileDoneOutlined', path: '/procurement/pre-meeting' },
+      { key: 'procurement-notice', label: '采购公告', icon: 'NotificationOutlined', path: '/procurement/notice' },
+      { key: 'procurement-document', label: '采购文件', icon: 'FolderOpenOutlined', path: '/procurement/document' },
+      { key: 'procurement-result-report', label: '成交报告', icon: 'TrophyOutlined', path: '/procurement/result-report' },
+      { key: 'procurement-price-compare', label: '采购价格对比表', icon: 'BarChartOutlined', path: '/procurement/price-compare' },
+      { key: 'procurement-framework', label: '框架协议事前说明', icon: 'FileSyncOutlined', path: '/procurement/framework' },
+      { key: 'procurement-inspection', label: '考察报告', icon: 'EyeOutlined', path: '/procurement/inspection' },
+    ],
+  },
   {
     key: 'contract',
     label: '合同管理',
@@ -56,6 +72,8 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'base-subcontractor', label: '分包商库', icon: 'SolutionOutlined', path: '/base/subcontractor', permission: 'subcontractor:view' },
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
+      // 批次一 · 任务 1.2：采购模板（各采购模块 Word 模板管理）
+      { key: 'base-procurement-template', label: '采购模板', icon: 'ShoppingOutlined', path: '/base/procurement-template', permission: 'template:view' },
       // 需求 2.2 修正：合同条款即条款管理页面（原「条款库」名称删除），直接作为叶子菜单
       { key: 'base-clause', label: '合同条款', icon: 'FileTextOutlined', path: '/base/clause', permission: 'template:view' },
     ],

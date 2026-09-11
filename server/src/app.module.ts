@@ -23,6 +23,7 @@ import { FileModule } from './modules/file/file.module';
 import { AssetModule } from './modules/asset/asset.module';
 import { ReceiptOrderModule } from './modules/receipt-order/receipt-order.module';
 import { SubcontractorModule } from './modules/subcontractor/subcontractor.module';
+import { ProcurementModule } from './modules/procurement/procurement.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { SubcontractorModule } from './modules/subcontractor/subcontractor.modul
     AssetModule,
     ReceiptOrderModule,
     SubcontractorModule,
+    ProcurementModule,
   ],
 })
 export class AppModule {}
