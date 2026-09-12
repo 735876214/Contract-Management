@@ -4,10 +4,11 @@ const PREFIX = 'scm_sider_';
 export const STORAGE_KEYS = {
   /** 折叠状态（localStorage，持久化） */
   collapsed: `${PREFIX}collapsed`,
-  /** 菜单缓存数据（sessionStorage，5 分钟 TTL） */
-  menuCache: `${PREFIX}menu_cache`,
+  /** 菜单缓存数据（sessionStorage，5 分钟 TTL）
+   *  版本后缀：菜单结构发生变更（如新增采购管理分组）时递增，用于让旧缓存自然失效 */
+  menuCache: `${PREFIX}menu_cache_v2`,
   /** 菜单缓存写入时间戳（sessionStorage） */
-  menuCacheAt: `${PREFIX}menu_cache_at`,
+  menuCacheAt: `${PREFIX}menu_cache_at_v2`,
 } as const;
 
 /** 菜单缓存有效期：5 分钟 */

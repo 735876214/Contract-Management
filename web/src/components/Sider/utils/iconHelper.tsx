@@ -31,6 +31,16 @@ import {
   ContainerOutlined,
   SolutionOutlined,
   SearchOutlined,
+  // 采购管理模块（批次一 · 任务 1.1 / 1.2）
+  ShoppingCartOutlined,
+  ShoppingOutlined,
+  RocketOutlined,
+  FileDoneOutlined,
+  NotificationOutlined,
+  FolderOpenOutlined,
+  TrophyOutlined,
+  FileSyncOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -67,6 +77,16 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   ContainerOutlined,
   SolutionOutlined,
   SearchOutlined,
+  // 采购管理模块图标
+  ShoppingCartOutlined,
+  ShoppingOutlined,
+  RocketOutlined,
+  FileDoneOutlined,
+  NotificationOutlined,
+  FolderOpenOutlined,
+  TrophyOutlined,
+  FileSyncOutlined,
+  EyeOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */
