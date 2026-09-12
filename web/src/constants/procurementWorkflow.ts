@@ -19,7 +19,6 @@ export const TASK_STATUS_LABELS: Record<string, string> = {
   LIST_EDITING: '总清单编制中',
   PRE_MEETING_EDITING: '采前会纪要编制中',
   NOTICE_EDITING: '采购公告编制中',
-  INSPECTION_EDITING: '资审报告编制中',
   DOCUMENT_EDITING: '采购文件编制中',
   RESULT_EDITING: '成交报告编制中',
   PRICE_COMPARE_EDITING: '价格对比表编制中',
@@ -37,7 +36,6 @@ export const TASK_STATUS_COLORS: Record<string, string> = {
   LIST_EDITING: 'orange',
   PRE_MEETING_EDITING: 'blue',
   NOTICE_EDITING: 'blue',
-  INSPECTION_EDITING: 'blue',
   DOCUMENT_EDITING: 'blue',
   RESULT_EDITING: 'blue',
   PRICE_COMPARE_EDITING: 'blue',
@@ -74,13 +72,12 @@ export function buildStageChain(type: string, preMeetingRequired: boolean): Flow
   } else {
     chain.push(
       mk('NOTICE', '采购公告'),
-      // 任务 3.4：采购文件紧随采购公告（其后才是资审报告）
+      // 任务 3.4：采购文件紧随采购公告
       mk('DOCUMENT', '采购文件'),
       // 任务 3.5：成交报告紧随采购文件（入口条件即「采购文件已完成」）
       mk('RESULT_REPORT', '成交报告'),
-      // 任务 3.6：采购价格对比表紧随成交报告（入口条件即「成交报告已完成」），资审报告后移
+      // 任务 3.6：采购价格对比表紧随成交报告（入口条件即「成交报告已完成」）
       mk('PRICE_COMPARE', '采购价格对比表'),
-      mk('INSPECTION', '资审报告'),
     );
   }
   chain.push(mk('CONTRACT', '生成合同'));

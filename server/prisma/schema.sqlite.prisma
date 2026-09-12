@@ -1024,6 +1024,10 @@ model ProcurementTask {
   preMeetingRequired Boolean @default(false) // 单项采购：是否需要采前会会议纪要（金额≥100万）
   totalListId String? // 总采购清单 ID（批次二后续任务关联）
   contractId  String? // 生成的合同 ID
+  procurementCategory String? // 采购品类：物资 | 租赁（采购发起第一步填写；决定合同模板映射）
+  techQuality String? // 技术质量标准（富文本 HTML；采购发起第三步填写，公告/文件/采前会/合同模板引用）
+  acceptanceMethod String? // 验收方式（富文本 HTML）
+  paymentMethod String? // 付款方式（富文本 HTML）
   createdAt   DateTime @default(now())
   version     Int      @default(0)
   updatedAt   DateTime @updatedAt

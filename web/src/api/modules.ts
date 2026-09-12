@@ -19,10 +19,25 @@ export const procurementApi = {
 export const procurementTaskApi = {
   list: (params?: any) => http.get<any, any>('/procurement-tasks', { params }),
   detail: (id: string) => http.get<any, any>(`/procurement-tasks/${id}`),
-  create: (data: { type: string; content: string; purpose?: string; preMeetingRequired?: boolean }) =>
-    http.post<any, any>('/procurement-tasks', data),
-  update: (id: string, data: { content?: string; purpose?: string; preMeetingRequired?: boolean }) =>
-    http.put<any, any>(`/procurement-tasks/${id}`, data),
+  create: (data: {
+    type: string;
+    content: string;
+    purpose?: string;
+    preMeetingRequired?: boolean;
+    procurementCategory?: string;
+  }) => http.post<any, any>('/procurement-tasks', data),
+  update: (
+    id: string,
+    data: {
+      content?: string;
+      purpose?: string;
+      preMeetingRequired?: boolean;
+      procurementCategory?: string;
+      techQuality?: string;
+      acceptanceMethod?: string;
+      paymentMethod?: string;
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */
   publish: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/publish`),
   /** 合同阶段状态同步（生成合同/合同状态变化后调用） */
@@ -84,6 +99,8 @@ export const procurementTaskApi = {
   ) => http.put<any, any>(`/procurement-tasks/${id}/notice`, data),
   /** 采购文件（任务 3.4）：仅「单项采购」任务可用；入口条件为采购公告已完成，采购清单来自总采购清单 */
   document: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/document`),
+  /** 关联合同模板（补充四：采购文件「导出合同模板 / 预览合同模板」数据来源） */
+  contractTemplate: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/contract-template`),
   saveDocument: (
     id: string,
     data: {
@@ -137,42 +154,6 @@ export const procurementTaskApi = {
   /** 问题二：删除子模块记录并回退流程（仅流程最末端模块可删，删除后上一阶段恢复可编辑） */
   deleteModule: (id: string, moduleKey: string) =>
     http.delete<any, any>(`/procurement-tasks/${id}/modules/${moduleKey}`),
-};
-
-/**
- * 考察报告（批次二 · 任务 3.7）：独立模块，按项目维度管理（不挂采购任务阶段链）
- * 状态仅「编辑中 → 已完成」（publish 后回填 publishedAt，unpublish 撤回）
- */
-export const inspectionReportApi = {
-  list: (params?: any) => http.get<any, any>('/procurement-inspection-reports', { params }),
-  detail: (id: string) => http.get<any, any>(`/procurement-inspection-reports/${id}`),
-  create: (data: {
-    unitName?: string;
-    inspectionTime?: string | null;
-    inspectionPlace?: string;
-    inspectors?: string;
-    content?: string;
-    conclusion?: string;
-    photos?: unknown[];
-  }) => http.post<any, any>('/procurement-inspection-reports', data),
-  update: (
-    id: string,
-    data: {
-      unitName?: string;
-      inspectionTime?: string | null;
-      inspectionPlace?: string;
-      inspectors?: string;
-      content?: string;
-      conclusion?: string;
-      photos?: unknown[];
-    },
-  ) => http.put<any, any>(`/procurement-inspection-reports/${id}`, data),
-  /** 发布：编辑中 → 已完成 */
-  publish: (id: string) => http.post<any, any>(`/procurement-inspection-reports/${id}/publish`),
-  /** 撤回发布：已完成 → 编辑中 */
-  unpublish: (id: string) =>
-    http.post<any, any>(`/procurement-inspection-reports/${id}/unpublish`),
-  remove: (id: string) => http.delete<any, any>(`/procurement-inspection-reports/${id}`),
 };
 
 export const dailyApi = {

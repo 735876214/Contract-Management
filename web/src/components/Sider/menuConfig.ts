@@ -20,7 +20,6 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'procurement-result-report', label: '成交报告', icon: 'TrophyOutlined', path: '/procurement/result-report' },
       { key: 'procurement-price-compare', label: '采购价格对比表', icon: 'BarChartOutlined', path: '/procurement/price-compare' },
       { key: 'procurement-framework', label: '框架协议事前说明', icon: 'FileSyncOutlined', path: '/procurement/framework' },
-      { key: 'procurement-inspection', label: '考察报告', icon: 'EyeOutlined', path: '/procurement/inspection' },
     ],
   },
   {

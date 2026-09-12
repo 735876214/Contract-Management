@@ -17,10 +17,9 @@ import {
   replaceProcurementVariables,
 } from '@/constants/procurementVariables';
 import { WORD_TPL } from '@/utils/docExport';
-import { inlineImageUrls } from '@/utils/inspectionReport';
 
 export interface ProcurementExportInput {
-  /** 采购模块类型：PRE_MEETING/NOTICE/DOCUMENT/RESULT_REPORT/PRICE_COMPARE/FRAMEWORK/INSPECTION… */
+  /** 采购模块类型：PRE_MEETING/NOTICE/DOCUMENT/RESULT_REPORT/PRICE_COMPARE/FRAMEWORK… */
   moduleType: string;
   /** 关联采购任务（用于链路追踪 / 预留服务端渲染） */
   taskId?: string;
@@ -121,4 +120,35 @@ export async function exportProcurementWord(input: ProcurementExportInput): Prom
   const blob = new Blob(['\ufeff' + doc], { type: 'application/msword;charset=utf-8' });
   download(blob, filename);
   return blob;
+}
+
+/** 把 HTML 中的远程图片（如采购照片）替换为 base64 dataURL（Word 内嵌显示必需） */
+export async function inlineImageUrls(html: string): Promise<string> {
+  if (!html) return html || '';
+  const srcs = new Set<string>();
+  const re = /<img[^>]+src=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const src = m[1];
+    if (src && !src.startsWith('data:')) srcs.add(src);
+  }
+  let out = html;
+  for (const src of srcs) {
+    try {
+      const res = await fetch(src);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      out = out.split(`src="${src}"`).join(`src="${dataUrl}"`);
+      out = out.split(`src='${src}'`).join(`src='${dataUrl}'`);
+    } catch {
+      // 单张图片转换失败时保留原地址，不阻塞导出
+    }
+  }
+  return out;
 }

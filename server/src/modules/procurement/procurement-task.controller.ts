@@ -101,6 +101,13 @@ export class ProcurementTaskController {
     return this.service.saveDocument(id, body);
   }
 
+  /** 关联合同模板（补充四：采购文件「导出合同模板 / 预览合同模板」数据来源） */
+  @RequirePermissions('contract:view')
+  @Get(':id/contract-template')
+  contractTemplate(@Param('id') id: string) {
+    return this.service.contractTemplate(id);
+  }
+
   /** 成交报告（任务 3.5；仅单项采购，入口条件为采购文件已完成） */
   @RequirePermissions('contract:view')
   @Get(':id/result-report')

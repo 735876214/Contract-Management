@@ -49,6 +49,8 @@ export interface ModuleListRow {
   preMeetingRequired?: boolean;
   estimatedAmountWan?: number | null;
   createdAt?: string;
+  /** 采购品类：物资 | 租赁（采购发起第一步填写，决定合同模板映射） */
+  procurementCategory?: string | null;
   /** 模块记录字段（module 参数联表返回；无记录为 null） */
   module?: Record<string, any> | null;
 }
@@ -106,6 +108,8 @@ export interface ModuleListPageProps {
   extraColumns?: ColumnsType<ModuleListRow>;
   /** 工具栏左侧内容（如范围说明/新建按钮） */
   toolbarLeft?: ReactNode;
+  /** 筛选行内、「查询」按钮之前的内容（如采购发起的「任务发起」按钮） */
+  actionBeforeSearch?: ReactNode;
   /** 列表刷新键（外部保存/发布后 +1 触发重查） */
   refreshKey?: number;
   /** 行操作：查看（进入只读详情；仅 showOpColumn 时使用） */
@@ -143,6 +147,7 @@ export default function ModuleListPage({
   extraFilters = [],
   extraColumns = [],
   toolbarLeft,
+  actionBeforeSearch,
   refreshKey = 0,
   onView,
   onEdit,
@@ -398,6 +403,7 @@ export default function ModuleListPage({
           ))}
           <Col flex="auto" style={{ textAlign: 'right', marginBottom: 12 }}>
             <Space size={8} wrap>
+              {actionBeforeSearch}
               <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
                 查 询
               </Button>

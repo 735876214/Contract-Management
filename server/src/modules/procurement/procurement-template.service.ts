@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client';
 /** 允许的采购模块类型（批次一 · 任务 1.2） */
 const MODULE_TYPES = [
   'INITIATE', 'PRE_MEETING', 'NOTICE', 'DOCUMENT',
-  'RESULT_REPORT', 'PRICE_COMPARE', 'FRAMEWORK', 'INSPECTION',
+  'RESULT_REPORT', 'PRICE_COMPARE', 'FRAMEWORK',
 ] as const;
 
 type ModuleType = (typeof MODULE_TYPES)[number];

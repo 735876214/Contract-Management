@@ -42,7 +42,6 @@ import ProcurementDocument from '@/pages/Procurement/Document';
 import ProcurementResultReport from '@/pages/Procurement/ResultReport';
 import ProcurementPriceCompare from '@/pages/Procurement/PriceCompare';
 import ProcurementFrameworkExplanation from '@/pages/Procurement/FrameworkExplanation';
-import ProcurementInspectionReport from '@/pages/Procurement/InspectionReport';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -121,7 +120,6 @@ export const routes: RouteObject[] = [
       { path: 'procurement/result-report', element: <ProcurementResultReport /> },
       { path: 'procurement/price-compare', element: <ProcurementPriceCompare /> },
       { path: 'procurement/framework', element: <ProcurementFrameworkExplanation /> },
-      { path: 'procurement/inspection', element: <ProcurementInspectionReport /> },
       // 批次一 · 任务 1.2：采购模板（基础信息管理下）
       { path: 'base/procurement-template', element: <ProcurementTemplates /> },
       // 日报管理

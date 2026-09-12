@@ -19,6 +19,7 @@ import TotalListEditor, {
   TotalListEditorContent,
   type TotalListContentRef,
 } from '@/components/procurement/TotalListEditor';
+import RichTextEditor from '@/components/RichTextEditor';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import {
@@ -33,6 +34,12 @@ import {
 import { exportTaskModuleWord, TASK_MODULE_LABELS, type TaskModuleType } from '@/utils/procurementTaskDocs';
 import dayjs from 'dayjs';
 
+/** 采购品类（补充三：采购发起第一步填写；决定合同模板映射） */
+const PROCUREMENT_CATEGORIES = [
+  { value: '物资', label: '物资' },
+  { value: '租赁', label: '租赁' },
+];
+
 /** 采购任务行（批次二 · 任务 2.1；列表数据同 ModuleListRow，用途字段另行透出） */
 interface TaskRow {
   id: string;
@@ -46,24 +53,28 @@ interface TaskRow {
   estimatedAmountWan?: number;
   totalListId: string | null;
   contractId: string | null;
+  procurementCategory?: string | null;
   createdAt: string;
 }
 
-/** 新建/编辑两步流程（需求修正 修改一 + 问题一/三）：第一步 基本信息 → 第二步 编制总采购清单（保存并发布） */
+/** 新建/编辑三步流程（问题一 + 补充三）：
+ *  第一步 基本信息 + 采购品类 → 第二步 编制总采购清单 → 第三步 技术质量标准/验收方式/付款方式（保存并发布） */
 export default function Initiate() {
   const [form] = Form.useForm();
   const [editing, setEditing] = useState<TaskRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  /** 新建两步流程状态 */
+  /** 新建三步流程状态：0 基本信息 / 1 编制总采购清单 / 2 技术质量·验收·付款 */
   const [createStep, setCreateStep] = useState(0);
   const [createdTask, setCreatedTask] = useState<{ id: string; taskNo: string; status: string; stage: number } | null>(
     null,
   );
-  /** 第二步内容区动作引用（问题三：「保存并发布」由外层 footer 触发） */
+  /** 第二步（编制总采购清单）内容区动作引用 */
   const contentRef = useRef<TotalListContentRef | null>(null);
   const [publishing, setPublishing] = useState(false);
+  /** 第二步「下一步」保存总清单时的加载态（补充三：总清单保存后即进入第三步填写三字段） */
+  const [advancing, setAdvancing] = useState(false);
 
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -75,7 +86,7 @@ export default function Initiate() {
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
-  /** 新建流程：第一步只填采购类型与采购内容（是否需要采前会由总清单合计自动判定） */
+  /** 新建流程：第一步填采购类型、采购内容、采购品类（是否需要采前会由总清单合计自动判定） */
   const openCreate = () => {
     setEditing(null);
     setCreateStep(0);
@@ -86,43 +97,63 @@ export default function Initiate() {
   };
 
   /**
-   * 继续编辑（问题一）：stage 0（未发起/总清单编制中）的任务直接进入第二步
-   * 「编制总采购清单」（带出已有明细）；上一步可回到基础信息单独保存。
+   * 继续编辑：预填基本信息 + 采购品类 + 三字段，从第一步进入（可回看/修改采购品类）。
+   * 第二步（编制总清单）与第三步（三字段）随后沿用既有数据。
    */
-  const openEdit = (row: TaskRow) => {
+  const openEdit = async (row: TaskRow) => {
     setEditing(row);
-    form.setFieldsValue({
-      type: row.type,
-      content: row.content,
-      purpose: row.purpose,
-    });
+    try {
+      const d: any = await procurementTaskApi.detail(row.id);
+      const task = d?.data ?? d;
+      form.setFieldsValue({
+        type: row.type,
+        content: row.content,
+        purpose: row.purpose,
+        procurementCategory: row.procurementCategory ?? undefined,
+        techQuality: task?.techQuality ?? '',
+        acceptanceMethod: task?.acceptanceMethod ?? '',
+        paymentMethod: task?.paymentMethod ?? '',
+      });
+    } catch {
+      form.setFieldsValue({
+        type: row.type,
+        content: row.content,
+        purpose: row.purpose,
+        procurementCategory: row.procurementCategory ?? undefined,
+      });
+    }
     setCreatedTask({ id: row.id, taskNo: row.taskNo, status: row.status, stage: row.stage });
-    setCreateStep(1);
+    setCreateStep(0);
     setModalOpen(true);
   };
 
+  /** 第一步「下一步：编制总采购清单」：新建则创建任务，编辑则保存基本信息，均进入第二步 */
   const handleSave = async () => {
     const values = await form.validateFields();
     setSaving(true);
     try {
       if (editing) {
-        // 编辑态：仅保存基本信息（问题一：基础信息用单独的保存按钮）
+        // 编辑态：保存基本信息（含采购品类）后进入第二步
         await procurementTaskApi.update(editing.id, {
           content: values.content,
           purpose: values.purpose,
+          procurementCategory: values.procurementCategory || null,
         });
-        message.success('基本信息已保存');
-        setModalOpen(false);
-        setEditing(null);
-        setCreatedTask(null);
-        setCreateStep(0);
-        refreshList();
+        message.success('基本信息已保存，请继续编制总采购清单');
+        setCreateStep(1);
       } else if (createdTask) {
-        // 已创建过（第二步返回第一步后再下一步）：不重复创建
+        // 已创建过（从第二步返回第一步再前进）：不重复创建，仅同步采购品类
+        await procurementTaskApi.update(createdTask.id, {
+          procurementCategory: values.procurementCategory || null,
+        });
         setCreateStep(1);
       } else {
         // 第一步：创建任务后进入第二步（编制总采购清单）
-        const res: any = await procurementTaskApi.create({ type: values.type, content: values.content });
+        const res: any = await procurementTaskApi.create({
+          type: values.type,
+          content: values.content,
+          procurementCategory: values.procurementCategory || null,
+        });
         const task = res?.data ?? res;
         message.success('基本信息已保存，请继续编制总采购清单');
         setCreatedTask({
@@ -139,26 +170,44 @@ export default function Initiate() {
     }
   };
 
-  /** 第二步「保存并发布」（问题三）：保存清单 → 发布阶段 0，成功后关闭弹窗 */
-  const handleSaveAndPublish = async () => {
+  /** 第二步「下一步：填写技术质量等」：保存总采购清单（不发布），成功后进入第三步 */
+  const goToStep3 = async () => {
     if (!createdTask) return;
+    setAdvancing(true);
+    try {
+      const ok = await contentRef.current?.save();
+      if (ok) setCreateStep(2);
+    } finally {
+      setAdvancing(false);
+    }
+  };
+
+  /** 第三步「保存并发布」：写入三字段，然后发布总清单阶段，关闭弹窗 */
+  const handleFinalPublish = async () => {
+    if (!createdTask) return;
+    const values = await form.validateFields(['techQuality', 'acceptanceMethod', 'paymentMethod']);
     setPublishing(true);
     try {
-      const ok = await contentRef.current?.saveAndPublish();
-      if (ok) {
-        setModalOpen(false);
-        setCreateStep(0);
-        setCreatedTask(null);
-        setEditing(null);
-        refreshList();
-      }
+      await procurementTaskApi.update(createdTask.id, {
+        techQuality: values.techQuality || '',
+        acceptanceMethod: values.acceptanceMethod || '',
+        paymentMethod: values.paymentMethod || '',
+      });
+      await procurementTaskApi.publish(createdTask.id);
+      message.success('采购任务已发布，技术质量/验收方式/付款方式已记录');
+      setModalOpen(false);
+      setCreateStep(0);
+      setCreatedTask(null);
+      setEditing(null);
+      form.resetFields();
+      refreshList();
     } finally {
       setPublishing(false);
     }
   };
 
-  /** 第二步 → 上一步（基础信息可继续编辑并单独保存） */
-  const goPrevStep = () => setCreateStep(0);
+  /** 上一步：2→1 / 1→0 */
+  const goPrevStep = () => setCreateStep((s) => Math.max(0, s - 1));
 
   const openDetail = async (id: string) => {
     const d: any = await procurementTaskApi.detail(id);
@@ -221,6 +270,13 @@ export default function Initiate() {
       render: (t: string) => <Tag color={t === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(t)}</Tag>,
     },
     {
+      title: '采购品类',
+      dataIndex: 'procurementCategory',
+      width: 100,
+      render: (v: string | null | undefined) =>
+        v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>,
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 150,
@@ -250,6 +306,12 @@ export default function Initiate() {
       options: Object.entries(TASK_STATUS_LABELS).map(([value, label]) => ({ value, label })),
     },
     { key: 'type', label: '采购类型', control: 'select' as const, options: PROCUREMENT_TASK_TYPES },
+    {
+      key: 'procurementCategory',
+      label: '采购品类',
+      control: 'select' as const,
+      options: PROCUREMENT_CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+    },
     { key: 'keyword', label: '关键词', control: 'input' as const, placeholder: '编号 / 采购内容' },
   ];
 
@@ -262,6 +324,11 @@ export default function Initiate() {
         extraFilters={extraFilters as never}
         extraColumns={extraColumns}
         refreshKey={listRefresh}
+        actionBeforeSearch={
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            任务发起
+          </Button>
+        }
         onView={handleViewRow}
         onDelete={handleRemove}
         rowMenuItems={(row) => {
@@ -296,47 +363,51 @@ export default function Initiate() {
         }}
       />
 
-      {/* 新建（两步流程）/ 继续编辑（问题一：直接进入第二步） */}
+      {/* 新建（三步流程）/ 继续编辑（问题一：从第一步进入） */}
       <Modal
         title={
           <Steps
             size="small"
             current={createStep}
-            items={[{ title: '基本信息' }, { title: '编制总采购清单' }]}
-            style={{ maxWidth: 420 }}
+            items={[{ title: '基本信息' }, { title: '编制总采购清单' }, { title: '技术质量/验收/付款' }]}
+            style={{ maxWidth: 520 }}
           />
         }
         open={modalOpen}
-        width={createStep === 1 ? 1320 : 560}
+        width={createStep === 1 ? 1320 : createStep === 2 ? 820 : 560}
         footer={
-          createStep === 1
+          createStep === 2
             ? [
-                // 问题三：第二步取消「保存」，升级为「保存并发布」
                 <Button key="cancel" onClick={() => setModalOpen(false)}>
                   取消
                 </Button>,
                 <Button key="prev" onClick={goPrevStep}>
                   上一步
                 </Button>,
-                <Button key="publish" type="primary" loading={publishing} onClick={handleSaveAndPublish}>
+                <Button key="publish" type="primary" loading={publishing} onClick={handleFinalPublish}>
                   保存并发布
                 </Button>,
               ]
-            : [
-                <Button key="cancel" onClick={() => setModalOpen(false)}>
-                  取消
-                </Button>,
-                editing ? (
-                  // 问题一：编辑态第一步仅保存基本信息
-                  <Button key="save" type="primary" loading={saving} onClick={handleSave}>
-                    保存基本信息
-                  </Button>
-                ) : (
+            : createStep === 1
+              ? [
+                  <Button key="cancel" onClick={() => setModalOpen(false)}>
+                    取消
+                  </Button>,
+                  <Button key="prev" onClick={goPrevStep}>
+                    上一步
+                  </Button>,
+                  <Button key="next" type="primary" loading={advancing} onClick={goToStep3}>
+                    下一步：填写技术质量等
+                  </Button>,
+                ]
+              : [
+                  <Button key="cancel" onClick={() => setModalOpen(false)}>
+                    取消
+                  </Button>,
                   <Button key="next" type="primary" loading={saving} onClick={handleSave}>
                     下一步：编制总采购清单
-                  </Button>
-                ),
-              ]
+                  </Button>,
+                ]
         }
         onCancel={() => setModalOpen(false)}
         forceRender
@@ -350,6 +421,24 @@ export default function Initiate() {
               setCreatedTask((t) => (t ? { ...t, status: 'NOT_STARTED' } : t));
             }}
           />
+        ) : createStep === 2 && createdTask ? (
+          <Form form={form} layout="vertical">
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="以下三项技术/验收/付款标准将随采购任务流转，自动推送到采前会会议纪要、采购公告、采购文件及关联合同模板的对应位置。"
+            />
+            <Form.Item name="techQuality" label="技术质量标准" getValueFromEvent={(h: string) => h || ''}>
+              <RichTextEditor placeholder="填写技术质量标准（富文本）" minHeight={150} />
+            </Form.Item>
+            <Form.Item name="acceptanceMethod" label="验收方式" getValueFromEvent={(h: string) => h || ''}>
+              <RichTextEditor placeholder="填写验收方式（富文本）" minHeight={150} />
+            </Form.Item>
+            <Form.Item name="paymentMethod" label="付款方式" getValueFromEvent={(h: string) => h || ''}>
+              <RichTextEditor placeholder="填写付款方式（富文本）" minHeight={150} />
+            </Form.Item>
+          </Form>
         ) : (
           <Form form={form} layout="vertical">
             <Form.Item name="type" label="采购类型" rules={[{ required: true, message: '请选择采购类型' }]}>
@@ -357,6 +446,14 @@ export default function Initiate() {
             </Form.Item>
             <Form.Item name="content" label="采购内容" rules={[{ required: true, message: '请填写采购内容' }]}>
               <Input placeholder="如：钢筋采购" maxLength={100} />
+            </Form.Item>
+            {/* 补充三：采购品类（物资/租赁），第一步填写，决定合同模板映射 */}
+            <Form.Item
+              name="procurementCategory"
+              label="采购品类"
+              rules={[{ required: true, message: '请选择采购品类' }]}
+            >
+              <Select options={PROCUREMENT_CATEGORIES} placeholder="请选择采购品类（物资 / 租赁）" />
             </Form.Item>
             {editing && (
               <>
@@ -366,7 +463,7 @@ export default function Initiate() {
                 <Alert
                   type="info"
                   showIcon
-                  message="保存基本信息后，可回到第二步继续编制总采购清单；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定（单项采购且合计 ≥ 100 万元时生成）。"
+                  message="保存基本信息后，可进入第二步编制总采购清单，再于第三步填写技术质量/验收/付款标准；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定（单项采购且合计 ≥ 100 万元时生成）。"
                 />
               </>
             )}
@@ -374,7 +471,7 @@ export default function Initiate() {
               <Alert
                 type="info"
                 showIcon
-                message="填写基本信息后进入第二步编制总采购清单；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定，无需手动选择。"
+                message="填写基本信息与采购品类后进入第二步编制总采购清单，再于第三步填写技术质量/验收/付款标准；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定，无需手动选择。"
               />
             )}
           </Form>
@@ -401,6 +498,13 @@ export default function Initiate() {
                 <Tag color={detail.type === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(detail.type)}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="采购内容">{detail.content}</Descriptions.Item>
+              <Descriptions.Item label="采购品类">
+                {detail.procurementCategory ? (
+                  <Tag color="purple">{detail.procurementCategory}</Tag>
+                ) : (
+                  <span style={{ color: '#bfbfbf' }}>未填写</span>
+                )}
+              </Descriptions.Item>
               <Descriptions.Item label="采购用途">{detail.purpose || '-'}</Descriptions.Item>
               <Descriptions.Item label="当前状态">
                 <Tag color={TASK_STATUS_COLORS[detail.status] ?? 'default'}>{taskStatusLabel(detail.status)}</Tag>

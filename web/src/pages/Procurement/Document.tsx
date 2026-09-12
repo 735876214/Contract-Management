@@ -41,7 +41,8 @@ import ModuleListPage, {
   type ModuleListRow,
   useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
-import { exportProcurementWord } from '@/utils/procurementExport';
+import { buildProcurementDoc, exportProcurementWord } from '@/utils/procurementExport';
+import { highlightPlaceholders } from '@/utils/docExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import {
   buildDocumentDocHtml,
@@ -55,6 +56,8 @@ import {
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'DOCUMENT';
+/** 补充四：合同模板预览/导出专用 moduleType（不对应任何采购模板，确保以合同模板内容为底稿） */
+const CONTRACT_TPL_MODULE = 'CONTRACT_TEMPLATE';
 
 /** 采购任务行（列表精简） */
 interface TaskRow {
@@ -117,6 +120,33 @@ const EMPTY_FORM: DocumentForm = {
   quoteDescription: '',
 };
 
+/** 补充二/补充四：将采购发起填写的技术质量/验收/付款标准注入合同模板 HTML（替换占位符，无占位符时在末尾追加章节） */
+function injectContractThreeFields(
+  content: string,
+  techQuality: string,
+  acceptanceMethod: string,
+  paymentMethod: string,
+): string {
+  let html = content || '';
+  const map: Record<string, string> = {
+    技术质量标准: techQuality,
+    验收方式: acceptanceMethod,
+    付款方式: paymentMethod,
+  };
+  for (const [k, v] of Object.entries(map)) {
+    html = html.split(`{{${k}}}`).join(v || '');
+  }
+  // 模板未含对应占位符时，追加三字段章节，确保技术质量/验收/付款标准随合同模板导出（补充二）
+  if (!html.includes('技术质量标准') && (techQuality || acceptanceMethod || paymentMethod)) {
+    html +=
+      '<h2>技术质量标准、验收方式与付款方式</h2>' +
+      `<p><strong>技术质量标准：</strong></p>${techQuality || ''}` +
+      `<p><strong>验收方式：</strong></p>${acceptanceMethod || ''}` +
+      `<p><strong>付款方式：</strong></p>${paymentMethod || ''}`;
+  }
+  return html;
+}
+
 export default function Document() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
@@ -143,6 +173,9 @@ export default function Document() {
   const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
   /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
   const reEditRef = useRef(false);
+  /** 补充四：合同模板预览 */
+  const [contractPreviewOpen, setContractPreviewOpen] = useState(false);
+  const [contractHtml, setContractHtml] = useState('');
 
   const [project, setProject] = useState<{
     name?: string;
@@ -332,6 +365,58 @@ export default function Document() {
     message.success(`已导出：${exportFilename}`);
   };
 
+  /**
+   * 补充四：拉取「与采购文件关联的合同模板」内容，并把采购发起填写的
+   * 技术质量/验收/付款标准注入（替换占位符或追加章节），返回注入后 HTML 与导出文件名。
+   */
+  const getContractTemplateHtml = useCallback(async (): Promise<{ html: string; filename: string }> => {
+    if (!taskId) return { html: '', filename: '' };
+    const res: any = await procurementTaskApi.contractTemplate(taskId);
+    const ct = res?.data ?? res ?? {};
+    const injected = injectContractThreeFields(
+      ct?.content || '',
+      ct?.techQuality || '',
+      ct?.acceptanceMethod || '',
+      ct?.paymentMethod || '',
+    );
+    const tmplName = ct?.templateName || '合同模板';
+    const filename = `${project.nameAbbr || project.name || '项目'}-${content}-${tmplName}.docx`;
+    return { html: injected, filename };
+  }, [taskId, project.nameAbbr, project.name, content]);
+
+  /** 补充四：预览采购合同模板（注入三标准后渲染） */
+  const handlePreviewContractTemplate = async () => {
+    if (!taskId) return;
+    try {
+      const { html } = await getContractTemplateHtml();
+      const built = await buildProcurementDoc(
+        { moduleType: CONTRACT_TPL_MODULE, docHtml: html, values: {} },
+        { inlineImages: false },
+      );
+      setContractHtml(built.html || html);
+      setContractPreviewOpen(true);
+    } catch (e: any) {
+      message.error(e?.message || '合同模板预览失败');
+    }
+  };
+
+  /** 补充四：导出采购合同模板 Word（注入三标准后导出） */
+  const handleExportContractTemplate = async () => {
+    if (!taskId) return;
+    try {
+      const { html, filename } = await getContractTemplateHtml();
+      await exportProcurementWord({
+        moduleType: CONTRACT_TPL_MODULE,
+        docHtml: html,
+        values: {},
+        filename,
+      });
+      message.success(`已导出：${filename}`);
+    } catch (e: any) {
+      message.error(e?.message || '合同模板导出失败');
+    }
+  };
+
   /* ---------------- 采购清单（只读）列 ---------------- */
 
   /** 价格类列由投标方填写，系统内留空 */
@@ -434,12 +519,22 @@ export default function Document() {
             <Button onClick={closeEdit}>取消</Button>
             {currentTask && (
               <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                预览
+                预览采购文件
               </Button>
             )}
             {currentTask && (
               <Button icon={<FileWordOutlined />} onClick={handleExport}>
-                导出Word
+                导出采购文件
+              </Button>
+            )}
+            {currentTask && (
+              <Button icon={<EyeOutlined />} onClick={handlePreviewContractTemplate}>
+                预览合同模板
+              </Button>
+            )}
+            {currentTask && (
+              <Button icon={<FileWordOutlined />} onClick={handleExportContractTemplate}>
+                导出合同模板
               </Button>
             )}
             {editable && (
@@ -620,6 +715,37 @@ export default function Document() {
         onPublish={handlePublish}
         onClose={() => setModalMode(null)}
       />
+
+      {/* 补充四：合同模板预览（注入技术质量/验收/付款标准后渲染，与导出所见即所得） */}
+      <Modal
+        title={`合同模板 · 预览${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1000}
+        centered
+        open={contractPreviewOpen}
+        onCancel={() => setContractPreviewOpen(false)}
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setContractPreviewOpen(false)}>关闭</Button>
+            <Button icon={<FileWordOutlined />} onClick={handleExportContractTemplate}>
+              导出合同模板
+            </Button>
+          </Space>
+        }
+      >
+        <div
+          style={{
+            maxHeight: '60vh',
+            minHeight: 120,
+            overflow: 'auto',
+            border: '1px solid #eee',
+            padding: 24,
+          }}
+          dangerouslySetInnerHTML={{
+            __html: highlightPlaceholders(contractHtml) || '<p style="color:#999">暂无内容</p>',
+          }}
+        />
+      </Modal>
     </Space>
   );
 }

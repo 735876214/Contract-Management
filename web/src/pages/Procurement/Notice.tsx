@@ -31,10 +31,6 @@ import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
-import {
-  getProcurementVariableGroups,
-  replaceProcurementVariables,
-} from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
@@ -66,6 +62,10 @@ interface TaskRow {
   status: string;
   stage: number;
   preMeetingRequired: boolean;
+  /** 补充二：采购发起填写、随任务下发的三个标准（公告/文件/合同模板只读引用） */
+  techQuality?: string;
+  acceptanceMethod?: string;
+  paymentMethod?: string;
 }
 
 /** 可编辑行：带前端 key 供 Table 渲染（保存时剔除） */
@@ -81,9 +81,6 @@ interface NoticeForm {
   procurementNo: string;
   procurementTime: string | null;
   content: string;
-  techQuality: string;
-  acceptanceMethod: string;
-  paymentMethod: string;
   contacts: Keyed<ContactRow>[];
 }
 
@@ -127,9 +124,6 @@ const EMPTY_FORM: NoticeForm = {
   procurementNo: '',
   procurementTime: null,
   content: '',
-  techQuality: '',
-  acceptanceMethod: '',
-  paymentMethod: '',
   contacts: withKeys<ContactRow>([{ name: '', phone: '' }]),
 };
 
@@ -220,9 +214,6 @@ export default function Notice() {
           procurementTime: data.procurementTime ? dayjs(data.procurementTime).format('YYYY-MM-DD') : null,
           // 采购内容默认带出采购任务内容
           content: data.content || String(d?.task?.content ?? ''),
-          techQuality: data.techQuality ?? '',
-          acceptanceMethod: data.acceptanceMethod ?? '',
-          paymentMethod: data.paymentMethod ?? '',
           contacts: normalizeContacts(
             withKeys(contactEntries(data.contacts ?? [], data.contactPhones ?? [])),
           ),
@@ -291,9 +282,6 @@ export default function Notice() {
     procurementNo: form.procurementNo,
     procurementTime: form.procurementTime || null,
     content: form.content,
-    techQuality: form.techQuality,
-    acceptanceMethod: form.acceptanceMethod,
-    paymentMethod: form.paymentMethod,
     contacts: form.contacts.map((r) => String(r.name ?? '').trim()),
     contactPhones: form.contacts.map((r) => String(r.phone ?? '').trim()),
   });
@@ -349,9 +337,10 @@ export default function Notice() {
       procurementNo: form.procurementNo,
       procurementTime: form.procurementTime,
       content: form.content,
-      techQuality: form.techQuality,
-      acceptanceMethod: form.acceptanceMethod,
-      paymentMethod: form.paymentMethod,
+      // 补充二：技术质量/验收/付款标准取自采购发起填写的任务三字段（只读）
+      techQuality: currentTask?.techQuality ?? '',
+      acceptanceMethod: currentTask?.acceptanceMethod ?? '',
+      paymentMethod: currentTask?.paymentMethod ?? '',
       contacts: form.contacts.map((r) => String(r.name ?? '').trim()),
       contactPhones: form.contacts.map((r) => String(r.phone ?? '').trim()),
       purchaseItems: detail?.purchaseItems ?? [],
@@ -425,14 +414,16 @@ export default function Notice() {
     label: string,
     field: 'techQuality' | 'acceptanceMethod' | 'paymentMethod',
   ) => (
-    <Card size="small" title={label}>
+    <Card
+      size="small"
+      title={label}
+      extra={<span style={{ color: '#8c8c8c', fontSize: 12 }}>取自采购发起填写的标准（只读）</span>}
+    >
       <RichTextEditor
-        value={form[field]}
-        onChange={(html) => patchForm({ [field]: html } as Partial<NoticeForm>)}
-        variableGroups={getProcurementVariableGroups(MODULE_TYPE)}
-        disabled={!editable}
+        value={currentTask?.[field] ?? ''}
+        disabled
         minHeight={180}
-        placeholder={`请填写${label}`}
+        placeholder="（采购发起未填写技术质量/验收/付款标准）"
       />
     </Card>
   );
