@@ -139,6 +139,20 @@ export class ProcurementTaskController {
     res.end(buffer);
   }
 
+  /** 采购价格对比表（任务 3.6；仅单项采购，入口条件为成交报告已完成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/price-compare')
+  priceCompare(@Param('id') id: string) {
+    return this.service.priceCompare(id);
+  }
+
+  /** 保存采购价格对比表（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/price-compare')
+  savePriceCompare(@Param('id') id: string, @Body() body: any) {
+    return this.service.savePriceCompare(id, body);
+  }
+
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
   @RequirePermissions('contract:edit')
   @Put(':id/total-list')

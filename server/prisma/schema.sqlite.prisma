@@ -131,6 +131,7 @@ model Project {
   procurementNotices   ProcurementNotice[]
   procurementDocuments ProcurementDocument[]
   procurementResultReports ProcurementResultReport[]
+  procurementPriceCompares ProcurementPriceCompare[]
   @@index([createdAt])
 }
 
@@ -1047,6 +1048,7 @@ model ProcurementTask {
   procurementNotice    ProcurementNotice?
   procurementDocument  ProcurementDocument?
   procurementResultReport ProcurementResultReport?
+  procurementPriceCompare ProcurementPriceCompare?
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1179,6 +1181,26 @@ model ProcurementResultReport {
   createdAt        DateTime  @default(now())
   version          Int       @default(0)
   updatedAt        DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ---------------- 采购价格对比表（批次二 · 任务 3.6，仅 SINGLE 类型任务） ----------------
+
+model ProcurementPriceCompare {
+  id              String    @id @default(cuid())
+  projectId       String
+  taskId          String    @unique // 一个采购任务仅一份采购价格对比表
+  pricingMethod   String? // 计价方式：FIXED 固定价 | FLOATING 浮动价
+  benefitAnalysis String? // 采购效益分析说明（富文本 HTML）
+  items           String? // 明细表 JSON：按行保存「成交价不含税单价 / 备注」，其余列由总采购清单派生
+  publishedAt     DateTime? // 发布时间（价格对比表阶段发布后回填）
+  createdAt       DateTime  @default(now())
+  version         Int       @default(0)
+  updatedAt       DateTime  @updatedAt
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)

@@ -13,7 +13,7 @@ import {
  * 采购类型 → 子任务阶段链（顺序执行，前一阶段未发布时后续阶段锁定）：
  * - FRAMEWORK 引用框架协议：总采购清单 → 框架协议事前说明 → 生成合同
  * - SINGLE 单项采购：总采购清单 → [采前会会议纪要(≥100万)] → 采购公告 → 采购文件
- *            → 成交报告 → 资审报告 → 采购价格对比表 → 生成合同
+ *            → 成交报告 → 采购价格对比表 → 资审报告 → 生成合同
  *
  * stage = 已发布阶段数。子任务 i 可编辑/可发布 ⇔ i ≤ stage。
  * 状态由 stage 推导并持久化（见 deriveStatus）。
@@ -70,6 +70,16 @@ export function resultReportStageIndex(task: { type: string; preMeetingRequired:
   return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === RESULT_REPORT.key);
 }
 
+/**
+ * 任务 3.6：采购价格对比表阶段在阶段链中的下标。
+ * 单项采购：无采前会 → 4（成交报告之后）；有采前会 → 5。
+ * 「价格对比表编制中」⇔ status=PRICE_COMPARE_EDITING ⇔ stage === priceCompareStageIndex(task)，
+ * 即入口条件为「成交报告已完成」。
+ */
+export function priceCompareStageIndex(task: { type: string; preMeetingRequired: boolean }): number {
+  return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === PRICE_COMPARE.key);
+}
+
 /** 元 → 万元（保留 2 位小数） */
 const toWan = (yuan: number): number =>
   Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
@@ -86,10 +96,12 @@ function stageChain(type: string, preMeetingRequired: boolean): StageDef[] {
   if (type === 'SINGLE') {
     const chain = [TOTAL_LIST];
     if (preMeetingRequired) chain.push(PRE_MEETING);
-    // 任务 3.4：采购文件紧随采购公告；任务 3.5：成交报告紧随采购文件（资审报告后移），
+    // 任务 3.4：采购文件紧随采购公告；任务 3.5：成交报告紧随采购文件；
+    // 任务 3.6：采购价格对比表紧随成交报告（资审报告后移），
     // 使「采购文件」的入口条件正是「采购公告已完成」，
-    // 「成交报告」的入口条件正是「采购文件已完成」。
-    chain.push(NOTICE, DOCUMENT, RESULT_REPORT, INSPECTION, PRICE_COMPARE);
+    // 「成交报告」的入口条件正是「采购文件已完成」，
+    // 「采购价格对比表」的入口条件正是「成交报告已完成」。
+    chain.push(NOTICE, DOCUMENT, RESULT_REPORT, PRICE_COMPARE, INSPECTION);
     return chain;
   }
   throw new BadRequestException('无效的采购类型');
@@ -300,6 +312,18 @@ export class ProcurementTaskService {
         );
       }
     }
+    // 任务 3.6：发布「采购价格对比表」前必须已保存内容（计价方式与采购效益分析说明为必填）
+    const priceIndex = current.type === 'SINGLE' ? priceCompareStageIndex(current) : -1;
+    if (priceIndex >= 0 && current.stage === priceIndex) {
+      const pc = await this.prisma.procurementPriceCompare.findUnique({
+        where: { taskId: current.id },
+      });
+      if (!String(pc?.pricingMethod ?? '').trim() || !String(pc?.benefitAnalysis ?? '').trim()) {
+        throw new BadRequestException(
+          '请先编辑并保存采购价格对比表（至少填写计价方式与采购效益分析说明）后再发布',
+        );
+      }
+    }
 
     const nextStage = current.stage + 1;
     const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, current.contractId);
@@ -344,6 +368,13 @@ export class ProcurementTaskService {
     // 任务 3.5：成交报告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
     if (reportIndex >= 0 && current.stage === reportIndex) {
       await this.prisma.procurementResultReport.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
+    // 任务 3.6：采购价格对比表阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+    if (priceIndex >= 0 && current.stage === priceIndex) {
+      await this.prisma.procurementPriceCompare.updateMany({
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
       });
@@ -1309,6 +1340,169 @@ export class ProcurementTaskService {
         '说明：重复导入将覆盖已有的响应单位明细，不影响手工填写的成交报告基本信息。',
       ],
     });
+  }
+
+  /**
+   * 采购价格对比表（批次二 · 任务 3.6，仅「单项采购」任务）。
+   * 入口条件：成交报告已完成（stage > 成交报告阶段下标）；本阶段编辑中 ⇔ stage === 价格对比表下标。
+   *
+   * 明细表列（共 15 列）：
+   * - 序号 / 采购名称 / 规格型号 / 单位 / 数量 / 清单收入不含税单价 / 标准成本不含税单价 /
+   *   控制价不含税单价 / 信息价不含税单价 —— 全部来自总采购清单（ProcurementTotalItem），
+   *   只读派生、不落库；
+   * - 成交价不含税单价 / 备注 —— 用户录入，落库于 items（按 materialBaseId 归位）；
+   * - 各价格合价与「采购成本降低率 / 采购成交价下浮率 / 信息价下浮率」由前端计算。
+   */
+  async priceCompare(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购价格对比表模块');
+    }
+    const reportIndex = resultReportStageIndex(task);
+    const stageIndex = priceCompareStageIndex(task);
+    const reached = task.stage >= stageIndex;
+    const published = task.stage > stageIndex;
+    const record = await this.prisma.procurementPriceCompare.findUnique({ where: { taskId } });
+    const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId } });
+    const totals = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    // 已保存行按 materialBaseId 归位（兼容早期按下标保存的数据）
+    const savedRows = this.parseJsonArray<Record<string, any>>(record?.items);
+    const savedMap = new Map<string, Record<string, any>>();
+    savedRows.forEach((r, i) => {
+      const k = String(r?.materialBaseId ?? '');
+      if (k) savedMap.set(k, r);
+      else if (totals[i]) savedMap.set(totals[i].id, r);
+    });
+
+    // 明细行 = 总采购清单派生 + 叠加已保存的「成交价 / 备注」
+    const items = totals.map((t) => {
+      const saved = savedMap.get(t.id) ?? {};
+      return {
+        materialBaseId: t.id,
+        materialName: t.materialName,
+        spec: t.spec,
+        unit: t.unit,
+        qty: t.qty,
+        incomePrice: t.incomePrice,
+        stdCost: t.stdCost,
+        planPrice: t.planPrice,
+        infoPrice: t.infoPrice,
+        dealPrice: saved.dealPrice ?? null,
+        remark: String(saved.remark ?? ''),
+      };
+    });
+
+    return {
+      task: this.serialize(task),
+      stageIndex,
+      resultReportStageIndex: reportIndex,
+      /** 成交报告是否已完成（价格对比表的入口条件） */
+      resultReportCompleted: task.stage > reportIndex,
+      reached,
+      editable: reached && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
+      content: notice?.content ?? task.content ?? '',
+      /** 明细表行（派生 + 已保存的成交价/备注） */
+      items,
+      data: record ? { ...this.serializePriceCompare(record), items } : null,
+    };
+  }
+
+  /** 保存采购价格对比表（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
+  async savePriceCompare(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购价格对比表模块');
+    }
+    if (task.stage < priceCompareStageIndex(task)) {
+      throw new BadRequestException('请先发布成交报告（成交报告已完成）后再编制采购价格对比表');
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const num = (v: any, label: string): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) throw new BadRequestException(`${label}必须为数字`);
+      if (n < 0) throw new BadRequestException(`${label}不能为负数`);
+      return n;
+    };
+
+    const method = text(body?.pricingMethod);
+    if (method && !['FIXED', 'FLOATING'].includes(method)) {
+      throw new BadRequestException('计价方式仅支持「固定价」或「浮动价」');
+    }
+
+    // 明细行：仅接受「成交价 / 备注」为用户输入，其余列以总采购清单为准回填，防止前端篡改；
+    // 行序与总采购清单保持一致，未提交的行补齐为空白行。
+    const totals = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const submitted = new Map<string, any>();
+    (Array.isArray(body?.items) ? body.items : []).forEach((r: any) => {
+      const k = String(r?.materialBaseId ?? '').trim();
+      if (k) submitted.set(k, r);
+    });
+    const items = totals.map((t) => {
+      const r = submitted.get(t.id) ?? {};
+      return {
+        materialBaseId: t.id,
+        materialName: t.materialName,
+        spec: t.spec,
+        unit: t.unit,
+        qty: t.qty,
+        incomePrice: t.incomePrice,
+        stdCost: t.stdCost,
+        planPrice: t.planPrice,
+        infoPrice: t.infoPrice,
+        dealPrice: num(r?.dealPrice, '成交价不含税单价'),
+        remark: String(r?.remark ?? '').trim(),
+      };
+    });
+
+    const payload = {
+      pricingMethod: method,
+      benefitAnalysis: text(body?.benefitAnalysis),
+      items: JSON.stringify(items),
+    };
+    const saved = await this.prisma.procurementPriceCompare.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializePriceCompare(saved);
+  }
+
+  private serializePriceCompare(r: {
+    id: string;
+    taskId: string;
+    pricingMethod: string | null;
+    benefitAnalysis: string | null;
+    items: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      pricingMethod: r.pricingMethod ?? '',
+      benefitAnalysis: r.benefitAnalysis ?? '',
+      items: this.parseJsonArray<Record<string, any>>(r.items),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
   }
 
   private serializeResultReport(r: {

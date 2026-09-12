@@ -120,6 +120,19 @@ export const procurementTaskApi = {
   /** 「响应单位情况汇总表」导入模板下载地址 */
   resultReportTemplateUrl: (id: string) =>
     `${http.defaults.baseURL}/procurement-tasks/${id}/result-report/template`,
+  /** 采购价格对比表（任务 3.6）：仅「单项采购」任务可用；入口条件为成交报告已完成 */
+  priceCompare: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/price-compare`),
+  savePriceCompare: (
+    id: string,
+    data: {
+      /** 计价方式：FIXED 固定价 | FLOATING 浮动价 */
+      pricingMethod?: string;
+      /** 采购效益分析说明（富文本 HTML） */
+      benefitAnalysis?: string;
+      /** 明细行：仅提交「成交价不含税单价 / 备注」，其余列由后端按总采购清单回填 */
+      items?: unknown[];
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/price-compare`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 
