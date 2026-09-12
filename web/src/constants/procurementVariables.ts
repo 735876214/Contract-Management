@@ -148,7 +148,10 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     v('事前说明-价格对比表', '表格变量：替换为同城/相邻城市局其他单位执行合同价对比表', true),
     v('事前说明-成本分析表', '表格变量：替换为成本分析表', true),
   ],
-  INSPECTION: [],
+  INSPECTION: [
+    h('考察报告-考察内容', '考察内容（富文本，按 HTML 原样注入）'),
+    h('考察报告-考察结论', '考察结论（富文本，按 HTML 原样注入）'),
+  ],
 };
 
 /** 某模块的完整变量集合 = 公共变量 + 模块专属变量 */

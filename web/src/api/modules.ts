@@ -136,6 +136,42 @@ export const procurementTaskApi = {
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 
+/**
+ * 考察报告（批次二 · 任务 3.7）：独立模块，按项目维度管理（不挂采购任务阶段链）
+ * 状态仅「编辑中 → 已完成」（publish 后回填 publishedAt，unpublish 撤回）
+ */
+export const inspectionReportApi = {
+  list: (params?: any) => http.get<any, any>('/procurement-inspection-reports', { params }),
+  detail: (id: string) => http.get<any, any>(`/procurement-inspection-reports/${id}`),
+  create: (data: {
+    unitName?: string;
+    inspectionTime?: string | null;
+    inspectionPlace?: string;
+    inspectors?: string;
+    content?: string;
+    conclusion?: string;
+    photos?: unknown[];
+  }) => http.post<any, any>('/procurement-inspection-reports', data),
+  update: (
+    id: string,
+    data: {
+      unitName?: string;
+      inspectionTime?: string | null;
+      inspectionPlace?: string;
+      inspectors?: string;
+      content?: string;
+      conclusion?: string;
+      photos?: unknown[];
+    },
+  ) => http.put<any, any>(`/procurement-inspection-reports/${id}`, data),
+  /** 发布：编辑中 → 已完成 */
+  publish: (id: string) => http.post<any, any>(`/procurement-inspection-reports/${id}/publish`),
+  /** 撤回发布：已完成 → 编辑中 */
+  unpublish: (id: string) =>
+    http.post<any, any>(`/procurement-inspection-reports/${id}/unpublish`),
+  remove: (id: string) => http.delete<any, any>(`/procurement-inspection-reports/${id}`),
+};
+
 export const dailyApi = {
   list: (params?: any) => http.get<any, any>('/daily-reports', { params }),
   detail: (id: string) => http.get<any, any>(`/daily-reports/${id}`),

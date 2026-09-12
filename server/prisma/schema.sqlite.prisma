@@ -132,6 +132,7 @@ model Project {
   procurementDocuments ProcurementDocument[]
   procurementResultReports ProcurementResultReport[]
   procurementPriceCompares ProcurementPriceCompare[]
+  inspectionReports        InspectionReport[]
   @@index([createdAt])
 }
 
@@ -1222,6 +1223,27 @@ model ProcurementDocument {
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// 考察报告（批次二 · 任务 3.7）：独立模块，记录对供应商（考察单位）的考察情况
+model InspectionReport {
+  id             String    @id @default(cuid())
+  projectId      String
+  unitName       String // 考察单位名称（即供应商名称，用于导出命名）
+  inspectionTime DateTime? // 考察时间（日期）
+  inspectionPlace String? // 考察地点
+  inspectors     String? // 考察人员
+  content        String? // 考察内容（富文本 HTML）
+  conclusion     String? // 考察结论（富文本 HTML）
+  photos         String? // 考察照片 JSON：[{ fileName, url, size }]
+  publishedAt    DateTime? // 发布时间（发布后状态「已完成」）
+  createdAt      DateTime  @default(now())
+  version        Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }
