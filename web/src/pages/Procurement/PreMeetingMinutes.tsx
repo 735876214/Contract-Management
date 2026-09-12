@@ -183,7 +183,14 @@ export default function PreMeetingMinutes() {
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
-  const [project, setProject] = useState<{ name?: string; nameAbbr?: string; undertaker?: string }>({});
+  const [project, setProject] = useState<{
+    name?: string;
+    nameAbbr?: string;
+    undertaker?: string;
+    provinceCity?: string;
+    siteLocation?: string;
+    projectAddress?: string;
+  }>({});
 
   const currentTask = detail?.task ?? null;
   /** 当前是否可编辑：编辑中阶段，或已发布后主动点「重新编辑」 */
@@ -391,6 +398,9 @@ export default function PreMeetingMinutes() {
       projectName: project.name,
       projectAbbr: project.nameAbbr,
       undertaker: project.undertaker,
+      provinceCity: project.provinceCity,
+      siteLocation: project.siteLocation,
+      projectAddress: project.projectAddress,
       content: currentTask?.content,
       estimatedAmountWan: detail?.estimatedAmountWan ?? null,
     }),

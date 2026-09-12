@@ -101,6 +101,9 @@ model Project {
   undertaker  String? // 承接单位
   selfContractAmount Decimal?  // 项目自施合同额（万元）
   industryType String? // dict: industry_type 项目业态
+  provinceCity   String? // 项目所在省市
+  siteLocation   String? // 工程地点
+  projectAddress String? // 项目地址
   status      String?  // dict: project_status
   description String?
   startDate   DateTime?

@@ -51,6 +51,12 @@ export interface DocumentContext {
   projectName?: string;
   projectAbbr?: string;
   undertaker?: string;
+  /** 项目所在省市（来源：项目管理 · 项目信息） */
+  provinceCity?: string;
+  /** 工程地点（来源：项目管理 · 项目信息） */
+  siteLocation?: string;
+  /** 项目地址（来源：项目管理 · 项目信息） */
+  projectAddress?: string;
   /** 采购内容（默认取采购任务内容 / 采购公告内容） */
   content?: string;
   /* 以下取自「采购公告」 */
@@ -178,6 +184,9 @@ export function buildDocumentVariableValues(
     项目名称: ctx.projectName ?? '',
     项目简称: ctx.projectAbbr ?? '',
     承接单位: ctx.undertaker ?? '',
+    项目所在省市: ctx.provinceCity ?? '',
+    工程地点: ctx.siteLocation ?? '',
+    项目地址: ctx.projectAddress ?? '',
     采购编号: String(ctx.procurementNo ?? ''),
     采购内容: String(ctx.content ?? ''),
     技术质量标准: rich(ctx.techQuality),

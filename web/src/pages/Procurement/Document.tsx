@@ -127,7 +127,14 @@ export default function Document() {
   /** 发布流程：预览 → 确认 → 发布 */
   const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
 
-  const [project, setProject] = useState<{ name?: string; nameAbbr?: string; undertaker?: string }>({});
+  const [project, setProject] = useState<{
+    name?: string;
+    nameAbbr?: string;
+    undertaker?: string;
+    provinceCity?: string;
+    siteLocation?: string;
+    projectAddress?: string;
+  }>({});
 
   const currentTask = detail?.task ?? null;
   /** 当前是否可编辑：采购文件编制中，或已发布后主动点「重新编辑」 */
@@ -258,6 +265,9 @@ export default function Document() {
       projectName: project.name,
       projectAbbr: project.nameAbbr,
       undertaker: project.undertaker,
+      provinceCity: project.provinceCity,
+      siteLocation: project.siteLocation,
+      projectAddress: project.projectAddress,
       content,
       procurementNo: detail?.notice?.procurementNo,
       techQuality: detail?.notice?.techQuality,

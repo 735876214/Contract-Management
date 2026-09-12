@@ -59,6 +59,12 @@ export interface PreMeetingContext {
   projectName?: string;
   projectAbbr?: string;
   undertaker?: string;
+  /** 项目所在省市（来源：项目管理 · 项目信息） */
+  provinceCity?: string;
+  /** 工程地点（来源：项目管理 · 项目信息） */
+  siteLocation?: string;
+  /** 项目地址（来源：项目管理 · 项目信息） */
+  projectAddress?: string;
   /** 采购内容（任务内容，作为默认值） */
   content?: string;
   /** 预计采购金额（万元） */
@@ -274,6 +280,9 @@ export function buildPreMeetingVariableValues(
     项目名称: ctx.projectName ?? '',
     项目简称: ctx.projectAbbr ?? '',
     承接单位: ctx.undertaker ?? '',
+    项目所在省市: ctx.provinceCity ?? '',
+    工程地点: ctx.siteLocation ?? '',
+    项目地址: ctx.projectAddress ?? '',
     采购内容: String(data.content ?? ctx.content ?? ''),
     预计采购金额: ctx.estimatedAmountWan == null ? '' : fmtWan(ctx.estimatedAmountWan),
     会议时间: fmtDate(data.meetingTime),

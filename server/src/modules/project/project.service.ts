@@ -10,6 +10,7 @@ import { DictService } from '../dict/dict.service';
 
 const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'selfContractAmount', 'industryType',
+  'provinceCity', 'siteLocation', 'projectAddress',
   'status', 'description', 'startDate', 'endDate', 'managerId',
 ];
 const CODE_ABBR_RE = /^[A-Z0-9]+$/;
@@ -133,6 +134,9 @@ export class ProjectService {
       { label: '承接单位', key: 'undertaker', type: 'text', width: 24, example: '中国建筑土木建设有限公司' },
       { label: '项目自施合同额（万元）', key: 'selfContractAmount', type: 'money', width: 22, example: 35000 },
       { label: '项目业态', key: 'industryType', type: 'select', width: 14, example: '房建', options: industry.map((i: any) => i.itemName).filter(Boolean) },
+      { label: '项目所在省市', key: 'provinceCity', type: 'text', width: 18, example: '广东省深圳市' },
+      { label: '工程地点', key: 'siteLocation', type: 'text', width: 24, example: '深圳市南山区科技园南区' },
+      { label: '项目地址', key: 'projectAddress', type: 'text', width: 30, example: '深圳市南山区科苑南路 3099 号' },
       { label: '状态', key: 'status', type: 'select', width: 12, example: '在建', options: status.map((i: any) => i.itemName).filter(Boolean) },
       { label: '开工日期', key: 'startDate', type: 'date', width: 14, example: '2026-03-01' },
       { label: '竣工日期', key: 'endDate', type: 'date', width: 14, example: '2028-06-30' },
@@ -174,6 +178,9 @@ export class ProjectService {
           undertaker: String(r['承接单位'] ?? '').trim() || null,
           selfContractAmount: num(r['项目自施合同额（万元）']),
           industryType,
+          provinceCity: String(r['项目所在省市'] ?? '').trim() || null,
+          siteLocation: String(r['工程地点'] ?? '').trim() || null,
+          projectAddress: String(r['项目地址'] ?? '').trim() || null,
           status: statusCode,
           startDate: r['开工日期'] || null,
           endDate: r['竣工日期'] || null,

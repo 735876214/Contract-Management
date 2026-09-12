@@ -122,7 +122,14 @@ export default function FrameworkExplanation() {
   const [reEditing, setReEditing] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const [project, setProject] = useState<{ name?: string; nameAbbr?: string; undertaker?: string }>({});
+  const [project, setProject] = useState<{
+    name?: string;
+    nameAbbr?: string;
+    undertaker?: string;
+    provinceCity?: string;
+    siteLocation?: string;
+    projectAddress?: string;
+  }>({});
 
   /** 仅「引用框架协议」且总采购清单已发布（stage≥1）的任务可见本模块 */
   const frameworkTasks = useMemo(
@@ -264,6 +271,9 @@ export default function FrameworkExplanation() {
       projectName: project.name,
       projectAbbr: project.nameAbbr,
       undertaker: project.undertaker,
+      provinceCity: project.provinceCity,
+      siteLocation: project.siteLocation,
+      projectAddress: project.projectAddress,
       content: currentTask.content,
     };
     const title = `${project.nameAbbr || project.name || ''}-${currentTask.content}-框架协议事前说明`;

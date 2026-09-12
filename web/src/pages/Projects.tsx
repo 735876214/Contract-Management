@@ -69,7 +69,7 @@ export default function Projects() {
         loading={loading}
         dataSource={list}
         pagination={pagination}
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1950 }}
         columns={[
           { title: '项目编码', dataIndex: 'code', width: 150 },
           { title: '项目全称', dataIndex: 'name', width: 220 },
@@ -78,6 +78,9 @@ export default function Projects() {
           { title: '承接单位', dataIndex: 'undertaker', width: 150 },
           { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })) },
           { title: '项目业态', dataIndex: 'industryType', width: 110, render: (v) => <DictTag typeCode="industry_type" value={v} /> },
+          { title: '项目所在省市', dataIndex: 'provinceCity', width: 130, render: (v) => v || '-' },
+          { title: '工程地点', dataIndex: 'siteLocation', width: 180, ellipsis: true, render: (v) => v || '-' },
+          { title: '项目地址', dataIndex: 'projectAddress', width: 200, ellipsis: true, render: (v) => v || '-' },
           { title: '项目状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="project_status" value={v} /> },
           { title: '描述', dataIndex: 'description', ellipsis: true },
           {
@@ -139,6 +142,15 @@ export default function Projects() {
               <Form.Item name="industryType" label="项目业态" rules={[{ required: true }]}>
                 <DictSelect typeCode="industry_type" />
               </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="provinceCity" label="项目所在省市"><Input maxLength={50} placeholder="如 广东省深圳市" /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="siteLocation" label="工程地点"><Input maxLength={100} placeholder="如 深圳市南山区科技园南区" /></Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item name="projectAddress" label="项目地址"><Input maxLength={150} placeholder="如 深圳市南山区科苑南路 3099 号" /></Form.Item>
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>
