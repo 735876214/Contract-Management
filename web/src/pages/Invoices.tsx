@@ -1,13 +1,27 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tabs, Row, Col, InputNumber, DatePicker, Upload, Alert,
+  Button,
+  Form,
+  Input,
+  Select,
+  Space,
+  Modal,
+  message,
+  Row,
+  Col,
+  InputNumber,
+  DatePicker,
+  Upload,
+  Alert,
+  Table,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { dictApi, type DictOption } from '@/api/dict';
 import { invoiceApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
-import { useTable } from '@/hooks/useTable';
+import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
@@ -15,26 +29,32 @@ import ImportButton from '@/components/ImportButton';
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
+/** 发票管理（问题四：统一标准列表页规约） */
 export default function Invoices() {
   const [contracts, setContracts] = useState<any[]>([]);
+  /** 筛选用字典选项 */
+  const [dicts, setDicts] = useState<Record<string, DictOption[]>>({});
   useEffect(() => {
     contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
+    const types = ['goods_category', 'invoice_type', 'invoice_status', 'invoice_review_status'];
+    Promise.all(types.map((t) => dictApi.options(t).catch(() => []))).then((lists) => {
+      const map: Record<string, DictOption[]> = {};
+      types.forEach((t, i) => (map[t] = lists[i] || []));
+      setDicts(map);
+    });
   }, []);
   const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
 
-  return (
-    <Card title="发票管理">
-      <Tabs
-        items={[
-          { key: 'invoice', label: '收票登记', children: <InvoiceTab contracts={contracts} contractOptions={contractOptions} /> },
-        ]}
-      />
-    </Card>
-  );
+  return <InvoiceTab contractOptions={contractOptions} dicts={dicts} />;
 }
 
-function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contractOptions: any[] }) {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => invoiceApi.list(p));
+function InvoiceTab({
+  contractOptions,
+  dicts,
+}: {
+  contractOptions: any[];
+  dicts: Record<string, DictOption[]>;
+}) {
   const [form] = Form.useForm();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -43,6 +63,8 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
   const [noMsg, setNoMsg] = useState('');
   const [noTimer, setNoTimer] = useState<any>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = () => setListRefresh((k) => k + 1);
 
   const checkNo = (no: string) => {
     if (!no) {
@@ -92,7 +114,7 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
     setEditing(null);
     setNoStatus('');
     setNoMsg('');
-    reload();
+    refreshList();
   };
 
   const openEdit = (row: any) => {
@@ -111,70 +133,95 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
   const doVerify = async (id: string) => {
     await invoiceApi.verify(id);
     message.success('已发起查验');
-    reload();
+    refreshList();
   };
+
+  const handleRemove = (row: ModuleListRow) => {
+    Modal.confirm({
+      title: '确认删除该发票记录？',
+      okText: '确认删除',
+      okType: 'danger',
+      onOk: async () => {
+        await invoiceApi.remove(row.id);
+        message.success('已删除');
+        refreshList();
+      },
+    });
+  };
+
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
+    { key: 'goodsCategory', label: '商品类别', control: 'select', options: dicts.goods_category ?? [] },
+    { key: 'typeCode', label: '发票类型', control: 'select', options: dicts.invoice_type ?? [] },
+    { key: 'status', label: '状态', control: 'select', options: dicts.invoice_status ?? [] },
+    { key: 'reviewStatus', label: '审核状态', control: 'select', options: dicts.invoice_review_status ?? [] },
+    { key: 'invoiceNo', label: '发票号码', control: 'input' },
+  ];
+
+  /** 表格列（问题四：generic 模式完整列定义） */
+  const extraColumns: any[] = [
+    { title: '序号', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
+    { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v: any) => <DictTag typeCode="goods_category" value={v} /> },
+    { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
+    { title: '开票单位', dataIndex: 'issuer', width: 200, ellipsis: true },
+    { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v: any) => v?.slice(0, 10) },
+    { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
+    { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
+    { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, align: 'right', render: money },
+    { title: '税率', dataIndex: 'taxRate', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
+    { title: '含税金额', dataIndex: 'amountWithTax', width: 140, align: 'right', render: money },
+    { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v: any) => v?.slice(0, 10) },
+    { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v: any) => <DictTag typeCode="invoice_review_status" value={v} /> },
+    { title: '责任人', dataIndex: 'responsiblePerson', width: 120 },
+    { title: '财务移交情况', dataIndex: 'financeTransferStatus', width: 130, render: (v: any) => <DictTag typeCode="finance_transfer_status" value={v} /> },
+    { title: '状态', dataIndex: 'statusCode', width: 110, render: (v: any) => <DictTag typeCode="invoice_status" value={v} /> },
+    { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
+  ];
 
   return (
     <>
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
-        <Form.Item name="contractId"><Select2 options={contractOptions} placeholder="合同" /></Form.Item>
-        <Form.Item name="goodsCategory"><DictSelect typeCode="goods_category" placeholder="商品类别" /></Form.Item>
-        <Form.Item name="typeCode"><DictSelect typeCode="invoice_type" placeholder="发票类型" /></Form.Item>
-        <Form.Item name="status"><DictSelect typeCode="invoice_status" placeholder="状态" /></Form.Item>
-        <Form.Item name="reviewStatus"><DictSelect typeCode="invoice_review_status" placeholder="审核状态" /></Form.Item>
-        <Form.Item name="invoiceNo"><Input placeholder="发票号码" allowClear /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-      </Form>
-
-      <div style={{ marginBottom: 16, textAlign: 'right' }}>
-        <Space>
-          <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>批量识别</Button>
-          <ImportButton moduleName="发票台账" templateUrl={invoiceApi.templateUrl()} uploadUrl={invoiceApi.importUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setImages([]); setNoStatus(''); setNoMsg(''); setModal(true); }}>
-            收票登记
-          </Button>
-        </Space>
-      </div>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 2400 }}
-        columns={[
-          { title: '序号', width: 70, fixed: 'left', render: (_, __, i) => i + 1 },
-          { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v) => <DictTag typeCode="goods_category" value={v} /> },
-          { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
-          { title: '开票单位', dataIndex: 'issuer', width: 200 },
-          { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v) => v?.slice(0, 10) },
-          { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
-          { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
-          { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, render: money },
-          { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-          { title: '含税金额', dataIndex: 'amountWithTax', width: 140, render: money },
-          { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v) => v?.slice(0, 10) },
-          { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v) => <DictTag typeCode="invoice_review_status" value={v} /> },
-          { title: '责任人', dataIndex: 'responsiblePerson', width: 120 },
-          { title: '财务移交情况', dataIndex: 'financeTransferStatus', width: 130, render: (v) => <DictTag typeCode="finance_transfer_status" value={v} /> },
-          { title: '状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="invoice_status" value={v} /> },
-          { title: '备注', dataIndex: 'remark', width: 160 },
-          {
-            title: '操作',
-            width: 180,
-            fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Button type="link" size="small" onClick={() => doVerify(row.id)}>查验</Button>
-                <Popconfirm title="确认删除？" onConfirm={async () => { await invoiceApi.remove(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
+      <ModuleListPage
+        mode="generic"
+        fetcher={(params) => invoiceApi.list(params)}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh}
+        onEdit={(row) => openEdit(row)}
+        onDelete={handleRemove}
+        rowMenuItems={(row) => [
+          { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
         ]}
+        toolbarLeft={
+          <Space wrap size={8}>
+            <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
+              批量识别
+            </Button>
+            <ImportButton
+              moduleName="发票台账"
+              templateUrl={invoiceApi.templateUrl()}
+              uploadUrl={invoiceApi.importUrl()}
+              onDone={refreshList}
+            />
+            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
+              导出
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditing(null);
+                form.resetFields();
+                setImages([]);
+                setNoStatus('');
+                setNoMsg('');
+                setModal(true);
+              }}
+            >
+              收票登记
+            </Button>
+          </Space>
+        }
       />
 
       <Modal
@@ -191,7 +238,15 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
               <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}><Select2 options={contractOptions} /></Form.Item>
+              <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  allowClear
+                  placeholder="请选择合同"
+                  options={contractOptions}
+                />
+              </Form.Item>
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="goodsCategory" label="商品类别"><DictSelect typeCode="goods_category" /></Form.Item>
@@ -236,24 +291,12 @@ function InvoiceTab({ contracts, contractOptions }: { contracts: any[]; contract
         open={batchOpen}
         contractOptions={contractOptions}
         onClose={() => setBatchOpen(false)}
-        onDone={() => { setBatchOpen(false); reload(); }}
+        onDone={() => {
+          setBatchOpen(false);
+          refreshList();
+        }}
       />
     </>
-  );
-}
-
-/** 合同下拉（选项已在外层准备好） */
-function Select2({ value, options, placeholder, onChange }: { value?: any; options: any[]; placeholder?: string; onChange?: (id: string) => void }) {
-  return (
-    <Select
-      value={value}
-      showSearch
-      optionFilterProp="label"
-      allowClear
-      placeholder={placeholder || '请选择合同'}
-      options={options}
-      onChange={onChange}
-    />
   );
 }
 
@@ -433,7 +476,12 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
               width: 260,
               render: (_, it) =>
                 it.ok ? (
-                  <Select2
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    allowClear
+                    style={{ width: '100%' }}
+                    placeholder="请选择合同"
                     value={it.contractId}
                     options={contractOptions}
                     onChange={(v: string) => patch(it.key, { contractId: v })}

@@ -1,26 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card,
-  Table,
   Button,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
+  Card,
   Checkbox,
-  Row,
   Col,
+  Input,
+  Modal,
+  Row,
+  Space,
   Statistic,
-  Tag,
   message,
 } from 'antd';
-import { SettingOutlined, ExportOutlined, SearchOutlined } from '@ant-design/icons';
+import { ExportOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
 import { supplierApi } from '@/api/business';
 import DictSelect from '@/components/DictSelect';
-import { useTable } from '@/hooks/useTable';
+import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useDictStore } from '@/store/dict';
 
 const money = (v: any) =>
@@ -43,9 +39,9 @@ const renderYearMap = (v: any) => {
 };
 
 const renderCompliance = (v: any) => {
-  if (!v || v === '无问题') return <Tag color="green">无问题</Tag>;
-  if (v === '时间数据不完整') return <Tag color="gold">时间数据不完整</Tag>;
-  return <Tag color="red">{v}</Tag>;
+  if (!v || v === '无问题') return <span style={{ color: '#52c41a' }}>无问题</span>;
+  if (v === '时间数据不完整') return <span style={{ color: '#faad14' }}>时间数据不完整</span>;
+  return <span style={{ color: '#ff4d4f' }}>{v}</span>;
 };
 
 const renderCell = (key: string, v: any) => {
@@ -56,6 +52,12 @@ const renderCell = (key: string, v: any) => {
   return v == null || v === '' ? '-' : v;
 };
 
+/**
+ * 合同台账（问题四：统一标准列表页规约）
+ * - 顶部统计卡片 + 标准筛选区/工具栏/表格/分页
+ * - 动态列由服务端返回（含列可见性配置），「列设置」保存后刷新
+ * - 台账为只读查询页，不展示行操作列
+ */
 export default function Ledger() {
   const ensure = useDictStore((s) => s.ensure);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -63,13 +65,17 @@ export default function Ledger() {
   const [summary, setSummary] = useState<any>(null);
   const [colModal, setColModal] = useState(false);
   const [colChecked, setColChecked] = useState<string[]>([]);
-  const [queryForm] = Form.useForm();
+  const [listRefresh, setListRefresh] = useState(0);
 
-  const { loading, list, pagination, search, reload } = useTable<any>(async (p) => {
-    const res: any = await ledgerApi.contracts(p);
-    if (res?.columns) setColumns(res.columns);
-    return res;
-  });
+  /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
+  const fetcher = useMemo(
+    () => async (params: Record<string, any>) => {
+      const res: any = await ledgerApi.contracts(params);
+      if (res?.columns) setColumns(res.columns);
+      return res;
+    },
+    [],
+  );
 
   useEffect(() => {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
@@ -103,25 +109,30 @@ export default function Ledger() {
     await ledgerApi.saveColumns(config);
     message.success('列设置已保存');
     setColModal(false);
-    reload();
+    setListRefresh((k) => k + 1);
   };
 
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'code', label: '合同编号', control: 'input' },
+    {
+      key: 'supplierId',
+      label: '供应商',
+      control: 'select',
+      options: suppliers.map((s) => ({ value: s.id, label: s.name })),
+      placeholder: '全部',
+    },
+    { key: 'type', label: '合同类型', control: 'input', render: () => <DictSelect typeCode="contract_type" placeholder="全部" /> },
+    { key: 'executionStatus', label: '合同执行情况', control: 'input', render: () => <DictSelect typeCode="contract_execution_status" placeholder="全部" /> },
+    { key: 'compliance', label: '合规性问题', control: 'select', options: COMPLIANCE_OPTIONS.map((o) => ({ value: o, label: o })) },
+    { key: 'category', label: '分供方类别', control: 'input', render: () => <DictSelect typeCode="supplier_category" placeholder="全部" /> },
+    { key: 'keyword', label: '关键词', control: 'input' },
+  ];
+
   return (
-    <Card
-      title="合同台账"
-      extra={
-        <Space>
-          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(ledgerApi.exportUrl()))}>
-            导出
-          </Button>
-          <Button icon={<SettingOutlined />} onClick={openColModal}>
-            列设置
-          </Button>
-        </Space>
-      }
-    >
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {summary && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Row gutter={16}>
           <Col xs={12} md={8} lg={4}>
             <Card size="small"><Statistic title="合同数量" value={summary.contractCount ?? 0} /></Card>
           </Col>
@@ -146,45 +157,24 @@ export default function Ledger() {
         </Row>
       )}
 
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} form={queryForm} onFinish={(v) => search(v)}>
-        <Form.Item name="code"><Input placeholder="合同编号" allowClear prefix={<SearchOutlined />} /></Form.Item>
-        <Form.Item name="supplierId">
-          <Select
-            placeholder="供应商"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ minWidth: 180 }}
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-          />
-        </Form.Item>
-        <Form.Item name="type"><DictSelect typeCode="contract_type" placeholder="合同类型" /></Form.Item>
-        <Form.Item name="executionStatus">
-          <DictSelect typeCode="contract_execution_status" placeholder="合同执行情况" />
-        </Form.Item>
-        <Form.Item name="compliance">
-          <Select
-            placeholder="合规性问题"
-            allowClear
-            style={{ minWidth: 180 }}
-            options={COMPLIANCE_OPTIONS.map((o) => ({ value: o, label: o }))}
-          />
-        </Form.Item>
-        <Form.Item name="category">
-          <DictSelect typeCode="supplier_category" placeholder="分供方类别" />
-        </Form.Item>
-        <Form.Item name="keyword"><Input placeholder="关键词" allowClear /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-        <Form.Item><Button onClick={() => { queryForm.resetFields(); search({}); }}>重置</Button></Form.Item>
-      </Form>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 4000 }}
-        columns={tableColumns}
+      <ModuleListPage
+        mode="generic"
+        fetcher={fetcher}
+        extraFilters={extraFilters}
+        extraColumns={tableColumns as any}
+        refreshKey={listRefresh}
+        showOpColumn={false}
+        emptyText="暂无合同台账数据"
+        toolbarLeft={
+          <Space wrap size={8}>
+            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(ledgerApi.exportUrl()))}>
+              导出
+            </Button>
+            <Button icon={<SettingOutlined />} onClick={openColModal}>
+              列设置
+            </Button>
+          </Space>
+        }
       />
 
       <Modal
@@ -206,6 +196,6 @@ export default function Ledger() {
           ))}
         </Checkbox.Group>
       </Modal>
-    </Card>
+    </Space>
   );
 }

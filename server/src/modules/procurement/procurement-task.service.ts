@@ -175,7 +175,7 @@ export class ProcurementTaskService {
     },
     RESULT_REPORT: {
       rel: 'procurementResultReport',
-      select: { openTime: true, unitCount: true, approvedCount: true, publishedAt: true },
+      select: { openTime: true, unitCount: true, approvedCount: true, candidates: true, publishedAt: true },
     },
     PRICE_COMPARE: {
       rel: 'procurementPriceCompare',
@@ -274,6 +274,13 @@ export class ProcurementTaskService {
             if (String(query.module) === 'NOTICE') {
               module.contacts = this.parseJsonArray<string>(rec.contacts);
               module.contactPhones = this.parseJsonArray<string>((rec as any).contactPhones);
+            }
+            // 问题五：框架事前说明「引用供应商及金额」/ 成交报告「拟推荐成交候选人」JSON 解析
+            if (String(query.module) === 'FRAMEWORK_EXPLANATION') {
+              module.referenceSuppliers = this.parseJsonArray<Record<string, any>>(rec.referenceSuppliers);
+            }
+            if (String(query.module) === 'RESULT_REPORT') {
+              module.candidates = this.parseJsonArray<Record<string, any>>(rec.candidates);
             }
           }
         }
@@ -702,6 +709,57 @@ export class ProcurementTaskService {
     return { id };
   }
 
+  /** 模块记录 → 阶段链 key 与 Prisma 模型（问题二：子模块删除 + 流程回退） */
+  private static readonly MODULE_DELETE_MODELS: Record<string, { stageKey: string; model: string }> = {
+    FRAMEWORK_EXPLANATION: { stageKey: 'FRAMEWORK_EXPLAIN', model: 'frameworkExplanation' },
+    PRE_MEETING: { stageKey: 'PRE_MEETING', model: 'preMeetingMinutes' },
+    NOTICE: { stageKey: 'NOTICE', model: 'procurementNotice' },
+    DOCUMENT: { stageKey: 'DOCUMENT', model: 'procurementDocument' },
+    RESULT_REPORT: { stageKey: 'RESULT_REPORT', model: 'procurementResultReport' },
+    PRICE_COMPARE: { stageKey: 'PRICE_COMPARE', model: 'procurementPriceCompare' },
+  };
+
+  /**
+   * 删除子模块记录并回退流程（问题二）：
+   * - 仅允许删除流程最末端的模块（其后的阶段已有记录/已发布时须先删后面的，防止流程链断裂）；
+   * - 删除后 task.stage 回退到该模块阶段、状态回退为该模块「编制中」，上一阶段恢复可编辑；
+   * - 已进入合同阶段的任务不可删除任何模块。
+   */
+  async deleteModule(id: string, moduleKey: string) {
+    const def = ProcurementTaskService.MODULE_DELETE_MODELS[String(moduleKey ?? '')];
+    if (!def) throw new BadRequestException('无效的模块标识');
+
+    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('采购任务不存在');
+    const chain = stageChain(current.type, current.preMeetingRequired);
+    if (current.stage >= chain.length) {
+      throw new BadRequestException('任务已进入合同阶段，不可删除模块');
+    }
+    const moduleIndex = chain.findIndex((s) => s.key === def.stageKey);
+    if (moduleIndex < 0) {
+      throw new BadRequestException('该采购任务不包含此模块');
+    }
+    if (current.stage > moduleIndex + 1) {
+      throw new BadRequestException('后续阶段已编制/发布，请先删除后面的阶段模块');
+    }
+
+    const record = await (this.prisma as any)[def.model].findUnique({ where: { taskId: id } });
+    if (!record) throw new NotFoundException('该模块尚未填写内容');
+
+    const wasPublished = current.stage === moduleIndex + 1;
+    await (this.prisma as any)[def.model].delete({ where: { id: record.id } });
+    const updated = await this.prisma.procurementTask.update({
+      where: { id },
+      data: { stage: moduleIndex, status: chain[moduleIndex].status, version: { increment: 1 } },
+    });
+    return {
+      ...this.serialize(updated),
+      stages: this.buildStages(updated),
+      wasPublished,
+      message: wasPublished ? '已删除该模块并回退流程，上一阶段恢复可编辑' : '已清除该模块草稿',
+    };
+  }
+
   /** 采购编号：PROC-YYYYMMDD-XXX（按当日已有任务数递增） */
   private async nextTaskNo(projectId: string): Promise<string> {
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -817,6 +875,8 @@ export class ProcurementTaskService {
       execution: text(body?.execution),
       costRows: rows(body?.costRows, ['item', 'amount', 'ratio', 'note']),
       attachments: files(body?.attachments),
+      // 问题五：引用供应商及金额 [{supplier, amount}]（可从询价情况表自动填充最低价单位）
+      referenceSuppliers: rows(body?.referenceSuppliers, ['supplier', 'amount']),
     };
 
     const saved = await this.prisma.frameworkExplanation.upsert({

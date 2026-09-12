@@ -14,15 +14,12 @@ import {
   Select,
   Space,
   Spin,
-  Table,
   Tabs,
   Tag,
   message,
 } from 'antd';
 import {
   CheckOutlined,
-  DeleteOutlined,
-  EditOutlined,
   EyeOutlined,
   PlusOutlined,
   SendOutlined,
@@ -32,6 +29,7 @@ import dayjs from 'dayjs';
 import { contractApi, supplierApi, templateApi } from '@/api/business';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import { useAuthStore } from '@/store/auth';
+import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import MaterialPoolTab from '@/components/contract/MaterialPoolTab';
 import ContractItemTab from '@/components/contract/ContractItemTab';
 
@@ -47,18 +45,20 @@ function overdueMinutes(createTime: string): number {
 }
 
 /**
- * 合同起草页面（需求 2.1 / 2.4）
+ * 合同起草页面（需求 2.1 / 2.4；问题四：列表区统一标准列表页规约）
  * - 草稿列表：仅展示当前用户「未完成」（status=DRAFT 或空）的草稿（需求 2.3），
  *   发布后的合同自动流转至「合同查询」菜单，不再出现在本列表
- * - 列表点击「编辑」直接在本页打开起草抽屉（不再跳转合同台账）
+ * - 列表行「更多 → 编辑」打开起草抽屉，「更多 → 删除」删除草稿
  * - 新增合同：弹窗录入 类型/供应商/物资描述/模板 → 创建草稿 → 直接进入起草抽屉
  * - 起草抽屉：基础信息 + Tab1 物料编码清单 + Tab2 合同清单（税率为只读自动带出）
  * - 状态流转：保存（存草稿）→ 预览确认（模板变量替换 HTML）→ 发布（完成，清单推送至合同物资）
  */
 export default function ContractDraft() {
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
-  const [rows, setRows] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = useCallback(() => setListRefresh((k) => k + 1), []);
+  /** 列表原始数据（用于顶部超时提醒统计） */
+  const [allRows, setAllRows] = useState<any[]>([]);
 
   // ===== 新增弹窗 =====
   const [createOpen, setCreateOpen] = useState(false);
@@ -86,21 +86,27 @@ export default function ContractDraft() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<{ templateName: string; html: string } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res: any = await contractApi.drafts();
-      setRows(Array.isArray(res) ? res : res?.list || []);
-    } finally {
-      setLoading(false);
+  /** 标准列表数据源：草稿接口返回全量数组，此处做关键词过滤 + 前端分页 */
+  const fetcher = useCallback(async (params: Record<string, any>) => {
+    const res: any = await contractApi.drafts();
+    let list: any[] = Array.isArray(res) ? res : res?.list || [];
+    setAllRows(list);
+    const kw = String(params.keyword || '').trim();
+    if (kw) {
+      list = list.filter(
+        (r) => (r.code || '').includes(kw) || (r.name || '').includes(kw),
+      );
     }
+    const total = list.length;
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 10;
+    return { list: list.slice((page - 1) * pageSize, page * pageSize), total };
   }, []);
 
   useEffect(() => {
-    load();
     supplierApi.options().then((res: any) => setSuppliers(res || []));
     templateApi.list({ pageSize: 200, page: 1 }).then((res: any) => setTemplates(res?.list || res || []));
-  }, [load]);
+  }, []);
 
   // ==================== 新增草稿 ====================
   const handleCreate = async () => {
@@ -126,7 +132,7 @@ export default function ContractDraft() {
       message.success('草稿已创建，请完善清单后发布');
       setCreateOpen(false);
       createForm.resetFields();
-      await load();
+      refreshList();
       openEditor(created?.id || created?.data?.id);
     } finally {
       setCreating(false);
@@ -250,7 +256,7 @@ export default function ContractDraft() {
           message.success('合同已发布，状态：审批中');
           setEditorOpen(false);
           setEditing(null);
-          load();
+          refreshList();
         } finally {
           setPublishing(false);
         }
@@ -259,25 +265,65 @@ export default function ContractDraft() {
   };
 
   // ==================== 删除草稿 ====================
-  const handleRemove = (row: any) => {
+  const handleRemove = (row: ModuleListRow) => {
+    const r = row as any;
     Modal.confirm({
       title: '删除草稿',
-      content: `确认删除草稿「${row.name || row.code}」？删除后不可恢复。`,
+      content: `确认删除草稿「${r.name || r.code}」？删除后不可恢复。`,
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
         await contractApi.removeDraft(row.id);
         message.success('草稿已删除');
-        load();
+        refreshList();
       },
     });
   };
 
   const overdueCount = useMemo(
-    () => rows.filter((r) => overdueMinutes(r.createdAt) <= 0).length,
-    [rows],
+    () => allRows.filter((r) => overdueMinutes(r.createdAt) <= 0).length,
+    [allRows],
   );
+
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'keyword', label: '合同编号 / 名称', control: 'input', placeholder: '请输入关键词' },
+  ];
+
+  /** 表格列（问题四：generic 模式完整列定义） */
+  const extraColumns: any[] = [
+    { title: '合同编号', dataIndex: 'code', width: 200, fixed: 'left' },
+    { title: '合同名称', dataIndex: 'name', width: 220, ellipsis: true },
+    { title: '供应商名称', dataIndex: ['supplier', 'name'], width: 200, ellipsis: true, render: (v: any) => v || '-' },
+    { title: '合同类型', dataIndex: 'typeCode', width: 140, render: (v: any) => (v ? <DictTag typeCode="contract_type" value={v} /> : '-') },
+    { title: '合同额', dataIndex: 'amount', width: 140, align: 'right' as const, render: money },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 100,
+      render: () => <Tag color="default">草稿中</Tag>,
+    },
+    {
+      title: '超时提醒',
+      key: 'draftStatus',
+      width: 160,
+      render: (_: any, row: any) => {
+        const mins = overdueMinutes(row.createdAt);
+        return mins > 0 ? (
+          <Tag>剩余 {Math.floor(mins / 60)} 小时 {mins % 60} 分</Tag>
+        ) : (
+          <Tag color="orange">已超时 {-mins} 分钟</Tag>
+        );
+      },
+    },
+    {
+      title: '最后编辑时间',
+      dataIndex: 'updatedAt',
+      width: 170,
+      render: (v: any) => v?.slice(0, 19).replace('T', ' '),
+    },
+  ];
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -289,9 +335,16 @@ export default function ContractDraft() {
         />
       )}
 
-      <Card
-        title="合同起草"
-        extra={
+      <ModuleListPage
+        mode="generic"
+        fetcher={fetcher}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        emptyText="暂无合同草稿"
+        refreshKey={listRefresh}
+        onEdit={(row) => openEditor(row.id)}
+        onDelete={handleRemove}
+        toolbarLeft={
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -303,64 +356,7 @@ export default function ContractDraft() {
             新增合同
           </Button>
         }
-      >
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={rows}
-          pagination={{ pageSize: 10, showTotal: (t: number) => `共 ${t} 条` }}
-          scroll={{ x: 1200 }}
-          onRow={(row) => ({ onClick: () => openEditor(row.id), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: '合同编号', dataIndex: 'code', width: 200 },
-            { title: '合同名称', dataIndex: 'name', width: 220, ellipsis: true },
-            { title: '供应商名称', dataIndex: ['supplier', 'name'], width: 200, ellipsis: true, render: (v) => v || '-' },
-            { title: '合同类型', dataIndex: 'typeCode', width: 140, render: (v) => (v ? <DictTag typeCode="contract_type" value={v} /> : '-') },
-            { title: '合同额', dataIndex: 'amount', width: 140, align: 'right', render: money },
-            {
-              title: '状态',
-              dataIndex: 'status',
-              width: 100,
-              render: () => <Tag color="default">草稿中</Tag>,
-            },
-            {
-              title: '超时提醒',
-              key: 'draftStatus',
-              width: 160,
-              render: (_, row) => {
-                const mins = overdueMinutes(row.createdAt);
-                return mins > 0 ? (
-                  <Tag>剩余 {Math.floor(mins / 60)} 小时 {mins % 60} 分</Tag>
-                ) : (
-                  <Tag color="orange">已超时 {-mins} 分钟</Tag>
-                );
-              },
-            },
-            {
-              title: '最后编辑时间',
-              dataIndex: 'updatedAt',
-              width: 170,
-              render: (v) => v?.slice(0, 19).replace('T', ' '),
-            },
-            {
-              title: '操作',
-              key: 'action',
-              width: 150,
-              fixed: 'right',
-              render: (_, row) => (
-                <Space size={4} onClick={(e) => e.stopPropagation()}>
-                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditor(row.id)}>
-                    编辑
-                  </Button>
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleRemove(row)}>
-                    删除
-                  </Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+      />
 
       {/* ==================== 新增合同弹窗 ==================== */}
       <Modal
@@ -431,7 +427,7 @@ export default function ContractDraft() {
         onClose={() => {
           setEditorOpen(false);
           setEditing(null);
-          load();
+          refreshList();
         }}
         footer={
           <Space style={{ float: 'right' }}>

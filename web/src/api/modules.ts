@@ -134,6 +134,9 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/price-compare`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
+  /** 问题二：删除子模块记录并回退流程（仅流程最末端模块可删，删除后上一阶段恢复可编辑） */
+  deleteModule: (id: string, moduleKey: string) =>
+    http.delete<any, any>(`/procurement-tasks/${id}/modules/${moduleKey}`),
 };
 
 /**

@@ -1095,6 +1095,7 @@ model FrameworkExplanation {
   execution        String? // 五、执行情况（富文本 HTML）
   costRows         String? // 六、成本分析表 JSON: [{item, amount, ratio, note}]
   attachments      String? // 七、附表 JSON: [{fileName, url, size}]
+  referenceSuppliers String? // 引用供应商及金额 JSON: [{supplier, amount}]（可自动填充询价最低价单位）
   publishedAt      DateTime? // 发布时间（任务事前说明阶段发布后回填）
   createdAt        DateTime @default(now())
   version          Int      @default(0)

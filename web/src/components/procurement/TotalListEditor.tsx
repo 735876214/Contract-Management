@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Drawer,
   InputNumber,
+  Modal,
   Select,
   Space,
   Table,
@@ -85,10 +85,18 @@ export interface TotalListEditorContentProps {
   task: TaskBrief | null;
   /** 内嵌模式：true 时不显示「保存并发布」（由外层流程控制发布时机） */
   embedded?: boolean;
+  /** 只读查看（问题三补充）：列表行「总采购清单」入口为只读居中弹窗，不具备编辑能力 */
+  readOnly?: boolean;
   /** 保存成功后回调（透传后端返回：含 estimatedAmountWan / preMeetingRequired） */
   onSaved?: (res: any) => void;
   /** 发布成功后回调（刷新任务列表状态） */
   onPublished?: () => void;
+}
+
+/** 对外暴露的动作（供外层 footer 调用；问题三：第二步「保存并发布」由外层触发） */
+export interface TotalListContentRef {
+  save: () => Promise<boolean>;
+  saveAndPublish: () => Promise<boolean>;
 }
 
 /**
@@ -97,7 +105,8 @@ export interface TotalListEditorContentProps {
  * 标准成本·合价 / 市场单价·合价 / 信息价·合价 / 预计采购单价·合价（+操作列）；
  * 5 个合价列自动计算不可改；表底显示各合价汇总行。
  */
-export function TotalListEditorContent({ task, embedded, onSaved, onPublished }: TotalListEditorContentProps) {
+export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListEditorContentProps>(
+  function TotalListEditorContent({ task, embedded, readOnly, onSaved, onPublished }, ref) {
   const [units, setUnits] = useState<DictOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [rows, setRows] = useState<TotalRow[]>([]);
@@ -107,6 +116,8 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
 
   /** 冻结判定：任务发布总清单后（stage≥1）或已进入后续流程 → 只读（需求 2.2.4） */
   const frozen = !!task && (task.stage >= 1 || task.status !== 'NOT_STARTED');
+  /** 只读查看（问题三补充）：readOnly 由外层入口决定，冻结由任务状态决定 */
+  const viewOnly = readOnly || frozen;
 
   useEffect(() => {
     dictApi
@@ -245,19 +256,24 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
     }
   };
 
-  const handlePublish = async () => {
-    if (!task) return;
+  /** 保存并发布（问题三：新建第二步「保存并发布」/ 编辑入口复用），返回是否成功 */
+  const handlePublish = async (): Promise<boolean> => {
+    if (!task) return false;
     setPublishing(true);
     try {
       const ok = await handleSave();
-      if (!ok) return;
+      if (!ok) return false;
       await procurementTaskApi.publish(task.id);
       message.success('总采购清单已发布并冻结，后续模块可引用其内容');
       onPublished?.();
+      return true;
     } finally {
       setPublishing(false);
     }
   };
+
+  // 问题三：向外暴露保存/保存并发布动作，供外层弹窗 footer 调用
+  useImperativeHandle(ref, () => ({ save: handleSave, saveAndPublish: handlePublish }));
 
   const amountColumn = (
     title: string,
@@ -276,7 +292,7 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
       title: '物资名称',
       width: 190,
       render: (_, r) =>
-        frozen ? (
+        viewOnly ? (
           r.materialName || '-'
         ) : (
           <Select
@@ -302,7 +318,7 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
       width: 100,
       // 需求修正（修改三）：默认带出真实单位（选择物资时自动填入），为空显示“-”
       render: (_, r) =>
-        frozen ? (
+        viewOnly ? (
           r.unit || '-'
         ) : (
           <Select
@@ -315,14 +331,14 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
           />
         ),
     },
-    { title: '暂定数量', width: 100, render: (_, r) => renderNumber(r.qty, (v) => patchRow(r.key, { qty: v }), frozen, 3) },
-    { title: '收入单价', width: 100, render: (_, r) => renderNumber(r.incomePrice, (v) => patchRow(r.key, { incomePrice: v }), frozen) },
+    { title: '暂定数量', width: 100, render: (_, r) => renderNumber(r.qty, (v) => patchRow(r.key, { qty: v }), viewOnly, 3) },
+    { title: '收入单价', width: 100, render: (_, r) => renderNumber(r.incomePrice, (v) => patchRow(r.key, { incomePrice: v }), viewOnly) },
     amountColumn('收入合价', (r) => r.incomePrice),
-    { title: '标准成本', width: 100, render: (_, r) => renderNumber(r.stdCost, (v) => patchRow(r.key, { stdCost: v }), frozen) },
+    { title: '标准成本', width: 100, render: (_, r) => renderNumber(r.stdCost, (v) => patchRow(r.key, { stdCost: v }), viewOnly) },
     amountColumn('标准成本合价', (r) => r.stdCost),
-    { title: '市场单价', width: 100, render: (_, r) => renderNumber(r.marketPrice, (v) => patchRow(r.key, { marketPrice: v }), frozen) },
+    { title: '市场单价', width: 100, render: (_, r) => renderNumber(r.marketPrice, (v) => patchRow(r.key, { marketPrice: v }), viewOnly) },
     amountColumn('市场合价', (r) => r.marketPrice),
-    { title: '信息价', width: 100, render: (_, r) => renderNumber(r.infoPrice, (v) => patchRow(r.key, { infoPrice: v }), frozen) },
+    { title: '信息价', width: 100, render: (_, r) => renderNumber(r.infoPrice, (v) => patchRow(r.key, { infoPrice: v }), viewOnly) },
     amountColumn('信息价合价', (r) => r.infoPrice),
     {
       title: '预计采购单价',
@@ -331,7 +347,7 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
         const over = r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice;
         return (
           <span style={over ? { color: '#cf1322' } : undefined} title={over ? '控制价超市场单价，重新修改' : undefined}>
-            {renderNumber(r.planPrice, (v) => patchRow(r.key, { planPrice: v }), frozen)}
+            {renderNumber(r.planPrice, (v) => patchRow(r.key, { planPrice: v }), viewOnly)}
           </span>
         );
       },
@@ -349,7 +365,7 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
       title: '操作',
       width: 70,
       render: (_, r) =>
-        frozen ? null : (
+        viewOnly ? null : (
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeRow(r.key)}>
             删除
           </Button>
@@ -359,14 +375,16 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
 
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      {!frozen && (
+      {!viewOnly && (
         <Space wrap>
           <Button icon={<PlusOutlined />} onClick={addRow}>
             添加物资
           </Button>
-          <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-            保存
-          </Button>
+          {!embedded && (
+            <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+              保存
+            </Button>
+          )}
           {!embedded && (
             <Button type="primary" icon={<SendOutlined />} loading={publishing} onClick={handlePublish}>
               保存并发布
@@ -374,7 +392,13 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
           )}
         </Space>
       )}
-      {frozen ? (
+      {readOnly ? (
+        <Alert
+          type="info"
+          showIcon
+          message="总采购清单为只读查看；如需修改，请在发布前通过「继续编辑」进入编制。"
+        />
+      ) : frozen ? (
         <Alert
           type="info"
           showIcon
@@ -415,7 +439,7 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
           </Table.Summary>
         )}
         footer={() =>
-          !frozen && (
+          !viewOnly && (
             <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
               添加物资
             </Button>
@@ -437,26 +461,29 @@ export function TotalListEditorContent({ task, embedded, onSaved, onPublished }:
       )}
     </Space>
   );
-}
+  },
+);
 
-/** 总采购清单编辑抽屉（任务列表入口使用） */
+/** 总采购清单查看（问题三补充：任务列表入口 → 只读居中弹窗，非侧边抽屉） */
 export default function TotalListEditor({
   task,
   open,
   onClose,
-  onPublished,
-}: Omit<TotalListEditorContentProps, 'embedded' | 'onSaved'> & {
+}: Omit<TotalListEditorContentProps, 'embedded' | 'onSaved' | 'onPublished'> & {
   open: boolean;
   onClose: () => void;
 }) {
   return (
-    <Drawer
+    <Modal
       title={task ? `总采购清单 · ${task.taskNo}` : '总采购清单'}
       width={1280}
+      centered
       open={open}
-      onClose={onClose}
+      onCancel={onClose}
+      footer={null}
+      destroyOnClose
     >
-      <TotalListEditorContent task={task} onPublished={onPublished} />
-    </Drawer>
+      <TotalListEditorContent task={task} readOnly />
+    </Modal>
   );
 }

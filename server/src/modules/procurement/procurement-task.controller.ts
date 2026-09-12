@@ -191,4 +191,11 @@ export class ProcurementTaskController {
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
+
+  /** 删除子模块记录并回退流程（问题二：仅流程最末端模块可删，删除后上一阶段恢复可编辑） */
+  @RequirePermissions('contract:edit')
+  @Delete(':id/modules/:moduleKey')
+  deleteModule(@Param('id') id: string, @Param('moduleKey') moduleKey: string) {
+    return this.service.deleteModule(id, moduleKey);
+  }
 }

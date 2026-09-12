@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker,
+  Button,
+  Form,
+  Input,
+  Select,
+  Space,
+  Modal,
+  message,
+  Row,
+  Col,
+  InputNumber,
+  DatePicker,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi } from '@/api/modules';
+import { dictApi, type DictOption } from '@/api/dict';
 import { contractApi } from '@/api/business';
-import { useTable } from '@/hooks/useTable';
+import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
@@ -24,28 +35,36 @@ function useContractOptions() {
   return { contracts, contractOptions };
 }
 
-/**
- * 结算单页面（需求 2.2 修正：/settlement/order 直接展示结算单列表，无 Tab 切换）
- */
-export function SettlementOrderPage() {
-  const { contracts, contractOptions } = useContractOptions();
-  return (
-    <Card title="结算单">
-      <SettlementsTab contracts={contracts} contractOptions={contractOptions} />
-    </Card>
-  );
+/** 筛选用字典选项（结算单/结算台账共用） */
+function useFilterDicts(types: string[]) {
+  const [dicts, setDicts] = useState<Record<string, DictOption[]>>({});
+  useEffect(() => {
+    Promise.all(types.map((t) => dictApi.options(t).catch(() => []))).then((lists) => {
+      const map: Record<string, DictOption[]> = {};
+      types.forEach((t, i) => (map[t] = lists[i] || []));
+      setDicts(map);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return dicts;
 }
 
 /**
- * 结算台账页面（需求 2.2 修正：/settlement/ledger 直接展示结算台账列表，无 Tab 切换）
+ * 结算单页面（问题四：统一标准列表页规约）
+ */
+export function SettlementOrderPage() {
+  const { contracts, contractOptions } = useContractOptions();
+  const dicts = useFilterDicts(['settlement_type', 'settlement_status']);
+  return <SettlementsTab contractOptions={contractOptions} dicts={dicts} />;
+}
+
+/**
+ * 结算台账页面（问题四：统一标准列表页规约）
  */
 export function SettlementLedgerPage() {
   const { contracts, contractOptions } = useContractOptions();
-  return (
-    <Card title="结算台账">
-      <LedgerTab contracts={contracts} contractOptions={contractOptions} />
-    </Card>
-  );
+  const dicts = useFilterDicts(['yes_no']);
+  return <LedgerTab contractOptions={contractOptions} dicts={dicts} />;
 }
 
 /** 默认导出兼容旧路由 /settlements：展示结算单页面 */
@@ -53,11 +72,18 @@ export default function Settlements() {
   return <SettlementOrderPage />;
 }
 
-function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; contractOptions: any[] }) {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => settlementApi.list(p));
+function SettlementsTab({
+  contractOptions,
+  dicts,
+}: {
+  contractOptions: any[];
+  dicts: Record<string, DictOption[]>;
+}) {
   const [form] = Form.useForm();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = () => setListRefresh((k) => k + 1);
 
   const submit = async () => {
     const v = await form.validateFields();
@@ -68,7 +94,7 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
     setModal(false);
     form.resetFields();
     setEditing(null);
-    reload();
+    refreshList();
   };
 
   const openEdit = (row: any) => {
@@ -77,57 +103,64 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
     setModal(true);
   };
 
+  const handleRemove = (row: ModuleListRow) => {
+    Modal.confirm({
+      title: '确认删除该结算单？',
+      okText: '确认删除',
+      okType: 'danger',
+      onOk: async () => {
+        await settlementApi.remove(row.id);
+        message.success('已删除');
+        refreshList();
+      },
+    });
+  };
+
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
+    { key: 'typeCode', label: '结算类型', control: 'select', options: dicts.settlement_type ?? [] },
+    { key: 'status', label: '结算状态', control: 'select', options: dicts.settlement_status ?? [] },
+    { key: 'keyword', label: '关键词', control: 'input' },
+  ];
+
+  /** 表格列（问题四：generic 模式完整列定义） */
+  const extraColumns: any[] = [
+    { title: '结算单编号', dataIndex: 'code', width: 160, fixed: 'left' },
+    { title: '合同', width: 260, render: (_v: any, r: any) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
+    { title: '供应商', width: 220, render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
+    { title: '结算类型', dataIndex: 'typeCode', width: 110, render: (v: any) => <DictTag typeCode="settlement_type" value={v} /> },
+    { title: '结算金额', dataIndex: 'amount', width: 140, align: 'right', render: money },
+    { title: '扣款金额', dataIndex: 'deductAmount', width: 140, align: 'right', render: money },
+    { title: '实际结算金额', dataIndex: 'actualAmount', width: 150, align: 'right', render: money },
+    { title: '结算日期', dataIndex: 'settleDate', width: 120, render: (v: any) => v?.slice(0, 10) },
+    { title: '结算状态', dataIndex: 'statusCode', width: 110, render: (v: any) => <DictTag typeCode="settlement_status" value={v} /> },
+    { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
+  ];
+
   return (
     <>
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
-        <Form.Item name="contractId"><Select2 options={contractOptions} placeholder="合同" /></Form.Item>
-        <Form.Item name="typeCode"><DictSelect typeCode="settlement_type" placeholder="结算类型" /></Form.Item>
-        <Form.Item name="status"><DictSelect typeCode="settlement_status" placeholder="结算状态" /></Form.Item>
-        <Form.Item name="keyword"><Input placeholder="关键词" allowClear prefix={<SearchOutlined />} /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-      </Form>
-
-      <div style={{ marginBottom: 16, textAlign: 'right' }}>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}
-        >
-          新增结算单
-        </Button>
-      </div>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 1800 }}
-        columns={[
-          { title: '结算单编号', dataIndex: 'code', width: 160, fixed: 'left' },
-          { title: '合同', width: 260, render: (_, r) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
-          { title: '供应商', width: 220, render: (_, r) => r.contract?.supplier?.name || '-' },
-          { title: '结算类型', dataIndex: 'typeCode', width: 110, render: (v) => <DictTag typeCode="settlement_type" value={v} /> },
-          { title: '结算金额', dataIndex: 'amount', width: 140, render: money },
-          { title: '扣款金额', dataIndex: 'deductAmount', width: 140, render: money },
-          { title: '实际结算金额', dataIndex: 'actualAmount', width: 150, render: money },
-          { title: '结算日期', dataIndex: 'settleDate', width: 120, render: (v) => v?.slice(0, 10) },
-          { title: '结算状态', dataIndex: 'statusCode', width: 110, render: (v) => <DictTag typeCode="settlement_status" value={v} /> },
-          { title: '备注', dataIndex: 'remark', width: 160 },
-          {
-            title: '操作',
-            width: 160,
-            fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Popconfirm title="确认删除该结算单？" onConfirm={async () => { await settlementApi.remove(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
+      <ModuleListPage
+        mode="generic"
+        fetcher={(params) => settlementApi.list(params)}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh}
+        onEdit={(row) => openEdit(row)}
+        onDelete={handleRemove}
+        toolbarLeft={
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditing(null);
+              form.resetFields();
+              setModal(true);
+            }}
+          >
+            新增结算单
+          </Button>
+        }
       />
 
       <Modal
@@ -145,7 +178,13 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                <Select2 options={contractOptions} />
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  allowClear
+                  placeholder="请选择合同"
+                  options={contractOptions}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={8}>
@@ -176,19 +215,26 @@ function SettlementsTab({ contracts, contractOptions }: { contracts: any[]; cont
   );
 }
 
-function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractOptions: any[] }) {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => settlementApi.ledger(p));
+function LedgerTab({
+  contractOptions,
+  dicts,
+}: {
+  contractOptions: any[];
+  dicts: Record<string, DictOption[]>;
+}) {
   const [form] = Form.useForm();
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = () => setListRefresh((k) => k + 1);
 
   const doRefresh = async () => {
     setRefreshing(true);
     try {
       const res: any = await settlementApi.refreshLedger();
       message.success(`自动生成完成：新增 ${res?.created ?? 0} 条，更新 ${res?.updated ?? 0} 条`);
-      reload();
+      refreshList();
     } finally {
       setRefreshing(false);
     }
@@ -203,7 +249,7 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
     setModal(false);
     form.resetFields();
     setEditing(null);
-    reload();
+    refreshList();
   };
 
   const openEdit = (row: any) => {
@@ -212,63 +258,83 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
     setModal(true);
   };
 
+  const handleRemove = (row: ModuleListRow) => {
+    Modal.confirm({
+      title: '确认删除该台账记录？',
+      okText: '确认删除',
+      okType: 'danger',
+      onOk: async () => {
+        await settlementApi.removeLedger(row.id);
+        message.success('已删除');
+        refreshList();
+      },
+    });
+  };
+
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
+    { key: 'settleMonth', label: '结算月份', control: 'input', placeholder: 'YYYY-MM' },
+    { key: 'isOnAccount', label: '是否挂账', control: 'select', options: dicts.yes_no ?? [] },
+  ];
+
+  /** 表格列（问题四：generic 模式完整列定义） */
+  const extraColumns: any[] = [
+    { title: '供应商名称', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
+    { title: '合同名称', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
+    { title: '合同编号', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
+    { title: '结算月份', dataIndex: 'settleMonth', width: 110 },
+    { title: '本月结算额', dataIndex: 'monthSettleAmount', width: 130, align: 'right', render: money },
+    { title: '本月开票额', dataIndex: 'monthInvoiceAmount', width: 130, align: 'right', render: money },
+    { title: '结算次数', dataIndex: 'settleCount', width: 100 },
+    { title: '本年结算额', dataIndex: 'yearSettleAmount', width: 130, align: 'right', render: money },
+    { title: '截止当月开累采购额', dataIndex: 'cumPurchaseAmount', width: 160, align: 'right', render: money },
+    { title: '开工结算额', dataIndex: 'startSettleAmount', width: 130, align: 'right', render: money },
+    { title: '当月实际采购额', dataIndex: 'monthActualPurchase', width: 140, align: 'right', render: money },
+    { title: '保理贴息', dataIndex: 'factoringDiscount', width: 120, align: 'right', render: money },
+    { title: '逾期利息', dataIndex: 'overdueInterest', width: 120, align: 'right', render: money },
+    { title: '本年结算对应收入', dataIndex: 'yearSettleIncome', width: 150, align: 'right', render: money },
+    { title: '开累结算对应收入', dataIndex: 'cumSettleIncome', width: 160, align: 'right', render: money },
+    { title: '是否挂账', dataIndex: 'isOnAccount', width: 100, render: (v: any) => <DictTag typeCode="yes_no" value={v} /> },
+  ];
+
   return (
     <>
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
-        <Form.Item name="contractId"><Select2 options={contractOptions} placeholder="合同" /></Form.Item>
-        <Form.Item name="settleMonth"><Input placeholder="结算月份(YYYY-MM)" allowClear /></Form.Item>
-        <Form.Item name="isOnAccount"><DictSelect typeCode="yes_no" placeholder="是否挂账" /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-      </Form>
-
-      <div style={{ marginBottom: 16, textAlign: 'right' }}>
-        <Space>
-          <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>自动生成台账</Button>
-          <ImportButton moduleName="结算台账" templateUrl={settlementApi.ledgerTemplateUrl()} uploadUrl={settlementApi.ledgerImportUrl()} onDone={reload} />
-          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>导出台账</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
-            新增台账
-          </Button>
-        </Space>
-      </div>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 2600 }}
-        columns={[
-          { title: '供应商名称', width: 220, fixed: 'left', render: (_, r) => r.contract?.supplier?.name || '-' },
-          { title: '合同名称', width: 260, render: (_, r) => r.contract?.name || '-' },
-          { title: '合同编号', width: 160, render: (_, r) => r.contract?.code || '-' },
-          { title: '结算月份', dataIndex: 'settleMonth', width: 110 },
-          { title: '本月结算额', dataIndex: 'monthSettleAmount', width: 130, render: money },
-          { title: '本月开票额', dataIndex: 'monthInvoiceAmount', width: 130, render: money },
-          { title: '结算次数', dataIndex: 'settleCount', width: 100 },
-          { title: '本年结算额', dataIndex: 'yearSettleAmount', width: 130, render: money },
-          { title: '截止当月开累采购额', dataIndex: 'cumPurchaseAmount', width: 160, render: money },
-          { title: '开工结算额', dataIndex: 'startSettleAmount', width: 130, render: money },
-          { title: '当月实际采购额', dataIndex: 'monthActualPurchase', width: 140, render: money },
-          { title: '保理贴息', dataIndex: 'factoringDiscount', width: 120, render: money },
-          { title: '逾期利息', dataIndex: 'overdueInterest', width: 120, render: money },
-          { title: '本年结算对应收入', dataIndex: 'yearSettleIncome', width: 150, render: money },
-          { title: '开累结算对应收入', dataIndex: 'cumSettleIncome', width: 160, render: money },
-          { title: '是否挂账', dataIndex: 'isOnAccount', width: 100, render: (v) => <DictTag typeCode="yes_no" value={v} /> },
-          {
-            title: '操作',
-            width: 160,
-            fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Popconfirm title="确认删除该台账记录？" onConfirm={async () => { await settlementApi.removeLedger(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
+      <ModuleListPage
+        mode="generic"
+        fetcher={(params) => settlementApi.ledger(params)}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh}
+        onEdit={(row) => openEdit(row)}
+        onDelete={handleRemove}
+        toolbarLeft={
+          <Space wrap size={8}>
+            <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>
+              自动生成台账
+            </Button>
+            <ImportButton
+              moduleName="结算台账"
+              templateUrl={settlementApi.ledgerTemplateUrl()}
+              uploadUrl={settlementApi.ledgerImportUrl()}
+              onDone={refreshList}
+            />
+            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>
+              导出台账
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditing(null);
+                form.resetFields();
+                setModal(true);
+              }}
+            >
+              新增台账
+            </Button>
+          </Space>
+        }
       />
 
       <Modal
@@ -283,7 +349,13 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
           <Row gutter={16}>
             <Col xs={24} md={12}>
               <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                <Select2 options={contractOptions} />
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  allowClear
+                  placeholder="请选择合同"
+                  options={contractOptions}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
@@ -305,19 +377,5 @@ function LedgerTab({ contracts, contractOptions }: { contracts: any[]; contractO
         </Form>
       </Modal>
     </>
-  );
-}
-
-/** 合同下拉（选项已在外层准备好） */
-function Select2({ value, options, placeholder }: { value?: any; options: any[]; placeholder?: string }) {
-  return (
-    <Select
-      value={value}
-      showSearch
-      optionFilterProp="label"
-      allowClear
-      placeholder={placeholder || '请选择合同'}
-      options={options}
-    />
   );
 }

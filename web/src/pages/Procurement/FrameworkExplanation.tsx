@@ -35,7 +35,9 @@ import { useAuthStore } from '@/store/auth';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
 import ModuleListPage, {
+  type ModuleListFilterField,
   type ModuleListRow,
+  useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
@@ -59,6 +61,12 @@ interface TaskRow {
 /** 可编辑行：带前端 key 供 Table 渲染（保存时剔除） */
 type Keyed<T> = T & { key: string };
 
+/** 问题五：引用供应商及金额（可从询价情况自动填充最低价单位） */
+export interface ReferenceSupplier {
+  supplier: string;
+  amount: number | null;
+}
+
 interface ExplanationForm {
   frameworkIntro: string;
   negotiation: string;
@@ -66,6 +74,7 @@ interface ExplanationForm {
   priceCompareRows: Keyed<PriceCompareRow>[];
   execution: string;
   costRows: Keyed<CostRow>[];
+  referenceSuppliers: Keyed<ReferenceSupplier>[];
 }
 
 interface ExplanationDetail {
@@ -81,6 +90,7 @@ interface ExplanationDetail {
     priceCompareRows?: PriceCompareRow[];
     execution?: string;
     costRows?: CostRow[];
+    referenceSuppliers?: ReferenceSupplier[];
     attachments?: { fileName?: string; url?: string; size?: number | null }[];
     publishedAt?: string | null;
   } | null;
@@ -104,6 +114,7 @@ const EMPTY_FORM: ExplanationForm = {
   priceCompareRows: [],
   execution: '',
   costRows: [],
+  referenceSuppliers: [],
 };
 
 export default function FrameworkExplanation() {
@@ -115,6 +126,8 @@ export default function FrameworkExplanation() {
   const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
   /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
   const [listRefresh, setListRefresh] = useState(0);
+  /** 问题二：删除模块记录并回退流程 */
+  const handleDeleteModule = useModuleDelete('FRAMEWORK_EXPLANATION', () => setListRefresh((k) => k + 1));
 
   const [detail, setDetail] = useState<ExplanationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -166,6 +179,7 @@ export default function FrameworkExplanation() {
           priceCompareRows: withKeys(data.priceCompareRows ?? []),
           execution: data.execution ?? '',
           costRows: withKeys(data.costRows ?? []),
+          referenceSuppliers: withKeys(data.referenceSuppliers ?? []),
         });
         setFileList(
           (data.attachments ?? []).map((f, i) => ({
@@ -210,7 +224,7 @@ export default function FrameworkExplanation() {
   const patchForm = (patch: Partial<ExplanationForm>) => setForm((f) => ({ ...f, ...patch }));
 
   const updateRow = (
-    field: 'inquiryRows' | 'priceCompareRows' | 'costRows',
+    field: 'inquiryRows' | 'priceCompareRows' | 'costRows' | 'referenceSuppliers',
     key: string,
     patch: Record<string, unknown>,
   ) => {
@@ -219,7 +233,10 @@ export default function FrameworkExplanation() {
       [field]: (f[field] as Keyed<unknown>[]).map((r) => (r.key === key ? { ...r, ...patch } : r)),
     }));
   };
-  const removeRow = (field: 'inquiryRows' | 'priceCompareRows' | 'costRows', key: string) => {
+  const removeRow = (
+    field: 'inquiryRows' | 'priceCompareRows' | 'costRows' | 'referenceSuppliers',
+    key: string,
+  ) => {
     setForm((f) => ({
       ...f,
       [field]: (f[field] as Keyed<unknown>[]).filter((r) => r.key !== key),
@@ -239,6 +256,9 @@ export default function FrameworkExplanation() {
     priceCompareRows: form.priceCompareRows.map(stripKey),
     execution: form.execution,
     costRows: form.costRows.map(stripKey),
+    referenceSuppliers: form.referenceSuppliers
+      .map(stripKey)
+      .filter((r) => String(r.supplier ?? '').trim()),
     attachments: attachmentsFromList(fileList),
   });
 
@@ -359,7 +379,7 @@ export default function FrameworkExplanation() {
       value ?? '-'
     );
 
-  const opColumn = <T,>(field: 'inquiryRows' | 'priceCompareRows' | 'costRows') =>
+  const opColumn = <T,>(field: 'inquiryRows' | 'priceCompareRows' | 'costRows' | 'referenceSuppliers') =>
     editable
       ? [
           {
@@ -500,7 +520,7 @@ export default function FrameworkExplanation() {
     ...opColumn<CostRow>('costRows'),
   ];
 
-  const addRow = (field: 'inquiryRows' | 'priceCompareRows' | 'costRows') => {
+  const addRow = (field: 'inquiryRows' | 'priceCompareRows' | 'costRows' | 'referenceSuppliers') => {
     setForm((f) => {
       if (field === 'inquiryRows') {
         const blank: Keyed<InquiryRow> = {
@@ -517,10 +537,86 @@ export default function FrameworkExplanation() {
         const blank: Keyed<PriceCompareRow> = { key: nextKey(), unit: '', content: '', execPrice: null, note: '' };
         return { ...f, priceCompareRows: [...f.priceCompareRows, blank] };
       }
+      if (field === 'referenceSuppliers') {
+        const blank: Keyed<ReferenceSupplier> = { key: nextKey(), supplier: '', amount: null };
+        return { ...f, referenceSuppliers: [...f.referenceSuppliers, blank] };
+      }
       const blank: Keyed<CostRow> = { key: nextKey(), item: '', amount: null, ratio: null, note: '' };
       return { ...f, costRows: [...f.costRows, blank] };
     });
   };
+
+  /** ---------- 引用供应商及金额（问题五） ---------- */
+
+  const refSupplierColumns: ColumnsType<Keyed<ReferenceSupplier>> = [
+    {
+      title: '供应商',
+      dataIndex: 'supplier',
+      render: (v: string | null, row) => textCell(v, (val) => updateRow('referenceSuppliers', row.key, { supplier: val })),
+    },
+    {
+      title: '引用金额（元）',
+      dataIndex: 'amount',
+      width: 160,
+      render: (v: number | null, row) =>
+        editable
+          ? numberCell(v, (n) => updateRow('referenceSuppliers', row.key, { amount: n }))
+          : v != null
+            ? v.toLocaleString('zh-CN')
+            : '-',
+    },
+    ...opColumn<ReferenceSupplier>('referenceSuppliers'),
+  ];
+
+  /** 自动填充：从询价情况表取报价最低的单位与金额（可多行手动增改） */
+  const autoFillRefSuppliers = () => {
+    const priced = form.inquiryRows.filter((r) => String(r.unit ?? '').trim() && r.totalPrice != null);
+    if (!priced.length) {
+      message.warning('询价情况表中暂无有效报价（单位 + 总价），无法自动填充');
+      return;
+    }
+    const min = Math.min(...priced.map((r) => Number(r.totalPrice)));
+    const winners = priced.filter((r) => Number(r.totalPrice) === min);
+    setForm((f) => ({
+      ...f,
+      referenceSuppliers: winners.map((r) => ({
+        key: nextKey(),
+        supplier: String(r.unit),
+        amount: Number(r.totalPrice),
+      })),
+    }));
+    message.success(
+      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${min.toLocaleString('zh-CN')} 元），可继续手动增改`,
+    );
+  };
+
+  const refSupplierSection = (
+    <Card
+      size="small"
+      title="引用供应商及金额"
+      extra={
+        editable && (
+          <Space size={8}>
+            <Button size="small" onClick={autoFillRefSuppliers}>
+              自动填充最低价
+            </Button>
+            <Button size="small" icon={<PlusOutlined />} onClick={() => addRow('referenceSuppliers')}>
+              添加行
+            </Button>
+          </Space>
+        )
+      }
+    >
+      <Table
+        size="small"
+        rowKey="key"
+        columns={refSupplierColumns}
+        dataSource={form.referenceSuppliers as unknown as any[]}
+        pagination={false}
+        locale={{ emptyText: '暂无数据（可点击「自动填充最低价」从询价情况带出，或手动添加行）' }}
+      />
+    </Card>
+  );
 
   /** ---------- 渲染 ---------- */
   const textSection = (
@@ -574,12 +670,47 @@ export default function FrameworkExplanation() {
 
   /* ---------------- 渲染 ---------------- */
 
+  /** 问题五：模块特有筛选（采购内容为公共筛选，这里补「供应商」） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'supplier', label: '供应商', control: 'input', placeholder: '请输入供应商' },
+  ];
+
+  /** 问题五：模块特有表格列（采购内容后：供应商 / 引用金额） */
+  const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      title: '供应商',
+      key: 'supplier',
+      width: 200,
+      ellipsis: { showTitle: true },
+      render: (_v, row) => {
+        const names: string[] = (row.module?.referenceSuppliers ?? [])
+          .map((r: any) => String(r?.supplier ?? '').trim())
+          .filter(Boolean);
+        return names.length ? names.join('、') : '-';
+      },
+    },
+    {
+      title: '引用金额（元）',
+      key: 'refAmount',
+      width: 150,
+      align: 'right',
+      render: (_v, row) => {
+        const list: any[] = row.module?.referenceSuppliers ?? [];
+        if (!list.length) return '-';
+        const sum = list.reduce((s, r) => s + (Number(r?.amount) || 0), 0);
+        return sum.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      },
+    },
+  ];
+
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       {/* 标准列表页（批次五）：筛选区 + 工具栏 + 数据表格（无模块特有列/筛选项） */}
       <ModuleListPage
         moduleKey="FRAMEWORK_EXPLANATION"
         baseParams={{ type: 'FRAMEWORK' }}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
         toolbarLeft={
           <span style={{ color: '#8c8c8c', fontSize: 13 }}>
             仅显示引用框架协议类型的任务；编辑与发布以任务所处阶段为准
@@ -588,6 +719,7 @@ export default function FrameworkExplanation() {
         refreshKey={listRefresh}
         onView={openRow}
         onEdit={editRow}
+        onDelete={handleDeleteModule}
         emptyText="暂无数据（仅「引用框架协议」类型的采购任务可使用框架协议事前说明模块）"
       />
 
@@ -675,6 +807,7 @@ export default function FrameworkExplanation() {
             {textSection('一、框架简介', 'frameworkIntro', 6)}
             {textSection('二、谈判情况', 'negotiation')}
             {tableSection('三、询价情况', 'inquiryRows', inquiryColumns)}
+            {refSupplierSection}
             {tableSection('四、同城/相邻城市局其他单位执行合同价', 'priceCompareRows', priceColumns)}
             {textSection('五、执行情况', 'execution')}
             {tableSection('六、成本分析', 'costRows', costColumns)}

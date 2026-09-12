@@ -44,6 +44,7 @@ import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/M
 import ModuleListPage, {
   type ModuleListFilterField,
   type ModuleListRow,
+  useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
@@ -172,6 +173,8 @@ export default function PreMeetingMinutes() {
   const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
   /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
   const [listRefresh, setListRefresh] = useState(0);
+  /** 问题二：删除模块记录并回退流程 */
+  const handleDeleteModule = useModuleDelete('PRE_MEETING', () => setListRefresh((k) => k + 1));
 
   const [detail, setDetail] = useState<MinutesDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -649,6 +652,7 @@ export default function PreMeetingMinutes() {
         refreshKey={listRefresh}
         onView={openRow}
         onEdit={editRow}
+        onDelete={handleDeleteModule}
         emptyText="暂无数据（仅「单项采购」类型且预计采购金额 ≥ 100 万元的采购任务才生成采前会会议纪要）"
       />
 

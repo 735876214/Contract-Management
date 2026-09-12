@@ -225,9 +225,28 @@ export default function Finance() {
   ];
 
   return (
-    <Card
-      title="资金费用台账（保理费用 + 逾期利息）"
-      extra={
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 8,
+        padding: 16,
+        border: '1px solid #f0f0f0',
+      }}
+    >
+      {/* 问题四：外框样式与其他标准列表页对齐；页面结构（选合同 → 双台账 + 统计）保持不变 */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
+          marginBottom: 16,
+        }}
+      >
+        <span style={{ fontSize: 16, fontWeight: 600 }}>
+          资金费用台账（保理费用 + 逾期利息）
+        </span>
         <Select
           showSearch
           allowClear
@@ -238,8 +257,7 @@ export default function Finance() {
           optionFilterProp="label"
           onChange={selectContract}
         />
-      }
-    >
+      </div>
       {!contractId ? (
         <Empty description="请先在右上角选择合同" style={{ padding: 60 }} />
       ) : (
@@ -513,6 +531,6 @@ export default function Finance() {
           <Alert type="warning" showIcon message="留空的字段将回落到系统参数默认值（系统管理 → 系统参数中的 finance.overdue 组）。" />
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }

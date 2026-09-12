@@ -1,39 +1,38 @@
-import { useMemo, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
   Descriptions,
   Drawer,
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Steps,
-  Table,
   Tag,
-  Tooltip,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SendOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';
-import { useTable } from '@/hooks/useTable';
-import TotalListEditor, { TotalListEditorContent } from '@/components/procurement/TotalListEditor';
+import TotalListEditor, {
+  TotalListEditorContent,
+  type TotalListContentRef,
+} from '@/components/procurement/TotalListEditor';
+import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import {
   BASIC_EDITABLE_STATUSES,
   PROCUREMENT_TASK_TYPES,
   TASK_STATUS_COLORS,
+  TASK_STATUS_LABELS,
   taskStatusLabel,
   taskTypeLabel,
   type FlowStage,
-  type ProcurementTaskType,
 } from '@/constants/procurementWorkflow';
 import dayjs from 'dayjs';
 
-/** 采购任务行（批次二 · 任务 2.1） */
+/** 采购任务行（批次二 · 任务 2.1；列表数据同 ModuleListRow，用途字段另行透出） */
 interface TaskRow {
   id: string;
   taskNo: string;
@@ -49,12 +48,8 @@ interface TaskRow {
   createdAt: string;
 }
 
-/** 新建流程（需求修正 修改一）：第一步 基本信息（采购类型 + 采购内容）→ 第二步 编制总采购清单 */
+/** 新建/编辑两步流程（需求修正 修改一 + 问题一/三）：第一步 基本信息 → 第二步 编制总采购清单（保存并发布） */
 export default function Initiate() {
-  const { loading, list, pagination, search, reload, params, setParams } = useTable<TaskRow>((p) =>
-    procurementTaskApi.list(p),
-  );
-
   const [form] = Form.useForm();
   const [editing, setEditing] = useState<TaskRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -65,18 +60,17 @@ export default function Initiate() {
   const [createdTask, setCreatedTask] = useState<{ id: string; taskNo: string; status: string; stage: number } | null>(
     null,
   );
+  /** 第二步内容区动作引用（问题三：「保存并发布」由外层 footer 触发） */
+  const contentRef = useRef<TotalListContentRef | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  /** 总采购清单编辑抽屉（任务 2.2） */
-  const [listTask, setListTask] = useState<TaskRow | null>(null);
-
-  /** 筛选选项（状态按当前数据出现情况聚合，保证有值可选） */
-  const statusOptions = useMemo(() => {
-    const set = new Set<string>(list.map((r) => r?.status).filter(Boolean));
-    return [...set].map((s) => ({ value: s, label: taskStatusLabel(s) }));
-  }, [list]);
+  /** 总采购清单只读查看弹窗（问题三补充：居中弹窗，非侧边抽屉） */
+  const [listTask, setListTask] = useState<ModuleListRow | null>(null);
+  /** 列表刷新键 */
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = () => setListRefresh((k) => k + 1);
 
   /** 新建流程：第一步只填采购类型与采购内容（是否需要采前会由总清单合计自动判定） */
   const openCreate = () => {
@@ -88,6 +82,10 @@ export default function Initiate() {
     setModalOpen(true);
   };
 
+  /**
+   * 继续编辑（问题一）：stage 0（未发起/总清单编制中）的任务直接进入第二步
+   * 「编制总采购清单」（带出已有明细）；上一步可回到基础信息单独保存。
+   */
   const openEdit = (row: TaskRow) => {
     setEditing(row);
     form.setFieldsValue({
@@ -95,6 +93,8 @@ export default function Initiate() {
       content: row.content,
       purpose: row.purpose,
     });
+    setCreatedTask({ id: row.id, taskNo: row.taskNo, status: row.status, stage: row.stage });
+    setCreateStep(1);
     setModalOpen(true);
   };
 
@@ -103,13 +103,20 @@ export default function Initiate() {
     setSaving(true);
     try {
       if (editing) {
+        // 编辑态：仅保存基本信息（问题一：基础信息用单独的保存按钮）
         await procurementTaskApi.update(editing.id, {
           content: values.content,
           purpose: values.purpose,
         });
-        message.success('已保存');
+        message.success('基本信息已保存');
         setModalOpen(false);
-        reload();
+        setEditing(null);
+        setCreatedTask(null);
+        setCreateStep(0);
+        refreshList();
+      } else if (createdTask) {
+        // 已创建过（第二步返回第一步后再下一步）：不重复创建
+        setCreateStep(1);
       } else {
         // 第一步：创建任务后进入第二步（编制总采购清单）
         const res: any = await procurementTaskApi.create({ type: values.type, content: values.content });
@@ -122,20 +129,33 @@ export default function Initiate() {
           stage: task.stage ?? 0,
         });
         setCreateStep(1);
-        reload();
+        refreshList();
       }
     } finally {
       setSaving(false);
     }
   };
 
-  /** 第二步完成：关闭弹窗并刷新 */
-  const finishCreate = () => {
-    setModalOpen(false);
-    setCreateStep(0);
-    setCreatedTask(null);
-    reload();
+  /** 第二步「保存并发布」（问题三）：保存清单 → 发布阶段 0，成功后关闭弹窗 */
+  const handleSaveAndPublish = async () => {
+    if (!createdTask) return;
+    setPublishing(true);
+    try {
+      const ok = await contentRef.current?.saveAndPublish();
+      if (ok) {
+        setModalOpen(false);
+        setCreateStep(0);
+        setCreatedTask(null);
+        setEditing(null);
+        refreshList();
+      }
+    } finally {
+      setPublishing(false);
+    }
   };
+
+  /** 第二步 → 上一步（基础信息可继续编辑并单独保存） */
+  const goPrevStep = () => setCreateStep(0);
 
   const openDetail = async (id: string) => {
     const d: any = await procurementTaskApi.detail(id);
@@ -143,169 +163,149 @@ export default function Initiate() {
     setDetailOpen(true);
   };
 
-  /** 发布当前阶段：后端校验前置约束并流转状态 */
-  const handlePublish = async (id: string) => {
-    setPublishing(true);
-    try {
-      const d: any = await procurementTaskApi.publish(id);
-      const row = d?.data ?? d;
-      message.success(`已发布，状态流转为「${taskStatusLabel(row?.status ?? '')}」`);
-      setDetailOpen(false);
-      reload();
-    } finally {
-      setPublishing(false);
-    }
+  const handleRemove = (row: ModuleListRow) => {
+    Modal.confirm({
+      title: '确认删除该采购任务？',
+      content: '删除后任务的全部阶段数据（总清单/各模块文档）将一并移除，不可恢复。',
+      okText: '确认删除',
+      okType: 'danger',
+      onOk: async () => {
+        await procurementTaskApi.remove(row.id);
+        message.success('已删除');
+        refreshList();
+      },
+    });
   };
 
-  const handleRemove = async (id: string) => {
-    await procurementTaskApi.remove(id);
-    message.success('已删除');
-    reload();
-  };
-
-  const columns: ColumnsType<TaskRow> = [
-    { title: '采购编号', dataIndex: 'taskNo', width: 170 },
-    { title: '采购内容', dataIndex: 'content', ellipsis: true },
+  /** 列表特有列（问题四：generic 模式完整列定义） */
+  const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      title: '采购编号',
+      dataIndex: 'taskNo',
+      width: 170,
+      render: (v: string, row) => (
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => openDetail(row.id)}>
+          {v}
+        </Button>
+      ),
+    },
+    { title: '采购内容', dataIndex: 'content', ellipsis: { showTitle: true }, render: (v: string) => v || '-' },
     {
       title: '采购类型',
       dataIndex: 'type',
-      width: 130,
+      width: 120,
       render: (t: string) => <Tag color={t === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(t)}</Tag>,
     },
     {
       title: '状态',
       dataIndex: 'status',
-      width: 160,
+      width: 150,
       render: (s: string) => <Tag color={TASK_STATUS_COLORS[s] ?? 'default'}>{taskStatusLabel(s)}</Tag>,
+    },
+    {
+      title: '预计金额（万元）',
+      dataIndex: 'estimatedAmountWan',
+      width: 130,
+      align: 'right',
+      render: (v: number | null | undefined) => (v != null && v !== undefined ? String(v) : '-'),
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
-      width: 170,
+      width: 150,
       render: (v: string) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-'),
     },
+  ];
+
+  /** 列表特有筛选项 */
+  const extraFilters = [
     {
-      title: '操作',
-      key: 'action',
-      width: 260,
-      render: (_, row) => {
-        const basicEditable = BASIC_EDITABLE_STATUSES.includes(row.status);
-        const publishable = row.status !== 'NOT_STARTED' && !['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes(row.status);
-        const removable = !['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes(row.status);
-        return (
-          <Space size={2} wrap>
-            <Button type="link" size="small" onClick={() => openDetail(row.id)}>
-              查看
-            </Button>
-            <Button type="link" size="small" onClick={() => setListTask(row)}>
-              {row.stage >= 1 ? '清单(已冻结)' : '总采购清单'}
-            </Button>
-            <Tooltip title={basicEditable ? '编辑基本信息' : '已进入后续流程，基本信息不可修改'}>
-              <Button type="link" size="small" disabled={!basicEditable} onClick={() => openEdit(row)}>
-                继续编辑
-              </Button>
-            </Tooltip>
-            <Popconfirm
-              title="发布当前阶段子任务？"
-              description="发布后状态将流转到下一阶段，发布前请确认该阶段内容已编制完成。"
-              onConfirm={() => handlePublish(row.id)}
-              disabled={!publishable}
-            >
-              <Button type="link" size="small" icon={<SendOutlined />} disabled={!publishable}>
-                发布
-              </Button>
-            </Popconfirm>
-            <Popconfirm title="确认删除该采购任务？" onConfirm={() => handleRemove(row.id)} disabled={!removable}>
-              <Button type="link" size="small" danger disabled={!removable} icon={<DeleteOutlined />}>
-                删除
-              </Button>
-            </Popconfirm>
-          </Space>
-        );
-      },
+      key: 'status',
+      label: '状态',
+      control: 'select' as const,
+      options: Object.entries(TASK_STATUS_LABELS).map(([value, label]) => ({ value, label })),
     },
+    { key: 'type', label: '采购类型', control: 'select' as const, options: PROCUREMENT_TASK_TYPES },
+    { key: 'keyword', label: '关键词', control: 'input' as const, placeholder: '编号 / 采购内容' },
   ];
 
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Card>
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Select
-            allowClear
-            placeholder="状态"
-            style={{ width: 180 }}
-            options={statusOptions}
-            value={params.status || undefined}
-            onChange={(v) => setParams((p: any) => ({ ...p, status: v, page: 1 }))}
-          />
-          <Select
-            allowClear
-            placeholder="采购类型"
-            style={{ width: 160 }}
-            options={PROCUREMENT_TASK_TYPES}
-            value={(params.type as ProcurementTaskType) || undefined}
-            onChange={(v) => setParams((p: any) => ({ ...p, type: v, page: 1 }))}
-          />
-          <Input.Search
-            allowClear
-            placeholder="编号 / 采购内容"
-            style={{ width: 240 }}
-            onSearch={(kw) => search({ keyword: kw })}
-          />
-          <Button icon={<ReloadOutlined />} onClick={reload}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建采购任务
-          </Button>
-        </Space>
-        <Table<TaskRow>
-          rowKey="id"
-          loading={loading}
-          columns={columns}
-          dataSource={list}
-          pagination={pagination}
-          scroll={{ x: 1000 }}
-        />
-      </Card>
+      {/* 标准列表页（问题四：与六模块/合同/结算页面统一规约） */}
+      <ModuleListPage
+        mode="generic"
+        fetcher={(params) => procurementTaskApi.list(params)}
+        extraFilters={extraFilters as never}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh}
+        onView={(row) => openDetail(row.id)}
+        onDelete={handleRemove}
+        rowMenuItems={(row) => {
+          const basicEditable = BASIC_EDITABLE_STATUSES.includes(row.status);
+          return [
+            {
+              key: 'totalList',
+              label: row.stage >= 1 ? '总采购清单(已冻结)' : '总采购清单',
+              onClick: () => setListTask(row),
+            },
+            {
+              key: 'continue',
+              label: '继续编辑',
+              disabled: !basicEditable,
+              onClick: () => openEdit(row as unknown as TaskRow),
+            },
+          ];
+        }}
+      />
 
-      {/* 新建（两步流程）/ 编辑基本信息 */}
+      {/* 新建（两步流程）/ 继续编辑（问题一：直接进入第二步） */}
       <Modal
         title={
-          editing ? (
-            `编辑采购任务 · ${editing.taskNo}`
-          ) : (
-            <Steps
-              size="small"
-              current={createStep}
-              items={[{ title: '基本信息' }, { title: '编制总采购清单' }]}
-              style={{ maxWidth: 420 }}
-            />
-          )
+          <Steps
+            size="small"
+            current={createStep}
+            items={[{ title: '基本信息' }, { title: '编制总采购清单' }]}
+            style={{ maxWidth: 420 }}
+          />
         }
         open={modalOpen}
         width={createStep === 1 ? 1320 : 560}
         footer={
           createStep === 1
             ? [
-                <Button key="finish" type="primary" onClick={finishCreate}>
-                  完成
+                // 问题三：第二步取消「保存」，升级为「保存并发布」
+                <Button key="cancel" onClick={() => setModalOpen(false)}>
+                  取消
+                </Button>,
+                <Button key="prev" onClick={goPrevStep}>
+                  上一步
+                </Button>,
+                <Button key="publish" type="primary" loading={publishing} onClick={handleSaveAndPublish}>
+                  保存并发布
                 </Button>,
               ]
             : [
                 <Button key="cancel" onClick={() => setModalOpen(false)}>
                   取消
                 </Button>,
-                <Button key="next" type="primary" loading={saving} onClick={handleSave}>
-                  下一步：编制总采购清单
-                </Button>,
+                editing ? (
+                  // 问题一：编辑态第一步仅保存基本信息
+                  <Button key="save" type="primary" loading={saving} onClick={handleSave}>
+                    保存基本信息
+                  </Button>
+                ) : (
+                  <Button key="next" type="primary" loading={saving} onClick={handleSave}>
+                    下一步：编制总采购清单
+                  </Button>
+                ),
               ]
         }
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        forceRender
       >
         {createStep === 1 && createdTask ? (
           <TotalListEditorContent
+            ref={contentRef}
             task={createdTask}
             embedded
             onSaved={() => {
@@ -328,7 +328,7 @@ export default function Initiate() {
                 <Alert
                   type="info"
                   showIcon
-                  message="基本信息仅可在「未发起 / 总清单编制中」阶段修改；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定（单项采购且合计 ≥ 100 万元时生成）。"
+                  message="保存基本信息后，可回到第二步继续编制总采购清单；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定（单项采购且合计 ≥ 100 万元时生成）。"
                 />
               </>
             )}
@@ -343,7 +343,7 @@ export default function Initiate() {
         )}
       </Modal>
 
-      {/* 详情 + 工作流 */}
+      {/* 详情 + 工作流（问题三：行内/详情发布入口取消，各阶段发布在各模块页面与总清单第二步进行） */}
       <Drawer
         title={detail ? `采购任务 · ${detail.taskNo}` : '采购任务'}
         width={640}
@@ -366,7 +366,6 @@ export default function Initiate() {
                 {detail.estimatedAmountWan != null ? `${detail.estimatedAmountWan} 万元` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="采前会会议纪要">
-                {/* 需求修正（修改一）：由预计采购合价合计自动判定 */}
                 {detail.type === 'FRAMEWORK' ? (
                   <Tag>不需要（引用框架协议）</Tag>
                 ) : detail.preMeetingRequired ? (
@@ -389,26 +388,23 @@ export default function Initiate() {
                   title: s.label,
                   status: s.state === 'done' ? 'finish' : s.state === 'editing' ? 'process' : 'wait',
                   description:
-                    s.state === 'done' ? '已发布' : s.state === 'editing' ? '编制中（可发布）' : '前置任务未发布，已锁定',
+                    s.state === 'done' ? '已发布' : s.state === 'editing' ? '编制中' : '前置任务未发布，已锁定',
                 }))}
               />
             </div>
-
-            {!['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes(detail.status) && detail.status !== 'NOT_STARTED' && (
-              <Button type="primary" icon={<RocketOutlined />} loading={publishing} onClick={() => handlePublish(detail.id)}>
-                发布当前阶段
-              </Button>
-            )}
           </Space>
         )}
       </Drawer>
 
-      {/* 总采购清单编辑（任务 2.2） */}
+      {/* 总采购清单只读查看（问题三补充：居中弹窗） */}
       <TotalListEditor
-        task={listTask ? { id: listTask.id, taskNo: listTask.taskNo, status: listTask.status, stage: listTask.stage } : null}
+        task={
+          listTask
+            ? { id: listTask.id, taskNo: listTask.taskNo, status: listTask.status, stage: listTask.stage }
+            : null
+        }
         open={!!listTask}
         onClose={() => setListTask(null)}
-        onPublished={reload}
       />
     </Space>
   );

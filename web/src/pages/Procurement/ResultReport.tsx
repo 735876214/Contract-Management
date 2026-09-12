@@ -38,6 +38,7 @@ import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/M
 import ModuleListPage, {
   type ModuleListFilterField,
   type ModuleListRow,
+  useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
@@ -133,6 +134,8 @@ export default function ResultReport() {
   const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
   /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
   const [listRefresh, setListRefresh] = useState(0);
+  /** 问题二：删除模块记录并回退流程 */
+  const handleDeleteModule = useModuleDelete('RESULT_REPORT', () => setListRefresh((k) => k + 1));
 
   const [detail, setDetail] = useState<ResultDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -494,10 +497,27 @@ export default function ResultReport() {
   /* ---------------- 渲染 ---------------- */
 
   /** 成交报告模块特有筛选项 */
-  const extraFilters: ModuleListFilterField[] = [{ key: 'open', label: '开启时间', control: 'dateRange' }];
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'open', label: '开启时间', control: 'dateRange' },
+    // 问题五：按成交供应商（拟推荐成交候选人）筛选
+    { key: 'winner', label: '成交供应商', control: 'input', placeholder: '请输入成交供应商' },
+  ];
 
   /** 成交报告模块特有表格列 */
   const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      // 问题五：成交供应商 = 拟推荐成交候选人（candidates）
+      title: '成交供应商',
+      key: 'winner',
+      width: 180,
+      ellipsis: { showTitle: true },
+      render: (_v, row) => {
+        const names: string[] = (row.module?.candidates ?? [])
+          .map((c: any) => String(c?.name ?? c?.unit ?? '').trim())
+          .filter(Boolean);
+        return names.length ? names.join('、') : '-';
+      },
+    },
     {
       title: '开启时间',
       key: 'openTime',
@@ -535,6 +555,7 @@ export default function ResultReport() {
         refreshKey={listRefresh}
         onView={openRow}
         onEdit={editRow}
+        onDelete={handleDeleteModule}
       />
 
       {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
