@@ -171,7 +171,7 @@ export default function FrameworkExplanation() {
     procurementTaskApi
       .frameworkExplanation(id)
       .then((res: any) => {
-        const d: ExplanationDetail = res?.data ?? res;
+        const d: ExplanationDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
         setDetail(d);
         const data = d?.data ?? {};
         setForm({

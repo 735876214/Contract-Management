@@ -162,7 +162,7 @@ export default function PriceCompare() {
     procurementTaskApi
       .priceCompare(id)
       .then((res: any) => {
-        const d: PriceDetail = res?.data ?? res;
+        const d: PriceDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
         setDetail(d);
         const data = (d?.data ?? {}) as NonNullable<PriceDetail['data']>;
         setForm({

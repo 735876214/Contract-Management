@@ -186,7 +186,7 @@ export default function ResultReport() {
     procurementTaskApi
       .resultReport(id)
       .then((res: any) => {
-        const d: ResultDetail = res?.data ?? res;
+        const d: ResultDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
         setDetail(d);
         const data = (d?.data ?? {}) as NonNullable<ResultDetail['data']>;
         setForm({
