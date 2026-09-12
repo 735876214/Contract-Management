@@ -72,6 +72,20 @@ export class ProcurementTaskController {
     return this.service.saveNotice(id, body);
   }
 
+  /** 采购文件（任务 3.4；仅单项采购，入口条件为采购公告已完成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/document')
+  document(@Param('id') id: string) {
+    return this.service.document(id);
+  }
+
+  /** 保存采购文件（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/document')
+  saveDocument(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveDocument(id, body);
+  }
+
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
   @RequirePermissions('contract:edit')
   @Put(':id/total-list')

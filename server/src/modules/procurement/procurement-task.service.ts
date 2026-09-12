@@ -7,8 +7,8 @@ import { paginate, buildResult } from '../../common/utils/helpers';
  *
  * 采购类型 → 子任务阶段链（顺序执行，前一阶段未发布时后续阶段锁定）：
  * - FRAMEWORK 引用框架协议：总采购清单 → 框架协议事前说明 → 生成合同
- * - SINGLE 单项采购：总采购清单 → [采前会会议纪要(≥100万)] → 采购公告 → 资审报告
- *            → 采购文件 → 成交报告 → 采购价格对比表 → 生成合同
+ * - SINGLE 单项采购：总采购清单 → [采前会会议纪要(≥100万)] → 采购公告 → 采购文件
+ *            → 资审报告 → 成交报告 → 采购价格对比表 → 生成合同
  *
  * stage = 已发布阶段数。子任务 i 可编辑/可发布 ⇔ i ≤ stage。
  * 状态由 stage 推导并持久化（见 deriveStatus）。
@@ -45,6 +45,16 @@ export function noticeStageIndex(task: { type: string; preMeetingRequired: boole
   return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === NOTICE.key);
 }
 
+/**
+ * 任务 3.4：采购文件阶段在阶段链中的下标。
+ * 单项采购：无采前会 → 2（采购公告之后）；有采前会 → 3。
+ * 「采购文件编制中」⇔ status=DOCUMENT_EDITING ⇔ stage === documentStageIndex(task)，
+ * 即入口条件为「采购公告已完成」。
+ */
+export function documentStageIndex(task: { type: string; preMeetingRequired: boolean }): number {
+  return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === DOCUMENT.key);
+}
+
 /** 元 → 万元（保留 2 位小数） */
 const toWan = (yuan: number): number =>
   Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
@@ -61,7 +71,9 @@ function stageChain(type: string, preMeetingRequired: boolean): StageDef[] {
   if (type === 'SINGLE') {
     const chain = [TOTAL_LIST];
     if (preMeetingRequired) chain.push(PRE_MEETING);
-    chain.push(NOTICE, INSPECTION, DOCUMENT, RESULT_REPORT, PRICE_COMPARE);
+    // 任务 3.4：采购文件紧随采购公告（资审报告后移），
+    // 使「采购文件」的入口条件正是「采购公告已完成」。
+    chain.push(NOTICE, DOCUMENT, INSPECTION, RESULT_REPORT, PRICE_COMPARE);
     return chain;
   }
   throw new BadRequestException('无效的采购类型');
@@ -242,6 +254,16 @@ export class ProcurementTaskService {
         );
       }
     }
+    // 任务 3.4：发布「采购文件」前必须已保存内容（采购时间与响应保证金为必填）
+    const documentIndex = current.type === 'SINGLE' ? documentStageIndex(current) : -1;
+    if (documentIndex >= 0 && current.stage === documentIndex) {
+      const doc = await this.prisma.procurementDocument.findUnique({ where: { taskId: current.id } });
+      if (!doc?.procurementTime || doc?.responseDeposit == null) {
+        throw new BadRequestException(
+          '请先编辑并保存采购文件（至少填写采购时间与响应保证金）后再发布',
+        );
+      }
+    }
 
     const nextStage = current.stage + 1;
     const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, current.contractId);
@@ -272,6 +294,13 @@ export class ProcurementTaskService {
     // 任务 3.3：采购公告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
     if (noticeIndex >= 0 && current.stage === noticeIndex) {
       await this.prisma.procurementNotice.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
+    // 任务 3.4：采购文件阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+    if (documentIndex >= 0 && current.stage === documentIndex) {
+      await this.prisma.procurementDocument.updateMany({
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
       });
@@ -905,6 +934,133 @@ export class ProcurementTaskService {
       paymentMethod: r.paymentMethod ?? '',
       contacts: parseList(r.contacts),
       contactPhones: parseList(r.contactPhones),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  /**
+   * 采购文件（批次二 · 任务 3.4，仅「单项采购」任务）。
+   * 入口条件：采购公告已完成（stage > 采购公告阶段下标）；本阶段编辑中 ⇔ stage === 采购文件下标。
+   * 采购清单不落库，始终从「总采购清单」派生：
+   * 物资名称/规格型号/计量单位/暂定数量/备注来自总清单，
+   * 税前单价/税率/综合单价/合价恒为空（由投标方填写）。
+   */
+  async document(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购文件模块');
+    }
+    const noticeIndex = noticeStageIndex(task);
+    const stageIndex = documentStageIndex(task);
+    /** 采购公告已完成后本阶段即进入（reached）；本阶段发布后为已完成 */
+    const reached = task.stage >= stageIndex;
+    const published = task.stage > stageIndex;
+    const record = await this.prisma.procurementDocument.findUnique({ where: { taskId } });
+    const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId } });
+    const items = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    return {
+      task: this.serialize(task),
+      stageIndex,
+      noticeStageIndex: noticeIndex,
+      /** 采购公告是否已完成（采购文件的入口条件） */
+      noticeCompleted: task.stage > noticeIndex,
+      reached,
+      editable: reached && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      /** 来自采购公告的取值（采购编号/采购内容/技术质量标准/验收方式/付款方式） */
+      notice: notice
+        ? {
+            procurementNo: notice.procurementNo ?? '',
+            content: notice.content ?? '',
+            techQuality: notice.techQuality ?? '',
+            acceptanceMethod: notice.acceptanceMethod ?? '',
+            paymentMethod: notice.paymentMethod ?? '',
+          }
+        : null,
+      /**
+       * 采购清单（只读，来自总采购清单）：10 列。
+       * 价格类字段恒为 null，保证「价格留空、由投标方填写」。
+       */
+      purchaseItems: items.map((i) => ({
+        materialName: i.materialName,
+        spec: i.spec,
+        unit: i.unit,
+        qty: i.qty,
+        preTaxPrice: null,
+        taxRate: null,
+        unitPrice: null,
+        amount: null,
+        remark: '',
+      })),
+      data: record ? this.serializeDocument(record) : null,
+    };
+  }
+
+  /** 保存采购文件（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
+  async saveDocument(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购文件模块');
+    }
+    if (task.stage < documentStageIndex(task)) {
+      throw new BadRequestException('请先发布采购公告（采购公告已完成）后再编制采购文件');
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const num = (v: any): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) throw new BadRequestException('响应保证金必须为数字');
+      if (n < 0) throw new BadRequestException('响应保证金不能为负数');
+      return n;
+    };
+    const date = (v: any): Date | null => {
+      if (v === '' || v == null) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购时间格式无效');
+      return d;
+    };
+
+    const payload = {
+      procurementTime: date(body?.procurementTime),
+      responseDeposit: num(body?.responseDeposit),
+      quoteDescription: text(body?.quoteDescription),
+    };
+
+    const saved = await this.prisma.procurementDocument.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializeDocument(saved);
+  }
+
+  private serializeDocument(r: {
+    id: string;
+    taskId: string;
+    procurementTime: Date | null;
+    responseDeposit: number | null;
+    quoteDescription: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      procurementTime: r.procurementTime,
+      responseDeposit: r.responseDeposit,
+      quoteDescription: r.quoteDescription ?? '',
       publishedAt: r.publishedAt,
       updatedAt: r.updatedAt,
     };

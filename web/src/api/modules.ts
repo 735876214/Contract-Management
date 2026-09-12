@@ -82,6 +82,16 @@ export const procurementTaskApi = {
       contactPhones?: string[];
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/notice`, data),
+  /** 采购文件（任务 3.4）：仅「单项采购」任务可用；入口条件为采购公告已完成，采购清单来自总采购清单 */
+  document: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/document`),
+  saveDocument: (
+    id: string,
+    data: {
+      procurementTime?: string | null;
+      responseDeposit?: number | null;
+      quoteDescription?: string;
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/document`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 

@@ -126,6 +126,7 @@ model Project {
   frameworkExplanations FrameworkExplanation[]
   preMeetingMinutes    PreMeetingMinutes[]
   procurementNotices   ProcurementNotice[]
+  procurementDocuments ProcurementDocument[]
   @@index([createdAt])
 }
 
@@ -1040,6 +1041,7 @@ model ProcurementTask {
   frameworkExplanation FrameworkExplanation?
   preMeetingMinutes    PreMeetingMinutes?
   procurementNotice    ProcurementNotice?
+  procurementDocument  ProcurementDocument?
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1140,6 +1142,26 @@ model ProcurementNotice {
   contacts         String? // 联系人 JSON: ["张三","李四"]，多个时按位置自动编号「联系人1/联系人2」
   contactPhones    String? // 联系电话 JSON: ["138…","139…"]，多个时按位置自动编号「联系电话1/联系电话2」
   publishedAt      DateTime? // 发布时间（公告阶段发布后回填）
+  createdAt        DateTime  @default(now())
+  version          Int       @default(0)
+  updatedAt        DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ---------------- 采购文件（批次二 · 任务 3.4） ----------------
+
+model ProcurementDocument {
+  id               String    @id @default(cuid())
+  projectId        String
+  taskId           String    @unique // 一个采购任务仅一份采购文件
+  procurementTime  DateTime? // 采购时间（日期）
+  responseDeposit  Float? // 响应保证金（金额，元）
+  quoteDescription String? // 报价说明（富文本 HTML）
+  publishedAt      DateTime? // 发布时间（采购文件阶段发布后回填）
   createdAt        DateTime  @default(now())
   version          Int       @default(0)
   updatedAt        DateTime  @updatedAt
