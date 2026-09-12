@@ -13,12 +13,11 @@ export class SystemService {
     const { skip, take } = paginate(query);
     const where: any = {};
     if (query.keyword) where.OR = [{ username: { contains: query.keyword } }, { realName: { contains: query.keyword } }];
-    if (query.deptId) where.deptId = query.deptId;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.user.findMany({
         where, skip, take, orderBy: { createdAt: 'desc' },
-        include: { dept: true, roles: { include: { role: true } } },
+        include: { roles: { include: { role: true } } },
       }),
       this.prisma.user.count({ where }),
     ]);
@@ -94,30 +93,6 @@ export class SystemService {
     const grouped: Record<string, any[]> = {};
     list.forEach((p: any) => (grouped[p.module] = [...(grouped[p.module] || []), p]));
     return Object.entries(grouped).map(([module, items]) => ({ module, items }));
-  }
-
-  // ---------------- 部门 ----------------
-  async depts() {
-    const list = await this.prisma.dept.findMany({ orderBy: { sort: 'asc' } });
-    return list;
-  }
-
-  async createDept(data: any) {
-    return this.prisma.dept.create({ data });
-  }
-
-  async updateDept(id: string, data: any) {
-    return this.prisma.dept.update({ where: { id }, data });
-  }
-
-  async removeDept(id: string) {
-    const [userCount, childCount] = await Promise.all([
-      this.prisma.user.count({ where: { deptId: id } }),
-      this.prisma.dept.count({ where: { parentId: id } }),
-    ]);
-    if (userCount || childCount) throw new BadRequestException('部门下存在人员或子部门，不可删除');
-    await this.prisma.dept.delete({ where: { id } });
-    return true;
   }
 
   // ---------------- 系统参数 ----------------

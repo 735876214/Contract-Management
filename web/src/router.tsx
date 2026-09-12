@@ -27,7 +27,6 @@ import Reports from '@/pages/Reports';
 import {
   SystemUsersPage,
   SystemRolesPage,
-  SystemDeptsPage,
   SystemParamsPage,
   SystemLogsPage,
 } from '@/pages/System';
@@ -151,7 +150,6 @@ export const routes: RouteObject[] = [
       { path: 'system', element: <Navigate to="/system/user" replace /> },
       { path: 'system/user', element: <SystemUsersPage /> },
       { path: 'system/role', element: <SystemRolesPage /> },
-      { path: 'system/dept', element: <SystemDeptsPage /> },
       { path: 'system/params', element: <SystemParamsPage /> },
       { path: 'system/dict', element: <Dict /> },
       { path: 'system/log', element: <SystemLogsPage /> },

@@ -38,7 +38,6 @@ export class AuthService {
         id: user.id,
         username: user.username,
         realName: user.realName,
-        deptId: user.deptId,
         isSuperAdmin: user.isSuperAdmin,
         permissions,
       },
@@ -92,7 +91,7 @@ export class AuthService {
   async profile(userId: string, isSuperAdmin: boolean) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { dept: true, roles: { include: { role: true } } },
+      include: { roles: { include: { role: true } } },
     });
     if (!user) throw new UnauthorizedException('用户不存在');
     const { password, ...rest } = user as any;

@@ -439,7 +439,6 @@ const PERMISSIONS = [
   { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:role', name: '角色管理', module: '系统管理' },
-  { code: 'system:dept', name: '部门管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
 ];
@@ -469,23 +468,6 @@ const SYS_PARAMS = [
 
 async function main() {
   console.log('>>> 开始初始化数据...');
-
-  // ---------- 部门 ----------
-  const deptRoot = await prisma.dept.upsert({
-    where: { id: 'dept-root' },
-    update: {},
-    create: { id: 'dept-root', name: '集团总部', sort: 0 },
-  });
-  const deptPurchase = await prisma.dept.upsert({
-    where: { id: 'dept-purchase' },
-    update: {},
-    create: { id: 'dept-purchase', name: '采购管理部', parentId: deptRoot.id, sort: 1 },
-  });
-  const deptFinance = await prisma.dept.upsert({
-    where: { id: 'dept-finance' },
-    update: {},
-    create: { id: 'dept-finance', name: '财务管理部', parentId: deptRoot.id, sort: 2 },
-  });
 
   // ---------- 权限 ----------
   for (const p of PERMISSIONS) {
@@ -582,7 +564,6 @@ async function main() {
       username: 'admin',
       password,
       realName: '系统管理员',
-      deptId: deptRoot.id,
       isSuperAdmin: true,
       email: 'admin@demo.com',
       phone: '13800000000',
@@ -591,12 +572,12 @@ async function main() {
   const manager = await prisma.user.upsert({
     where: { username: 'manager' },
     update: {},
-    create: { username: 'manager', password, realName: '项目经理-张伟', deptId: deptPurchase.id },
+    create: { username: 'manager', password, realName: '项目经理-张伟' },
   });
   const staff = await prisma.user.upsert({
     where: { username: 'staff' },
     update: {},
-    create: { username: 'staff', password, realName: '采购专员-李娜', deptId: deptPurchase.id },
+    create: { username: 'staff', password, realName: '采购专员-李娜' },
   });
   for (const [user, role] of [
     [admin, roleAdmin],

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Table,
@@ -11,7 +11,8 @@ import {
   Modal,
   Popconfirm,
   Tag,
-  InputNumber,
+  Row,
+  Col,
   message,
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
@@ -23,7 +24,6 @@ const STATUS_TAG = (v: any) => (v === 1 || v === '1' ? <Tag color="green">启用
 /* ---------------- 用户管理 ---------------- */
 function UsersTab() {
   const { loading, list, pagination, reload } = useTable<any>((p) => systemApi.users(p));
-  const [depts, setDepts] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -33,7 +33,6 @@ function UsersTab() {
   const [form] = Form.useForm();
 
   useEffect(() => {
-    systemApi.depts().then((r: any) => setDepts(r || []));
     systemApi.roles().then((r: any) => setRoles(r || []));
   }, []);
 
@@ -90,7 +89,6 @@ function UsersTab() {
         columns={[
           { title: '用户名', dataIndex: 'username', width: 160 },
           { title: '姓名', dataIndex: 'realName', width: 120 },
-          { title: '部门', dataIndex: 'deptName', width: 140 },
           { title: '手机', dataIndex: 'phone', width: 140 },
           { title: '邮箱', dataIndex: 'email', width: 200, ellipsis: true },
           { title: '状态', dataIndex: 'status', width: 90, render: STATUS_TAG },
@@ -127,13 +125,6 @@ function UsersTab() {
           </Form.Item>
           <Form.Item name="phone" label="手机"><Input /></Form.Item>
           <Form.Item name="email" label="邮箱"><Input /></Form.Item>
-          <Form.Item name="deptId" label="部门">
-            <Select
-              allowClear
-              placeholder="请选择部门"
-              options={depts.map((d) => ({ value: d.id, label: d.name }))}
-            />
-          </Form.Item>
           <Form.Item name="status" label="状态" rules={[{ required: true }]}>
             <Select options={[{ value: 1, label: '启用' }, { value: 0, label: '停用' }]} />
           </Form.Item>
@@ -246,93 +237,6 @@ function RolesTab() {
   );
 }
 
-/* ---------------- 部门管理 ---------------- */
-function DeptsTab() {
-  const [depts, setDepts] = useState<any[]>([]);
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-  const [form] = Form.useForm();
-
-  const load = () => systemApi.depts().then((r: any) => setDepts(r || []));
-  useEffect(() => { load(); }, []);
-
-  const buildTree = (list: any[]) => {
-    const map: any = {};
-    const roots: any[] = [];
-    list.forEach((d) => (map[d.id] = { ...d, children: [] }));
-    list.forEach((d) => {
-      if (d.parentId && map[d.parentId]) map[d.parentId].children.push(map[d.id]);
-      else roots.push(map[d.id]);
-    });
-    return roots;
-  };
-
-  const openCreate = (parentId?: string) => {
-    setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({ parentId, sort: 0 });
-    setModal(true);
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.resetFields();
-    form.setFieldsValue(row);
-    setModal(true);
-  };
-
-  const submit = async () => {
-    const values: any = await form.validateFields();
-    if (editing) await systemApi.updateDept(editing.id, values);
-    else await systemApi.createDept(values);
-    message.success('保存成功');
-    setModal(false);
-    load();
-  };
-
-  return (
-    <Card title="部门管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>新增部门</Button>}>
-      <Table
-        rowKey="id"
-        dataSource={buildTree(depts)}
-        pagination={false}
-        columns={[
-          { title: '部门名称', dataIndex: 'name', width: 240 },
-          { title: '排序', dataIndex: 'sort', width: 100 },
-          { title: '备注', dataIndex: 'remark', ellipsis: true },
-          {
-            title: '操作',
-            width: 220,
-            render: (_: any, row: any) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openCreate(row.id)}>新增子部门</Button>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Popconfirm title="确认删除该部门？" onConfirm={async () => { await systemApi.removeDept(row.id); message.success('已删除'); load(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
-      />
-      <Modal title={editing ? '编辑部门' : '新增部门'} open={modal} onOk={submit} onCancel={() => setModal(false)} width={520} destroyOnClose>
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="部门名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="parentId" label="上级部门">
-            <Select
-              allowClear
-              placeholder="顶级部门"
-              options={depts.map((d) => ({ value: d.id, label: d.name }))}
-            />
-          </Form.Item>
-          <Form.Item name="sort" label="排序"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-        </Form>
-      </Modal>
-    </Card>
-  );
-}
-
 /* ---------------- 系统参数 ---------------- */
 const PARAM_REMARK: Record<string, string> = {
   'contract.code.unique.scope': '合同编号唯一性：GLOBAL 全局唯一 / PROJECT 项目内唯一',
@@ -398,9 +302,38 @@ function MappingEditor({ value, onChange }: { value: string; onChange: (v: strin
 
 function ParamsTab() {
   const [params, setParams] = useState<any[]>([]);
+  const [groupKeyword, setGroupKeyword] = useState('');
+  const [currentGroup, setCurrentGroup] = useState<string | null>(null);
 
   const load = () => systemApi.params().then((r: any) => setParams(r || []));
   useEffect(() => { load(); }, []);
+
+  /** 分组名映射：参数键首段 → 中文名 */
+  const GROUP_LABELS: Record<string, string> = {
+    contract: '合同参数',
+    supplier: '供应商参数',
+    repayment: '还款协议',
+    multi: '项目模式',
+  };
+
+  /** 按参数键首段分组 */
+  const groups = useMemo(() => {
+    const map: Record<string, number> = {};
+    params.forEach((p) => {
+      const g = String(p.key).split('.')[0];
+      map[g] = (map[g] || 0) + 1;
+    });
+    return Object.entries(map)
+      .map(([code, count]) => ({ code, label: GROUP_LABELS[code] || code, count }))
+      .filter((g) => !groupKeyword || g.label.includes(groupKeyword) || g.code.includes(groupKeyword))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [params, groupKeyword]);
+
+  useEffect(() => {
+    if (!currentGroup && groups.length) setCurrentGroup(groups[0].code);
+  }, [groups, currentGroup]);
+
+  const groupParams = params.filter((p) => String(p.key).split('.')[0] === currentGroup);
 
   const onChangeValue = (key: string, v: string) =>
     setParams((ps) => ps.map((p) => (p.key === key ? { ...p, value: v } : p)));
@@ -411,37 +344,84 @@ function ParamsTab() {
     load();
   };
 
+  const currentLabel = GROUP_LABELS[currentGroup || ''] || currentGroup || '';
+
   return (
-    <Card
-      title="系统参数"
-      extra={<Button type="primary" onClick={save}>保存</Button>}
-    >
-      <Table
-        rowKey="key"
-        dataSource={params}
-        pagination={false}
-        columns={[
-          { title: '参数键', dataIndex: 'key', width: 260 },
-          {
-            title: '参数值',
-            dataIndex: 'value',
-            width: 340,
-            render: (v: any, row: any) =>
-              row.key.endsWith('_mapping') ? (
-                <MappingEditor value={v} onChange={(nv) => onChangeValue(row.key, nv)} />
-              ) : (
-                <Input value={v} onChange={(e) => onChangeValue(row.key, e.target.value)} />
-              ),
-          },
-          {
-            title: '说明',
-            dataIndex: 'remark',
-            ellipsis: true,
-            render: (v: any, row: any) => v || PARAM_REMARK[row.key] || '-',
-          },
-        ]}
-      />
-    </Card>
+    <Row gutter={16}>
+      <Col xs={24} lg={7}>
+        <Card title="参数分组">
+          <Input.Search
+            placeholder="搜索分组"
+            allowClear
+            onSearch={() => undefined}
+            onChange={(e) => setGroupKeyword(e.target.value)}
+            style={{ marginBottom: 12 }}
+          />
+          <div style={{ maxHeight: 'calc(100vh - 260px)', overflow: 'auto' }}>
+            {groups.map((g) => (
+              <div
+                key={g.code}
+                onClick={() => setCurrentGroup(g.code)}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderRadius: 6,
+                  marginBottom: 4,
+                  background: currentGroup === g.code ? '#e6f4ff' : 'transparent',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>
+                  {g.label} <span style={{ color: '#999', fontSize: 12 }}>{g.code}</span>
+                </span>
+                <Tag>{g.count}</Tag>
+              </div>
+            ))}
+            {!groups.length && <div style={{ color: '#999', padding: '8px 12px' }}>暂无匹配分组</div>}
+          </div>
+        </Card>
+      </Col>
+
+      <Col xs={24} lg={17}>
+        <Card
+          title={`参数明细${currentLabel ? ` · ${currentLabel}` : ''}`}
+          extra={
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+              <Button type="primary" onClick={save}>保存</Button>
+            </Space>
+          }
+        >
+          <Table
+            rowKey="key"
+            dataSource={groupParams}
+            pagination={false}
+            columns={[
+              { title: '参数键', dataIndex: 'key', width: 240 },
+              {
+                title: '参数值',
+                dataIndex: 'value',
+                width: 340,
+                render: (v: any, row: any) =>
+                  row.key.endsWith('_mapping') ? (
+                    <MappingEditor value={v} onChange={(nv) => onChangeValue(row.key, nv)} />
+                  ) : (
+                    <Input value={v} onChange={(e) => onChangeValue(row.key, e.target.value)} />
+                  ),
+              },
+              {
+                title: '说明',
+                dataIndex: 'remark',
+                ellipsis: true,
+                render: (v: any, row: any) => v || PARAM_REMARK[row.key] || '-',
+              },
+            ]}
+          />
+        </Card>
+      </Col>
+    </Row>
   );
 }
 
@@ -631,10 +611,6 @@ export function SystemUsersPage() {
 
 export function SystemRolesPage() {
   return <RolesTab />;
-}
-
-export function SystemDeptsPage() {
-  return <DeptsTab />;
 }
 
 export function SystemParamsPage() {

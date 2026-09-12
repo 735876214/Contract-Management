@@ -6,7 +6,6 @@ export interface JwtUser {
   realName: string;
   isSuperAdmin: boolean;
   permissions: string[];
-  deptId?: string;
 }
 
 export const CurrentUser = createParamDecorator((data: keyof JwtUser, ctx: ExecutionContext) => {

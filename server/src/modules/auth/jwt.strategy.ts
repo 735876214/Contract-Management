@@ -27,7 +27,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       username: user.username,
       realName: user.realName,
       isSuperAdmin: user.isSuperAdmin,
-      deptId: user.deptId,
       permissions,
     };
   }

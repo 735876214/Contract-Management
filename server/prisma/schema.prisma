@@ -15,18 +15,6 @@ datasource db {
 
 // ---------------- 组织与权限 ----------------
 
-model Dept {
-  id        String   @id @default(cuid())
-  name      String
-  parentId  String?
-  leader    String?
-  sort      Int      @default(0)
-  status    Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
-}
-
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
@@ -34,14 +22,12 @@ model User {
   realName     String
   phone        String?
   email        String?
-  deptId       String?
   status       Int      @default(1)
   isSuperAdmin Boolean  @default(false)
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  dept          Dept?            @relation(fields: [deptId], references: [id])
   roles         UserRole[]
   members       ProjectMember[]
   notifications Notification[]

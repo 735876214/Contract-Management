@@ -50,7 +50,7 @@ export class ProjectService {
   async findOne(id: string) {
     const p = await this.prisma.project.findUnique({
       where: { id },
-      include: { members: { include: { user: { select: { id: true, realName: true, username: true, phone: true, deptId: true } } } } },
+      include: { members: { include: { user: { select: { id: true, realName: true, username: true, phone: true } } } } },
     });
     if (!p) throw new NotFoundException('项目不存在');
     return p;
@@ -104,7 +104,7 @@ export class ProjectService {
   async members(projectId: string) {
     return this.prisma.projectMember.findMany({
       where: { projectId },
-      include: { user: { select: { id: true, realName: true, username: true, phone: true, email: true, deptId: true } } },
+      include: { user: { select: { id: true, realName: true, username: true, phone: true, email: true } } },
       orderBy: { createdAt: 'asc' },
     });
   }

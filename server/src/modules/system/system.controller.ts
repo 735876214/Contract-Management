@@ -71,31 +71,6 @@ export class SystemController {
     return this.service.permissions();
   }
 
-  // ---------- 部门 ----------
-  @RequirePermissions('system:user')
-  @Get('depts')
-  depts() {
-    return this.service.depts();
-  }
-
-  @RequirePermissions('system:user')
-  @Post('depts')
-  createDept(@Body() body: any) {
-    return this.service.createDept(body);
-  }
-
-  @RequirePermissions('system:user')
-  @Put('depts/:id')
-  updateDept(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateDept(id, body);
-  }
-
-  @RequirePermissions('system:user')
-  @Delete('depts/:id')
-  removeDept(@Param('id') id: string) {
-    return this.service.removeDept(id);
-  }
-
   // ---------- 参数 ----------
   @RequirePermissions('system:config')
   @Get('params')
