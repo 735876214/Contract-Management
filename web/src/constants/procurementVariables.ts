@@ -33,9 +33,13 @@ export interface ProcurementVar {
   tip?: string;
   /** 表格变量：生成 Word 时替换为真实表格 */
   table?: boolean;
+  /** HTML 变量（富文本内容）：生成 Word 时按 HTML 原样注入，不做转义 */
+  html?: boolean;
 }
 
 const v = (key: string, tip?: string, table = false): ProcurementVar => ({ key, tip, table });
+/** 富文本内容变量（值本身是 HTML） */
+const h = (key: string, tip?: string): ProcurementVar => ({ key, tip, html: true });
 
 /** 公共变量（项目信息，所有采购模块可用，无前缀） */
 export const PROCUREMENT_COMMON_VARS: ProcurementVar[] = [
@@ -54,25 +58,29 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     v('采购类型'),
   ],
   PRE_MEETING: [
-    v('采前会-采购清单', '表格变量：替换为采购清单表格', true),
-    v('采前会-采购成本分析表', '表格变量：替换为采购成本分析表', true),
+    v('采前会-采购清单', '表格变量：替换为采购清单表格（序号/物资名称/规格型号/计量单位/暂定数量）', true),
+    v('采前会-采购成本分析表', '表格变量：替换为采购成本分析表（含清单收入/预计采购成本/预计效益额/效益率及合计）', true),
+    v('采购内容'),
+    v('预计采购金额', '预计采购金额（万元，保留 2 位小数）'),
     v('会议时间'),
     v('主持人'),
     v('参会人员'),
     v('编写人'),
     v('审核人'),
-    v('技术质量要求'),
-    v('验收标准'),
-    v('付款条件'),
+    h('技术质量要求', '富文本内容，按 HTML 原样注入'),
+    h('验收标准', '富文本内容，按 HTML 原样注入'),
+    h('付款条件', '富文本内容，按 HTML 原样注入'),
   ],
   NOTICE: [
-    v('采购公告-采购清单', '表格变量：替换为采购清单表格', true),
-    v('采购时间'),
-    v('技术质量标准'),
-    v('验收方式'),
-    v('付款方式'),
-    v('联系人1'),
-    v('联系电话1'),
+    v('采购公告-采购清单', '表格变量：替换为采购清单表格（序号/物资名称/规格型号/计量单位/暂定数量/备注）', true),
+    v('采购编号', '采购编号（文本）'),
+    v('采购时间', '采购时间（日期）'),
+    v('采购内容', '采购内容（文本，默认带出采购任务内容）'),
+    h('技术质量标准', '富文本内容，按 HTML 原样注入'),
+    h('验收方式', '富文本内容，按 HTML 原样注入'),
+    h('付款方式', '富文本内容，按 HTML 原样注入'),
+    v('联系人1', '联系人按位置自动编号，支持多个（联系人1、联系人2…）'),
+    v('联系电话1', '联系电话按位置自动编号，支持多个（联系电话1、联系电话2…）'),
     v('联系人2'),
     v('联系电话2'),
   ],
@@ -143,7 +151,7 @@ export function extractProcurementVariables(html: string): string[] {
 /**
  * 变量查找替换：将 {{变量名}} 替换为给定值。
  * - 普通变量：替换为文本（HTML 转义）
- * - 表格变量（table: true）：值即为表格 HTML，直接注入
+ * - 表格变量 / HTML 变量（table: true / html: true）：值即为 HTML，直接注入
  * - 未提供值的变量：保留原占位符（便于预览时发现缺失）
  */
 export function replaceProcurementVariables(
@@ -153,14 +161,14 @@ export function replaceProcurementVariables(
 ): string {
   let out = html || '';
   const vars = getProcurementVars(moduleType ?? '');
-  const tableSet = new Set(vars.filter((x) => x.table).map((x) => x.key));
+  const rawSet = new Set(vars.filter((x) => x.table || x.html).map((x) => x.key));
   const esc = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   for (const [key, val] of Object.entries(values ?? {})) {
     if (val == null) continue;
     const token = `{{${key}}}`;
     if (!out.includes(token)) continue;
-    out = out.split(token).join(tableSet.has(key) ? String(val) : esc(String(val)));
+    out = out.split(token).join(rawSet.has(key) ? String(val) : esc(String(val)));
   }
   return out;
 }

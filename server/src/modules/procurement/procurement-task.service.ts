@@ -30,6 +30,25 @@ const RESULT_REPORT: StageDef = { key: 'RESULT_REPORT', label: '成交报告', s
 const PRICE_COMPARE: StageDef = { key: 'PRICE_COMPARE', label: '采购价格对比表', status: 'PRICE_COMPARE_EDITING' };
 const FRAMEWORK_EXPLAIN: StageDef = { key: 'FRAMEWORK_EXPLAIN', label: '框架协议事前说明', status: 'FRAMEWORK_EDITING' };
 
+/**
+ * 任务 3.2：采前会会议纪要生成阈值（预计采购金额，单位：元）。
+ * 单项采购预计采购金额 ≥ 100 万元时生成采前会会议纪要模块，< 100 万不生成。
+ */
+export const PRE_MEETING_THRESHOLD_YUAN = 1_000_000;
+
+/**
+ * 任务 3.3：采购公告阶段在阶段链中的下标。
+ * 单项采购：无采前会 → 1（总清单之后）；有采前会 → 2（采前会纪要之后）。
+ * 「采购公告编制中」⇔ status=NOTICE_EDITING ⇔ stage === noticeStageIndex(task)。
+ */
+export function noticeStageIndex(task: { type: string; preMeetingRequired: boolean }): number {
+  return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === NOTICE.key);
+}
+
+/** 元 → 万元（保留 2 位小数） */
+const toWan = (yuan: number): number =>
+  Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
+
 /** 合同阶段之后的任务状态（合同未生成/草稿 → 合同编制中） */
 export const STATUS_CONTRACT_EDITING = 'CONTRACT_EDITING';
 export const STATUS_CONTRACT_APPROVING = 'CONTRACT_APPROVING';
@@ -102,13 +121,24 @@ export class ProcurementTaskService {
       this.prisma.procurementTask.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
       this.prisma.procurementTask.count({ where }),
     ]);
-    return buildResult(rows.map((r) => this.serialize(r)), total, query);
+    // 任务 3.2：列表带出预计采购金额（万元），供「是否需要采前会会议纪要」判定与展示
+    const amountMap = await this.estimatedAmountMap(rows.map((r) => r.id));
+    return buildResult(
+      rows.map((r) => ({ ...this.serialize(r), estimatedAmountWan: toWan(amountMap.get(r.id) ?? 0) })),
+      total,
+      query,
+    );
   }
 
   async findOne(id: string) {
     const r = await this.prisma.procurementTask.findUnique({ where: { id } });
     if (!r) throw new NotFoundException('采购任务不存在');
-    return { ...this.serialize(r), stages: this.buildStages(r) };
+    const amountYuan = await this.estimatedAmountYuan(id);
+    return {
+      ...this.serialize(r),
+      estimatedAmountWan: toWan(amountYuan),
+      stages: this.buildStages(r),
+    };
   }
 
   /** 新建任务：自动编号，状态「未发起」，stage=0 */
@@ -167,7 +197,15 @@ export class ProcurementTaskService {
     const current = await this.prisma.procurementTask.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购任务不存在');
 
-    const chain = stageChain(current.type, current.preMeetingRequired);
+    // 任务 3.2：发布总采购清单（阶段 0 → 1）时，按预计采购金额自动判定是否需要采前会会议纪要。
+    // 规则：仅「单项采购」类型；预计采购金额 ≥ 100 万元 → 生成该模块，< 100 万不生成。
+    let preMeetingRequired = current.preMeetingRequired;
+    if (current.stage === 0 && current.type === 'SINGLE') {
+      const amountYuan = await this.estimatedAmountYuan(current.id);
+      preMeetingRequired = amountYuan >= PRE_MEETING_THRESHOLD_YUAN;
+    }
+
+    const chain = stageChain(current.type, preMeetingRequired);
     if (current.stage >= chain.length) {
       throw new BadRequestException('各阶段均已发布，任务处于合同阶段');
     }
@@ -183,16 +221,57 @@ export class ProcurementTaskService {
         throw new BadRequestException('请先编辑并保存框架协议事前说明（至少填写框架简介）后再发布');
       }
     }
+    // 任务 3.2：发布「采前会会议纪要」前必须已保存内容（会议时间与采购内容为必填）
+    if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
+      const minutes = await this.prisma.preMeetingMinutes.findUnique({ where: { taskId: current.id } });
+      if (!minutes?.meetingTime || !String(minutes.content ?? '').trim()) {
+        throw new BadRequestException('请先编辑并保存采前会会议纪要（至少填写会议时间与采购内容）后再发布');
+      }
+    }
+    // 任务 3.3：发布「采购公告」前必须已保存内容（采购编号、采购时间与采购内容为必填）
+    const noticeIndex = current.type === 'SINGLE' ? noticeStageIndex(current) : -1;
+    if (noticeIndex >= 0 && current.stage === noticeIndex) {
+      const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId: current.id } });
+      if (
+        !String(notice?.procurementNo ?? '').trim() ||
+        !notice?.procurementTime ||
+        !String(notice?.content ?? '').trim()
+      ) {
+        throw new BadRequestException(
+          '请先编辑并保存采购公告（至少填写采购编号、采购时间与采购内容）后再发布',
+        );
+      }
+    }
 
     const nextStage = current.stage + 1;
-    const nextStatus = this.deriveStatus(current.type, current.preMeetingRequired, nextStage, current.contractId);
+    const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, current.contractId);
     const updated = await this.prisma.procurementTask.update({
       where: { id },
-      data: { stage: nextStage, status: nextStatus, version: { increment: 1 } },
+      data: {
+        stage: nextStage,
+        status: nextStatus,
+        // 采前会要求随预计采购金额自动落库（仅单项采购在总清单发布时判定）
+        ...(preMeetingRequired !== current.preMeetingRequired ? { preMeetingRequired } : {}),
+        version: { increment: 1 },
+      },
     });
     // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
     if (current.stage === 1 && current.type === 'FRAMEWORK') {
       await this.prisma.frameworkExplanation.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
+    // 采前会阶段发布 → 回填发布时间
+    if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
+      await this.prisma.preMeetingMinutes.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
+    // 任务 3.3：采购公告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+    if (noticeIndex >= 0 && current.stage === noticeIndex) {
+      await this.prisma.procurementNotice.updateMany({
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
       });
@@ -326,6 +405,32 @@ export class ProcurementTaskService {
       planPrice: i.planPrice,
       sortOrder: i.sortOrder,
     };
+  }
+
+  /**
+   * 预计采购金额（元）= Σ 预计采购单价（控制价）× 暂定数量。
+   * 任务 3.2：作为「是否需要采前会会议纪要」的判定依据（阈值 100 万元）。
+   */
+  private async estimatedAmountYuan(taskId: string): Promise<number> {
+    const items = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      select: { qty: true, planPrice: true },
+    });
+    return items.reduce((sum, i) => sum + (i.planPrice ?? 0) * (i.qty ?? 0), 0);
+  }
+
+  /** 批量计算预计采购金额（元），key = taskId（列表页避免 N+1 查询） */
+  private async estimatedAmountMap(taskIds: string[]): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (!taskIds.length) return map;
+    const items = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId: { in: taskIds } },
+      select: { taskId: true, qty: true, planPrice: true },
+    });
+    for (const it of items) {
+      map.set(it.taskId, (map.get(it.taskId) ?? 0) + (it.planPrice ?? 0) * (it.qty ?? 0));
+    }
+    return map;
   }
 
   /**
@@ -514,6 +619,292 @@ export class ProcurementTaskService {
       execution: r.execution ?? '',
       costRows: parse(r.costRows),
       attachments: parse(r.attachments),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  /**
+   * 采前会会议纪要（批次二 · 任务 3.2，仅「单项采购」且预计采购金额 ≥ 100 万）。
+   * 状态由阶段进度推导：stage=1 编辑中（仅保存），stage≥2 已完成（发布后，仍可重新编辑）。
+   */
+  async preMeetingMinutes(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采前会会议纪要模块');
+    }
+    const amountYuan = await this.estimatedAmountYuan(taskId);
+    // 生成条件：单项采购且预计采购金额 ≥ 100 万元（存量手工标记同样视为需要）
+    const generated = task.preMeetingRequired || amountYuan >= PRE_MEETING_THRESHOLD_YUAN;
+    const record = await this.prisma.preMeetingMinutes.findUnique({ where: { taskId } });
+    const published = task.stage >= 2;
+    return {
+      task: this.serialize(task),
+      /** 是否生成采前会会议纪要模块（单项采购且金额 ≥ 100 万） */
+      generated,
+      thresholdWan: PRE_MEETING_THRESHOLD_YUAN / 10000,
+      estimatedAmountWan: toWan(amountYuan),
+      editable: task.stage >= 1 && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      data: record ? this.serializeMinutes(record) : null,
+    };
+  }
+
+  /** 保存采前会会议纪要（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
+  async savePreMeetingMinutes(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采前会会议纪要模块');
+    }
+    if (task.stage < 1) {
+      throw new BadRequestException('总采购清单发布后才能编辑采前会会议纪要');
+    }
+    const amountYuan = await this.estimatedAmountYuan(taskId);
+    if (!task.preMeetingRequired && amountYuan < PRE_MEETING_THRESHOLD_YUAN) {
+      throw new BadRequestException(
+        `预计采购金额不足 ${PRE_MEETING_THRESHOLD_YUAN / 10000} 万元，无需编制采前会会议纪要`,
+      );
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const num = (v: any): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) throw new BadRequestException('表格中的数量/金额必须为数字');
+      return n;
+    };
+    const date = (v: any): Date | null => {
+      if (v === '' || v == null) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('会议时间格式无效');
+      return d;
+    };
+    /** 表格行：数值字段按数字存，其余按文本存；空表存 null */
+    const jsonRows = (v: any, numericFields: string[], fields: string[]): string | null => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) throw new BadRequestException('表格数据无效');
+      const numeric = new Set(numericFields);
+      const normalized = v
+        .filter((r: any) => r != null && typeof r === 'object')
+        .map((r: any) => {
+          const row: Record<string, string | number | null> = {};
+          for (const f of fields) row[f] = numeric.has(f) ? num(r?.[f]) : text(r?.[f]);
+          return row;
+        });
+      return normalized.length ? JSON.stringify(normalized) : null;
+    };
+    /** 询价单图片（支持多张） */
+    const images = (v: any): string | null => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) throw new BadRequestException('询价单图片数据无效');
+      const normalized = v
+        .filter((f: any) => f?.url)
+        .map((f: any) => ({ fileName: text(f.fileName) ?? '询价单', url: String(f.url), size: num(f.size) }));
+      return normalized.length ? JSON.stringify(normalized) : null;
+    };
+
+    const payload = {
+      meetingTime: date(body?.meetingTime),
+      content: text(body?.content),
+      host: text(body?.host),
+      attendees: text(body?.attendees),
+      writer: text(body?.writer),
+      reviewer: text(body?.reviewer),
+      purchaseItems: jsonRows(body?.purchaseItems, ['qty'], ['materialName', 'spec', 'unit', 'qty']),
+      techQuality: text(body?.techQuality),
+      acceptance: text(body?.acceptance),
+      paymentTerms: text(body?.paymentTerms),
+      // 成本分析表：income/cost 均为「万元」，效益额与效益率由前端按公式计算展示
+      costRows: jsonRows(body?.costRows, ['income', 'cost'], ['materialName', 'spec', 'income', 'cost']),
+      inquirySheets: images(body?.inquirySheets),
+    };
+
+    const saved = await this.prisma.preMeetingMinutes.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializeMinutes(saved);
+  }
+
+  private serializeMinutes(r: {
+    id: string;
+    taskId: string;
+    meetingTime: Date | null;
+    content: string | null;
+    host: string | null;
+    attendees: string | null;
+    writer: string | null;
+    reviewer: string | null;
+    purchaseItems: string | null;
+    techQuality: string | null;
+    acceptance: string | null;
+    paymentTerms: string | null;
+    costRows: string | null;
+    inquirySheets: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    const parse = (s: string | null): any[] => {
+      if (!s) return [];
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr : [];
+      } catch {
+        return [];
+      }
+    };
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      meetingTime: r.meetingTime,
+      content: r.content ?? '',
+      host: r.host ?? '',
+      attendees: r.attendees ?? '',
+      writer: r.writer ?? '',
+      reviewer: r.reviewer ?? '',
+      purchaseItems: parse(r.purchaseItems),
+      techQuality: r.techQuality ?? '',
+      acceptance: r.acceptance ?? '',
+      paymentTerms: r.paymentTerms ?? '',
+      costRows: parse(r.costRows),
+      inquirySheets: parse(r.inquirySheets),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  /**
+   * 采购公告（批次二 · 任务 3.3，仅「单项采购」任务）。
+   * 状态由阶段进度推导：stage=公告阶段下标 → 编辑中；stage > 公告阶段下标 → 已完成（发布后，仍可重新编辑）。
+   * 采购清单不落库，始终从「总采购清单」派生（数据来自总采购清单、不可编辑）。
+   */
+  async notice(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购公告模块');
+    }
+    const stageIndex = noticeStageIndex(task);
+    const reached = task.stage >= stageIndex;
+    const published = task.stage > stageIndex;
+    const record = await this.prisma.procurementNotice.findUnique({ where: { taskId } });
+    const items = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    return {
+      task: this.serialize(task),
+      /** 公告阶段在阶段链中的下标（单项采购：无采前会=1 / 有采前会=2） */
+      stageIndex,
+      /** 是否已进入或完成公告阶段（总清单、采前会已发布） */
+      reached,
+      editable: reached && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      /** 采购清单（只读）：来自总采购清单 */
+      purchaseItems: items.map((i) => ({
+        materialName: i.materialName,
+        spec: i.spec,
+        unit: i.unit,
+        qty: i.qty,
+        remark: '',
+      })),
+      data: record ? this.serializeNotice(record) : null,
+    };
+  }
+
+  /** 保存采购公告（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
+  async saveNotice(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购公告模块');
+    }
+    if (task.stage < noticeStageIndex(task)) {
+      throw new BadRequestException('请先发布总采购清单（如有采前会会议纪要亦需发布）后再编制采购公告');
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const date = (v: any): Date | null => {
+      if (v === '' || v == null) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购时间格式无效');
+      return d;
+    };
+    /** 动态列表（联系人 / 联系电话）：按位置保存，仅裁剪尾部空项以保证「联系人N/联系电话N」按同一位置配对 */
+    const list = (v: any, label: string): string | null => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) throw new BadRequestException(`${label}数据无效`);
+      const arr = v.map((x: any) => String(x ?? '').trim());
+      while (arr.length && !arr[arr.length - 1]) arr.pop();
+      return arr.length ? JSON.stringify(arr) : null;
+    };
+
+    const payload = {
+      procurementNo: text(body?.procurementNo),
+      procurementTime: date(body?.procurementTime),
+      content: text(body?.content),
+      techQuality: text(body?.techQuality),
+      acceptanceMethod: text(body?.acceptanceMethod),
+      paymentMethod: text(body?.paymentMethod),
+      contacts: list(body?.contacts, '联系人'),
+      contactPhones: list(body?.contactPhones, '联系电话'),
+    };
+
+    const saved = await this.prisma.procurementNotice.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializeNotice(saved);
+  }
+
+  private serializeNotice(r: {
+    id: string;
+    taskId: string;
+    procurementNo: string | null;
+    procurementTime: Date | null;
+    content: string | null;
+    techQuality: string | null;
+    acceptanceMethod: string | null;
+    paymentMethod: string | null;
+    contacts: string | null;
+    contactPhones: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    const parseList = (s: string | null): string[] => {
+      if (!s) return [];
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr.map((x) => String(x ?? '')) : [];
+      } catch {
+        return [];
+      }
+    };
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      procurementNo: r.procurementNo ?? '',
+      procurementTime: r.procurementTime,
+      content: r.content ?? '',
+      techQuality: r.techQuality ?? '',
+      acceptanceMethod: r.acceptanceMethod ?? '',
+      paymentMethod: r.paymentMethod ?? '',
+      contacts: parseList(r.contacts),
+      contactPhones: parseList(r.contactPhones),
       publishedAt: r.publishedAt,
       updatedAt: r.updatedAt,
     };

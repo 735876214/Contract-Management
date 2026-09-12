@@ -44,6 +44,34 @@ export class ProcurementTaskController {
     return this.service.saveFrameworkExplanation(id, body);
   }
 
+  /** 采前会会议纪要（任务 3.2；仅单项采购且预计采购金额 ≥ 100 万时生成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/pre-meeting-minutes')
+  preMeetingMinutes(@Param('id') id: string) {
+    return this.service.preMeetingMinutes(id);
+  }
+
+  /** 保存采前会会议纪要（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/pre-meeting-minutes')
+  savePreMeetingMinutes(@Param('id') id: string, @Body() body: any) {
+    return this.service.savePreMeetingMinutes(id, body);
+  }
+
+  /** 采购公告（任务 3.3；仅单项采购，状态由阶段推导：编辑中/已完成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/notice')
+  notice(@Param('id') id: string) {
+    return this.service.notice(id);
+  }
+
+  /** 保存采购公告（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/notice')
+  saveNotice(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveNotice(id, body);
+  }
+
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
   @RequirePermissions('contract:edit')
   @Put(':id/total-list')

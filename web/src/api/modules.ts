@@ -47,6 +47,41 @@ export const procurementTaskApi = {
       attachments?: unknown[];
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/framework-explanation`, data),
+  /** 采前会会议纪要（任务 3.2）：仅「单项采购」且预计采购金额 ≥ 100 万时生成 */
+  preMeetingMinutes: (id: string) =>
+    http.get<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`),
+  savePreMeetingMinutes: (
+    id: string,
+    data: {
+      meetingTime?: string | null;
+      content?: string;
+      host?: string;
+      attendees?: string;
+      writer?: string;
+      reviewer?: string;
+      purchaseItems?: unknown[];
+      techQuality?: string;
+      acceptance?: string;
+      paymentTerms?: string;
+      costRows?: unknown[];
+      inquirySheets?: unknown[];
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`, data),
+  /** 采购公告（任务 3.3）：仅「单项采购」任务可用；采购清单来自总采购清单（只读） */
+  notice: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/notice`),
+  saveNotice: (
+    id: string,
+    data: {
+      procurementNo?: string;
+      procurementTime?: string | null;
+      content?: string;
+      techQuality?: string;
+      acceptanceMethod?: string;
+      paymentMethod?: string;
+      contacts?: string[];
+      contactPhones?: string[];
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/notice`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 

@@ -123,6 +123,9 @@ model Project {
   procurementTemplates ProcurementTemplate[]
   procurementTasks     ProcurementTask[]
   procurementTotalItems ProcurementTotalItem[]
+  frameworkExplanations FrameworkExplanation[]
+  preMeetingMinutes    PreMeetingMinutes[]
+  procurementNotices   ProcurementNotice[]
   @@index([createdAt])
 }
 
@@ -1035,6 +1038,8 @@ model ProcurementTask {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   totalItems ProcurementTotalItem[]
   frameworkExplanation FrameworkExplanation?
+  preMeetingMinutes    PreMeetingMinutes?
+  procurementNotice    ProcurementNotice?
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1084,6 +1089,60 @@ model FrameworkExplanation {
   createdAt        DateTime @default(now())
   version          Int      @default(0)
   updatedAt        DateTime @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ---------------- 采前会会议纪要（批次二 · 任务 3.2，仅 SINGLE 类型且预计采购金额 ≥ 100 万） ----------------
+
+model PreMeetingMinutes {
+  id            String    @id @default(cuid())
+  projectId     String
+  taskId        String    @unique // 一个采购任务仅一份采前会会议纪要
+  meetingTime   DateTime? // 会议时间（日期选择器）
+  content       String? // 采购内容（文本，默认带出采购任务内容）
+  host          String? // 主持人
+  attendees     String? // 参会人员
+  writer        String? // 会议纪要编写人
+  reviewer      String? // 审核人
+  purchaseItems String? // 采购清单 JSON: [{materialName, spec, unit, qty}]
+  techQuality   String? // 技术质量要求（富文本 HTML）
+  acceptance    String? // 验收标准（富文本 HTML）
+  paymentTerms  String? // 付款条件（富文本 HTML）
+  costRows      String? // 采购成本分析表 JSON: [{materialName, spec, income, cost}]，income/cost 单位为万元
+  inquirySheets String? // 询价单图片 JSON: [{fileName, url, size}]
+  publishedAt   DateTime? // 发布时间（采前会阶段发布后回填）
+  createdAt     DateTime  @default(now())
+  version       Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ---------------- 采购公告（批次二 · 任务 3.3，仅 SINGLE 单项采购任务） ----------------
+// 采购清单不落库：始终从「总采购清单」派生（发布后已冻结），保证「数据来自总采购清单，不可编辑」。
+model ProcurementNotice {
+  id               String    @id @default(cuid())
+  projectId        String
+  taskId           String    @unique // 一个采购任务仅一份采购公告
+  procurementNo    String? // 采购编号（文本）
+  procurementTime  DateTime? // 采购时间（日期）
+  content          String? // 采购内容（文本，默认带出采购任务内容）
+  techQuality      String? // 技术质量标准（富文本 HTML）
+  acceptanceMethod String? // 验收方式（富文本 HTML）
+  paymentMethod    String? // 付款方式（富文本 HTML）
+  contacts         String? // 联系人 JSON: ["张三","李四"]，多个时按位置自动编号「联系人1/联系人2」
+  contactPhones    String? // 联系电话 JSON: ["138…","139…"]，多个时按位置自动编号「联系电话1/联系电话2」
+  publishedAt      DateTime? // 发布时间（公告阶段发布后回填）
+  createdAt        DateTime  @default(now())
+  version          Int       @default(0)
+  updatedAt        DateTime  @updatedAt
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
