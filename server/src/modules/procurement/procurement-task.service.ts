@@ -1624,8 +1624,11 @@ export class ProcurementTaskService {
       throw new BadRequestException('请先发布采购文件（采购文件已完成）后再导入响应单位情况汇总表');
     }
 
-    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板的示例行
-    if (!rows.length) throw new BadRequestException('导入文件无有效数据行（请从第 3 行起填写）');
+    // 解析表头（第 1 行）之后的所有行。不再按行号硬性跳过第 2 行示例行，
+    // 否则用户在示例行直接填写真实数据（高频用法）时该行会被丢弃，表现为「第二行导入失败」。
+    const rawRows = await this.excel.parse(buffer, []);
+    if (!rawRows.length)
+      throw new BadRequestException('导入文件无有效数据行（请从第 3 行起填写，或直接在示例行填入真实数据）');
 
     const num = (v: any): number | null => {
       if (v == null || v === '') return null;
@@ -1633,6 +1636,19 @@ export class ProcurementTaskService {
       return Number.isFinite(n) ? n : null;
     };
     const str = (v: any): string => String(v ?? '').trim();
+
+    // 识别并跳过模板自带的示例行（第 2 行）：仅当其字段与模板示例完全一致时才视为示例行；
+    // 用户若在示例行填入真实数据，则视为数据行，从而避免漏导。
+    const isExampleRow = (r: any): boolean =>
+      str(r['参与响应单位名称']) === '某某建材有限公司' &&
+      num(r['第一轮报价不含税总额']) === 985000 &&
+      num(r['第一轮报价税金']) === 128050 &&
+      num(r['第二轮报价不含税总额']) === 960000 &&
+      num(r['第二轮报价税金']) === 124800;
+
+    const rows = rawRows.filter((r) => !isExampleRow(r));
+    if (!rows.length)
+      throw new BadRequestException('导入文件无有效数据行（识别到的行均为模板示例行，请填写真实数据）');
 
     const suppliers = rows.map((r, i) => ({
       seq: num(r['序号']) ?? i + 1,

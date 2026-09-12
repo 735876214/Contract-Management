@@ -450,6 +450,7 @@ export default function ResultReport() {
     { title: '拟推荐成交候选人', dataIndex: 'name', render: (v: string) => v || '-' },
     {
       title: '最终确认不含税价格',
+      dataIndex: 'finalPreTaxPrice',
       width: 220,
       render: (v: number | null | undefined, _r, i) =>
         editable ? (
@@ -457,7 +458,7 @@ export default function ResultReport() {
             style={{ width: '100%' }}
             min={0}
             precision={2}
-            value={v ?? null}
+            value={typeof v === 'number' ? v : null}
             placeholder="请输入"
             onChange={(val) => patchCandidate(i, { finalPreTaxPrice: val ?? null })}
           />
@@ -587,7 +588,7 @@ export default function ResultReport() {
         title={`成交报告 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
         width={1100}
         centered
-        open={editOpen}
+        open={editOpen && !modalMode}
         onCancel={closeEdit}
         destroyOnClose
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
