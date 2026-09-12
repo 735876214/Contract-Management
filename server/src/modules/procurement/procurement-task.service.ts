@@ -160,7 +160,10 @@ export class ProcurementTaskService {
     string,
     { rel: string; select: Record<string, boolean> }
   > = {
-    FRAMEWORK_EXPLANATION: { rel: 'frameworkExplanation', select: { publishedAt: true } },
+    FRAMEWORK_EXPLANATION: {
+      rel: 'frameworkExplanation',
+      select: { publishedAt: true, referenceSuppliers: true },
+    },
     PRE_MEETING: {
       rel: 'preMeetingMinutes',
       select: { meetingTime: true, host: true, writer: true, publishedAt: true },
@@ -254,6 +257,26 @@ export class ProcurementTaskService {
           break;
       }
       if (Object.keys(rf).length) where[moduleDef.rel] = rf;
+
+      // 阶段门槛：模块列表仅返回「已到达该模块阶段」的任务（上一步未完成的任务不提前体现）。
+      // 阶段推进语义：编辑模块 m 时 stage=m，发布后 stage=m+1，因此 stage >= 模块序号 ⇔ 前序阶段已完成。
+      // 采前会为条件阶段：不在任务阶段链中（preMeetingRequired=false）时该分支直接排除。
+      const stageKey = ProcurementTaskService.MODULE_DELETE_MODELS[String(query.module)]?.stageKey;
+      if (stageKey) {
+        if (String(query.module) === 'FRAMEWORK_EXPLANATION') {
+          // 框架协议事前说明仅属于 FRAMEWORK 链（总清单 → 事前说明）
+          if (!query.type) where.type = 'FRAMEWORK';
+          const idx = stageChain('FRAMEWORK', false).findIndex((s) => s.key === stageKey);
+          if (idx >= 0) where.stage = { gte: idx };
+        } else {
+          const noPm = stageChain('SINGLE', false).findIndex((s) => s.key === stageKey);
+          const withPm = stageChain('SINGLE', true).findIndex((s) => s.key === stageKey);
+          const branches: any[] = [];
+          if (noPm >= 0) branches.push({ AND: [{ preMeetingRequired: false }, { stage: { gte: noPm } }] });
+          if (withPm >= 0) branches.push({ AND: [{ preMeetingRequired: true }, { stage: { gte: withPm } }] });
+          if (branches.length) where.AND = [...(where.AND ?? []), { OR: branches }];
+        }
+      }
     }
 
     const include: any = moduleDef ? { [moduleDef.rel]: { select: moduleDef.select } } : undefined;
