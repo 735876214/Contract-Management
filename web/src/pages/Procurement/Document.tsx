@@ -29,10 +29,10 @@ import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
 import {
   getProcurementVariableGroups,
-  replaceProcurementVariables,
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
-import { exportWord, highlightPlaceholders } from '@/utils/docExport';
+import PreviewPublishModal from '@/components/PreviewPublishModal';
+import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildDocumentDocHtml,
   buildDocumentVariableValues,
@@ -123,9 +123,8 @@ export default function Document() {
   const [publishing, setPublishing] = useState(false);
   /** 发布后默认只读；点「重新编辑」解锁 */
   const [reEditing, setReEditing] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  /** 发布流程：预览 → 确认 → 发布 */
-  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
+  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
+  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
 
   const [project, setProject] = useState<{
     name?: string;
@@ -232,7 +231,7 @@ export default function Document() {
       message.warning('请先填写「响应保证金」再发布');
       return;
     }
-    setPublishPreviewOpen(true);
+    setModalMode('publish');
   };
 
   /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
@@ -243,7 +242,7 @@ export default function Document() {
       await procurementTaskApi.saveDocument(taskId, buildSavePayload());
       await procurementTaskApi.publish(taskId);
       message.success('已发布，采购文件状态变更为「已完成」');
-      setPublishPreviewOpen(false);
+      setModalMode(null);
       loadDetail(taskId);
     } finally {
       setPublishing(false);
@@ -277,23 +276,31 @@ export default function Document() {
     [project, content, detail],
   );
 
-  /** 变量替换后的文档 HTML（预览 / 导出 Word 共用） */
-  const docHtml = useMemo(() => {
+  /** 模块内置文档 HTML（含 {{占位符}}，未替换；统一管线内完成模板优先与变量替换） */
+  const rawDocHtml = useMemo(() => {
     if (!currentTask) return '';
     const title = `${project.nameAbbr || project.name || ''}-${content}-采购文件`;
-    const html = buildDocumentDocHtml(docData, docCtx, title);
-    return replaceProcurementVariables(
-      html,
-      buildDocumentVariableValues(docData, docCtx),
-      MODULE_TYPE,
-    );
+    return buildDocumentDocHtml(docData, docCtx, title);
   }, [docData, docCtx, currentTask, project, content]);
 
-  const handleExport = () => {
+  /** 变量取值（统一预览 / 导出共用） */
+  const varValues = useMemo(
+    () => buildDocumentVariableValues(docData, docCtx),
+    [docData, docCtx],
+  );
+
+  const exportFilename = `${project.nameAbbr || project.name || '项目'}-${content}-采购文件.docx`;
+
+  const handleExport = async () => {
     if (!currentTask) return;
-    const filename = `${project.nameAbbr || project.name || '项目'}-${content}-采购文件.docx`;
-    exportWord(docHtml, filename);
-    message.success(`已导出：${filename}`);
+    await exportProcurementWord({
+      moduleType: MODULE_TYPE,
+      taskId: taskId ?? undefined,
+      docHtml: rawDocHtml,
+      values: varValues,
+      filename: exportFilename,
+    });
+    message.success(`已导出：${exportFilename}`);
   };
 
   /* ---------------- 采购清单（只读）列 ---------------- */
@@ -520,7 +527,7 @@ export default function Document() {
                   </Button>
                 )}
                 <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
                     预览
                   </Button>
                 </Tooltip>
@@ -538,63 +545,24 @@ export default function Document() {
         )}
       </Spin>
 
-      {/* 预览 */}
-      <Modal
-        title="采购文件 · 预览"
-        open={previewOpen}
-        width={1000}
-        footer={[
-          <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Word
-          </Button>,
-          <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>
-            关闭
-          </Button>,
-        ]}
-        onCancel={() => setPreviewOpen(false)}
-      >
-        <div
-          style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-          dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-        />
-      </Modal>
-
-      {/* 发布流程：预览 → 确认 → 发布 */}
-      <Modal
-        title="采购文件 · 发布前确认"
-        open={publishPreviewOpen}
-        width={1000}
-        footer={[
-          <Button key="cancel" onClick={() => setPublishPreviewOpen(false)}>
-            返回修改
-          </Button>,
-          <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Word
-          </Button>,
-          <Popconfirm
-            key="publish"
-            title="确认发布采购文件？"
-            description="发布前将自动保存当前内容；发布后状态变更为「已完成」，任务状态流转到下一阶段。"
-            onConfirm={handlePublish}
-          >
-            <Button type="primary" icon={<SendOutlined />} loading={publishing}>
-              确认发布
-            </Button>
-          </Popconfirm>,
-        ]}
-        onCancel={() => setPublishPreviewOpen(false)}
-      >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="请核对采购文件内容与采购清单，确认无误后点击「确认发布」。"
-        />
-        <div
-          style={{ maxHeight: '55vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-          dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-        />
-      </Modal>
+      {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
+      <PreviewPublishModal
+        open={modalMode !== null}
+        mode={modalMode ?? 'preview'}
+        moduleType={MODULE_TYPE}
+        taskId={taskId ?? undefined}
+        docHtml={rawDocHtml}
+        values={varValues}
+        publishing={publishing}
+        filename={exportFilename}
+        projectAbbr={project.nameAbbr}
+        content={content}
+        confirmTitle="确认发布采购文件？"
+        confirmDescription="发布前将自动保存当前内容；发布后状态变更为「已完成」，任务状态流转到下一阶段。"
+        tipMessage="请核对采购文件内容与采购清单，确认无误后点击「确认发布」。"
+        onPublish={handlePublish}
+        onClose={() => setModalMode(null)}
+      />
     </Space>
   );
 }

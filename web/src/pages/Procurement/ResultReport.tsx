@@ -34,7 +34,8 @@ import {
   replaceProcurementVariables,
 } from '@/constants/procurementVariables';
 import ImportButton from '@/components/ImportButton';
-import { exportWord, highlightPlaceholders } from '@/utils/docExport';
+import PreviewPublishModal from '@/components/PreviewPublishModal';
+import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildResultReportDocHtml,
   buildResultReportVariableValues,
@@ -137,8 +138,8 @@ export default function ResultReport() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [reEditing, setReEditing] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
+  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
+  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
 
   const [project, setProject] = useState<{
     name?: string;
@@ -281,7 +282,7 @@ export default function ResultReport() {
       message.warning('请先导入「响应单位情况汇总表」再发布');
       return;
     }
-    setPublishPreviewOpen(true);
+    setModalMode('publish');
   };
 
   const handlePublish = async () => {
@@ -291,7 +292,7 @@ export default function ResultReport() {
       await procurementTaskApi.saveResultReport(taskId, buildSavePayload());
       await procurementTaskApi.publish(taskId);
       message.success('已发布，成交报告状态变更为「已完成」');
-      setPublishPreviewOpen(false);
+      setModalMode(null);
       loadDetail(taskId);
     } finally {
       setPublishing(false);
@@ -328,22 +329,31 @@ export default function ResultReport() {
     [project, content, detail],
   );
 
-  const docHtml = useMemo(() => {
+  /** 模块内置文档 HTML（含 {{占位符}}，未替换；统一管线内完成模板优先与变量替换） */
+  const rawDocHtml = useMemo(() => {
     if (!currentTask) return '';
     const title = `${project.nameAbbr || project.name || ''}-${content}-成交报告`;
-    const html = buildResultReportDocHtml(reportData, reportCtx, title);
-    return replaceProcurementVariables(
-      html,
-      buildResultReportVariableValues(reportData, reportCtx),
-      MODULE_TYPE,
-    );
+    return buildResultReportDocHtml(reportData, reportCtx, title);
   }, [reportData, reportCtx, currentTask, project, content]);
 
-  const handleExport = () => {
+  /** 变量取值（统一预览 / 导出共用） */
+  const varValues = useMemo(
+    () => buildResultReportVariableValues(reportData, reportCtx),
+    [reportData, reportCtx],
+  );
+
+  const exportFilename = `${project.nameAbbr || project.name || '项目'}-${content}-成交报告.docx`;
+
+  const handleExport = async () => {
     if (!currentTask) return;
-    const filename = `${project.nameAbbr || project.name || '项目'}-${content}-成交报告.docx`;
-    exportWord(docHtml, filename);
-    message.success(`已导出：${filename}`);
+    await exportProcurementWord({
+      moduleType: MODULE_TYPE,
+      taskId: taskId ?? undefined,
+      docHtml: rawDocHtml,
+      values: varValues,
+      filename: exportFilename,
+    });
+    message.success(`已导出：${exportFilename}`);
   };
 
   /* ---------------- 表格列 ---------------- */
@@ -787,7 +797,7 @@ export default function ResultReport() {
                   </Button>
                 )}
                 <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
                     预览
                   </Button>
                 </Tooltip>
@@ -805,63 +815,24 @@ export default function ResultReport() {
         )}
       </Spin>
 
-      {/* 预览 */}
-      <Modal
-        title="成交报告 · 预览"
-        open={previewOpen}
-        width={1000}
-        footer={[
-          <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Word
-          </Button>,
-          <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>
-            关闭
-          </Button>,
-        ]}
-        onCancel={() => setPreviewOpen(false)}
-      >
-        <div
-          style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-          dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-        />
-      </Modal>
-
-      {/* 发布流程：预览 → 确认 → 发布 */}
-      <Modal
-        title="成交报告 · 发布前确认"
-        open={publishPreviewOpen}
-        width={1000}
-        footer={[
-          <Button key="cancel" onClick={() => setPublishPreviewOpen(false)}>
-            返回修改
-          </Button>,
-          <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Word
-          </Button>,
-          <Popconfirm
-            key="publish"
-            title="确认发布成交报告？"
-            description="发布前将自动保存当前内容；发布后状态变更为「已完成」，任务状态流转到下一阶段。"
-            onConfirm={handlePublish}
-          >
-            <Button type="primary" icon={<SendOutlined />} loading={publishing}>
-              确认发布
-            </Button>
-          </Popconfirm>,
-        ]}
-        onCancel={() => setPublishPreviewOpen(false)}
-      >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="请核对成交报告内容与四张表，确认无误后点击「确认发布」。"
-        />
-        <div
-          style={{ maxHeight: '55vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-          dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-        />
-      </Modal>
+      {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
+      <PreviewPublishModal
+        open={modalMode !== null}
+        mode={modalMode ?? 'preview'}
+        moduleType={MODULE_TYPE}
+        taskId={taskId ?? undefined}
+        docHtml={rawDocHtml}
+        values={varValues}
+        publishing={publishing}
+        filename={exportFilename}
+        projectAbbr={project.nameAbbr}
+        content={content}
+        confirmTitle="确认发布成交报告？"
+        confirmDescription="发布前将自动保存当前内容；发布后状态变更为「已完成」，任务状态流转到下一阶段。"
+        tipMessage="请核对成交报告内容与四张表，确认无误后点击「确认发布」。"
+        onPublish={handlePublish}
+        onClose={() => setModalMode(null)}
+      />
     </Space>
   );
 }

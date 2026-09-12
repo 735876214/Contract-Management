@@ -41,10 +41,10 @@ import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
 import {
   getProcurementVariableGroups,
-  replaceProcurementVariables,
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
-import { exportWord, highlightPlaceholders } from '@/utils/docExport';
+import PreviewPublishModal from '@/components/PreviewPublishModal';
+import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildPreMeetingDocHtml,
   buildPreMeetingVariableValues,
@@ -179,7 +179,8 @@ export default function PreMeetingMinutes() {
   const [publishing, setPublishing] = useState(false);
   /** 发布后默认预览（只读）；点「重新编辑」解锁 */
   const [reEditing, setReEditing] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
+  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -364,18 +365,25 @@ export default function PreMeetingMinutes() {
     }
   };
 
-  const handlePublish = async () => {
+  /** 发布流程第 1 步：校验必填 → 打开「发布前预览」（统一预览发布流程） */
+  const openPublishPreview = () => {
     if (!taskId) return;
     if (!form.meetingTime || !String(form.content ?? '').trim()) {
       message.warning('请先填写「会议时间」与「采购内容」再发布');
       return;
     }
+    setModalMode('publish');
+  };
+
+  /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
+  const handlePublish = async () => {
+    if (!taskId) return;
     setPublishing(true);
     try {
-      // 发布前先落库当前编辑内容，避免「发布的内容 ≠ 已保存的内容」
       await procurementTaskApi.savePreMeetingMinutes(taskId, buildSavePayload());
       await procurementTaskApi.publish(taskId);
       message.success('已发布，采前会会议纪要状态变更为「已完成」');
+      setModalMode(null);
       loadDetail(taskId);
     } finally {
       setPublishing(false);
@@ -407,26 +415,35 @@ export default function PreMeetingMinutes() {
     [project, currentTask, detail],
   );
 
-  /** 变量替换后的文档 HTML（预览 / 导出 Word 共用） */
-  const docHtml = useMemo(() => {
+  /** 模块内置文档 HTML（含 {{占位符}}，未替换；统一管线内完成模板优先与变量替换） */
+  const rawDocHtml = useMemo(() => {
     if (!currentTask) return '';
     const content = docData.content || currentTask.content;
     const title = `${project.nameAbbr || project.name || ''}-${content}-采前会会议纪要`;
-    const html = buildPreMeetingDocHtml(docData, docCtx, title);
-    // 变量替换：{{采前会-采购清单}} / {{采前会-采购成本分析表}} / {{会议时间}} / {{主持人}} / {{参会人员}} 等
-    return replaceProcurementVariables(
-      html,
-      buildPreMeetingVariableValues(docData, docCtx),
-      MODULE_TYPE,
-    );
+    // {{采前会-采购清单}} / {{采前会-采购成本分析表}} / {{会议时间}} / {{主持人}} / {{参会人员}} 等
+    return buildPreMeetingDocHtml(docData, docCtx, title);
   }, [docData, docCtx, currentTask, project]);
 
-  const handleExport = () => {
+  /** 变量取值（统一预览 / 导出共用） */
+  const varValues = useMemo(
+    () => buildPreMeetingVariableValues(docData, docCtx),
+    [docData, docCtx],
+  );
+
+  const exportFilename = `${
+    project.nameAbbr || project.name || '项目'
+  }-${form.content || currentTask?.content || '采购'}-采前会会议纪要.docx`;
+
+  const handleExport = async () => {
     if (!currentTask) return;
-    const content = form.content || currentTask.content;
-    const filename = `${project.nameAbbr || project.name || '项目'}-${content}-采前会会议纪要.docx`;
-    exportWord(docHtml, filename);
-    message.success(`已导出：${filename}`);
+    await exportProcurementWord({
+      moduleType: MODULE_TYPE,
+      taskId: taskId ?? undefined,
+      docHtml: rawDocHtml,
+      values: varValues,
+      filename: exportFilename,
+    });
+    message.success(`已导出：${exportFilename}`);
   };
 
   /* ---------------- 表格列 ---------------- */
@@ -853,20 +870,14 @@ export default function PreMeetingMinutes() {
                   </Button>
                 )}
                 <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
                     预览
                   </Button>
                 </Tooltip>
                 {detail?.editable && (
-                  <Popconfirm
-                    title="发布采前会会议纪要？"
-                    description="发布前将自动保存当前内容；发布后状态变更为「已完成」，仍可预览与重新编辑。"
-                    onConfirm={handlePublish}
-                  >
-                    <Button type="primary" icon={<SendOutlined />} loading={publishing}>
-                      发布
-                    </Button>
-                  </Popconfirm>
+                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                    发布
+                  </Button>
                 )}
                 <Button icon={<DownloadOutlined />} onClick={handleExport}>
                   导出 Word
@@ -877,25 +888,23 @@ export default function PreMeetingMinutes() {
         )}
       </Spin>
 
-      <Modal
-        title="采前会会议纪要 · 预览"
-        open={previewOpen}
-        width={900}
-        footer={[
-          <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Word
-          </Button>,
-          <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>
-            关闭
-          </Button>,
-        ]}
-        onCancel={() => setPreviewOpen(false)}
-      >
-        <div
-          style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-          dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-        />
-      </Modal>
+      {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
+      <PreviewPublishModal
+        open={modalMode !== null}
+        mode={modalMode ?? 'preview'}
+        moduleType={MODULE_TYPE}
+        taskId={taskId ?? undefined}
+        docHtml={rawDocHtml}
+        values={varValues}
+        publishing={publishing}
+        filename={exportFilename}
+        projectAbbr={project.nameAbbr}
+        content={form.content || currentTask?.content}
+        confirmTitle="确认发布采前会会议纪要？"
+        confirmDescription="发布前将自动保存当前内容；发布后状态变更为「已完成」，仍可预览与重新编辑。"
+        onPublish={handlePublish}
+        onClose={() => setModalMode(null)}
+      />
 
       <Modal
         title="询价单预览"

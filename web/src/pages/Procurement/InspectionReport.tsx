@@ -37,10 +37,10 @@ import { fileApi } from '@/api/auth';
 import { useAuthStore } from '@/store/auth';
 import {
   getProcurementVariableGroups,
-  replaceProcurementVariables,
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
-import { exportWord, highlightPlaceholders } from '@/utils/docExport';
+import PreviewPublishModal from '@/components/PreviewPublishModal';
+import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildInspectionDocHtml,
   buildInspectionVariableValues,
@@ -96,8 +96,8 @@ export default function InspectionReport() {
 
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
+  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
+  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
 
   const [project, setProject] = useState<{
@@ -244,15 +244,24 @@ export default function InspectionReport() {
     }
   };
 
-  const handlePublish = async () => {
+  /** 发布流程第 1 步：校验 → 打开「发布前预览」（统一预览发布流程） */
+  const openPublishPreview = () => {
     if (editing === 'create' || !editing) {
       message.warning('请先保存考察报告');
-      setPublishPreviewOpen(false);
       return;
     }
     if (!formValues.unitName.trim()) {
       message.warning('请先填写「考察单位名称」再发布');
-      setPublishPreviewOpen(false);
+      return;
+    }
+    setModalMode('publish');
+  };
+
+  /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
+  const handlePublish = async () => {
+    if (editing === 'create' || !editing) {
+      message.warning('请先保存考察报告');
+      setModalMode(null);
       return;
     }
     setPublishing(true);
@@ -262,7 +271,7 @@ export default function InspectionReport() {
       const res: any = await inspectionReportApi.publish(targetId);
       const row = res?.data ?? res;
       message.success('已发布，考察报告状态变更为「已完成」');
-      setPublishPreviewOpen(false);
+      setModalMode(null);
       if (row?.id) {
         resetForm(row);
         setEditing(row);
@@ -285,22 +294,29 @@ export default function InspectionReport() {
 
   const published = !!detail?.published;
 
-  /** 预览 / 导出共用：变量替换后的文档 HTML（照片 URL 在导出时内联为 base64） */
-  const docHtml = useMemo(() => {
+  /** 预览 / 导出共用：模块内置文档 HTML（含 {{占位符}}，未替换；统一管线内完成模板优先、变量替换与图片内联） */
+  const rawDocHtml = useMemo(() => {
     const filenameBase = inspectionExportFilename(currentData, ctx).replace(/\.docx$/, '');
-    const html = buildInspectionDocHtml(currentData, ctx, filenameBase);
-    return replaceProcurementVariables(
-      html,
-      buildInspectionVariableValues(currentData, ctx),
-      MODULE_TYPE,
-    );
+    return buildInspectionDocHtml(currentData, ctx, filenameBase);
   }, [currentData, ctx]);
 
+  /** 变量取值（统一预览 / 导出共用） */
+  const varValues = useMemo(
+    () => buildInspectionVariableValues(currentData, ctx),
+    [currentData, ctx],
+  );
+
+  const exportFilename = inspectionExportFilename(currentData, ctx);
+
   const handleExport = async () => {
-    const filename = inspectionExportFilename(currentData, ctx);
-    const html = await inlineImagesSafe(docHtml);
-    exportWord(html, filename);
-    message.success(`已导出：${filename}`);
+    await exportProcurementWord({
+      moduleType: MODULE_TYPE,
+      taskId: undefined,
+      docHtml: rawDocHtml,
+      values: varValues,
+      filename: exportFilename,
+    });
+    message.success(`已导出：${exportFilename}`);
   };
 
   /* ---------------- 照片上传 ---------------- */
@@ -506,12 +522,12 @@ export default function InspectionReport() {
               保存
             </Button>
             <Tooltip title="按文档版式预览（变量已替换）">
-              <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
                 预览
               </Button>
             </Tooltip>
             {!published && !isCreate && (
-              <Button type="primary" icon={<SendOutlined />} onClick={() => setPublishPreviewOpen(true)}>
+              <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
                 发布
               </Button>
             )}
@@ -530,62 +546,21 @@ export default function InspectionReport() {
           </Space>
         </Card>
 
-        {/* 预览 */}
-        <Modal
-          title="考察报告 · 预览"
-          open={previewOpen}
-          width={1000}
-          footer={[
-            <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-              导出 Word
-            </Button>,
-            <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>
-              关闭
-            </Button>,
-          ]}
-          onCancel={() => setPreviewOpen(false)}
-        >
-          <div
-            style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-            dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-          />
-        </Modal>
-
-        {/* 发布流程：预览 → 确认 → 发布 */}
-        <Modal
-          title="考察报告 · 发布前确认"
-          open={publishPreviewOpen}
-          width={1000}
-          footer={[
-            <Button key="cancel" onClick={() => setPublishPreviewOpen(false)}>
-              返回修改
-            </Button>,
-            <Button key="export" icon={<DownloadOutlined />} onClick={handleExport}>
-              导出 Word
-            </Button>,
-            <Button
-              key="publish"
-              type="primary"
-              icon={<SendOutlined />}
-              loading={publishing}
-              onClick={handlePublish}
-            >
-              确认发布
-            </Button>,
-          ]}
-          onCancel={() => setPublishPreviewOpen(false)}
-        >
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="发布前将自动保存当前内容；发布后状态变更为「已完成」，可随时撤回。"
-          />
-          <div
-            style={{ maxHeight: '55vh', overflow: 'auto', border: '1px solid #eee', padding: 24 }}
-            dangerouslySetInnerHTML={{ __html: highlightPlaceholders(docHtml) }}
-          />
-        </Modal>
+        {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
+        <PreviewPublishModal
+          open={modalMode !== null}
+          mode={modalMode ?? 'preview'}
+          moduleType={MODULE_TYPE}
+          docHtml={rawDocHtml}
+          values={varValues}
+          publishing={publishing}
+          filename={exportFilename}
+          confirmTitle="确认发布考察报告？"
+          confirmDescription="发布前将自动保存当前内容；发布后状态变更为「已完成」，可随时撤回。"
+          tipMessage="发布前将自动保存当前内容；发布后状态变更为「已完成」，可随时撤回。"
+          onPublish={handlePublish}
+          onClose={() => setModalMode(null)}
+        />
       </Space>
     );
   }
@@ -624,13 +599,4 @@ export default function InspectionReport() {
       </Card>
     </Space>
   );
-}
-
-/** 导出时把远程图片内联为 base64 */
-async function inlineImagesSafe(html: string): Promise<string> {
-  try {
-    return await inlineImageUrls(html);
-  } catch {
-    return html;
-  }
 }

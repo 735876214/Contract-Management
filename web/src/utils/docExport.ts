@@ -1,6 +1,7 @@
 /** 合同正文导出：Word(.doc) / 打印(PDF) */
 
-const WORD_TPL = (title: string, body: string) => `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+/** MSO 兼容 Word HTML 封装（导出 / 通用导出管线共用） */
+export const WORD_TPL = (title: string, body: string) => `<html xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:w="urn:schemas-microsoft-com:office:word"
  xmlns="http://www.w3.org/TR/REC-html40">
 <head>
