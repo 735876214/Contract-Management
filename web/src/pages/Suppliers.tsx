@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Drawer, Select } from 'antd';
+import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Select } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
@@ -127,7 +127,7 @@ export default function Suppliers() {
         </Form>
       </Modal>
 
-      <Drawer title="供应商详情" width={520} open={!!detail} onClose={() => setDetail(null)}>
+      <Modal title="供应商详情" width={520} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
         <Descriptions column={1} size="small" bordered>
           <Descriptions.Item label="供应商名称">{detail?.name}</Descriptions.Item>
           {FIELDS.map(([key, label]) => (
@@ -135,7 +135,7 @@ export default function Suppliers() {
           ))}
           <Descriptions.Item label="备注">{detail?.remark || '-'}</Descriptions.Item>
         </Descriptions>
-      </Drawer>
+      </Modal>
     </Card>
   );
 }

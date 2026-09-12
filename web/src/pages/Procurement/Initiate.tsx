@@ -3,7 +3,6 @@ import {
   Alert,
   Button,
   Descriptions,
-  Drawer,
   Form,
   Input,
   Modal,
@@ -14,12 +13,13 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined } from '@ant-design/icons';
+import { FileWordOutlined, PlusOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';
 import TotalListEditor, {
   TotalListEditorContent,
   type TotalListContentRef,
 } from '@/components/procurement/TotalListEditor';
+import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import {
   BASIC_EDITABLE_STATUSES,
@@ -30,6 +30,7 @@ import {
   taskTypeLabel,
   type FlowStage,
 } from '@/constants/procurementWorkflow';
+import { exportTaskModuleWord, TASK_MODULE_LABELS, type TaskModuleType } from '@/utils/procurementTaskDocs';
 import dayjs from 'dayjs';
 
 /** 采购任务行（批次二 · 任务 2.1；列表数据同 ModuleListRow，用途字段另行透出） */
@@ -66,6 +67,8 @@ export default function Initiate() {
 
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  /** 任务查看弹窗（问题一：已完成任务「查看」→ 任务信息+采购明细+Word 文档） */
+  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
   /** 总采购清单只读查看弹窗（问题三补充：居中弹窗，非侧边抽屉） */
   const [listTask, setListTask] = useState<ModuleListRow | null>(null);
   /** 列表刷新键 */
@@ -163,6 +166,27 @@ export default function Initiate() {
     setDetailOpen(true);
   };
 
+  /** 列表行查看（问题一）：已完成任务 → 任务查看弹窗（采购明细+Word 文档）；其余 → 任务详情弹窗 */
+  const handleViewRow = (row: ModuleListRow) => {
+    if (row.status === 'COMPLETED') setViewRow(row);
+    else void openDetail(row.id);
+  };
+
+  /** 已完成任务「更多 → 导出Word」子菜单项（问题二：按模块逐个导出） */
+  const exportWordChildren = (row: ModuleListRow) =>
+    (Object.keys(TASK_MODULE_LABELS) as TaskModuleType[]).map((m) => ({
+      key: `export-${m}`,
+      label: TASK_MODULE_LABELS[m],
+      onClick: async () => {
+        try {
+          const filename = await exportTaskModuleWord(m, row.id);
+          message.success(`已导出：${filename}`);
+        } catch (e: any) {
+          message.error(e?.message || '导出失败，请稍后重试');
+        }
+      },
+    }));
+
   const handleRemove = (row: ModuleListRow) => {
     Modal.confirm({
       title: '确认删除该采购任务？',
@@ -238,7 +262,7 @@ export default function Initiate() {
         extraFilters={extraFilters as never}
         extraColumns={extraColumns}
         refreshKey={listRefresh}
-        onView={(row) => openDetail(row.id)}
+        onView={handleViewRow}
         onDelete={handleRemove}
         rowMenuItems={(row) => {
           const basicEditable = BASIC_EDITABLE_STATUSES.includes(row.status);
@@ -254,6 +278,20 @@ export default function Initiate() {
               disabled: !basicEditable,
               onClick: () => openEdit(row as unknown as TaskRow),
             },
+            // 问题二：已完成任务提供各模块 Word 文档导出子菜单
+            ...(row.status === 'COMPLETED'
+              ? [
+                  {
+                    key: 'exportWord',
+                    label: (
+                      <span>
+                        <FileWordOutlined /> 导出Word
+                      </span>
+                    ),
+                    children: exportWordChildren(row),
+                  },
+                ]
+              : []),
           ];
         }}
       />
@@ -343,12 +381,17 @@ export default function Initiate() {
         )}
       </Modal>
 
-      {/* 详情 + 工作流（问题三：行内/详情发布入口取消，各阶段发布在各模块页面与总清单第二步进行） */}
-      <Drawer
+      {/* 任务查看弹窗（问题一：已完成任务「查看」→ 任务信息+采购明细+Word 文档） */}
+      <TaskViewModal task={viewRow} open={!!viewRow} onClose={() => setViewRow(null)} />
+
+      {/* 详情 + 工作流（问题三：居中弹窗；行内/详情发布入口取消，各阶段发布在各模块页面与总清单第二步进行） */}
+      <Modal
         title={detail ? `采购任务 · ${detail.taskNo}` : '采购任务'}
         width={640}
+        centered
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
       >
         {detail && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -394,7 +437,7 @@ export default function Initiate() {
             </div>
           </Space>
         )}
-      </Drawer>
+      </Modal>
 
       {/* 总采购清单只读查看（问题三补充：居中弹窗） */}
       <TotalListEditor

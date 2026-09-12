@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Descriptions, Drawer, Form, Image, Input, Modal,
+  Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal,
   Popconfirm, Row, Select, Space, Table, Tag, Upload, message,
 } from 'antd';
 import type { UploadFile } from 'antd';
@@ -318,7 +318,7 @@ export default function Subcontractors() {
         />
         <div style={{ marginTop: 8, color: '#888' }}>共 {total} 条分包商记录</div>
 
-        <Drawer title="分包商详情" width={620} open={!!detail} onClose={() => setDetail(null)}>
+        <Modal title="分包商详情" width={620} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="分包商名称">{detail?.subcontractorName || '-'}</Descriptions.Item>
             <Descriptions.Item label="分包合同内容">{detail?.subcontractContent || '-'}</Descriptions.Item>
@@ -343,7 +343,7 @@ export default function Subcontractors() {
               {detail?.signatureScreenshot ? <Image src={detail.signatureScreenshot} width={160} /> : '-'}
             </Descriptions.Item>
           </Descriptions>
-        </Drawer>
+        </Modal>
       </Card>
     );
   }

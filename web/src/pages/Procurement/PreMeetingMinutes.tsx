@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -7,7 +7,6 @@ import {
   Col,
   DatePicker,
   Descriptions,
-  Drawer,
   Input,
   InputNumber,
   Modal,
@@ -23,8 +22,8 @@ import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
 import {
   DeleteOutlined,
-  DownloadOutlined,
   EyeOutlined,
+  FileWordOutlined,
   ImportOutlined,
   PlusOutlined,
   SaveOutlined,
@@ -40,13 +39,15 @@ import {
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
-import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
+import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, {
+  moduleStatusOf,
   type ModuleListFilterField,
   type ModuleListRow,
   useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
+import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import {
   buildPreMeetingDocHtml,
   buildPreMeetingVariableValues,
@@ -169,9 +170,7 @@ export default function PreMeetingMinutes() {
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
   const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
-  /** 列表化（批次五）：详情抽屉开关；带 taskId 进入页面时直接打开 */
-  const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
-  /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
+  /** 列表刷新键：编辑弹窗关闭后重查，反映最新模块状态 */
   const [listRefresh, setListRefresh] = useState(0);
   /** 问题二：删除模块记录并回退流程 */
   const handleDeleteModule = useModuleDelete('PRE_MEETING', () => setListRefresh((k) => k + 1));
@@ -187,8 +186,12 @@ export default function PreMeetingMinutes() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 编辑弹窗（需求修正 · 修改二）：主视图只读详情，编辑在弹窗中进行 */
-  const [editOpen, setEditOpen] = useState(false);
+  /** 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；带 taskId 进入页面时直接打开） */
+  const [editOpen, setEditOpen] = useState(!!searchParams.get('taskId'));
+  /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
+  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
+  /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
+  const reEditRef = useRef(false);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -244,7 +247,8 @@ export default function PreMeetingMinutes() {
             response: f,
           })),
         );
-        setReEditing(false);
+        setReEditing(reEditRef.current && !!d.published);
+        reEditRef.current = false;
         // 首次进入（尚未保存过）时，采购清单与成本分析表自动从总采购清单带出
         const empty = (data.purchaseItems ?? []).length === 0 && (data.costRows ?? []).length === 0;
         if (empty && d?.editable) void importFromTotalList(id, { silent: true });
@@ -263,23 +267,32 @@ export default function PreMeetingMinutes() {
     if (taskId) loadDetail(taskId);
   }, [taskId, loadDetail]);
 
-  /** 列表行操作：查看（进入只读详情抽屉） */
-  const openRow = (row: ModuleListRow) => {
-    setTaskId(row.id);
-    setSearchParams({ taskId: row.id }, { replace: true });
-    setDetailOpen(true);
+  /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
+  const handleViewRow = (row: ModuleListRow) => {
+    if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
+    else editRow(row);
   };
-  /** 列表行操作：编辑（打开详情抽屉并叠加编辑弹窗） */
-  const editRow = (row: ModuleListRow) => {
+  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑） */
+  const editRow = (row: ModuleListRow, reEdit = false) => {
     setTaskId(row.id);
     setSearchParams({ taskId: row.id }, { replace: true });
-    setDetailOpen(true);
+    reEditRef.current = reEdit;
     setEditOpen(true);
   };
-  /** 关闭详情抽屉后刷新列表（反映保存/发布后的最新模块状态） */
-  const closeDetail = () => {
-    setDetailOpen(false);
+  /** 关闭编辑弹窗后刷新列表（反映保存/发布后的最新模块状态） */
+  const closeEdit = () => {
+    setEditOpen(false);
     setListRefresh((x) => x + 1);
+  };
+
+  /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
+  const handleRowExport = async (row: ModuleListRow) => {
+    try {
+      const filename = await exportTaskModuleWord(MODULE_TYPE, row.id);
+      message.success(`已导出：${filename}`);
+    } catch (e: any) {
+      message.error(e?.message || '导出失败，请稍后重试');
+    }
   };
 
   const patchForm = (patch: Partial<MinutesForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -363,7 +376,7 @@ export default function PreMeetingMinutes() {
     try {
       await procurementTaskApi.savePreMeetingMinutes(taskId, buildSavePayload());
       message.success('已保存');
-      setEditOpen(false);
+      closeEdit();
       loadDetail(taskId);
     } finally {
       setSaving(false);
@@ -389,7 +402,7 @@ export default function PreMeetingMinutes() {
       await procurementTaskApi.publish(taskId);
       message.success('已发布，采前会会议纪要状态变更为「已完成」');
       setModalMode(null);
-      loadDetail(taskId);
+      closeEdit();
     } finally {
       setPublishing(false);
     }
@@ -452,14 +465,6 @@ export default function PreMeetingMinutes() {
   };
 
   /** 只读详情文档（模板优先 + 变量替换，需求修正 · 修改二） */
-  const detailDoc = useModuleDetailDoc(
-    !!currentTask,
-    MODULE_TYPE,
-    taskId ?? undefined,
-    rawDocHtml,
-    varValues,
-  );
-
   /* ---------------- 表格列 ---------------- */
 
   const textCell = (value: string | null | undefined, onChange: (v: string) => void) =>
@@ -650,87 +655,71 @@ export default function PreMeetingMinutes() {
           </span>
         }
         refreshKey={listRefresh}
-        onView={openRow}
+        onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}
         emptyText="暂无数据（仅「单项采购」类型且预计采购金额 ≥ 100 万元的采购任务才生成采前会会议纪要）"
+        rowMenuItems={(row) => {
+          const published = moduleStatusOf(row).value === 'PUBLISHED';
+          return published
+            ? [
+                {
+                  key: 'exportWord',
+                  label: (
+                    <span>
+                      <FileWordOutlined /> 导出Word
+                    </span>
+                  ),
+                  onClick: () => handleRowExport(row),
+                },
+                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+              ]
+            : [];
+        }}
       />
 
-      {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
-      <Drawer
-        title={`采前会会议纪要 · 任务详情${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
-        width={1200}
-        open={detailOpen && !!currentTask}
-        onClose={closeDetail}
-        destroyOnClose
-      >
-        {currentTask && (
-          <ModuleDetailCard
-            title="采前会会议纪要 · 任务详情"
-            taskNo={currentTask.taskNo}
-            content={form.content || currentTask.content}
-            statusLabel={detail?.statusLabel ?? '编辑中'}
-            publishedAt={detail?.data?.publishedAt ?? null}
-            extraDescriptions={
-              <Descriptions.Item label="预计采购金额">
-                {fmtWan(detail?.estimatedAmountWan ?? 0)} 万元
-              </Descriptions.Item>
-            }
-            docHtml={detailDoc.html}
-            docLoading={detailDoc.loading}
-            actions={
-              <>
-                {detail && !detail.published && (
-                  <Button type="primary" onClick={() => setEditOpen(true)}>
-                    编辑
-                  </Button>
-                )}
-                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                  预览
-                </Button>
-                <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                  导出 Word
-                </Button>
-                {detail && !detail.published && (
-                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                    发布
-                  </Button>
-                )}
-                {detail?.published && (
-                  <Button
-                    onClick={() => {
-                      setReEditing(true);
-                      setEditOpen(true);
-                    }}
-                  >
-                    重新编辑
-                  </Button>
-                )}
-              </>
-            }
-          />
-        )}
-      </Drawer>
+      {/* 任务查看弹窗（问题一：已完成行「查看」→ 居中弹窗：任务信息+采购明细+Word 文档） */}
+      <TaskViewModal task={viewRow} open={!!viewRow} onClose={() => setViewRow(null)} />
 
-      {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
-      <Drawer
+      {/* 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；问题三：居中弹窗） */}
+      <Modal
         title={`采前会会议纪要 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
         width={1100}
-        open={editOpen && !!currentTask}
-        onClose={() => setEditOpen(false)}
+        centered
+        open={editOpen}
+        onCancel={closeEdit}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>
-            <Button onClick={() => setEditOpen(false)}>取消</Button>
+            <Button onClick={closeEdit}>取消</Button>
+            {currentTask && (
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                预览
+              </Button>
+            )}
+            {currentTask && (
+              <Button icon={<FileWordOutlined />} onClick={handleExport}>
+                导出Word
+              </Button>
+            )}
             {editable && (
               <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
                 保存
+              </Button>
+            )}
+            {detail && !detail.published && editable && (
+              <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                发布
               </Button>
             )}
           </Space>
         }
       >
         <Spin spinning={detailLoading}>
+          {!currentTask && !detailLoading && (
+            <Alert type="warning" showIcon message="任务详情加载失败，请关闭后重试。" />
+          )}
           {currentTask && (
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {editable && detail?.published && (
@@ -939,7 +928,7 @@ export default function PreMeetingMinutes() {
           </Space>
           )}
         </Spin>
-      </Drawer>
+      </Modal>
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal

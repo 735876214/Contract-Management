@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Select,
+  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Select,
   Row, Col,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, HistoryOutlined } from '@ant-design/icons';
@@ -222,8 +222,8 @@ export default function Templates() {
         </Form>
       </Modal>
 
-      {/* 版本抽屉 */}
-      <Drawer title="版本历史" width={560} open={versionOpen} onClose={() => { setVersionOpen(false); setVersionRow(null); }}>
+      {/* 版本历史（问题三：居中弹窗） */}
+      <Modal title="版本历史" width={560} centered open={versionOpen} onCancel={() => { setVersionOpen(false); setVersionRow(null); }} footer={null}>
         <Table
           rowKey="id"
           size="small"
@@ -244,7 +244,7 @@ export default function Templates() {
             },
           ]}
         />
-      </Drawer>
+      </Modal>
 
     </Space>
   );

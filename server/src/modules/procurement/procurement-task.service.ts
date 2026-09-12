@@ -269,6 +269,8 @@ export class ProcurementTaskService {
           const idx = stageChain('FRAMEWORK', false).findIndex((s) => s.key === stageKey);
           if (idx >= 0) where.stage = { gte: idx };
         } else {
+          // 类型兜底（问题一）：其余模块均只属于单项采购任务，防止框架任务混入后详情接口 400
+          if (!query.type) where.type = 'SINGLE';
           const noPm = stageChain('SINGLE', false).findIndex((s) => s.key === stageKey);
           const withPm = stageChain('SINGLE', true).findIndex((s) => s.key === stageKey);
           const branches: any[] = [];

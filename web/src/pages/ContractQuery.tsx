@@ -3,7 +3,6 @@ import {
   Button,
   DatePicker,
   Descriptions,
-  Drawer,
   Form,
   Input,
   Modal,
@@ -339,7 +338,8 @@ export default function ContractQuery() {
         </Form>
       </Modal>
 
-      <Drawer
+      {/* 合同详情（问题三：居中弹窗） */}
+      <Modal
         title={
           <Space>
             <span>合同详情</span>
@@ -347,12 +347,15 @@ export default function ContractQuery() {
             {detail && <StatusTag status={detail.status} />}
           </Space>
         }
-        placement="right"
         width={640}
+        centered
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        extra={
-          detail && (
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
+      >
+        {detail && (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Space>
               <Button icon={<FileProtectOutlined />} size="small" onClick={() => { setDetailOpen(false); openSign(detail); }}>
                 合同签章
@@ -363,11 +366,7 @@ export default function ContractQuery() {
                 </Button>
               )}
             </Space>
-          )
-        }
-      >
-        {detail && (
-          <Descriptions column={1} size="small" bordered>
+            <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
             <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
             <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
@@ -408,8 +407,9 @@ export default function ContractQuery() {
             </Descriptions.Item>
             <Descriptions.Item label="备注">{detail.remark || '-'}</Descriptions.Item>
           </Descriptions>
+          </Space>
         )}
-      </Drawer>
+      </Modal>
 
       <SupplementDraft
         parent={suppParent}

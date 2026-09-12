@@ -120,13 +120,14 @@ export interface ModuleListPageProps {
   onDelete?: (row: ModuleListRow) => void;
   /** 行是否可删除的判定（控制「更多 → 删除」是否禁用；默认已进入合同阶段不可删） */
   rowDeletable?: (row: ModuleListRow) => boolean;
-  /** 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等） */
+  /** 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单 */
   rowMenuItems?: (row: ModuleListRow) => {
     key: string;
     label: ReactNode;
     disabled?: boolean;
     danger?: boolean;
     onClick?: () => void;
+    children?: { key: string; label: ReactNode; disabled?: boolean; danger?: boolean; onClick?: () => void }[];
   }[];
   /** 空列表提示文案 */
   emptyText?: string;
@@ -294,13 +295,19 @@ export default function ModuleListPage({
         const editable = rowEditable
           ? rowEditable(row)
           : isModuleMode
-            ? moduleStatusOf(row).value === 'EDITING'
+            ? moduleStatusOf(row).value !== 'PUBLISHED'
             : true;
         const deletable = rowDeletable
           ? rowDeletable(row)
           : !['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes(row.status);
-        const moreItems: { key: string; label: ReactNode; danger?: boolean; disabled?: boolean; onClick?: () => void }[] =
-          [];
+        const moreItems: {
+          key: string;
+          label: ReactNode;
+          danger?: boolean;
+          disabled?: boolean;
+          onClick?: () => void;
+          children?: { key: string; label: ReactNode; disabled?: boolean; danger?: boolean; onClick?: () => void }[];
+        }[] = [];
         if (onEdit) {
           moreItems.push({
             key: 'edit',
@@ -319,11 +326,20 @@ export default function ModuleListPage({
           });
         }
         moreItems.push(...(rowMenuItems?.(row) ?? []));
+        // 问题一：module 模式首按钮按模块状态切换——未填写/编辑中显示「编辑」（直接进编辑界面），
+        // 已完成显示「查看」（进入任务查看弹窗）；generic 模式保持「查看」
+        const published = isModuleMode && moduleStatusOf(row).value === 'PUBLISHED';
+        const primary =
+          published || !onEdit
+            ? onView
+              ? { label: '查看', onClick: () => onView(row) }
+              : null
+            : { label: '编辑', onClick: () => onEdit(row) };
         return (
           <Space size={4}>
-            {onView && (
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>
-                查看
+            {primary && (
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={primary.onClick}>
+                {primary.label}
               </Button>
             )}
             {moreItems.length > 0 && (

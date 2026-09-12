@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -8,7 +8,6 @@ import {
   Col,
   DatePicker,
   Descriptions,
-  Drawer,
   Input,
   InputNumber,
   Modal,
@@ -22,7 +21,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DownloadOutlined, EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
@@ -34,13 +33,15 @@ import {
 } from '@/constants/procurementVariables';
 import ImportButton from '@/components/ImportButton';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
-import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
+import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, {
+  moduleStatusOf,
   type ModuleListFilterField,
   type ModuleListRow,
   useModuleDelete,
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
+import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import {
   buildResultReportDocHtml,
   buildResultReportVariableValues,
@@ -130,9 +131,7 @@ export default function ResultReport() {
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
   const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
-  /** 列表化（批次五）：详情抽屉开关；带 taskId 进入页面时直接打开 */
-  const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
-  /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
+  /** 列表刷新键：编辑弹窗关闭后重查，反映最新模块状态 */
   const [listRefresh, setListRefresh] = useState(0);
   /** 问题二：删除模块记录并回退流程 */
   const handleDeleteModule = useModuleDelete('RESULT_REPORT', () => setListRefresh((k) => k + 1));
@@ -149,8 +148,12 @@ export default function ResultReport() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 编辑弹窗（需求修正 · 修改二）：主视图只读详情，编辑在弹窗中进行 */
-  const [editOpen, setEditOpen] = useState(false);
+  /** 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；带 taskId 进入页面时直接打开） */
+  const [editOpen, setEditOpen] = useState(!!searchParams.get('taskId'));
+  /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
+  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
+  /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
+  const reEditRef = useRef(false);
 
   const [project, setProject] = useState<{
     name?: string;
@@ -198,7 +201,8 @@ export default function ResultReport() {
         });
         setSuppliers(Array.isArray(d?.suppliers) ? d.suppliers : []);
         setCandidates(Array.isArray(d?.candidates) ? d.candidates : []);
-        setReEditing(false);
+        setReEditing(reEditRef.current && !!d.published);
+        reEditRef.current = false;
       })
       .catch(() => {
         setDetail(null);
@@ -213,23 +217,32 @@ export default function ResultReport() {
     if (taskId) loadDetail(taskId);
   }, [taskId, loadDetail]);
 
-  /** 列表行操作：查看（进入只读详情抽屉） */
-  const openRow = (row: ModuleListRow) => {
-    setTaskId(row.id);
-    setSearchParams({ taskId: row.id }, { replace: true });
-    setDetailOpen(true);
+  /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
+  const handleViewRow = (row: ModuleListRow) => {
+    if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
+    else editRow(row);
   };
-  /** 列表行操作：编辑（打开详情抽屉并叠加编辑弹窗） */
-  const editRow = (row: ModuleListRow) => {
+  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑） */
+  const editRow = (row: ModuleListRow, reEdit = false) => {
     setTaskId(row.id);
     setSearchParams({ taskId: row.id }, { replace: true });
-    setDetailOpen(true);
+    reEditRef.current = reEdit;
     setEditOpen(true);
   };
-  /** 关闭详情抽屉后刷新列表（反映保存/发布后的最新模块状态） */
-  const closeDetail = () => {
-    setDetailOpen(false);
+  /** 关闭编辑弹窗后刷新列表（反映保存/发布后的最新模块状态） */
+  const closeEdit = () => {
+    setEditOpen(false);
     setListRefresh((x) => x + 1);
+  };
+
+  /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
+  const handleRowExport = async (row: ModuleListRow) => {
+    try {
+      const filename = await exportTaskModuleWord(MODULE_TYPE, row.id);
+      message.success(`已导出：${filename}`);
+    } catch (e: any) {
+      message.error(e?.message || '导出失败，请稍后重试');
+    }
   };
 
   const patchForm = (patch: Partial<ResultForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -307,7 +320,7 @@ export default function ResultReport() {
       await procurementTaskApi.publish(taskId);
       message.success('已发布，成交报告状态变更为「已完成」');
       setModalMode(null);
-      loadDetail(taskId);
+      closeEdit();
     } finally {
       setPublishing(false);
     }
@@ -369,15 +382,6 @@ export default function ResultReport() {
     });
     message.success(`已导出：${exportFilename}`);
   };
-
-  /** 只读详情文档（模板优先 + 变量替换，需求修正 · 修改二） */
-  const detailDoc = useModuleDetailDoc(
-    !!currentTask,
-    MODULE_TYPE,
-    taskId ?? undefined,
-    rawDocHtml,
-    varValues,
-  );
 
   /* ---------------- 表格列 ---------------- */
 
@@ -553,81 +557,70 @@ export default function ResultReport() {
           </span>
         }
         refreshKey={listRefresh}
-        onView={openRow}
+        onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}
+        rowMenuItems={(row) => {
+          const published = moduleStatusOf(row).value === 'PUBLISHED';
+          return published
+            ? [
+                {
+                  key: 'exportWord',
+                  label: (
+                    <span>
+                      <FileWordOutlined /> 导出Word
+                    </span>
+                  ),
+                  onClick: () => handleRowExport(row),
+                },
+                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+              ]
+            : [];
+        }}
       />
 
-      {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
-      <Drawer
-        title={`成交报告 · 任务详情${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
-        width={1200}
-        open={detailOpen && !!currentTask}
-        onClose={closeDetail}
-        destroyOnClose
-      >
-        {currentTask && (
-          <ModuleDetailCard
-            title="成交报告 · 任务详情"
-            taskNo={currentTask.taskNo}
-            content={content}
-            statusLabel={detail?.statusLabel ?? '编辑中'}
-            publishedAt={detail?.data?.publishedAt ?? null}
-            docHtml={detailDoc.html}
-            docLoading={detailDoc.loading}
-            actions={
-              <>
-                {detail && !detail.published && (
-                  <Button type="primary" onClick={() => setEditOpen(true)}>
-                    编辑
-                  </Button>
-                )}
-                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                  预览
-                </Button>
-                <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                  导出 Word
-                </Button>
-                {detail && !detail.published && (
-                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                    发布
-                  </Button>
-                )}
-                {detail?.published && (
-                  <Button
-                    onClick={() => {
-                      setReEditing(true);
-                      setEditOpen(true);
-                    }}
-                  >
-                    重新编辑
-                  </Button>
-                )}
-              </>
-            }
-          />
-        )}
-      </Drawer>
+      {/* 任务查看弹窗（问题一：已完成行「查看」→ 居中弹窗：任务信息+采购明细+Word 文档） */}
+      <TaskViewModal task={viewRow} open={!!viewRow} onClose={() => setViewRow(null)} />
 
-      {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
-      <Drawer
+      {/* 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；问题三：居中弹窗） */}
+      <Modal
         title={`成交报告 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
         width={1100}
-        open={editOpen && !!currentTask}
-        onClose={() => setEditOpen(false)}
+        centered
+        open={editOpen}
+        onCancel={closeEdit}
         destroyOnClose
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>
-            <Button onClick={() => setEditOpen(false)}>取消</Button>
+            <Button onClick={closeEdit}>取消</Button>
+            {currentTask && (
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                预览
+              </Button>
+            )}
+            {currentTask && (
+              <Button icon={<FileWordOutlined />} onClick={handleExport}>
+                导出Word
+              </Button>
+            )}
             {editable && (
               <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
                 保存
+              </Button>
+            )}
+            {detail && !detail.published && editable && (
+              <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                发布
               </Button>
             )}
           </Space>
         }
       >
         <Spin spinning={detailLoading}>
+          {!currentTask && !detailLoading && (
+            <Alert type="warning" showIcon message="任务详情加载失败，请关闭后重试。" />
+          )}
           {currentTask && (
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               {detail && !detail.reached && (
@@ -895,7 +888,7 @@ export default function ResultReport() {
           </Space>
           )}
         </Spin>
-      </Drawer>
+      </Modal>
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal

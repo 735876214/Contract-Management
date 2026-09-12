@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Button, Card, Drawer, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
+  Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
@@ -377,14 +377,14 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
   // ---- 空值守卫：parent 为 null（父组件初始状态）时不渲染任何依赖其字段的内容 ----
   if (!parent?.id) {
     return (
-      <Drawer title="新增补充协议" width={1040} open={open} onClose={onClose} footer={null}>
+      <Modal title="新增补充协议" width={1040} centered open={open} onCancel={onClose} footer={null}>
         <Alert
           type="warning"
           showIcon
           message="未选择原合同"
           description="请从「合同查询」列表的操作列点击「新增补充协议」进入。"
         />
-      </Drawer>
+      </Modal>
     );
   }
 
@@ -476,11 +476,13 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
   );
 
   return (
-    <Drawer
+    <Modal
       title={<Space>新增补充协议<DictTag typeCode="supplement_agreement_type" value={suppType} /></Space>}
       width={1160}
+      centered
       open={open}
-      onClose={onClose}
+      onCancel={onClose}
+      styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' } }}
       footer={
         <Space style={{ float: 'right' }}>
           <Button icon={<SaveOutlined />} loading={creating} onClick={handleSave}>保存</Button>
@@ -570,6 +572,6 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnClose>
         <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
       </Modal>
-    </Drawer>
+    </Modal>
   );
 }

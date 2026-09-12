@@ -5,7 +5,6 @@ import {
   Card,
   Col,
   DatePicker,
-  Drawer,
   Form,
   Input,
   InputNumber,
@@ -406,8 +405,8 @@ export default function ContractDraft() {
         </Form>
       </Modal>
 
-      {/* ==================== 起草抽屉 ==================== */}
-      <Drawer
+      {/* ==================== 起草弹窗（问题三：居中弹窗） ==================== */}
+      <Modal
         title={
           <Space>
             <span>合同起草</span>
@@ -421,14 +420,15 @@ export default function ContractDraft() {
             )}
           </Space>
         }
-        placement="right"
         width={1040}
+        centered
         open={editorOpen}
-        onClose={() => {
+        onCancel={() => {
           setEditorOpen(false);
           setEditing(null);
           refreshList();
         }}
+        styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>
             <Button icon={<SaveOutlined />} loading={saving} onClick={() => saveBasic()}>
@@ -566,7 +566,7 @@ export default function ContractDraft() {
         ) : (
           <Spin />
         )}
-      </Drawer>
+      </Modal>
 
       {/* ==================== 合同正文预览（需求修正3：确认无误后发布才可用） ==================== */}
       <Modal

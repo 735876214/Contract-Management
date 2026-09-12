@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Drawer, Tag, Row, Col } from 'antd';
+import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
@@ -162,7 +162,7 @@ export default function Projects() {
         </Form>
       </Modal>
 
-      <Drawer title={`项目成员 · ${current?.name || ''}`} width={520} open={memberDrawer} onClose={() => setMemberDrawer(false)}>
+      <Modal title={`项目成员 · ${current?.name || ''}`} width={520} centered open={memberDrawer} onCancel={() => setMemberDrawer(false)} footer={null} styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
         <Row gutter={8} style={{ marginBottom: 16 }}>
           <Col flex="auto">
             <Select
@@ -212,7 +212,7 @@ export default function Projects() {
             },
           ]}
         />
-      </Drawer>
+      </Modal>
     </Card>
   );
 }

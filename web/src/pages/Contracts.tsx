@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Drawer, Tabs,
+  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Tabs,
   Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select, Typography,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
@@ -543,7 +543,7 @@ export default function Contracts() {
         </Space>
       </Modal>
 
-      <Drawer title="合同详情" width={720} open={!!detail} onClose={() => setDetail(null)}>
+      <Modal title="合同详情" width={720} centered open={!!detail} onCancel={() => setDetail(null)} footer={null} styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
         {detail ? (
           <>
             <Tabs
@@ -633,7 +633,7 @@ export default function Contracts() {
         ) : (
           <Spin />
         )}
-      </Drawer>
+      </Modal>
 
       <Modal
         title="新增补充协议"
