@@ -417,7 +417,7 @@ export class ProcurementTaskService {
    * 发布当前阶段的子任务（前置约束：前面的阶段必须全部已发布）。
    * 发布后 stage+1，状态流转到下一阶段的「编制中」；若全部阶段发布完毕则进入合同阶段状态。
    */
-  async publish(id: string) {
+  async publish(id: string, user?: any) {
     const current = await this.prisma.procurementTask.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购任务不存在');
 
@@ -521,7 +521,7 @@ export class ProcurementTaskService {
     // 自动在「合同起草」生成关联合同（草稿）并回写 task.contractId。
     if (nextStage >= chain.length && !current.contractId) {
       try {
-        const linked = await this.generateLinkedContract(current, current.projectId);
+        const linked = await this.generateLinkedContract(current, current.projectId, user);
         if (linked) {
           await this.prisma.procurementTask.update({
             where: { id },
@@ -619,7 +619,7 @@ export class ProcurementTaskService {
    * 按「采购类型 + 采购品类」映射对应合同类型与合同模板，自动生成草稿合同并关联到本任务。
    * 合同草稿预填：合同类型 / 是否框架 / 关联模板 / 合同金额（总清单预计采购合价）/ 技术质量·验收·付款标准（补充二）。
    */
-  private async generateLinkedContract(task: TaskRow, projectId: string) {
+  private async generateLinkedContract(task: TaskRow, projectId: string, user?: any) {
     const resolved = await this.resolveContractTemplate(task.type, task.procurementCategory);
     if (!resolved) return null; // 采购品类缺失或不匹配，跳过自动生成
 
@@ -644,7 +644,7 @@ export class ProcurementTaskService {
         }),
       },
       projectId,
-      null,
+      user,
     );
   }
 

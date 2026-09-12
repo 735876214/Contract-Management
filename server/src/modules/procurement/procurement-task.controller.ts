@@ -18,7 +18,7 @@ import { ProcurementTaskService } from './procurement-task.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { ProjectId } from '../../common/decorators/user.decorator';
+import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
 
 /** 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理） */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -182,8 +182,8 @@ export class ProcurementTaskController {
   /** 发布当前阶段子任务，状态自动流转 */
   @RequirePermissions('contract:edit')
   @Post(':id/publish')
-  publish(@Param('id') id: string) {
-    return this.service.publish(id);
+  publish(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.service.publish(id, user);
   }
 
   /** 合同阶段状态同步（生成合同后由合同模块回调） */

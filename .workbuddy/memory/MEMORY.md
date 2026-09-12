@@ -11,7 +11,8 @@
 
 ## Prisma 双 schema 与本地数据源（致命坑）
 - `schema.prisma`=postgresql，`schema.sqlite.prisma`=sqlite（本地运行时用后者，`server/.env` 为 `DATABASE_URL="file:./dev.db"`）。
-- `schema.sqlite.prisma` 由 `scripts/gen-sqlite-schema.js` 从 `schema.prisma` 派生；加/改字段须**两份都改**，再 `prisma db push --schema prisma/schema.sqlite.prisma` + `generate`（sqlite 的 generate 必须**最后执行**，否则重启后端报 `Error validating datasource db: the URL must start with postgresql://`）。生产迁移 SQL 走 `migrations/<ts>_xxx/migration.sql`（postgres 语法）。
+- `schema.sqlite.prisma` 由 `scripts/gen-sqlite-schema.js` 从 `schema.prisma` 派生；加/改字段须**两份都改**，再 `prisma db push --schema prisma/schema.sqlite.prisma` + `generate`（`db push` 会顺带重新 generate，故只要保证 `db push` 用的是 sqlite schema 即可，不必再单独 `generate`）。生产迁移 SQL 走 `migrations/<ts>_xxx/migration.sql`（postgres 语法）。
+- ⚠️ 已根治「client 反复被覆盖成 postgresql」：2026-09-13 把 `server/package.json` 的 `prisma:generate` 改为 `prisma generate --schema prisma/schema.sqlite.prisma`（保留 `prisma:generate:pg` 给 postgres）。此前 `prisma:generate`（无 --schema）默认指向 postgresql，一旦被 `pnpm install` 的 postinstall 或手动触发，就会覆盖 SQLite client，重启后端报 `Error validating datasource db: the URL must start with postgresql://`。今后跑 generate 直接用 `pnpm prisma:generate`（自带 --schema，无需手带）。
 - 默认 `nest build` 后重启后端才生效。
 
 ## 新增字段到 Project（已验证套路）
@@ -22,6 +23,7 @@
   `总清单 → [采前会≥100万] → 采购公告 → 采购文件 → 资审报告 → 成交报告 → 价格对比表 → 生成合同`。
 - 新增阶段子模块六处：schema 模型(+两侧反引用) → migration.sql(postgres) → service 的 xxx()/saveXxx()/serializeXxx()/publish() 校验 → controller GET+PUT → 前端 `api/modules.ts`+`constants/procurementVariables.ts`（富文本变量用 `h()` 防转义；表格变量 key 含连字符须加引号）→ `utils/<模块>.ts`+页面。
 - 状态由 stage 推导（`deriveStatus`），清单类数据不落库、从 `ProcurementTotalItem` 派生。
+- ⚠️ 自动关联合同「看不见」坑：`publish()` 终态调 `generateLinkedContract` 生成草稿合同（`status:'DRAFT'`）。合同起草页 `ContractDraft` 的 `draftWhere` 过滤 `createdBy: 当前用户`，而 `contractService.create` 用 `user?.userId` 作 `createdBy`。**必须**把发布人（`@CurrentUser`）透传给 `generateLinkedContract`→`create`；若传 `null`，`createdBy` 为空，起草页永远查不到该合同，现象即「采购任务完成但合同起草里没有推送」。2026-09-13 修复：controller 的 `publish` 注入 `@CurrentUser` 并下传，`generateLinkedContract` 用其 `userId` 作 `createdBy`；存量空 `createdBy` 的 DRAFT 合同已回填 admin。
 - 菜单权威来源是后端 `GET /api/menu`（`menu.service.ts` 的 `MENU_TREE`），只改前端 `menuConfig.ts` 无效；菜单 icon 须在 `iconHelper.tsx` 的 `ICON_MAP` 注册；改菜单结构后递增 `Sider/utils/storage.ts` 缓存键版本。
 
 ## 项目信息字段（Project 模型）
