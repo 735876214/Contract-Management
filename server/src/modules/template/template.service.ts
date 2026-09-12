@@ -253,6 +253,7 @@ export class TemplateService {
       签订日期: fmtDate(contract.signDate) || '',
       合同约定付款方式: payMap[contract.paymentMethodCode]?.name || contract.paymentMethodCode || '',
       项目名称: (contract as any).project?.name || '',
+      物资产地: (contract as any).project?.materialOrigin || '',
       供应商名称: sup.name || '',
       公司地址: sup.address || '',
       银行名称: sup.bankName || '',

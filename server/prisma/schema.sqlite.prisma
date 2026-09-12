@@ -90,6 +90,7 @@ model Project {
   provinceCity   String? // 项目所在省市
   siteLocation   String? // 工程地点
   projectAddress String? // 项目地址
+  materialOrigin String? // 物资产地
   status      String?  // dict: project_status
   description String?
   startDate   DateTime?

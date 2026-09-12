@@ -81,6 +81,7 @@ export default function Projects() {
           { title: '项目所在省市', dataIndex: 'provinceCity', width: 130, render: (v) => v || '-' },
           { title: '工程地点', dataIndex: 'siteLocation', width: 180, ellipsis: true, render: (v) => v || '-' },
           { title: '项目地址', dataIndex: 'projectAddress', width: 200, ellipsis: true, render: (v) => v || '-' },
+          { title: '物资产地', dataIndex: 'materialOrigin', width: 150, render: (v) => v || '-' },
           { title: '项目状态', dataIndex: 'status', width: 110, render: (v) => <DictTag typeCode="project_status" value={v} /> },
           { title: '描述', dataIndex: 'description', ellipsis: true },
           {
@@ -151,6 +152,9 @@ export default function Projects() {
             </Col>
             <Col xs={24}>
               <Form.Item name="projectAddress" label="项目地址"><Input maxLength={150} placeholder="如 深圳市南山区科苑南路 3099 号" /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item name="materialOrigin" label="物资产地"><Input maxLength={100} placeholder="如 河北唐山" /></Form.Item>
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>

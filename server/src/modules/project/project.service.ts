@@ -10,7 +10,7 @@ import { DictService } from '../dict/dict.service';
 
 const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'selfContractAmount', 'industryType',
-  'provinceCity', 'siteLocation', 'projectAddress',
+  'provinceCity', 'siteLocation', 'projectAddress', 'materialOrigin',
   'status', 'description', 'startDate', 'endDate', 'managerId',
 ];
 const CODE_ABBR_RE = /^[A-Z0-9]+$/;
