@@ -110,7 +110,10 @@ const esc = (s: unknown): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-const cell = (v: unknown): string => `<td>${v == null || v === '' ? '' : esc(v)}</td>`;
+const cell = (v: unknown): string => {
+  if (v == null || v === '' || typeof v === 'object') return '';
+  return `<td>${esc(v)}</td>`;
+};
 
 const fmtDate = (v: string | Date | null | undefined): string => {
   if (!v) return '';

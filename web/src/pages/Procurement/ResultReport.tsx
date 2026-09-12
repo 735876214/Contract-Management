@@ -468,11 +468,12 @@ export default function ResultReport() {
     },
     {
       title: '备注',
+      dataIndex: 'remark',
       width: 220,
       render: (v: string | null | undefined, _r, i) =>
         editable ? (
           <Input
-            value={v ?? ''}
+            value={typeof v === 'string' ? v : ''}
             placeholder="请输入"
             onChange={(e) => patchCandidate(i, { remark: e.target.value })}
           />
