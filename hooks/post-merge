@@ -1,0 +1,28 @@
+#!/bin/sh
+# pull / merge 之后自动按需安装依赖：
+# 仅当本次合并带来了 package.json 或 pnpm-lock.yaml 的变更时才执行 pnpm install，
+# 否则跳过（pnpm install 本身是增量的，这里只为省掉无谓的手动步骤）。
+# 启用方式：git config core.hooksPath hooks
+
+changed=$(git diff-tree -r --name-only ORIG_HEAD HEAD 2>/dev/null | grep -E '^(server|web)/(package\.json|pnpm-lock\.yaml)$')
+if [ -z "$changed" ]; then
+  echo "[post-merge] 依赖文件无变化，跳过安装"
+  exit 0
+fi
+
+echo "[post-merge] 检测到依赖变更，自动安装："
+echo "$changed"
+
+(command -v pnpm >/dev/null 2>&1) || { echo "[post-merge] 未找到 pnpm，请手动执行 pnpm install"; exit 0; }
+
+if (cd server && pnpm install --frozen-lockfile); then
+  echo "[post-merge] server 依赖已更新"
+else
+  echo "[post-merge] server 依赖安装失败，请手动在 server/ 下执行 pnpm install"
+fi
+
+if (cd web && pnpm install --frozen-lockfile); then
+  echo "[post-merge] web 依赖已更新"
+else
+  echo "[post-merge] web 依赖安装失败，请手动在 web/ 下执行 pnpm install"
+fi
