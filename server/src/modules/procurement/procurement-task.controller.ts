@@ -1,4 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { ProcurementTaskService } from './procurement-task.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -84,6 +99,44 @@ export class ProcurementTaskController {
   @Put(':id/document')
   saveDocument(@Param('id') id: string, @Body() body: any) {
     return this.service.saveDocument(id, body);
+  }
+
+  /** 成交报告（任务 3.5；仅单项采购，入口条件为采购文件已完成） */
+  @RequirePermissions('contract:view')
+  @Get(':id/result-report')
+  resultReport(@Param('id') id: string) {
+    return this.service.resultReport(id);
+  }
+
+  /** 保存成交报告（发布后仍可重新编辑） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/result-report')
+  saveResultReport(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveResultReport(id, body);
+  }
+
+  /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表 */
+  @RequirePermissions('contract:edit')
+  @Post(':id/result-report/import')
+  @UseInterceptors(FileInterceptor('file'))
+  importResultReport(@Param('id') id: string, @UploadedFile() file: any) {
+    return this.service.importResultReport(id, file?.buffer);
+  }
+
+  /** 下载「响应单位情况汇总表」导入模板 */
+  @RequirePermissions('contract:view')
+  @Get(':id/result-report/template')
+  async resultReportTemplate(@Param('id') id: string, @Res() res: Response) {
+    const { buffer, filename } = await this.service.resultReportTemplate();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.end(buffer);
   }
 
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */

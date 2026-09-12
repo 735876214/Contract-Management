@@ -92,6 +92,34 @@ export const procurementTaskApi = {
       quoteDescription?: string;
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/document`, data),
+  /** 成交报告（任务 3.5）：仅「单项采购」任务可用；入口条件为采购文件已完成 */
+  resultReport: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/result-report`),
+  saveResultReport: (
+    id: string,
+    data: {
+      unitCount?: number | null;
+      openTime?: string | null;
+      openPlace?: string;
+      reviewMembers?: string;
+      approvedCount?: number | null;
+      participantCount?: number | null;
+      abstainCount?: number | null;
+      validFileCount?: number | null;
+      /** 拟推荐成交候选人（第二轮报价表勾选生成） */
+      candidates?: unknown[];
+    },
+  ) => http.put<any, any>(`/procurement-tasks/${id}/result-report`, data),
+  /** 导入「响应单位情况汇总表」（Excel）：导入后自动重建四张表 */
+  importResultReport: (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return http.post<any, any>(`/procurement-tasks/${id}/result-report/import`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  /** 「响应单位情况汇总表」导入模板下载地址 */
+  resultReportTemplateUrl: (id: string) =>
+    `${http.defaults.baseURL}/procurement-tasks/${id}/result-report/template`,
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
 };
 

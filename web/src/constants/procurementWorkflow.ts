@@ -76,8 +76,9 @@ export function buildStageChain(type: string, preMeetingRequired: boolean): Flow
       mk('NOTICE', '采购公告'),
       // 任务 3.4：采购文件紧随采购公告（其后才是资审报告）
       mk('DOCUMENT', '采购文件'),
-      mk('INSPECTION', '资审报告'),
+      // 任务 3.5：成交报告紧随采购文件（入口条件即「采购文件已完成」），资审报告后移
       mk('RESULT_REPORT', '成交报告'),
+      mk('INSPECTION', '资审报告'),
       mk('PRICE_COMPARE', '采购价格对比表'),
     );
   }

@@ -130,6 +130,7 @@ model Project {
   preMeetingMinutes    PreMeetingMinutes[]
   procurementNotices   ProcurementNotice[]
   procurementDocuments ProcurementDocument[]
+  procurementResultReports ProcurementResultReport[]
   @@index([createdAt])
 }
 
@@ -1045,6 +1046,7 @@ model ProcurementTask {
   preMeetingMinutes    PreMeetingMinutes?
   procurementNotice    ProcurementNotice?
   procurementDocument  ProcurementDocument?
+  procurementResultReport ProcurementResultReport?
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1156,6 +1158,33 @@ model ProcurementNotice {
 }
 
 // ---------------- 采购文件（批次二 · 任务 3.4） ----------------
+
+// ---------------- 成交报告（批次二 · 任务 3.5） ----------------
+
+model ProcurementResultReport {
+  id               String    @id @default(cuid())
+  projectId        String
+  taskId           String    @unique // 一个采购任务仅一份成交报告
+  unitCount        Int? // 成交单位数量
+  openTime         DateTime? // 采购开启时间
+  openPlace        String? // 开启地点
+  reviewMembers    String? // 评审小组成员
+  approvedCount    Int? // 审核通过响应单位数量
+  participantCount Int? // 参与响应单位数量
+  abstainCount     Int? // 弃权响应单位数量
+  validFileCount   Int? // 有效响应文件数量
+  suppliers        String? // 响应单位明细（导入「响应单位情况汇总表」，JSON 数组字符串）
+  candidates       String? // 拟推荐成交候选人（第二轮报价表勾选生成，JSON 数组字符串）
+  publishedAt      DateTime? // 发布时间（成交报告阶段发布后回填）
+  createdAt        DateTime  @default(now())
+  version          Int       @default(0)
+  updatedAt        DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
 
 model ProcurementDocument {
   id               String    @id @default(cuid())

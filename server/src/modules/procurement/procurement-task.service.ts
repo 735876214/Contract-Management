@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { ExcelService } from '../../common/services/excel.service';
+import {
+  ImportTemplateService,
+  TemplateColumn,
+} from '../../common/services/import-template.service';
 
 /**
  * 采购任务工作流（批次二 · 任务 2.1）
@@ -8,7 +13,7 @@ import { paginate, buildResult } from '../../common/utils/helpers';
  * 采购类型 → 子任务阶段链（顺序执行，前一阶段未发布时后续阶段锁定）：
  * - FRAMEWORK 引用框架协议：总采购清单 → 框架协议事前说明 → 生成合同
  * - SINGLE 单项采购：总采购清单 → [采前会会议纪要(≥100万)] → 采购公告 → 采购文件
- *            → 资审报告 → 成交报告 → 采购价格对比表 → 生成合同
+ *            → 成交报告 → 资审报告 → 采购价格对比表 → 生成合同
  *
  * stage = 已发布阶段数。子任务 i 可编辑/可发布 ⇔ i ≤ stage。
  * 状态由 stage 推导并持久化（见 deriveStatus）。
@@ -55,6 +60,16 @@ export function documentStageIndex(task: { type: string; preMeetingRequired: boo
   return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === DOCUMENT.key);
 }
 
+/**
+ * 任务 3.5：成交报告阶段在阶段链中的下标。
+ * 单项采购：无采前会 → 3（采购文件之后）；有采前会 → 4。
+ * 「成交报告编制中」⇔ status=RESULT_EDITING ⇔ stage === resultReportStageIndex(task)，
+ * 即入口条件为「采购文件已完成」。
+ */
+export function resultReportStageIndex(task: { type: string; preMeetingRequired: boolean }): number {
+  return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === RESULT_REPORT.key);
+}
+
 /** 元 → 万元（保留 2 位小数） */
 const toWan = (yuan: number): number =>
   Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
@@ -71,9 +86,10 @@ function stageChain(type: string, preMeetingRequired: boolean): StageDef[] {
   if (type === 'SINGLE') {
     const chain = [TOTAL_LIST];
     if (preMeetingRequired) chain.push(PRE_MEETING);
-    // 任务 3.4：采购文件紧随采购公告（资审报告后移），
-    // 使「采购文件」的入口条件正是「采购公告已完成」。
-    chain.push(NOTICE, DOCUMENT, INSPECTION, RESULT_REPORT, PRICE_COMPARE);
+    // 任务 3.4：采购文件紧随采购公告；任务 3.5：成交报告紧随采购文件（资审报告后移），
+    // 使「采购文件」的入口条件正是「采购公告已完成」，
+    // 「成交报告」的入口条件正是「采购文件已完成」。
+    chain.push(NOTICE, DOCUMENT, RESULT_REPORT, INSPECTION, PRICE_COMPARE);
     return chain;
   }
   throw new BadRequestException('无效的采购类型');
@@ -118,7 +134,11 @@ interface TaskRow {
 
 @Injectable()
 export class ProcurementTaskService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(
+    private prisma: PrismaClient,
+    private excel: ExcelService,
+    private tpl: ImportTemplateService,
+  ) {}
 
   /** 分页列表（筛选：状态 / 采购类型 / 编号与内容关键词） */
   async findAll(query: any = {}, projectId: string) {
@@ -264,6 +284,22 @@ export class ProcurementTaskService {
         );
       }
     }
+    // 任务 3.5：发布「成交报告」前必须已保存内容（采购开启时间必填，且已导入响应单位明细）
+    const reportIndex = current.type === 'SINGLE' ? resultReportStageIndex(current) : -1;
+    if (reportIndex >= 0 && current.stage === reportIndex) {
+      const report = await this.prisma.procurementResultReport.findUnique({
+        where: { taskId: current.id },
+      });
+      if (!report?.openTime) {
+        throw new BadRequestException('请先编辑并保存成交报告（至少填写采购开启时间）后再发布');
+      }
+      const supplierCount = this.parseJsonArray(report.suppliers).length;
+      if (supplierCount === 0) {
+        throw new BadRequestException(
+          '请先导入「响应单位情况汇总表」（至少一条响应单位）后再发布',
+        );
+      }
+    }
 
     const nextStage = current.stage + 1;
     const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, current.contractId);
@@ -301,6 +337,13 @@ export class ProcurementTaskService {
     // 任务 3.4：采购文件阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
     if (documentIndex >= 0 && current.stage === documentIndex) {
       await this.prisma.procurementDocument.updateMany({
+        where: { taskId: id, publishedAt: null },
+        data: { publishedAt: new Date() },
+      });
+    }
+    // 任务 3.5：成交报告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+    if (reportIndex >= 0 && current.stage === reportIndex) {
+      await this.prisma.procurementResultReport.updateMany({
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
       });
@@ -1064,6 +1107,253 @@ export class ProcurementTaskService {
       publishedAt: r.publishedAt,
       updatedAt: r.updatedAt,
     };
+  }
+
+  /**
+   * 成交报告（批次二 · 任务 3.5，仅「单项采购」任务）。
+   * 入口条件：采购文件已完成（stage > 采购文件阶段下标）；本阶段编辑中 ⇔ stage === 成交报告下标。
+   * 四张表（响应单位情况汇总表 / 开启报价情况表 / 第二轮报价情况表 / 拟推荐成交候选人表）
+   * 由 suppliers（导入明细）与 candidates（勾选）派生，不单独落库；
+   * 「预计采购金额」来自总采购清单（Σ 控制价 × 暂定数量）。
+   */
+  async resultReport(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
+    }
+    const documentIndex = documentStageIndex(task);
+    const stageIndex = resultReportStageIndex(task);
+    const reached = task.stage >= stageIndex;
+    const published = task.stage > stageIndex;
+    const record = await this.prisma.procurementResultReport.findUnique({ where: { taskId } });
+    const doc = await this.prisma.procurementDocument.findUnique({ where: { taskId } });
+    const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId } });
+    const estimatedYuan = await this.estimatedAmountYuan(taskId);
+    return {
+      task: this.serialize(task),
+      stageIndex,
+      documentStageIndex: documentIndex,
+      /** 采购文件是否已完成（成交报告的入口条件） */
+      documentCompleted: task.stage > documentIndex,
+      reached,
+      editable: reached && !published,
+      published,
+      status: published ? 'COMPLETED' : 'EDITING',
+      statusLabel: published ? '已完成' : '编辑中',
+      /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
+      content: notice?.content ?? task.content ?? '',
+      /** 预计采购金额（元，来自总采购清单） */
+      estimatedAmount: estimatedYuan,
+      /** 采购文件（响应保证金等，供页面参考展示） */
+      document: doc ? this.serializeDocument(doc) : null,
+      /** 响应单位明细（导入），四张表由其派生 */
+      suppliers: this.parseJsonArray<Record<string, any>>(record?.suppliers),
+      /** 拟推荐成交候选人（第二轮报价表勾选） */
+      candidates: this.parseJsonArray<Record<string, any>>(record?.candidates),
+      data: record ? this.serializeResultReport(record) : null,
+    };
+  }
+
+  /** 保存成交报告（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
+  async saveResultReport(taskId: string, body: any) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
+    }
+    if (task.stage < resultReportStageIndex(task)) {
+      throw new BadRequestException('请先发布采购文件（采购文件已完成）后再编制成交报告');
+    }
+
+    const text = (v: any): string | null => {
+      const s = String(v ?? '').trim();
+      return s || null;
+    };
+    const int = (v: any, label: string): number | null => {
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (!Number.isInteger(n)) throw new BadRequestException(`${label}必须为整数`);
+      if (n < 0) throw new BadRequestException(`${label}不能为负数`);
+      return n;
+    };
+    const date = (v: any): Date | null => {
+      if (v === '' || v == null) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购开启时间格式无效');
+      return d;
+    };
+    const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : undefined;
+    const candidates = Array.isArray(body?.candidates) ? body.candidates : undefined;
+
+    const payload = {
+      unitCount: int(body?.unitCount, '成交单位数量'),
+      openTime: date(body?.openTime),
+      openPlace: text(body?.openPlace),
+      reviewMembers: text(body?.reviewMembers),
+      approvedCount: int(body?.approvedCount, '审核通过响应单位数量'),
+      participantCount: int(body?.participantCount, '参与响应单位数量'),
+      abstainCount: int(body?.abstainCount, '弃权响应单位数量'),
+      validFileCount: int(body?.validFileCount, '有效响应文件数量'),
+      ...(suppliers !== undefined ? { suppliers: JSON.stringify(suppliers) } : {}),
+      ...(candidates !== undefined ? { candidates: JSON.stringify(candidates) } : {}),
+    };
+
+    const saved = await this.prisma.procurementResultReport.upsert({
+      where: { taskId },
+      create: { ...payload, projectId: task.projectId, taskId },
+      update: payload,
+    });
+    return this.serializeResultReport(saved);
+  }
+
+  /**
+   * 导入「响应单位情况汇总表」（Excel）。
+   * 解析后覆盖式写入响应单位明细，四张表随之自动重建。
+   */
+  async importResultReport(taskId: string, buffer?: Buffer) {
+    if (!buffer) throw new BadRequestException('未上传文件');
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'SINGLE') {
+      throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
+    }
+    if (task.stage < resultReportStageIndex(task)) {
+      throw new BadRequestException('请先发布采购文件（采购文件已完成）后再导入响应单位情况汇总表');
+    }
+
+    const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板的示例行
+    if (!rows.length) throw new BadRequestException('导入文件无有效数据行（请从第 3 行起填写）');
+
+    const num = (v: any): number | null => {
+      if (v == null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const str = (v: any): string => String(v ?? '').trim();
+
+    const suppliers = rows.map((r, i) => ({
+      seq: num(r['序号']) ?? i + 1,
+      name: str(r['参与响应单位名称']),
+      depositPaid: str(r['响应保证金是否缴纳']),
+      sealed: str(r['响应文件密封是否完整']),
+      passedFirst: str(r['是否通过第一轮报价']),
+      firstPreTaxTotal: num(r['第一轮报价不含税总额']),
+      firstTax: num(r['第一轮报价税金']),
+      secondPreTaxTotal: num(r['第二轮报价不含税总额']),
+      secondTax: num(r['第二轮报价税金']),
+      remark: str(r['备注']),
+    }));
+    const invalid = suppliers.filter((s) => !s.name);
+    if (invalid.length) {
+      throw new BadRequestException(
+        `导入校验失败：第 ${invalid.map((s) => s.seq).join('、')} 行缺少「参与响应单位名称」`,
+      );
+    }
+
+    const saved = await this.prisma.procurementResultReport.upsert({
+      where: { taskId },
+      create: { projectId: task.projectId, taskId, suppliers: JSON.stringify(suppliers) },
+      update: { suppliers: JSON.stringify(suppliers) },
+    });
+    return {
+      imported: suppliers.length,
+      created: suppliers.length,
+      ...this.serializeResultReport(saved),
+    };
+  }
+
+  /** 「响应单位情况汇总表」导入模板（表头与导入解析列名一致） */
+  async resultReportTemplate() {
+    const yesNo = ['是', '否'];
+    const columns: TemplateColumn[] = [
+      { label: '序号', key: 'seq', type: 'int', width: 8, example: 1, desc: '可留空，系统按行序自动编号' },
+      { label: '参与响应单位名称', key: 'name', required: true, type: 'text', width: 30, example: '某某建材有限公司' },
+      { label: '响应保证金是否缴纳', key: 'depositPaid', type: 'select', width: 20, example: '是', options: yesNo },
+      { label: '响应文件密封是否完整', key: 'sealed', type: 'select', width: 22, example: '是', options: yesNo },
+      {
+        label: '是否通过第一轮报价',
+        key: 'passedFirst',
+        type: 'select',
+        width: 20,
+        example: '是',
+        options: yesNo,
+        desc: '为「否」的单位不参与第二轮报价情况表',
+      },
+      {
+        label: '第一轮报价不含税总额',
+        key: 'firstPreTaxTotal',
+        type: 'money',
+        width: 22,
+        example: 985000,
+        desc: '单位：元；开启报价情况表按此列由小到大排名',
+      },
+      { label: '第一轮报价税金', key: 'firstTax', type: 'money', width: 18, example: 128050 },
+      {
+        label: '第二轮报价不含税总额',
+        key: 'secondPreTaxTotal',
+        type: 'money',
+        width: 22,
+        example: 960000,
+        desc: '单位：元；第二轮报价情况表按此列由小到大排名',
+      },
+      { label: '第二轮报价税金', key: 'secondTax', type: 'money', width: 18, example: 124800 },
+      { label: '备注', key: 'remark', type: 'text', width: 24, example: '' },
+    ];
+    return this.tpl.buildTemplate({
+      moduleName: '响应单位情况汇总表',
+      sheetName: '数据',
+      columns,
+      extraNotes: [
+        '说明：导入后自动生成「响应单位情况汇总表 / 开启报价情况表 / 第二轮报价情况表 / 拟推荐成交候选人表」四张表。',
+        '说明：重复导入将覆盖已有的响应单位明细，不影响手工填写的成交报告基本信息。',
+      ],
+    });
+  }
+
+  private serializeResultReport(r: {
+    id: string;
+    taskId: string;
+    unitCount: number | null;
+    openTime: Date | null;
+    openPlace: string | null;
+    reviewMembers: string | null;
+    approvedCount: number | null;
+    participantCount: number | null;
+    abstainCount: number | null;
+    validFileCount: number | null;
+    suppliers: string | null;
+    candidates: string | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+  }) {
+    return {
+      id: r.id,
+      taskId: r.taskId,
+      unitCount: r.unitCount,
+      openTime: r.openTime,
+      openPlace: r.openPlace ?? '',
+      reviewMembers: r.reviewMembers ?? '',
+      approvedCount: r.approvedCount,
+      participantCount: r.participantCount,
+      abstainCount: r.abstainCount,
+      validFileCount: r.validFileCount,
+      suppliers: this.parseJsonArray(r.suppliers),
+      candidates: this.parseJsonArray(r.candidates),
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  /** JSON 数组字符串 → 数组（解析失败或非数组返回空数组） */
+  private parseJsonArray<T = any>(raw: string | null | undefined): T[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   private serialize(r: TaskRow) {
