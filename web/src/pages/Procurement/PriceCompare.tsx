@@ -7,7 +7,6 @@ import {
   Col,
   Descriptions,
   Drawer,
-  Empty,
   Input,
   InputNumber,
   Modal,
@@ -17,7 +16,6 @@ import {
   Space,
   Spin,
   Table,
-  Tag,
   Tooltip,
   message,
 } from 'antd';
@@ -35,6 +33,10 @@ import {
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
+import ModuleListPage, {
+  type ModuleListFilterField,
+  type ModuleListRow,
+} from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildPriceCompareDocHtml,
@@ -104,9 +106,11 @@ export default function PriceCompare() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
   const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
+  /** 列表化（批次五）：详情抽屉开关；带 taskId 进入页面时直接打开 */
+  const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
+  /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
+  const [listRefresh, setListRefresh] = useState(0);
 
   const [detail, setDetail] = useState<PriceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -136,23 +140,8 @@ export default function PriceCompare() {
   const editable = !!detail && (detail.editable || (detail.published && reEditing));
   const content = detail?.content || currentTask?.content || '';
 
-  /** 仅「成交报告已完成」（价格对比表编制中）的任务可进入编辑 */
-  const priceTasks = useMemo(
-    () => tasks.filter((t) => t.status === 'PRICE_COMPARE_EDITING'),
-    [tasks],
-  );
-
   /** 表底汇总（清单收入总金额 / 标准成本总金额 / 采购效益率 / 采购成本降低率） */
   const summary = useMemo(() => summarizePriceCompare(rows), [rows]);
-
-  useEffect(() => {
-    setTasksLoading(true);
-    procurementTaskApi
-      .list({ type: 'SINGLE', pageSize: 200 })
-      .then((res: any) => setTasks(res?.list ?? res?.data?.list ?? []))
-      .catch(() => setTasks([]))
-      .finally(() => setTasksLoading(false));
-  }, []);
 
   useEffect(() => {
     if (!currentProjectId) return;
@@ -198,9 +187,23 @@ export default function PriceCompare() {
     if (taskId) loadDetail(taskId);
   }, [taskId, loadDetail]);
 
-  const selectTask = (id: string) => {
-    setTaskId(id);
-    setSearchParams({ taskId: id }, { replace: true });
+  /** 列表行操作：查看（进入只读详情抽屉） */
+  const openRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+  };
+  /** 列表行操作：编辑（打开详情抽屉并叠加编辑弹窗） */
+  const editRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+    setEditOpen(true);
+  };
+  /** 关闭详情抽屉后刷新列表（反映保存/发布后的最新模块状态） */
+  const closeDetail = () => {
+    setDetailOpen(false);
+    setListRefresh((x) => x + 1);
   };
 
   const patchRow = (key: string, patch: Partial<KeyedRow>) =>
@@ -447,88 +450,102 @@ export default function PriceCompare() {
 
   /* ---------------- 渲染 ---------------- */
 
+  /** 计价方式展示名 */
+  const pricingMethodLabel = (v: string | null | undefined) =>
+    v === 'FIXED' ? '固定价' : v === 'FLOATING' ? '浮动价' : '-';
+
+  /** 价格对比表模块特有筛选项 */
+  const extraFilters: ModuleListFilterField[] = [
+    {
+      key: 'pricingMethod',
+      label: '计价方式',
+      control: 'select',
+      options: [
+        { label: '全部', value: '' },
+        { label: '固定价', value: 'FIXED' },
+        { label: '浮动价', value: 'FLOATING' },
+      ],
+    },
+  ];
+
+  /** 价格对比表模块特有表格列 */
+  const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      title: '计价方式',
+      key: 'pricingMethod',
+      width: 110,
+      render: (_v, row) => pricingMethodLabel(row.module?.pricingMethod),
+    },
+  ];
+
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Card size="small">
-        <Space wrap>
-          <Select
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 460 }}
-            placeholder="选择采购任务（仅显示成交报告已完成的任务）"
-            loading={tasksLoading}
-            value={taskId ?? undefined}
-            onChange={selectTask}
-            options={priceTasks.map((t) => ({
-              value: t.id,
-              label: `${t.taskNo} · ${t.content}`,
-            }))}
-            notFoundContent={
-              tasksLoading
-                ? '加载中…'
-                : '暂无可编辑任务（需先完成成交报告，任务状态为「价格对比表编制中」）'
+      {/* 标准列表页（批次五）：筛选区 + 工具栏 + 数据表格 */}
+      <ModuleListPage
+        moduleKey="PRICE_COMPARE"
+        baseParams={{ type: 'SINGLE' }}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        toolbarLeft={
+          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+            仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准（需先完成成交报告）
+          </span>
+        }
+        refreshKey={listRefresh}
+        onView={openRow}
+        onEdit={editRow}
+      />
+
+      {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
+      <Drawer
+        title={`采购价格对比表 · 任务详情${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1200}
+        open={detailOpen && !!currentTask}
+        onClose={closeDetail}
+        destroyOnClose
+      >
+        {currentTask && (
+          <ModuleDetailCard
+            title="采购价格对比表 · 任务详情"
+            taskNo={currentTask.taskNo}
+            content={content}
+            statusLabel={detail?.statusLabel ?? '编辑中'}
+            publishedAt={detail?.data?.publishedAt ?? null}
+            docHtml={detailDoc.html}
+            docLoading={detailDoc.loading}
+            actions={
+              <>
+                {detail && !detail.published && (
+                  <Button type="primary" onClick={() => setEditOpen(true)}>
+                    编辑
+                  </Button>
+                )}
+                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                  预览
+                </Button>
+                <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                  导出 Word
+                </Button>
+                {detail && !detail.published && (
+                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                    发布
+                  </Button>
+                )}
+                {detail?.published && (
+                  <Button
+                    onClick={() => {
+                      setReEditing(true);
+                      setEditOpen(true);
+                    }}
+                  >
+                    重新编辑
+                  </Button>
+                )}
+              </>
             }
           />
-          {currentTask && (
-            <>
-              <Tag color="cyan">{taskTypeLabel(currentTask.type)}</Tag>
-              <Tag color={detail?.published ? 'green' : 'orange'}>
-                采购价格对比表：{detail?.statusLabel ?? '编辑中'}
-              </Tag>
-              <Tag>{taskStatusLabel(currentTask.status)}</Tag>
-            </>
-          )}
-        </Space>
-      </Card>
-
-      {!currentTask && (
-        <Card>
-          <Empty description="请先在上方选择「成交报告已完成」的采购任务" />
-        </Card>
-      )}
-
-      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
-      {currentTask && (
-        <ModuleDetailCard
-          title="采购价格对比表 · 任务详情"
-          taskNo={currentTask.taskNo}
-          content={content}
-          statusLabel={detail?.statusLabel ?? '编辑中'}
-          publishedAt={detail?.data?.publishedAt ?? null}
-          docHtml={detailDoc.html}
-          docLoading={detailDoc.loading}
-          actions={
-            <>
-              {detail && !detail.published && (
-                <Button type="primary" onClick={() => setEditOpen(true)}>
-                  编辑
-                </Button>
-              )}
-              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                预览
-              </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                导出 Word
-              </Button>
-              {detail && !detail.published && (
-                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                  发布
-                </Button>
-              )}
-              {detail?.published && (
-                <Button
-                  onClick={() => {
-                    setReEditing(true);
-                    setEditOpen(true);
-                  }}
-                >
-                  重新编辑
-                </Button>
-              )}
-            </>
-          }
-        />
-      )}
+        )}
+      </Drawer>
 
       {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
       <Drawer

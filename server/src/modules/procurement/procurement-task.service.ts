@@ -152,7 +152,46 @@ export class ProcurementTaskService {
     private tpl: ImportTemplateService,
   ) {}
 
-  /** 分页列表（筛选：状态 / 采购类型 / 编号与内容关键词） */
+  /**
+   * 列表页联表配置（六模块列表化）：module 参数 → Prisma 关联名 + 列表需要返回的字段。
+   * 模块状态由前端按 module 记录推导：无记录=未填写、有记录未发布=编辑中、已发布=已完成。
+   */
+  private static readonly MODULE_LIST_RELATIONS: Record<
+    string,
+    { rel: string; select: Record<string, boolean> }
+  > = {
+    FRAMEWORK_EXPLANATION: { rel: 'frameworkExplanation', select: { publishedAt: true } },
+    PRE_MEETING: {
+      rel: 'preMeetingMinutes',
+      select: { meetingTime: true, host: true, writer: true, publishedAt: true },
+    },
+    NOTICE: {
+      rel: 'procurementNotice',
+      select: { procurementNo: true, procurementTime: true, contacts: true, publishedAt: true },
+    },
+    DOCUMENT: {
+      rel: 'procurementDocument',
+      select: { procurementTime: true, responseDeposit: true, publishedAt: true },
+    },
+    RESULT_REPORT: {
+      rel: 'procurementResultReport',
+      select: { openTime: true, unitCount: true, approvedCount: true, publishedAt: true },
+    },
+    PRICE_COMPARE: {
+      rel: 'procurementPriceCompare',
+      select: { pricingMethod: true, publishedAt: true },
+    },
+  };
+
+  /** 日期区间（from/to 均可选；to 由前端传当日 23:59:59） */
+  private dateRange(from: any, to: any): any | null {
+    const r: any = {};
+    if (from) r.gte = new Date(from);
+    if (to) r.lte = new Date(to);
+    return Object.keys(r).length ? r : null;
+  }
+
+  /** 分页列表（筛选：状态 / 采购类型 / 编号与内容关键词 / 模块联表字段） */
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
@@ -161,14 +200,89 @@ export class ProcurementTaskService {
     if (query.keyword) {
       where.OR = [{ taskNo: { contains: query.keyword } }, { content: { contains: query.keyword } }];
     }
+    // 采前会列表：仅显示需要采前会的单项采购任务（保存总清单后按金额 ≥ 100 万自动判定）
+    if (query.preMeetingRequired === 'true') where.preMeetingRequired = true;
+    if (query.taskNo) where.taskNo = { contains: query.taskNo };
+    if (query.content) where.content = { contains: query.content };
+
+    // 模块联表（批次五 · 六模块列表化）
+    const moduleDef = ProcurementTaskService.MODULE_LIST_RELATIONS[String(query.module ?? '')];
+    if (moduleDef) {
+      const rf: any = {};
+      // 模块发布时间区间
+      const pub = this.dateRange(query.publishedFrom, query.publishedTo);
+      if (pub) rf.publishedAt = pub;
+      // 模块状态筛选：PUBLISHED=已完成 / EDITING=编辑中（有记录未发布）/ UNFILLED=未填写（无记录）
+      if (query.moduleStatus === 'PUBLISHED') {
+        rf.publishedAt = { ...(rf.publishedAt ?? {}), not: null };
+      } else if (query.moduleStatus === 'EDITING') {
+        // 有记录但未发布（注意：Prisma 对一关系 publishedAt=null 也会命中无记录任务，需叠加 isNot null）
+        where.AND = [...(where.AND ?? []), { [moduleDef.rel]: { isNot: null } }];
+        if (!Object.keys(rf.publishedAt ?? {}).length) rf.publishedAt = null;
+      } else if (query.moduleStatus === 'UNFILLED') {
+        where.AND = [...(where.AND ?? []), { [moduleDef.rel]: { is: null } }];
+      }
+      // 各模块特有筛选
+      switch (String(query.module)) {
+        case 'PRE_MEETING': {
+          const mt = this.dateRange(query.meetingFrom, query.meetingTo);
+          if (mt) rf.meetingTime = mt;
+          if (query.host) rf.host = { contains: query.host };
+          break;
+        }
+        case 'NOTICE': {
+          const nt = this.dateRange(query.procTimeFrom, query.procTimeTo);
+          if (nt) rf.procurementTime = nt;
+          if (query.contact) rf.contacts = { contains: query.contact };
+          break;
+        }
+        case 'DOCUMENT': {
+          const dt = this.dateRange(query.procTimeFrom, query.procTimeTo);
+          if (dt) rf.procurementTime = dt;
+          break;
+        }
+        case 'RESULT_REPORT': {
+          const ot = this.dateRange(query.openFrom, query.openTo);
+          if (ot) rf.openTime = ot;
+          break;
+        }
+        case 'PRICE_COMPARE': {
+          if (query.pricingMethod) rf.pricingMethod = query.pricingMethod;
+          break;
+        }
+        default:
+          break;
+      }
+      if (Object.keys(rf).length) where[moduleDef.rel] = rf;
+    }
+
+    const include: any = moduleDef ? { [moduleDef.rel]: { select: moduleDef.select } } : undefined;
     const [rows, total] = await Promise.all([
-      this.prisma.procurementTask.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+      this.prisma.procurementTask.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip, take }),
       this.prisma.procurementTask.count({ where }),
     ]);
     // 任务 3.2：列表带出预计采购金额（万元），供「是否需要采前会会议纪要」判定与展示
     const amountMap = await this.estimatedAmountMap(rows.map((r) => r.id));
     return buildResult(
-      rows.map((r) => ({ ...this.serialize(r), estimatedAmountWan: toWan(amountMap.get(r.id) ?? 0) })),
+      rows.map((r: any) => {
+        let module: any = null;
+        if (moduleDef) {
+          const rec = r[moduleDef.rel];
+          if (rec) {
+            module = { ...rec };
+            // 采购公告联系人 / 联系电话为 JSON 字符串，解析后返回
+            if (String(query.module) === 'NOTICE') {
+              module.contacts = this.parseJsonArray<string>(rec.contacts);
+              module.contactPhones = this.parseJsonArray<string>((rec as any).contactPhones);
+            }
+          }
+        }
+        return {
+          ...this.serialize(r),
+          estimatedAmountWan: toWan(amountMap.get(r.id) ?? 0),
+          module,
+        };
+      }),
       total,
       query,
     );

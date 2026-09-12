@@ -8,16 +8,13 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
-  Empty,
   Input,
   Modal,
   Popconfirm,
   Row,
-  Select,
   Space,
   Spin,
   Table,
-  Tag,
   Tooltip,
   message,
 } from 'antd';
@@ -42,6 +39,10 @@ import {
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
+import ModuleListPage, {
+  type ModuleListFilterField,
+  type ModuleListRow,
+} from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildNoticeDocHtml,
@@ -160,9 +161,11 @@ export default function Notice() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
   const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
+  /** 列表化（批次五）：详情抽屉开关；带 taskId 进入页面时直接打开 */
+  const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
+  /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
+  const [listRefresh, setListRefresh] = useState(0);
 
   const [detail, setDetail] = useState<NoticeDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -189,18 +192,6 @@ export default function Notice() {
   const currentTask = detail?.task ?? null;
   /** 当前是否可编辑：公告编制中，或已发布后主动点「重新编辑」 */
   const editable = !!detail && (detail.editable || (detail.published && reEditing));
-
-  /** 仅「采购公告编制中」的任务可进入编辑（发布后变更为「已完成」，不再出现在下拉中） */
-  const noticeTasks = useMemo(() => tasks.filter((t) => t.status === 'NOTICE_EDITING'), [tasks]);
-
-  useEffect(() => {
-    setTasksLoading(true);
-    procurementTaskApi
-      .list({ type: 'SINGLE', pageSize: 200 })
-      .then((res: any) => setTasks(res?.list ?? res?.data?.list ?? []))
-      .catch(() => setTasks([]))
-      .finally(() => setTasksLoading(false));
-  }, []);
 
   useEffect(() => {
     if (!currentProjectId) return;
@@ -243,9 +234,23 @@ export default function Notice() {
     if (taskId) loadDetail(taskId);
   }, [taskId, loadDetail]);
 
-  const selectTask = (id: string) => {
-    setTaskId(id);
-    setSearchParams({ taskId: id }, { replace: true });
+  /** 列表行操作：查看（进入只读详情抽屉） */
+  const openRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+  };
+  /** 列表行操作：编辑（打开详情抽屉并叠加编辑弹窗） */
+  const editRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+    setEditOpen(true);
+  };
+  /** 关闭详情抽屉后刷新列表（反映保存/发布后的最新模块状态） */
+  const closeDetail = () => {
+    setDetailOpen(false);
+    setListRefresh((x) => x + 1);
   };
 
   const patchForm = (patch: Partial<NoticeForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -425,82 +430,101 @@ export default function Notice() {
     </Card>
   );
 
+  /** 公告模块特有筛选项 */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'procTime', label: '采购时间', control: 'dateRange' },
+    { key: 'contact', label: '联系人', control: 'input' },
+  ];
+
+  /** 公告模块特有表格列 */
+  const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      title: '采购时间',
+      key: 'procurementTime',
+      width: 120,
+      render: (_v, row) =>
+        row.module?.procurementTime ? dayjs(row.module.procurementTime).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: '联系人',
+      key: 'contacts',
+      width: 150,
+      ellipsis: { showTitle: true },
+      render: (_v, row) =>
+        Array.isArray(row.module?.contacts) && row.module.contacts.length
+          ? row.module.contacts.join('、')
+          : '-',
+    },
+  ];
+
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Card size="small">
-        <Space wrap>
-          <Select
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 460 }}
-            placeholder="选择采购任务（仅显示状态为「采购公告编制中」的任务）"
-            loading={tasksLoading}
-            value={taskId ?? undefined}
-            onChange={selectTask}
-            options={noticeTasks.map((t) => ({
-              value: t.id,
-              label: `${t.taskNo} · ${t.content}`,
-            }))}
-            notFoundContent={tasksLoading ? '加载中…' : '暂无可编辑任务（状态需为「采购公告编制中」）'}
+      {/* 标准列表页（批次五）：筛选区 + 工具栏 + 数据表格 */}
+      <ModuleListPage
+        moduleKey="NOTICE"
+        baseParams={{ type: 'SINGLE' }}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        toolbarLeft={
+          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+            仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准
+          </span>
+        }
+        refreshKey={listRefresh}
+        onView={openRow}
+        onEdit={editRow}
+      />
+
+      {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
+      <Drawer
+        title={`采购公告 · 任务详情${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1200}
+        open={detailOpen && !!currentTask}
+        onClose={closeDetail}
+        destroyOnClose
+      >
+        {currentTask && (
+          <ModuleDetailCard
+            title="采购公告 · 任务详情"
+            taskNo={currentTask.taskNo}
+            content={form.content || currentTask.content}
+            statusLabel={detail?.statusLabel ?? '编辑中'}
+            publishedAt={detail?.data?.publishedAt ?? null}
+            docHtml={detailDoc.html}
+            docLoading={detailDoc.loading}
+            actions={
+              <>
+                {detail && !detail.published && (
+                  <Button type="primary" onClick={() => setEditOpen(true)}>
+                    编辑
+                  </Button>
+                )}
+                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                  预览
+                </Button>
+                <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                  导出 Word
+                </Button>
+                {detail && !detail.published && (
+                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                    发布
+                  </Button>
+                )}
+                {detail?.published && (
+                  <Button
+                    onClick={() => {
+                      setReEditing(true);
+                      setEditOpen(true);
+                    }}
+                  >
+                    重新编辑
+                  </Button>
+                )}
+              </>
+            }
           />
-          {currentTask && (
-            <>
-              <Tag color="cyan">{taskTypeLabel(currentTask.type)}</Tag>
-              <Tag color={detail?.published ? 'green' : 'orange'}>采购公告：{detail?.statusLabel ?? '编辑中'}</Tag>
-              <Tag>{taskStatusLabel(currentTask.status)}</Tag>
-            </>
-          )}
-        </Space>
-      </Card>
-
-      {!currentTask && (
-        <Card>
-          <Empty description="请先在上方选择状态为「采购公告编制中」的采购任务" />
-        </Card>
-      )}
-
-      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
-      {currentTask && (
-        <ModuleDetailCard
-          title="采购公告 · 任务详情"
-          taskNo={currentTask.taskNo}
-          content={form.content || currentTask.content}
-          statusLabel={detail?.statusLabel ?? '编辑中'}
-          publishedAt={detail?.data?.publishedAt ?? null}
-          docHtml={detailDoc.html}
-          docLoading={detailDoc.loading}
-          actions={
-            <>
-              {detail && !detail.published && (
-                <Button type="primary" onClick={() => setEditOpen(true)}>
-                  编辑
-                </Button>
-              )}
-              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                预览
-              </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                导出 Word
-              </Button>
-              {detail && !detail.published && (
-                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                  发布
-                </Button>
-              )}
-              {detail?.published && (
-                <Button
-                  onClick={() => {
-                    setReEditing(true);
-                    setEditOpen(true);
-                  }}
-                >
-                  重新编辑
-                </Button>
-              )}
-            </>
-          }
-        />
-      )}
+        )}
+      </Drawer>
 
       {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
       <Drawer

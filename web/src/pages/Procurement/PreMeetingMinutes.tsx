@@ -8,18 +8,14 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
-  Empty,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
   Row,
-  Select,
   Space,
   Spin,
   Table,
-  Tag,
-  Tooltip,
   Upload,
   message,
 } from 'antd';
@@ -39,13 +35,16 @@ import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
-import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
 import {
   getProcurementVariableGroups,
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
+import ModuleListPage, {
+  type ModuleListFilterField,
+  type ModuleListRow,
+} from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildPreMeetingDocHtml,
@@ -168,9 +167,11 @@ export default function PreMeetingMinutes() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
   const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
+  /** 列表化（批次五）：详情抽屉开关；带 taskId 进入页面时直接打开 */
+  const [detailOpen, setDetailOpen] = useState(!!searchParams.get('taskId'));
+  /** 列表刷新键：详情抽屉关闭后重查，反映最新模块状态 */
+  const [listRefresh, setListRefresh] = useState(0);
 
   const [detail, setDetail] = useState<MinutesDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -200,24 +201,6 @@ export default function PreMeetingMinutes() {
   const currentTask = detail?.task ?? null;
   /** 当前是否可编辑：编辑中阶段，或已发布后主动点「重新编辑」 */
   const editable = !!detail && (detail.editable || (detail.published && reEditing));
-
-  /** 仅「单项采购」且需要采前会（预计采购金额 ≥ 100 万）的任务可用本模块 */
-  const eligibleTasks = useMemo(
-    () =>
-      tasks.filter(
-        (t) => t.type === 'SINGLE' && (t.preMeetingRequired || Number(t.estimatedAmountWan ?? 0) >= 100),
-      ),
-    [tasks],
-  );
-
-  useEffect(() => {
-    setTasksLoading(true);
-    procurementTaskApi
-      .list({ type: 'SINGLE', pageSize: 200 })
-      .then((res: any) => setTasks(res?.list ?? res?.data?.list ?? []))
-      .catch(() => setTasks([]))
-      .finally(() => setTasksLoading(false));
-  }, []);
 
   useEffect(() => {
     if (!currentProjectId) return;
@@ -277,9 +260,23 @@ export default function PreMeetingMinutes() {
     if (taskId) loadDetail(taskId);
   }, [taskId, loadDetail]);
 
-  const selectTask = (id: string) => {
-    setTaskId(id);
-    setSearchParams({ taskId: id }, { replace: true });
+  /** 列表行操作：查看（进入只读详情抽屉） */
+  const openRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+  };
+  /** 列表行操作：编辑（打开详情抽屉并叠加编辑弹窗） */
+  const editRow = (row: ModuleListRow) => {
+    setTaskId(row.id);
+    setSearchParams({ taskId: row.id }, { replace: true });
+    setDetailOpen(true);
+    setEditOpen(true);
+  };
+  /** 关闭详情抽屉后刷新列表（反映保存/发布后的最新模块状态） */
+  const closeDetail = () => {
+    setDetailOpen(false);
+    setListRefresh((x) => x + 1);
   };
 
   const patchForm = (patch: Partial<MinutesForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -617,96 +614,99 @@ export default function PreMeetingMinutes() {
 
   const totals = useMemo(() => summarizeCost(form.costRows.map(stripKey)), [form.costRows]);
 
-  if (!tasksLoading && eligibleTasks.length === 0) {
-    return (
-      <Card>
-        <Empty description="暂无可编辑的任务：仅「单项采购」类型且预计采购金额 ≥ 100 万元的采购任务才生成采前会会议纪要（发布总采购清单后按金额自动判定）" />
-      </Card>
-    );
-  }
+  /** 采前会模块特有筛选项 */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'meeting', label: '会议时间', control: 'dateRange' },
+    { key: 'host', label: '主持人', control: 'input' },
+  ];
+
+  /** 采前会模块特有表格列 */
+  const extraColumns: ColumnsType<ModuleListRow> = [
+    {
+      title: '会议时间',
+      key: 'meetingTime',
+      width: 120,
+      render: (_v, row) =>
+        row.module?.meetingTime ? dayjs(row.module.meetingTime).format('YYYY-MM-DD') : '-',
+    },
+    { title: '主持人', key: 'host', width: 120, ellipsis: { showTitle: true }, render: (_v, row) => row.module?.host || '-' },
+    { title: '编写人', key: 'writer', width: 120, ellipsis: { showTitle: true }, render: (_v, row) => row.module?.writer || '-' },
+  ];
 
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Card size="small">
-        <Space wrap>
-          <Select
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 440 }}
-            placeholder="选择采购任务（仅显示单项采购且预计采购金额 ≥ 100 万的任务）"
-            loading={tasksLoading}
-            value={taskId ?? undefined}
-            onChange={selectTask}
-            options={eligibleTasks.map((t) => ({
-              value: t.id,
-              label: `${t.taskNo} · ${t.content}${t.estimatedAmountWan != null ? `（预计 ${fmtWan(t.estimatedAmountWan)} 万元）` : ''}`,
-            }))}
+      {/* 标准列表页（批次五）：筛选区 + 工具栏 + 数据表格 */}
+      <ModuleListPage
+        moduleKey="PRE_MEETING"
+        baseParams={{ type: 'SINGLE', preMeetingRequired: 'true' }}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        toolbarLeft={
+          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+            仅显示单项采购且需要采前会（预计采购金额 ≥ 100 万）的任务
+          </span>
+        }
+        refreshKey={listRefresh}
+        onView={openRow}
+        onEdit={editRow}
+        emptyText="暂无数据（仅「单项采购」类型且预计采购金额 ≥ 100 万元的采购任务才生成采前会会议纪要）"
+      />
+
+      {/* 只读详情抽屉（需求修正 · 修改二）：由列表行「查看」进入，编辑在弹窗进行 */}
+      <Drawer
+        title={`采前会会议纪要 · 任务详情${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1200}
+        open={detailOpen && !!currentTask}
+        onClose={closeDetail}
+        destroyOnClose
+      >
+        {currentTask && (
+          <ModuleDetailCard
+            title="采前会会议纪要 · 任务详情"
+            taskNo={currentTask.taskNo}
+            content={form.content || currentTask.content}
+            statusLabel={detail?.statusLabel ?? '编辑中'}
+            publishedAt={detail?.data?.publishedAt ?? null}
+            extraDescriptions={
+              <Descriptions.Item label="预计采购金额">
+                {fmtWan(detail?.estimatedAmountWan ?? 0)} 万元
+              </Descriptions.Item>
+            }
+            docHtml={detailDoc.html}
+            docLoading={detailDoc.loading}
+            actions={
+              <>
+                {detail && !detail.published && (
+                  <Button type="primary" onClick={() => setEditOpen(true)}>
+                    编辑
+                  </Button>
+                )}
+                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                  预览
+                </Button>
+                <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                  导出 Word
+                </Button>
+                {detail && !detail.published && (
+                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                    发布
+                  </Button>
+                )}
+                {detail?.published && (
+                  <Button
+                    onClick={() => {
+                      setReEditing(true);
+                      setEditOpen(true);
+                    }}
+                  >
+                    重新编辑
+                  </Button>
+                )}
+              </>
+            }
           />
-          {currentTask && (
-            <>
-              <Tag color="cyan">{taskTypeLabel(currentTask.type)}</Tag>
-              <Tag color={detail?.published ? 'green' : 'orange'}>
-                采前会纪要：{detail?.statusLabel ?? '编辑中'}
-              </Tag>
-              <Tag>{taskStatusLabel(currentTask.status)}</Tag>
-            </>
-          )}
-        </Space>
-      </Card>
-
-      {!currentTask && (
-        <Card>
-          <Empty description="请先在上方选择采购任务" />
-        </Card>
-      )}
-
-      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
-      {currentTask && (
-        <ModuleDetailCard
-          title="采前会会议纪要 · 任务详情"
-          taskNo={currentTask.taskNo}
-          content={form.content || currentTask.content}
-          statusLabel={detail?.statusLabel ?? '编辑中'}
-          publishedAt={detail?.data?.publishedAt ?? null}
-          extraDescriptions={
-            <Descriptions.Item label="预计采购金额">
-              {fmtWan(detail?.estimatedAmountWan ?? 0)} 万元
-            </Descriptions.Item>
-          }
-          docHtml={detailDoc.html}
-          docLoading={detailDoc.loading}
-          actions={
-            <>
-              {detail && !detail.published && (
-                <Button type="primary" onClick={() => setEditOpen(true)}>
-                  编辑
-                </Button>
-              )}
-              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                预览
-              </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                导出 Word
-              </Button>
-              {detail && !detail.published && (
-                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                  发布
-                </Button>
-              )}
-              {detail?.published && (
-                <Button
-                  onClick={() => {
-                    setReEditing(true);
-                    setEditOpen(true);
-                  }}
-                >
-                  重新编辑
-                </Button>
-              )}
-            </>
-          }
-        />
-      )}
+        )}
+      </Drawer>
 
       {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
       <Drawer
