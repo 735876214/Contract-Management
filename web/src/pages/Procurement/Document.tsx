@@ -7,6 +7,7 @@ import {
   Col,
   DatePicker,
   Descriptions,
+  Drawer,
   Empty,
   InputNumber,
   Modal,
@@ -32,6 +33,7 @@ import {
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
+import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildDocumentDocHtml,
@@ -125,6 +127,8 @@ export default function Document() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
+  /** 编辑弹窗（需求修正 · 修改二）：主视图只读详情，编辑在弹窗中进行 */
+  const [editOpen, setEditOpen] = useState(false);
 
   const [project, setProject] = useState<{
     name?: string;
@@ -215,6 +219,7 @@ export default function Document() {
     try {
       await procurementTaskApi.saveDocument(taskId, buildSavePayload());
       message.success('已保存');
+      setEditOpen(false);
       loadDetail(taskId);
     } finally {
       setSaving(false);
@@ -303,6 +308,15 @@ export default function Document() {
     message.success(`已导出：${exportFilename}`);
   };
 
+  /** 只读详情文档（模板优先 + 变量替换，需求修正 · 修改二） */
+  const detailDoc = useModuleDetailDoc(
+    !!currentTask,
+    MODULE_TYPE,
+    taskId ?? undefined,
+    rawDocHtml,
+    varValues,
+  );
+
   /* ---------------- 采购清单（只读）列 ---------------- */
 
   /** 价格类列由投标方填写，系统内留空 */
@@ -363,39 +377,90 @@ export default function Document() {
         </Space>
       </Card>
 
-      <Spin spinning={detailLoading}>
-        {!currentTask ? (
-          <Card>
-            <Empty description="请先在上方选择「采购公告已完成」的采购任务" />
-          </Card>
-        ) : (
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {detail?.published && !editable && (
-              <Alert
-                type="success"
-                showIcon
-                message="采购文件已发布（已完成）。可预览、导出 Word，或点击「重新编辑」修改内容。"
-                action={
-                  <Button size="small" onClick={() => setReEditing(true)}>
-                    重新编辑
-                  </Button>
-                }
-              />
+      {!currentTask && (
+        <Card>
+          <Empty description="请先在上方选择「采购公告已完成」的采购任务" />
+        </Card>
+      )}
+
+      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
+      {currentTask && (
+        <ModuleDetailCard
+          title="采购文件 · 任务详情"
+          taskNo={currentTask.taskNo}
+          content={content}
+          statusLabel={detail?.statusLabel ?? '编辑中'}
+          publishedAt={detail?.data?.publishedAt ?? null}
+          docHtml={detailDoc.html}
+          docLoading={detailDoc.loading}
+          actions={
+            <>
+              {detail && !detail.published && (
+                <Button type="primary" onClick={() => setEditOpen(true)}>
+                  编辑
+                </Button>
+              )}
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                预览
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                导出 Word
+              </Button>
+              {detail && !detail.published && (
+                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                  发布
+                </Button>
+              )}
+              {detail?.published && (
+                <Button
+                  onClick={() => {
+                    setReEditing(true);
+                    setEditOpen(true);
+                  }}
+                >
+                  重新编辑
+                </Button>
+              )}
+            </>
+          }
+        />
+      )}
+
+      {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
+      <Drawer
+        title={`采购文件 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1100}
+        open={editOpen && !!currentTask}
+        onClose={() => setEditOpen(false)}
+        destroyOnClose
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setEditOpen(false)}>取消</Button>
+            {editable && (
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+                保存
+              </Button>
             )}
-            {detail?.published && editable && (
-              <Alert
-                type="warning"
-                showIcon
-                message="重新编辑模式：修改后请保存，发布状态保持「已完成」。"
-              />
-            )}
-            {detail && !detail.reached && (
-              <Alert
-                type="info"
-                showIcon
-                message="该采购任务尚未进入采购文件阶段（需先完成采购公告）。"
-              />
-            )}
+          </Space>
+        }
+      >
+        <Spin spinning={detailLoading}>
+          {currentTask && (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              {detail && !detail.reached && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="该采购任务尚未进入采购文件阶段（需先完成采购公告）。"
+                />
+              )}
+              {detail?.published && editable && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="重新编辑模式：修改后请保存，发布状态保持「已完成」。"
+                />
+              )}
 
             {/* 展示信息 */}
             <Card size="small" title="展示信息">
@@ -518,32 +583,10 @@ export default function Document() {
               />
             </Card>
 
-            {/* 操作 */}
-            <Card size="small">
-              <Space wrap>
-                {editable && (
-                  <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-                    保存
-                  </Button>
-                )}
-                <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                    预览
-                  </Button>
-                </Tooltip>
-                {detail?.editable && (
-                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                    发布
-                  </Button>
-                )}
-                <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                  导出 Word
-                </Button>
-              </Space>
-            </Card>
           </Space>
-        )}
-      </Spin>
+          )}
+        </Spin>
+      </Drawer>
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal

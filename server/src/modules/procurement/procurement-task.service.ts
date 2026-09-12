@@ -477,7 +477,30 @@ export class ProcurementTaskService {
         }
       }
     });
-    return this.totalList(taskId);
+
+    // 需求修正（修改一 · 2.2）：判断时机 = 总采购清单保存后。
+    // 系统自动计算「预计采购合价」合计（Σ 预计采购单价 × 暂定数量），
+    // 单项采购且合计 ≥ 100 万元 → 生成采前会会议纪要模块；引用框架协议或合计 < 100 万 → 不生成。
+    let preMeetingRequired = task.preMeetingRequired;
+    if (task.type === 'SINGLE' && task.stage === 0) {
+      const amountYuan = await this.estimatedAmountYuan(taskId);
+      preMeetingRequired = amountYuan >= PRE_MEETING_THRESHOLD_YUAN;
+      if (preMeetingRequired !== task.preMeetingRequired) {
+        await this.prisma.procurementTask.update({
+          where: { id: taskId },
+          data: { preMeetingRequired },
+        });
+      }
+    }
+
+    const list = await this.totalList(taskId);
+    const amountYuan = await this.estimatedAmountYuan(taskId);
+    return {
+      ...list,
+      estimatedAmountYuan: Math.round(amountYuan * 100) / 100,
+      estimatedAmountWan: toWan(amountYuan),
+      preMeetingRequired,
+    };
   }
 
   private serializeItem(i: {

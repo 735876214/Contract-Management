@@ -7,6 +7,7 @@ import {
   Col,
   DatePicker,
   Descriptions,
+  Drawer,
   Empty,
   Input,
   InputNumber,
@@ -44,6 +45,7 @@ import {
 } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
+import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildPreMeetingDocHtml,
@@ -181,6 +183,8 @@ export default function PreMeetingMinutes() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
+  /** 编辑弹窗（需求修正 · 修改二）：主视图只读详情，编辑在弹窗中进行 */
+  const [editOpen, setEditOpen] = useState(false);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -359,6 +363,7 @@ export default function PreMeetingMinutes() {
     try {
       await procurementTaskApi.savePreMeetingMinutes(taskId, buildSavePayload());
       message.success('已保存');
+      setEditOpen(false);
       loadDetail(taskId);
     } finally {
       setSaving(false);
@@ -445,6 +450,15 @@ export default function PreMeetingMinutes() {
     });
     message.success(`已导出：${exportFilename}`);
   };
+
+  /** 只读详情文档（模板优先 + 变量替换，需求修正 · 修改二） */
+  const detailDoc = useModuleDetailDoc(
+    !!currentTask,
+    MODULE_TYPE,
+    taskId ?? undefined,
+    rawDocHtml,
+    varValues,
+  );
 
   /* ---------------- 表格列 ---------------- */
 
@@ -640,25 +654,81 @@ export default function PreMeetingMinutes() {
         </Space>
       </Card>
 
-      <Spin spinning={detailLoading}>
-        {!currentTask ? (
-          <Card>
-            <Empty description="请先在上方选择采购任务" />
-          </Card>
-        ) : (
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {!editable && (
-              <Alert
-                type="success"
-                showIcon
-                message="采前会会议纪要已发布（已完成）。可预览、导出 Word，或点击「重新编辑」修改内容。"
-                action={
-                  <Button size="small" onClick={() => setReEditing(true)}>
-                    重新编辑
-                  </Button>
-                }
-              />
+      {!currentTask && (
+        <Card>
+          <Empty description="请先在上方选择采购任务" />
+        </Card>
+      )}
+
+      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
+      {currentTask && (
+        <ModuleDetailCard
+          title="采前会会议纪要 · 任务详情"
+          taskNo={currentTask.taskNo}
+          content={form.content || currentTask.content}
+          statusLabel={detail?.statusLabel ?? '编辑中'}
+          publishedAt={detail?.data?.publishedAt ?? null}
+          extraDescriptions={
+            <Descriptions.Item label="预计采购金额">
+              {fmtWan(detail?.estimatedAmountWan ?? 0)} 万元
+            </Descriptions.Item>
+          }
+          docHtml={detailDoc.html}
+          docLoading={detailDoc.loading}
+          actions={
+            <>
+              {detail && !detail.published && (
+                <Button type="primary" onClick={() => setEditOpen(true)}>
+                  编辑
+                </Button>
+              )}
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                预览
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                导出 Word
+              </Button>
+              {detail && !detail.published && (
+                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                  发布
+                </Button>
+              )}
+              {detail?.published && (
+                <Button
+                  onClick={() => {
+                    setReEditing(true);
+                    setEditOpen(true);
+                  }}
+                >
+                  重新编辑
+                </Button>
+              )}
+            </>
+          }
+        />
+      )}
+
+      {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
+      <Drawer
+        title={`采前会会议纪要 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1100}
+        open={editOpen && !!currentTask}
+        onClose={() => setEditOpen(false)}
+        destroyOnClose
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setEditOpen(false)}>取消</Button>
+            {editable && (
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+                保存
+              </Button>
             )}
+          </Space>
+        }
+      >
+        <Spin spinning={detailLoading}>
+          {currentTask && (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {editable && detail?.published && (
               <Alert
                 type="warning"
@@ -862,31 +932,10 @@ export default function PreMeetingMinutes() {
             </Card>
 
             {/* 操作 */}
-            <Card size="small">
-              <Space wrap>
-                {editable && (
-                  <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-                    保存
-                  </Button>
-                )}
-                <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                    预览
-                  </Button>
-                </Tooltip>
-                {detail?.editable && (
-                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                    发布
-                  </Button>
-                )}
-                <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                  导出 Word
-                </Button>
-              </Space>
-            </Card>
           </Space>
-        )}
-      </Spin>
+          )}
+        </Spin>
+      </Drawer>
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal

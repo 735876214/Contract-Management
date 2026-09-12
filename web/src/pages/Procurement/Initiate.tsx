@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -13,7 +12,6 @@ import {
   Select,
   Space,
   Steps,
-  Switch,
   Table,
   Tag,
   Tooltip,
@@ -23,7 +21,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, ReloadOutlined, RocketOutlined, SendOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';
 import { useTable } from '@/hooks/useTable';
-import TotalListEditor from '@/components/procurement/TotalListEditor';
+import TotalListEditor, { TotalListEditorContent } from '@/components/procurement/TotalListEditor';
 import {
   BASIC_EDITABLE_STATUSES,
   PROCUREMENT_TASK_TYPES,
@@ -45,13 +43,14 @@ interface TaskRow {
   status: string;
   stage: number;
   preMeetingRequired: boolean;
+  estimatedAmountWan?: number;
   totalListId: string | null;
   contractId: string | null;
   createdAt: string;
 }
 
+/** 新建流程（需求修正 修改一）：第一步 基本信息（采购类型 + 采购内容）→ 第二步 编制总采购清单 */
 export default function Initiate() {
-  const navigate = useNavigate();
   const { loading, list, pagination, search, reload, params, setParams } = useTable<TaskRow>((p) =>
     procurementTaskApi.list(p),
   );
@@ -60,13 +59,18 @@ export default function Initiate() {
   const [editing, setEditing] = useState<TaskRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  /** 新建两步流程状态 */
+  const [createStep, setCreateStep] = useState(0);
+  const [createdTask, setCreatedTask] = useState<{ id: string; taskNo: string; status: string; stage: number } | null>(
+    null,
+  );
+
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   /** 总采购清单编辑抽屉（任务 2.2） */
   const [listTask, setListTask] = useState<TaskRow | null>(null);
-
-  const watchType = Form.useWatch('type', form);
 
   /** 筛选选项（状态按当前数据出现情况聚合，保证有值可选） */
   const statusOptions = useMemo(() => {
@@ -74,10 +78,13 @@ export default function Initiate() {
     return [...set].map((s) => ({ value: s, label: taskStatusLabel(s) }));
   }, [list]);
 
+  /** 新建流程：第一步只填采购类型与采购内容（是否需要采前会由总清单合计自动判定） */
   const openCreate = () => {
     setEditing(null);
+    setCreateStep(0);
+    setCreatedTask(null);
     form.resetFields();
-    form.setFieldsValue({ type: 'SINGLE', preMeetingRequired: false });
+    form.setFieldsValue({ type: 'SINGLE' });
     setModalOpen(true);
   };
 
@@ -87,7 +94,6 @@ export default function Initiate() {
       type: row.type,
       content: row.content,
       purpose: row.purpose,
-      preMeetingRequired: row.preMeetingRequired,
     });
     setModalOpen(true);
   };
@@ -100,23 +106,35 @@ export default function Initiate() {
         await procurementTaskApi.update(editing.id, {
           content: values.content,
           purpose: values.purpose,
-          preMeetingRequired: values.type === 'SINGLE' ? !!values.preMeetingRequired : undefined,
         });
         message.success('已保存');
+        setModalOpen(false);
+        reload();
       } else {
-        await procurementTaskApi.create({
-          type: values.type,
-          content: values.content,
-          purpose: values.purpose,
-          preMeetingRequired: values.type === 'SINGLE' ? !!values.preMeetingRequired : undefined,
+        // 第一步：创建任务后进入第二步（编制总采购清单）
+        const res: any = await procurementTaskApi.create({ type: values.type, content: values.content });
+        const task = res?.data ?? res;
+        message.success('基本信息已保存，请继续编制总采购清单');
+        setCreatedTask({
+          id: task.id,
+          taskNo: task.taskNo,
+          status: task.status ?? 'NOT_STARTED',
+          stage: task.stage ?? 0,
         });
-        message.success('采购任务已创建（状态：未发起）');
+        setCreateStep(1);
+        reload();
       }
-      setModalOpen(false);
-      reload();
     } finally {
       setSaving(false);
     }
+  };
+
+  /** 第二步完成：关闭弹窗并刷新 */
+  const finishCreate = () => {
+    setModalOpen(false);
+    setCreateStep(0);
+    setCreatedTask(null);
+    reload();
   };
 
   const openDetail = async (id: string) => {
@@ -251,43 +269,78 @@ export default function Initiate() {
         />
       </Card>
 
-      {/* 新建 / 编辑 */}
+      {/* 新建（两步流程）/ 编辑基本信息 */}
       <Modal
-        title={editing ? `编辑采购任务 · ${editing.taskNo}` : '新建采购任务'}
+        title={
+          editing ? (
+            `编辑采购任务 · ${editing.taskNo}`
+          ) : (
+            <Steps
+              size="small"
+              current={createStep}
+              items={[{ title: '基本信息' }, { title: '编制总采购清单' }]}
+              style={{ maxWidth: 420 }}
+            />
+          )
+        }
         open={modalOpen}
-        confirmLoading={saving}
-        onOk={handleSave}
+        width={createStep === 1 ? 1320 : 560}
+        footer={
+          createStep === 1
+            ? [
+                <Button key="finish" type="primary" onClick={finishCreate}>
+                  完成
+                </Button>,
+              ]
+            : [
+                <Button key="cancel" onClick={() => setModalOpen(false)}>
+                  取消
+                </Button>,
+                <Button key="next" type="primary" loading={saving} onClick={handleSave}>
+                  下一步：编制总采购清单
+                </Button>,
+              ]
+        }
         onCancel={() => setModalOpen(false)}
         destroyOnClose
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="type" label="采购类型" rules={[{ required: true, message: '请选择采购类型' }]}>
-            <Select disabled={!!editing} options={PROCUREMENT_TASK_TYPES} placeholder="请选择采购类型" />
-          </Form.Item>
-          <Form.Item name="content" label="采购内容" rules={[{ required: true, message: '请填写采购内容' }]}>
-            <Input placeholder="如：钢筋采购" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="purpose" label="采购用途">
-            <Input.TextArea rows={3} placeholder="选填" maxLength={500} />
-          </Form.Item>
-          {watchType === 'SINGLE' && (
-            <Form.Item
-              name="preMeetingRequired"
-              label="需采前会会议纪要"
-              valuePropName="checked"
-              tooltip="预计采购金额 ≥ 100 万的单项采购需先编制采前会会议纪要"
-            >
-              <Switch disabled={!!editing && editing.stage >= 1} />
+        {createStep === 1 && createdTask ? (
+          <TotalListEditorContent
+            task={createdTask}
+            embedded
+            onSaved={() => {
+              setCreatedTask((t) => (t ? { ...t, status: 'NOT_STARTED' } : t));
+            }}
+          />
+        ) : (
+          <Form form={form} layout="vertical">
+            <Form.Item name="type" label="采购类型" rules={[{ required: true, message: '请选择采购类型' }]}>
+              <Select disabled={!!editing} options={PROCUREMENT_TASK_TYPES} placeholder="请选择采购类型" />
             </Form.Item>
-          )}
-          {editing && (
-            <Alert
-              type="info"
-              showIcon
-              message="基本信息仅可在「未发起 / 总清单编制中」阶段修改；发布后进入后续流程将锁定。"
-            />
-          )}
-        </Form>
+            <Form.Item name="content" label="采购内容" rules={[{ required: true, message: '请填写采购内容' }]}>
+              <Input placeholder="如：钢筋采购" maxLength={100} />
+            </Form.Item>
+            {editing && (
+              <>
+                <Form.Item name="purpose" label="采购用途">
+                  <Input.TextArea rows={3} placeholder="选填" maxLength={500} />
+                </Form.Item>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="基本信息仅可在「未发起 / 总清单编制中」阶段修改；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定（单项采购且合计 ≥ 100 万元时生成）。"
+                />
+              </>
+            )}
+            {!editing && (
+              <Alert
+                type="info"
+                showIcon
+                message="填写基本信息后进入第二步编制总采购清单；是否需要采前会会议纪要由总采购清单的预计采购合价合计自动判定，无需手动选择。"
+              />
+            )}
+          </Form>
+        )}
       </Modal>
 
       {/* 详情 + 工作流 */}
@@ -308,6 +361,19 @@ export default function Initiate() {
               <Descriptions.Item label="采购用途">{detail.purpose || '-'}</Descriptions.Item>
               <Descriptions.Item label="当前状态">
                 <Tag color={TASK_STATUS_COLORS[detail.status] ?? 'default'}>{taskStatusLabel(detail.status)}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="预计采购合价合计">
+                {detail.estimatedAmountWan != null ? `${detail.estimatedAmountWan} 万元` : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="采前会会议纪要">
+                {/* 需求修正（修改一）：由预计采购合价合计自动判定 */}
+                {detail.type === 'FRAMEWORK' ? (
+                  <Tag>不需要（引用框架协议）</Tag>
+                ) : detail.preMeetingRequired ? (
+                  <Tag color="orange">需要（预计采购合价合计 ≥ 100 万元）</Tag>
+                ) : (
+                  <Tag>不需要（预计采购合价合计 &lt; 100 万元）</Tag>
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="创建时间">
                 {detail.createdAt ? dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') : '-'}

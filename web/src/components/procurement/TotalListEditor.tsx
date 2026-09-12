@@ -15,6 +15,7 @@ import { DeleteOutlined, PlusOutlined, SaveOutlined, SendOutlined } from '@ant-d
 import { dictApi, type DictOption } from '@/api/dict';
 import { materialApi, procurementTaskApi } from '@/api/modules';
 import { taskStatusLabel } from '@/constants/procurementWorkflow';
+import { calcAmount } from '@/utils/procurementPriceCompare';
 
 /** 物资基础库选项（物资名称/规格型号只能从基础库选择，需求 2.2.1） */
 interface MaterialOption {
@@ -24,7 +25,7 @@ interface MaterialOption {
   unit: string | null;
 }
 
-/** 总采购清单行（需求 2.2 表头字段） */
+/** 总采购清单行（需求修正 修改一：15 列含 5 个自动合价列） */
 interface TotalRow {
   key: string;
   materialBaseId?: string;
@@ -44,14 +45,6 @@ interface TaskBrief {
   taskNo: string;
   status: string;
   stage: number;
-}
-
-interface Props {
-  task: TaskBrief | null;
-  open: boolean;
-  onClose: () => void;
-  /** 发布成功后回调（刷新任务列表状态） */
-  onPublished?: () => void;
 }
 
 let rowSeq = 0;
@@ -78,7 +71,33 @@ const renderNumber = (
   />
 );
 
-export default function TotalListEditor({ task, open, onClose, onPublished }: Props) {
+/** 合价列：自动计算（单价 × 数量），只读（需求修正 修改一） */
+const renderAmount = (price?: number | null, qty?: number | null) => {
+  if (price == null && qty == null) return <span style={{ color: '#bfbfbf' }}>-</span>;
+  const v = calcAmount(price, qty);
+  return <span>{v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>;
+};
+
+const fmtAmount = (v: number) =>
+  v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export interface TotalListEditorContentProps {
+  task: TaskBrief | null;
+  /** 内嵌模式：true 时不显示「保存并发布」（由外层流程控制发布时机） */
+  embedded?: boolean;
+  /** 保存成功后回调（透传后端返回：含 estimatedAmountWan / preMeetingRequired） */
+  onSaved?: (res: any) => void;
+  /** 发布成功后回调（刷新任务列表状态） */
+  onPublished?: () => void;
+}
+
+/**
+ * 总采购清单编辑内容区（需求修正 修改一）：
+ * 15 列 = 序号 / 物资名称 / 规格型号 / 计量单位 / 暂定数量 / 收入单价·合价 /
+ * 标准成本·合价 / 市场单价·合价 / 信息价·合价 / 预计采购单价·合价（+操作列）；
+ * 5 个合价列自动计算不可改；表底显示各合价汇总行。
+ */
+export function TotalListEditorContent({ task, embedded, onSaved, onPublished }: TotalListEditorContentProps) {
   const [units, setUnits] = useState<DictOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [rows, setRows] = useState<TotalRow[]>([]);
@@ -90,7 +109,6 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
   const frozen = !!task && (task.stage >= 1 || task.status !== 'NOT_STARTED');
 
   useEffect(() => {
-    if (!open) return;
     dictApi
       .options('measurement_unit')
       .then((r) => setUnits(r || []))
@@ -99,10 +117,10 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
       .options()
       .then((r: any) => setMaterials(Array.isArray(r) ? r : r?.list || []))
       .catch(() => setMaterials([]));
-  }, [open]);
+  }, [task?.id]);
 
   useEffect(() => {
-    if (!open || !task) return;
+    if (!task) return;
     setLoading(true);
     procurementTaskApi
       .totalList(task.id)
@@ -126,7 +144,7 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
       })
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [open, task]);
+  }, [task]);
 
   const materialOptions = useMemo(
     () =>
@@ -145,7 +163,7 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  /** 选择物资：自动带出名称/规格/计量单位默认值（需求 2.2.1 / 2.2.2） */
+  /** 选择物资：自动带出名称/规格/计量单位默认值并直接显示（需求 2.2.1 / 2.2.2 / 修改三） */
   const handleMaterialChange = (key: string, baseId?: string) => {
     const hit = materials.find((m) => m.id === baseId);
     if (!hit) {
@@ -163,6 +181,19 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
   const addRow = () => setRows((prev) => [...prev, { key: nextKey() }]);
 
   const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key));
+
+  /** 合价汇总（需求修正 修改一：表底汇总行） */
+  const totals = useMemo(() => {
+    const sum = (pick: (r: TotalRow) => number | null | undefined) =>
+      Math.round(rows.reduce((s, r) => s + calcAmount(pick(r), r.qty), 0) * 100) / 100;
+    return {
+      income: sum((r) => r.incomePrice),
+      stdCost: sum((r) => r.stdCost),
+      market: sum((r) => r.marketPrice),
+      info: sum((r) => r.infoPrice),
+      plan: sum((r) => r.planPrice),
+    };
+  }, [rows]);
 
   /** 控制价校验（需求 2.2.3）：预计采购单价 > 市场单价 → 禁止保存 */
   const validate = (): boolean => {
@@ -203,8 +234,11 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
     if (!validate()) return false;
     setSaving(true);
     try {
-      await procurementTaskApi.saveTotalList(task.id, payload());
-      message.success('总采购清单已保存（计量单位变更已同步物资基础库）');
+      const res: any = await procurementTaskApi.saveTotalList(task.id, payload());
+      message.success(
+        '总采购清单已保存（计量单位变更已同步物资基础库，采前会需求已按预计采购合价合计自动判定）',
+      );
+      onSaved?.(res?.data ?? res);
       return true;
     } finally {
       setSaving(false);
@@ -220,22 +254,30 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
       await procurementTaskApi.publish(task.id);
       message.success('总采购清单已发布并冻结，后续模块可引用其内容');
       onPublished?.();
-      onClose();
     } finally {
       setPublishing(false);
     }
   };
 
+  const amountColumn = (
+    title: string,
+    pick: (r: TotalRow) => number | null | undefined,
+    width = 110,
+  ) => ({
+    title,
+    width,
+    align: 'right' as const,
+    render: (_: unknown, r: TotalRow) => renderAmount(pick(r), r.qty),
+  });
+
   const columns: ColumnsType<TotalRow> = [
-    { title: '序号', width: 56, render: (_, __, i) => i + 1 },
+    { title: '序号', width: 52, render: (_, __, i) => i + 1 },
     {
-      title: '物资名称 / 规格型号',
-      width: 240,
+      title: '物资名称',
+      width: 190,
       render: (_, r) =>
         frozen ? (
-          <span>
-            {r.materialName}（{r.spec}）
-          </span>
+          r.materialName || '-'
         ) : (
           <Select
             showSearch
@@ -250,30 +292,41 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
         ),
     },
     {
+      // 需求修正（修改三）：选择物资后直接显示真实规格型号，不再显示占位文字
+      title: '规格型号',
+      width: 130,
+      render: (_, r) => r.spec || <span style={{ color: '#bfbfbf' }}>-</span>,
+    },
+    {
       title: '计量单位',
-      width: 110,
+      width: 100,
+      // 需求修正（修改三）：默认带出真实单位（选择物资时自动填入），为空显示“-”
       render: (_, r) =>
         frozen ? (
-          r.unit
+          r.unit || '-'
         ) : (
           <Select
             size="small"
             style={{ width: '100%' }}
-            placeholder="默认带出"
+            placeholder="-"
             options={unitOptions}
             value={r.unit}
             onChange={(v) => patchRow(r.key, { unit: v as string })}
           />
         ),
     },
-    { title: '暂定数量', width: 110, render: (_, r) => renderNumber(r.qty, (v) => patchRow(r.key, { qty: v }), frozen, 3) },
-    { title: '收入单价', width: 110, render: (_, r) => renderNumber(r.incomePrice, (v) => patchRow(r.key, { incomePrice: v }), frozen) },
-    { title: '标准成本', width: 110, render: (_, r) => renderNumber(r.stdCost, (v) => patchRow(r.key, { stdCost: v }), frozen) },
-    { title: '市场单价', width: 110, render: (_, r) => renderNumber(r.marketPrice, (v) => patchRow(r.key, { marketPrice: v }), frozen) },
-    { title: '信息价', width: 110, render: (_, r) => renderNumber(r.infoPrice, (v) => patchRow(r.key, { infoPrice: v }), frozen) },
+    { title: '暂定数量', width: 100, render: (_, r) => renderNumber(r.qty, (v) => patchRow(r.key, { qty: v }), frozen, 3) },
+    { title: '收入单价', width: 100, render: (_, r) => renderNumber(r.incomePrice, (v) => patchRow(r.key, { incomePrice: v }), frozen) },
+    amountColumn('收入合价', (r) => r.incomePrice),
+    { title: '标准成本', width: 100, render: (_, r) => renderNumber(r.stdCost, (v) => patchRow(r.key, { stdCost: v }), frozen) },
+    amountColumn('标准成本合价', (r) => r.stdCost),
+    { title: '市场单价', width: 100, render: (_, r) => renderNumber(r.marketPrice, (v) => patchRow(r.key, { marketPrice: v }), frozen) },
+    amountColumn('市场合价', (r) => r.marketPrice),
+    { title: '信息价', width: 100, render: (_, r) => renderNumber(r.infoPrice, (v) => patchRow(r.key, { infoPrice: v }), frozen) },
+    amountColumn('信息价合价', (r) => r.infoPrice),
     {
       title: '预计采购单价',
-      width: 120,
+      width: 110,
       render: (_, r) => {
         const over = r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice;
         return (
@@ -282,6 +335,15 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
           </span>
         );
       },
+    },
+    {
+      ...amountColumn('预计采购合价', (r) => r.planPrice, 110),
+      onCell: (r: TotalRow) => ({
+        style:
+          r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice
+            ? { color: '#cf1322' }
+            : undefined,
+      }),
     },
     {
       title: '操作',
@@ -296,63 +358,105 @@ export default function TotalListEditor({ task, open, onClose, onPublished }: Pr
   ];
 
   return (
-    <Drawer
-      title={task ? `总采购清单 · ${task.taskNo}` : '总采购清单'}
-      width={1180}
-      open={open}
-      onClose={onClose}
-      extra={
-        !frozen && (
-          <Space>
-            <Button icon={<PlusOutlined />} onClick={addRow}>
-              添加物资
-            </Button>
-            <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-              保存
-            </Button>
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {!frozen && (
+        <Space wrap>
+          <Button icon={<PlusOutlined />} onClick={addRow}>
+            添加物资
+          </Button>
+          <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+            保存
+          </Button>
+          {!embedded && (
             <Button type="primary" icon={<SendOutlined />} loading={publishing} onClick={handlePublish}>
               保存并发布
             </Button>
-          </Space>
-        )
-      }
-    >
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        {frozen ? (
-          <Alert
-            type="info"
-            showIcon
-            message={`总采购清单已发布冻结（当前状态：${task ? taskStatusLabel(task.status) : ''}），仅可查看；后续模块可引用其内容自动填写。`}
-          />
-        ) : (
-          <Alert
-            type="warning"
-            showIcon
-            message="物资名称/规格型号只能从物资基础库选择；计量单位默认带出、可改为字典值（提交时同步到基础库）；预计采购单价不得高于市场单价。"
-          />
-        )}
-        <Table<TotalRow>
-          rowKey="key"
-          size="small"
-          loading={loading}
-          columns={columns}
-          dataSource={rows}
-          pagination={false}
-          scroll={{ x: 1150 }}
-          footer={() =>
-            !frozen && (
-              <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
-                添加物资
-              </Button>
-            )
-          }
+          )}
+        </Space>
+      )}
+      {frozen ? (
+        <Alert
+          type="info"
+          showIcon
+          message={`总采购清单已发布冻结（当前状态：${task ? taskStatusLabel(task.status) : ''}），仅可查看；后续模块可引用其内容自动填写。`}
         />
-        {frozen && rows.length > 0 && (
-          <div>
-            <Tag color="green">共 {rows.length} 条明细</Tag>
-          </div>
+      ) : (
+        <Alert
+          type="warning"
+          showIcon
+          message="物资名称/规格型号只能从物资基础库选择；计量单位默认带出、可改为字典值（提交时同步到基础库）；预计采购单价不得高于市场单价。合价列与表底汇总由系统自动计算，保存后按「预计采购合价合计 ≥ 100 万元」自动判定是否需要采前会会议纪要。"
+        />
+      )}
+      <Table<TotalRow>
+        rowKey="key"
+        size="small"
+        loading={loading}
+        columns={columns}
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: 1620 }}
+        summary={() => (
+          <Table.Summary fixed>
+            <Table.Summary.Row style={{ fontWeight: 600 }}>
+              <Table.Summary.Cell index={0} colSpan={5} align="right">
+                合计
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1} align="right">{fmtAmount(totals.income)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={2} />
+              <Table.Summary.Cell index={3} align="right">{fmtAmount(totals.stdCost)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={4} />
+              <Table.Summary.Cell index={5} align="right">{fmtAmount(totals.market)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={6} />
+              <Table.Summary.Cell index={7} align="right">{fmtAmount(totals.info)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={8} />
+              <Table.Summary.Cell index={9} align="right">{fmtAmount(totals.plan)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={10} />
+            </Table.Summary.Row>
+          </Table.Summary>
         )}
-      </Space>
+        footer={() =>
+          !frozen && (
+            <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
+              添加物资
+            </Button>
+          )
+        }
+      />
+      {rows.length > 0 && (
+        <Space wrap size={4}>
+          <Tag color="green">共 {rows.length} 条明细</Tag>
+          <Tag color="blue">收入合价合计 {fmtAmount(totals.income)}</Tag>
+          <Tag color="blue">标准成本合价合计 {fmtAmount(totals.stdCost)}</Tag>
+          <Tag color="blue">市场合价合计 {fmtAmount(totals.market)}</Tag>
+          <Tag color="blue">信息价合价合计 {fmtAmount(totals.info)}</Tag>
+          <Tag color={totals.plan >= 1_000_000 ? 'red' : 'blue'}>
+            预计采购合价合计 {fmtAmount(totals.plan)}
+            {totals.plan >= 1_000_000 ? '（≥100万，需采前会）' : ''}
+          </Tag>
+        </Space>
+      )}
+    </Space>
+  );
+}
+
+/** 总采购清单编辑抽屉（任务列表入口使用） */
+export default function TotalListEditor({
+  task,
+  open,
+  onClose,
+  onPublished,
+}: Omit<TotalListEditorContentProps, 'embedded' | 'onSaved'> & {
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer
+      title={task ? `总采购清单 · ${task.taskNo}` : '总采购清单'}
+      width={1280}
+      open={open}
+      onClose={onClose}
+    >
+      <TotalListEditorContent task={task} onPublished={onPublished} />
     </Drawer>
   );
 }

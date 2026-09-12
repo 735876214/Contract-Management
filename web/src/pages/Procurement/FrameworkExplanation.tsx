@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Card,
+  Drawer,
   Empty,
   Input,
   InputNumber,
@@ -35,6 +36,7 @@ import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
+import ModuleDetailCard, { useModuleDetailDoc } from '@/components/procurement/ModuleDetailCard';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import {
   buildExplanationDocHtml,
@@ -80,6 +82,7 @@ interface ExplanationDetail {
     execution?: string;
     costRows?: CostRow[];
     attachments?: { fileName?: string; url?: string; size?: number | null }[];
+    publishedAt?: string | null;
   } | null;
 }
 
@@ -122,6 +125,8 @@ export default function FrameworkExplanation() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
+  /** 编辑弹窗（需求修正 · 修改二）：主视图只读详情，编辑在弹窗中进行 */
+  const [editOpen, setEditOpen] = useState(false);
 
   const [project, setProject] = useState<{
     name?: string;
@@ -241,6 +246,7 @@ export default function FrameworkExplanation() {
     try {
       await procurementTaskApi.saveFrameworkExplanation(taskId, buildSavePayload());
       message.success('已保存');
+      setEditOpen(false);
       loadDetail(taskId);
     } finally {
       setSaving(false);
@@ -317,6 +323,15 @@ export default function FrameworkExplanation() {
     });
     message.success(`已导出：${exportFilename}`);
   };
+
+  /** 只读详情文档（模板优先 + 变量替换，需求修正 · 修改二） */
+  const detailDoc = useModuleDetailDoc(
+    !!currentTask,
+    'FRAMEWORK',
+    taskId ?? undefined,
+    rawDocHtml,
+    varValues,
+  );
 
   /** ---------- 表格编辑渲染 ---------- */
   const numberCell = (
@@ -589,25 +604,77 @@ export default function FrameworkExplanation() {
         </Space>
       </Card>
 
-      <Spin spinning={detailLoading}>
-        {!currentTask ? (
-          <Card>
-            <Empty description="请先在上方选择采购任务" />
-          </Card>
-        ) : (
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {!editable && (
-              <Alert
-                type="success"
-                showIcon
-                message="框架协议事前说明已发布（已完成）。可预览、导出 Word，或点击「重新编辑」修改内容。"
-                action={
-                  <Button size="small" onClick={() => setReEditing(true)}>
-                    重新编辑
-                  </Button>
-                }
-              />
+      {!currentTask && (
+        <Card>
+          <Empty description="请先在上方选择采购任务" />
+        </Card>
+      )}
+
+      {/* 只读详情（需求修正 · 修改二）：默认展示，编辑在下方弹窗进行 */}
+      {currentTask && (
+        <ModuleDetailCard
+          title="框架协议事前说明 · 任务详情"
+          taskNo={currentTask.taskNo}
+          content={currentTask.content}
+          statusLabel={detail?.statusLabel ?? '编辑中'}
+          statusColor={detail?.published ? 'green' : 'geekblue'}
+          publishedAt={detail?.data?.publishedAt ?? null}
+          docHtml={detailDoc.html}
+          docLoading={detailDoc.loading}
+          actions={
+            <>
+              {detail && !detail.published && (
+                <Button type="primary" onClick={() => setEditOpen(true)}>
+                  编辑
+                </Button>
+              )}
+              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                预览
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleExport}>
+                导出 Word
+              </Button>
+              {detail && !detail.published && (
+                <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
+                  发布
+                </Button>
+              )}
+              {detail?.published && (
+                <Button
+                  onClick={() => {
+                    setReEditing(true);
+                    setEditOpen(true);
+                  }}
+                >
+                  重新编辑
+                </Button>
+              )}
+            </>
+          }
+        />
+      )}
+
+      {/* 编辑弹窗（需求修正 · 修改二）：保存后关闭返回只读详情 */}
+      <Drawer
+        title={`框架协议事前说明 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+        width={1100}
+        open={editOpen && !!currentTask}
+        onClose={() => setEditOpen(false)}
+        destroyOnClose
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setEditOpen(false)}>取消</Button>
+            {editable && (
+              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+                保存
+              </Button>
             )}
+          </Space>
+        }
+      >
+        <Spin spinning={detailLoading}>
+          {currentTask && (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {editable && detail?.published && (
               <Alert
                 type="warning"
@@ -681,32 +748,10 @@ export default function FrameworkExplanation() {
                 </Space>
               )}
             </Card>
-
-            <Card size="small">
-              <Space wrap>
-                {editable && (
-                  <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-                    保存
-                  </Button>
-                )}
-                <Tooltip title="按文档版式预览（变量已替换）">
-                  <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                    预览
-                  </Button>
-                </Tooltip>
-                {detail?.editable && (
-                  <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
-                    发布
-                  </Button>
-                )}
-                <Button icon={<DownloadOutlined />} onClick={handleExport}>
-                  导出 Word
-                </Button>
-              </Space>
-            </Card>
           </Space>
-        )}
-      </Spin>
+          )}
+        </Spin>
+      </Drawer>
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal
