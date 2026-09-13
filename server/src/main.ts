@@ -9,6 +9,7 @@ import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import * as fs from 'fs';
+import { seedAdmin } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -36,5 +37,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`CMS server running on http://localhost:${port}/api`);
+
+  // 首次部署空库时，自动 seed 一个默认管理员账号，保证可直接登录
+  const prisma = app.get<PrismaClient>(PrismaClient);
+  await seedAdmin(prisma);
 }
 bootstrap();
