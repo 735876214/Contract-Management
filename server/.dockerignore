@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+*.db
+dev.db
+uploads
+*.log
+Dockerfile
+.dockerignore

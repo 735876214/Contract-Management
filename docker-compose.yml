@@ -1,17 +1,62 @@
-version: '3.8'
+# 合同管理系统（CMS）Docker 部署 —— 面向 NAS（群晖 / 威联通 / Unraid）
+# 架构：前端 nginx（构建产物 + 反向代理 /api） + 后端 NestJS（SQLite 持久化）
+# 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
+#
+# 部署步骤：
+#   1. cp .env.example .env   （.env 已被 .gitignore 忽略，不会进仓库）
+#   2. 修改 .env：JWT_SECRET 用 `openssl rand -base64 48` 生成的强随机值；
+#      CMS_DATA 改成你的 NAS 共享目录（见下方示例）。
+#   3. docker compose up -d --build
+#   4. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
+#
+# 端口说明：对外仅暴露 8080（避免与 NAS 占用的 80 冲突），容器内部仍是 80；
+# 后端不对外暴露端口，仅通过 frontend 的 nginx 经 docker 内网代理访问。
+
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: cms-postgres
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: cms-backend:latest
+    container_name: cms-backend
     restart: unless-stopped
     environment:
-      POSTGRES_USER: cms
-      POSTGRES_PASSWORD: cms123456
-      POSTGRES_DB: cms
-    ports:
-      - '5432:5432'
+      NODE_ENV: production
+      PORT: "3000"
+      # SQLite 数据文件落在 bind mount 目录内，容器重建不丢数据
+      DATABASE_URL: "file:/data/cms.db"
+      # JWT 密钥从 .env 注入（务必替换为强随机值，禁止硬编码）
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "7d"
+      # 上传文件也存进 bind mount 目录
+      UPLOAD_DIR: "/data/uploads"
+    # bind mount 到 NAS 共享文件夹，便于查找与备份（命名卷 cms-data 已弃用）。
+    # 群晖   ：/volume1/docker/cms/data
+    # 威联通 ：/share/CACHEDEV1_DATA/Container/cms/data
+    # Unraid ：/mnt/user/appdata/cms/data
     volumes:
-      - cms-pgdata:/var/lib/postgresql/data
+      - ${CMS_DATA:-/volume1/docker/cms/data}:/data
+    expose:
+      - "3000"
+    # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-volumes:
-  cms-pgdata:
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: cms-frontend:latest
+    container_name: cms-frontend
+    restart: unless-stopped
+    # 对外 8080，避免与 NAS 已占用的 80 冲突
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
