@@ -69,9 +69,10 @@
 | 无用 download 抑制 | `--no-audit --no-fund` + `npm cache clean --force` |
 | 健康检查 | 后端无 `/health` 路由，改用 node 端口探测（`start-period=90s` 覆盖 db push + seed 时间）；前端用 busybox `wget` 探首页 |
 
-> 体量参考：本机 Windows `server/node_modules` 实测 373MB，其中纯构建工具链约 150MB+（新版已剔除）。
-> Linux 容器内绝对值不同，`proddeps` 的 node_modules 预计从「全量约 300MB 级」降到「约 150MB 级」。
-> **本机无 Docker 环境，未实际构建测量，上述为估算。**
+> 体量参考：本机 Windows `server/node_modules` 实测 373MB，其中纯构建工具链约 150MB+（已剔除）。
+>
+> **CI 实测（2026-09-14，ghcr 压缩层体积）**：`cms-backend` **115.8 MB**（11 层）、`cms-frontend` **28.4 MB**（10 层）。
+> 后端 `proddeps` 安装 304 个包（其中 6 个为 prisma CLI 及其引擎），构建阶段全量安装 552 个包。
 
 ## 五、未采用 / 可选进阶（含风险，按需启用）
 
@@ -104,3 +105,41 @@ docker build -t cms-frontend:local ./web
 
 注意：`docker-compose.build.yml` 打出的标签是 `:local`，**不会**覆盖线上拉取的 `:latest` 镜像；
 正式发布仍走 push 到 `main` 触发 GitHub Actions。
+
+## 七、构建排查记录
+
+### 1. `./node_modules/.bin/prisma: not found`（退出码 127）
+
+**现象**（2026-09-14）：后端构建在 `proddeps` 阶段失败，frontend 一直正常。
+
+```
+#12 23.71 added 298 packages in 24s
+#12 25.30 up to date in 1s                       ← 第二条 npm install 其实什么都没装
+#14 0.097 /bin/sh: 1: ./node_modules/.bin/prisma: not found
+#14 ERROR: ... did not complete successfully: exit code: 127
+```
+
+**根因**：`prisma` 在 `package.json` 里**本身就是 devDependency**。执行
+`npm install --no-save --omit=dev prisma@^5.10.2` 时，npm 判定该 spec 已被满足（只回 `up to date`），
+在 `--omit=dev` 下把它当 dev 依赖直接跳过 —— `node_modules/.bin/prisma` 从未生成。
+
+**修复**：安装前用 `node -e` 把 `devDependencies.prisma` 临时挪到 `dependencies`，再一次性 `--omit=dev` 安装；
+并在 `deps`、`proddeps` 两处加断言，让同类问题直接暴露成可读错误，而不是神秘的 127：
+
+```dockerfile
+ && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装" && exit 1))
+```
+
+**同类坑**：`--ignore-scripts` 会让 prisma 的 postinstall 不下载 schema-engine，
+表现是构建通过、容器启动 `db push` 崩溃 —— 这条命令不能加该参数。
+
+### 2. 本机没有 Docker 也能看完整 CI 日志
+
+```
+# 运行列表（PAT 换成本人的）
+GET /repos/735876214/Contract-Management/actions/runs
+GET /repos/735876214/Contract-Management/actions/runs/{run_id}/jobs
+GET /repos/735876214/Contract-Management/actions/jobs/{job_id}/logs   # 返回 zip
+```
+
+坑：最后一个接口会 302 到 Azure Blob 存储，**重定向时必须去掉 `Authorization` 头**，否则 401。

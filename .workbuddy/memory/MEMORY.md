@@ -34,6 +34,14 @@
 - 发布链路：push main → `.github/workflows/build.yml`（buildx，仅 linux/amd64，GHA 层缓存）→ **公开** ghcr.io 镜像 → NAS `docker compose pull`（`pull_policy: always`）。本地源码验证用 `-f docker-compose.yml -f docker-compose.build.yml`（打 :local，不污染 :latest）。
 - 后端 5 阶段：base → deps(全量) → build(dist) → proddeps(`--omit=dev` + prisma CLI + 就地 generate + find 瘦身) → runtime。**禁止**再把 build 阶段的整个 node_modules 拷进运行镜像。
 - 运行时必须保留 prisma CLI 与 `prisma/` 目录（schema 供启动 `db push`，`templates/` 是合同模板）。安装 prisma CLI 不可带 `--ignore-scripts`（否则无 schema-engine，启动崩）。
+- ⚠️ **prisma 是 devDependency，但运行时要用它的 CLI**：`npm install --no-save --omit=dev prisma@^5.10.2` **无效**（npm 认为 spec 已被满足，只输出 `up to date`，`.bin/prisma` 不生成，generate 报 127）。必须在安装前把它临时挪进 `dependencies` 再 `--omit=dev` 安装；两处均已加 `test -x` 断言。
+- 实测镜像（ghcr 压缩层）：cms-backend 115.8MB / cms-frontend 28.4MB。
+
+## Git 操作坑（本机）
+- **禁止 `git pull --rebase`**：本环境易被 SIGTERM 中断，会留下 `.git/rebase-merge` 半损状态并丢失对象（本次靠重新 fetch 恢复）。
+  改用：`git fetch origin main` → `git update-ref refs/heads/main $(git rev-parse FETCH_HEAD)` → `rm -f .git/index && git reset --mixed HEAD`（工作区不受影响）。
+- 查 CI：github.com 走 HTTPS 被代理限制，用 GitHub REST API + PAT 可行；日志接口 302 到 Azure Blob，重定向时需摘掉 Authorization 头。
+- 本工作区 `server/src` 有 11 个文件停留在 `e27a1b1` 旧版本（远端 `0c66afa` 是别处提交的新版），`git status` 会显示「改动」，实际是旧内容，勿误提交。
 - ⚠️ 镜像体积=各层之和： running 阶段新开 `RUN rm -rf` 不会变小，清理必须放在被 COPY 的中间阶段内。
 - 公开镜像 ⇒ `.dockerignore` 必须排除 `.env`/`.env.*`，别把 JWT_SECRET 发到公网。
 - 详见 `docs/04-Docker镜像构建与优化.md`；未采用 alpine/distroless/pnpm 的理由亦在其中。
