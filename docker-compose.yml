@@ -2,27 +2,27 @@
 # 架构：前端 nginx（构建产物 + 反向代理 /api） + 后端 NestJS（SQLite 持久化）
 # 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
 #
-# 核心：构建时由 Docker 直接从 GitHub 私有仓库克隆源码（用 .env 里的 GITHUB_TOKEN），
-# NAS 上【无需上传/放置源码】，也不需要 ghcr.io 镜像。每次 `up --build` 都拉最新 main 重新构建。
+# 核心：镜像已从 GitHub Container Registry（ghcr.io）预构建并设为 PUBLIC，
+# 所以 NAS 部署【无需源码、无需 GITHUB_TOKEN、无需本地构建】，直接 pull 公开镜像即可运行。
+# 每次 `docker compose up -d` 都会因 `pull_policy: always` 拉取 GitHub Actions 刚构建推送的最新镜像，
+# 即“每次从 GitHub 拉最新代码”（Actions 在 push 到 main 时自动重建并推送镜像）。
 #
 # 部署步骤：
-#   1. cp .env.example .env，并必须填入 GITHUB_TOKEN（具有 repo 权限的 Personal Access Token）。
-#      —— JWT_SECRET / CMS_DATA 已内联默认值进本文件，不填也能跑；想覆盖则在 .env 设。
-#      —— 若把 GitHub 仓库设为 Public，则 GITHUB_TOKEN 可留空，并把下面 context 里的
-#         `x-access-token:${GITHUB_TOKEN}@` 删掉即可。
-#   2. docker compose up -d --build
+#   1.（可选）cp .env.example .env 并填入你想覆盖的值（JWT_SECRET / CMS_DATA 已有内联默认值，不填也能跑）。
+#   2. docker compose up -d        # 直接拉公开镜像启动，无需 --build
 #   3. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
 #
 # 端口说明：对外仅暴露 8080（避免与 NAS 占用的 80 冲突），容器内部仍是 80；
 # 后端不对外暴露端口，仅通过 frontend 的 nginx 经 docker 内网代理访问。
+#
+# 镜像来源：ghcr.io/735876214/cms-backend:latest 、 ghcr.io/735876214/cms-frontend:latest
+# （由 .github/workflows/build.yml 在 push 到 main 时自动构建推送，含 amd64 / arm64 多架构）
 
 services:
   backend:
-    # 远程 git 构建上下文：构建时 Docker 自动克隆私有仓库的 server 子目录（main 分支）。
-    # 凭据用 .env 的 GITHUB_TOKEN（repo 权限）；仓库若改为 Public 则去掉 x-access-token 部分。
-    build:
-      context: "https://x-access-token:${GITHUB_TOKEN}@github.com/735876214/Contract-Management.git#main:server"
-      dockerfile: Dockerfile
+    # 预构建公开镜像，无需本地构建、无需源码、无需 token
+    image: ghcr.io/735876214/cms-backend:latest
+    pull_policy: always   # 每次启动都拉最新镜像
     container_name: cms-backend
     restart: unless-stopped
     environment:
@@ -51,9 +51,8 @@ services:
         max-file: "3"
 
   frontend:
-    build:
-      context: "https://x-access-token:${GITHUB_TOKEN}@github.com/735876214/Contract-Management.git#main:web"
-      dockerfile: Dockerfile
+    image: ghcr.io/735876214/cms-frontend:latest
+    pull_policy: always
     container_name: cms-frontend
     restart: unless-stopped
     # 对外 8080，避免与 NAS 已占用的 80 冲突
