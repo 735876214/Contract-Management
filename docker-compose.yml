@@ -2,10 +2,14 @@
 # 架构：前端 nginx（构建产物 + 反向代理 /api） + 后端 NestJS（SQLite 持久化）
 # 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
 #
+# 核心：构建时由 Docker 直接从 GitHub 私有仓库克隆源码（用 .env 里的 GITHUB_TOKEN），
+# NAS 上【无需上传/放置源码】，也不需要 ghcr.io 镜像。每次 `up --build` 都拉最新 main 重新构建。
+#
 # 部署步骤：
-#   1.（可选）cp .env.example .env 并填入你自己的值做覆盖。
-#      —— 关键变量 JWT_SECRET / CMS_DATA 已内联默认值进本文件，不准备 .env 也能直接跑。
-#      —— 若想覆盖：在 .env 里设 JWT_SECRET / CMS_DATA 即可（用 ${VAR:-默认} 语法，有则覆盖）。
+#   1. cp .env.example .env，并必须填入 GITHUB_TOKEN（具有 repo 权限的 Personal Access Token）。
+#      —— JWT_SECRET / CMS_DATA 已内联默认值进本文件，不填也能跑；想覆盖则在 .env 设。
+#      —— 若把 GitHub 仓库设为 Public，则 GITHUB_TOKEN 可留空，并把下面 context 里的
+#         `x-access-token:${GITHUB_TOKEN}@` 删掉即可。
 #   2. docker compose up -d --build
 #   3. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
 #
@@ -14,9 +18,11 @@
 
 services:
   backend:
-    # 预构建镜像来自 GitHub Container Registry（ghcr.io）；无需本地 build，故不写 build: 上下文。
-    image: ghcr.io/735876214/cms-backend:latest
-    pull_policy: always   # 每次 up 都拉取最新镜像（首次部署也是如此）
+    # 远程 git 构建上下文：构建时 Docker 自动克隆私有仓库的 server 子目录（main 分支）。
+    # 凭据用 .env 的 GITHUB_TOKEN（repo 权限）；仓库若改为 Public 则去掉 x-access-token 部分。
+    build:
+      context: "https://x-access-token:${GITHUB_TOKEN}@github.com/735876214/Contract-Management.git#main:server"
+      dockerfile: Dockerfile
     container_name: cms-backend
     restart: unless-stopped
     environment:
@@ -45,8 +51,9 @@ services:
         max-file: "3"
 
   frontend:
-    image: ghcr.io/735876214/cms-frontend:latest
-    pull_policy: always
+    build:
+      context: "https://x-access-token:${GITHUB_TOKEN}@github.com/735876214/Contract-Management.git#main:web"
+      dockerfile: Dockerfile
     container_name: cms-frontend
     restart: unless-stopped
     # 对外 8080，避免与 NAS 已占用的 80 冲突
