@@ -40,7 +40,8 @@ FROM base AS deps
 
 # 先只复制清单文件并安装依赖：源码频繁变更时可直接命中该层缓存
 COPY package.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+RUN npm install --legacy-peer-deps --no-audit --no-fund \
+ && (test -x ./node_modules/.bin/prisma || (echo "ERROR: devDependencies 里的 prisma CLI 未安装" && exit 1))
 
 # ---------- ③ 编译 ----------
 FROM deps AS build
@@ -56,12 +57,15 @@ RUN DATABASE_URL="file:/tmp/prisma-generate.db" npm run build
 FROM base AS proddeps
 
 COPY package.json ./
-# ① 只装生产依赖：构建工具链（nest cli / typescript / ts-node / schematics）就此止步
-# ② 再单独补装 prisma CLI：这里【不能】带 --ignore-scripts，否则其 postinstall 不会下载
-#    schema-engine 二进制，容器启动时 db push 会失败。版本范围须与 devDependencies 对齐。
-#    （第一步故意不加 --ignore-scripts：避免个别生产依赖的 postinstall 被跳过导致运行期缺件）
-RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
- && npm install --no-save --omit=dev --legacy-peer-deps --no-audit --no-fund "prisma@^5.10.2"
+# 运行时需要 prisma CLI 执行 db push，但 prisma 在 package.json 里是 devDependency。
+# ⚠️ 坑（CI 实测踩过）：直接 `npm install --no-save --omit=dev prisma@^5.10.2` 会被 npm 当成
+#   dev 依赖直接跳过 —— 日志只打印 "up to date in 1s"，node_modules/.bin/prisma 并不存在，
+#   下一步 generate 报 `/bin/sh: 1: ./node_modules/.bin/prisma: not found`（退出码 127）。
+# 正确做法：安装前把 prisma 临时挪进 dependencies，再一次性 --omit=dev 安装，bin 才会正常生成。
+# 另：这里不加 --ignore-scripts，否则 prisma 的 postinstall 不下载 schema-engine，启动 db push 会崩。
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies.prisma=p.devDependencies.prisma;delete p.devDependencies.prisma;fs.writeFileSync('package.json',JSON.stringify(p,null,2))" \
+ && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
+ && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装，检查 --omit=dev 是否把它当 dev 依赖跳过了" && exit 1))
 
 # 在此阶段而非 build 阶段生成 client，保证 client 与将要运行的 @prisma/client 完全同源同版
 COPY prisma/schema.sqlite.prisma ./prisma/
