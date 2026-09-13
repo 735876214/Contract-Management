@@ -30,6 +30,14 @@
 - 位置/属地类：`provinceCity`(项目所在省市)/`siteLocation`(工程地点)/`projectAddress`(项目地址)/`materialOrigin`(物资产地)；均可空文本，编辑在项目管理页表单，列表/导入模板同步。
 - 四者同时是采购公共变量 `{{项目所在省市}}/{{工程地点}}/{{项目地址}}/{{物资产地}}` 的数据源（链路：项目管理→projectApi.detail→采购页 project state→utils ctx→变量取值表）。新增公共变量需同步 5 处（PROCUREMENT_COMMON_VARS + 4 个 utils 文件 + 4 个采购页面）。
 
+## Docker 构建约定
+- 发布链路：push main → `.github/workflows/build.yml`（buildx，仅 linux/amd64，GHA 层缓存）→ **公开** ghcr.io 镜像 → NAS `docker compose pull`（`pull_policy: always`）。本地源码验证用 `-f docker-compose.yml -f docker-compose.build.yml`（打 :local，不污染 :latest）。
+- 后端 5 阶段：base → deps(全量) → build(dist) → proddeps(`--omit=dev` + prisma CLI + 就地 generate + find 瘦身) → runtime。**禁止**再把 build 阶段的整个 node_modules 拷进运行镜像。
+- 运行时必须保留 prisma CLI 与 `prisma/` 目录（schema 供启动 `db push`，`templates/` 是合同模板）。安装 prisma CLI 不可带 `--ignore-scripts`（否则无 schema-engine，启动崩）。
+- ⚠️ 镜像体积=各层之和： running 阶段新开 `RUN rm -rf` 不会变小，清理必须放在被 COPY 的中间阶段内。
+- 公开镜像 ⇒ `.dockerignore` 必须排除 `.env`/`.env.*`，别把 JWT_SECRET 发到公网。
+- 详见 `docs/04-Docker镜像构建与优化.md`；未采用 alpine/distroless/pnpm 的理由亦在其中。
+
 ## 验收铁律
 改完必做：① `web tsc --noEmit`、`server nest build`；② 重启后端真打一个触发改动的请求确认不报旧错（只看启动日志不够）；③ 改过 schema 必须 `db push`(sqlite) 并用 `PRAGMA table_info(<表>)` 复查列落地；④ 前端改必要 `vite build`。修完再验收到通过才完工。
 
