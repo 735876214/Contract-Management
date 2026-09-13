@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -107,7 +108,6 @@ export class SettlementService {
    * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
    */
   async computeLedgerAutoFields(contractId: string, settleMonth: string) {
-    const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
     const [y, m] = settleMonth.split('-').map(Number);
     let start: Date | null = null;
     let end: Date | null = null;

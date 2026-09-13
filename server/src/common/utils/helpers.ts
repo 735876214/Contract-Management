@@ -70,13 +70,6 @@ export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
   }
 }
 
-/** 数字单元格取值：空串/非法数字返回 null */
-export function numOrNull(v: any): number | null {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 /** 乐观锁校验：客户端提交的版本号与库中不一致时拒绝更新（需求 2.2） */
 export function assertVersion(oldRow: any, data: any) {
   if (!oldRow || oldRow.version === undefined || oldRow.version === null) return;

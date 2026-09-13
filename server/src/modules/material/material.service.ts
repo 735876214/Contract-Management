@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -18,13 +19,6 @@ const BASE_FIELDS = [
 const ROW_FIELDS = [
   'contractId', 'materialBaseId', 'unit', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder',
 ];
-
-/** 金额四舍五入到 4 位小数（模拟 BigDecimal 精度控制，避免浮点误差累积） */
-function round(n: number | null | undefined, digits = 4): number | null {
-  if (n === null || n === undefined || !Number.isFinite(n)) return null;
-  const p = Math.pow(10, digits);
-  return Math.round((n + Number.EPSILON) * p) / p;
-}
 
 @Injectable()
 export class MaterialService {
@@ -322,8 +316,8 @@ export class MaterialService {
     const qty = num(row.qty);
     const priceBeforeTax = num(row.priceBeforeTax);
     const taxPct = num(row.taxRatePct);
-    const priceWithTax = priceBeforeTax !== null ? round(priceBeforeTax * (1 + (taxPct || 0) / 100)) : null;
-    const totalWithTax = priceWithTax !== null && qty !== null ? round(qty * priceWithTax) : null;
+    const priceWithTax = priceBeforeTax !== null ? round4(priceBeforeTax * (1 + (taxPct || 0) / 100)) : null;
+    const totalWithTax = priceWithTax !== null && qty !== null ? round4(qty * priceWithTax) : null;
     return { priceWithTax, totalWithTax };
   }
 

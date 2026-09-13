@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
+import { round4 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -401,7 +402,6 @@ export class ContractService {
   private async syncDraftTaxFromContract(contractId: string) {
     const pct = await this.contractTaxPct(contractId);
     const rows = await this.prisma.contractDraftMaterial.findMany({ where: { contractId } });
-    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
     for (const r of rows) {
       const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
       const qty = r.qty != null ? Number(r.qty) : null;
@@ -416,7 +416,6 @@ export class ContractService {
 
   /** 列表加载时按合同税率补齐物料税率并重算含税单价/暂定含税合价（持久化，保证展示与数据一致） */
   private async backfillDraftTax(contractId: string, rows: any[]) {
-    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
     const pct = await this.contractTaxPct(contractId);
     if (pct == null) return;
     for (const r of rows) {
@@ -505,7 +504,6 @@ export class ContractService {
   async draftSave(contractId: string, rows: any[]) {
     await this.assertContractExists(contractId);
     if (!Array.isArray(rows)) throw new BadRequestException('参数格式错误');
-    const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
     // 需求修正2：物料税率不独立存储，保存时一律以合同主表税率为准（前端传值忽略）
     const contractPct = await this.contractTaxPct(contractId);
     // 需求 2.3.2：合同清单计量单位必须存在于字典「measurement_unit」（允许手输，但须先加入字典）

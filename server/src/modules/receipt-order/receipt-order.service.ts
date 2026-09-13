@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { round2, round4 } from '../../common/utils/money';
 import { DictService } from '../dict/dict.service';
 import { TxClient } from '../../common/services/import-runner.service';
 
@@ -50,8 +51,6 @@ export const PARTY_TYPE = {
   SELF_PROJECT: 'SELF_PROJECT', // 本项目（字典维护的当前项目）
 } as const;
 
-const round4 = (n: number) => Math.round((n + Number.EPSILON) * 1e4) / 1e4;
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 1e2) / 1e2;
 
 /**
  * 收领单服务（日报管理 → 收领单，与总日报平级）

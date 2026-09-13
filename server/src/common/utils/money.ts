@@ -65,3 +65,16 @@ export function amountToChineseCapital(input: number | string | null | undefined
 
   return (neg ? '负' : '') + intStr + '元' + frac;
 }
+
+/**
+ * 金额四舍五入（模拟 Excel ROUND，避免浮点误差）。
+ * null / undefined / 非有限值统一返回 null，调用方可用 ?? 0 兜底。
+ */
+export function round(n: number | null | undefined, digits = 2): number | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  const p = Math.pow(10, digits);
+  return Math.round((n + Number.EPSILON) * p) / p;
+}
+
+export const round2 = (n: number | null | undefined): number => round(n, 2) ?? 0;
+export const round4 = (n: number | null | undefined): number => round(n, 4) ?? 0;

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { DictService } from '../dict/dict.service';
@@ -192,7 +193,6 @@ export class DailyReportService {
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const round4 = (n: any) => (n === null || n === undefined ? null : Math.round((Number(n) + Number.EPSILON) * 10000) / 10000);
     const rows = (res.list as any[]).map((r) => {
       const priceAfterTax = num(r.priceAfterTax);
       const stdPrice = num(r.stdPrice);

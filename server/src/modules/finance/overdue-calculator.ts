@@ -12,12 +12,9 @@
  * 8. 逾期起始日期 = 应付款日期 + 宽限天数 + 1。
  */
 
-/** 金额四舍五入（模拟 Excel ROUND，避免浮点误差） */
-export function round(n: number | null | undefined, digits = 2): number | null {
-  if (n === null || n === undefined || !Number.isFinite(n)) return null;
-  const p = Math.pow(10, digits);
-  return Math.round((n + Number.EPSILON) * p) / p;
-}
+import { round } from '../../common/utils/money';
+
+export { round };
 
 /** DAYS360（US 方法）：每月按 30 天、每年按 360 天计算两日期间天数 */
 export function days360(start: Date, end: Date): number {

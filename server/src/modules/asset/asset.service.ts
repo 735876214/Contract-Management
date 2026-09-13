@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -16,7 +17,6 @@ const ASSET_FIELDS = [
   'remark', 'turnoverCount', 'originalPrice', 'transferOutPrice',
 ];
 
-const round2 = (n: any) => (n === null || n === undefined ? null : Math.round((Number(n) + Number.EPSILON) * 100) / 100);
 const mul = (a: any, b: any) => (num(a) !== null && num(b) !== null ? round2(Number(a) * Number(b)) : null);
 
 @Injectable()
