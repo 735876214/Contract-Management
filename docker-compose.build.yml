@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# 本地源码构建覆盖层（不改动默认部署流程）
+#
+# 默认的 docker-compose.yml 直接 pull ghcr.io 上的预构建公开镜像，NAS 上无需源码。
+# 本文件只在「改完 Dockerfile / 想本地验证」时使用，把 build 段补进服务定义：
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#   # 省事写法（Windows 用 ; 分隔环境变量）：
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml docker compose up -d --build
+#
+# 注意：这里打出的标签是 :local，不会覆盖线上使用的 :latest 镜像。
+# ---------------------------------------------------------------------------
+
+services:
+  backend:
+    image: cms-backend:local
+    pull_policy: never # 本地构建的镜像不存在于远端仓库，禁止尝试拉取
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+
+  frontend:
+    image: cms-frontend:local
+    pull_policy: never
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        # 等后端 db push + seed 完成且端口可连再起来（依赖 server/Dockerfile 的 HEALTHCHECK）
+        condition: service_healthy

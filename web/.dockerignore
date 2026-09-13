@@ -1,6 +1,29 @@
+# 依赖与构建产物：镜像内会重新安装/编译，不进构建上下文
+# （web/.npm-cache 本地实测 37MB，务必排除）
 node_modules
 dist
+build
+.npm-cache
+node_modules/.vite
+
+# 版本控制
 .git
+.github
+.gitignore
+
+# 敏感信息：构建产物只读 VITE_ 前缀变量，且 /api 走相对路径，无需 .env
+.env
+.env.*
+
+# 日志与临时文件
 *.log
+npm-debug.log*
+.cache
+*.timestamp-*.mjs
+*.local
+
+# 本地调试脚本与残缺依赖目录，运行时不需要
+_nm_broken_web
+test-*.ts
 Dockerfile
 .dockerignore
