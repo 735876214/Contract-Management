@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -72,8 +72,8 @@ export class MaterialService {
 
   // ==================== 物资基础库 ====================
 
-  async findBases(query: any = {}) {
-    const { skip, take } = paginate(query);
+  async findBases(query: any = {}, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = {};
     if (query.keyword) {
       where.OR = [
@@ -185,7 +185,7 @@ export class MaterialService {
   }
 
   async exportBases() {
-    const res = await this.findBases({ pageSize: 5000 });
+    const res = await this.findBases({ pageSize: 5000 }, IMPORT_MAX_ROWS);
     const columns = [
       { header: '物资名称', key: 'name', width: 26 },
       { header: '规格型号', key: 'spec', width: 18 },

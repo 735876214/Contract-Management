@@ -1,12 +1,48 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult } from '../../common/utils/helpers';
+import { paginate, buildResult, num } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
   ImportTemplateService,
   TemplateColumn,
 } from '../../common/services/import-template.service';
 import { ContractService } from '../contract/contract.service';
+
+/** 文本归一化：trim 后空串转 null（各阶段表单共用，避免重复定义） */
+const textOf = (v: any): string | null => {
+  const s = String(v ?? '').trim();
+  return s || null;
+};
+
+/** 数值解析：空值返回 null，非数字或低于下限时按业务标签抛错（各阶段表单共用） */
+const numOf =
+  (label: string, opts: { min?: number } = {}) =>
+  (v: any): number | null => {
+    if (v === '' || v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new BadRequestException(`${label}必须为数字`);
+    if (opts.min != null && n < opts.min) throw new BadRequestException(`${label}不能为负数`);
+    return n;
+  };
+
+/** 整数解析：空值返回 null，非整数或低于下限时按业务标签抛错（各阶段表单共用） */
+const intOf =
+  (label: string, opts: { min?: number } = {}) =>
+  (v: any): number | null => {
+    if (v === '' || v == null) return null;
+    const n = Number(v);
+    if (!Number.isInteger(n)) throw new BadRequestException(`${label}必须为整数`);
+    if (opts.min != null && n < opts.min) throw new BadRequestException(`${label}不能为负数`);
+    return n;
+  };
+
+/** 日期解析：空值返回 null，非法格式按业务标签抛错（各阶段表单共用） */
+const dateOf = (label: string) => (v: any): Date | null => {
+  if (v === '' || v == null) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) throw new BadRequestException(`${label}格式无效`);
+  return d;
+};
 
 /**
  * 采购任务工作流（批次二 · 任务 2.1）
@@ -703,12 +739,7 @@ export class ProcurementTaskService {
     if (task.status !== STATUS_NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
     if (!Array.isArray(items)) throw new BadRequestException('清单数据无效');
 
-    const num = (v: any): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isFinite(n)) throw new BadRequestException('数量/单价必须为数字');
-      return n;
-    };
+    const num = numOf('数量/单价');
 
     const normalized = items.map((raw) => {
       const materialBaseId = String(raw?.materialBaseId ?? '').trim();
@@ -1001,16 +1032,8 @@ export class ProcurementTaskService {
       throw new BadRequestException('总采购清单发布后才能编辑框架协议事前说明');
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const num = (v: any): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isFinite(n)) throw new BadRequestException('表格中的价格/占比必须为数字');
-      return n;
-    };
+    const text = textOf;
+    const num = numOf('表格中的价格/占比');
     const rows = (v: any, fields: string[]): string | null => {
       if (v == null) return null;
       if (!Array.isArray(v)) throw new BadRequestException('表格数据无效');
@@ -1147,22 +1170,9 @@ export class ProcurementTaskService {
       );
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const num = (v: any): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isFinite(n)) throw new BadRequestException('表格中的数量/金额必须为数字');
-      return n;
-    };
-    const date = (v: any): Date | null => {
-      if (v === '' || v == null) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) throw new BadRequestException('会议时间格式无效');
-      return d;
-    };
+    const text = textOf;
+    const num = numOf('表格中的数量/金额');
+    const date = dateOf('会议时间');
     /** 表格行：数值字段按数字存，其余按文本存；空表存 null */
     const jsonRows = (v: any, numericFields: string[], fields: string[]): string | null => {
       if (v == null) return null;
@@ -1310,16 +1320,8 @@ export class ProcurementTaskService {
       throw new BadRequestException('请先发布总采购清单（如有采前会会议纪要亦需发布）后再编制采购公告');
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const date = (v: any): Date | null => {
-      if (v === '' || v == null) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购时间格式无效');
-      return d;
-    };
+    const text = textOf;
+    const date = dateOf('采购时间');
     /** 动态列表（联系人 / 联系电话）：按位置保存，仅裁剪尾部空项以保证「联系人N/联系电话N」按同一位置配对 */
     const list = (v: any, label: string): string | null => {
       if (v == null) return null;
@@ -1459,23 +1461,9 @@ export class ProcurementTaskService {
       throw new BadRequestException('请先发布采购公告（采购公告已完成）后再编制采购文件');
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const num = (v: any): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isFinite(n)) throw new BadRequestException('响应保证金必须为数字');
-      if (n < 0) throw new BadRequestException('响应保证金不能为负数');
-      return n;
-    };
-    const date = (v: any): Date | null => {
-      if (v === '' || v == null) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购时间格式无效');
-      return d;
-    };
+    const text = textOf;
+    const num = numOf('响应保证金', { min: 0 });
+    const date = dateOf('采购时间');
 
     const payload = {
       procurementTime: date(body?.procurementTime),
@@ -1568,23 +1556,9 @@ export class ProcurementTaskService {
       throw new BadRequestException('请先发布采购文件（采购文件已完成）后再编制成交报告');
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const int = (v: any, label: string): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isInteger(n)) throw new BadRequestException(`${label}必须为整数`);
-      if (n < 0) throw new BadRequestException(`${label}不能为负数`);
-      return n;
-    };
-    const date = (v: any): Date | null => {
-      if (v === '' || v == null) return null;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) throw new BadRequestException('采购开启时间格式无效');
-      return d;
-    };
+    const text = textOf;
+    const int = (v: any, label: string): number | null => intOf(label, { min: 0 })(v);
+    const date = dateOf('采购开启时间');
     const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : undefined;
     const candidates = Array.isArray(body?.candidates) ? body.candidates : undefined;
 
@@ -1630,11 +1604,6 @@ export class ProcurementTaskService {
     if (!rawRows.length)
       throw new BadRequestException('导入文件无有效数据行（请从第 3 行起填写，或直接在示例行填入真实数据）');
 
-    const num = (v: any): number | null => {
-      if (v == null || v === '') return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
     const str = (v: any): string => String(v ?? '').trim();
 
     // 识别并跳过模板自带的示例行（第 2 行）：仅当其字段与模板示例完全一致时才视为示例行；
@@ -1814,17 +1783,8 @@ export class ProcurementTaskService {
       throw new BadRequestException('请先发布成交报告（成交报告已完成）后再编制采购价格对比表');
     }
 
-    const text = (v: any): string | null => {
-      const s = String(v ?? '').trim();
-      return s || null;
-    };
-    const num = (v: any, label: string): number | null => {
-      if (v === '' || v == null) return null;
-      const n = Number(v);
-      if (!Number.isFinite(n)) throw new BadRequestException(`${label}必须为数字`);
-      if (n < 0) throw new BadRequestException(`${label}不能为负数`);
-      return n;
-    };
+    const text = textOf;
+    const num = (v: any, label: string): number | null => numOf(label, { min: 0 })(v);
 
     const method = text(body?.pricingMethod);
     if (method && !['FIXED', 'FLOATING'].includes(method)) {

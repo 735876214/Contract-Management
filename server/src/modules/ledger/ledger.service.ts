@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, ratio, fmtDate } from '../../common/utils/helpers';
+import { paginate, buildResult, num, ratio, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -66,8 +66,8 @@ export class LedgerService {
    * 合同台账：以合同为主表，批量聚合（避免 N+1）
    * 供应商法人/授权人/联系人等信息通过 supplierId 实时关联，不落合同表
    */
-  async findAll(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }];
     if (query.contractCode) where.code = { contains: query.contractCode };
@@ -265,7 +265,7 @@ export class LedgerService {
   }
 
   async summary(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId);
+    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
     const list = res.list as any[];
     const sumBy = (key: string) => list.reduce((s, r) => s + (Number(r[key]) || 0), 0);
     return {
@@ -281,7 +281,7 @@ export class LedgerService {
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 5000 }, projectId);
+    const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const years = ['2024', '2025', '2026'];
     const rows = (res.list as any[]).map((r) => ({

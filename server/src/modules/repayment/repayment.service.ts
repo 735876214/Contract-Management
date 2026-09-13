@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -12,8 +12,8 @@ export class RepaymentService {
     private sysParam: SysParamService,
   ) {}
 
-  async findAll(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.code) where.code = { contains: query.code };
     if (query.supplierId) where.supplierId = query.supplierId;
@@ -144,7 +144,7 @@ export class RepaymentService {
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId);
+    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
     const columns = [
       { header: '签订协议编号', key: 'code', width: 20 },
       { header: '供应商名称', key: 'supplierName', width: 28 },

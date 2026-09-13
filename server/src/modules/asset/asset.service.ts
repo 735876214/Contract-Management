@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -45,8 +45,8 @@ export class AssetService {
     };
   }
 
-  async findAll(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.keyword) {
       where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
@@ -132,7 +132,7 @@ export class AssetService {
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 5000 }, projectId);
+    const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.nameMap('asset_ledger_source'), this.dict.nameMap('asset_category_l1'),
       this.dict.nameMap('asset_category_focus'), this.dict.nameMap('measurement_unit'),

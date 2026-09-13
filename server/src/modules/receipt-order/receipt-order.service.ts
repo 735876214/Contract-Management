@@ -384,22 +384,40 @@ export class ReceiptOrderService {
     }
   }
 
-  /** 计量单位 → 字典编码（日报 / 资产台账统一存编码，与既有数据口径一致） */
-  private async toUnitCode(unit?: string | null): Promise<string | null> {
-    const raw = String(unit ?? '').trim();
-    if (!raw) return null;
-    const items = await this.dict.options('measurement_unit');
-    const hit = items.find((i: any) => i.itemCode === raw || i.itemName === raw);
-    return hit ? hit.itemCode : raw;
-  }
-
-  /** 任意字典值 → 字典编码（资产类别等；未命中时保留原值，避免丢数据） */
-  private async toDictCode(typeCode: string, raw?: string | null): Promise<string | null> {
+  /** 字典项查找：编码或名称 → 字典编码（未命中时保留原值，避免丢数据） */
+  private pickDictCode(items: any[], raw?: string | null): string | null {
     const v = String(raw ?? '').trim();
     if (!v) return null;
-    const items = await this.dict.options(typeCode);
     const hit = items.find((i: any) => i.itemCode === v || i.itemName === v);
     return hit ? hit.itemCode : v;
+  }
+
+  /** 计量单位 → 字典编码（日报 / 资产台账统一存编码，与既有数据口径一致） */
+  private async toUnitCode(unit?: string | null): Promise<string | null> {
+    return this.pickDictCode(await this.dict.options('measurement_unit'), unit);
+  }
+
+  /**
+   * 事务外预取资产台账入账所需的字典项。
+   * 事务内不得再调用 this.dict —— 它使用事务外的 PrismaClient 连接，
+   * 连接池耗尽时交互式事务会因等待不可得的连接而永久挂起。
+   */
+  private async loadAssetDict() {
+    const [catL1, catFocus, unit] = await Promise.all([
+      this.dict.options('asset_category_l1'),
+      this.dict.options('asset_category_focus'),
+      this.dict.options('measurement_unit'),
+    ]);
+    return { catL1, catFocus, unit };
+  }
+
+  /** 明细关联的物资基础库映射（资产入账与日报推送共用，避免重复的查询/映射逻辑） */
+  private async loadMaterialBaseMap(details: any[], db: any): Promise<Map<string, any>> {
+    const ids = Array.from(
+      new Set((details || []).map((d: any) => d.materialId).filter(Boolean)),
+    ) as string[];
+    const bases = ids.length ? await db.materialBase.findMany({ where: { id: { in: ids } } }) : [];
+    return new Map<string, any>(bases.map((b: any) => [b.id, b]));
   }
 
   /**
@@ -482,6 +500,9 @@ export class ReceiptOrderService {
     const details = (Array.isArray(data.details) ? data.details : []).map((d: any, i: number) =>
       this.normalizeDetail(d, i),
     );
+    // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
+    // 连接池耗尽时事务会一直等待而挂起
+    const assetDict = await this.loadAssetDict();
 
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.receiptOrder.create({
@@ -497,7 +518,7 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
       // 需求 2.2：资产物资自动写入资产台账
-      await this.syncAssetLedger(order.id, tx);
+      await this.syncAssetLedger(order.id, tx, assetDict);
       return order;
     });
   }
@@ -511,6 +532,9 @@ export class ReceiptOrderService {
     const details = (Array.isArray(data.details) ? data.details : []).map((d: any, i: number) =>
       this.normalizeDetail(d, i),
     );
+    // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
+    // 连接池耗尽时事务会一直等待而挂起
+    const assetDict = await this.loadAssetDict();
 
     return this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
@@ -526,7 +550,7 @@ export class ReceiptOrderService {
         },
       });
       // 需求 2.2.3：收领单修改后，资产台账记录同步更新（含移除不再属于资产的明细行）
-      await this.syncAssetLedger(id, tx);
+      await this.syncAssetLedger(id, tx, assetDict);
       return tx.receiptOrder.findUnique({
         where: { id },
         include: { details: { orderBy: { sortOrder: 'asc' } } },
@@ -537,10 +561,12 @@ export class ReceiptOrderService {
   async remove(id: string) {
     await this.findOne(id);
     await this.prisma.$transaction(async (tx) => {
+      // 加锁顺序必须与 update 保持一致（主表 ReceiptOrder → 关联 AssetLedger），
+      // 否则与「修改」并发时会形成 ABBA 加锁环路导致死锁
+      // 先删主表，明细通过 onDelete: Cascade 级联删除
+      await tx.receiptOrder.delete({ where: { id } });
       // 需求 2.2.3：收领单删除后，其自动入账的资产台账记录同步删除
       await tx.assetLedger.deleteMany({ where: { receiptOrderId: id } });
-      // 明细通过 onDelete: Cascade 级联删除
-      await tx.receiptOrder.delete({ where: { id } });
     });
     return true;
   }
@@ -551,7 +577,11 @@ export class ReceiptOrderService {
    * - 防重：以收领单明细 ID 作为唯一键（AssetLedger.receiptDetailId 唯一约束），重复保存更新而非新增
    * - 清理：明细不再属于资产或已被删除时，删除对应台账记录
    */
-  private async syncAssetLedger(orderId: string, tx: TxClient) {
+  private async syncAssetLedger(
+    orderId: string,
+    tx: TxClient,
+    assetDict: { catL1: any[]; catFocus: any[]; unit: any[] },
+  ) {
     const db: any = tx;
     const order: any = await db.receiptOrder.findUnique({
       where: { id: orderId },
@@ -559,13 +589,7 @@ export class ReceiptOrderService {
     });
     if (!order) return { created: 0, updated: 0, removed: 0 };
 
-    const baseIds = Array.from(
-      new Set((order.details || []).map((d: any) => d.materialId).filter(Boolean)),
-    ) as string[];
-    const bases = baseIds.length
-      ? await db.materialBase.findMany({ where: { id: { in: baseIds } } })
-      : [];
-    const baseMap = new Map<string, any>(bases.map((b: any) => [b.id, b]));
+    const baseMap = await this.loadMaterialBaseMap(order.details || [], db);
 
     const keep: string[] = [];
     let created = 0;
@@ -584,11 +608,11 @@ export class ReceiptOrderService {
         date: order.orderDate ? new Date(order.orderDate) : null,
         // 来源：默认「采购」（需求 2.2.2）
         sourceCode: ASSET_SOURCE_PURCHASE,
-        categoryL1Code: await this.toDictCode('asset_category_l1', base.categoryLevel1),
-        categoryFocusCode: await this.toDictCode('asset_category_focus', base.categoryLevel2),
+        categoryL1Code: this.pickDictCode(assetDict.catL1, base.categoryLevel1),
+        categoryFocusCode: this.pickDictCode(assetDict.catFocus, base.categoryLevel2),
         name: d.materialName || base.name || null,
         spec: d.specModel || base.spec || null,
-        unit: await this.toUnitCode(d.unit || base.unit),
+        unit: this.pickDictCode(assetDict.unit, d.unit || base.unit),
         qty,
         price,
         totalAmount: total,
@@ -651,13 +675,7 @@ export class ReceiptOrderService {
     if (!order.details?.length) return { pushed: 0 };
 
     // 需求 2.1.3：总日报的「是否资产」「是否安全物资」来源于物资基础库
-    const baseIds = Array.from(
-      new Set((order.details || []).map((d: any) => d.materialId).filter(Boolean)),
-    ) as string[];
-    const bases = baseIds.length
-      ? await this.prisma.materialBase.findMany({ where: { id: { in: baseIds } } })
-      : [];
-    const baseMap = new Map<string, any>(bases.map((b: any) => [b.id, b]));
+    const baseMap = await this.loadMaterialBaseMap(order.details, this.prisma);
     const yesNo = (v: any) => (v === true ? 'Y' : v === false ? 'N' : null);
 
     const rows = [];

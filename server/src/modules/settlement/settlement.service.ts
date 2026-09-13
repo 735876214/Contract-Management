@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -193,8 +193,8 @@ export class SettlementService {
     return { created, updated };
   }
 
-  async findLedger(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findLedger(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.contractId) where.contractId = query.contractId;
     if (query.settleMonth) where.settleMonth = query.settleMonth;
@@ -369,7 +369,7 @@ export class SettlementService {
   }
 
   async exportLedger(projectId: string) {
-    const res = await this.findLedger({ pageSize: 2000 }, projectId);
+    const res = await this.findLedger({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
     const yesNo = await this.dict.nameMap('yes_no');
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({

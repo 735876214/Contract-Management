@@ -31,10 +31,14 @@ export function yearOf(v: any): number | null {
   return d ? d.getFullYear() : null;
 }
 
-/** 分页参数处理 */
-export function paginate(query: any = {}) {
+/**
+ * 分页参数处理。
+ * maxPageSize 供导出等批量场景显式放宽单页上限（默认 500），
+ * 避免 pageSize 被静默截断导致导出数据缺失。
+ */
+export function paginate(query: any = {}, maxPageSize = 500) {
   const page = Math.max(1, Number(query.page) || 1);
-  const pageSize = Math.min(500, Math.max(1, Number(query.pageSize) || 20));
+  const pageSize = Math.min(maxPageSize, Math.max(1, Number(query.pageSize) || 20));
   return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
 }
 

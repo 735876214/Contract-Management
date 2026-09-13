@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -29,8 +29,8 @@ export class InvoiceService {
     private tasks: ImportTaskService,
   ) {}
 
-  async findAll(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.contractId) where.contractId = query.contractId;
     if (query.typeCode) where.typeCode = query.typeCode;
@@ -188,7 +188,7 @@ export class InvoiceService {
 
   // ---------------- Excel ----------------
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId);
+    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
     const [goods, review, finance] = await Promise.all([
       this.dict.nameMap('goods_category'), this.dict.nameMap('invoice_review_status'),
       this.dict.nameMap('finance_transfer_status'),

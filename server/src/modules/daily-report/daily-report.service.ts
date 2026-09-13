@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -24,8 +24,8 @@ export class DailyReportService {
     private tasks: ImportTaskService,
   ) {}
 
-  async findAll(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
     if (query.periodYear) where.periodYear = Number(query.periodYear);
     if (query.periodMonth) where.periodMonth = Number(query.periodMonth);
@@ -119,7 +119,9 @@ export class DailyReportService {
 
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
-    await this.validate(data);
+    // 事务内不得调用 this.dict（它使用事务外的 PrismaClient 连接，连接池耗尽会挂起）。
+    // 导入流程已在事务外的 map 阶段完成 validate，此处仅在无事务的直连写入时校验。
+    if (!tx) await this.validate(data);
     return db.dailyReport.create({ data: { ...this.normalize(data), projectId } });
   }
 
@@ -186,7 +188,7 @@ export class DailyReportService {
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId);
+    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.nameMap('yes_no'), this.dict.nameMap('asset_status'), this.dict.nameMap('material_source'),
       this.dict.nameMap('material_category'), this.dict.nameMap('material_type'), this.dict.nameMap('measurement_unit'),
