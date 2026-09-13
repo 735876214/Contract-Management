@@ -1,6 +1,13 @@
 # 在 GitHub 上构建并推送 CMS 镜像到 GitHub Container Registry（ghcr.io）
 # 这样 NAS 部署时无需源码，直接 `docker compose pull` 预构建镜像即可（首次也一样）。
 # 触发：push 到 main，或手动在 Actions 页面点 Run workflow。
+#
+# 提速要点（2026-09-13 优化）：
+#   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
+#     QEMU 软模拟，nest build / vite build 这类 CPU 密集任务会慢数倍乃至十倍，故砍掉。
+#     若将来确有 ARM NAS，把下面 matrix 各项的 platforms 改回 linux/amd64,linux/arm64 即可。
+#   - backend / frontend 用 matrix 并行构建（时间取最大而非相加）。
+#   - 启用 buildx 的 GitHub Actions 层缓存（type=gha），增量构建大幅提速。
 name: Build and Push CMS Images
 
 on:
@@ -13,14 +20,23 @@ permissions:
   packages: write   # 推送到 ghcr.io 所需
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: ./server
+            dockerfile: ./server/Dockerfile
+            image: cms-backend
+          - service: frontend
+            context: ./web
+            dockerfile: ./web/Dockerfile
+            image: cms-frontend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU（多架构支持，覆盖 x86_64 与 ARM64 的 NAS）
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -32,24 +48,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push backend
+      - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
-          context: ./server
-          file: ./server/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/735876214/cms-backend:latest
-            ghcr.io/735876214/cms-backend:sha-${{ github.sha }}
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./web
-          file: ./web/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/735876214/cms-frontend:latest
-            ghcr.io/735876214/cms-frontend:sha-${{ github.sha }}
+            ghcr.io/735876214/${{ matrix.image }}:latest
+            ghcr.io/735876214/${{ matrix.image }}:sha-${{ github.sha }}
