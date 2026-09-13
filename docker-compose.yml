@@ -18,6 +18,7 @@ services:
       context: ./server
       dockerfile: Dockerfile
     # 不写 image:，强制走本地 build，避免去 Docker Hub 拉不存在的 cms-backend 镜像而报 pull access denied
+    pull_policy: build   # 双保险：即使将来误加 image:，也优先本地构建而非拉取
     container_name: cms-backend
     restart: unless-stopped
     environment:
@@ -49,6 +50,7 @@ services:
       context: ./web
       dockerfile: Dockerfile
     # 同上，强制本地 build
+    pull_policy: build   # 双保险：即使将来误加 image:，也优先本地构建而非拉取
     container_name: cms-frontend
     restart: unless-stopped
     # 对外 8080，避免与 NAS 已占用的 80 冲突
