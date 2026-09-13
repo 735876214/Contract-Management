@@ -9,7 +9,7 @@ import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import * as fs from 'fs';
-import { seedAdmin } from './seed';
+import { seedAdmin, seedDictAndParams } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -41,5 +41,7 @@ async function bootstrap() {
   // 首次部署空库时，自动 seed 一个默认管理员账号，保证可直接登录
   const prisma = app.get<PrismaClient>(PrismaClient);
   await seedAdmin(prisma);
+  // 首次部署空库时，写入字典类型 / 字典项 / 系统参数初始数据，保证字典与系统参数页面有内容
+  await seedDictAndParams(prisma);
 }
 bootstrap();
