@@ -1,5 +1,10 @@
 # ---------- 构建阶段 ----------
 FROM node:20-slim AS build
+# Prisma 的 schema/query 引擎是依赖 OpenSSL 共享库的二进制；node:20-slim (Debian bookworm)
+# 默认没装 openssl，会导致 `prisma generate` / `prisma db push` 报
+# "Schema engine error: Please manually install OpenSSL"，后端启动即崩。
+# 此处安装 openssl（含 libssl3），并清缓存保持镜像精简。
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/server
 
 # 安装全部依赖（含 prisma / nest 等开发依赖，供 generate 与 build 使用）
@@ -13,6 +18,9 @@ RUN npm run build
 
 # ---------- 运行阶段 ----------
 FROM node:20-slim AS runtime
+# 运行时同样需要 openssl：容器启动时 `CMD` 里的 `prisma db push` 会调用 schema 引擎二进制，
+# 缺 openssl 会 Schema engine error 崩溃（日志可见 502 / upstream Host is unreachable）。
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/server
 ENV NODE_ENV=production
 

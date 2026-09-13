@@ -10,10 +10,11 @@
 # 部署步骤：
 #   1.（可选）cp .env.example .env 并填入你想覆盖的值（JWT_SECRET / CMS_DATA 已有内联默认值，不填也能跑）。
 #   2. docker compose up -d        # 直接拉公开镜像启动，无需 --build
-#   3. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
+#   3. 在 NAS 反向代理中把 域名:443 -> 本机 ${CMS_HTTP_PORT:-9080}，并启用 HTTPS。
 #
-# 端口说明：对外仅暴露 8080（避免与 NAS 占用的 80 冲突），容器内部仍是 80；
-# 后端不对外暴露端口，仅通过 frontend 的 nginx 经 docker 内网代理访问。
+# 端口说明：对外暴露端口由 ${CMS_HTTP_PORT:-9080} 控制（默认 9080，避免与 NAS 占用的
+#   80 / 8080 冲突）；容器内部仍是 80；后端不对外暴露端口，仅通过 frontend 的 nginx
+#   经 docker 内网代理访问。若 9080 也被占用，在 .env 设 CMS_HTTP_PORT=其他端口即可。
 #
 # 镜像来源：ghcr.io/735876214/cms-backend:latest 、 ghcr.io/735876214/cms-frontend:latest
 # （由 .github/workflows/build.yml 在 push 到 main 时自动构建推送，含 amd64 / arm64 多架构）
@@ -55,9 +56,10 @@ services:
     pull_policy: always
     container_name: cms-frontend
     restart: unless-stopped
-    # 对外 8080，避免与 NAS 已占用的 80 冲突
+    # 对外端口可配置（默认 9080，避免与 NAS 已占用的 80 / 8080 冲突）
+    # 若 9080 也被占用，在宿主机 .env 设 CMS_HTTP_PORT=其它端口（如 18080）再 up 即可。
     ports:
-      - "8080:80"
+      - "${CMS_HTTP_PORT:-9080}:80"
     depends_on:
       - backend
     logging:
