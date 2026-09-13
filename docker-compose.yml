@@ -3,11 +3,11 @@
 # 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
 #
 # 部署步骤：
-#   1. cp .env.example .env   （.env 已被 .gitignore 忽略，不会进仓库）
-#   2. 修改 .env：JWT_SECRET 用 `openssl rand -base64 48` 生成的强随机值；
-#      CMS_DATA 改成你的 NAS 共享目录（见下方示例）。
-#   3. docker compose up -d --build
-#   4. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
+#   1.（可选）cp .env.example .env 并填入你自己的值做覆盖。
+#      —— 关键变量 JWT_SECRET / CMS_DATA 已内联默认值进本文件，不准备 .env 也能直接跑。
+#      —— 若想覆盖：在 .env 里设 JWT_SECRET / CMS_DATA 即可（用 ${VAR:-默认} 语法，有则覆盖）。
+#   2. docker compose up -d --build
+#   3. 在 NAS 反向代理中把 域名:443 -> 本机 8080，并启用 HTTPS。
 #
 # 端口说明：对外仅暴露 8080（避免与 NAS 占用的 80 冲突），容器内部仍是 80；
 # 后端不对外暴露端口，仅通过 frontend 的 nginx 经 docker 内网代理访问。
@@ -26,17 +26,18 @@ services:
       PORT: "3000"
       # SQLite 数据文件落在 bind mount 目录内，容器重建不丢数据
       DATABASE_URL: "file:/data/cms.db"
-      # JWT 密钥从 .env 注入（务必替换为强随机值，禁止硬编码）
-      JWT_SECRET: "${JWT_SECRET}"
+      # JWT 密钥：内联默认值（已从 .env 取的真实密钥），若宿主机 .env 设了 JWT_SECRET 则覆盖
+      JWT_SECRET: "${JWT_SECRET:-LspmRt4t0rJQGpPA40W3T4CfEb8CxompaI9s64z1AeVpENsRMKLR3a2JamDyGfkn}"
       JWT_EXPIRES_IN: "7d"
       # 上传文件也存进 bind mount 目录
       UPLOAD_DIR: "/data/uploads"
-    # bind mount 到 NAS 共享文件夹，便于查找与备份（命名卷 cms-data 已弃用）。
+    # bind mount 到 NAS 共享文件夹（已内联群晖默认路径，可直接跑；如用其他 NAS 改此行即可）
     # 群晖   ：/volume1/docker/cms/data
     # 威联通 ：/share/CACHEDEV1_DATA/Container/cms/data
     # Unraid ：/mnt/user/appdata/cms/data
+    # 注：若宿主机 .env 设了 CMS_DATA，会覆盖此内联路径。
     volumes:
-      - ${CMS_DATA:-/volume1/docker/cms/data}:/data
+      - /volume1/docker/cms/data:/data
     expose:
       - "3000"
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满

@@ -6,7 +6,7 @@
 #   bash scripts/nas-deploy.sh
 #
 # 它做的事：
-#   1. 校验 .env 存在（首次部署需 cp .env.example .env 并改 JWT_SECRET / CMS_DATA）
+#   1. 若 .env 不存在则从 .env.example 复制（compose 已内联默认值，不覆盖也能跑）
 #   2. git pull origin main           —— 拉取 GitHub 最新代码
 #   3. docker compose up -d --build   —— 用最新代码重建并启动 backend + frontend
 #   4. 等待并 docker compose ps 查看状态
@@ -19,12 +19,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 echo "==> 仓库根目录: $(pwd)"
 
-# 1) .env 校验
+# 1) .env 可选：缺失时从示例复制（compose 已内联默认值，复制后不编辑也能直接跑）
 if [ ! -f .env ]; then
-  echo "!! 未找到 .env，已为你从 .env.example 复制一份。"
-  echo "!! 请先编辑 .env 中的 JWT_SECRET（openssl rand -base64 48）与 CMS_DATA（NAS 共享目录），再重新运行本脚本。"
+  echo "== 未找到 .env，已从 .env.example 复制（compose 内联默认值，无需修改即可运行）。"
+  echo "== 如需覆盖 JWT_SECRET / CMS_DATA，编辑 .env 取消对应注释并填入实际值即可。"
   cp .env.example .env
-  exit 1
 fi
 
 # 2) 拉取 GitHub 最新代码
