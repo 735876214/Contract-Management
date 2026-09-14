@@ -1,68 +1,51 @@
-# 合同管理系统（CMS）Docker 部署 —— 面向 NAS（群晖 / 威联通 / Unraid）
-# 架构：前端 nginx（构建产物 + 反向代理 /api） + 后端 NestJS（SQLite 持久化）
-# 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
+# CMS 部署：前后端合并为「一个」容器（内部 nginx 托管前端并把 /api 反代到同容器 127.0.0.1:3000）
 #
-# 核心：镜像已从 GitHub Container Registry（ghcr.io）预构建并设为 PUBLIC，
-# 所以 NAS 部署【无需源码、无需 GITHUB_TOKEN、无需本地构建】，直接 pull 公开镜像即可运行。
-# 每次 `docker compose up -d` 都会因 `pull_policy: always` 拉取 GitHub Actions 刚构建推送的最新镜像，
-# 即“每次从 GitHub 拉最新代码”（Actions 在 push 到 main 时自动重建并推送镜像）。
+# 用法：
+#   1. 直接拉预构建公开镜像（推荐，无需源码 / 构建）：
+#      docker compose up -d
+#   2. 本地构建验证：
+#      docker build -f deploy/single/Dockerfile.single -t cms-single:local .
+#      然后把下方 image 改为 cms-single:local、注释掉 pull_policy，再 up -d
 #
-# 部署步骤：
-#   1.（可选）cp .env.example .env 并填入你想覆盖的值（JWT_SECRET / CMS_DATA 已有内联默认值，不填也能跑）。
-#   2. docker compose up -d        # 直接拉公开镜像启动，无需 --build
-#   3. 在 NAS 反向代理中把 域名:443 -> 本机 ${CMS_HTTP_PORT:-9080}，并启用 HTTPS。
+# 对外只暴露一个端口（默认 9080），内部 nginx 把 /api 反代到同容器 127.0.0.1:3000。
+# restart: unless-stopped + healthcheck + init: true 保证容器被平台回收 / 终止后自动重启，
+# 并正确回收僵尸进程，提升长时间运行稳定性。
 #
-# 端口说明：对外暴露端口由 ${CMS_HTTP_PORT:-9080} 控制（默认 9080，避免与 NAS 占用的
-#   80 / 8080 冲突）；容器内部仍是 80；后端不对外暴露端口，仅通过 frontend 的 nginx
-#   经 docker 内网代理访问。若 9080 也被占用，在 .env 设 CMS_HTTP_PORT=其他端口即可。
-#
-# 镜像来源：ghcr.io/735876214/cms-backend:latest 、 ghcr.io/735876214/cms-frontend:latest
-# （由 .github/workflows/build.yml 在 push 到 main 时自动构建推送，含 amd64 / arm64 多架构）
+# 数据持久化：SQLite 与上传文件落在 bind mount 的 /data，容器重建不丢数据。
 
 services:
-  backend:
-    # 预构建公开镜像，无需本地构建、无需源码、无需 token
-    image: ghcr.io/735876214/cms-backend:latest
-    pull_policy: always   # 每次启动都拉最新镜像
-    container_name: cms-backend
-    restart: unless-stopped
+  cms:
+    image: ghcr.io/735876214/cms-single:latest
+    pull_policy: always          # 每次启动都拉最新镜像（CI 在 push 到 main 时自动重建推送）
+    container_name: cms
+    init: true                   # 以 tini 作 PID1，正确转发信号、回收僵尸进程
+    restart: unless-stopped      # 被终止后自动重启，缓解平台自动回收问题
+    ports:
+      - "${CMS_HTTP_PORT:-9080}:8080"
     environment:
       NODE_ENV: production
       PORT: "3000"
       # SQLite 数据文件落在 bind mount 目录内，容器重建不丢数据
       DATABASE_URL: "file:/data/cms.db"
-      # JWT 密钥：内联默认值（已从 .env 取的真实密钥），若宿主机 .env 设了 JWT_SECRET 则覆盖
       JWT_SECRET: "${JWT_SECRET:-LspmRt4t0rJQGpPA40W3T4CfEb8CxompaI9s64z1AeVpENsRMKLR3a2JamDyGfkn}"
       JWT_EXPIRES_IN: "7d"
-      # 上传文件也存进 bind mount 目录
       UPLOAD_DIR: "/data/uploads"
-    # bind mount 到 NAS 共享文件夹（已内联群晖默认路径，可直接跑；如用其他 NAS 改此行即可）
+    # bind mount 到 NAS 共享文件夹（内联群晖默认路径，可直接跑）
     # 群晖   ：/volume1/docker/cms/data
     # 威联通 ：/share/CACHEDEV1_DATA/Container/cms/data
     # Unraid ：/mnt/user/appdata/cms/data
-    # 注：若宿主机 .env 设了 CMS_DATA，会覆盖此内联路径。
+    # 若宿主机 .env 设了 CMS_DATA，会覆盖此值。
     volumes:
       - /volume1/docker/cms/data:/data
-    expose:
-      - "3000"
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
     logging:
       options:
         max-size: "10m"
         max-file: "3"
-
-  frontend:
-    image: ghcr.io/735876214/cms-frontend:latest
-    pull_policy: always
-    container_name: cms-frontend
-    restart: unless-stopped
-    # 对外端口可配置（默认 9080，避免与 NAS 已占用的 80 / 8080 冲突）
-    # 若 9080 也被占用，在宿主机 .env 设 CMS_HTTP_PORT=其它端口（如 18080）再 up 即可。
-    ports:
-      - "${CMS_HTTP_PORT:-9080}:80"
-    depends_on:
-      - backend
-    logging:
-      options:
-        max-size: "10m"
-        max-file: "3"
+    healthcheck:
+      # 基础镜像（node:20-slim）默认无 wget，改用 node 探测对外端口
+      test: ["CMD", "node", "-e", "require('net').connect(8080,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3

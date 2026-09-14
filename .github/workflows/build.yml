@@ -6,7 +6,7 @@
 #   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
 #     QEMU 软模拟，nest build / vite build 这类 CPU 密集任务会慢数倍乃至十倍，故砍掉。
 #     若将来确有 ARM NAS，把下面 matrix 各项的 platforms 改回 linux/amd64,linux/arm64 即可。
-#   - backend / frontend 用 matrix 并行构建（时间取最大而非相加）。
+#   - 单容器镜像在 matrix 内构建（context=.，由 deploy/single/Dockerfile.single 合并前后端）。
 #   - 启用 buildx 的 GitHub Actions 层缓存（type=gha），增量构建大幅提速。
 name: Build and Push CMS Images
 
@@ -26,14 +26,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - service: backend
-            context: ./server
-            dockerfile: ./server/Dockerfile
-            image: cms-backend
-          - service: frontend
-            context: ./web
-            dockerfile: ./web/Dockerfile
-            image: cms-frontend
+          # 单容器镜像：前后端合并为「一个」容器（构建 context=.，由 deploy/single/Dockerfile.single 合并前后端）
+          - service: single
+            context: .
+            dockerfile: ./deploy/single/Dockerfile.single
+            image: cms-single
     steps:
       - name: Checkout
         uses: actions/checkout@v4

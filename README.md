@@ -97,3 +97,26 @@ server/src/
   若切换到 MySQL 需把 `@db.Text` 长文本字段改为 `@db.Text`（MySQL 支持）或 `String` 并指定长度。
 
 更多说明见 `docs/` 目录。
+
+## Docker 部署
+
+镜像由 GitHub Actions 在 push 到 `main` 时自动构建并推送到 `ghcr.io/735876214/cms-single`（公开，NAS 上无需源码 / 构建即可拉取）。
+
+`docker-compose.yml` 是**唯一的部署入口**：前后端合并为**一个**容器（内部 nginx 托管前端并把 `/api` 反代到同容器
+`127.0.0.1:3000`），对外只暴露一个端口，减少资源占用与容器数量，降低长时间运行被自动终止的概率。
+
+```bash
+docker compose up -d        # 直接拉公开镜像启动，每次启动都会拉最新镜像
+```
+
+对外端口 `${CMS_HTTP_PORT:-9080}`；数据（SQLite + 上传文件）bind mount 到 `/data`，容器重建不丢数据。
+容器设置 `restart: unless-stopped`、`healthcheck`、`init: true`，被平台回收后会自动重启并正确回收僵尸进程。
+
+本地验证可自行构建：
+
+```bash
+docker build -f deploy/single/Dockerfile.single -t cms-single:local .
+# 然后把 compose 内 image 改为 cms-single:local、注释掉 pull_policy 再 up -d
+```
+
+内部 `start.sh` 让后端与 nginx 任一进程退出即整体退出，由重启策略自愈。

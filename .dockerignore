@@ -1,0 +1,16 @@
+# 单容器构建 context = 仓库根；排除本地依赖 / 构建产物 / 无关目录，
+# 避免把 node_modules 几百 MB 一起拷进镜像层，也避免本地 dist 干扰容器内编译。
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+**/.git
+**/.github
+**/.codebuddy
+**/*.db
+**/*.sqlite
+**/uploads
+**/.env
+**/.env.*
+!**/.env.example
+**/pnpm-lock.yaml

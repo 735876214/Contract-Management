@@ -1,0 +1,78 @@
+# ============================================================================
+# CMS 单容器镜像（前后端一体）—— 仅生成「一个」容器即可完整运行
+#
+# 适用场景：
+#   - 部署平台对容器数量有限制（只给一个容器配额），或
+#   - 多容器长时间运行后易被平台按配额逐个回收 / 终止。
+#   单容器把「NestJS 后端 + SQLite」与「nginx 前端静态托管 + /api 反代」
+#   合并进同一个镜像：对外只暴露一个端口，内部 nginx 把 /api 反代到
+#   同容器的 127.0.0.1:3000，从而减少资源占用与容器数量，
+#   降低长时间运行后被自动终止的概率。
+#
+# 构建（本地验证）：
+#   docker build -f deploy/single/Dockerfile.single -t cms-single:local .
+# 或由 CI（.github/workflows/build.yml）推送到 ghcr.io/735876214/cms-single:latest
+# ============================================================================
+
+# ---------- 后端：全量依赖 ----------
+FROM node:20-slim AS backend-deps
+WORKDIR /app/server
+COPY server/package.json ./
+RUN npm install --legacy-peer-deps --no-audit --no-fund
+
+# ---------- 后端：编译 ----------
+FROM backend-deps AS backend-build
+COPY server/ ./
+RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema prisma/schema.sqlite.prisma \
+ && DATABASE_URL="file:/tmp/gen.db" npm run build
+
+# ---------- 后端：生产依赖（含 prisma CLI，启动时 db push 必需） ----------
+FROM node:20-slim AS backend-proddeps
+WORKDIR /app/server
+COPY server/package.json ./
+RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
+ && npm install --no-save --omit=dev --legacy-peer-deps --no-audit --no-fund "prisma@^5.10.2"
+COPY server/prisma/schema.sqlite.prisma ./prisma/
+RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema prisma/schema.sqlite.prisma
+
+# ---------- 前端：构建 ----------
+FROM node:20-slim AS frontend-build
+WORKDIR /app/web
+COPY web/package.json ./
+RUN npm install --legacy-peer-deps --no-audit --no-fund
+COPY web/ ./
+ENV VITE_API_BASE=/api
+RUN npm run build
+
+# ---------- 运行镜像 ----------
+FROM node:20-slim AS runtime
+# openssl：Prisma 查询引擎依赖；nginx：单容器内托管前端 + 反代 /api
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates nginx \
+ && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+
+ENV NODE_ENV=production \
+    PORT=3000
+
+# 后端运行文件
+COPY --from=backend-proddeps /app/server/node_modules /app/server/node_modules
+COPY --from=backend-build /app/server/dist /app/server/dist
+COPY --from=backend-build /app/server/package.json /app/server/package.json
+COPY --from=backend-build /app/server/prisma /app/server/prisma
+WORKDIR /app/server
+
+# 前端静态产物 + 单容器 nginx 配置 + 启动脚本
+COPY --from=frontend-build /app/web/dist /usr/share/nginx/html
+COPY deploy/single/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/single/start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
+EXPOSE 8080
+
+# 探测对外端口（nginx 托管首页）；该探针保证容器级存活，
+# 业务级自愈（后端异常）依赖 restart 策略整体重启。
+# 用 node 探测（基础镜像 node:20-slim 默认不带 wget）。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+  CMD node -e "require('net').connect(8080,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+
+CMD ["start.sh"]
