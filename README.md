@@ -27,26 +27,30 @@ cms/
 # 0. （可选）启用包管理器版本管理
 corepack enable && corepack prepare pnpm@12 --activate
 
-# 1. 准备数据库（二选一）
-#    方式 A · PostgreSQL（推荐，功能完整，需 Docker）
-cd cms && docker compose up -d
-#    方式 B · SQLite（本地快速体验，无需 Docker；.env 已默认 DATABASE_URL="file:./dev.db"）
-cd server && pnpm run demo:sqlite   # 自动生成 SQLite schema、建表、生成 Prisma Client 并写入种子数据
+# 1. 方式 A · 容器化一键调试（推荐：前后端源码挂载 + 热重载 + PostgreSQL）
+docker compose -f docker-compose.dev.yml up
+#    前端 http://localhost:5173（vite HMR），后端 API http://localhost:3000/api，
+#    PostgreSQL 映射到本机 15432，上传文件落在 ./data-dev；首次启动会安装依赖（约几分钟）。
 
-# 2. 后端
+# 1. 方式 B · 宿主机直跑（习惯 IDE 调试时用）
+docker compose -f docker-compose.dev.yml up -d postgres   # PostgreSQL → 本机 15432
+
+# 2. 后端（NestJS）
 cd server
-cp .env.example .env        # 已有 .env（指向 dev.db）可跳过；PostgreSQL 方式请改 DATABASE_URL
-pnpm install                # 安装依赖（构建脚本已在 pnpm-workspace.yaml 中放行）
-npx prisma generate --schema prisma/schema.sqlite.prisma   # SQLite 本地开发
-# 使用 PostgreSQL 时改为：npx prisma generate && npx prisma migrate deploy
-pnpm run seed               # 初始化字典 / 角色 / 演示数据（PostgreSQL 方式；SQLite 已由 demo:sqlite 完成）
+cp .env.example .env       # 把 DATABASE_URL 的端口改成 15432
+pnpm install               # 安装依赖（构建脚本已在 pnpm-workspace.yaml 中放行）
+npx prisma migrate deploy  # 空库一次建全表（含折叠基线 20260901000000_init）
+pnpm run seed              # 初始化字典 / 角色 / 演示数据
 pnpm run start:dev         # http://localhost:3000/api
 
-# 3. 前端
+# 3. 前端（React）
 cd ../web
 pnpm install
-pnpm run dev               # http://localhost:5173
+pnpm run dev               # http://localhost:5173（/api 反代到 localhost:3000）
 ```
+
+> 改了 `server/prisma/schema.prisma` 之后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
+> **不要用 `prisma db push`**：它会让本机库脱离迁移历史，缺失的迁移只在别人或生产上暴露。
 
 > 注意：`node_modules/`、`*.db`、`uploads/`、`.env` 等均已在 `.gitignore` 中忽略，请勿提交。
 
@@ -111,18 +115,29 @@ cp .env.example .env        # 必填 JWT_SECRET（openssl rand -base64 48），�
 docker compose up -d        # 直接拉公开镜像启动，每次启动都会拉最新镜像
 ```
 
-对外端口 `${CMS_HTTP_PORT:-9080}`；数据（SQLite + 上传文件）落在 `${CMS_DATA:-./data}`（NAS 建议改成绝对路径），
+对外端口 `${CMS_HTTP_PORT:-9080}`；上传文件落在 `${CMS_DATA:-./data}`（NAS 建议改成绝对路径），数据库由 compose 内的 postgres 服务独立持久化（命名卷 pgdata），
 bind mount 到容器 `/data`，容器重建不丢数据。
 容器设置 `restart: unless-stopped`、`healthcheck`、`init: true`，被平台回收后会自动重启并正确回收僵尸进程。
 
 首次启动（空库）会自动创建默认管理员（`DEFAULT_ADMIN_USERNAME/PASSWORD`，默认 `admin`/`admin123`）、默认项目
 以及字典 / 系统参数，装好后请立即修改密码；已有数据则跳过，重复启动安全。
 
-本地验证可自行构建：
+数据库结构由 `server/prisma/migrations` 管理：`20260901000000_init` 是「空库 → 当前 schema」的**折叠基线**，
+空库首次启动 `prisma migrate deploy` 一次建全表；之后的新迁移按时间戳顺序叠加。
+
+> **从 2026-09-17 之前的旧版本升级（NAS 等已有库）必读**：旧版本的 11 条增量迁移已折叠进 init 并删除，
+> 旧库 `_prisma_migrations` 里记录的还是这些已删除的迁移，升级前需先标记基线（只写一条迁移记录，不动数据）：
+>
+> ```bash
+> docker cp ./server/prisma/migrations/20260901000000_init cms:/app/server/prisma/migrations/
+> docker exec cms sh -c "cd /app/server && ./node_modules/.bin/prisma migrate resolve --applied 20260901000000_init"
+> ```
+> 之后再拉新镜像重启即可（已实测：库中残留的旧迁移记录不会影响 `migrate deploy`）。
+
+本地构建（镜像不可访问时的兜底，仓库根目录执行；compose 已内置 `build:` 段）：
 
 ```bash
-docker build -f deploy/single/Dockerfile.single -t cms-single:local .
-# 然后把 compose 内 image 改为 cms-single:local、注释掉 pull_policy 再 up -d
+docker compose up -d --build    # 构建并启动，产出同一个 ghcr.io/735876214/cms-single:latest tag
 ```
 
 内部 `start.sh` 让后端与 nginx 任一进程退出即整体退出，由重启策略自愈。

@@ -1,0 +1,140 @@
+# ============================================================================
+# CMS 本地开发调试 compose —— 与部署用的 docker-compose.yml 完全独立
+#
+# 定位：**只为本机开发调试服务**，不是部署方案。
+#   - 后端：源码挂载 + `nest start --watch`（改 TS 立即重编译重启）
+#   - 前端：源码挂载 + `vite dev server`（HMR 热更新，/api 反代到后端容器）
+#   - 数据库：PostgreSQL（对外暴露 15432，方便 psql / DBeaver 直连看数据）
+#   - 上传文件：映射到宿主机 ./data-dev，可直接打开生成的 Word / 附件
+#
+# 用法（在仓库根目录执行）：
+#   启动全部（首次会安装依赖，约几分钟）：
+#     docker compose -f docker-compose.dev.yml up
+#   后台启动：
+#     docker compose -f docker-compose.dev.yml up -d
+#   只看后端日志：
+#     docker compose -f docker-compose.dev.yml logs -f server
+#   改过 package.json / vite 配置后重装依赖：
+#     docker compose -f docker-compose.dev.yml exec server npm install --legacy-peer-deps
+#     docker compose -f docker-compose.dev.yml exec web    npm install --legacy-peer-deps
+#   清库重来（含数据库数据与依赖卷）：
+#     docker compose -f docker-compose.dev.yml down -v
+#
+# 访问地址：
+#   前端（带热更新）：http://localhost:5173   ← 日常用这个
+#   后端 API 直连：  http://localhost:3000/api
+#   默认管理员：     admin / admin123（空库首次启动自动 seed）
+#
+# 只想要数据库、前后端在宿主机跑（推荐习惯 IDE 调试时用）：
+#   docker compose -f docker-compose.dev.yml up -d postgres
+#   cd server && pnpm install && pnpm prisma:deploy && pnpm run seed && pnpm start:dev
+#   cd web    && pnpm install && pnpm dev
+#   （vite.config.ts 的 /api 反代默认已指向 http://localhost:3000，无需改配置）
+#
+# ⚠ 与生产 compose 的差异（有意为之，勿照搬）：
+#   1. 用完整版 node:20（非 slim）：自带 openssl，prisma generate 能正确识别引擎平台；
+#   2. 不设 restart 策略：依赖安装 / 编译失败时容器停在 exited 便于看日志，而不是无限重启刷屏；
+#   3. JWT_SECRET / 数据库密码是写死的弱值，仅限本地，生产必须用 .env 注入随机值；
+#   4. node_modules 用命名卷隔离，避免宿主机（Windows）依赖与容器（Linux）二进制互相污染。
+# ============================================================================
+
+# 独立项目名：与 docker-compose.yml（项目名=目录名）隔离网络、卷、容器，可同时运行
+name: cms-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cms-postgres-dev
+    environment:
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: cms123456
+      POSTGRES_DB: cms
+      TZ: Asia/Shanghai
+    ports:
+      - "15432:5432"            # 宿主机 psql -h localhost -p 15432 -U cms -d cms（生产不暴露）
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  server:
+    image: node:20              # 完整版（含 openssl）：prisma generate 需要
+    container_name: cms-server-dev
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"             # 后端 API（前端 vite 反代到这里）
+      - "9229:9229"             # Node 调试端口：把下面 command 的 start:dev 换成 start:debug 后可用 IDE Attach
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      TZ: Asia/Shanghai
+      DATABASE_URL: "postgresql://cms:cms123456@postgres:5432/cms?schema=public"
+      JWT_SECRET: "dev-only-secret-do-not-use-in-production"
+      JWT_EXPIRES_IN: "7d"
+      UPLOAD_DIR: "/data/uploads"
+      DEFAULT_ADMIN_USERNAME: "admin"
+      DEFAULT_ADMIN_PASSWORD: "admin123"
+      # 依赖装不动 / 太慢时可换镜像源（去掉注释）
+      # npm_config_registry: "https://registry.npmmirror.com"
+    volumes:
+      # 源码挂载 → 容器内 tsc --watch 感知宿主机改动，实现后端热重载
+      # （个别文件系统不转发变更事件导致热重载失灵时，在 server/tsconfig.json 加
+      #   "watchOptions": { "watchFile": "priorityPollingInterval" } 即可退化为轮询）
+      - ./server:/app
+      # 依赖目录用命名卷隔离：宿主机 Windows 的 node_modules 无法在 Linux 容器内使用
+      - server-node-modules:/app/node_modules
+      # 上传文件落到宿主机，便于直接查看导出物
+      - ./data-dev:/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        # 首次（或依赖卷被清空）才安装，避免每次启动都跑一遍 npm install
+        [ -x node_modules/.bin/nest ] || npm install --legacy-peer-deps --no-audit --no-fund
+        # 应用数据库迁移：与生产 compose 完全一致（20260901000000_init 是「空库 → 当前 schema」的折叠基线，
+        # 全新空库也能一次建出全表，不再出现 P3018 relation "Contract" does not exist）。
+        npx prisma generate
+        npx prisma migrate deploy
+        # 改了 prisma/schema.prisma 后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
+        # 不要用 db push：那会让本机库脱离迁移历史，缺失的迁移只会在别人/生产上暴露。
+        # exec 让 node 进程成为 PID1，Ctrl-C 能直接停掉 watcher
+        exec npm run start:dev
+
+  web:
+    image: node:20
+    container_name: cms-web-dev
+    working_dir: /app
+    depends_on:
+      - server
+    ports:
+      - "5173:5173"             # 前端 vite dev server（HMR）
+    environment:
+      # vite dev server 的 /api 反代目标：容器内必须指向 server 服务，而不是 localhost
+      VITE_PROXY_TARGET: "http://server:3000"
+      # Windows 挂载盘的文件事件不稳定，开启轮询保证热更新可靠触发
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "800"
+      # npm_config_registry: "https://registry.npmmirror.com"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        [ -x node_modules/.bin/vite ] || npm install --legacy-peer-deps --no-audit --no-fund
+        exec npx vite --host 0.0.0.0 --port 5173
+
+volumes:
+  pgdata-dev:
+  server-node-modules:
+  web-node-modules:

@@ -20,6 +20,9 @@ uploads/
 # docker 部署数据目录（compose 默认 ./data）
 data/
 
+# 本地开发调试的数据目录（docker-compose.dev.yml 默认 ./data-dev）
+data-dev/
+
 # logs
 *.log
 npm-debug.log*

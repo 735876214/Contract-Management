@@ -29,6 +29,10 @@
 **/tmp
 **/*.log
 
+# 本地调试数据目录（docker-compose.dev.yml）
+data
+data-dev
+
 # 与运行镜像无关的仓库内容
 docs
 scripts
