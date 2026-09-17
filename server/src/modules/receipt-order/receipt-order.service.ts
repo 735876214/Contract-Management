@@ -504,8 +504,8 @@ export class ReceiptOrderService {
     // 连接池耗尽时事务会一直等待而挂起
     const assetDict = await this.loadAssetDict();
 
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.receiptOrder.create({
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.receiptOrder.create({
         data: {
           ...this.normalizeHeader(data),
           orderNo,
@@ -518,9 +518,12 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
       // 需求 2.2：资产物资自动写入资产台账
-      await this.syncAssetLedger(order.id, tx, assetDict);
-      return order;
+      await this.syncAssetLedger(created.id, tx, assetDict);
+      return created;
     });
+    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）
+    await this.pushToDailyReport(order.id);
+    return order;
   }
 
   async update(id: string, data: any) {
@@ -556,6 +559,9 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
     });
+    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）
+    await this.pushToDailyReport(id);
+    return this.findOne(id);
   }
 
   async remove(id: string) {

@@ -59,6 +59,20 @@ export class ProcurementTaskController {
     return this.service.saveFrameworkExplanation(id, body);
   }
 
+  /** 从采购价格对比表导入「价格对比表」明细到框架协议事前说明（任务 3.6） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/framework-explanation/import-price-compare')
+  importPriceCompare(@Param('id') id: string) {
+    return this.service.importPriceCompare(id);
+  }
+
+  /** 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/reject-result-report')
+  rejectResultReport(@Param('id') id: string) {
+    return this.service.rejectResultReport(id);
+  }
+
   /** 采前会会议纪要（任务 3.2；仅单项采购且预计采购金额 ≥ 100 万时生成） */
   @RequirePermissions('contract:view')
   @Get(':id/pre-meeting-minutes')

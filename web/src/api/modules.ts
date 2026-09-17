@@ -62,6 +62,9 @@ export const procurementTaskApi = {
       attachments?: unknown[];
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/framework-explanation`, data),
+  /** 从采购价格对比表导入「价格对比表」明细（任务 3.6） */
+  importPriceCompare: (id: string) =>
+    http.post<any, any>(`/procurement-tasks/${id}/framework-explanation/import-price-compare`),
   /** 采前会会议纪要（任务 3.2）：仅「单项采购」且预计采购金额 ≥ 100 万时生成 */
   preMeetingMinutes: (id: string) =>
     http.get<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`),
@@ -151,6 +154,9 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/price-compare`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
+  /** 任务 7：成交报告「退回 → 重发」 */
+  rejectResultReport: (id: string) =>
+    http.post<any, any>(`/procurement-tasks/${id}/reject-result-report`),
   /** 问题二：删除子模块记录并回退流程（仅流程最末端模块可删，删除后上一阶段恢复可编辑） */
   deleteModule: (id: string, moduleKey: string) =>
     http.delete<any, any>(`/procurement-tasks/${id}/modules/${moduleKey}`),
@@ -203,6 +209,8 @@ export const settlementApi = {
   detail: (id: string) => http.get<any, any>(`/settlements/${id}`),
   create: (data: any) => http.post<any, any>('/settlements', data),
   update: (id: string, data: any) => http.put<any, any>(`/settlements/${id}`, data),
+  // 任务 7：结算驳回 → 回填
+  reject: (id: string) => http.post<any, any>(`/settlements/${id}/reject`),
   remove: (id: string) => http.delete<any, any>(`/settlements/${id}`),
   ledger: (params?: any) => http.get<any, any>('/settlements/ledger', { params }),
   ledgerDetail: (id: string) => http.get<any, any>(`/settlements/ledger/${id}`),

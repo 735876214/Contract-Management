@@ -3,11 +3,12 @@
  * 与后端 procurement-task.service.ts 的阶段链 / 状态定义保持一致。
  */
 
-export type ProcurementTaskType = 'FRAMEWORK' | 'SINGLE';
+export type ProcurementTaskType = 'FRAMEWORK' | 'SINGLE' | 'EMERGENCY';
 
 export const PROCUREMENT_TASK_TYPES: { value: ProcurementTaskType; label: string }[] = [
   { value: 'FRAMEWORK', label: '引用框架协议' },
   { value: 'SINGLE', label: '单项采购' },
+  { value: 'EMERGENCY', label: '紧急采购' },
 ];
 
 export const taskTypeLabel = (t: string): string =>
@@ -63,13 +64,21 @@ export interface FlowStage {
 }
 
 /** 与后端一致的阶段链（列表页本地展示兜底；详情以接口 stages 为准） */
+// 前端展示用阶段链（与后端 server/src/constants/procurementFlow.ts 的 stageChain 保持一致；
+// 后端为 gating 单一事实源，本函数仅用于列表/详情的本地兜底展示）
 export function buildStageChain(type: string, preMeetingRequired: boolean): FlowStage[] {
   const mk = (key: string, label: string): FlowStage => ({ key, label, state: 'locked' });
   const chain: FlowStage[] = [mk('TOTAL_LIST', '编制总采购清单')];
-  if (type === 'SINGLE' && preMeetingRequired) chain.push(mk('PRE_MEETING', '采前会会议纪要'));
+  if (type === 'EMERGENCY') {
+    // 紧急采购：仅总清单 → 生成合同（无采前会/公告/文件/成交报告/价格对比表）
+    chain.push(mk('CONTRACT', '生成合同'));
+    return chain;
+  }
   if (type === 'FRAMEWORK') {
-    chain.push(mk('FRAMEWORK_EXPLAIN', '框架协议事前说明'));
+    // 引用框架协议：价格对比表在前，数据灌入框架协议事前说明
+    chain.push(mk('PRICE_COMPARE', '采购价格对比表'), mk('FRAMEWORK_EXPLAIN', '框架协议事前说明'));
   } else {
+    if (preMeetingRequired) chain.push(mk('PRE_MEETING', '采前会会议纪要'));
     chain.push(
       mk('NOTICE', '采购公告'),
       // 任务 3.4：采购文件紧随采购公告

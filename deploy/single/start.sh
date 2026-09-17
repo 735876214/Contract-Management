@@ -5,8 +5,9 @@ set -e
 
 cd /app/server
 
-# 1) 同步 schema 到 SQLite（DATABASE_URL 指向挂载卷里的文件）
-./node_modules/.bin/prisma db push --schema prisma/schema.sqlite.prisma --skip-generate
+# 1) 数据库结构同步（PostgreSQL，应用 migrations 目录下的迁移；空库则自动建表）
+./node_modules/.bin/prisma generate
+./node_modules/.bin/prisma migrate deploy
 
 # 2) 确保上传目录存在（给默认值，避免环境变量缺失时 mkdir 空串报错）
 mkdir -p "${UPLOAD_DIR:-/data/uploads}"

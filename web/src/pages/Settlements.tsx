@@ -13,7 +13,7 @@ import {
   InputNumber,
   DatePicker,
 } from 'antd';
-import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';
@@ -117,6 +117,26 @@ function SettlementsTab({
   };
 
   /** 筛选项（问题四：标准筛选区） */
+  /** 任务 7：结算驳回 → 回填（无审批流，纯状态回退到「草稿」） */
+  const handleRejectSettlement = (row: any) => {
+    Modal.confirm({
+      title: '结算驳回回填',
+      content: '确认将该结算单驳回回「草稿」状态、可重新编辑提交吗？',
+      okText: '确认驳回',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await settlementApi.reject(row.id);
+          message.success('已驳回回填，结算单回到「草稿」');
+          refreshList();
+        } catch (e: any) {
+          message.error(e?.message || '驳回失败');
+        }
+      },
+    });
+  };
+
   const extraFilters: ModuleListFilterField[] = [
     { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
     { key: 'typeCode', label: '结算类型', control: 'select', options: dicts.settlement_type ?? [] },
@@ -148,6 +168,23 @@ function SettlementsTab({
         refreshKey={listRefresh}
         onEdit={(row) => openEdit(row)}
         onDelete={handleRemove}
+        rowMenuItems={(row: ModuleListRow & { statusCode?: string }) =>
+          // 任务 7：仅已提交的结算单可驳回回填（generic 模式下行即结算单记录）
+          row.statusCode !== 'DRAFT'
+            ? [
+                {
+                  key: 'reject',
+                  label: (
+                    <span>
+                      <RollbackOutlined /> 驳回回填
+                    </span>
+                  ),
+                  danger: true,
+                  onClick: () => handleRejectSettlement(row),
+                },
+              ]
+            : []
+        }
         toolbarLeft={
           <Button
             type="primary"

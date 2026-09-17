@@ -134,6 +134,8 @@ export default function FrameworkExplanation() {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  /** 从采购价格对比表导入「价格对比表」明细 */
+  const [importing, setImporting] = useState(false);
   /** 发布后默认预览（只读）；点「重新编辑」解锁 */
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
@@ -287,11 +289,37 @@ export default function FrameworkExplanation() {
     }
   };
 
+  /** 从采购价格对比表导入「价格对比表」明细（任务 3.6；幂等覆盖本表） */
+  const handleImportPriceCompare = async () => {
+    if (!taskId) return;
+    setImporting(true);
+    try {
+      const res: any = await procurementTaskApi.importPriceCompare(taskId);
+      setForm((f) => ({
+        ...f,
+        priceCompareRows: withKeys(res?.priceCompareRows ?? []),
+      }));
+      message.success('已从「采购价格对比表」导入价格对比表明细，可继续调整');
+    } catch (e: any) {
+      message.error(e?.message || '导入失败，请确认采购价格对比表已录入明细');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   /** 发布流程第 1 步：校验必填 → 打开「发布前预览」（统一预览发布流程） */
   const openPublishPreview = () => {
     if (!taskId) return;
     if (!String(form.frameworkIntro ?? '').trim()) {
       message.warning('请先填写「框架简介」再发布');
+      return;
+    }
+    // 需求：框架协议事前说明未勾选/未填写「单位」则无法发起（引用供应商及金额为必填，至少一家）
+    const hasUnit = form.referenceSuppliers.some((r) =>
+      String(r?.supplier ?? '').trim().length > 0,
+    );
+    if (!hasUnit) {
+      message.warning('请先在「引用供应商及金额」中填写至少一家单位，再发布框架协议事前说明');
       return;
     }
     setModalMode('publish');
@@ -800,7 +828,37 @@ export default function FrameworkExplanation() {
             {textSection('二、谈判情况', 'negotiation')}
             {tableSection('三、询价情况', 'inquiryRows', inquiryColumns)}
             {refSupplierSection}
-            {tableSection('四、同城/相邻城市局其他单位执行合同价', 'priceCompareRows', priceColumns)}
+            {/* 四、价格对比表：支持从采购价格对比表一键导入（任务 3.6） */}
+            <Card
+              size="small"
+              title="四、同城/相邻城市局其他单位执行合同价"
+              extra={
+                editable && (
+                  <Space size={8}>
+                    <Button
+                      size="small"
+                      loading={importing}
+                      onClick={handleImportPriceCompare}
+                      title="从本任务的「采购价格对比表」导入明细"
+                    >
+                      从价格对比表导入
+                    </Button>
+                    <Button size="small" icon={<PlusOutlined />} onClick={() => addRow('priceCompareRows')}>
+                      添加行
+                    </Button>
+                  </Space>
+                )
+              }
+            >
+              <Table
+                size="small"
+                rowKey="key"
+                columns={priceColumns}
+                dataSource={form.priceCompareRows as unknown as any[]}
+                pagination={false}
+                locale={{ emptyText: '暂无数据，可点击「从价格对比表导入」带出，或手动添加行' }}
+              />
+            </Card>
             {textSection('五、执行情况', 'execution')}
             {tableSection('六、成本分析', 'costRows', costColumns)}
 

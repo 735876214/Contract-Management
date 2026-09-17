@@ -491,12 +491,11 @@ export default function PriceCompare() {
       {/* 标准列表页（批次五）：筛选区 + 工具栏 + 数据表格 */}
       <ModuleListPage
         moduleKey="PRICE_COMPARE"
-        baseParams={{ type: 'SINGLE' }}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
           <span style={{ color: '#8c8c8c', fontSize: 13 }}>
-            仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准（需先完成成交报告）
+            显示「单项采购 / 引用框架协议」中已到达本阶段的任务；编辑与发布以任务所处阶段为准（单项采购需先完成成交报告，框架协议需先发布总清单）
           </span>
         }
         refreshKey={listRefresh}
@@ -570,7 +569,11 @@ export default function PriceCompare() {
                 <Alert
                   type="info"
                   showIcon
-                  message="该采购任务尚未进入采购价格对比表阶段（需先完成成交报告）。"
+                  message={
+                    currentTask?.type === 'FRAMEWORK'
+                      ? '该采购任务尚未进入采购价格对比表阶段（需先发布总采购清单）。'
+                      : '该采购任务尚未进入采购价格对比表阶段（需先完成成交报告）。'
+                  }
                 />
               )}
               {detail?.published && editable && (

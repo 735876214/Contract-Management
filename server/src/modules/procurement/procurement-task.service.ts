@@ -7,6 +7,27 @@ import {
   TemplateColumn,
 } from '../../common/services/import-template.service';
 import { ContractService } from '../contract/contract.service';
+import {
+  TOTAL_LIST,
+  PRE_MEETING,
+  NOTICE,
+  DOCUMENT,
+  RESULT_REPORT,
+  PRICE_COMPARE,
+  FRAMEWORK_EXPLAIN,
+  STAGE_KEYS,
+  TASK_STATUS_LABELS,
+  stageChain,
+  stageView,
+  contractStageState,
+  moduleStageBranches,
+  resolveContractUnits,
+  TaskType,
+  isTaskType,
+  deriveContractType,
+  ContractCategory,
+} from '../../constants/procurementFlow';
+import { assertResultReportRejectable } from '../../constants/workflowGuards';
 
 /** 文本归一化：trim 后空串转 null（各阶段表单共用，避免重复定义） */
 const textOf = (v: any): string | null => {
@@ -55,21 +76,6 @@ const dateOf = (label: string) => (v: any): Date | null => {
  * stage = 已发布阶段数。子任务 i 可编辑/可发布 ⇔ i ≤ stage。
  * 状态由 stage 推导并持久化（见 deriveStatus）。
  */
-
-export interface StageDef {
-  key: string;
-  label: string;
-  /** 该阶段进入编制中时对应的工作流状态 */
-  status: string;
-}
-
-const TOTAL_LIST: StageDef = { key: 'TOTAL_LIST', label: '编制总采购清单', status: 'LIST_EDITING' };
-const PRE_MEETING: StageDef = { key: 'PRE_MEETING', label: '采前会会议纪要', status: 'PRE_MEETING_EDITING' };
-const NOTICE: StageDef = { key: 'NOTICE', label: '采购公告', status: 'NOTICE_EDITING' };
-const DOCUMENT: StageDef = { key: 'DOCUMENT', label: '采购文件', status: 'DOCUMENT_EDITING' };
-const RESULT_REPORT: StageDef = { key: 'RESULT_REPORT', label: '成交报告', status: 'RESULT_EDITING' };
-const PRICE_COMPARE: StageDef = { key: 'PRICE_COMPARE', label: '采购价格对比表', status: 'PRICE_COMPARE_EDITING' };
-const FRAMEWORK_EXPLAIN: StageDef = { key: 'FRAMEWORK_EXPLAIN', label: '框架协议事前说明', status: 'FRAMEWORK_EDITING' };
 
 /**
  * 任务 3.2：采前会会议纪要生成阈值（预计采购金额，单位：元）。
@@ -126,42 +132,8 @@ export const STATUS_CONTRACT_APPROVING = 'CONTRACT_APPROVING';
 export const STATUS_COMPLETED = 'COMPLETED';
 export const STATUS_NOT_STARTED = 'NOT_STARTED';
 
-/** 任务类型 → 阶段链（不含合同阶段；采前会为条件阶段） */
-function stageChain(type: string, preMeetingRequired: boolean): StageDef[] {
-  if (type === 'FRAMEWORK') return [TOTAL_LIST, FRAMEWORK_EXPLAIN];
-  if (type === 'SINGLE') {
-    const chain = [TOTAL_LIST];
-    if (preMeetingRequired) chain.push(PRE_MEETING);
-    // 任务 3.4：采购文件紧随采购公告；任务 3.5：成交报告紧随采购文件；
-    // 任务 3.6：采购价格对比表紧随成交报告，
-    // 使「采购文件」的入口条件正是「采购公告已完成」，
-    // 「成交报告」的入口条件正是「采购文件已完成」，
-    // 「采购价格对比表」的入口条件正是「成交报告已完成」。
-    chain.push(NOTICE, DOCUMENT, RESULT_REPORT, PRICE_COMPARE);
-    return chain;
-  }
-  throw new BadRequestException('无效的采购类型');
-}
-
-/** 状态 → 中文展示 */
-export const TASK_STATUS_LABELS: Record<string, string> = {
-  NOT_STARTED: '未发起',
-  LIST_EDITING: '总清单编制中',
-  PRE_MEETING_EDITING: '采前会纪要编制中',
-  NOTICE_EDITING: '采购公告编制中',
-  DOCUMENT_EDITING: '采购文件编制中',
-  RESULT_EDITING: '成交报告编制中',
-  PRICE_COMPARE_EDITING: '价格对比表编制中',
-  FRAMEWORK_EDITING: '事前报告编制中',
-  CONTRACT_EDITING: '合同编制中',
-  CONTRACT_APPROVING: '合同审批中',
-  COMPLETED: '已完成',
-};
-
-const TASK_TYPES = ['FRAMEWORK', 'SINGLE'] as const;
-type TaskType = (typeof TASK_TYPES)[number];
-const isTaskType = (v: unknown): v is TaskType =>
-  typeof v === 'string' && (TASK_TYPES as readonly string[]).includes(v);
+/** 状态 → 中文展示（已收敛至单一事实源 procurementFlow，此处透传导出以兼容既有引用） */
+export { TASK_STATUS_LABELS };
 
 interface TaskRow {
   id: string;
@@ -301,23 +273,23 @@ export class ProcurementTaskService {
       // 阶段门槛：模块列表仅返回「已到达该模块阶段」的任务（上一步未完成的任务不提前体现）。
       // 阶段推进语义：编辑模块 m 时 stage=m，发布后 stage=m+1，因此 stage >= 模块序号 ⇔ 前序阶段已完成。
       // 采前会为条件阶段：不在任务阶段链中（preMeetingRequired=false）时该分支直接排除。
+      // 模块 → 采购类型/条件链/最小 stage 由 moduleStageBranches（单一事实源）推导。
+      // 价格对比表（任务 3.6）同时属于「单项采购」与「引用框架协议」链，故按类型分支取 OR。
       const stageKey = ProcurementTaskService.MODULE_DELETE_MODELS[String(query.module)]?.stageKey;
       if (stageKey) {
-        if (String(query.module) === 'FRAMEWORK_EXPLANATION') {
-          // 框架协议事前说明仅属于 FRAMEWORK 链（总清单 → 事前说明）
-          if (!query.type) where.type = 'FRAMEWORK';
-          const idx = stageChain('FRAMEWORK', false).findIndex((s) => s.key === stageKey);
-          if (idx >= 0) where.stage = { gte: idx };
-        } else {
-          // 类型兜底（问题一）：其余模块均只属于单项采购任务，防止框架任务混入后详情接口 400
-          if (!query.type) where.type = 'SINGLE';
-          const noPm = stageChain('SINGLE', false).findIndex((s) => s.key === stageKey);
-          const withPm = stageChain('SINGLE', true).findIndex((s) => s.key === stageKey);
-          const branches: any[] = [];
-          if (noPm >= 0) branches.push({ AND: [{ preMeetingRequired: false }, { stage: { gte: noPm } }] });
-          if (withPm >= 0) branches.push({ AND: [{ preMeetingRequired: true }, { stage: { gte: withPm } }] });
-          if (branches.length) where.AND = [...(where.AND ?? []), { OR: branches }];
-        }
+        const all = moduleStageBranches(String(query.module), stageKey);
+        const branches = query.type ? all.filter((b) => b.type === query.type) : all;
+        if (!query.type) where.type = { in: Array.from(new Set(branches.map((b) => b.type))) };
+        const or = branches.map((b) => ({
+          AND: [
+            { type: b.type },
+            ...(b.preMeetingRequired == null ? [] : [{ preMeetingRequired: b.preMeetingRequired }]),
+            { stage: { gte: b.stageGte } },
+          ],
+        }));
+        // 无匹配分支（如把不存在的模块类型组合传入）→ 返回空集
+        if (or.length) where.AND = [...(where.AND ?? []), { OR: or }];
+        else where.id = { in: [] };
       }
     }
 
@@ -376,7 +348,7 @@ export class ProcurementTaskService {
     data: { type?: string; content?: string; purpose?: string; preMeetingRequired?: boolean; procurementCategory?: string },
     projectId: string,
   ) {
-    if (!isTaskType(data?.type)) throw new BadRequestException('请选择采购类型（引用框架协议/单项采购）');
+    if (!isTaskType(data?.type)) throw new BadRequestException('请选择采购类型（引用框架协议/单项采购/紧急采购）');
     const content = String(data?.content ?? '').trim();
     if (!content) throw new BadRequestException('请填写采购内容');
     const purpose = data?.purpose != null ? String(data.purpose).trim() : '';
@@ -475,10 +447,22 @@ export class ProcurementTaskService {
       if (count === 0) throw new BadRequestException('请先编制总采购清单（至少一条明细）后再发布');
     }
     // 任务 3.1：发布「框架协议事前说明」前必须已保存内容（框架简介为必填主内容）
-    if (current.stage === 1 && current.type === 'FRAMEWORK') {
+    // 注意：引用框架协议链已插入「价格对比表」（stage 1），框架说明相应后移到 stage 2
+    const frameworkExplainIdx =
+      current.type === 'FRAMEWORK'
+        ? stageChain('FRAMEWORK', false).findIndex((s) => s.key === 'FRAMEWORK_EXPLAIN')
+        : -1;
+    if (current.stage === frameworkExplainIdx && frameworkExplainIdx >= 0) {
       const expl = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: current.id } });
       if (!expl || !String(expl.frameworkIntro ?? '').trim()) {
         throw new BadRequestException('请先编辑并保存框架协议事前说明（至少填写框架简介）后再发布');
+      }
+      // 需求：框架协议事前说明未勾选单位则无法发起（后端兜底，与前端 openPublishPreview 校验一致）
+      const refSuppliers = this.parseJsonArray<{ supplier?: string }>(expl.referenceSuppliers).filter((r) =>
+        String(r?.supplier ?? '').trim(),
+      );
+      if (!refSuppliers.length) {
+        throw new BadRequestException('请先在「引用供应商及金额」中勾选至少一家单位后再发布框架协议事前说明');
       }
     }
     // 任务 3.2：发布「采前会会议纪要」前必须已保存内容（会议时间与采购内容为必填）
@@ -529,7 +513,8 @@ export class ProcurementTaskService {
       }
     }
     // 任务 3.6：发布「采购价格对比表」前必须已保存内容（计价方式与采购效益分析说明为必填）
-    const priceIndex = current.type === 'SINGLE' ? priceCompareStageIndex(current) : -1;
+    // 单项采购与引用框架协议均有此阶段，统一按阶段链取下标
+    const priceIndex = priceCompareStageIndex(current);
     if (priceIndex >= 0 && current.stage === priceIndex) {
       const pc = await this.prisma.procurementPriceCompare.findUnique({
         where: { taskId: current.id },
@@ -610,6 +595,19 @@ export class ProcurementTaskService {
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
       });
+      // 框架协议类型：价格对比表明细自动写入事前说明「价格对比表」。
+      // 注意框架链中价格对比表在事前说明之前，此刻说明记录往往尚未创建（!existing）——
+      // 由 importPriceCompare 的 upsert 创建；用户已手动填写（priceCompareRows 非空）时不覆盖。
+      if (current.type === 'FRAMEWORK') {
+        const existing = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: id } });
+        if (!existing || !String(existing.priceCompareRows ?? '').trim()) {
+          try {
+            await this.importPriceCompare(id);
+          } catch {
+            /* 价格对比表无明细时静默跳过 */
+          }
+        }
+      }
     }
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
   }
@@ -625,19 +623,14 @@ export class ProcurementTaskService {
    * 采购品类缺失或不匹配时返回 null。
    */
   private async resolveContractTemplate(type: string, category?: string | null) {
-    const typeCodeByKey: Record<string, string> = {
-      'SINGLE|物资': 'PURCHASE',
-      'SINGLE|租赁': 'LEASE',
-      'FRAMEWORK|物资': 'PURCHASE_EXEC',
-      'FRAMEWORK|租赁': 'LEASE_EXEC',
-    };
-    const typeCode = typeCodeByKey[`${type}|${category ?? ''}`];
-    if (!typeCode) return null;
+    // 合同类型由「采购类型 + 采购品类」统一推导（与 server/src/constants/procurementFlow.ts 的 deriveContractType 一致）
+    const typeCode = deriveContractType(type as TaskType, (category as ContractCategory) ?? null);
     const typeNameByCode: Record<string, string> = {
       PURCHASE: '采购合同',
       LEASE: '租赁合同',
       PURCHASE_EXEC: '采购执行合同',
       LEASE_EXEC: '租赁执行合同',
+      EMERGENCY: '紧急采购合同',
     };
     const typeName = typeNameByCode[typeCode] ?? typeCode;
     const templates = await this.prisma.contractTemplate.findMany({
@@ -651,37 +644,78 @@ export class ProcurementTaskService {
   }
 
   /**
-   * 补充一：采购任务全部阶段发布完毕（单项采购=采购价格对比表 / 引用框架协议=框架协议事前说明）后，
-   * 按「采购类型 + 采购品类」映射对应合同类型与合同模板，自动生成草稿合同并关联到本任务。
-   * 合同草稿预填：合同类型 / 是否框架 / 关联模板 / 合同金额（总清单预计采购合价）/ 技术质量·验收·付款标准（补充二）。
+   * 补充一/任务 6：采购任务全部阶段发布完毕后，按「采购类型 + 采购品类」自动生成草稿合同并关联本任务。
+   * 多单位 → 多合同：
+   *  - 单项采购：按成交报告「拟推荐成交候选人」逐单位生成（候选单位即供应商）；
+   *  - 引用框架协议：按事前说明「引用供应商及金额」逐单位生成；
+   *  - 紧急采购：生成单份合同（无多单位概念）。
+   * 所有合同通过 taskId 一对多关联本任务，下游（签章/收领单/日报/结算/付款）各自独立。
+   * 返回首个合同（主合同），用于兼容既有 task.contractId 调用点。
    */
   private async generateLinkedContract(task: TaskRow, projectId: string, user?: any) {
     const resolved = await this.resolveContractTemplate(task.type, task.procurementCategory);
     if (!resolved) return null; // 采购品类缺失或不匹配，跳过自动生成
 
-    // 合同编号（按类型与项目生成；段缺失不阻断）
-    const { code } = await this.contractService.nextCode({ typeCode: resolved.typeCode, projectId });
-    if (!code) return null;
+    // 确定合同单位（名称 / 金额）：单项采购取成交报告候选人，框架协议取事前说明引用供应商。
+    // 单位解析统一走 resolveContractUnits（纯函数，单测覆盖）：无单位时回退单份合同（紧急采购）。
+    let candidates: Array<Record<string, any>> = [];
+    let referenceSuppliers: Array<Record<string, any>> = [];
+    if (task.type === 'SINGLE') {
+      const report = await this.prisma.procurementResultReport.findUnique({ where: { taskId: task.id } });
+      candidates = this.parseJsonArray<Record<string, any>>(report?.candidates);
+    } else if (task.type === 'FRAMEWORK') {
+      const fe = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: task.id } });
+      referenceSuppliers = this.parseJsonArray<Record<string, any>>(fe?.referenceSuppliers);
+    }
+    const units = resolveContractUnits(task.type, candidates, referenceSuppliers);
 
-    return this.contractService.create(
-      {
-        code,
-        typeCode: resolved.typeCode,
-        isFramework: task.type === 'FRAMEWORK' ? 'Y' : 'N',
-        templateId: resolved.templateId,
-        status: 'DRAFT',
-        autoName: true,
-        materialDescription: task.content,
-        // 补充二：技术质量/验收/付款标准随合同起草一并带入模板数据
-        formData: JSON.stringify({
-          技术质量标准: task.techQuality ?? '',
-          验收方式: task.acceptanceMethod ?? '',
-          付款方式: task.paymentMethod ?? '',
-        }),
-      },
-      projectId,
-      user,
-    );
+    const created: any[] = [];
+    try {
+      for (const u of units) {
+        const supplierId = u.name ? await this.resolveSupplierId(u.name, projectId) : null;
+        const { code } = await this.contractService.nextCode({ typeCode: resolved.typeCode, projectId });
+        if (!code) continue;
+        const contract = await this.contractService.create(
+          {
+            code,
+            typeCode: resolved.typeCode,
+            contractType: resolved.typeCode as any, // 五态枚举，值与 typeCode 一致
+            taskId: task.id,
+            supplierId,
+            isFramework: task.type === 'FRAMEWORK' ? 'Y' : 'N',
+            templateId: resolved.templateId,
+            amount: u.amount,
+            status: 'DRAFT',
+            autoName: true,
+            materialDescription: task.content,
+            // 补充二：技术质量/验收/付款标准随合同起草一并带入模板数据
+            formData: JSON.stringify({
+              技术质量标准: task.techQuality ?? '',
+              验收方式: task.acceptanceMethod ?? '',
+              付款方式: task.paymentMethod ?? '',
+            }),
+          },
+          projectId,
+          user,
+        );
+        created.push(contract);
+      }
+    } catch (err) {
+      // 任务 6：批量生成任一失败则回滚已生成的合同，避免产生残缺多合同
+      if (created.length) {
+        await this.prisma.contract
+          .deleteMany({ where: { id: { in: created.map((c) => c.id) } } })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
+    return created[0] ?? null;
+  }
+
+  /** 按名称解析供应商 ID（供应商库内唯一）；未命中返回 null（合同供应商留空，由用户后续补充） */
+  private async resolveSupplierId(name: string, _projectId: string): Promise<string | null> {
+    const s = await this.prisma.supplier.findFirst({ where: { name } });
+    return s?.id ?? null;
   }
 
   /**
@@ -985,16 +1019,13 @@ export class ProcurementTaskService {
   /** 阶段链视图：done（已发布）/ editing（当前）/ locked（前置未发布）；末尾附合同阶段 */
   private buildStages(r: TaskRow) {
     const chain = stageChain(r.type, r.preMeetingRequired);
-    const stages = chain.map((s, i) => ({
-      key: s.key,
-      label: s.label,
-      state: i < r.stage ? 'done' : i === r.stage ? 'editing' : 'locked',
-    }));
-    const contractState = r.stage < chain.length ? 'locked' : 'editing';
+    // 顺序门禁视图统一由 stageView / contractStageState 推导（单一事实源，可单测）
+    const states = stageView(chain, r.stage);
+    const stages = chain.map((s, i) => ({ key: s.key, label: s.label, state: states[i] }));
     stages.push({
-      key: 'CONTRACT',
+      key: STAGE_KEYS.CONTRACT,
       label: '生成合同',
-      state: r.status === STATUS_COMPLETED ? 'done' : contractState,
+      state: contractStageState(r.stage, chain.length, r.status, STATUS_COMPLETED),
     });
     return stages;
   }
@@ -1034,7 +1065,10 @@ export class ProcurementTaskService {
 
     const text = textOf;
     const num = numOf('表格中的价格/占比');
-    const rows = (v: any, fields: string[]): string | null => {
+    const rows = (v: any, fields: string[]): string | null | undefined => {
+      // 未传（undefined）= 不修改该字段（PATCH 语义）：发布价格对比表自动灌入的 priceCompareRows
+      // 不能被「只保存框架简介」这类局部提交覆盖清空；显式传 []（清空表格）才会写 null。
+      if (v === undefined) return undefined;
       if (v == null) return null;
       if (!Array.isArray(v)) throw new BadRequestException('表格数据无效');
       const normalized = v
@@ -1050,7 +1084,8 @@ export class ProcurementTaskService {
         });
       return normalized.length ? JSON.stringify(normalized) : null;
     };
-    const files = (v: any): string | null => {
+    const files = (v: any): string | null | undefined => {
+      if (v === undefined) return undefined; // 未传不修改
       if (v == null) return null;
       if (!Array.isArray(v)) throw new BadRequestException('附件数据无效');
       const normalized = v
@@ -1075,6 +1110,36 @@ export class ProcurementTaskService {
       where: { taskId },
       create: { ...payload, projectId: task.projectId, taskId },
       update: payload,
+    });
+    return this.serializeExplanation(saved);
+  }
+
+  /**
+   * 任务 3.6：框架协议事前说明「价格对比表」明细从本任务的采购价格对比表导入。
+   * 采购价格对比表已录入明细时，逐行映射为事前说明的「价格对比表」行（幂等覆盖）：
+   * - 单位 / 物资名称（含规格）/ 成交价不含税单价 / 备注。
+   */
+  async importPriceCompare(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.type !== 'FRAMEWORK') {
+      throw new BadRequestException('仅「引用框架协议」类型的采购任务可导入价格对比表');
+    }
+    const pc = await this.prisma.procurementPriceCompare.findUnique({ where: { taskId } });
+    const items = this.parseJsonArray<Record<string, any>>(pc?.items);
+    if (!items.length) {
+      throw new BadRequestException('采购价格对比表暂无明细，无法导入（请先在「采购价格对比表」录入成交价）');
+    }
+    const priceCompareRows = items.map((it) => ({
+      unit: String(it.unit ?? '').trim(),
+      content: [it.materialName, it.spec].filter((s) => s != null && String(s).trim()).join(' / '),
+      execPrice: it.dealPrice != null ? Number(it.dealPrice) : null,
+      note: String(it.remark ?? '').trim(),
+    }));
+    const saved = await this.prisma.frameworkExplanation.upsert({
+      where: { taskId },
+      create: { projectId: task.projectId, taskId, priceCompareRows: JSON.stringify(priceCompareRows) },
+      update: { priceCompareRows: JSON.stringify(priceCompareRows) },
     });
     return this.serializeExplanation(saved);
   }
@@ -1584,6 +1649,43 @@ export class ProcurementTaskService {
   }
 
   /**
+   * 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退）。
+   * 退回：清除成交报告发布时间、回退任务阶段到「成交报告编制中」、清理已自动生成的合同（草稿态），
+   * 使报告可重新编辑并再次发布（重发）。
+   * 若下游合同已签章/审批中，则禁止退回，需先驳回合同，避免产生孤儿合同。
+   */
+  async rejectResultReport(taskId: string) {
+    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    // 下游已生成合同时取其状态（签章/审批中禁止退回，避免产生孤儿合同）
+    const linked = task.contractId
+      ? await this.prisma.contract.findUnique({ where: { id: task.contractId } })
+      : null;
+    // 成交报告阶段下标（由阶段链推导，退回时回退到该下标）
+    const reportIndex = resultReportStageIndex(task);
+    // 状态机守卫（单一事实源）：仅单项采购 + 成交报告已发布 + 下游合同仍为草稿/不存在
+    assertResultReportRejectable({
+      type: task.type,
+      stage: task.stage,
+      reportStageIndex: reportIndex,
+      linkedContractStatus: linked?.status ?? null,
+    });
+    if (task.contractId) {
+      // 清除已自动生成（草稿态）的合同，避免孤儿
+      await this.prisma.contract.deleteMany({ where: { taskId } });
+    }
+    await this.prisma.procurementResultReport.updateMany({
+      where: { taskId },
+      data: { publishedAt: null },
+    });
+    const updated = await this.prisma.procurementTask.update({
+      where: { id: taskId },
+      data: { stage: reportIndex, status: 'RESULT_EDITING', contractId: null, version: { increment: 1 } },
+    });
+    return this.serialize(updated);
+  }
+
+  /**
    * 导入「响应单位情况汇总表」（Excel）。
    * 解析后覆盖式写入响应单位明细，四张表随之自动重建。
    */
@@ -1712,8 +1814,8 @@ export class ProcurementTaskService {
   async priceCompare(taskId: string) {
     const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('采购任务不存在');
-    if (task.type !== 'SINGLE') {
-      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购价格对比表模块');
+    if (task.type !== 'SINGLE' && task.type !== 'FRAMEWORK') {
+      throw new BadRequestException('仅「单项采购 / 引用框架协议」类型的采购任务可使用采购价格对比表模块');
     }
     const reportIndex = resultReportStageIndex(task);
     const stageIndex = priceCompareStageIndex(task);
@@ -1776,11 +1878,11 @@ export class ProcurementTaskService {
   async savePriceCompare(taskId: string, body: any) {
     const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('采购任务不存在');
-    if (task.type !== 'SINGLE') {
-      throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购价格对比表模块');
+    if (task.type !== 'SINGLE' && task.type !== 'FRAMEWORK') {
+      throw new BadRequestException('仅「单项采购 / 引用框架协议」类型的采购任务可使用采购价格对比表模块');
     }
     if (task.stage < priceCompareStageIndex(task)) {
-      throw new BadRequestException('请先发布成交报告（成交报告已完成）后再编制采购价格对比表');
+      throw new BadRequestException('请先发布上一阶段（总采购清单）后再编制采购价格对比表');
     }
 
     const text = textOf;

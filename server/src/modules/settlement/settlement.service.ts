@@ -9,6 +9,7 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { assertSettlementRejectable, SETTLEMENT_STATUS } from '../../constants/workflowGuards';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -88,6 +89,22 @@ export class SettlementService {
     await this.findOne(id);
     await this.prisma.settlement.delete({ where: { id } });
     return true;
+  }
+
+  /**
+   * 任务 7：结算驳回 → 回填（回退到「草稿」状态，可重新编辑提交）。
+   * 无审批流，纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
+   */
+  async reject(id: string) {
+    const before: any = await this.findOne(id);
+    // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
+    assertSettlementRejectable(before.statusCode);
+    await this.dict.validate('settlement_status', SETTLEMENT_STATUS.DRAFT);
+    await this.prisma.settlement.update({
+      where: { id },
+      data: { statusCode: SETTLEMENT_STATUS.DRAFT, version: { increment: 1 } },
+    });
+    return this.findOne(id);
   }
 
   // ---------------- 结算台账 ----------------

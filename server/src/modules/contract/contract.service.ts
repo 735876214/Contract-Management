@@ -12,6 +12,7 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
+import { assertContractRejectable } from '../../constants/workflowGuards';
 import { TemplateService } from '../template/template.service';
 import HTMLtoDOCX from 'html-to-docx';
 import { patchDocx } from '../../common/utils/docx-patch';
@@ -22,6 +23,8 @@ const CONTRACT_FIELDS = [
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
+  // 采购工作流（五态枚举 + 任务一对多）：关联采购任务与推导出的合同类型
+  'contractType', 'taskId',
   // 合同起草（需求重构）：起草流转状态、关联模板、物资名称、模板变量值
   'status', 'templateId', 'materialDescription', 'formData',
 ];
@@ -599,6 +602,31 @@ export class ContractService {
       data: { status, version: { increment: 1 } },
     });
     return { status };
+  }
+
+  /**
+   * 任务 7：合同签章驳回 → 回退到「合同起草」（DRAFT）。无审批流，纯状态回退。
+   * 仅「审批中 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。
+   */
+  async rejectToDraft(contractId: string) {
+    const c = await this.findOne(contractId);
+    // 状态机守卫（单一事实源）：仅「审批中 / 已签章」可驳回回合同起草
+    assertContractRejectable(c.status);
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { status: STATUS_DRAFT, signedFilePath: null, version: { increment: 1 } },
+    });
+    // 关联采购任务（且为本任务主合同）时，回退任务状态到「合同编制中」
+    if (c.taskId) {
+      const task = await this.prisma.procurementTask.findUnique({ where: { id: c.taskId } });
+      if (task && task.contractId === contractId) {
+        await this.prisma.procurementTask.update({
+          where: { id: c.taskId },
+          data: { status: 'CONTRACT_EDITING', version: { increment: 1 } },
+        });
+      }
+    }
+    return this.findOne(contractId);
   }
 
   /** 合同是否存在（用于起草子资源校验） */

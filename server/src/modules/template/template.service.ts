@@ -141,6 +141,7 @@ export class TemplateService {
       PURCHASE_EXEC: ['PURCHASE_EXEC'],
       LEASE: ['LEASE'],
       LEASE_EXEC: ['LEASE_EXEC'],
+      EMERGENCY: ['EMERGENCY'],
     };
     const codes = typeMap[params.contractType] || [];
     return all.filter((i: any) => codes.includes(i.itemCode));

@@ -195,12 +195,21 @@ model Subcontractor {
 
 // ---------------- 合同 ----------------
 
+enum ContractType {
+  PURCHASE
+  LEASE
+  PURCHASE_EXEC
+  LEASE_EXEC
+  EMERGENCY
+}
+
 model Contract {
   id                 String    @id @default(cuid())
   projectId          String
   code               String // 合同编号
   name               String
   typeCode           String? // dict: contract_type
+  contractType       ContractType? // 合同类型五态（由采购类型+采购品类推导）：PURCHASE/LEASE/PURCHASE_EXEC/LEASE_EXEC/EMERGENCY
   subTypeCode        String? // dict: contract_sub_type 合同子类型（编号第4段）
   supplierId         String?
   signDate           DateTime?
@@ -237,8 +246,10 @@ model Contract {
   createdAt          DateTime  @default(now())
   version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime  @updatedAt
+  taskId            String? // 关联采购任务（一对多：一个任务可生成多个合同）
 
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        ProcurementTask?      @relation("TaskContracts", fields: [taskId], references: [id])
   supplier     Supplier?            @relation(fields: [supplierId], references: [id])
   parentContract Contract?          @relation("SupplementChain", fields: [parentContractId], references: [id])
   supplements  Contract[]           @relation("SupplementChain")
@@ -1041,6 +1052,7 @@ model ProcurementTask {
   procurementDocument  ProcurementDocument?
   procurementResultReport ProcurementResultReport?
   procurementPriceCompare ProcurementPriceCompare?
+  contracts              Contract[] @relation("TaskContracts")
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])

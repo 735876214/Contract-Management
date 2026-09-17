@@ -18,6 +18,7 @@ import {
   FileWordOutlined,
   UploadOutlined,
   PlusSquareOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
@@ -162,6 +163,26 @@ export default function ContractQuery() {
     }
   };
 
+  /** 任务 7：合同签章驳回 → 回退到「合同起草」（无审批流，纯状态回退） */
+  const handleReject = (row: any) => {
+    Modal.confirm({
+      title: '驳回合同签章',
+      content: '确认将该合同从「审批中/已签章」驳回回「合同起草」吗？驳回后需重新发布与签章。',
+      okText: '确认驳回',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await contractApi.rejectToDraft(row.id);
+          message.success('已驳回，合同回到「合同起草」');
+          refreshList();
+        } catch (e: any) {
+          message.error(e?.message || '驳回失败');
+        }
+      },
+    });
+  };
+
   /** 筛选项（问题四：标准筛选区） */
   const extraFilters: ModuleListFilterField[] = [
     { key: 'keyword', label: '合同编号 / 名称', control: 'input', placeholder: '请输入关键词' },
@@ -233,6 +254,20 @@ export default function ContractQuery() {
             ),
             onClick: () => openSign(row),
           },
+          // 任务 7：仅「审批中 / 已签章」可驳回回合同起草
+          ...(r.status === 'APPROVING' || r.status === 'SIGNED'
+            ? [
+                {
+                  key: 'reject',
+                  label: (
+                    <span>
+                      <RollbackOutlined /> 驳回回合同起草
+                    </span>
+                  ),
+                  onClick: () => handleReject(r),
+                },
+              ]
+            : []),
           {
             key: 'supplement',
             label: (

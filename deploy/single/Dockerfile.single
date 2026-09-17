@@ -4,7 +4,7 @@
 # 适用场景：
 #   - 部署平台对容器数量有限制（只给一个容器配额），或
 #   - 多容器长时间运行后易被平台按配额逐个回收 / 终止。
-#   单容器把「NestJS 后端 + SQLite」与「nginx 前端静态托管 + /api 反代」
+#   单容器把「NestJS 后端 + PostgreSQL」与「nginx 前端静态托管 + /api 反代」
 #   合并进同一个镜像：对外只暴露一个端口，内部 nginx 把 /api 反代到
 #   同容器的 127.0.0.1:3000，从而减少资源占用与容器数量，
 #   降低长时间运行后被自动终止的概率。
@@ -23,8 +23,8 @@ RUN npm install --legacy-peer-deps --no-audit --no-fund
 # ---------- 后端：编译 ----------
 FROM backend-deps AS backend-build
 COPY server/ ./
-RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema prisma/schema.sqlite.prisma \
- && DATABASE_URL="file:/tmp/gen.db" npm run build
+RUN ./node_modules/.bin/prisma generate \
+ && npm run build
 
 # ---------- 后端：生产依赖（含 prisma CLI，启动时 db push 必需） ----------
 FROM node:20-slim AS backend-proddeps
@@ -39,8 +39,10 @@ COPY server/package.json ./
 RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies.prisma=p.devDependencies.prisma;delete p.devDependencies.prisma;fs.writeFileSync('package.json',JSON.stringify(p,null,2))" \
  && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
  && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装，检查 --omit=dev 是否把它当 dev 依赖跳过了" && exit 1))
-COPY server/prisma/schema.sqlite.prisma ./prisma/
-RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema prisma/schema.sqlite.prisma
+# ⚠️ generate 需要 schema：本阶段只 COPY 过 package.json，必须显式带上 prisma/（此前靠层缓存侥幸通过，
+#    package.json 一变缓存失效就报 "Could not find Prisma Schema"）
+COPY server/prisma ./prisma
+RUN ./node_modules/.bin/prisma generate
 
 # ---------- 前端：构建 ----------
 FROM node:20-slim AS frontend-build

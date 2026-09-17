@@ -162,6 +162,13 @@ export class ContractController {
     return this.contractService.setStatus(id, body?.status);
   }
 
+  /** 任务 7：合同签章驳回 → 回退到「合同起草」（无审批流） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/reject')
+  rejectToDraft(@Param('id') id: string) {
+    return this.contractService.rejectToDraft(id);
+  }
+
   /** 删除草稿（仅本人创建且未提交，服务端二次校验） */
   @RequirePermissions('contract:view')
   @Delete('drafts/:id')

@@ -21,7 +21,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
@@ -326,6 +326,29 @@ export default function ResultReport() {
     }
   };
 
+  /** 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退；若下游合同已签章则禁止） */
+  const handleRejectResultReport = async () => {
+    if (!taskId) return;
+    Modal.confirm({
+      title: '成交报告退回重发',
+      content:
+        '确认退回成交报告吗？退回后报告恢复为「编制中」可重新编辑并再次发布（重发），已自动生成的合同草稿将被清理。',
+      okText: '确认退回',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await procurementTaskApi.rejectResultReport(taskId);
+          message.success('已退回，成交报告恢复编制中，可重新发布');
+          setModalMode(null);
+          closeEdit();
+        } catch (e: any) {
+          message.error(e?.message || '退回失败');
+        }
+      },
+    });
+  };
+
   const reportData = useMemo<ResultReportData>(
     () => ({
       unitCount: form.unitCount,
@@ -614,6 +637,12 @@ export default function ResultReport() {
             {detail && !detail.published && editable && (
               <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
                 发布
+              </Button>
+            )}
+            {/* 任务 7：成交报告「退回 → 重发」（仅已发布且单项采购类型） */}
+            {detail?.published && currentTask?.type === 'SINGLE' && (
+              <Button danger icon={<RollbackOutlined />} onClick={handleRejectResultReport}>
+                退回重发
               </Button>
             )}
           </Space>

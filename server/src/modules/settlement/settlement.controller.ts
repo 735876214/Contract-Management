@@ -116,6 +116,13 @@ export class SettlementController {
     return this.service.update(id, body);
   }
 
+  /** 任务 7：结算驳回 → 回填（无审批流，纯状态回退） */
+  @RequirePermissions('settlement:edit')
+  @Post(':id/reject')
+  reject(@Param('id') id: string) {
+    return this.service.reject(id);
+  }
+
   @RequirePermissions('settlement:edit')
   @Delete(':id')
   remove(@Param('id') id: string) {

@@ -4,7 +4,7 @@ import { dictTypes, dictItems, sysParams } from './seed-data';
 
 /**
  * 启动时若用户表为空，则自动创建一个默认管理员账号，
- * 保证首次部署（空 SQLite 库）也能直接登录。
+ * 保证首次部署（空 PostgreSQL 库）也能直接登录。
  *
  * 设计要点：
  * - 仅在 user 表为空时创建，已有用户则跳过，不会覆盖或重复创建。
