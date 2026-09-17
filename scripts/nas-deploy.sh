@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 #
-# NAS 部署脚本：ghcr.io 镜像已设为 PUBLIC，直接 pull + up。
-# 无需在 NAS 上放源码、无需 GITHUB_TOKEN、无需本地构建。
-# 每次运行都会因 compose 的 pull_policy: always 拉取 GitHub Actions 最新构建推送的镜像，
-# 天然满足“每次从 GitHub 拉最新代码”（Actions 在 push 到 main 时自动重建并推送镜像）。
+# NAS 部署脚本：从 ghcr.io 拉镜像 + up，无需在 NAS 上放源码 / 本地构建。
+#
+# ⚠ 前提：cms-single 目前【不是公开包】，NAS 上首次必须先登录 ghcr.io：
+#     docker login ghcr.io -u 735876214   # 密码填带 read:packages 的 PAT
+#   （或者去 GitHub → Your packages → cms-single → Package settings 把包改为 Public，
+#     之后就永远免登录。）
+#
+# pull 由脚本显式执行，因此 compose 里 pull_policy 已改为 missing：
+# 本地已存在同名 tag（例如本机自己 --build 出来的）时不会被覆盖 / 触发鉴权失败。
+# compose pull 总会拉远端最新 tag，满足“每次拿 GitHub Actions 最新构建产物”。
 #
 # 用法（在放有 docker-compose.yml 的目录里运行）：
 #   bash scripts/nas-deploy.sh

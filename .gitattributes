@@ -1,1 +1,8 @@
-hooks/post-merge -text
+# 构建上下文里的脚本必须以 LF 提交/检出：CRLF 会让容器内的 shebang 变成
+# `#!/usr/bin/env bash\r`，启动时报 bad interpreter，容器直接退出。
+*.sh text eol=lf
+deploy/** text eol=lf
+*.conf text eol=lf
+# .env 有 CRLF 时，Linux 上解析出的变量值会带上 \r（如 JWT_SECRET 多一个回车）
+.env.example text eol=lf
+*.png binary

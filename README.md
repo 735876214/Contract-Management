@@ -100,17 +100,23 @@ server/src/
 
 ## Docker 部署
 
-镜像由 GitHub Actions 在 push 到 `main` 时自动构建并推送到 `ghcr.io/735876214/cms-single`（公开，NAS 上无需源码 / 构建即可拉取）。
+镜像由 GitHub Actions 在 push 到 `main`（或打 `v*` 标签）时自动构建并推送到 `ghcr.io/735876214/cms-single`
+（公开，NAS 上无需源码 / 构建即可拉取）；每次推送同时产出 `latest` 与 `sha-<commit sha>` 两种 tag。
 
 `docker-compose.yml` 是**唯一的部署入口**：前后端合并为**一个**容器（内部 nginx 托管前端并把 `/api` 反代到同容器
 `127.0.0.1:3000`），对外只暴露一个端口，减少资源占用与容器数量，降低长时间运行被自动终止的概率。
 
 ```bash
+cp .env.example .env        # 必填 JWT_SECRET（openssl rand -base64 48），可选改端口 / 数据目录 / 初始管理员
 docker compose up -d        # 直接拉公开镜像启动，每次启动都会拉最新镜像
 ```
 
-对外端口 `${CMS_HTTP_PORT:-9080}`；数据（SQLite + 上传文件）bind mount 到 `/data`，容器重建不丢数据。
+对外端口 `${CMS_HTTP_PORT:-9080}`；数据（SQLite + 上传文件）落在 `${CMS_DATA:-./data}`（NAS 建议改成绝对路径），
+bind mount 到容器 `/data`，容器重建不丢数据。
 容器设置 `restart: unless-stopped`、`healthcheck`、`init: true`，被平台回收后会自动重启并正确回收僵尸进程。
+
+首次启动（空库）会自动创建默认管理员（`DEFAULT_ADMIN_USERNAME/PASSWORD`，默认 `admin`/`admin123`）、默认项目
+以及字典 / 系统参数，装好后请立即修改密码；已有数据则跳过，重复启动安全。
 
 本地验证可自行构建：
 

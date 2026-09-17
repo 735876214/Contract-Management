@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/usr/bin/env bash
+# 必须用 bash：node:20-slim 的 /bin/sh 指向 dash，不支持 `wait -n`，
+# 之前用 #!/bin/sh 会导致脚本启动即因 "Illegal option -n" 报错退出，容器起不来。
 set -e
 
 cd /app/server
@@ -17,8 +19,18 @@ NODE_PID=$!
 /usr/sbin/nginx -g 'daemon off;' &
 NGINX_PID=$!
 
+stop_all() {
+  kill -TERM "$NODE_PID" "$NGINX_PID" 2>/dev/null || true
+}
+
+# 收到停止信号：优雅退出（143 = 128 + SIGTERM），不会被 restart 策略视为异常崩溃
+trap 'stop_all; exit 143' INT TERM
+
 # 任一进程退出则整体退出，交由 restart 策略自愈
-trap 'kill -TERM $NODE_PID $NGINX_PID 2>/dev/null' EXIT INT TERM
-wait -n
-kill -TERM $NODE_PID $NGINX_PID 2>/dev/null
-exit 1
+# 用 `|| STATUS=$?` 而不是裸 wait：set -e 下 wait 返回非 0 会直接终止脚本，
+# 导致下面的 stop_all 收不到尾、子进程被留在半死状态。
+STATUS=0
+wait -n "$NODE_PID" "$NGINX_PID" || STATUS=$?
+
+stop_all
+exit $(( STATUS == 0 ? 1 : STATUS ))

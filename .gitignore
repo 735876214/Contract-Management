@@ -17,6 +17,9 @@ uploads/
 .env.local
 .env.*.local
 
+# docker 部署数据目录（compose 默认 ./data）
+data/
+
 # logs
 *.log
 npm-debug.log*
@@ -34,3 +37,6 @@ pnpm-debug.log*
 
 # 本项目使用 pnpm 锁定依赖，避免 npm 生成的 lock 文件入库
 package-lock.json
+
+# 工作记忆目录（本地用，不入库）
+.codebuddy/

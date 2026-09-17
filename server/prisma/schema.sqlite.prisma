@@ -6,6 +6,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // 容器镜像基础为 node:20-slim（Debian 12 bookworm），默认不带 openssl CLI，
+  // Prisma 自动探测平台失败时会回落生成 debian-openssl-1.1.x 引擎，运行时却是
+  // debian-openssl-3.0.x → 报 "Query Engine for runtime debian-openssl-3.0.x 找不到"。
+  // 显式声明目标平台，构建阶段有无 openssl CLI 都能生成正确的引擎。
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

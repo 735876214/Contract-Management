@@ -1,17 +1,25 @@
 # 在 GitHub 上构建并推送 CMS 镜像到 GitHub Container Registry（ghcr.io）
 # 这样 NAS 部署时无需源码，直接 `docker compose pull` 预构建镜像即可（首次也一样）。
-# 触发：push 到 main，或手动在 Actions 页面点 Run workflow。
+# 触发：push 到 main / 打 v* 标签 / PR（仅验证可构建，不推送）/ 手动 Run workflow。
 #
-# 提速要点（2026-09-13 优化）：
+# 提速与稳定性要点（2026-09-14 修订）：
 #   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
 #     QEMU 软模拟，nest build / vite build 这类 CPU 密集任务会慢数倍乃至十倍，故砍掉。
-#     若将来确有 ARM NAS，把下面 matrix 各项的 platforms 改回 linux/amd64,linux/arm64 即可。
-#   - 单容器镜像在 matrix 内构建（context=.，由 deploy/single/Dockerfile.single 合并前后端）。
-#   - 启用 buildx 的 GitHub Actions 层缓存（type=gha），增量构建大幅提速。
-name: Build and Push CMS Images
+#     若将来确有 ARM NAS：加 docker/setup-qemu-action 并把 platforms 改为
+#     linux/amd64,linux/arm64。
+#   - 单容器镜像：构建 context=.，由 deploy/single/Dockerfile.single 合并前后端。
+#   - 启用 buildx 的 GitHub Actions 层缓存（type=gha，带 scope），增量构建大幅提速。
+#   - 根目录 .dockerignore 排除 node_modules / .git，否则上下文巨大，且本地
+#     node_modules 会覆盖镜像内 Linux 依赖导致运行时崩溃。
+#   - provenance/sbom 关闭：默认的 SLSA 证明会在 manifest 里附加 unknown 平台条目，
+#     群晖等 NAS 上较旧版本的 Docker 拉取时会报 no matching manifest。
+name: Build and Push CMS Image
 
 on:
   push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -19,41 +27,63 @@ permissions:
   contents: read
   packages: write   # 推送到 ghcr.io 所需
 
+# 同一 ref 上连续 push 时只保留最新一次构建，避免并发任务互相覆盖 latest / gha 缓存
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: cms-single
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # 单容器镜像：前后端合并为「一个」容器（构建 context=.，由 deploy/single/Dockerfile.single 合并前后端）
-          - service: single
-            context: .
-            dockerfile: ./deploy/single/Dockerfile.single
-            image: cms-single
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve image owner
+        id: repo
+        env:
+          # GHCR 镜像路径必须全小写；用变量传值避免表达式注入
+          OWNER: ${{ github.repository_owner }}
+        run: echo "owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        # fork PR 的 GITHUB_TOKEN 无 packages: write，登录会失败
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=long,prefix=sha-,enable=true
+            type=semver,pattern={{version}}
+            type=ref,event=pr
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: ./deploy/single/Dockerfile.single
           platforms: linux/amd64
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/735876214/${{ matrix.image }}:latest
-            ghcr.io/735876214/${{ matrix.image }}:sha-${{ github.sha }}
+          # PR 只验证镜像可构建成功，不推送
+          push: ${{ github.event_name != 'pull_request' }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,scope=${{ env.IMAGE_NAME }},mode=max

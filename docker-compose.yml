@@ -1,42 +1,68 @@
 # CMS 部署：前后端合并为「一个」容器（内部 nginx 托管前端并把 /api 反代到同容器 127.0.0.1:3000）
 #
-# 用法：
-#   1. 直接拉预构建公开镜像（推荐，无需源码 / 构建）：
-#      docker compose up -d
-#   2. 本地构建验证：
-#      docker build -f deploy/single/Dockerfile.single -t cms-single:local .
-#      然后把下方 image 改为 cms-single:local、注释掉 pull_policy，再 up -d
+# 前置：cp .env.example .env，并务必修改 JWT_SECRET（生成：openssl rand -base64 48）
+#      不设 JWT_SECRET 时 compose 会直接报错，而不是退回弱默认值。
 #
-# 对外只暴露一个端口（默认 9080），内部 nginx 把 /api 反代到同容器 127.0.0.1:3000。
+# 用法：
+#   1. 直接拉预构建镜像（需先登录 ghcr.io，见下方说明）：
+#        docker compose pull && docker compose up -d
+#      想固定版本就把 image 的 tag 换成 CI 产出的 sha-<commit sha>。
+#   2. 本地构建（镜像不可访问时的兜底，推荐本机/无 PAT 场景）：
+#        docker compose up -d --build
+#      构建出来的就是同一个 ghcr.io/735876214/cms-single:latest tag；
+#      因为 pull_policy 是 missing，本地已有该 tag 时不会再尝试去远端拉。
+#
+# ⚠ ghcr.io/735876214/cms-single 目前【不是公开包】，匿名 pull 会报
+#   `error from registry: denied`。两种解法二选一：
+#   a) 登录 ghcr.io（需要有 read:packages 权限的 PAT）：
+#        docker logout ghcr.io
+#        docker login ghcr.io -u 735876214   # 密码填 PAT（勾选 read:packages）
+#      之后再 docker compose pull
+#   b) 永久解绑：GitHub → 个人头像 → Your packages → cms-single →
+#      Package settings → Danger Zone → Change visibility → Public
+#  若两者都不想做，直接用上面的「本地构建」方式。
+#
+# 首次启动（空库）后端会自动 seed：默认管理员（DEFAULT_ADMIN_USERNAME/PASSWORD）、
+# 默认项目、字典类型/字典项/系统参数；已有数据则跳过，重复启动安全。
+# 数据持久化：SQLite 与上传文件落在容器 /data，映射到 ${CMS_DATA}（默认 ./data）。
+#
 # restart: unless-stopped + healthcheck + init: true 保证容器被平台回收 / 终止后自动重启，
 # 并正确回收僵尸进程，提升长时间运行稳定性。
-#
-# 数据持久化：SQLite 与上传文件落在 bind mount 的 /data，容器重建不丢数据。
 
 services:
   cms:
     image: ghcr.io/735876214/cms-single:latest
-    pull_policy: always          # 每次启动都拉最新镜像（CI 在 push 到 main 时自动重建推送）
+    pull_policy: missing         # 本地已有同名 tag（含本地构建产物）就不拉远端；取最新请显式 docker compose pull
+    # 本地构建：docker compose up -d --build
+    build:
+      context: .                 # 必须在仓库根目录执行（Dockerfile 里 COPY server/ web/ deploy/）
+      dockerfile: deploy/single/Dockerfile.single
     container_name: cms
     init: true                   # 以 tini 作 PID1，正确转发信号、回收僵尸进程
     restart: unless-stopped      # 被终止后自动重启，缓解平台自动回收问题
+    stop_grace_period: 30s       # 给 start.sh 优雅停后端 + nginx 的时间
     ports:
       - "${CMS_HTTP_PORT:-9080}:8080"
     environment:
       NODE_ENV: production
-      PORT: "3000"
-      # SQLite 数据文件落在 bind mount 目录内，容器重建不丢数据
+      PORT: "3000"               # 容器内后端端口，nginx /api 固定反代到这里
+      TZ: Asia/Shanghai          # 合同到期日 / 时间戳按本地时区计算，避免差 8 小时
+      # SQLite 数据文件落在挂载目录内，容器重建不丢数据
       DATABASE_URL: "file:/data/cms.db"
-      JWT_SECRET: "${JWT_SECRET:-LspmRt4t0rJQGpPA40W3T4CfEb8CxompaI9s64z1AeVpENsRMKLR3a2JamDyGfkn}"
+      # JWT 签名密钥：必填且必须换成随机值。不设置直接启动会报错，而不是退回弱默认值。
+      # 生成：openssl rand -base64 48
+      JWT_SECRET: "${JWT_SECRET:?请在 .env 里设置 JWT_SECRET（生成命令：openssl rand -base64 48）}"
       JWT_EXPIRES_IN: "7d"
       UPLOAD_DIR: "/data/uploads"
-    # bind mount 到 NAS 共享文件夹（内联群晖默认路径，可直接跑）
-    # 群晖   ：/volume1/docker/cms/data
-    # 威联通 ：/share/CACHEDEV1_DATA/Container/cms/data
-    # Unraid ：/mnt/user/appdata/cms/data
-    # 若宿主机 .env 设了 CMS_DATA，会覆盖此值。
+      # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
+      DEFAULT_ADMIN_USERNAME: "${DEFAULT_ADMIN_USERNAME:-admin}"
+      DEFAULT_ADMIN_PASSWORD: "${DEFAULT_ADMIN_PASSWORD:-admin123}"
+    # 数据目录：默认 ./data，可在 .env 里改成 NAS 绝对路径
+    #   群晖   ：CMS_DATA=/volume1/docker/cms/data
+    #   威联通 ：CMS_DATA=/share/CACHEDEV1_DATA/Container/cms/data
+    #   Unraid ：CMS_DATA=/mnt/user/appdata/cms/data
     volumes:
-      - /volume1/docker/cms/data:/data
+      - "${CMS_DATA:-./data}:/data"
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
     logging:
       options:

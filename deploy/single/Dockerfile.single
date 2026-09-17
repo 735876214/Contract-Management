@@ -30,8 +30,15 @@ RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema
 FROM node:20-slim AS backend-proddeps
 WORKDIR /app/server
 COPY server/package.json ./
-RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
- && npm install --no-save --omit=dev --legacy-peer-deps --no-audit --no-fund "prisma@^5.10.2"
+# 运行时需要 prisma CLI 执行 db push（见 start.sh），但 prisma 在 package.json 里是 devDependency。
+# ⚠️ 坑（CI 实测踩过）：直接 `npm install --no-save --omit=dev prisma@^5.10.2` 会被 npm 当成
+#   dev 依赖跳过 —— 日志只打印 "up to date in 1s"，node_modules/.bin/prisma 并不生成，
+#   下一步 generate 报 `./node_modules/.bin/prisma: not found`（退出码 127）。
+# 正确做法：安装前把 prisma 临时挪进 dependencies，再一次性 --omit=dev 安装，bin 才会正常生成。
+# 另：不能加 --ignore-scripts，否则 prisma 的 postinstall 不下载 schema-engine，启动 db push 会崩。
+RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies.prisma=p.devDependencies.prisma;delete p.devDependencies.prisma;fs.writeFileSync('package.json',JSON.stringify(p,null,2))" \
+ && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
+ && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装，检查 --omit=dev 是否把它当 dev 依赖跳过了" && exit 1))
 COPY server/prisma/schema.sqlite.prisma ./prisma/
 RUN DATABASE_URL="file:/tmp/gen.db" ./node_modules/.bin/prisma generate --schema prisma/schema.sqlite.prisma
 
@@ -47,12 +54,15 @@ RUN npm run build
 # ---------- 运行镜像 ----------
 FROM node:20-slim AS runtime
 # openssl：Prisma 查询引擎依赖；nginx：单容器内托管前端 + 反代 /api
-RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates nginx \
+# tzdata：让 compose 里的 TZ=Asia/Shanghai 真正生效（合同到期日等按本地时区计算）
+# Acquire::Retries：镜像源偶发 502 / 连接超时（走代理时更常见）会让构建随机失败，重试几次即可通过。
+RUN apt-get update -o Acquire::Retries=5 \
+ && apt-get install -y --no-install-recommends -o Acquire::Retries=5 openssl ca-certificates nginx tzdata \
  && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    TZ=Asia/Shanghai
 
 # 后端运行文件
 COPY --from=backend-proddeps /app/server/node_modules /app/server/node_modules
