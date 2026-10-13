@@ -26,16 +26,16 @@ COPY server/ ./
 RUN ./node_modules/.bin/prisma generate \
  && npm run build
 
-# ---------- 后端：生产依赖（含 prisma CLI，启动时 db push 必需） ----------
+# ---------- 后端：生产依赖（含 prisma CLI，启动时 migrate deploy 必需） ----------
 FROM node:20-slim AS backend-proddeps
 WORKDIR /app/server
 COPY server/package.json ./
-# 运行时需要 prisma CLI 执行 db push（见 start.sh），但 prisma 在 package.json 里是 devDependency。
+# 运行时需要 prisma CLI 执行 migrate deploy（见 start.sh），但 prisma 在 package.json 里是 devDependency。
 # ⚠️ 坑（CI 实测踩过）：直接 `npm install --no-save --omit=dev prisma@^5.10.2` 会被 npm 当成
 #   dev 依赖跳过 —— 日志只打印 "up to date in 1s"，node_modules/.bin/prisma 并不生成，
 #   下一步 generate 报 `./node_modules/.bin/prisma: not found`（退出码 127）。
 # 正确做法：安装前把 prisma 临时挪进 dependencies，再一次性 --omit=dev 安装，bin 才会正常生成。
-# 另：不能加 --ignore-scripts，否则 prisma 的 postinstall 不下载 schema-engine，启动 db push 会崩。
+# 另：不能加 --ignore-scripts，否则 prisma 的 postinstall 不下载 schema-engine，启动 migrate deploy 会崩。
 RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies.prisma=p.devDependencies.prisma;delete p.devDependencies.prisma;fs.writeFileSync('package.json',JSON.stringify(p,null,2))" \
  && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
  && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装，检查 --omit=dev 是否把它当 dev 依赖跳过了" && exit 1))

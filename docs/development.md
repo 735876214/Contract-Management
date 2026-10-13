@@ -1,0 +1,172 @@
+# 开发指南（Development）
+
+> 面向开发者：环境搭建、命令、数据库迁移规则、测试、部署与**回归清单**。
+> AI 助手请先读 [../AGENTS.md](../AGENTS.md)。
+
+## 1. 环境要求
+
+- Node 20（CI/镜像用 `node:20-slim`；本地开发容器用 `node:20`，含 openssl，Prisma 需要）
+- **pnpm**（`packageManager: pnpm@12.3.4`，lockfile v9）。`server/`、`web/` 各自的
+  `pnpm-workspace.yaml` 已通过 `allowBuilds` 放行 prisma / @nestjs/core / esbuild 构建脚本。
+- Docker + Docker Compose（开发与部署）
+- PostgreSQL 16（由 compose 提供，本地默认映射 `15432`）
+
+## 2. 本地启动
+
+### 方式 A · 容器化一键调试（推荐）
+
+```bash
+docker compose -f docker-compose.dev.yml up
+# 前端 http://localhost:5173（Vite HMR）
+# 后端 http://localhost:3000/api
+# PostgreSQL 映射到本机 15432；上传文件落 ./data-dev
+# 首次启动自动装依赖（数分钟）；无需宿主机装 node/pnpm
+```
+
+容器内的 `server` 命令链会自动执行 `prisma generate` → `migrate deploy` → `start:dev`；
+`web` 用 `VITE_PROXY_TARGET=http://server:3000` 代理 API，并开文件轮询（`CHOKIDAR_USEPOLLING`）。
+调试端口 `9229` 已暴露：把 `start:dev` 改成 `start:debug` 后 IDE 可 Attach。
+
+### 方式 B · 宿主机直跑
+
+```bash
+# 只起数据库
+docker compose -f docker-compose.dev.yml up -d postgres     # → 本机 15432
+
+# 后端
+cd server
+cp .env.example .env            # 确认 DATABASE_URL 端口为 15432
+pnpm install
+pnpm prisma:deploy              # 空库一次建全表（折叠基线 20260901000000_init）
+pnpm run seed                   # 可选：字典/角色/演示数据
+pnpm start:dev                  # http://localhost:3000/api
+
+# 前端
+cd ../web
+pnpm install
+pnpm dev                        # http://localhost:5173（/api 反代 localhost:3000）
+```
+
+### 环境变量
+
+`server/.env`（参考 `server/.env.example`）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DATABASE_URL` | 本地 postgres | 连接串；dev 用 15432 |
+| `JWT_SECRET` | `cms-super-secret-key` | 生产必改（`openssl rand -base64 48`） |
+| `JWT_EXPIRES_IN` | `7d` | Token 有效期 |
+| `PORT` | `3000` | 后端端口 |
+| `UPLOAD_DIR` | `./uploads` | 上传目录（静态映射 `/api/files`） |
+| `DEFAULT_ADMIN_USERNAME/PASSWORD` | `admin`/`admin123` | 空库启动自动建管理员 |
+
+根 `.env`（生产 compose，参考 `.env.example`）：`CMS_HTTP_PORT`(9080) · `CMS_DATA`(./data) ·
+`JWT_SECRET`(必填) · `DEFAULT_ADMIN_USERNAME/PASSWORD`。
+前端仅用 `VITE_API_BASE`（部署时由镜像设 `/api`）与 `VITE_PROXY_TARGET`（dev 代理）。
+
+## 3. 命令速查
+
+| 位置 | 命令 | 作用 |
+|---|---|---|
+| server | `pnpm run build` | `nest build` |
+| server | `pnpm start:dev` | 开发热重载 |
+| server | `pnpm start:prod` | `node dist/src/main` |
+| server | `pnpm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
+| server | `pnpm test` | node:test 单测（3 个 spec） |
+| server | `pnpm prisma:generate` | 生成 Prisma Client |
+| server | `pnpm prisma:migrate` | `prisma migrate dev`（生成新迁移） |
+| server | `pnpm prisma:deploy` | `prisma migrate deploy`（应用迁移） |
+| web | `pnpm dev` | Vite 开发服务器 |
+| web | `pnpm run build` | **`tsc --noEmit && vite build`** |
+| web | `pnpm preview` | 预览构建产物 |
+| 根 | `docker compose up -d --build` | 本地构建单容器镜像并启动 |
+| 根 | `docker build -f deploy/single/Dockerfile.single -t cms-single:local .` | 只构建镜像 |
+
+## 4. 数据库与迁移规则
+
+- **唯一数据库：PostgreSQL**。模型全在 `server/prisma/schema.prisma`（单一 schema）。
+- 改了 schema 后：
+
+  ```bash
+  cd server
+  npx prisma migrate dev --name <描述>   # 生成并应用迁移
+  ```
+
+- **禁止 `prisma db push`**：它不会生成迁移文件，会让数据库脱离迁移历史，问题只在别人或生产上暴露。
+- `server/prisma/migrations/20260901000000_init` 是「空库 → 当前 schema」的**折叠基线**：
+  空库首次 `migrate deploy` 一次建全表；之后按时间戳叠加新迁移。
+- ⚠️ **从 2026-09-17 之前的旧库升级**：需先 `migrate resolve --applied 20260901000000_init`
+  标记基线（只写迁移记录，不动数据），再拉新版本。步骤见 [../README.md](../README.md)。
+- 种子数据三个来源：
+  - `server/prisma/seed.ts`（CLI，`pnpm run seed`）：完整演示数据；
+  - `server/src/seed.ts`（后端启动自动、幂等）：`seedAdmin` / `seedDefaultProject` / `seedDictAndParams`；
+  - `server/src/seed-data.ts`（自动生成的字典/参数初始数据，**勿手改**），上两者共用。
+
+## 5. 测试
+
+- 后端（`cd server && pnpm test`，使用 **Node 内置 `node:test`**，非 jest/vitest）：
+
+  | 文件 | 覆盖 |
+  |---|---|
+  | `test/procurementFlow.spec.ts` | 采购工作流单一事实源（类型/合同类型推导/阶段链/门禁/多合同生成/列表分支） |
+  | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告） |
+  | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量） |
+
+- **前端目前无自动化测试**；质量门为 `pnpm run build` 中的 `tsc --noEmit`。
+- 联调/验收脚本（非单测）：
+
+  ```bash
+  node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api）
+  node scripts/verify-async-import.js        # 异步导入（>1000 行）验收；环境变量 BASE/ROWS
+  node scripts/verify-import-rollback.js     # 导入事务回滚验收；环境变量 ROWS/BAD_ROW
+  python e2e-module-list.py                  # 采购六模块标准列表 e2e
+  ```
+
+  `scripts/refactor_import_tx_*.py` 为一次性历史重构脚本（硬编码旧路径），**无运行价值，勿再用**。
+
+## 6. 回归清单（改完必做，做完才算完工）
+
+> 这是本项目的「验收铁律」。逐条执行并确认，不要"改完即报完成"。
+
+- [ ] **① 编译门禁**：`cd web && pnpm run build`（含 `tsc --noEmit`）与 `cd server && pnpm run build` 均通过。
+- [ ] **② 真打接口**：重启后端，**实际请求一次触发改动的接口**确认不报旧错——只看启动日志不算。
+- [ ] **③ schema 变更**：`npx prisma migrate dev --name …` 生成并应用迁移，复查目标列/表已落地。
+- [ ] **④ 前端构建**：涉及前端改动时确认 `vite build` 通过（`pnpm run build` 已含）。
+- [ ] **⑤ 采购工作流改动**：同步改后端 `constants/procurementFlow.ts` 与前端 `constants/procurementWorkflow.ts`，
+      并跑 `cd server && pnpm test` 确认一致性锁通过。
+- [ ] **⑥ 菜单改动**：改后端 `menu.service.ts` 的 `MENU_TREE`（权威来源）；
+      icon 在 `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；递增 `Sider/utils/storage.ts` 缓存键版本。
+- [ ] **⑦ 导入改动**：确认「全成功或全失败」与 >1000 行异步路径仍成立。
+- [ ] **⑧ 项目隔离**：新增业务查询/写入确认带上 `projectId`（或明确属于 dict/finance/supplier 例外）。
+
+## 7. 编码约定
+
+- **统一响应** `{ code, data, message, timestamp }`；异常走 `AllExceptionsFilter`，别在 controller 手写返回体。
+- **权限**：controller 类级 `@UseGuards(JwtAuthGuard, PermissionsGuard)` + 方法级 `@RequirePermissions('x:view')`。
+- **项目隔离**：controller 用 `@ProjectId()` 取，service 显式带入 `where`（见 [architecture.md §5](architecture.md)）。
+- **写字段白名单**：service 用 `pickFields` 过滤未知字段。
+- **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
+- **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
+- **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），
+  详见 [../TODO.md §四](../TODO.md)。
+- 前端样式遵循 [../DESIGN.md](../DESIGN.md)；组件接口见 [component-api.md](component-api.md)。
+
+## 8. 构建与部署
+
+```bash
+# 本地构建单容器镜像（仓库根执行）
+docker build -f deploy/single/Dockerfile.single -t cms-single:local .
+
+# 生产（拉最新镜像）
+cp .env.example .env        # 必填 JWT_SECRET
+docker compose up -d
+
+# NAS 一键部署/更新
+bash scripts/nas-deploy.sh
+```
+
+- 单容器镜像 `ghcr.io/735876214/cms-single` 由 CI 构建：push `main` / tag `v*` 触发，
+  **仅 linux/amd64**，输出 `latest` 与 `sha-<sha>` 两种 tag。
+- 镜像内 `nginx.conf` 托管前端并把 `/api` 反代到同容器后端；`start.sh` 用 bash `wait -n`
+  实现「任一进程退出即整体退出」由重启策略自愈。
+- 详见 [../README.md](../README.md) 与部署文件 [deploy/single/](../deploy/single/)。
