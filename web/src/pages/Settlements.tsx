@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
+  Alert,
   Button,
   Form,
   Input,
@@ -15,7 +16,7 @@ import {
 } from 'antd';
 import { PlusOutlined, ExportOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { settlementApi } from '@/api/modules';
+import { settlementApi, dailyApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
@@ -224,6 +225,12 @@ function SettlementsTab({
                 />
               </Form.Item>
             </Col>
+            {/* 现场确认缺口提示（docs/09 §三）：结算依据应来自「已确认」的现场记录 */}
+            <Col xs={24}>
+              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.contractId !== cur.contractId}>
+                {({ getFieldValue }: any) => <UnconfirmedHint contractId={getFieldValue('contractId')} />}
+              </Form.Item>
+            </Col>
             <Col xs={24} md={8}>
               <Form.Item name="typeCode" label="结算类型" rules={[{ required: true }]}><DictSelect typeCode="settlement_type" /></Form.Item>
             </Col>
@@ -414,5 +421,47 @@ function LedgerTab({
         </Form>
       </Modal>
     </>
+  );
+}
+
+/**
+ * 现场确认缺口提示（docs/09 §三）：选定合同后提示该合同下还有多少条现场记录未确认。
+ * 只有「已确认」的现场记录才计入结算口径（系统参数 `settlement.require_confirmed` 控制），
+ * 故把口径缺口显性化，避免结算时才发现取数偏少。
+ */
+function UnconfirmedHint({ contractId }: { contractId?: string }) {
+  const [info, setInfo] = useState<any>(null);
+
+  useEffect(() => {
+    if (!contractId) {
+      setInfo(null);
+      return;
+    }
+    let alive = true;
+    dailyApi
+      .unconfirmedSummary(contractId)
+      .then((res: any) => alive && setInfo(res))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [contractId]);
+
+  if (!contractId || !info) return null;
+  const pending = Number(info.pending || 0);
+  const rejected = Number(info.rejected || 0);
+  if (!pending && !rejected) return null;
+  return (
+    <Alert
+      type={rejected ? 'warning' : 'info'}
+      showIcon
+      style={{ marginBottom: 12 }}
+      message={`该合同还有 ${pending} 条现场记录待确认${rejected ? `、${rejected} 条已驳回` : ''}`}
+      description={
+        `未确认结算数量合计 ${Number(info.pendingQty || 0)}` +
+        `${rejected ? `，已驳回合计 ${Number(info.rejectedQty || 0)}` : ''}` +
+        '。只有「已确认」的现场记录才计入结算口径（可在系统参数 settlement.require_confirmed 调整）'
+      }
+    />
   );
 }

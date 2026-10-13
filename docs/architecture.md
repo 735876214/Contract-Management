@@ -128,7 +128,10 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 - Token 来源：`Authorization: Bearer`（常规）或 URL `?token=`（`window.open` 下载无法带请求头时）。
 - 权限码示例：`contract:view`、`settlement:edit`、`system:user`、`finance:view`。
   **OR 语义**：`@RequirePermissions('a','b')` 命中任一即通过；`isSuperAdmin` 绕过全部。
-- 前端：`useAuthStore.hasPermission(code)`（superAdmin 直返回 true），主要作用于侧边菜单过滤。
+- 前端：`useAuthStore.hasPermission(code)`。作用于两处——
+  ① 侧边菜单过滤（`Sider`）；② **路由级守卫**（`router.tsx` 的 `perm()` 包装
+  `RequirePermission`，按 `web/src/constants/routePermissions.ts` 判定，无权限渲染 403 页）。
+  路由守卫只是体验层，**安全边界仍在后端**。
 
 ## 5. 项目隔离（关键机制）
 
@@ -140,10 +143,12 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 2. **传递**：controller 显式接收并传给 service。
 3. **过滤**：service 在查询 `where` 与写入数据中带 `projectId`。
    使用密度：contract 38 处、settlement 27、receipt-order 27、procurement-task 23、invoice 20……
-4. **例外**：
-   - `dict` 全局共享，不按项目过滤；
-   - `finance` 按 `contractId` 归属（`contractScope`），不直接按项目；
-   - `supplier` 受系统参数 `supplier.share.scope` 控制：`GLOBAL`（默认）不过滤且 `projectId=null`；`PROJECT` 按项目过滤。
+4. **例外**（代码侧也已在对应 service 顶部显式注释，避免后人"顺手"补过滤）：
+   - `dict` 全局共享，不按项目过滤（`dict.service.ts` 顶部注释）；
+   - `finance` 按 `contractId` 归属（`contractScope`），不直接按项目（`finance.service.ts` 顶部注释）；
+   - `supplier` 受系统参数 `supplier.share.scope` 控制：`GLOBAL`（默认）不过滤且 `projectId=null`；`PROJECT` 按项目过滤；
+   - `Subcontractor` / `ContractTemplate` 的 `projectId = null` 表示全局共享。
+   完整口径表另见 [docs/03-API接口清单.md](03-API接口清单.md) §0。
 5. **前端**：登录后把 `projects[0].id` 写入 `localStorage['cms_project_id']`，
    axios 请求拦截器注入 `x-project-id`；`ProjectSwitch` 切换后 `reload()`。
 
@@ -255,8 +260,16 @@ web/src/
 ```
 
 **现状要点**
-- **无路由懒加载、无路由级权限守卫**（权限仅作用于菜单过滤）。
-- **新旧两套路由并存**，指向同一组件。
+
+- **路由懒加载**：`router.tsx` 全部页面 `React.lazy`，`Suspense` 兜底在 `BasicLayout` 内容区；
+  首屏只加载 `index` + `react` + `antd` 三个 chunk，其余页面按需拉取。
+- **路由级权限守卫**：`perm(path, <Page/>)` 按 `web/src/constants/routePermissions.ts`
+  自动包 `RequirePermission`（无权限渲染 403 页，不重定向；superAdmin 直通）。
+  与后端 `MENU_TREE` 的一致性由 `server/test/routePermissionParity.spec.mts` 锁定；
+  菜单带权限但有意不守卫的路径登记在 `ROUTE_PERMISSION_EXCEPTIONS`（现有 `/dashboard`）。
+  注意：路由守卫只是体验层，**安全边界仍在后端** `@RequirePermissions` + `PermissionsGuard`。
+- **旧扁平路径改为重定向保号**（`<Navigate replace />`），不再重复渲染同一组件；
+  `/contracts`（旧合同编辑页）无新菜单入口，保留为真实路由。
 
 ## 11. 部署拓扑
 

@@ -126,6 +126,28 @@ export function contractStageState(
 }
 
 /**
+ * 合同阶段的「合同状态 → 采购任务状态」映射（单一事实源）。
+ *
+ * 采购任务走完阶段链后进入合同阶段，其细分状态由**关联合同的状态**决定：
+ * - 草稿               → 合同编制中（CONTRACT_EDITING）
+ * - 审批中（APPROVING） → 合同审批中（CONTRACT_APPROVING）
+ * - 已签章（SIGNED）    → 已完成（COMPLETED，此时「生成合同」阶段显示为 done）
+ *
+ * 前端 `web/src/constants/procurementWorkflow.ts` 已按同一组状态码准备展示（标签/颜色），
+ * 两侧漂移由 `frontendChainParity.spec.mts` 锁定。
+ */
+export const CONTRACT_STATUS_TO_TASK_STATUS: Record<string, string> = {
+  DRAFT: 'CONTRACT_EDITING',
+  APPROVING: 'CONTRACT_APPROVING',
+  SIGNED: 'COMPLETED',
+};
+
+/** 由关联合同状态推导合同阶段的任务状态；未知/空值按「合同编制中」处理 */
+export function contractStageTaskStatus(contractStatus?: string | null): string {
+  return CONTRACT_STATUS_TO_TASK_STATUS[String(contractStatus ?? 'DRAFT')] ?? 'CONTRACT_EDITING';
+}
+
+/**
  * 子模块 → 可归属的采购类型（模块列表「阶段门槛 + 类型过滤」的单一事实源）。
  * - 价格对比表（任务 3.6）：单项采购链与引用框架协议链均含此阶段；
  * - 采前会 / 采购公告 / 采购文件 / 成交报告：仅单项采购链；

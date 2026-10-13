@@ -567,7 +567,7 @@ export default function Notice() {
             {/* 一、公告基本信息 */}
             <Card size="small" title="一、公告基本信息">
               <Row gutter={[16, 16]}>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <Field
                     label="采购编号"
                     value={form.procurementNo}
@@ -575,7 +575,7 @@ export default function Notice() {
                     onChange={(v) => patchForm({ procurementNo: v })}
                   />
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购时间</div>
                   {editable ? (
                     <DatePicker
@@ -587,7 +587,7 @@ export default function Notice() {
                     <div style={{ minHeight: 22 }}>{form.procurementTime || '-'}</div>
                   )}
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <Field
                     label="采购内容"
                     value={form.content}
@@ -595,14 +595,14 @@ export default function Notice() {
                     onChange={(v) => patchForm({ content: v })}
                   />
                 </Col>
-                <Col span={24}>
+                <Col xs={24}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 8 }}>
                     联系人 / 联系电话（可动态增加，多个时自动编号 联系人1、联系人2… / 联系电话1、联系电话2…）
                   </div>
                   <Space direction="vertical" size={8} style={{ width: '100%' }}>
                     {form.contacts.map((row, idx) => (
                       <Row gutter={8} key={row.key} align="middle">
-                        <Col span={9}>
+                        <Col xs={24} md={9}>
                           {editable ? (
                             <Input
                               addonBefore={`联系人${idx + 1}`}
@@ -616,7 +616,7 @@ export default function Notice() {
                             </div>
                           )}
                         </Col>
-                        <Col span={12}>
+                        <Col xs={24} md={12}>
                           {editable ? (
                             <Input
                               addonBefore={`联系电话${idx + 1}`}
@@ -630,7 +630,7 @@ export default function Notice() {
                             </div>
                           )}
                         </Col>
-                        <Col span={3}>
+                        <Col xs={24} md={3}>
                           {editable && form.contacts.length > 1 && (
                             <Button
                               type="link"
@@ -664,6 +664,7 @@ export default function Notice() {
                 rowKey={(_r, i) => String(i)}
                 columns={purchaseColumns}
                 dataSource={detail?.purchaseItems ?? []}
+                scroll={{ x: 'max-content' }}
                 pagination={false}
                 locale={{ emptyText: '暂无数据（总采购清单为空或尚未编制）' }}
               />

@@ -5,52 +5,11 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { LEDGER_COLUMNS, ledgerColumnWidthPx } from './ledger-columns';
 
-/** 合同台账列定义（顺序固定，可配置显示/隐藏） */
-export const LEDGER_COLUMNS: { key: string; title: string; width?: number; defaultHidden?: boolean }[] = [
-  { key: 'index', title: '序号', width: 8 },
-  { key: 'contractCode', title: '合同编号', width: 20 },
-  { key: 'financeCode', title: '财务一体化合同编号', width: 22 },
-  { key: 'supplierName', title: '供应单位', width: 28 },
-  { key: 'materialNames', title: '供应材料', width: 24 },
-  { key: 'procurementSource', title: '采购来源', width: 14 },
-  { key: 'isDirectPurchase', title: '是否厂家直采', width: 14 },
-  { key: 'contractName', title: '合同名称', width: 30 },
-  { key: 'bidName', title: '招标名称', width: 24 },
-  { key: 'execStatus', title: '合同执行情况', width: 14 },
-  { key: 'supplierCategory', title: '分供方类别', width: 14 },
-  { key: 'legalPerson', title: '法人', width: 12 },
-  { key: 'authPerson', title: '授权人', width: 12 },
-  { key: 'contactName', title: '联系人', width: 12 },
-  { key: 'contactPhone', title: '联系人电话', width: 14 },
-  { key: 'amount', title: '合同额', width: 16 },
-  { key: 'taxRate', title: '税率', width: 10 },
-  { key: 'currentPayRatio', title: '当前合同付款比例', width: 16 },
-  { key: 'paymentMethod', title: '合同约定付款方式', width: 16 },
-  { key: 'isSupplement', title: '是否补充协议', width: 14 },
-  { key: 'supplementType', title: '补充协议类型', width: 16 },
-  { key: 'bidStartDate', title: '开始招标时间', width: 14 },
-  { key: 'bidWinDate', title: '定标时间', width: 14 },
-  { key: 'signDate', title: '合同签订时间', width: 14 },
-  { key: 'disclosureDate', title: '合同交底时间', width: 14 },
-  { key: 'firstEntryDate', title: '首次进场时间', width: 14 },
-  { key: 'compliance', title: '合规性问题', width: 18 },
-  { key: 'complaint', title: '投诉情况', width: 18 },
-  { key: 'cumSettleAmount', title: '开累结算金额', width: 16 },
-  { key: 'auditedSettleAmount', title: '审定结算额', width: 16 },
-  { key: 'cumSettleBeforeTax', title: '开累税前结算金额', width: 18 },
-  { key: 'cumInputTax', title: '开累进项税额', width: 16 },
-  { key: 'cumInvoiceAmount', title: '开累发票金额', width: 16 },
-  { key: 'cumPaidAmount', title: '开累付款金额', width: 16 },
-  { key: 'payableAmount', title: '应付款金额', width: 16 },
-  { key: 'unpaidAmount', title: '应付未付金额', width: 16 },
-  { key: 'debt100', title: '100%欠款', width: 16 },
-  { key: 'settleRatio', title: '已结算金额占合同比例', width: 18 },
-  { key: 'paidRatio', title: '已付款金额占结算比例', width: 18 },
-  { key: 'settleReduceAmount', title: '总结算审减额', width: 16 },
-  { key: 'yearSettle', title: '每年结算金额', width: 20, defaultHidden: true },
-  { key: 'yearPaid', title: '每年付款金额', width: 20, defaultHidden: true },
-];
+// 列定义与列宽换算已抽到 ./ledger-columns（零依赖，可单测）；此处再导出以兼容既有引用
+export { LEDGER_COLUMNS, ledgerColumnWidthPx };
+
 
 @Injectable()
 export class LedgerService {
@@ -254,7 +213,9 @@ export class LedgerService {
     return LEDGER_COLUMNS.map((c) => ({
       key: c.key,
       title: c.title,
-      width: c.width || 16,
+      // 对外暴露的是**像素**宽（见 LEDGER_COLUMNS 注释）：由 Excel 字符宽统一换算，
+      // 前端直接当 antd 列宽使用，勿再改回原始字符值
+      width: ledgerColumnWidthPx(c.width),
       visible: config[c.key] !== undefined ? config[c.key] : !c.defaultHidden,
     }));
   }

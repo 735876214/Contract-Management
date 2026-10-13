@@ -274,6 +274,9 @@ export class TemplateService {
     };
 
     // 表格占位符：双花括号（先于单花括号变量替换，避免嵌套冲突）
+    // ⚠ 占位符语法规范：**新模板一律使用双花括号 `{{变量名}}`**（与采购模板体系一致）。
+    //    下面的单花括号 `{变量名}` 与英文遗留 key（MATERIAL_CODE_TABLE / CONTRACT_ITEM_TABLE）
+    //    是历史兼容分支，**已废弃**——仅为不破坏既有合同模板而保留，后续版本移除（docs/06 #5）。
     let html = template.content || '';
     // 新规范中文占位符
     html = html.split('{{物料编码清单}}').join(tables.codeTable);

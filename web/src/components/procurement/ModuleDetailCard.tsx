@@ -60,11 +60,12 @@ export default function ModuleDetailCard({
       </Descriptions>
       <Spin spinning={!!docLoading}>
         <div
+          className="doc-preview"
           style={{
             maxHeight: '52vh',
             overflow: 'auto',
             border: '1px solid #eee',
-            padding: 24,
+            // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
             background: '#fff',
           }}
           dangerouslySetInnerHTML={{ __html: docHtml || '<p style="color:#bfbfbf">暂无内容</p>' }}

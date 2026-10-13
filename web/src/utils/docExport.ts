@@ -64,10 +64,19 @@ export function printHtml(html: string, title = '合同正文') {
   setTimeout(() => w.print(), 300);
 }
 
-/** 把仍未替换的 {变量} 高亮出来，便于生成后核对 */
+/**
+ * 把仍未替换的占位符高亮出来，便于生成后核对。
+ * - 优先匹配双花括号 `{{变量名}}`（采购模板规范语法），再兜底单花括号 `{变量名}`（合同模板遗留语法）。
+ * - 高亮**整段（含花括号）**：旧实现只匹配内层 `{x}`，`{{x}}` 是「靠内层间接生效」的脆弱写法。
+ * - 纯空白不视为占位符。
+ */
 export function highlightPlaceholders(html: string) {
-  return String(html || '').replace(/\{([^{}]{1,30})\}/g, (_m, g1: string) => {
-    if (/^[\s]*$/.test(g1)) return `{${g1}}`;
-    return `<span style="background:#fff1b8;border-bottom:1px dashed #d48806;color:#ad6800">{${g1}}</span>`;
-  });
+  const style = 'background:#fff1b8;border-bottom:1px dashed #d48806;color:#ad6800';
+  return String(html || '').replace(
+    /\{\{([^{}]{1,40})\}\}|\{([^{}]{1,40})\}/g,
+    (match: string, doubled?: string, single?: string): string => {
+      const name = doubled ?? single ?? '';
+      return /^\s*$/.test(name) ? match : `<span style="${style}">${match}</span>`;
+    },
+  );
 }

@@ -20,6 +20,7 @@ import {
   stageChain,
   stageView,
   contractStageState,
+  contractStageTaskStatus,
   moduleStageBranches,
   resolveContractUnits,
   TaskType,
@@ -126,9 +127,8 @@ export function priceCompareStageIndex(task: { type: string; preMeetingRequired:
 const toWan = (yuan: number): number =>
   Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
 
-/** 合同阶段之后的任务状态（合同未生成/草稿 → 合同编制中） */
-export const STATUS_CONTRACT_EDITING = 'CONTRACT_EDITING';
-export const STATUS_CONTRACT_APPROVING = 'CONTRACT_APPROVING';
+// 合同阶段的任务状态码（CONTRACT_EDITING / CONTRACT_APPROVING）与其映射关系已收敛到
+// `constants/procurementFlow.ts` 的 contractStageTaskStatus()，本文件不再单独定义，避免两处漂移。
 export const STATUS_COMPLETED = 'COMPLETED';
 export const STATUS_NOT_STARTED = 'NOT_STARTED';
 
@@ -146,7 +146,6 @@ interface TaskRow {
   stage: number;
   preMeetingRequired: boolean;
   totalListId: string | null;
-  contractId: string | null;
   procurementCategory: string | null;
   techQuality: string | null;
   acceptanceMethod: string | null;
@@ -337,7 +336,7 @@ export class ProcurementTaskService {
     if (!r) throw new NotFoundException('采购任务不存在');
     const amountYuan = await this.estimatedAmountYuan(id);
     return {
-      ...this.serialize(r),
+      ...this.serialize(r, (await this.mainContract(id))?.id ?? null),
       estimatedAmountWan: toWan(amountYuan),
       stages: this.buildStages(r),
     };
@@ -527,7 +526,9 @@ export class ProcurementTaskService {
     }
 
     const nextStage = current.stage + 1;
-    const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, current.contractId);
+    // 合同阶段的状态细分依赖关联合同状态；此查询同时充当「是否已生成合同」的幂等判据
+    const linked = nextStage >= chain.length ? await this.mainContract(id) : null;
+    const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, linked?.status);
     const updated = await this.prisma.procurementTask.update({
       where: { id },
       data: {
@@ -539,16 +540,11 @@ export class ProcurementTaskService {
       },
     });
     // 补充一：全部阶段发布完毕（单项采购=采购价格对比表 / 引用框架协议=框架协议事前说明）后，
-    // 自动在「合同起草」生成关联合同（草稿）并回写 task.contractId。
-    if (nextStage >= chain.length && !current.contractId) {
+    // 自动在「合同起草」生成关联合同（草稿）并关联本任务。
+    // 幂等判据：本任务是否已有关联合同——关联只由 Contract.taskId 一条表达，故直接查合同表。
+    if (nextStage >= chain.length && !linked) {
       try {
-        const linked = await this.generateLinkedContract(current, current.projectId, user);
-        if (linked) {
-          await this.prisma.procurementTask.update({
-            where: { id },
-            data: { contractId: linked.id, version: { increment: 1 } },
-          });
-        }
+        await this.generateLinkedContract(current, current.projectId, user);
       } catch (err) {
         // 自动生成失败不阻断任务发布流转（合同可由用户在起草页手动新建）
         console.error('[采购任务] 自动生成关联合同失败：', err);
@@ -650,7 +646,7 @@ export class ProcurementTaskService {
    *  - 引用框架协议：按事前说明「引用供应商及金额」逐单位生成；
    *  - 紧急采购：生成单份合同（无多单位概念）。
    * 所有合同通过 taskId 一对多关联本任务，下游（签章/收领单/日报/结算/付款）各自独立。
-   * 返回首个合同（主合同），用于兼容既有 task.contractId 调用点。
+   * 关联关系只由 Contract.taskId 一条表达（采购任务侧不再有冗余的 contractId 字段）。
    */
   private async generateLinkedContract(task: TaskRow, projectId: string, user?: any) {
     const resolved = await this.resolveContractTemplate(task.type, task.procurementCategory);
@@ -716,6 +712,19 @@ export class ProcurementTaskService {
   private async resolveSupplierId(name: string, _projectId: string): Promise<string | null> {
     const s = await this.prisma.supplier.findFirst({ where: { name } });
     return s?.id ?? null;
+  }
+
+  /**
+   * 任务关联的「主合同」= 生成时间最早的合同（采购任务与合同的关联只由 `Contract.taskId` 表达）。
+   * 同一批生成时 createdAt 可能相同，再按编号排序保证确定性。
+   * 用途：① 幂等判据（是否已生成合同）；② 合同阶段的状态细分（取该合同的状态）；
+   *      ③ 任务详情的 `contractId` 派生值（列表场景不调用，避免每条记录多一次往返）。
+   */
+  private async mainContract(taskId: string) {
+    return this.prisma.contract.findFirst({
+      where: { taskId },
+      orderBy: [{ createdAt: 'asc' }, { code: 'asc' }],
+    });
   }
 
   /**
@@ -916,20 +925,32 @@ export class ProcurementTaskService {
 
   /**
    * 同步合同阶段状态（批次后续「生成合同」调用）：
-   * - 任务全部阶段已发布且关联合同 → 按合同状态映射（DRAFT→合同编制中 / APPROVING→合同审批中 / SIGNED→已完成）
-   * - 尚未到合同阶段或无关联合同 → 不变更
+   * - 任务全部阶段已发布 → 按**主合同**状态映射
+   *   （DRAFT→合同编制中 / APPROVING→合同审批中 / SIGNED→已完成）
+   * - 尚未到合同阶段 → 不变更
+   * - 无关联合同 → 按「合同编制中」（合同可由用户在起草页手动新建）
+   *
+   * 注：`contract.service` 在合同签章/状态互转时会**自动**调用同一套映射，
+   * 本端点用于人工兜底校正（如历史数据、外部写入）。
    */
   async syncContractStatus(id: string) {
     const current = await this.prisma.procurementTask.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购任务不存在');
     const chain = stageChain(current.type, current.preMeetingRequired);
     if (current.stage < chain.length) return this.serialize(current); // 未到合同阶段
-    const nextStatus = this.deriveStatus(current.type, current.preMeetingRequired, current.stage, current.contractId);
-    if (nextStatus === current.status) return this.serialize(current);
+    const linked = await this.mainContract(id);
+    const nextStatus = this.deriveStatus(
+      current.type,
+      current.preMeetingRequired,
+      current.stage,
+      linked?.status,
+    );
+    const contractId = linked?.id ?? null;
+    if (nextStatus === current.status) return this.serialize(current, contractId);
     const updated = await this.prisma.procurementTask.update({
       where: { id }, data: { status: nextStatus, version: { increment: 1 } },
     });
-    return this.serialize(updated);
+    return this.serialize(updated, contractId);
   }
 
   async remove(id: string) {
@@ -1004,15 +1025,20 @@ export class ProcurementTaskService {
     return `${prefix}${String(count + 1).padStart(3, '0')}`;
   }
 
-  /** 由阶段进度推导工作流状态 */
-  private deriveStatus(type: string, preMeetingRequired: boolean, stage: number, contractId: string | null): string {
+  /**
+   * 由阶段进度推导工作流状态。
+   * 阶段链内取该阶段的编辑中状态；**合同阶段**（stage 已达链尾）的细分状态由关联合同状态决定
+   * （草稿→合同编制中 / 审批中→合同审批中 / 已签章→已完成），映射见
+   * `contractStageTaskStatus`（单一事实源）。
+   */
+  private deriveStatus(
+    type: string,
+    preMeetingRequired: boolean,
+    stage: number,
+    contractStatus?: string | null,
+  ): string {
     const chain = stageChain(type, preMeetingRequired);
-    if (stage >= chain.length) {
-      // 合同阶段：按关联合同状态细分
-      if (!contractId) return STATUS_CONTRACT_EDITING;
-      // 关联合同的状态映射在 syncContractStatus 的调用方结合合同查询；此处合同未生成细分默认编制中
-      return STATUS_CONTRACT_EDITING;
-    }
+    if (stage >= chain.length) return contractStageTaskStatus(contractStatus);
     return chain[stage].status;
   }
 
@@ -1657,10 +1683,8 @@ export class ProcurementTaskService {
   async rejectResultReport(taskId: string) {
     const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('采购任务不存在');
-    // 下游已生成合同时取其状态（签章/审批中禁止退回，避免产生孤儿合同）
-    const linked = task.contractId
-      ? await this.prisma.contract.findUnique({ where: { id: task.contractId } })
-      : null;
+    // 下游已生成的合同（关联只由 Contract.taskId 表达）：取主合同用于状态守卫
+    const linked = await this.mainContract(taskId);
     // 成交报告阶段下标（由阶段链推导，退回时回退到该下标）
     const reportIndex = resultReportStageIndex(task);
     // 状态机守卫（单一事实源）：仅单项采购 + 成交报告已发布 + 下游合同仍为草稿/不存在
@@ -1670,7 +1694,7 @@ export class ProcurementTaskService {
       reportStageIndex: reportIndex,
       linkedContractStatus: linked?.status ?? null,
     });
-    if (task.contractId) {
+    if (linked) {
       // 清除已自动生成（草稿态）的合同，避免孤儿
       await this.prisma.contract.deleteMany({ where: { taskId } });
     }
@@ -1680,7 +1704,7 @@ export class ProcurementTaskService {
     });
     const updated = await this.prisma.procurementTask.update({
       where: { id: taskId },
-      data: { stage: reportIndex, status: 'RESULT_EDITING', contractId: null, version: { increment: 1 } },
+      data: { stage: reportIndex, status: 'RESULT_EDITING', version: { increment: 1 } },
     });
     return this.serialize(updated);
   }
@@ -1999,7 +2023,12 @@ export class ProcurementTaskService {
     }
   }
 
-  private serialize(r: TaskRow) {
+  /**
+   * 任务序列化。
+   * `contractId` 为**派生值**（由 Contract.taskId 反查首个合同），仅在任务详情等单条场景传入；
+   * 列表场景不传（null），避免每条记录多一次往返。
+   */
+  private serialize(r: TaskRow, contractId: string | null = null) {
     return {
       id: r.id,
       taskNo: r.taskNo,
@@ -2011,7 +2040,7 @@ export class ProcurementTaskService {
       stage: r.stage,
       preMeetingRequired: r.preMeetingRequired,
       totalListId: r.totalListId,
-      contractId: r.contractId,
+      contractId,
       procurementCategory: r.procurementCategory ?? null,
       techQuality: r.techQuality ?? '',
       acceptanceMethod: r.acceptanceMethod ?? '',

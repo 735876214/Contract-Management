@@ -40,7 +40,10 @@ const v = (key: string, tip?: string, table = false): ProcurementVar => ({ key, 
 /** 富文本内容变量（值本身是 HTML） */
 const h = (key: string, tip?: string): ProcurementVar => ({ key, tip, html: true });
 
-/** 公共变量（项目信息，所有采购模块可用，无前缀） */
+/**
+ * 公共变量（项目信息，所有采购模块可用，无前缀）。
+ * 全部取自项目信息（`Project`），与合同模板变量中的同名项口径一致。
+ */
 export const PROCUREMENT_COMMON_VARS: ProcurementVar[] = [
   v('项目名称'),
   v('项目简称'),
@@ -48,28 +51,40 @@ export const PROCUREMENT_COMMON_VARS: ProcurementVar[] = [
   v('项目所在省市', '来源：项目管理 · 项目信息'),
   v('工程地点', '来源：项目管理 · 项目信息'),
   v('项目地址', '来源：项目管理 · 项目信息'),
+  v('物资产地', '来源：项目管理 · 项目信息（与合同模板同名变量口径一致）'),
 ];
+
+/**
+ * 废弃别名（旧变量名 → 规范变量名）。
+ * 采前会原先使用「技术质量要求 / 验收标准 / 付款条件」，与公告、采购文件的
+ * 「技术质量标准 / 验收方式 / 付款方式」同源却异名（docs/06 #3）。
+ * 现统一以公告/采购文件侧的名称为规范名：面板只展示规范名，别名仅用于替换，
+ * 避免既有采前会模板里的旧占位符静默失效。
+ */
+export const PROCUREMENT_VAR_ALIASES: Record<string, string> = {
+  技术质量要求: '技术质量标准',
+  验收标准: '验收方式',
+  付款条件: '付款方式',
+};
 
 /** 模块专属变量（带模块前缀区分重名） */
 export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementVar[]> = {
-  INITIATE: [
-    v('采购编号'),
-    v('采购内容'),
-    v('采购类型'),
-  ],
+  // 采购发起不产出 Word 文档，故无专属变量（docs/06 #4）：
+  // 原先定义的「采购编号 / 采购内容 / 采购类型」无任何取值实现，可插入却永远不被替换，已移除。
+  INITIATE: [],
   PRE_MEETING: [
     v('采前会-采购清单', '表格变量：替换为采购清单表格（序号/物资名称/规格型号/计量单位/暂定数量）', true),
     v('采前会-采购成本分析表', '表格变量：替换为采购成本分析表（含清单收入/预计采购成本/预计效益额/效益率及合计）', true),
     v('采购内容'),
-    v('预计采购金额', '预计采购金额（万元，保留 2 位小数）'),
+    v('预计采购金额(万元)', '预计采购金额，单位：万元，保留 2 位小数'),
     v('会议时间'),
     v('主持人'),
     v('参会人员'),
     v('编写人'),
     v('审核人'),
-    h('技术质量要求', '富文本内容，按 HTML 原样注入'),
-    h('验收标准', '富文本内容，按 HTML 原样注入'),
-    h('付款条件', '富文本内容，按 HTML 原样注入'),
+    h('技术质量标准', '富文本内容，按 HTML 原样注入（旧名「技术质量要求」仍可替换，见 PROCUREMENT_VAR_ALIASES）'),
+    h('验收方式', '富文本内容，按 HTML 原样注入（旧名「验收标准」仍可替换）'),
+    h('付款方式', '富文本内容，按 HTML 原样注入（旧名「付款条件」仍可替换）'),
   ],
   NOTICE: [
     v('采购公告-采购清单', '表格变量：替换为采购清单表格（序号/物资名称/规格型号/计量单位/暂定数量/备注）', true),
@@ -102,6 +117,7 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     h('报价说明', '报价说明（富文本，按 HTML 原样注入）'),
   ],
   RESULT_REPORT: [
+    v('采购内容'),
     v('成交单位数量'),
     v('采购开启时间'),
     v('开启地点'),
@@ -110,7 +126,7 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     v('参与响应单位数量'),
     v('弃权响应单位数量'),
     v('有效响应文件数量'),
-    v('预计采购金额', '来自总采购清单（Σ 控制价 × 暂定数量）'),
+    v('预计采购金额(元)', '来自总采购清单（Σ 控制价 × 暂定数量），单位：元'),
     v(
       '成交报告-响应单位情况汇总表',
       '表格变量：序号 | 参与响应单位 | 响应保证金是否缴纳 | 响应文件密封是否完整 | 备注',
@@ -192,6 +208,7 @@ export function extractProcurementVariables(html: string): string[] {
  * - 普通变量：替换为文本（HTML 转义）
  * - 表格变量 / HTML 变量（table: true / html: true）：值即为 HTML，直接注入
  * - 未提供值的变量：保留原占位符（便于预览时发现缺失）
+ * - 废弃别名（PROCUREMENT_VAR_ALIASES）：沿用规范名的取值与注入方式，兼容既有模板
  */
 export function replaceProcurementVariables(
   html: string,
@@ -201,9 +218,18 @@ export function replaceProcurementVariables(
   let out = html || '';
   const vars = getProcurementVars(moduleType ?? '');
   const rawSet = new Set(vars.filter((x) => x.table || x.html).map((x) => x.key));
+  // 别名继承规范名的注入方式（HTML / 表格变量不转义）
+  for (const [alias, canonical] of Object.entries(PROCUREMENT_VAR_ALIASES)) {
+    if (rawSet.has(canonical)) rawSet.add(alias);
+  }
+  // 别名继承规范名的取值；显式传入的别名取值优先，不被覆盖
+  const merged: Record<string, string> = { ...(values ?? {}) };
+  for (const [alias, canonical] of Object.entries(PROCUREMENT_VAR_ALIASES)) {
+    if (merged[alias] == null && merged[canonical] != null) merged[alias] = merged[canonical];
+  }
   const esc = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  for (const [key, val] of Object.entries(values ?? {})) {
+  for (const [key, val] of Object.entries(merged)) {
     if (val == null) continue;
     const token = `{{${key}}}`;
     if (!out.includes(token)) continue;

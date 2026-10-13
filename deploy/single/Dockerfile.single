@@ -17,8 +17,12 @@
 # ---------- 后端：全量依赖 ----------
 FROM node:20-slim AS backend-deps
 WORKDIR /app/server
-COPY server/package.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+# 依赖锁定：仓库统一用 npm（package-lock.json + `npm ci`），不再使用 pnpm。
+# 2026-10 统一的原因：此前 package.json 声明 pnpm@12.3.4 且留有 pnpm-lock.yaml，
+# 但镜像与 CI 实际走 npm 且**没有 npm lockfile** → 依赖版本每次重新解析、构建不可复现；
+# 且 pnpm-lock.yaml 已过期（package.json 于 09-17 改过，锁文件停在 09-14）。
+COPY server/package.json server/package-lock.json ./
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 
 # ---------- 后端：编译 ----------
 FROM backend-deps AS backend-build
@@ -29,16 +33,14 @@ RUN ./node_modules/.bin/prisma generate \
 # ---------- 后端：生产依赖（含 prisma CLI，启动时 migrate deploy 必需） ----------
 FROM node:20-slim AS backend-proddeps
 WORKDIR /app/server
-COPY server/package.json ./
-# 运行时需要 prisma CLI 执行 migrate deploy（见 start.sh），但 prisma 在 package.json 里是 devDependency。
-# ⚠️ 坑（CI 实测踩过）：直接 `npm install --no-save --omit=dev prisma@^5.10.2` 会被 npm 当成
-#   dev 依赖跳过 —— 日志只打印 "up to date in 1s"，node_modules/.bin/prisma 并不生成，
-#   下一步 generate 报 `./node_modules/.bin/prisma: not found`（退出码 127）。
-# 正确做法：安装前把 prisma 临时挪进 dependencies，再一次性 --omit=dev 安装，bin 才会正常生成。
-# 另：不能加 --ignore-scripts，否则 prisma 的 postinstall 不下载 schema-engine，启动 migrate deploy 会崩。
-RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.dependencies.prisma=p.devDependencies.prisma;delete p.devDependencies.prisma;fs.writeFileSync('package.json',JSON.stringify(p,null,2))" \
- && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund \
- && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装，检查 --omit=dev 是否把它当 dev 依赖跳过了" && exit 1))
+COPY server/package.json server/package-lock.json ./
+# 运行时需要 prisma CLI 执行 migrate deploy（见 start.sh）→ prisma 已**正式归入 dependencies**。
+# 2026-10 修正：它原先在 devDependencies，本阶段必须先「临时把 prisma 挪进 dependencies」
+#   再 --omit=dev 安装，bin 才会生成（否则报 `./node_modules/.bin/prisma: not found`，退出码 127）。
+#   归入 dependencies 后该 hack 已删除：`npm ci --omit=dev` 直接可用，且锁文件对生产依赖同样生效。
+# ⚠️ 不能加 --ignore-scripts：prisma 的 postinstall 负责下载 schema-engine，缺了启动 migrate deploy 会崩。
+RUN npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund \
+ && (test -x ./node_modules/.bin/prisma || (echo "ERROR: prisma CLI 未安装（npm ci --omit=dev 后应存在）" && exit 1))
 # ⚠️ generate 需要 schema：本阶段只 COPY 过 package.json，必须显式带上 prisma/（此前靠层缓存侥幸通过，
 #    package.json 一变缓存失效就报 "Could not find Prisma Schema"）
 COPY server/prisma ./prisma
@@ -47,8 +49,8 @@ RUN ./node_modules/.bin/prisma generate
 # ---------- 前端：构建 ----------
 FROM node:20-slim AS frontend-build
 WORKDIR /app/web
-COPY web/package.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 COPY web/ ./
 ENV VITE_API_BASE=/api
 RUN npm run build

@@ -8,9 +8,16 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SysParamService } from '../../common/services/sys-param.service';
+import {
+  normalizePolicy,
+  checkOverAmount,
+  chainSettledTotal,
+  chainPaidTotal,
+} from '../../common/utils/amount-guard';
 
 const RECORD_FIELDS = [
-  'projectId', 'contractId', 'applyId', 'payMonth', 'amount', 'methodCode', 'payDate',
+  'projectId', 'contractId', 'payMonth', 'amount', 'methodCode', 'payDate',
   'receiptUrl', 'statusCode', 'remark',
 ];
 
@@ -24,7 +31,38 @@ export class PaymentService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private sysParam: SysParamService,
   ) {}
+
+  /** 不构成实际出资的付款状态：不计入「累计付款」，自身为该状态时也不做超付校验 */
+  private static readonly NON_PAYING_STATUSES = ['FAILED', 'REFUNDED'];
+
+  /**
+   * 防超付校验（docs/09 §四）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。
+   * 策略取系统参数 `payment.over_amount_policy`（BLOCK 拦截 / WARN 仅提示 / OFF 不校验，默认 WARN）。
+   *
+   * ⚠️ 仅在交互式写入（无 tx）时执行：事务内不得调用 `sysParam`（事务外连接，可能挂起）。
+   */
+  private async checkOverPayment(
+    contractId: string | null | undefined,
+    currentAmount: number,
+    statusCode: any,
+    excludeId?: string,
+  ): Promise<{ overAmountWarning?: string }> {
+    if (!contractId) return {};
+    if (PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) return {};
+    const policy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
+    if (policy === 'OFF') return {};
+    const [limit, used] = await Promise.all([
+      chainSettledTotal(this.prisma, contractId, undefined),
+      chainPaidTotal(this.prisma, contractId, excludeId, PaymentService.NON_PAYING_STATUSES),
+    ]);
+    const res = checkOverAmount({ limit, used, current: currentAmount, label: '付款' });
+    if (!res.exceeded) return {};
+    if (policy === 'BLOCK') throw new BadRequestException(res.message);
+    console.warn('[付款/防超付]', res.message);
+    return { overAmountWarning: res.message };
+  }
 
   private contractInclude = {
     contract: { select: { id: true, code: true, name: true, supplier: { select: { id: true, name: true, bankName: true, bankAccount: true } } } },
@@ -48,9 +86,13 @@ export class PaymentService {
     const db: any = tx || this.prisma;
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate('payment_status', data.statusCode);
-    return db.paymentRecord.create({
+    const warn = tx
+      ? {}
+      : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
+    const created: any = await db.paymentRecord.create({
       data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });
+    return { ...created, ...warn };
   }
 
   async updateRecord(id: string, data: any) {
@@ -62,7 +104,14 @@ export class PaymentService {
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     delete payload.version;
-    return this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const warn = await this.checkOverPayment(
+      payload.contractId ?? before?.contractId,
+      payload.amount !== undefined ? payload.amount : num(before?.amount),
+      payload.statusCode !== undefined ? payload.statusCode : before?.statusCode,
+      id,
+    );
+    const updated: any = await this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return { ...updated, ...warn };
   }
 
   async removeRecord(id: string) {

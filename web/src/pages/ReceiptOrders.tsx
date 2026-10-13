@@ -174,6 +174,7 @@ function TabPickerModal({
         style={{ marginBottom: 12 }}
       />
       <Table
+      scroll={{ x: 'max-content' }}
         rowKey={(r: any) => `${tab}-${r.id}`}
         size="small"
         loading={loading || innerLoading}

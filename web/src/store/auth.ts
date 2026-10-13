@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { authApi } from '@/api/auth';
+import { clearMenuCache } from '@/components/Sider/utils/storage';
 
 export interface UserInfo {
   id: string;
@@ -67,8 +68,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('cms_token');
     localStorage.removeItem('cms_project_id');
     // 清除侧边栏菜单缓存，避免同标签页切换账号后读到上一账号的菜单树
-    sessionStorage.removeItem('scm_sider_menu_cache');
-    sessionStorage.removeItem('scm_sider_menu_cache_at');
+    // （必须走 clearMenuCache：缓存键带版本后缀，原先写死无版本的键名导致从未真正清掉）
+    clearMenuCache();
     set({ token: '', user: null, permissions: [], projects: [], currentProjectId: '' });
   },
 

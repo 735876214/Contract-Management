@@ -10,6 +10,13 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { assertSettlementRejectable, SETTLEMENT_STATUS } from '../../constants/workflowGuards';
+import { SysParamService } from '../../common/services/sys-param.service';
+import {
+  normalizePolicy,
+  checkOverAmount,
+  contractChainAmount,
+  chainSettledTotal,
+} from '../../common/utils/amount-guard';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -31,9 +38,42 @@ export class SettlementService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private sysParam: SysParamService,
   ) {}
 
   // ---------------- 结算单 ----------------
+
+  /**
+   * 防超结校验（docs/09 §四）：累计结算（含补充协议链、排除草稿与自身）+ 本次 ≤ 合同链金额。
+   * 策略取系统参数 `settlement.over_amount_policy`（BLOCK 拦截 / WARN 仅提示 / OFF 不校验，默认 WARN）。
+   *
+   * ⚠️ 仅在**交互式写入**（无 tx）且结果状态非草稿时执行：事务内不得调用 `sysParam`
+   *    （它用事务外的 PrismaClient 连接，连接池耗尽会挂起，见 receipt-order.service 同款说明）；
+   *    草稿只是暂存，不构成已发生结算，故不计入上限。
+   */
+  private async checkOverSettlement(
+    contractId: string | null | undefined,
+    currentAmount: number,
+    excludeId?: string,
+  ): Promise<{ overAmountWarning?: string }> {
+    if (!contractId) return {};
+    const policy = normalizePolicy(await this.sysParam.get('settlement.over_amount_policy', 'WARN'));
+    if (policy === 'OFF') return {};
+    const [limit, used] = await Promise.all([
+      contractChainAmount(this.prisma, contractId),
+      chainSettledTotal(this.prisma, contractId, excludeId),
+    ]);
+    const res = checkOverAmount({ limit, used, current: currentAmount, label: '结算' });
+    if (!res.exceeded) return {};
+    if (policy === 'BLOCK') throw new BadRequestException(res.message);
+    console.warn('[结算/防超结]', res.message);
+    return { overAmountWarning: res.message };
+  }
+
+  /** 结果状态是否为草稿（草稿不参与防超结校验） */
+  private isDraft(statusCode: any): boolean {
+    return String(statusCode ?? SETTLEMENT_STATUS.DRAFT) === SETTLEMENT_STATUS.DRAFT;
+  }
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
@@ -62,13 +102,19 @@ export class SettlementService {
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     const actual = data.actualAmount ?? (num(data.amount) || 0) - (num(data.deductAmount) || 0);
-    return db.settlement.create({
+    // 防超结：仅交互式写入（非事务）且非草稿时校验
+    const warn =
+      tx || this.isDraft(data.statusCode)
+        ? {}
+        : await this.checkOverSettlement(data.contractId, num(actual));
+    const created: any = await db.settlement.create({
       data: {
         ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
         amount: num(data.amount), deductAmount: num(data.deductAmount), actualAmount: num(actual),
         settleDate: toDate(data.settleDate),
       },
     });
+    return { ...created, ...warn };
   }
 
   async update(id: string, data: any) {
@@ -82,7 +128,19 @@ export class SettlementService {
     });
     if (data.settleDate) payload.settleDate = toDate(data.settleDate);
     delete payload.version;
-    return this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    // 防超结：按「更新后」的状态与金额校验（草稿不校验）
+    const resultingStatus = payload.statusCode ?? before.statusCode;
+    const resultingActual =
+      payload.actualAmount !== undefined
+        ? num(payload.actualAmount)
+        : payload.amount !== undefined || payload.deductAmount !== undefined
+          ? (num(payload.amount ?? before.amount) || 0) - (num(payload.deductAmount ?? before.deductAmount) || 0)
+          : num(before.actualAmount);
+    const warn = this.isDraft(resultingStatus)
+      ? {}
+      : await this.checkOverSettlement(payload.contractId ?? before.contractId, resultingActual, id);
+    const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return { ...updated, ...warn };
   }
 
   async remove(id: string) {

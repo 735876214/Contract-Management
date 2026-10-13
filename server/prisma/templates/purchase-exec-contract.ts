@@ -240,7 +240,8 @@ export const PURCHASE_EXEC_TEMPLATE = {
     { varKey: '项目名称', varLabel: '项目名称', sourceType: 'CONTRACT' },
     { varKey: '供应商名称', varLabel: '供应商名称', sourceType: 'SUPPLIER' },
     { varKey: '公司地址', varLabel: '公司地址', sourceType: 'SUPPLIER' },
-    { varKey: '银行名称', varLabel: '开户银行', sourceType: 'SUPPLIER' },
+    // 展示名与占位符键保持一致（原 varLabel 为「开户银行」而 varKey 为「银行名称」，易误选，docs/06 #8）
+    { varKey: '银行名称', varLabel: '银行名称', sourceType: 'SUPPLIER' },
     { varKey: '银行账号', varLabel: '银行账号', sourceType: 'SUPPLIER' },
     { varKey: '法人姓名', varLabel: '法人姓名', sourceType: 'SUPPLIER' },
     { varKey: '法人电话', varLabel: '法人电话', sourceType: 'SUPPLIER' },

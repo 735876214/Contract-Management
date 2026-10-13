@@ -463,6 +463,7 @@ function TableInline({ baseList, baseLoading, onPick }: { baseList: any[]; baseL
       size="small"
       loading={baseLoading}
       dataSource={baseList}
+      scroll={{ x: 'max-content' }}
       pagination={{ pageSize: 8 }}
       onRow={(record: any) => ({ onClick: () => onPick(record), style: { cursor: 'pointer' } })}
       columns={[

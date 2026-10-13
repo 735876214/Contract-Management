@@ -83,6 +83,12 @@ export default function Ledger() {
     ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
   }, []);
 
+  /**
+   * 大宽表冻结前两列（序号 / 合同编号）：横向滚动时保持可见（docs/08 阶段 2 的大宽表策略）。
+   * 列宽由后端 `/ledger/contracts` 返回，已是**像素**宽（后端把 Excel 字符宽统一换算过）。
+   */
+  const FROZEN_LEFT_KEYS = ['index', 'contractCode'];
+
   const buildColumns = (cols: any[]) =>
     cols
       .filter((c) => c.visible)
@@ -91,6 +97,7 @@ export default function Ledger() {
         dataIndex: c.key,
         key: c.key,
         width: c.width || 140,
+        ...(FROZEN_LEFT_KEYS.includes(c.key) ? { fixed: 'left' as const } : {}),
         render: (v: any) => renderCell(c.key, v),
       }));
 

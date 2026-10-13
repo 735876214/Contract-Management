@@ -179,6 +179,7 @@ export default function Projects() {
           </Col>
         </Row>
         <Table
+        scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           dataSource={members}

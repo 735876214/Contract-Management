@@ -162,6 +162,7 @@ export default function ContractItemTab({
           rowKey="materialBaseId"
           size="small"
           dataSource={poolIds}
+          scroll={{ x: 'max-content' }}
           pagination={false}
           rowSelection={{ selectedRowKeys, onChange: (keys: any) => setSelectedRowKeys(keys) }}
           columns={[

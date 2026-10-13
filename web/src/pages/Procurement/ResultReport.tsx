@@ -694,7 +694,7 @@ export default function ResultReport() {
             {/* 一、成交报告基本信息 */}
             <Card size="small" title="一、成交报告基本信息">
               <Row gutter={[16, 16]}>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>成交单位数量</div>
                   {editable ? (
                     <InputNumber
@@ -709,7 +709,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.unitCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购开启时间</div>
                   {editable ? (
                     <DatePicker
@@ -721,7 +721,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.openTime || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>开启地点</div>
                   {editable ? (
                     <Input
@@ -733,7 +733,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.openPlace || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>评审小组成员</div>
                   {editable ? (
                     <Input
@@ -745,7 +745,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.reviewMembers || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     审核通过响应单位数量
                   </div>
@@ -762,7 +762,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.approvedCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     参与响应单位数量
                   </div>
@@ -779,7 +779,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.participantCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     弃权响应单位数量
                   </div>
@@ -796,7 +796,7 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.abstainCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     有效响应文件数量
                   </div>

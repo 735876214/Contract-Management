@@ -89,23 +89,23 @@
 
 | 元素 | 规格 | 出处 |
 |---|---|---|
-| 侧边栏展开 / 折叠宽 | `220px` / `80px` | [Sider/index.less](web/src/components/Sider/index.less) |
-| 侧边栏背景 | `#001529`（AntD 深色），`position: sticky; height: 100vh` | 同上 |
+| 侧边栏展开 / 折叠宽 | `220px` / `80px`（窄屏为抽屉，同为 `220px`） | [Sider/index.less](web/src/components/Sider/index.less) |
+| 侧边栏背景 | `#001529`（AntD 深色），`position: sticky; height: 100vh`（抽屉内 `static`） | 同上 |
 | Logo 区高 | `56px`，底部 `1px solid rgba(255,255,255,.08)` | 同上 |
-| 顶栏 Header | `padding: 0 16px`，底边框 `1px solid #f0f0f0` | [BasicLayout.tsx](web/src/layouts/BasicLayout.tsx) |
-| 内容区 Content | `margin: 16` | 同上 |
-| 页面卡片内边距 | `16px`（移动端 `8px`） | `index.css` `.page-card`、`ModuleListPage` |
-| 筛选区每行字段数 | `4`（超出可折叠） | `ModuleListPage` `PER_ROW=4` |
-| 预览/文档区 | `padding: 24`、`border: 1px solid #eee`、`max-height: 52vh`（弹窗内 58vh） | `ModuleDetailCard`、`PreviewPublishModal` |
-| 表格 | `size="middle"`、`scroll={{ x: 'max-content' }}`，分页 `[10,20,50,100]` | `ModuleListPage` |
-| 响应式断点 | `768px` | `index.css` |
+| 顶栏 Header | `padding: 0 16px`（窄屏 `0 8px`），底边框 `1px solid #f0f0f0` | [BasicLayout.tsx](web/src/layouts/BasicLayout.tsx) |
+| 内容区 Content | `margin: 16`（窄屏 `8`） | 同上 |
+| 页面卡片内边距 | `16px`（≤767 `8px`，≤575 `6px`） | `index.css` `.page-card`、`ModuleListPage` |
+| 筛选区每行字段数 | 桌面 `4` / 手机 `2`（超出可折叠）；`Col` 为 `xs=12 sm=12 md=8 lg=6` | `ModuleListPage` |
+| 预览/文档区 | `padding: 24`（窄屏 `12`）、`border: 1px solid #eee`、`max-height: 52vh`（弹窗内 58vh） | `.doc-preview`、`PreviewPublishModal` |
+| 表格 | `size="middle"`（窄屏 `small`）、`scroll={{ x: 'max-content' }}`，分页 `[10,20,50,100]` | `ModuleListPage` |
+| 响应式断点 | AntD 默认：`xs<576 · sm≥576 · md≥768 · lg≥992 · xl≥1200`（见 §10） | `hooks/useResponsive.ts`、`index.css` |
 
 ## 6. 组件样式约定
 
 - **输入控件**：一律用 AntD；下拉选项一律 `DictSelect`（带 `showSearch`、`minWidth:160`）；
   状态/标签一律 `DictTag`（按字典 `color` 上色）；纯文本用 `DictText`。
 - **弹窗**：全站统一**居中**（`centered`）；采购模块预览统一用 `PreviewPublishModal`（宽 1000）。
-- **表单**：栅格布局，筛选区每行 4 列；必填标 `*`。
+- **表单**：栅格布局（`Col` 一律写断点，见 §10）；筛选区每行 4 列（窄屏 2 列）；必填标 `*`。
 - **编辑器聚焦态**：边框 `#d9d9d9` → 聚焦 `#1677ff`；禁用背景 `#f5f5f5`。
 - **未替换占位符高亮**：背景 `#fff1b8`、虚线底 `#d48806`、字色 `#ad6800`
   （[utils/docExport.ts](web/src/utils/docExport.ts) `highlightPlaceholders`）——刻意显眼，提示模板变量漏填。
@@ -130,6 +130,8 @@
 
 **Do**
 - 新页面复用 `.page-card` 或 `ModuleListPage` 骨架；新列表优先用 `useTable` + `ModuleListPage`。
+- **响应式按 §10 四条硬性约定执行**：Col 带断点、Table 声明 `scroll={{x}}`、弹窗宽度可被兜底、
+  断点判断一律走 `useResponsive()`。
 - 颜色优先取 AntD token（`theme.useToken()`）或本文档表中的语义色，保持全站一致。
 - 下拉/标签一律走字典组件，不要硬编码选项与颜色。
 
@@ -139,3 +141,35 @@
   （[web/src/index.css](web/src/index.css)、[Sider/index.less](web/src/components/Sider/index.less)），
   其余样式以内联 `style` 为主，保持现状即可。
 - 不硬编码状态中文/颜色：状态展示取自字典或 `constants/procurementWorkflow.ts`。
+- 不在组件里用 `window.innerWidth` / `matchMedia` 自行判断断点（见 §10）。
+- 不为移动端给大宽表（36 列台账等）做卡片化——明确取舍，见 §10。
+
+## 10. 响应式（断点与降级规则）
+
+> 规范制定依据：[docs/08](docs/08-全局响应式改造方案.md)。**验收目标：≥768 平板完全可用；≥375 手机可读可操作。**
+
+**断点唯一来源**
+
+- JS 侧一律用 [`useResponsive()`](web/src/hooks/useResponsive.ts)（封装 AntD `Grid.useBreakpoint`），导出
+  `{ isMobile(<768), isTablet, isDesktop(≥992), screens }`。
+- **禁止**在组件内使用 `window.innerWidth` / `matchMedia`——多个断点来源会导致布局互相打架，
+  这正是改造前「0 处断点监听、布局不响应」的根因。
+- 纯样式收敛（内边距、弹窗兜底）放在 [web/src/index.css](web/src/index.css) 的媒体查询里，
+  阈值与 AntD 对齐（`max-width: 767.98px` / `575.98px`）。
+
+**四条硬性约定**
+
+1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**；筛选区用
+   `xs={12} sm={12} md={8} lg={6}`（手机 2 列 / 平板 3 列 / 桌面 4 列）。
+2. **表格必须声明 `scroll={{ x }}`**；`≤md` 时关键列（如采购编号）`fixed: 'left'`，
+   操作列 `fixed: 'right'`；窄屏行高用 `size="small"`。
+3. **弹窗宽度必须响应式**：宽度可在大屏取固定值，但必须能被全局 `max-width: calc(100vw - 16px)`
+   兜住（该规则已在 `index.css` 全局生效，新增弹窗无需逐个改写）。
+4. **侧栏 `≤md` 走 Drawer**：由 `AppSider` 内部按 `useResponsive()` 自动切换，选中菜单后自动关闭；
+   调用方只管 `collapsed` 状态。
+
+**明确不做（取舍）**
+
+- **36 列合同台账等大宽表不卡片化**：列数过多，移动化收益低；保留横向滚动 + 冻结关键列。
+- **复杂报表 / 导入导出配置 / 字典权限页不强行移动化**：PC 专属，仅保证不破版。
+- 移动端不做原生 APP/H5 独立版本（如确有刚需页，另立专题）。

@@ -611,7 +611,7 @@ export default function PriceCompare() {
             {/* 一、项目基本情况 */}
             <Card size="small" title="一、项目基本情况">
               <Row gutter={[16, 16]}>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     项目名称及编码
                   </div>
@@ -620,7 +620,7 @@ export default function PriceCompare() {
                     {project.code ? `（${project.code}）` : ''}
                   </div>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>计价方式</div>
                   {editable ? (
                     <Select

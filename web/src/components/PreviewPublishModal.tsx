@@ -171,12 +171,13 @@ export default function PreviewPublishModal({
       )}
       <Spin spinning={building} tip="正在生成预览…">
         <div
+          className="doc-preview"
           style={{
             maxHeight: '58vh',
             minHeight: 120,
             overflow: 'auto',
             border: '1px solid #eee',
-            padding: 24,
+            // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
           }}
           dangerouslySetInnerHTML={{
             __html: highlightPlaceholders(html) || '<p style="color:#999">暂无内容</p>',

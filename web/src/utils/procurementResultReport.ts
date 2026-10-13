@@ -20,7 +20,7 @@
  *
  * 变量占位符：
  * {{项目名称}} {{项目简称}} {{承接单位}} {{项目所在省市}} {{工程地点}} {{项目地址}}（项目基本信息）
- * {{采购内容}} {{预计采购金额}}
+ * {{采购内容}} {{预计采购金额(元)}}
  * {{成交单位数量}} {{采购开启时间}} {{开启地点}} {{评审小组成员}}
  * {{审核通过响应单位数量}} {{参与响应单位数量}} {{弃权响应单位数量}} {{有效响应文件数量}}
  * {{成交报告-响应单位情况汇总表}} {{成交报告-开启报价情况表}}
@@ -96,6 +96,8 @@ export interface ResultReportContext {
   siteLocation?: string;
   /** 项目地址（来源：项目管理 · 项目信息） */
   projectAddress?: string;
+  /** 物资产地（来源：项目管理 · 项目信息，与合同模板同名变量口径一致） */
+  materialOrigin?: string;
   /** 采购内容（默认取采购任务内容 / 采购公告内容） */
   content?: string;
   /** 预计采购金额（元，来自总采购清单） */
@@ -331,8 +333,10 @@ export function buildResultReportVariableValues(
     项目所在省市: ctx.provinceCity ?? '',
     工程地点: ctx.siteLocation ?? '',
     项目地址: ctx.projectAddress ?? '',
+    物资产地: ctx.materialOrigin ?? '',
     采购内容: ctx.content ?? '',
-    预计采购金额: fmtAmount(ctx.estimatedAmount),
+    // 单位（元）写进变量名：与采前会的同名量（万元）区分，避免差 10000 倍（docs/06 #1）
+    '预计采购金额(元)': fmtAmount(ctx.estimatedAmount),
     成交单位数量: fmtCount(data.unitCount),
     采购开启时间: fmtDate(data.openTime),
     开启地点: String(data.openPlace ?? ''),

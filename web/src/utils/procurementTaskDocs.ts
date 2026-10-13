@@ -60,17 +60,31 @@ interface ProjectDocCtx {
   provinceCity?: string;
   siteLocation?: string;
   projectAddress?: string;
+  /** 物资产地（来源：项目管理 · 项目信息） */
+  materialOrigin?: string;
   content?: string;
   [k: string]: unknown;
 }
 
+/** 项目原始记录（GET /projects/:id 返回，字段名与 Prisma Project 模型一致） */
+interface ProjectRow {
+  code?: string;
+  name?: string;
+  nameAbbr?: string;
+  undertaker?: string;
+  provinceCity?: string;
+  siteLocation?: string;
+  projectAddress?: string;
+  materialOrigin?: string;
+}
+
 /** 当前项目信息（非组件环境从 auth store 取当前项目） */
-async function loadProjectCtx(): Promise<ProjectDocCtx> {
+async function loadProjectCtx(): Promise<ProjectRow> {
   const pid = useAuthStore.getState().currentProjectId;
   if (!pid) return {};
   try {
     const res: any = await projectApi.detail(pid);
-    return res ?? {};
+    return (res ?? {}) as ProjectRow;
   } catch {
     return {};
   }
@@ -102,16 +116,20 @@ export async function buildTaskModuleDoc(
 
   const task = d.task ?? {};
   const data = d.data ?? {};
+  // loadProjectCtx 返回的是 /projects/:id 的项目原始记录（字段名取自 Project 模型）：
+  // name / nameAbbr / code / materialOrigin…，需映射为文档上下文字段（projectName / projectAbbr …）。
+  // （此前误按 projectName/projectAbbr/projectCode 读取，导致导出路径下公共变量全为空。）
   const project = await loadProjectCtx();
-  const abbr = project.projectAbbr || project.projectName || '项目';
+  const abbr = project.nameAbbr || project.name || '项目';
   const baseCtx: ProjectDocCtx = {
-    projectName: project.projectName,
-    projectCode: project.projectCode,
-    projectAbbr: project.projectAbbr,
+    projectName: project.name,
+    projectCode: project.code,
+    projectAbbr: project.nameAbbr,
     undertaker: project.undertaker,
     provinceCity: project.provinceCity,
     siteLocation: project.siteLocation,
     projectAddress: project.projectAddress,
+    materialOrigin: project.materialOrigin,
   };
 
   let docHtml = '';
@@ -149,7 +167,9 @@ export async function buildTaskModuleDoc(
       const ctx = {
         ...baseCtx,
         content,
-        procurementNo: notice.procurementNo,
+        // 与公告侧取值口径一致：公告未填采购编号时回退采购任务编号（taskNo），
+        // 否则会出现「公告显示任务编号、采购文件为空」的同一变量两处不一致（docs/06 #2）
+        procurementNo: notice.procurementNo || task.taskNo,
         techQuality: notice.techQuality,
         acceptanceMethod: notice.acceptanceMethod,
         paymentMethod: notice.paymentMethod,

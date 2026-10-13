@@ -175,6 +175,7 @@ export default function ProcurementTemplates() {
       }
     >
       <Table<ProcurementTemplateRow>
+      scroll={{ x: 'max-content' }}
         rowKey="id"
         loading={loading}
         dataSource={rows}

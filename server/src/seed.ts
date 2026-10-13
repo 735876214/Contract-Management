@@ -153,3 +153,95 @@ export async function seedDefaultProject(prisma: PrismaClient): Promise<void> {
     console.error('[seed] 初始化默认项目失败:', e);
   }
 }
+
+/**
+ * 幂等「基础数据增补 + 历史数据修正」（每次启动执行，可安全重复调用）。
+ *
+ * 为什么放在这里而**不是** `prisma/seed-data.ts`：后者是「由本地 dev.db 提取」的自动生成物，
+ * 文件头明确标注**不要手改**（改了下次提取会被覆盖）。新增字典/参数请加在本函数；
+ * 历史数据修正同理（也不要去改已应用的迁移文件——会与 `_prisma_migrations` 的 checksum 冲突）。
+ *
+ * 当前处理项：
+ * 1. 增补字典类型 `site_confirm_status`（现场确认状态，docs/09 §三）及其字典项；
+ * 2. 增补系统参数：`settlement.require_confirmed` / `settlement.over_amount_policy` / `payment.over_amount_policy`；
+ * 3. 修正合同模板变量展示名：`银行名称` 的 varLabel 曾为「开户银行」（与 varKey 不一致，
+ *    模板作者按展示名插入变量会拿到 `{开户银行}` 而永远不被替换，docs/06 #8）。
+ *
+ * ⚠️ 只做 **upsert / 定向 updateMany**：不覆盖已存在的字典项与参数值（业务可能已在页面上改过），
+ *    也不删除任何数据。
+ *
+ * @param prisma 从 Nest DI 取出的 PrismaClient 实例
+ */
+export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
+  try {
+    await seedSiteConfirmationDict(prisma);
+
+    const fixed = await prisma.templateVariable.updateMany({
+      where: { varKey: '银行名称', varLabel: '开户银行' },
+      data: { varLabel: '银行名称' },
+    });
+    if (fixed.count > 0) {
+      console.log('[seed] 已修正合同模板变量展示名（开户银行 → 银行名称）:', fixed.count, '条');
+    }
+  } catch (e) {
+    console.error('[seed] 历史数据修正失败（不影响启动）:', e);
+  }
+}
+
+/**
+ * 现场确认字典与相关系统参数（docs/09 §三）。
+ * - 字典类型 `site_confirm_status`：PENDING 待确认 / CONFIRMED 已确认 / REJECTED 已驳回
+ * - 参数 `settlement.require_confirmed`（默认 true）：结算口径是否只认「已确认」的现场记录
+ * - 参数 `settlement.over_amount_policy` / `payment.over_amount_policy`（默认 WARN）：
+ *   累计结算超过合同链金额 / 累计付款超过累计结算时的策略（BLOCK 拦截 / WARN 仅提示 / OFF 不校验）
+ */
+async function seedSiteConfirmationDict(prisma: PrismaClient): Promise<void> {
+  const typeCode = 'site_confirm_status';
+  await prisma.dictType.upsert({
+    where: { code: typeCode },
+    update: {},
+    create: {
+      code: typeCode,
+      name: '现场确认状态',
+      remark: '日报行（现场记录）的确认状态，决定该行是否计入结算口径',
+      sort: 60,
+      status: 1,
+      isSystem: true,
+      scope: 'GLOBAL',
+    },
+  });
+
+  const items = [
+    { itemCode: 'PENDING', itemName: '待确认', sortOrder: 1, color: 'orange', remark: '日报页手工新增的默认态；未确认时不计入结算口径' },
+    { itemCode: 'CONFIRMED', itemName: '已确认', sortOrder: 2, color: 'green', remark: '计入结算口径；收领单推送生成的行自动为此态' },
+    { itemCode: 'REJECTED', itemName: '已驳回', sortOrder: 3, color: 'red', remark: '不计入结算口径，可重新确认' },
+  ];
+  for (const it of items) {
+    await prisma.dictItem.upsert({
+      where: { typeCode_itemCode: { typeCode, itemCode: it.itemCode } },
+      update: {},
+      create: { typeCode, itemCode: it.itemCode, itemName: it.itemName, sortOrder: it.sortOrder, status: 1, color: it.color, remark: it.remark, extField1: null },
+    });
+  }
+
+  const params = [
+    {
+      key: 'settlement.require_confirmed',
+      value: 'true',
+      remark: '结算口径是否只认「已确认」的现场记录（true/false）；关闭后与改造前一致',
+    },
+    {
+      key: 'settlement.over_amount_policy',
+      value: 'WARN',
+      remark: '累计结算超过合同链金额（含补充协议）时的策略：BLOCK 拦截 / WARN 仅提示 / OFF 不校验',
+    },
+    {
+      key: 'payment.over_amount_policy',
+      value: 'WARN',
+      remark: '累计付款超过累计结算时的策略：BLOCK 拦截 / WARN 仅提示 / OFF 不校验',
+    },
+  ];
+  for (const p of params) {
+    await prisma.sysParam.upsert({ where: { key: p.key }, update: {}, create: p });
+  }
+}

@@ -3,15 +3,19 @@ import assert from 'node:assert/strict';
 import {
   CONTRACT_STATUS,
   SETTLEMENT_STATUS,
+  SITE_CONFIRM_STATUS,
+  SITE_CONFIRM_ACTION,
   assertContractRejectable,
   assertSettlementRejectable,
   assertResultReportRejectable,
+  assertSiteConfirmable,
 } from '../src/constants/workflowGuards';
 import { STAGE_KEYS, stageChain, stageView } from '../src/constants/procurementFlow';
 
 /**
  * 任务 7：三处驳回（无审批流，纯状态回退）状态机单测。
  * 覆盖「合同签章→合同起草 / 结算→回填 / 成交报告→重发」的准入与拒绝分支，挡回归。
+ * 2026-10-15 追加：现场确认（日报行）状态机（docs/09 §三「现场确认驱动结算」）。
  */
 
 /** 成交报告在单项采购（无采前会）阶段链中的下标 */
@@ -121,5 +125,37 @@ describe('驳回状态机（任务 7）', () => {
       assert.equal(byKey(STAGE_KEYS.PRICE_COMPARE), 'locked');
       assert.equal(byKey(STAGE_KEYS.DOCUMENT), 'done');
     });
+  });
+});
+
+describe('现场确认（日报行）状态机', () => {
+  const { PENDING, CONFIRMED, REJECTED } = SITE_CONFIRM_STATUS;
+  const { CONFIRM, REJECT } = SITE_CONFIRM_ACTION;
+
+  it('待确认可确认、可驳回', () => {
+    assert.equal(assertSiteConfirmable(PENDING, CONFIRM), CONFIRMED);
+    assert.equal(assertSiteConfirmable(PENDING, REJECT), REJECTED);
+  });
+
+  it('已驳回可重新确认（但不允许重复驳回）', () => {
+    assert.equal(assertSiteConfirmable(REJECTED, CONFIRM), CONFIRMED);
+    assert.throws(() => assertSiteConfirmable(REJECTED, REJECT), /已是「已驳回」/);
+  });
+
+  it('已确认可撤回驳回（现场量填错），但不允许重复确认', () => {
+    assert.equal(assertSiteConfirmable(CONFIRMED, REJECT), REJECTED);
+    assert.throws(() => assertSiteConfirmable(CONFIRMED, CONFIRM), /已是「已确认」/);
+  });
+
+  it('空值按「待确认」处理（兼容迁移前写入的旧数据）', () => {
+    assert.equal(assertSiteConfirmable(null, CONFIRM), CONFIRMED);
+    assert.equal(assertSiteConfirmable(undefined, CONFIRM), CONFIRMED);
+    assert.equal(assertSiteConfirmable('', REJECT), REJECTED);
+  });
+
+  it('未知的动作 / 未知的当前状态一律拒绝', () => {
+    assert.throws(() => assertSiteConfirmable(PENDING, 'APPROVE'), /动作非法/);
+    assert.throws(() => assertSiteConfirmable(PENDING, ''), /动作非法/);
+    assert.throws(() => assertSiteConfirmable('WHATEVER', CONFIRM), /不允许该操作/);
   });
 });

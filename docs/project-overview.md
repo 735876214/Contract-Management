@@ -94,7 +94,7 @@
 | 前端 | `http://localhost:9080`（生产） / `http://localhost:5173`（开发） |
 | 后端 API | `http://localhost:3000/api`（开发） |
 | 默认管理员 | `admin / admin123`（**首登请立即改密**） |
-| 演示账号 | `manager`、`staff`（密码同上，seed 数据；`pnpm run seed` 后可用） |
+| 演示账号 | `manager`、`staff`（密码同上，seed 数据；`npm run seed` 后可用） |
 
 ## 8. 文档导航
 

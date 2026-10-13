@@ -16,9 +16,55 @@ body,
   border-radius: 8px;
 }
 
-/* 响应式：小屏下抽屉/表格自适应 */
-@media (max-width: 768px) {
+/* ============================================================================
+ * 全局响应式兜底（docs/08 阶段 1）
+ *
+ * 断点采用 Ant Design 默认值：xs <576 · sm ≥576 · md ≥768 · lg ≥992 · xl ≥1200。
+ * **断点的唯一来源是 `web/src/hooks/useResponsive.ts`（JS 侧）**；
+ * 本文件只放「纯样式层」的边距收敛与兜底，不替代组件级响应式改造
+ * （表格冻结列、弹窗宽度、表单单列分别见 docs/08 的阶段 2/3）。
+ * ============================================================================ */
+
+/**
+ * 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、采购文件预览共用）。
+ * 内边距随断点收敛（docs/08 阶段 4：预览区 padding 24 → 窄屏 12），
+ * 故各处的容器只加 `className="doc-preview"`，不再各写 `padding: 24`。
+ */
+.doc-preview {
+  padding: 24px;
+}
+
+/* 手机/平板窄屏（<768px，antd md 断点以下） */
+@media (max-width: 767.98px) {
+  .doc-preview {
+    padding: 12px;
+  }
+
+  /* 内容卡片内边距收紧（与 BasicLayout 的 Content margin: 8 配套） */
   .page-card {
     padding: 8px;
+  }
+
+  /* 弹窗兜底：个别位置即使仍写死大宽度，也不会溢出屏幕。
+     阶段 3 会把这些 Modal 逐个改为响应式宽度，此处只保证「不破版」。 */
+  .ant-modal {
+    max-width: calc(100vw - 16px);
+    margin: 8px auto;
+  }
+
+  /* 表格：横向滚动只发生在表格内部，不撑破内容区 */
+  .ant-table-wrapper {
+    max-width: 100%;
+  }
+}
+
+/* 窄屏手机（<576px，antd sm 断点以下） */
+@media (max-width: 575.98px) {
+  .page-card {
+    padding: 6px;
+  }
+
+  .ant-modal {
+    margin: 4px auto;
   }
 }

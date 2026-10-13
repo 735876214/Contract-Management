@@ -644,6 +644,7 @@ export default function FrameworkExplanation() {
         rowKey="key"
         columns={refSupplierColumns}
         dataSource={form.referenceSuppliers as unknown as any[]}
+        scroll={{ x: 'max-content' }}
         pagination={false}
         locale={{ emptyText: '暂无数据（可点击「自动填充最低价」从询价情况带出，或手动添加行）' }}
       />
@@ -694,6 +695,7 @@ export default function FrameworkExplanation() {
         rowKey="key"
         columns={columns}
         dataSource={form[field] as unknown as any[]}
+        scroll={{ x: 'max-content' }}
         pagination={false}
         locale={{ emptyText: '暂无数据' }}
       />
@@ -855,6 +857,7 @@ export default function FrameworkExplanation() {
                 rowKey="key"
                 columns={priceColumns}
                 dataSource={form.priceCompareRows as unknown as any[]}
+                scroll={{ x: 'max-content' }}
                 pagination={false}
                 locale={{ emptyText: '暂无数据，可点击「从价格对比表导入」带出，或手动添加行' }}
               />

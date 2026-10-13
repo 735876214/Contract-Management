@@ -114,14 +114,23 @@ async function flowSingle() {
 
   // 驳回②：合同签章驳回 → 合同起草
   console.log('  ---- 驳回② 合同签章驳回 → 合同起草 ----');
-  const main = cs.find((c) => c.id === d.contractId) || cs[0];
+  // 主合同 = 任务详情返回的派生 contractId（后端定义：该任务**最早创建**的合同；
+  // 注意 /contracts 列表按 createdAt DESC，cs[0] 是最后创建的那份，不能当主合同用）
+  const fresh = await must('查看任务详情（取派生主合同 ID）', 'GET', `/procurement-tasks/${t.id}`);
+  const main = cs.find((c) => c.id === fresh.contractId);
+  if (!main) throw new Error('派生主合同 ID 未命中合同列表: ' + fresh.contractId);
   const sub = cs.find((c) => c.id !== main.id);
   await must('主合同推送审批（APPROVING）', 'PUT', `/contracts/${main.id}/status`, { status: 'APPROVING' });
   await must('副合同也推送审批（APPROVING）', 'PUT', `/contracts/${sub.id}/status`, { status: 'APPROVING' });
   const rejected = await must('签章驳回 → 回合同起草（DRAFT）', 'POST', `/contracts/${main.id}/reject`);
   ok('主合同状态回 DRAFT', rejected.status === 'DRAFT', rejected.status);
   d = await must('查看任务详情', 'GET', `/procurement-tasks/${t.id}`);
-  ok('任务状态同步回「合同编制中」', d.status === 'CONTRACT_EDITING', d.status);
+  ok('任务状态同步回「合同编制中」（仅主合同驱动任务状态）', d.status === 'CONTRACT_EDITING', d.status);
+
+  // 反向断言：副合同的状态变更**不应**改写任务状态（多合同时以主合同为准）
+  await must('副合同推送审批（APPROVING）', 'PUT', `/contracts/${sub.id}/status`, { status: 'APPROVING' });
+  const afterSub = await must('查看任务详情（副合同审批中）', 'GET', `/procurement-tasks/${t.id}`);
+  ok('副合同状态变更不改写任务状态', afterSub.status === 'CONTRACT_EDITING', afterSub.status);
   ok('副合同不受影响（多合同下游各自独立，仍为审批中）', (await contractsOfTask(t.id)).find((c) => c.id === sub.id)?.status === 'APPROVING');
   await mustFail('门禁：草稿合同不可重复驳回', 'POST', `/contracts/${main.id}/reject`);
   return { taskId: t.id, contracts: cs };

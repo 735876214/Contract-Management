@@ -28,6 +28,7 @@ import {
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { taskTypeLabel } from '@/constants/procurementWorkflow';
+import { useResponsive } from '@/hooks/useResponsive';
 
 /**
  * 采购六模块通用「标准列表页」（筛选区 + 工具栏 + 数据表格 + 分页）：
@@ -137,7 +138,8 @@ export interface ModuleListPageProps {
   emptyText?: string;
 }
 
-const PER_ROW = 4; // 每行筛选字段数
+const PER_ROW_DESKTOP = 4; // 桌面每行筛选字段数
+const PER_ROW_MOBILE = 2; // 窄屏（<768）每行筛选字段数（docs/08 阶段 2：筛选区按断点自适应）
 
 export default function ModuleListPage({
   moduleKey,
@@ -159,6 +161,9 @@ export default function ModuleListPage({
   emptyText,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
+  /** 断点唯一来源（docs/08 阶段 1/2）：窄屏筛选区两列、表格紧凑、冻结关键列 */
+  const { isMobile } = useResponsive();
+  const perRow = isMobile ? PER_ROW_MOBILE : PER_ROW_DESKTOP;
   const [form] = Form.useForm();
   const [rows, setRows] = useState<ModuleListRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -174,10 +179,10 @@ export default function ModuleListPage({
     [extraFilters, isModuleMode],
   );
   const visibleFilters = useMemo(
-    () => (expanded ? filters : filters.slice(0, PER_ROW)),
-    [filters, expanded],
+    () => (expanded ? filters : filters.slice(0, perRow)),
+    [filters, expanded, perRow],
   );
-  const collapsible = filters.length > PER_ROW;
+  const collapsible = filters.length > perRow;
 
   const buildParams = useCallback(
     (values: Record<string, any>) => {
@@ -256,6 +261,8 @@ export default function ModuleListPage({
             title: '采购编号',
             dataIndex: 'taskNo',
             width: 170,
+            // 窄屏横向滚动时冻结关键列（docs/08 阶段 2：≤md 冻结关键列）
+            ...(isMobile ? { fixed: 'left' as const } : {}),
             render: (v: string, row) => (
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>
                 {v}
@@ -395,7 +402,7 @@ export default function ModuleListPage({
       <Form form={form} layout="vertical" style={{ marginBottom: 4 }}>
         <Row key={expanded ? 'expanded' : 'collapsed'} gutter={[16, 0]} align="middle">
           {visibleFilters.map((f) => (
-            <Col key={f.key} span={6} style={{ marginBottom: 12 }}>
+            <Col key={f.key} xs={12} sm={12} md={8} lg={6} style={{ marginBottom: 12 }}>
               <Form.Item name={f.key} label={f.label} style={{ marginBottom: 0 }}>
                 {renderControl(f)}
               </Form.Item>
@@ -444,7 +451,7 @@ export default function ModuleListPage({
 
       {/* 3. 数据表格 + 分页 */}
       <Table<ModuleListRow>
-        size="middle"
+        size={isMobile ? 'small' : 'middle'}
         rowKey="id"
         columns={columns}
         dataSource={rows}

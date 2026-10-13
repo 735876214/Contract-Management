@@ -174,6 +174,8 @@ model Subcontractor {
   subcontractorName     String // 分包商名称
   subcontractContent    String? // 分包合同内容（关联的分包合同说明）
   subcontractId         String? // 关联的分包合同 ID（用于与分包合同互锁）
+  // 分包合同被删除时保留分包商档案本身，故 SetNull
+  subcontract           Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
   legalPerson           String? // 法人姓名
   authorizedPerson      String? // 材料授权人姓名
   authorizedPersonIdNo  String? // 材料授权人身份证号
@@ -189,8 +191,11 @@ model Subcontractor {
   version               Int      @default(0)
   updatedAt             DateTime @updatedAt
 
+  receiptOrders         ReceiptOrder[]
+
   @@index([projectId])
   @@index([subcontractorName])
+  @@index([subcontractId])
 }
 
 // ---------------- 合同 ----------------
@@ -251,6 +256,13 @@ model Contract {
   project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task        ProcurementTask?      @relation("TaskContracts", fields: [taskId], references: [id])
   supplier     Supplier?            @relation(fields: [supplierId], references: [id])
+  template     ContractTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  // 四个条款引用：模板/条款被删除不应连带删除合同，故 SetNull
+  technicalClause     Clause?       @relation("ContractTechnicalClause", fields: [technicalClauseId], references: [id], onDelete: SetNull)
+  qualityClause       Clause?       @relation("ContractQualityClause", fields: [qualityClauseId], references: [id], onDelete: SetNull)
+  paymentClause       Clause?       @relation("ContractPaymentClause", fields: [paymentClauseId], references: [id], onDelete: SetNull)
+  acceptanceClause    Clause?       @relation("ContractAcceptanceClause", fields: [acceptanceClauseId], references: [id], onDelete: SetNull)
+  subcontractors Subcontractor[]    @relation("SubcontractContract")
   parentContract Contract?          @relation("SupplementChain", fields: [parentContractId], references: [id])
   supplements  Contract[]           @relation("SupplementChain")
   ext          ContractExt?
@@ -337,6 +349,11 @@ model ContractTemplate {
   updatedAt   DateTime @updatedAt
 
   variables TemplateVariable[]
+
+  // 版本链自关联：parentId 指向上一版本；删除历史版本不应连带删除新版本，故 SetNull
+  parent   ContractTemplate?  @relation("TemplateVersions", fields: [parentId], references: [id], onDelete: SetNull)
+  children ContractTemplate[] @relation("TemplateVersions")
+  contracts Contract[]
 }
 
 model TemplateVariable {
@@ -362,6 +379,12 @@ model Clause {
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // 合同侧反引用（需求 2.3：起草合同时按四种类型各选一个条款）
+  contractTechnicalClauses  Contract[] @relation("ContractTechnicalClause")
+  contractQualityClauses    Contract[] @relation("ContractQualityClause")
+  contractPaymentClauses    Contract[] @relation("ContractPaymentClause")
+  contractAcceptanceClauses Contract[] @relation("ContractAcceptanceClause")
 }
 
 // ---------------- 日报 ----------------
@@ -405,7 +428,8 @@ model DailyReport {
   usePosition      String?
   isProxy          String?   // 是否代购
   plateNo          String?
-  receiptNo        String?
+  receiptNo        String?   // 收领单编号（快照，展示/导入导出用；关联改由 receiptOrderId 承担）
+  receiptOrderId   String?   // 来源收领单（收领单推送总日报时写入），替代原先靠 receiptNo 文本匹配
   remark           String?
   subcontractPeriod String?
   incomePrice      Decimal?  @db.Decimal(18, 4)
@@ -416,15 +440,27 @@ model DailyReport {
   version    Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt        DateTime  @updatedAt
 
+  // ---- 现场确认（结算依据闸门；docs/09 §三）----
+  // 日报行是结算量的唯一来源（收领单推送也会生成日报行），故确认只需落在这一层，
+  // 不另建 SiteRecord 本体。状态机守卫见 constants/workflowGuards.ts 的 assertSiteConfirmable()。
+  confirmStatusCode String?   // dict: site_confirm_status（PENDING 待确认 / CONFIRMED 已确认 / REJECTED 已驳回）
+  confirmedBy       String?   // 确认人（姓名快照，弱关联 User）
+  confirmedAt       DateTime? // 确认时间
+  confirmRemark     String?   // 确认/驳回意见
+
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id])
   supplier Supplier? @relation(fields: [supplierId], references: [id])
   materialBase MaterialBase? @relation(fields: [materialBaseId], references: [id])
+  // onDelete: SetNull（非 Cascade）：日报是结算数量的来源，收领单删除不应连带改动结算口径
+  receiptOrder ReceiptOrder? @relation(fields: [receiptOrderId], references: [id], onDelete: SetNull)
 
   @@index([projectId, contractId])
   @@index([contractId])
   @@index([supplierId])
   @@index([materialBaseId])
+  @@index([receiptOrderId])
+  @@index([projectId, confirmStatusCode])
   @@index([entryDate])
   @@index([projectId, createdAt])
 }
@@ -452,6 +488,8 @@ model MaterialBase {
   contractPools     ContractMaterialPool[]
   draftMaterials    ContractDraftMaterial[]
   reports           DailyReport[]
+  procurementTotalItems ProcurementTotalItem[]
+  receiptOrderDetails   ReceiptOrderDetail[]
 
   @@unique([name, spec]) // 物资名称 + 规格型号 组合唯一（主数据唯一约束）
   @@index([name])
@@ -588,7 +626,6 @@ model PaymentRecord {
   id         String    @id @default(cuid())
   projectId  String
   contractId String?
-  applyId    String?
   payMonth   String?   // YYYY-MM 付款月份
   amount     Decimal?  @db.Decimal(18, 2) // 本月付款额
   methodCode String?   // dict: payment_method
@@ -781,7 +818,12 @@ model AssetLedger {
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   supplier Supplier? @relation(fields: [supplierId], references: [id])
+  // 收领单删除时其自动入账的资产台账记录一并删除（原先由 service 手工 deleteMany 维护）
+  receiptOrder ReceiptOrder? @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
 
+  // receiptDetailId 刻意**不建外键**：收领单「修改」会整体删除并重建明细（service 层），
+  // 若建 Cascade 会连带删除并重建资产台账，与 service 的 upsert 逻辑冲突；
+  // 此处仅保留唯一约束作为防重键。
   @@unique([receiptDetailId])
   @@index([projectId])
   @@index([receiptOrderId])
@@ -967,7 +1009,11 @@ model ReceiptOrder {
   materialContract Contract?           @relation("ReceiptMaterialContract", fields: [materialContractId], references: [id])
   subcontract      Contract?           @relation("ReceiptSubcontract", fields: [subcontractId], references: [id])
   supplySubcontract Contract?          @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
+  // 分包商档案被删除时保留收领单（名称已是快照），故 SetNull
+  subcontractor    Subcontractor?      @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
   details          ReceiptOrderDetail[]
+  assetLedgers     AssetLedger[]
+  dailyReports     DailyReport[]
 
   @@unique([projectId, orderNo])
   @@index([projectId, orderDate])
@@ -1000,8 +1046,11 @@ model ReceiptOrderDetail {
   updatedAt         DateTime @updatedAt
 
   order ReceiptOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // 物资基础记录被删除时保留收领单明细（名称/规格为行内快照），故 SetNull
+  materialBase MaterialBase? @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([materialId])
 }
 
 // ---------------- 采购模板（批次一 · 任务 1.2） ----------------
@@ -1035,7 +1084,8 @@ model ProcurementTask {
   stage       Int      @default(0) // 已发布到的阶段序号（0=未发布任何阶段）
   preMeetingRequired Boolean @default(false) // 单项采购：是否需要采前会会议纪要（金额≥100万）
   totalListId String? // 总采购清单 ID（批次二后续任务关联）
-  contractId  String? // 生成的合同 ID
+  // 注：与合同的关系**只由 Contract.taskId 一条表达**（反引用 contracts，见下方 relations）。
+  // 原先双写的 contractId 字段已移除（2026-10-14），避免同一关系两处可能不一致。
   procurementCategory String? // 采购品类：物资 | 租赁（采购发起第一步填写；决定合同模板映射）
   techQuality String? // 技术质量标准（富文本 HTML；采购发起第三步填写，公告/文件/采前会/合同模板引用）
   acceptanceMethod String? // 验收方式（富文本 HTML）
@@ -1081,8 +1131,11 @@ model ProcurementTotalItem {
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  // 与 ContractMaterial 口径一致：被引用的物资基础记录禁止删除（需先改用「停用」）
+  materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
 
   @@index([taskId])
+  @@index([materialBaseId])
 }
 
 // ---------------- 框架协议事前说明（批次二 · 任务 3.1，仅 FRAMEWORK 类型任务） ----------------

@@ -588,6 +588,7 @@ export default function Contracts() {
                 label: `变更记录（${changes.length}）`,
                 children: (
                   <Table
+                  scroll={{ x: 'max-content' }}
                     rowKey="id"
                     size="small"
                     dataSource={changes}

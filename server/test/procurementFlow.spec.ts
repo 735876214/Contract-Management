@@ -17,7 +17,7 @@ import {
 /**
  * 采购工作流单一事实源（优化点 2）核心纯函数单测。
  * 这些函数无 Prisma 依赖，可在无数据库环境下运行，专门挡「前后端阶段链漂移 / 合同类型推导错误」类回归。
- * 运行：pnpm test（等价于 node --require ts-node/register --test test/*.spec.ts）
+ * 运行：npm test（等价于 node --require ts-node/register --test test/*.spec.ts）
  */
 describe('procurementFlow 单一事实源', () => {
   it('采购类型仅三种且与枚举一致', () => {

@@ -57,6 +57,8 @@ export interface DocumentContext {
   siteLocation?: string;
   /** 项目地址（来源：项目管理 · 项目信息） */
   projectAddress?: string;
+  /** 物资产地（来源：项目管理 · 项目信息，与合同模板同名变量口径一致） */
+  materialOrigin?: string;
   /** 采购内容（默认取采购任务内容 / 采购公告内容） */
   content?: string;
   /* 以下取自「采购公告」 */
@@ -187,6 +189,7 @@ export function buildDocumentVariableValues(
     项目所在省市: ctx.provinceCity ?? '',
     工程地点: ctx.siteLocation ?? '',
     项目地址: ctx.projectAddress ?? '',
+    物资产地: ctx.materialOrigin ?? '',
     采购编号: String(ctx.procurementNo ?? ''),
     采购内容: String(ctx.content ?? ''),
     技术质量标准: rich(ctx.techQuality),

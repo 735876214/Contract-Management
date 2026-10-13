@@ -217,3 +217,28 @@
     color: rgba(0, 0, 0, 0.65);
   }
 }
+
+// ==============================================
+// 手机（<768px）：覆盖式抽屉侧栏（docs/08 阶段 1）
+// 复用 .app-sider 的全部内部样式（Logo / 搜索 / 菜单），只覆盖与
+// 「固定定位 / 视口高度 / 折叠按钮」相关的规则。
+// ==============================================
+.app-sider-drawer {
+  .ant-drawer-content-wrapper {
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.24);
+  }
+}
+
+.app-sider.is-drawer {
+  position: static !important; // 抽屉内不需要 sticky 定位
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+
+  .app-sider__scroll {
+    // 抽屉内不渲染底部折叠按钮，故不再扣减 48px；用 flex 撑满剩余高度
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+}

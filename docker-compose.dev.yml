@@ -15,8 +15,8 @@
 #   只看后端日志：
 #     docker compose -f docker-compose.dev.yml logs -f server
 #   改过 package.json / vite 配置后重装依赖：
-#     docker compose -f docker-compose.dev.yml exec server npm install --legacy-peer-deps
-#     docker compose -f docker-compose.dev.yml exec web    npm install --legacy-peer-deps
+#     docker compose -f docker-compose.dev.yml exec server npm ci --legacy-peer-deps
+#     docker compose -f docker-compose.dev.yml exec web    npm ci --legacy-peer-deps
 #   清库重来（含数据库数据与依赖卷）：
 #     docker compose -f docker-compose.dev.yml down -v
 #
@@ -27,8 +27,8 @@
 #
 # 只想要数据库、前后端在宿主机跑（推荐习惯 IDE 调试时用）：
 #   docker compose -f docker-compose.dev.yml up -d postgres
-#   cd server && pnpm install && pnpm prisma:deploy && pnpm run seed && pnpm start:dev
-#   cd web    && pnpm install && pnpm dev
+#   cd server && npm ci --legacy-peer-deps && npm run prisma:deploy && npm run seed && npm run start:dev
+#   cd web    && npm ci --legacy-peer-deps && npm run dev
 #   （vite.config.ts 的 /api 反代默认已指向 http://localhost:3000，无需改配置）
 #
 # ⚠ 与生产 compose 的差异（有意为之，勿照搬）：
@@ -97,8 +97,9 @@ services:
       - -c
       - |
         set -e
-        # 首次（或依赖卷被清空）才安装，避免每次启动都跑一遍 npm install
-        [ -x node_modules/.bin/nest ] || npm install --legacy-peer-deps --no-audit --no-fund
+        # 首次（或依赖卷被清空）才安装，避免每次启动都跑一遍 npm ci。
+        # 用 npm ci 而非 npm install：严格按 package-lock.json 安装，与镜像/CI 一致、可复现。
+        [ -x node_modules/.bin/nest ] || npm ci --legacy-peer-deps --no-audit --no-fund
         # 应用数据库迁移：与生产 compose 完全一致（20260901000000_init 是「空库 → 当前 schema」的折叠基线，
         # 全新空库也能一次建出全表，不再出现 P3018 relation "Contract" does not exist）。
         npx prisma generate
@@ -131,7 +132,7 @@ services:
       - -c
       - |
         set -e
-        [ -x node_modules/.bin/vite ] || npm install --legacy-peer-deps --no-audit --no-fund
+        [ -x node_modules/.bin/vite ] || npm ci --legacy-peer-deps --no-audit --no-fund
         exec npx vite --host 0.0.0.0 --port 5173
 
 volumes:

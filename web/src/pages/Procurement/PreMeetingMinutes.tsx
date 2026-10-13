@@ -747,11 +747,11 @@ export default function PreMeetingMinutes() {
             {/* 基本信息 */}
             <Card size="small" title="一、会议基本信息">
               <Row gutter={[16, 16]}>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>项目名称（自动带出）</div>
                   <Input value={project.name ?? ''} disabled placeholder="（项目名称）" />
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>会议时间</div>
                   {editable ? (
                     <DatePicker
@@ -763,7 +763,7 @@ export default function PreMeetingMinutes() {
                     <div style={{ minHeight: 22 }}>{form.meetingTime || '-'}</div>
                   )}
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <Field
                     label="采购内容"
                     value={form.content}
@@ -771,10 +771,10 @@ export default function PreMeetingMinutes() {
                     onChange={(v) => patchForm({ content: v })}
                   />
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <Field label="主持人" value={form.host} editable={editable} onChange={(v) => patchForm({ host: v })} />
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <Field
                     label="参会人员"
                     value={form.attendees}
@@ -782,7 +782,7 @@ export default function PreMeetingMinutes() {
                     onChange={(v) => patchForm({ attendees: v })}
                   />
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <Field
                     label="会议纪要编写人"
                     value={form.writer}
@@ -790,7 +790,7 @@ export default function PreMeetingMinutes() {
                     onChange={(v) => patchForm({ writer: v })}
                   />
                 </Col>
-                <Col span={6}>
+                <Col xs={24} md={6}>
                   <Field
                     label="审核人"
                     value={form.reviewer}
@@ -828,6 +828,7 @@ export default function PreMeetingMinutes() {
                 rowKey="key"
                 columns={purchaseColumns}
                 dataSource={form.purchaseItems as unknown as Keyed<PurchaseItemRow>[]}
+                scroll={{ x: 'max-content' }}
                 pagination={false}
                 locale={{ emptyText: '暂无数据（可点击「从总采购清单导入」自动带出）' }}
               />
@@ -870,6 +871,7 @@ export default function PreMeetingMinutes() {
                 rowKey="key"
                 columns={costColumns}
                 dataSource={form.costRows as unknown as Keyed<CostAnalysisRow>[]}
+                scroll={{ x: 'max-content' }}
                 pagination={false}
                 locale={{ emptyText: '暂无数据（可点击「从总采购清单导入」自动带出）' }}
                 summary={() => (

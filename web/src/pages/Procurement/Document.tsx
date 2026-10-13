@@ -596,7 +596,7 @@ export default function Document() {
             {/* 一、采购文件基本信息 */}
             <Card size="small" title="一、采购文件基本信息">
               <Row gutter={[16, 16]}>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购时间</div>
                   {editable ? (
                     <DatePicker
@@ -610,7 +610,7 @@ export default function Document() {
                     <div style={{ minHeight: 22 }}>{form.procurementTime || '-'}</div>
                   )}
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
                     响应保证金（元）
                   </div>
@@ -629,7 +629,7 @@ export default function Document() {
                     </div>
                   )}
                 </Col>
-                <Col span={8}>
+                <Col xs={24} md={8}>
                   <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购编号</div>
                   <div style={{ minHeight: 22 }}>{detail?.notice?.procurementNo || '-'}</div>
                 </Col>
@@ -734,12 +734,13 @@ export default function Document() {
         }
       >
         <div
+          className="doc-preview"
           style={{
             maxHeight: '60vh',
             minHeight: 120,
             overflow: 'auto',
             border: '1px solid #eee',
-            padding: 24,
+            // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
           }}
           dangerouslySetInnerHTML={{
             __html: highlightPlaceholders(contractHtml) || '<p style="color:#999">暂无内容</p>',

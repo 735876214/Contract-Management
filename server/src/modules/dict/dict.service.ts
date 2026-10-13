@@ -11,6 +11,13 @@ import { SysParamService } from '../../common/services/sys-param.service';
  * - 全系统下拉/枚举唯一数据源
  * - 内存缓存，字典变更自动刷新
  * - 提供字典项引用校验（被业务数据引用不可删除）
+ *
+ * ⚠️ **项目隔离例外（有意为之，勿"顺手"补 `projectId` 过滤）**：
+ * 字典是**全局**配置（`dict_type` / `dict_item` 无 `projectId` 字段），所有项目共用同一套
+ * 下拉选项、标签与颜色；业务表存的是字典项**编码字符串**，不是项目内自增主键。
+ * 若在此按项目过滤，会导致不同项目看到不同字典、历史数据编码无法解析。
+ * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §3。
+ * 另两处同类例外：`finance`（按 `contractId` 归属）、`supplier`（受 `supplier.share.scope` 控制）。
  */
 @Injectable()
 export class DictService {

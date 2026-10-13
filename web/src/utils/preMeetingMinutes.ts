@@ -13,8 +13,8 @@
  *
  * 变量占位符：
  * {{采前会-采购清单}} {{采前会-采购成本分析表}} {{会议时间}} {{主持人}} {{参会人员}}
- * 以及 {{项目名称}} {{采购内容}} {{预计采购金额}} {{编写人}} {{审核人}}
- *      {{技术质量要求}} {{验收标准}} {{付款条件}}
+ * 以及 {{项目名称}} {{采购内容}} {{预计采购金额(万元)}} {{编写人}} {{审核人}}
+ *      {{技术质量标准}} {{验收方式}} {{付款方式}}
  */
 
 /** 采购清单行（序号由表格渲染，表头：序号|物资名称|规格型号|计量单位|暂定数量） */
@@ -65,6 +65,8 @@ export interface PreMeetingContext {
   siteLocation?: string;
   /** 项目地址（来源：项目管理 · 项目信息） */
   projectAddress?: string;
+  /** 物资产地（来源：项目管理 · 项目信息，与合同模板同名变量口径一致） */
+  materialOrigin?: string;
   /** 采购内容（任务内容，作为默认值） */
   content?: string;
   /** 预计采购金额（万元） */
@@ -283,16 +285,18 @@ export function buildPreMeetingVariableValues(
     项目所在省市: ctx.provinceCity ?? '',
     工程地点: ctx.siteLocation ?? '',
     项目地址: ctx.projectAddress ?? '',
+    物资产地: ctx.materialOrigin ?? '',
     采购内容: String(data.content ?? ctx.content ?? ''),
-    预计采购金额: ctx.estimatedAmountWan == null ? '' : fmtWan(ctx.estimatedAmountWan),
+    // 单位（万元）写进变量名：与成交报告的同名量（元）区分，避免差 10000 倍（docs/06 #1）
+    '预计采购金额(万元)': ctx.estimatedAmountWan == null ? '' : fmtWan(ctx.estimatedAmountWan),
     会议时间: fmtDate(data.meetingTime),
     主持人: String(data.host ?? ''),
     参会人员: String(data.attendees ?? ''),
     编写人: String(data.writer ?? ''),
     审核人: String(data.reviewer ?? ''),
-    技术质量要求: rich(data.techQuality),
-    验收标准: rich(data.acceptance),
-    付款条件: rich(data.paymentTerms),
+    技术质量标准: rich(data.techQuality),
+    验收方式: rich(data.acceptance),
+    付款方式: rich(data.paymentTerms),
     '采前会-采购清单': buildPurchaseListTableHtml(data.purchaseItems ?? []),
     '采前会-采购成本分析表': buildCostAnalysisTableHtml(data.costRows ?? []),
   };

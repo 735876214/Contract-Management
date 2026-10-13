@@ -4,10 +4,13 @@ import {
   TASK_TYPES,
   TASK_STATUS_LABELS as BE_TASK_STATUS_LABELS,
   stageChain,
+  CONTRACT_STATUS_TO_TASK_STATUS,
+  contractStageTaskStatus,
 } from '../src/constants/procurementFlow.ts';
 import {
   PROCUREMENT_TASK_TYPES,
   TASK_STATUS_LABELS as FE_TASK_STATUS_LABELS,
+  CONTRACT_STAGE_STATUSES,
   buildStageChain,
 } from '../../web/src/constants/procurementWorkflow.ts';
 
@@ -49,6 +52,32 @@ describe('前后端阶段链一致性（漂移锁）', () => {
 
   it('任务状态展示名一致', () => {
     assert.deepEqual(FE_TASK_STATUS_LABELS, BE_TASK_STATUS_LABELS);
+  });
+
+  describe('合同阶段子状态映射（合同状态 → 采购任务状态）', () => {
+    it('映射目标必须正是前端已准备展示的合同阶段状态集合', () => {
+      assert.deepEqual(
+        Object.values(CONTRACT_STATUS_TO_TASK_STATUS).sort(),
+        [...CONTRACT_STAGE_STATUSES].sort(),
+        '后端映射出的状态与前端 CONTRACT_STAGE_STATUSES 不一致（前端将无法展示标签/颜色）',
+      );
+    });
+
+    it('每个映射目标都有前端中文标签', () => {
+      const missing = Object.values(CONTRACT_STATUS_TO_TASK_STATUS).filter(
+        (st) => !FE_TASK_STATUS_LABELS[st],
+      );
+      assert.deepEqual(missing, [], `前端缺少状态标签：${missing.join(', ')}`);
+    });
+
+    it('草稿/未知/空值回退「合同编制中」，审批中→审批中，已签章→已完成', () => {
+      assert.equal(contractStageTaskStatus('DRAFT'), 'CONTRACT_EDITING');
+      assert.equal(contractStageTaskStatus(null), 'CONTRACT_EDITING');
+      assert.equal(contractStageTaskStatus(undefined), 'CONTRACT_EDITING');
+      assert.equal(contractStageTaskStatus('未知状态'), 'CONTRACT_EDITING');
+      assert.equal(contractStageTaskStatus('APPROVING'), 'CONTRACT_APPROVING');
+      assert.equal(contractStageTaskStatus('SIGNED'), 'COMPLETED');
+    });
   });
 
   it('<100万 单项采购：两端都不含采前会，但都保留采购公告与采购文件', () => {

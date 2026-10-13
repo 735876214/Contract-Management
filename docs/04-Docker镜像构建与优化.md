@@ -27,7 +27,7 @@ docker-compose.yml
 
 ## 2. Dockerfile 五个阶段
 
-基础镜像统一 `node:20-slim`。镜像内**用 npm**（本地开发用 pnpm）。
+基础镜像统一 `node:20-slim`。**镜像与本地开发统一用 npm**（`npm ci --legacy-peer-deps`，锁文件已入库）。
 
 | 阶段 | 做什么 | 关键点 |
 |---|---|---|
@@ -143,8 +143,9 @@ docker compose up -d --build
   Debian 系兼容性更稳；镜像体积的代价换取了运行期确定性。
 - **前端用 nginx 托管，而非 Node 静态服务**：nginx 处理静态资源、缓存头与 gzip 更成熟，
   也是单容器方案的既定选择（前端与后端同容器，nginx 作存活锚点）。
-- **镜像内构建统一用 npm**：`--legacy-peer-deps` 在容器内更稳定，避免把本地 pnpm 的
-  `node_modules` 结构问题带入镜像；本地开发仍用 pnpm。
+- **镜像内构建统一用 npm**：`--legacy-peer-deps` 在容器内更稳定，避免把带符号链接的
+  `node_modules` 结构问题带入镜像。**2026-10 起本地开发也统一为 npm**（锁文件入库，
+  镜像与 CI 同为 `npm ci --legacy-peer-deps`）；pnpm 在镜像内曾评估并放弃（符号链接跨阶段 COPY 易踩坑）。
 - **未采用 distroless**：需要 nginx、prisma CLI、shell（`start.sh`）与运行期迁移，
   distroless 无 shell 无法承载该启动流程。
 

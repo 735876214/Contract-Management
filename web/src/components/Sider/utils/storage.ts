@@ -6,13 +6,23 @@ export const STORAGE_KEYS = {
   collapsed: `${PREFIX}collapsed`,
   /** 菜单缓存数据（sessionStorage，5 分钟 TTL）
    *  版本后缀：菜单结构发生变更（如新增采购管理分组）时递增，用于让旧缓存自然失效 */
-  menuCache: `${PREFIX}menu_cache_v2`,
+  menuCache: `${PREFIX}menu_cache_v3`,
   /** 菜单缓存写入时间戳（sessionStorage） */
-  menuCacheAt: `${PREFIX}menu_cache_at_v2`,
+  menuCacheAt: `${PREFIX}menu_cache_at_v3`,
 } as const;
 
 /** 菜单缓存有效期：5 分钟 */
 export const MENU_CACHE_TTL = 5 * 60 * 1000;
+
+/**
+ * 清除菜单缓存（数据 + 时间戳）。
+ * 退出登录时必须调用：否则同一标签页切换账号后，会读到上一账号的菜单树（权限泄露观感）。
+ * 注意键名带版本后缀，故不直接写字符串——统一走 STORAGE_KEYS，避免版本升级后漏清。
+ */
+export function clearMenuCache(): void {
+  removeSession(STORAGE_KEYS.menuCache);
+  removeSession(STORAGE_KEYS.menuCacheAt);
+}
 
 function safeParse<T>(raw: string | null): T | null {
   if (!raw) return null;

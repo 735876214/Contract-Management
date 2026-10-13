@@ -126,6 +126,8 @@ export function buildExplanationVariableValues(
     provinceCity?: string;
     siteLocation?: string;
     projectAddress?: string;
+    /** 物资产地（来源：项目管理 · 项目信息） */
+    materialOrigin?: string;
     content?: string;
   },
 ): Record<string, string> {
@@ -136,6 +138,7 @@ export function buildExplanationVariableValues(
     项目所在省市: ctx.provinceCity ?? '',
     工程地点: ctx.siteLocation ?? '',
     项目地址: ctx.projectAddress ?? '',
+    物资产地: ctx.materialOrigin ?? '',
     采购内容: ctx.content ?? '',
     '事前说明-询价情况': buildInquiryTableHtml(data.inquiryRows ?? []),
     '事前说明-价格对比表': buildPriceCompareTableHtml(data.priceCompareRows ?? []),
@@ -153,6 +156,8 @@ export function buildExplanationDocHtml(
     provinceCity?: string;
     siteLocation?: string;
     projectAddress?: string;
+    /** 物资产地（来源：项目管理 · 项目信息） */
+    materialOrigin?: string;
     content?: string;
   },
   title?: string,

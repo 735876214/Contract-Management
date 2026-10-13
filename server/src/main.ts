@@ -9,7 +9,7 @@ import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import * as fs from 'fs';
-import { seedAdmin, seedDictAndParams, seedDefaultProject } from './seed';
+import { seedAdmin, seedDictAndParams, seedDefaultProject, fixLegacyData } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -46,5 +46,7 @@ async function bootstrap() {
   await seedDefaultProject(prisma);
   // 首次部署空库时，写入字典类型 / 字典项 / 系统参数初始数据，保证字典与系统参数页面有内容
   await seedDictAndParams(prisma);
+  // 每次启动修正有明确缺陷的历史数据（幂等，见函数注释）
+  await fixLegacyData(prisma);
 }
 bootstrap();

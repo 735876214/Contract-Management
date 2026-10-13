@@ -21,12 +21,14 @@ cms/
 
 ## 快速开始
 
-> 项目使用 **pnpm**（lockfile 为 v9）。`server/package.json` 与 `web/package.json` 已通过 `packageManager` 字段锁定 pnpm 版本，启用 corepack 后会自动选用；构建脚本（prisma / @nestjs/core / esbuild）已在各目录的 `pnpm-workspace.yaml` 中放行，普通 `pnpm install` 即可完成依赖与构建。
+> **依赖管理统一使用 `npm`**（锁文件 `server/package-lock.json`、`web/package-lock.json` 已入库）。
+> 2026-10 起从 pnpm 收敛为 npm：镜像（`deploy/single/Dockerfile.single`）与 CI 一直用 npm 安装，
+> 而当时**没有提交 npm 锁文件**（旧 `.gitignore` 反而排除了它）→ 构建不可复现；且 `pnpm-lock.yaml`
+> 已过期（`package.json` 09-17 改过、锁文件停在 09-14）。pnpm 在镜像内曾评估并放弃
+> （符号链接跨构建阶段 COPY 易踩坑），故统一到 npm 一侧。
+> 安装命令统一带 `--legacy-peer-deps`（与镜像/CI 完全一致）：`npm ci --legacy-peer-deps`。
 
 ```bash
-# 0. （可选）启用包管理器版本管理
-corepack enable && corepack prepare pnpm@12 --activate
-
 # 1. 方式 A · 容器化一键调试（推荐：前后端源码挂载 + 热重载 + PostgreSQL）
 docker compose -f docker-compose.dev.yml up
 #    前端 http://localhost:5173（vite HMR），后端 API http://localhost:3000/api，
@@ -37,16 +39,16 @@ docker compose -f docker-compose.dev.yml up -d postgres   # PostgreSQL → 本�
 
 # 2. 后端（NestJS）
 cd server
-cp .env.example .env       # 把 DATABASE_URL 的端口改成 15432
-pnpm install               # 安装依赖（构建脚本已在 pnpm-workspace.yaml 中放行）
-npx prisma migrate deploy  # 空库一次建全表（含折叠基线 20260901000000_init）
-pnpm run seed              # 初始化字典 / 角色 / 演示数据
-pnpm run start:dev         # http://localhost:3000/api
+cp .env.example .env                    # 把 DATABASE_URL 的端口改成 15432
+npm ci --legacy-peer-deps               # 按锁文件安装依赖（可复现）
+npx prisma migrate deploy               # 空库一次建全表（含折叠基线 20260901000000_init）
+npm run seed                            # 初始化字典 / 角色 / 演示数据
+npm run start:dev                       # http://localhost:3000/api
 
 # 3. 前端（React）
 cd ../web
-pnpm install
-pnpm run dev               # http://localhost:5173（/api 反代到 localhost:3000）
+npm ci --legacy-peer-deps
+npm run dev                             # http://localhost:5173（/api 反代到 localhost:3000）
 ```
 
 > 改了 `server/prisma/schema.prisma` 之后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
@@ -93,7 +95,12 @@ server/src/
 
 - **Prisma 引擎下载慢/失败**：`npx prisma generate` 需要从网络下载查询引擎，若失败可配置镜像
   `PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma` 后重试。
-- **依赖安装**：项目统一使用 `pnpm`（不要用 `npm`，否则会生成被 `.gitignore` 排除的 `package-lock.json`）。`pnpm install` 若提示构建脚本被拦截，确认对应目录 `pnpm-workspace.yaml` 中的 `allowBuilds` 已放行（prisma / @nestjs/core / esbuild）。
+- **依赖安装**：项目统一使用 **`npm` + `--legacy-peer-deps`**（`npm ci --legacy-peer-deps` 最接近镜像/CI 行为）。
+  锁文件 `server/package-lock.json`、`web/package-lock.json` **必须随 `package.json` 一起提交**——
+  镜像与 CI 走 `npm ci`，缺锁文件会直接失败。改了依赖后请在对应目录跑
+  `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件。
+- **npm 提示「install scripts not yet covered by allowScripts」**：npm 11 起的告警，
+  prisma / esbuild 等确需构建脚本，可忽略（镜像内的 npm 10 不做拦截）。
 - **上传目录**：默认 `server/uploads`，由 `/api/files/**` 静态映射，生产环境建议替换为对象存储
   （`FileController` 是唯一的写入点，替换实现即可）。
 - **MySQL 差异**：本模型使用 `Decimal(18,2)` 与 `String` 字典编码，MySQL 下同样适用；

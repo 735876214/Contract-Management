@@ -23,9 +23,11 @@ import {
   FullscreenExitOutlined,
   SearchOutlined,
   PictureOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { Button, Select, Space, Tooltip, Modal, Input, Tag, Divider, Collapse, Popover } from 'antd';
 import type { VarGroup } from '@/pages/Clauses';
+import { useResponsive } from '@/hooks/useResponsive';
 
 export interface RichTextEditorProps {
   /** 编辑器内容（HTML 字符串） */
@@ -90,6 +92,8 @@ export default function RichTextEditor({
   minHeight = 320,
   disabled = false,
 }: RichTextEditorProps) {
+  /** 断点唯一来源（docs/08 阶段 4）：窄屏工具栏折叠为「更多」 */
+  const { isMobile } = useResponsive();
   const ref = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const [fontSize, setFontSize] = useState(12);
@@ -327,18 +331,12 @@ export default function RichTextEditor({
     e.target.value = '';
   };
 
-  const toolbar = (
-    <div
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 2,
-        padding: '4px 8px',
-        borderBottom: '1px solid #f0f0f0',
-        background: '#fafafa',
-      }}
-    >
+  /** 窄屏工具栏：「更多」展开/收起低频项（docs/08 阶段 4） */
+  const [toolsOpen, setToolsOpen] = useState(false);
+
+  /** 高频工具项：宽屏与窄屏都显示 */
+  const primaryTools = (
+    <>
       <Tooltip title="字体">
         <Select
           size="small"
@@ -365,6 +363,24 @@ export default function RichTextEditor({
       {btn('加粗', <BoldOutlined />, 'bold')}
       {btn('斜体', <ItalicOutlined />, 'italic')}
       {btn('下划线', <UnderlineOutlined />, 'underline')}
+      {isMobile && (
+        <Tooltip title={toolsOpen ? '收起更多工具' : '更多工具'}>
+          <Button
+            size="small"
+            type="text"
+            icon={<MoreOutlined />}
+            disabled={disabled}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setToolsOpen((v) => !v)}
+          />
+        </Tooltip>
+      )}
+    </>
+  );
+
+  /** 低频工具项：窄屏默认收进「更多」，宽屏平铺显示 */
+  const moreTools = (
+    <>
       {btn('删除线', <StrikethroughOutlined />, 'strikeThrough')}
       <Tooltip title="字体颜色">
         <Popover
@@ -458,6 +474,24 @@ export default function RichTextEditor({
           onClick={() => setFullscreen((f) => !f)}
         />
       </Tooltip>
+    </>
+  );
+
+  const toolbar = (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 2,
+        padding: '4px 8px',
+        borderBottom: '1px solid #f0f0f0',
+        background: '#fafafa',
+      }}
+    >
+      {primaryTools}
+      {/* 窄屏：低频项默认收起，点「更多」展开；宽屏：始终平铺 */}
+      {(!isMobile || toolsOpen) && moreTools}
     </div>
   );
 

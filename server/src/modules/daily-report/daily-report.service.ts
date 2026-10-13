@@ -7,6 +7,12 @@ import { ImportTaskService } from '../../common/services/import-task.service';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SysParamService } from '../../common/services/sys-param.service';
+import {
+  assertSiteConfirmable,
+  SITE_CONFIRM_STATUS,
+} from '../../constants/workflowGuards';
+import { JwtUser } from '../../common/decorators/user.decorator';
 
 const DECIMAL_FIELDS = [
   'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRate', 'priceAfterTax',
@@ -22,6 +28,7 @@ export class DailyReportService {
     private styled: StyledExcelService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private sysParam: SysParamService,
   ) {}
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
@@ -35,6 +42,12 @@ export class DailyReportService {
     if (query.materialType) where.materialType = query.materialType;
     if (query.assetStatus) where.assetStatus = query.assetStatus;
     if (query.sourceCode) where.sourceCode = query.sourceCode;
+    // 现场确认状态筛选（docs/09 §三）；'PENDING' 需同时命中历史空值行
+    if (query.confirmStatusCode === SITE_CONFIRM_STATUS.PENDING) {
+      where.OR = [...(where.OR ?? []), { confirmStatusCode: null }, { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING }];
+    } else if (query.confirmStatusCode) {
+      where.confirmStatusCode = query.confirmStatusCode;
+    }
     if (query.keyword) where.OR = [{ materialName: { contains: query.keyword } }, { receiptNo: { contains: query.keyword } }, { plateNo: { contains: query.keyword } }];
     if (query.startDate || query.endDate) {
       where.entryDate = {};
@@ -73,15 +86,116 @@ export class DailyReportService {
    */
   async contractSettledQty(contractId: string, projectId: string) {
     if (!contractId) return [];
+    // 结算口径：开启闸门时只汇总「已确认」的现场记录（docs/09 §三）
+    const gated = await this.requireConfirmed();
     const rows = await this.prisma.dailyReport.groupBy({
       by: ['materialBaseId'],
-      where: { projectId, contractId, materialBaseId: { not: null } },
+      where: {
+        projectId,
+        contractId,
+        materialBaseId: { not: null },
+        ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
+      },
       _sum: { settleQty: true },
     });
     return rows.map((r) => ({
       materialBaseId: r.materialBaseId as string,
       settleQty: num(r._sum?.settleQty),
     }));
+  }
+
+  /* ==================== 现场确认（docs/09 §三：现场确认驱动结算） ==================== */
+
+  /**
+   * 结算口径是否只认「已确认」的现场记录。
+   * 系统参数 `settlement.require_confirmed`，**默认开启**；置为 `false` 时行为与改造前完全一致（可一键回退）。
+   */
+  async requireConfirmed(): Promise<boolean> {
+    const v = await this.sysParam.get('settlement.require_confirmed', 'true');
+    return String(v).toLowerCase() !== 'false';
+  }
+
+  /** 确认/驳回单条现场记录（日报行） */
+  async confirmOne(id: string, action: string, projectId: string, user?: JwtUser, remark?: string) {
+    const row = await this.prisma.dailyReport.findFirst({ where: { id, projectId } });
+    if (!row) throw new NotFoundException('日报不存在');
+    const target = assertSiteConfirmable(row.confirmStatusCode, action);
+    return this.prisma.dailyReport.update({
+      where: { id },
+      data: {
+        confirmStatusCode: target,
+        confirmedBy: user?.realName || user?.username || null,
+        confirmedAt: new Date(),
+        confirmRemark: remark ?? row.confirmRemark ?? null,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  /**
+   * 批量确认/驳回（列表页多选）。
+   * 语义与导入一致：**先全量校验，全通过才写**——避免出现"一半确认了、一半没确认"的中间态。
+   * 逐行走 `assertSiteConfirmable` 状态机守卫（单一事实源）。
+   */
+  async confirmMany(ids: string[], action: string, projectId: string, user?: JwtUser, remark?: string) {
+    const list = [
+      ...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x ?? '').trim()).filter(Boolean)),
+    ];
+    if (!list.length) throw new BadRequestException('请先选择要操作的现场记录');
+    const rows = await this.prisma.dailyReport.findMany({ where: { id: { in: list }, projectId } });
+    if (rows.length !== list.length) {
+      throw new BadRequestException('部分现场记录不存在或不属于当前项目');
+    }
+    const targets = rows.map((r) => assertSiteConfirmable(r.confirmStatusCode, action));
+    const operator = user?.realName || user?.username || null;
+    const now = new Date();
+    await this.prisma.$transaction(
+      rows.map((r, i) =>
+        this.prisma.dailyReport.update({
+          where: { id: r.id },
+          data: {
+            confirmStatusCode: targets[i],
+            confirmedBy: operator,
+            confirmedAt: now,
+            confirmRemark: remark ?? r.confirmRemark ?? null,
+            version: { increment: 1 },
+          },
+        }),
+      ),
+    );
+    return { updated: rows.length, statusCode: targets[0] };
+  }
+
+  /**
+   * 某合同下「未确认 / 已驳回」的现场记录条数与数量合计。
+   * 用途：结算页提示"该合同还有 N 条现场记录待确认"，让口径缺口可见。
+   */
+  async unconfirmedSummary(contractId: string, projectId: string) {
+    if (!contractId) return { pending: 0, rejected: 0, pendingQty: 0, rejectedQty: 0 };
+    const notConfirmed = [
+      { confirmStatusCode: null },
+      { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING },
+    ];
+    const [pending, rejected, pendAgg, rejAgg] = await Promise.all([
+      this.prisma.dailyReport.count({ where: { projectId, contractId, OR: notConfirmed } }),
+      this.prisma.dailyReport.count({
+        where: { projectId, contractId, confirmStatusCode: SITE_CONFIRM_STATUS.REJECTED },
+      }),
+      this.prisma.dailyReport.aggregate({
+        where: { projectId, contractId, OR: notConfirmed },
+        _sum: { settleQty: true },
+      }),
+      this.prisma.dailyReport.aggregate({
+        where: { projectId, contractId, confirmStatusCode: SITE_CONFIRM_STATUS.REJECTED },
+        _sum: { settleQty: true },
+      }),
+    ]);
+    return {
+      pending,
+      rejected,
+      pendingQty: num(pendAgg._sum?.settleQty) ?? 0,
+      rejectedQty: num(rejAgg._sum?.settleQty) ?? 0,
+    };
   }
 
   private async validate(data: any) {
@@ -106,6 +220,11 @@ export class DailyReportService {
 
   private normalize(data: any) {
     const payload: any = { ...data };
+    // 确认状态与确认留痕只由 confirm()/confirmMany() 维护，不接受前端直传（防绕过状态机）
+    delete payload.confirmStatusCode;
+    delete payload.confirmedBy;
+    delete payload.confirmedAt;
+    delete payload.confirmRemark;
     DECIMAL_FIELDS.forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -122,7 +241,15 @@ export class DailyReportService {
     // 事务内不得调用 this.dict（它使用事务外的 PrismaClient 连接，连接池耗尽会挂起）。
     // 导入流程已在事务外的 map 阶段完成 validate，此处仅在无事务的直连写入时校验。
     if (!tx) await this.validate(data);
-    return db.dailyReport.create({ data: { ...this.normalize(data), projectId } });
+    return db.dailyReport.create({
+      data: {
+        ...this.normalize(data),
+        projectId,
+        // 现场确认（docs/09 §三）：新建/导入的日报行默认「待确认」；
+        // 收领单推送生成的行由 receipt-order.service 直接置「已确认」（现场签收即确认）
+        confirmStatusCode: SITE_CONFIRM_STATUS.PENDING,
+      },
+    });
   }
 
   async update(id: string, data: any) {

@@ -14,6 +14,18 @@ import {
   OverdueRowInput,
 } from './overdue-calculator';
 
+/**
+ * 资金费用服务（保理费用 / 逾期利息 / 合同资金参数）。
+ *
+ * ⚠️ **项目隔离例外（有意为之，勿"顺手"补 `projectId` 过滤）**：
+ * 本模块的所有查询/写入都**不带** `projectId`，而是按 `contractId` 归属
+ * （`Contract` 自身已在项目内，且 controller 已用 `@ProjectId()` 做入口校验）。
+ * 原因：资金费用是**合同级**的下游台账，同一合同可能被跨项目的汇总视图复用；
+ * 若在此再加一层 `projectId` 过滤，会导致「合同在 A 项目、费用记录查不到」的割裂。
+ * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §18。
+ * 另两处同类例外：`dict`（全局字典）、`supplier`（受 `supplier.share.scope` 控制）。
+ */
+
 const FACTORING_FIELDS = [
   'contractId', 'seqNo', 'financingDate', 'financingAmount', 'actualReceipt',
   'financingInterest', 'handlingFee', 'settlementMonth', 'remark',

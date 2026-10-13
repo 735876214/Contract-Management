@@ -81,3 +81,61 @@ export function assertResultReportRejectable(ctx: ResultReportRejectContext): vo
     throw new BadRequestException('下游合同已签章/审批中，无法退回成交报告，请先驳回合同回到合同起草');
   }
 }
+
+/**
+ * 现场确认（日报行）状态机 —— docs/09 §三「现场确认驱动结算」。
+ *
+ * 日报行是结算量的唯一来源（收领单推送也会生成日报行），其确认状态决定该行是否计入结算口径：
+ * - `PENDING`   待确认（日报页手工新增的默认态；未确认时不计入结算口径，见 daily-report.service）
+ * - `CONFIRMED` 已确认（计入结算口径；收领单推送生成的行由 service 直接置为此态）
+ * - `REJECTED`  已驳回（不计入；可重新确认）
+ *
+ * 守卫与单测共用，避免规则散落在 service 中漂移（与上面三处驳回同一体例）。
+ */
+export const SITE_CONFIRM_STATUS = {
+  PENDING: 'PENDING',
+  CONFIRMED: 'CONFIRMED',
+  REJECTED: 'REJECTED',
+} as const;
+
+/** 现场确认动作 */
+export const SITE_CONFIRM_ACTION = {
+  CONFIRM: 'CONFIRM',
+  REJECT: 'REJECT',
+} as const;
+
+/** 动作 → 目标状态 */
+const SITE_CONFIRM_TARGET: Record<string, string> = {
+  [SITE_CONFIRM_ACTION.CONFIRM]: SITE_CONFIRM_STATUS.CONFIRMED,
+  [SITE_CONFIRM_ACTION.REJECT]: SITE_CONFIRM_STATUS.REJECTED,
+};
+
+/**
+ * 现场确认状态迁移校验；返回目标状态。
+ * - `PENDING → CONFIRMED / REJECTED`
+ * - `REJECTED → CONFIRMED`（驳回后允许重新确认）
+ * - `CONFIRMED → REJECTED`（已确认可撤回，例如现场量填错）
+ * - 空值按 `PENDING` 处理（兼容迁移前写入的旧数据）
+ * - 同态重复操作直接拒绝（避免无意义写入与版本号空涨）
+ */
+export function assertSiteConfirmable(from: string | null | undefined, action: string): string {
+  const target = SITE_CONFIRM_TARGET[String(action ?? '')];
+  if (!target) {
+    throw new BadRequestException('确认动作非法（仅支持 CONFIRM / REJECT）');
+  }
+  const current = String(from ?? '') || SITE_CONFIRM_STATUS.PENDING;
+  if (current === target) {
+    throw new BadRequestException(
+      target === SITE_CONFIRM_STATUS.CONFIRMED ? '该现场记录已是「已确认」状态' : '该现场记录已是「已驳回」状态',
+    );
+  }
+  const allowed: Record<string, string[]> = {
+    [SITE_CONFIRM_STATUS.PENDING]: [SITE_CONFIRM_STATUS.CONFIRMED, SITE_CONFIRM_STATUS.REJECTED],
+    [SITE_CONFIRM_STATUS.REJECTED]: [SITE_CONFIRM_STATUS.CONFIRMED],
+    [SITE_CONFIRM_STATUS.CONFIRMED]: [SITE_CONFIRM_STATUS.REJECTED],
+  };
+  if (!(allowed[current] ?? []).includes(target)) {
+    throw new BadRequestException(`现场记录状态「${current}」不允许该操作`);
+  }
+  return target;
+}

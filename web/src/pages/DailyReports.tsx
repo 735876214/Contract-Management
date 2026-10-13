@@ -26,29 +26,33 @@ interface F {
 }
 
 // 列顺序严格按需求，请勿随意增删（无"合规性问题"列）
+// ⚠️ key 必须与 DailyReport 模型字段**逐字一致**：本数组同时驱动表格列（dataIndex）与表单字段（name），
+//    错一个字就会出现「表格列空白 + 保存 500」（Prisma 拒绝未知字段）。2026-10-14 修正了 10 处历史错名。
 const FIELDS: F[] = [
   { key: 'periodYear', label: '账期/年', kind: 'number', width: 90 },
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
+  // 现场确认状态（docs/09 §三）：决定该行是否计入结算口径
+  { key: 'confirmStatusCode', label: '确认状态', kind: 'dict', dict: 'site_confirm_status', width: 110 },
   // 需求 2.1.4：「是否资产」「是否安全物资」由物资基础库带出，日报只读展示
   { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100, readonly: true },
   { key: 'isSafetyMaterial', label: '是否安全物资', kind: 'dict', dict: 'yes_no', width: 120, readonly: true },
   { key: 'assetSupervision', label: '资产监管', kind: 'text', width: 120 },
-  { key: 'dept', label: '部门', kind: 'text', width: 110 },
-  { key: 'person', label: '人员', kind: 'text', width: 110 },
+  { key: 'department', label: '部门', kind: 'text', width: 110 },
+  { key: 'personnel', label: '人员', kind: 'text', width: 110 },
   { key: 'assetStatus', label: '资产状态', kind: 'dict', dict: 'asset_status', width: 120 },
-  { key: 'source', label: '来源', kind: 'dict', dict: 'material_source', width: 120 },
+  { key: 'sourceCode', label: '来源', kind: 'dict', dict: 'material_source', width: 120 },
   { key: 'materialCategory', label: '材料类别', kind: 'dict', dict: 'material_category', width: 130 },
   { key: 'materialType', label: '物资种类', kind: 'dict', dict: 'material_type', width: 130 },
   { key: 'materialName', label: '物资名称', kind: 'text', width: 160 },
   { key: 'steelBrand', label: '钢筋品牌', kind: 'text', width: 120 },
-  { key: 'steelPieces', label: '钢筋件数', kind: 'number', width: 110 },
+  { key: 'steelCount', label: '钢筋件数', kind: 'number', width: 110 },
   { key: 'spec', label: '规格型号', kind: 'text', width: 150 },
   // 需求 2.3.2：默认带出物资基础库单位，允许手输，但必须存在于字典「measurement_unit」
   { key: 'unit', label: '计量单位', kind: 'unit', width: 110 },
   { key: 'weighQty', label: '过磅数量/t', kind: 'number', step: 0.001, precision: 3, width: 120 },
-  { key: 'deductWeight', label: '扣重/t', kind: 'number', step: 0.001, precision: 3, width: 100 },
+  { key: 'deductQty', label: '扣重/t', kind: 'number', step: 0.001, precision: 3, width: 100 },
   { key: 'settleQty', label: '结算数量', kind: 'number', step: 0.001, precision: 3, width: 110 },
   { key: 'isWeighed', label: '是否过磅', kind: 'dict', dict: 'yes_no', width: 100 },
   { key: 'priceBeforeTax', label: '单价/元(税前)', kind: 'number', step: 0.01, precision: 2, width: 130 },
@@ -60,16 +64,16 @@ const FIELDS: F[] = [
   { key: 'receiveUnit', label: '领用单位', kind: 'text', width: 140 },
   { key: 'receiver', label: '领料人', kind: 'text', width: 110 },
   { key: 'laborContract', label: '劳务合同', kind: 'text', width: 140 },
-  { key: 'usePart', label: '使用部位', kind: 'text', width: 140 },
+  { key: 'usePosition', label: '使用部位', kind: 'text', width: 140 },
   { key: 'isProxy', label: '是否代购', kind: 'dict', dict: 'yes_no', width: 100 },
   { key: 'plateNo', label: '车牌号', kind: 'text', width: 120 },
   { key: 'receiptNo', label: '收领单编号', kind: 'text', width: 140 },
   { key: 'remark', label: '备注', kind: 'text', width: 180 },
-  { key: 'subPackagePeriod', label: '分包计价账期', kind: 'text', width: 130 },
+  { key: 'subcontractPeriod', label: '分包计价账期', kind: 'text', width: 130 },
   { key: 'incomePrice', label: '收入单价', kind: 'number', step: 0.01, precision: 2, width: 120 },
-  { key: 'incomeTotal', label: '收入合价', kind: 'money', width: 140 },
-  { key: 'standardPrice', label: '标准单价', kind: 'number', step: 0.01, precision: 2, width: 120 },
-  { key: 'standardTotal', label: '标准合价', kind: 'money', width: 140 },
+  { key: 'incomeAmount', label: '收入合价', kind: 'money', width: 140 },
+  { key: 'stdPrice', label: '标准单价', kind: 'number', step: 0.01, precision: 2, width: 120 },
+  { key: 'stdAmount', label: '标准合价', kind: 'money', width: 140 },
 ];
 
 // ==================== 计量单位输入（需求 2.3.2：默认带出，可手输，但必须存在于字典） ====================
@@ -139,6 +143,7 @@ export default function DailyReports() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
 
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [unitDict, setUnitDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
@@ -185,6 +190,22 @@ export default function DailyReports() {
     }
     if (p.materialType === undefined) delete p.materialType;
     search(p);
+  };
+
+  /** 现场确认：单条或批量（docs/09 §三） */
+  const doConfirm = async (action: 'CONFIRM' | 'REJECT', ids: string[]) => {
+    if (!ids.length) {
+      message.warning('请先勾选要操作的日报行');
+      return;
+    }
+    try {
+      const res: any = await dailyApi.confirm({ ids, action });
+      message.success(`已${action === 'CONFIRM' ? '确认' : '驳回'} ${res?.updated ?? ids.length} 条`);
+      setSelectedKeys([]);
+      reload();
+    } catch {
+      /* 错误提示由 axios 统一拦截器弹出 */
+    }
   };
 
   const importExcel = () => {
@@ -237,6 +258,11 @@ export default function DailyReports() {
     fixed: 'right',
     render: (_: any, row: any) => (
       <Space size={4}>
+        {row.confirmStatusCode === 'CONFIRMED' ? (
+          <Button type="link" size="small" danger onClick={() => doConfirm('REJECT', [row.id])}>驳回</Button>
+        ) : (
+          <Button type="link" size="small" onClick={() => doConfirm('CONFIRM', [row.id])}>确认</Button>
+        )}
         <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
         <Popconfirm title="确认删除该日报？" onConfirm={async () => { await dailyApi.remove(row.id); message.success('已删除'); reload(); }}>
           <Button type="link" size="small" danger>删除</Button>
@@ -249,7 +275,9 @@ export default function DailyReports() {
     <Card
       title="日报管理"
       extra={
-        <Space>
+        <Space wrap>
+          <Button onClick={() => doConfirm('CONFIRM', selectedKeys)} disabled={!selectedKeys.length}>批量确认</Button>
+          <Button onClick={() => doConfirm('REJECT', selectedKeys)} disabled={!selectedKeys.length}>批量驳回</Button>
           <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(dailyApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增日报</Button>
@@ -275,8 +303,9 @@ export default function DailyReports() {
             </Form.Item>
           )}
         </Form.Item>
+        <Form.Item name="confirmStatusCode"><DictSelect typeCode="site_confirm_status" placeholder="确认状态" /></Form.Item>
         <Form.Item name="assetStatus"><DictSelect typeCode="asset_status" placeholder="资产状态" /></Form.Item>
-        <Form.Item name="source"><DictSelect typeCode="material_source" placeholder="来源" /></Form.Item>
+        <Form.Item name="sourceCode"><DictSelect typeCode="material_source" placeholder="来源" /></Form.Item>
         <Form.Item name="entryDate"><DatePicker.RangePicker format="YYYY-MM-DD" placeholder={['进场起', '进场止']} /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
@@ -286,7 +315,11 @@ export default function DailyReports() {
         loading={loading}
         dataSource={list}
         pagination={pagination}
-        scroll={{ x: 3200 }}
+        scroll={{ x: 3300 }}
+        rowSelection={{
+          selectedRowKeys: selectedKeys,
+          onChange: (keys) => setSelectedKeys(keys as string[]),
+        }}
         columns={columns as any}
       />
 

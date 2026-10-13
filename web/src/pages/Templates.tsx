@@ -225,6 +225,7 @@ export default function Templates() {
       {/* 版本历史（问题三：居中弹窗） */}
       <Modal title="版本历史" width={560} centered open={versionOpen} onCancel={() => { setVersionOpen(false); setVersionRow(null); }} footer={null}>
         <Table
+        scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           dataSource={versions}

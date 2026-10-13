@@ -196,6 +196,7 @@ function RolesTab() {
   return (
     <Card title="角色管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增角色</Button>}>
       <Table
+      scroll={{ x: 'max-content' }}
         rowKey="id"
         dataSource={roles}
         pagination={false}
@@ -395,6 +396,7 @@ function ParamsTab() {
           }
         >
           <Table
+          scroll={{ x: 'max-content' }}
             rowKey="key"
             dataSource={groupParams}
             pagination={false}

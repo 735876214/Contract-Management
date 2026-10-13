@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/utils/money';
 import { DictService } from '../dict/dict.service';
@@ -566,14 +567,13 @@ export class ReceiptOrderService {
 
   async remove(id: string) {
     await this.findOne(id);
-    await this.prisma.$transaction(async (tx) => {
-      // 加锁顺序必须与 update 保持一致（主表 ReceiptOrder → 关联 AssetLedger），
-      // 否则与「修改」并发时会形成 ABBA 加锁环路导致死锁
-      // 先删主表，明细通过 onDelete: Cascade 级联删除
-      await tx.receiptOrder.delete({ where: { id } });
-      // 需求 2.2.3：收领单删除后，其自动入账的资产台账记录同步删除
-      await tx.assetLedger.deleteMany({ where: { receiptOrderId: id } });
-    });
+    // 单条 DELETE 自带原子性，无需外层事务；级联与加锁说明见下：
+    // - 明细（ReceiptOrderDetail）与自动入账的资产台账（AssetLedger.receiptOrderId）均为
+    //   DB 级 onDelete: Cascade，随主表删除一并清理，无需手工 deleteMany
+    //   （加锁顺序因此天然与「修改」一致：ReceiptOrder → 级联 AssetLedger，不会形成 ABBA 环路）。
+    // - 总日报（DailyReport.receiptOrderId）为 onDelete: SetNull——日报是结算数量的来源，
+    //   删除收领单不应连带改动结算口径，故保留日报行、仅解除关联。
+    await this.prisma.receiptOrder.delete({ where: { id } });
     return true;
   }
 
@@ -667,7 +667,8 @@ export class ReceiptOrderService {
    *  - supplierId      ← supplierId（供应单位）
    *  - receiveUnit     ← receivingUnitName（领用单位）
    *  - receiver        ← receiver（领料人）
-   *  - receiptNo       ← orderNo（收领单编号）
+   *  - receiptOrderId  ← order.id（显式外键关联，为幂等清理的依据）
+   *  - receiptNo       ← orderNo（收领单编号快照，仅供展示/导入导出；不再用于关联匹配）
    *  - subcontractPeriod ← subcontractName（分包合同）
    *  - materialName/spec/unit ← 明细带出（unit 统一转字典编码）
    *  - settleQty       ← receivedQty（实收数量）
@@ -721,14 +722,23 @@ export class ReceiptOrderService {
         usePosition: d.usagePart || null,
         isProxy: d.isAgentPurchase || null,
         receiptNo: order.orderNo || null,
+        receiptOrderId: order.id,
+        // 现场确认（docs/09 §三）：收领单本身即现场签收 → 推送出的日报行直接置「已确认」，
+        // 避免收领单流程被二次卡住（若业务要求收领单也需单独确认，改这里即可）
+        confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED,
+        confirmedBy: order.receiver || order.createdBy || null,
+        confirmedAt: new Date(),
+        confirmRemark: '收领单自动确认',
         remark: d.remark || null,
         subcontractPeriod: order.subcontractName || null,
       });
     }
 
-    // 幂等：同一收领单编号的历史推送先行清理，避免重复推送产生脏数据
+    // 幂等：本收领单的历史推送先行清理，避免重复推送产生脏数据。
+    // 按 receiptOrderId（显式外键）而非 receiptNo 文本匹配——收领单编号变更不会再导致残留/误删，
+    // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
-      await tx.dailyReport.deleteMany({ where: { projectId: order.projectId, receiptNo: order.orderNo } });
+      await tx.dailyReport.deleteMany({ where: { receiptOrderId: orderId } });
       await tx.dailyReport.createMany({ data: rows });
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });

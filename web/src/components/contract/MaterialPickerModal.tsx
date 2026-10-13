@@ -114,6 +114,7 @@ export default function MaterialPickerModal({
           size="small"
           loading={loading}
           dataSource={rows}
+          scroll={{ x: 'max-content' }}
           pagination={{ pageSize: 8, showTotal: (t: number) => `共 ${t} 条` }}
           rowSelection={{
             selectedRowKeys: selected,

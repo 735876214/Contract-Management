@@ -13,6 +13,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
+import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template/template.service';
 import HTMLtoDOCX from 'html-to-docx';
 import { patchDocx } from '../../common/utils/docx-patch';
@@ -588,6 +589,7 @@ export class ContractService {
       where: { id: contractId },
       data: { status: STATUS_APPROVING, version: { increment: 1 } },
     });
+    await this.syncLinkedTaskStatus(contractId);
     return { pushed, status: STATUS_APPROVING };
   }
 
@@ -601,6 +603,7 @@ export class ContractService {
       where: { id: contractId },
       data: { status, version: { increment: 1 } },
     });
+    await this.syncLinkedTaskStatus(contractId);
     return { status };
   }
 
@@ -616,17 +619,53 @@ export class ContractService {
       where: { id: contractId },
       data: { status: STATUS_DRAFT, signedFilePath: null, version: { increment: 1 } },
     });
-    // 关联采购任务（且为本任务主合同）时，回退任务状态到「合同编制中」
-    if (c.taskId) {
-      const task = await this.prisma.procurementTask.findUnique({ where: { id: c.taskId } });
-      if (task && task.contractId === contractId) {
-        await this.prisma.procurementTask.update({
-          where: { id: c.taskId },
-          data: { status: 'CONTRACT_EDITING', version: { increment: 1 } },
-        });
-      }
-    }
+    // 关联采购任务（且为本任务主合同）时，同步任务状态（合同编制中 / 合同审批中 / 已完成）
+    await this.syncLinkedTaskStatus(contractId);
     return this.findOne(contractId);
+  }
+
+  /**
+   * 任务关联的「主合同」= 该任务生成时间最早的合同。
+   * 同一批生成时 createdAt 可能相同，再按编号排序保证确定性；
+   * 采购任务与合同的关联只由 `Contract.taskId` 一条表达。
+   */
+  private async mainContractOf(taskId: string) {
+    return this.prisma.contract.findFirst({
+      where: { taskId },
+      orderBy: [{ createdAt: 'asc' }, { code: 'asc' }],
+      select: { id: true },
+    });
+  }
+
+  /**
+   * 合同状态变化后，同步其**采购任务**的合同阶段状态
+   * （DRAFT → 合同编制中 / APPROVING → 合同审批中 / SIGNED → 已完成，映射见 `contractStageTaskStatus`）。
+   *
+   * 调用时机：签章、状态互转、提交（草稿→审批中）、驳回回起草。
+   * 仅在「该合同是其任务的主合同」且「任务已走完阶段链」时同步——避免用户在起草页把合同
+   * 关联到流程中的任务时误改该任务状态（那种情况下任务状态仍应由阶段进度决定）。
+   */
+  private async syncLinkedTaskStatus(contractId: string) {
+    const c = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { id: true, taskId: true, status: true },
+    });
+    if (!c?.taskId) return;
+    const task = await this.prisma.procurementTask.findUnique({
+      where: { id: c.taskId },
+      select: { id: true, type: true, stage: true, preMeetingRequired: true, status: true },
+    });
+    if (!task) return;
+    // 未走完阶段链时不介入：任务状态仍由阶段进度决定
+    if (task.stage < stageChain(task.type, task.preMeetingRequired).length) return;
+    // 非主合同：任务状态跟随主合同，不由本合同的变更改写
+    if ((await this.mainContractOf(c.taskId))?.id !== contractId) return;
+    const next = contractStageTaskStatus(c.status);
+    if (next === task.status) return;
+    await this.prisma.procurementTask.update({
+      where: { id: task.id },
+      data: { status: next, version: { increment: 1 } },
+    });
   }
 
   /** 合同是否存在（用于起草子资源校验） */
@@ -1015,6 +1054,8 @@ export class ContractService {
         version: { increment: 1 },
       },
     });
+    // 合同签章 → 同步采购任务状态（主合同则为「已完成」）
+    await this.syncLinkedTaskStatus(id);
     return this.findOne(id);
   }
 

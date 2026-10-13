@@ -456,19 +456,19 @@ export default function ContractDraft() {
             <Card size="small" title="基础信息">
               <Form form={basicForm} layout="vertical">
                 <Row gutter={16}>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Form.Item label="合同编号（自动生成，保存后不可变更）">
                       <Input value={basicForm.getFieldValue('code')} disabled />
                     </Form.Item>
                   </Col>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Form.Item label="合同名称（自动生成：TMHB-XX-项目-物资-类型-供应商）">
                       <Input value={basicForm.getFieldValue('name')} disabled />
                     </Form.Item>
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     {/* 需求 2.1：合同发布后（审批中/已签章）合同类型固化不可修改 */}
                     <Form.Item name="typeCode" label="合同类型" rules={[{ required: true }]}>
                       <DictSelect
@@ -477,7 +477,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item name="supplierId" label="供应商" rules={[{ required: true }]}>
                       <Select
                         showSearch
@@ -486,7 +486,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="materialDescription"
                       label="物资名称描述"
@@ -497,7 +497,7 @@ export default function ContractDraft() {
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="templateId"
                       label="合同模板"
@@ -511,7 +511,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="signDate"
                       label="签订日期"
@@ -520,7 +520,7 @@ export default function ContractDraft() {
                       <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="yyyy-mm-dd" />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="taxRate"
                       label="合同税率(%)"
