@@ -77,6 +77,13 @@
   `rm -f .git/index && git reset --mixed HEAD`（工作区不受影响）。
 - 查 CI：github.com 走 HTTPS 被代理限制时，用 GitHub REST API + PAT 可行；
   日志接口 302 到 Azure Blob，重定向时需摘掉 Authorization 头。
+- **推送只能走 SSH**（2026-10-14 实测）：本机对 GitHub 是**分通道**放行的 —— HTTPS 的 **GET 正常**
+  （`git ls-remote`/`git fetch`/`curl https://api.github.com` 都通），但 HTTPS 的 **POST 被阻断**
+  （`git push` 报 `Failed to connect to github.com port 443`），`curl https://github.com` 也连不上；
+  **SSH 通道（`git@github.com`，含 `ssh.github.com:443`）认证与推送均正常**。
+  而当前 `origin` 是 HTTPS 地址，所以 **`git push origin main` 必定失败**，要显式用：
+  `git push git@github.com:735876214/Contract-Management.git main`
+  （或用 `git remote set-url origin git@github.com:735876214/Contract-Management.git` 一次性改掉）。
 
 ## 验收铁律
 改完必做：① `cd web && npm run build`（含 `tsc --noEmit`）与 `cd server && npm run build`；
