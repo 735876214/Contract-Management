@@ -94,6 +94,17 @@ export class StorageService implements StorageLike {
   }
 
   /**
+   * 确保**存储根目录**存在并返回它（幂等）。
+   * 供启动引导使用：`main.ts` 要把根目录挂成静态资源（`useStaticAssets`），目录不存在会直接报错。
+   * 有了它，服务端就再无 `StorageService` 之外的 fs 调用（由 `server/test/storageBoundary.spec.mts` 锁住）。
+   */
+  ensureRoot(): string {
+    const dir = this.root;
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /**
    * 确保子目录存在并返回其绝对路径（**同步**，供 multer 的 destination 回调使用）。
    * 缺省即**默认上传目录** `<root>/<YYYY-MM>`（与 `save()` 的口径一致；需要存储根目录时用 `.root`）。
    */

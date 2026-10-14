@@ -34,7 +34,8 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（18 个 spec，清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（21 个 spec，无 DB；清单见 docs/development.md §5）
+│   └── test-integration/ # DB 集成测试（3 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -55,8 +56,13 @@ Contract-Management/
    service 在 `where` 里显式带 `projectId`。**新增业务表/查询必须自己带上过滤**，
    否则会跨项目泄漏数据。例外：`dict` 全局、`finance` 按 `contractId` 归属、
    `supplier` 受系统参数 `supplier.share.scope`（GLOBAL/PROJECT）控制。
-4. **字典驱动**：所有下拉/标签/颜色来自 `dict_type`/`dict_item`，业务表存**字典项编码字符串**
+4. **字典驱动 + code 单一事实源**：所有下拉/标签/颜色来自 `dict_type`/`dict_item`，业务表存**字典项编码字符串**
    （不用数据库枚举）。前端用 `DictSelect`/`DictTag`，后端用 `dict.service` 校验。
+   **但 code 本身不许各处裸写**：核心状态码的单一事实源是
+   `server/src/constants/statuses.ts`（合同/结算/付款/发票/现场确认/执行情况…）与
+   `server/src/constants/procurementFlow.ts`（采购任务状态 `TASK_STATUS`、五态合同类型 `CONTRACT_TYPES`），
+   service 里写 `SETTLEMENT_STATUS.DRAFT` 而不是 `'DRAFT'`；字典 typeCode 用 `DICT_TYPES.*`。
+   两侧由 `server/test/statusCodes.spec.mts` **双向锁死**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum）。
 5. **供应商信息不冗余**：合同只存 `supplierId`，法人/联系人/银行等由供应商库实时关联。
 
 ## 4. 改动前必看的高危约定
@@ -177,6 +183,9 @@ Contract-Management/
   ② 合同台账 `Ledger` 的 `ledger.columns.config`（**服务端共享**配置，页面列也由后端返回）。
   **别混用**：给台账页再传 `columnConfigKey` 会出现两套列设置打架；列显隐**不落 `sys_param`**
   （那是全局配置且需 `system:config` 权限，普通用户存不了）。
+- **两套测试，别混用**：`server/test/*.spec.*`（纯函数/漂移锁，**无 DB、秒级**，随 `npm test`）与
+  `server/test-integration/*.int.spec.ts`（真库，`npm run test:int`）。前者只允许 import
+  **无相对运行时依赖**的模块（`.mts` 由 Node 原生擦除类型加载，ESM 不做扩展名推断）；后者是 `.ts`，走 ts-node。
 - **前端纯逻辑单测放在 `server/test/*.spec.mts`**（**不引入** jest/vitest）：直接 import `web/src/**` 中
   **无 `@/` 别名、无运行时 `import`** 的模块（`import type` 可，会被擦除）。`.mts` 由 Node 原生
   擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）——`node:20` 会直接报错。
@@ -195,7 +204,8 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（18 个 spec，见 docs/development.md §5）
+cd server && npm test          # node:test 纯函数单测（21 个 spec，无 DB）
+cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -203,8 +213,16 @@ cd server && npm test          # node:test 单测（18 个 spec，见 docs/devel
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（18 个 spec / 239 项断言）——该 job 已进 CI 门禁，
+   ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**：Nest 的输出带 ANSI 颜色码，grep 会漏判
+   （2026-10-14 实测：`nest build` 看着"通过"，`npx tsc --noEmit` 才暴露 3 处类型收窄错误）。
+   要么看命令退出码，要么直接跑 `npx tsc --noEmit`（平文输出）。
+2. `cd server && npm test` 须全绿（21 个 spec / 253 项断言，**无 DB 依赖**）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
+   另有一套 **DB 集成测试** `cd server && npm run test:int`（3 个 spec：金额闸门 / 合同状态流转 /
+   导入两阶段，需 `DATABASE_URL` 指向库名含 `test`/`int` 的测试库，见 docs/development.md §5.2）；
+   **改金额判定、状态流转、导入相关代码时必须跑它**（纯函数单测证明不了"闸门是否真的接上了"）。
+   CI 同样会跑（postgres service），且会先跑 `prisma migrate diff --exit-code`：
+   **改了 `schema.prisma` 却没生成迁移 → 红**；可执行配置里出现 `db push` 也会红（`test/noDbPush.spec.mts`）。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
    ⚠️ dev 容器（`docker-compose.dev.yml`）的 `nest start --watch` **不感知宿主机新增/修改的文件**
    （bind mount 不转发变更事件）→ `dist/` 可能是**旧编译产物**，接口行为与源码不符
@@ -214,7 +232,7 @@ cd server && npm test          # node:test 单测（18 个 spec，见 docs/devel
    `docker exec cms-server-dev grep -c <新符号> /app/dist/src/<路径>.js` 自查是否在跑旧代码。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。
 5. 改前端 UI 时**真渲染核一眼**（构建通过发现不了"表头竖排"这类破版）；
-   本机无 Playwright，用 Edge headless + CDP 手法，见 `.workbuddy/memory/MEMORY.md` 末节。
+   本机无 Playwright，用 Edge headless + CDP 手法，见 [docs/development.md](docs/development.md) 的「前端真渲染核验」小节。
 6. 修完再验收到通过才完工，不要"改完即报完成"。
 
 ## 8. 文档索引
@@ -237,6 +255,8 @@ cd server && npm test          # node:test 单测（18 个 spec，见 docs/devel
 | [docs/09-重构方案评估与采纳建议.md](docs/09-重构方案评估与采纳建议.md) | 外部重构方案评估（已具备/真缺口/冲突三类）+ 现场确认与防超结落地记录 + 4 项待业务澄清 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
 
-> ⚠️ `.workbuddy/memory/` 下的项目记忆停留在 2026-09 中旬，其中「Prisma 双 schema（sqlite）」
-> 「资审报告阶段」等描述**已过时**（项目已于 2026-09-17 收敛为 PostgreSQL 单 schema，
-> 并移除资审报告）。以代码与本文档为准。
+> **技术选型一句话**：数据库只有 **PostgreSQL 16**（Prisma + 迁移，**禁 `prisma db push`**，
+> CI 有静态与 diff 两道门禁）。历史上存在过 **SQLite 演示变体与双 schema**（`schema.sqlite.prisma`
+> 配合 `db push` 跑本地库），已于 **2026-09-17 整体移除**——相关记忆与操作指引也于 2026-10-14 删除，
+> **勿再引入**（看到任何 sqlite/双 schema 的说法，都是过时信息）。
+> 同样已移除的还有「资审报告」阶段。以代码与本文档为准。

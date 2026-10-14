@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 
@@ -18,11 +19,11 @@ const EDITABLE_FIELDS = [
   'remark',
 ];
 
-/** 状态：编辑中 / 已完成 */
-export const SUB_STATUS = {
-  EDITING: 'EDITING',
-  COMPLETED: 'COMPLETED',
-} as const;
+/**
+ * 状态：编辑中 / 已完成。
+ * code 的单一事实源在 `constants/statuses.ts`（此处保留短名 `SUB_STATUS` 以减少调用点改动）。
+ */
+export const SUB_STATUS = SUBCONTRACTOR_STATUS;
 
 /**
  * 分包商库服务（基础信息管理 → 分包商库）

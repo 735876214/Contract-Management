@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 
+// ⚠️ 本文件被 `server/test/*.spec.mts` 直接 import（Node 原生擦除类型加载），
+// 因此**不能有相对路径的运行时 import**（Node ESM 不做扩展名推断）。
+// 合同状态 code 的事实源在 `./statuses.ts`，此处按字面量书写，由
+// `server/test/statusCodes.spec.mts` 断言 `Object.keys(CONTRACT_STATUS_TO_TASK_STATUS)`
+// 与 `Object.values(CONTRACT_STATUS)` 相等来防漂移。
+
 /**
  * 采购工作流单一事实源（后端 gating 与前端展示均以本文件为准，杜绝双端漂移）。
  * 阶段链只含「可发布的子阶段」；合同阶段（CONTRACT）为末态，不计入链。
@@ -41,7 +47,7 @@ export type StageState = 'done' | 'editing' | 'locked';
  * 任务状态 → 中文展示（前端 web/src/constants/procurementWorkflow.ts 与之镜像，
  * 由 test/frontendChainParity.spec.ts 做漂移锁）。
  */
-export const TASK_STATUS_LABELS: Record<string, string> = {
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   NOT_STARTED: '未发起',
   LIST_EDITING: '总清单编制中',
   PRE_MEETING_EDITING: '采前会纪要编制中',
@@ -81,8 +87,37 @@ export function stageChain(type: string, preMeetingRequired: boolean): StageDef[
 
 /** 采购品类（前端存为「物资/租赁」；决定采购/租赁子类型） */
 export type ContractCategory = '物资' | '租赁' | null;
-/** 合同类型（五态） */
-export type ContractType = 'PURCHASE' | 'LEASE' | 'PURCHASE_EXEC' | 'LEASE_EXEC' | 'EMERGENCY';
+
+/**
+ * 合同类型（五态）——**code 的单一事实源**（评审意见：核心枚举不用裸字符串）。
+ * 与 `schema.prisma` 的 `enum ContractType` **一一对应**（由 `server/test/statusCodes.spec.mts` 锁定），
+ * 也是字典 `contract_type` 取值的**子集**（字典另有 `FRAMEWORK`：框架协议不进这五态）。
+ */
+export const CONTRACT_TYPES = ['PURCHASE', 'LEASE', 'PURCHASE_EXEC', 'LEASE_EXEC', 'EMERGENCY'] as const;
+export type ContractType = (typeof CONTRACT_TYPES)[number];
+
+/** 是否属于「五态合同类型」（用于把字典编码窄化进 DB enum 字段，替代原先的 `as any`） */
+export const isFiveStateContractType = (v: unknown): v is ContractType =>
+  typeof v === 'string' && (CONTRACT_TYPES as readonly string[]).includes(v);
+
+/**
+ * 采购任务状态（`ProcurementTask.status`，**非字典驱动**；标签见 `TASK_STATUS_LABELS`）。
+ * 与合同状态的映射见 `CONTRACT_STATUS_TO_TASK_STATUS`。
+ */
+export const TASK_STATUS = {
+  NOT_STARTED: 'NOT_STARTED',
+  LIST_EDITING: 'LIST_EDITING',
+  PRE_MEETING_EDITING: 'PRE_MEETING_EDITING',
+  NOTICE_EDITING: 'NOTICE_EDITING',
+  DOCUMENT_EDITING: 'DOCUMENT_EDITING',
+  RESULT_EDITING: 'RESULT_EDITING',
+  PRICE_COMPARE_EDITING: 'PRICE_COMPARE_EDITING',
+  FRAMEWORK_EDITING: 'FRAMEWORK_EDITING',
+  CONTRACT_EDITING: 'CONTRACT_EDITING',
+  CONTRACT_APPROVING: 'CONTRACT_APPROVING',
+  COMPLETED: 'COMPLETED',
+} as const;
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 
 /** 合同类型推导：采购类型 + 采购品类（物资→采购；租赁→租赁） */
 export function deriveContractType(taskType: TaskType, category: ContractCategory): ContractType {
@@ -119,7 +154,7 @@ export function contractStageState(
   stage: number,
   chainLength: number,
   taskStatus: string,
-  completedStatus = 'COMPLETED',
+  completedStatus = TASK_STATUS.COMPLETED,
 ): StageState {
   if (taskStatus === completedStatus) return 'done';
   return stage < chainLength ? 'locked' : 'editing';
@@ -137,14 +172,14 @@ export function contractStageState(
  * 两侧漂移由 `frontendChainParity.spec.mts` 锁定。
  */
 export const CONTRACT_STATUS_TO_TASK_STATUS: Record<string, string> = {
-  DRAFT: 'CONTRACT_EDITING',
-  APPROVING: 'CONTRACT_APPROVING',
-  SIGNED: 'COMPLETED',
+  DRAFT: TASK_STATUS.CONTRACT_EDITING,
+  APPROVING: TASK_STATUS.CONTRACT_APPROVING,
+  SIGNED: TASK_STATUS.COMPLETED,
 };
 
 /** 由关联合同状态推导合同阶段的任务状态；未知/空值按「合同编制中」处理 */
 export function contractStageTaskStatus(contractStatus?: string | null): string {
-  return CONTRACT_STATUS_TO_TASK_STATUS[String(contractStatus ?? 'DRAFT')] ?? 'CONTRACT_EDITING';
+  return CONTRACT_STATUS_TO_TASK_STATUS[String(contractStatus ?? 'DRAFT')] ?? TASK_STATUS.CONTRACT_EDITING;
 }
 
 /**

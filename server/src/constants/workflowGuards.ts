@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { CONTRACT_STATUS, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from './statuses';
 
 /**
  * 任务 7：三处「驳回」（无审批流，纯状态回退）的状态机守卫 —— 单一事实源。
@@ -6,30 +7,17 @@ import { BadRequestException } from '@nestjs/common';
  * - 合同签章驳回 → 回到「合同起草」
  * - 结算驳回 → 回到「回填（草稿）」
  * - 成交报告退回 → 回到「重发（成交报告编制中）」
+ *
+ * ⚠️ 状态 **code** 的单一事实源已收敛到 `./statuses.ts`（评审意见：核心枚举不用裸字符串），
+ * 本文件只保留**状态机规则**并原样再导出这些常量（既有调用方 `constants/workflowGuards` 的导入不受影响）。
  */
-
-/** 合同状态（与 contract.service 保持一致：DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
-export const CONTRACT_STATUS = {
-  DRAFT: 'DRAFT',
-  APPROVING: 'APPROVING',
-  SIGNED: 'SIGNED',
-} as const;
+export { CONTRACT_STATUS, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS };
 
 /** 可被驳回回「合同起草」的合同状态：仅「审批中 / 已签章」（草稿本就处于起草，无需驳回） */
 export const CONTRACT_REJECTABLE_STATUSES: readonly string[] = [
   CONTRACT_STATUS.APPROVING,
   CONTRACT_STATUS.SIGNED,
 ];
-
-/** 结算状态（与 settlement_status 字典项一致） */
-export const SETTLEMENT_STATUS = {
-  DRAFT: 'DRAFT',
-  PENDING: 'PENDING',
-  CONFIRMED: 'CONFIRMED',
-  INVOICED: 'INVOICED',
-  PAID: 'PAID',
-  DONE: 'DONE',
-} as const;
 
 /** 可被驳回回「回填」的结算状态：已提交（待确认及之后）；草稿无需驳回 */
 export const SETTLEMENT_REJECTABLE_STATUSES: readonly string[] = [
@@ -91,12 +79,8 @@ export function assertResultReportRejectable(ctx: ResultReportRejectContext): vo
  * - `REJECTED`  已驳回（不计入；可重新确认）
  *
  * 守卫与单测共用，避免规则散落在 service 中漂移（与上面三处驳回同一体例）。
+ * code 定义见 `./statuses.ts` 的 `SITE_CONFIRM_STATUS`（此处仅再导出）。
  */
-export const SITE_CONFIRM_STATUS = {
-  PENDING: 'PENDING',
-  CONFIRMED: 'CONFIRMED',
-  REJECTED: 'REJECTED',
-} as const;
 
 /** 现场确认动作 */
 export const SITE_CONFIRM_ACTION = {

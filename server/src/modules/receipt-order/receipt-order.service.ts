@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
+import {
+  CONTRACT_STATUS,
+  LEGACY_CONTRACT_STATUS_COMPLETED,
+  SUBCONTRACTOR_STATUS,
+} from '../../constants/statuses';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/utils/money';
 import { DictService } from '../dict/dict.service';
@@ -265,7 +270,18 @@ export class ReceiptOrderService {
     const where: any = {
       projectId,
       supplierId: { not: null },
-      OR: [{ status: { in: ['APPROVING', 'SIGNED', 'COMPLETED'] } }, { signedFilePath: { not: null } }],
+      OR: [
+        {
+          status: {
+            in: [
+              CONTRACT_STATUS.APPROVING,
+              CONTRACT_STATUS.SIGNED,
+              LEGACY_CONTRACT_STATUS_COMPLETED,
+            ],
+          },
+        },
+        { signedFilePath: { not: null } },
+      ],
     };
     const contracts = await this.prisma.contract.findMany({
       where,
@@ -285,7 +301,10 @@ export class ReceiptOrderService {
 
   /** 分包商：分包商库中 编辑中 + 已完成 */
   private async subcontractorOptions(projectId: string, keyword?: string) {
-    const where: any = { status: { in: ['EDITING', 'COMPLETED'] }, projectId };
+    const where: any = {
+      status: { in: [SUBCONTRACTOR_STATUS.EDITING, SUBCONTRACTOR_STATUS.COMPLETED] },
+      projectId,
+    };
     if (keyword) {
       where.OR = [
         { subcontractorName: { contains: keyword } },

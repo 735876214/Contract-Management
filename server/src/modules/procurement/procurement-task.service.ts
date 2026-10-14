@@ -16,7 +16,10 @@ import {
   PRICE_COMPARE,
   FRAMEWORK_EXPLAIN,
   STAGE_KEYS,
+  TASK_STATUS,
   TASK_STATUS_LABELS,
+  CONTRACT_TYPE_LABELS,
+  isFiveStateContractType,
   stageChain,
   stageView,
   contractStageState,
@@ -29,6 +32,7 @@ import {
   ContractCategory,
 } from '../../constants/procurementFlow';
 import { assertResultReportRejectable } from '../../constants/workflowGuards';
+import { CONTRACT_STATUS, MODULE_RECORD_STATUS } from '../../constants/statuses';
 
 /** 文本归一化：trim 后空串转 null（各阶段表单共用，避免重复定义） */
 const textOf = (v: any): string | null => {
@@ -127,10 +131,9 @@ export function priceCompareStageIndex(task: { type: string; preMeetingRequired:
 const toWan = (yuan: number): number =>
   Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
 
-// 合同阶段的任务状态码（CONTRACT_EDITING / CONTRACT_APPROVING）与其映射关系已收敛到
-// `constants/procurementFlow.ts` 的 contractStageTaskStatus()，本文件不再单独定义，避免两处漂移。
-export const STATUS_COMPLETED = 'COMPLETED';
-export const STATUS_NOT_STARTED = 'NOT_STARTED';
+// 状态码的单一事实源：任务状态见 `constants/procurementFlow.ts` 的 TASK_STATUS、
+// 模块记录状态见 `constants/statuses.ts` 的 MODULE_RECORD_STATUS（此前本文件自造 STATUS_* 两份，已去除）。
+// 任务状态 ↔ 合同阶段的映射见 `contractStageTaskStatus()`。
 
 /** 状态 → 中文展示（已收敛至单一事实源 procurementFlow，此处透传导出以兼容既有引用） */
 export { TASK_STATUS_LABELS };
@@ -359,7 +362,7 @@ export class ProcurementTaskService {
       data: {
         projectId, taskNo, type: data.type as TaskType,
         content, purpose: purpose || null,
-        status: STATUS_NOT_STARTED, stage: 0, preMeetingRequired,
+        status: TASK_STATUS.NOT_STARTED, stage: 0, preMeetingRequired,
         procurementCategory,
       },
     });
@@ -385,7 +388,7 @@ export class ProcurementTaskService {
   ) {
     const current = await this.prisma.procurementTask.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购任务不存在');
-    const editableStatuses = [STATUS_NOT_STARTED, 'LIST_EDITING'];
+    const editableStatuses: readonly string[] = [TASK_STATUS.NOT_STARTED, TASK_STATUS.LIST_EDITING];
     if (!editableStatuses.includes(current.status)) {
       throw new BadRequestException('任务已进入后续流程，基本信息不可修改');
     }
@@ -621,14 +624,7 @@ export class ProcurementTaskService {
   private async resolveContractTemplate(type: string, category?: string | null) {
     // 合同类型由「采购类型 + 采购品类」统一推导（与 server/src/constants/procurementFlow.ts 的 deriveContractType 一致）
     const typeCode = deriveContractType(type as TaskType, (category as ContractCategory) ?? null);
-    const typeNameByCode: Record<string, string> = {
-      PURCHASE: '采购合同',
-      LEASE: '租赁合同',
-      PURCHASE_EXEC: '采购执行合同',
-      LEASE_EXEC: '租赁执行合同',
-      EMERGENCY: '紧急采购合同',
-    };
-    const typeName = typeNameByCode[typeCode] ?? typeCode;
+    const typeName = CONTRACT_TYPE_LABELS[typeCode] ?? typeCode;
     const templates = await this.prisma.contractTemplate.findMany({
       where: { name: { contains: typeName }, status: 1 },
       orderBy: { createdAt: 'asc' },
@@ -681,13 +677,15 @@ export class ProcurementTaskService {
           {
             code,
             typeCode: resolved.typeCode,
-            contractType: resolved.typeCode as any, // 五态枚举，值与 typeCode 一致
+            // 字典编码窄化进 DB enum 字段（原为 `as any`，绕过了类型检查）；
+            // typeCode 由 deriveContractType 推导，恒为五态之一，非五态时置 NULL 由 typeCode 表达
+            contractType: isFiveStateContractType(resolved.typeCode) ? resolved.typeCode : null,
             taskId: task.id,
             supplierId,
             isFramework: task.type === 'FRAMEWORK' ? 'Y' : 'N',
             templateId: resolved.templateId,
             amount: u.amount,
-            status: 'DRAFT',
+            status: CONTRACT_STATUS.DRAFT,
             autoName: true,
             materialDescription: task.content,
             // 补充二：技术质量/验收/付款标准随合同起草一并带入模板数据
@@ -803,7 +801,7 @@ export class ProcurementTaskService {
     const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.stage >= 1) throw new BadRequestException('总采购清单已发布冻结，不可修改');
-    if (task.status !== STATUS_NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
+    if (task.status !== TASK_STATUS.NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
     if (!Array.isArray(items)) throw new BadRequestException('清单数据无效');
 
     const num = numOf('数量/单价');
@@ -1075,7 +1073,7 @@ export class ProcurementTaskService {
     stages.push({
       key: STAGE_KEYS.CONTRACT,
       label: '生成合同',
-      state: contractStageState(r.stage, chain.length, r.status, STATUS_COMPLETED),
+      state: contractStageState(r.stage, chain.length, r.status, TASK_STATUS.COMPLETED),
     });
     return stages;
   }
@@ -1096,7 +1094,7 @@ export class ProcurementTaskService {
       task: this.serialize(task),
       editable: task.stage >= 1 && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       data: record ? this.serializeExplanation(record) : null,
     };
@@ -1262,7 +1260,7 @@ export class ProcurementTaskService {
       estimatedAmountWan: toWan(amountYuan),
       editable: task.stage >= 1 && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       data: minutesData,
     };
@@ -1410,7 +1408,7 @@ export class ProcurementTaskService {
       reached,
       editable: reached && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       /** 采购清单（只读）：来自总采购清单 */
       purchaseItems: items.map((i) => ({
@@ -1534,7 +1532,7 @@ export class ProcurementTaskService {
       reached,
       editable: reached && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       /** 来自采购公告的取值（采购编号/采购内容来自公告；技术质量标准/验收方式/付款方式来自采购发起 task） */
       notice: notice
@@ -1644,7 +1642,7 @@ export class ProcurementTaskService {
       reached,
       editable: reached && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
       content: notice?.content ?? task.content ?? '',
@@ -1912,7 +1910,7 @@ export class ProcurementTaskService {
       reached,
       editable: reached && !published,
       published,
-      status: published ? 'COMPLETED' : 'EDITING',
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
       statusLabel: published ? '已完成' : '编辑中',
       /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
       content: notice?.content ?? task.content ?? '',

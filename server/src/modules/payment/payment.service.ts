@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } fr
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
+import { DICT_TYPES, PAYMENT_STATUS } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -35,7 +36,11 @@ export class PaymentService {
   ) {}
 
   /** 不构成实际出资的付款状态：不计入「累计付款」，自身为该状态时也不做超付校验 */
-  private static readonly NON_PAYING_STATUSES = ['FAILED', 'REFUNDED'];
+  /** 不计入累计付款的状态（改造前为裸字符串，现取自单一事实源） */
+  private static readonly NON_PAYING_STATUSES: string[] = [
+    PAYMENT_STATUS.FAILED,
+    PAYMENT_STATUS.REFUNDED,
+  ];
 
   /**
    * 防超付校验（docs/09 §四）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。
@@ -85,7 +90,7 @@ export class PaymentService {
   async createRecord(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('payment_status', data.statusCode);
+    await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
     const warn = tx
       ? {}
       : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
@@ -99,7 +104,7 @@ export class PaymentService {
     const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('payment_status', data.statusCode);
+    await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
     const payload: any = pickFields(data, RECORD_FIELDS, { label: '付款记录' });
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);

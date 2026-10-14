@@ -47,9 +47,32 @@ jobs:
   # - 用 npm 而非 pnpm：2026-10 起仓库统一为 npm（package-lock.json + `npm ci`），
   #   镜像构建（deploy/single/Dockerfile.single）走同一套，避免「CI 能过、镜像装不出依赖」；
   #   pnpm-lock.yaml 与 packageManager 字段已移除（原锁文件已过期）。
-  # - 全部用例无 DB / 无网络依赖（纯常量与纯函数 + schema 静态解析）。
+  # - 2026-10-14 新增两道**迁移门禁 + 一套 DB 集成测试**（评审意见 #1/#5），故本 job 需要 postgres：
+  #   ① `prisma migrate diff --exit-code`：改了 schema 却没生成迁移 → 直接红（这才是"强制用迁移"）；
+  #   ② `server/test/noDbPush.spec.mts`（在 npm test 内，无需 DB）：可执行配置里禁止出现 `db push`；
+  #   ③ `npm run test:int`：真库上跑金额闸门 / 合同状态流转 / 导入两阶段（纯函数套件仍是无 DB 的 `npm test`）。
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cms
+          POSTGRES_PASSWORD: cms123456
+          POSTGRES_DB: cms_int
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cms -d cms_int"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # 集成测试用库（`npm run test:int` 会先对它跑 migrate deploy）
+      DATABASE_URL: postgresql://cms:cms123456@localhost:5432/cms_int?schema=public
+      # ⚠️ 迁移 diff 的影子库**必须是另一个库**：`migrate diff` 会把影子库重置成"重放迁移后的样子"，
+      # 指到 cms_int 上会把集成测试库的迁移历史清掉（随后 migrate deploy 直接 P3005）。
+      SHADOW_DATABASE_URL: postgresql://cms:cms123456@localhost:5432/cms_shadow?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,9 +94,26 @@ jobs:
         working-directory: server
         run: npx prisma generate
 
-      - name: Backend unit tests
+      - name: 准备影子库（供下方 migrate diff 使用）
+        working-directory: server
+        run: echo 'CREATE DATABASE cms_shadow;' | npx prisma db execute --stdin --url "$DATABASE_URL"
+
+      - name: Prisma 迁移完整性（改了 schema 必须生成迁移）
+        working-directory: server
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+
+      - name: Backend unit tests（无 DB 依赖）
         working-directory: server
         run: npm test
+
+      - name: Backend integration tests（真库：先 migrate deploy）
+        working-directory: server
+        run: npm run test:int
 
       - name: Backend build（nest build）
         working-directory: server

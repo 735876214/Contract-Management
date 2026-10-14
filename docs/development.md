@@ -75,7 +75,8 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test 单测（18 个 spec / 239 项断言，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（21 个 spec / 253 项断言，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（3 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -130,22 +131,76 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/listColumns.spec.mts` | 列表列显隐偏好（localStorage 键与降级、至少保留一列、受保护列、列过滤） |
   | `test/storageKeys.spec.mts` | 存储键纯逻辑（相对键规范化 / 越权路径 `..`·绝对路径拦截 / 绝对路径与对外 URL） |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
+  | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
+  | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
+  | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
 
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。
   要求：① `.mts` 由 Node 原生擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）；
   ② 被测文件不得有运行时 `import`（`import type` 可，会被擦除）。
   前端质量门另有 `npm run build` 中的 `tsc --noEmit`。
-- 联调/验收脚本（非单测）：
+- 联调/验收脚本（**非单测**，需要先起本地栈，会写数据）：
 
   ```bash
-  node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api）
+  node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api，84 项断言）
   node scripts/verify-async-import.js        # 异步导入（>1000 行）验收；环境变量 BASE/ROWS
   node scripts/verify-import-rollback.js     # 导入事务回滚验收；环境变量 ROWS/BAD_ROW
-  python e2e-module-list.py                  # 采购六模块标准列表 e2e
   ```
 
-  `scripts/refactor_import_tx_*.py` 为一次性历史重构脚本（硬编码旧路径），**无运行价值，勿再用**。
+  这些脚本**不在 CI 里跑**（CI 只跑无 DB 的单测 + DB 集成套件）；改动采购工作流时人工跑一遍。
+  注：早期文档里提到的 `e2e-module-list.py` 早已不存在（2026-10-14 清理时确认），采购六模块列表
+  由 `e2e-procurement-flow.mjs` 覆盖。
+
+## 5.1 DB 集成测试（`npm run test:int`）
+
+纯函数套件（`npm test`）**不碰数据库**——它证明不了"闸门到底接上没有"。真事务、真约束、真闸门由
+`server/test-integration/*.int.spec.ts` 覆盖（用 `NestFactory.createApplicationContext(AppModule)`
+拿真实 DI 后直接调 service，**不引入 `@nestjs/testing`**）：
+
+| spec | 覆盖 |
+|---|---|
+| `amount-guard.int.spec.ts` | 金额上限闸门：`BLOCK` 真的拦住超结/超付、`WARN` 放行、草稿豁免、**合同未填金额=无上限**、失败/退款不计入累计 |
+| `contract-flow.int.spec.ts` | 合同 草稿→审批中→签章→驳回 全链 + 采购任务状态联动 + 签章件落盘/下载 + 两条防误改规则（非主合同、阶段链未走完） |
+| `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
+
+```bash
+# 1) 准备一个**专用测试库**（库名必须含 test 或 int，否则测试拒绝启动——防误连开发/生产库）
+docker exec cms-postgres-dev psql -U cms -d postgres -c 'CREATE DATABASE cms_int;'
+# 2) 跑（脚本内已含 prisma migrate deploy）
+cd server && DATABASE_URL="postgresql://cms:cms123456@localhost:15432/cms_int?schema=public" npm run test:int
+```
+
+- 每个用例自建独立 `Project`（业务表都带 `projectId`）隔离，**不清理数据**；测试库可随时重建。
+- ⚠️ 报 **P3005（database schema is not empty）** = 该库的迁移历史被清掉了（典型原因：把
+  `prisma migrate diff --shadow-database-url` 指到了它）→ `DROP DATABASE` + `CREATE DATABASE` 重建即可。
+- ⚠️ `migrate diff` 的**影子库必须是另一个库**（如 `cms_shadow`）——它会重置影子库内容；
+  CI 里用 `prisma db execute --stdin` 先建影子库，再跑 diff。
+
+## 5.2 前端真渲染核验（本机无 Playwright）
+
+构建通过**发现不了**「表头被挤成竖排」「弹窗溢出屏幕」这类破版，改前端 UI 必须真渲染看一眼。
+本机与 CI 都没有浏览器自动化库（无 Playwright/Puppeteer/Selenium），可行路径是
+**Edge headless + CDP 直连**（零依赖：Node 自带 `WebSocket` 与 `fetch`）：
+
+```bash
+"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
+  --headless=new --remote-debugging-port=9333 --user-data-dir=<临时目录> \
+  --no-first-run --disable-gpu --hide-scrollbars about:blank
+```
+
+然后写一个临时 `mjs` 驱动（放 `%TEMP%`，**不要留在仓库里**）：
+
+1. `fetch http://127.0.0.1:9333/json/list` 取页面目标的 `webSocketDebuggerUrl`；
+2. `Page.navigate` 到 `/login`，用 `Runtime.evaluate` 注入
+   `localStorage.cms_token` 与 `localStorage.cms_project_id`（token 由 `POST /api/auth/login` 现取），
+   再 `Page.navigate` 到目标路由；
+3. 用 `Runtime.evaluate` 断言/驱动 DOM（点按钮、读表头、读 `localStorage`）；切视口用
+   `Emulation.setDeviceMetricsOverride`（375 / 768 / 1280）；
+4. `Page.captureScreenshot` 存图后用 Read 工具**看图**确认版式。
+
+⚠️ 断言要挑**可见**元素（如 `.ant-popover:not(.ant-popover-hidden)`）——antd 会把关闭的浮层留在 DOM 里，
+拿 `.ant-popover` 直接量会得到 `width: 0` 的假通过。
 
 ## 6. 回归清单（改完必做，做完才算完工）
 
@@ -159,7 +214,10 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
       并跑 `cd server && npm run test` 确认一致性锁通过。
 - [ ] **⑥ 菜单改动**：改后端 `menu.service.ts` 的 `MENU_TREE`（权威来源）；
       icon 在 `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；递增 `Sider/utils/storage.ts` 缓存键版本。
-- [ ] **⑦ 导入改动**：确认「全成功或全失败」与 >1000 行异步路径仍成立。
+- [ ] **⑦ 导入改动**：确认「全成功或全失败」与 >1000 行异步路径仍成立；跑 `npm run test:int`
+      （`import-two-phase.int.spec.ts` 会在真库上验证「零写入」与并发去重）。
+- [ ] **⑦' 金额 / 状态流转改动**：跑 `cd server && npm run test:int`——纯函数单测证明不了闸门与状态机
+      **是否真的接上了**（金额上限策略、合同↔任务状态联动都在集成套件里）。
 - [ ] **⑧ 项目隔离**：新增业务查询/写入确认带上 `projectId`（或明确属于 dict/finance/supplier 例外）。
 
 ## 7. 编码约定

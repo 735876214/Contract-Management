@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } fr
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
+import { DICT_TYPES, INVOICE_REVIEW_STATUS, INVOICE_STATUS } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -66,8 +67,8 @@ export class InvoiceService {
 
   private async validate(data: any) {
     await this.dict.validate('invoice_type', data.typeCode);
-    await this.dict.validate('invoice_status', data.statusCode);
-    await this.dict.validate('invoice_review_status', data.reviewStatus);
+    await this.dict.validate(DICT_TYPES.INVOICE_STATUS, data.statusCode);
+    await this.dict.validate(DICT_TYPES.INVOICE_REVIEW_STATUS, data.reviewStatus);
     await this.dict.validate('finance_transfer_status', data.financeTransferStatus);
     await this.dict.validate('goods_category', data.goodsCategory);
   }
@@ -128,7 +129,10 @@ export class InvoiceService {
     const inv = await this.findOne(id);
     return this.prisma.invoice.update({
       where: { id },
-      data: { statusCode: inv.statusCode === 'WAIT_VERIFY' ? 'VERIFIED' : inv.statusCode },
+      data: {
+        statusCode:
+          inv.statusCode === INVOICE_STATUS.WAIT_VERIFY ? INVOICE_STATUS.VERIFIED : inv.statusCode,
+      },
     });
   }
 
@@ -176,9 +180,9 @@ export class InvoiceService {
             taxRate: rate,
             amountWithTax: withTax,
             receiveDate: new Date(),
-            reviewStatus: 'PENDING',
+            reviewStatus: INVOICE_REVIEW_STATUS.PENDING,
             financeTransferStatus: 'NOT_TRANSFERRED',
-            statusCode: 'WAIT_VERIFY',
+            statusCode: INVOICE_STATUS.WAIT_VERIFY,
             remark: it.remark || '批量识别导入',
           },
         });

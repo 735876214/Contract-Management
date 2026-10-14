@@ -13,6 +13,11 @@ import { StorageService } from '../../common/services/storage.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
+import {
+  CONTRACT_EXECUTION_STATUS,
+  CONTRACT_STATUS,
+  LEGACY_CONTRACT_STATUS_COMPLETED,
+} from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template/template.service';
 import HTMLtoDOCX from 'html-to-docx';
@@ -30,11 +35,13 @@ const CONTRACT_FIELDS = [
   'status', 'templateId', 'materialDescription', 'formData',
 ];
 
-/** 合同起草状态（需求修正：统一为 DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
-const STATUS_DRAFT = 'DRAFT';
-const STATUS_APPROVING = 'APPROVING';
-const STATUS_SIGNED = 'SIGNED';
-const PUBLISHED_STATUSES = [STATUS_APPROVING, STATUS_SIGNED];
+/** 合同起草状态（code 的单一事实源见 constants/statuses.ts，勿在本文件另立一套） */
+const CONTRACT_STATUSES: readonly string[] = [
+  CONTRACT_STATUS.DRAFT,
+  CONTRACT_STATUS.APPROVING,
+  CONTRACT_STATUS.SIGNED,
+];
+const PUBLISHED_STATUSES: readonly string[] = [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED];
 const EXT_FIELDS = [
   'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
   'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
@@ -660,15 +667,15 @@ export class ContractService {
     }
     await this.prisma.contract.update({
       where: { id: contractId },
-      data: { status: STATUS_APPROVING, version: { increment: 1 } },
+      data: { status: CONTRACT_STATUS.APPROVING, version: { increment: 1 } },
     });
     await this.syncLinkedTaskStatus(contractId);
-    return { pushed, status: STATUS_APPROVING };
+    return { pushed, status: CONTRACT_STATUS.APPROVING };
   }
 
   /** 状态互转（需求修正：DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
   async setStatus(contractId: string, status: string) {
-    if (![STATUS_DRAFT, STATUS_APPROVING, STATUS_SIGNED].includes(status)) {
+    if (!CONTRACT_STATUSES.includes(status)) {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
     }
     await this.assertContractExists(contractId);
@@ -690,7 +697,7 @@ export class ContractService {
     assertContractRejectable(c.status);
     await this.prisma.contract.update({
       where: { id: contractId },
-      data: { status: STATUS_DRAFT, signedFilePath: null, version: { increment: 1 } },
+      data: { status: CONTRACT_STATUS.DRAFT, signedFilePath: null, version: { increment: 1 } },
     });
     // 关联采购任务（且为本任务主合同）时，同步任务状态（合同编制中 / 合同审批中 / 已完成）
     await this.syncLinkedTaskStatus(contractId);
@@ -848,7 +855,7 @@ export class ContractService {
     if (
       data.typeCode !== undefined &&
       data.typeCode !== before.typeCode &&
-      (before.status ?? STATUS_APPROVING) !== STATUS_DRAFT
+      (before.status ?? CONTRACT_STATUS.APPROVING) !== CONTRACT_STATUS.DRAFT
     ) {
       throw new BadRequestException('合同已发布，合同类型不可修改');
     }
@@ -942,8 +949,8 @@ export class ContractService {
     const where: any = { createdBy: userId };
     if (projectId) where.projectId = projectId;
     if (status) {
-      where.OR = [{ status }, { status: null, execStatus: 'DRAFT' }];
-      if (status === 'DRAFT') where.OR.push({ status: null, execStatus: null });
+      where.OR = [{ status }, { status: null, execStatus: CONTRACT_EXECUTION_STATUS.DRAFT }];
+      if (status === CONTRACT_STATUS.DRAFT) where.OR.push({ status: null, execStatus: null });
     }
     return where;
   }
@@ -951,7 +958,7 @@ export class ContractService {
   /** 当前用户的草稿列表（数据隔离：仅本人创建；需求 2.3 默认仅返回未完成草稿） */
   async findDrafts(userId: string, projectId?: string, status?: string) {
     return this.prisma.contract.findMany({
-      where: this.draftWhere(userId, projectId, status || STATUS_DRAFT),
+      where: this.draftWhere(userId, projectId, status || CONTRACT_STATUS.DRAFT),
       orderBy: { updatedAt: 'desc' },
       include: { supplier: { select: { id: true, name: true } } },
     });
@@ -962,7 +969,7 @@ export class ContractService {
     const c = await this.prisma.contract.findUnique({ where: { id } });
     if (!c) throw new NotFoundException('草稿不存在');
     if (c.createdBy !== userId) throw new BadRequestException('只能删除本人创建的草稿');
-    if (c.execStatus && c.execStatus !== 'DRAFT') throw new BadRequestException('该合同已提交，不能作为草稿删除');
+    if (c.execStatus && c.execStatus !== CONTRACT_EXECUTION_STATUS.DRAFT) throw new BadRequestException('该合同已提交，不能作为草稿删除');
     await this.prisma.contract.delete({ where: { id } });
     return true;
   }
@@ -977,7 +984,7 @@ export class ContractService {
     const { skip, take } = paginate(query);
     const and: any[] = [{ projectId }];
     // 需求修正6：审批中/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
-    and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, 'COMPLETED'] } }, { status: null }] });
+    and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, LEGACY_CONTRACT_STATUS_COMPLETED] } }, { status: null }] });
     if (query.keyword) {
       and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
     }
@@ -1005,9 +1012,9 @@ export class ContractService {
    * 需求 2.2：草稿中不可导出 Word，审批中/已签章均可导出
    */
   private isDraftContract(c: { status?: string | null; execStatus?: string | null }) {
-    if (c.status === STATUS_DRAFT) return true;
+    if (c.status === CONTRACT_STATUS.DRAFT) return true;
     // 历史遗留：合同状态为空时，执行情况为 DRAFT 或同样为空，均视为起草中的草稿
-    if (!c.status && (c.execStatus === STATUS_DRAFT || !c.execStatus)) return true;
+    if (!c.status && (c.execStatus === CONTRACT_STATUS.DRAFT || !c.execStatus)) return true;
     return false;
   }
 
@@ -1119,7 +1126,7 @@ export class ContractService {
         signedDate: chosen, // 兼容历史展示逻辑
         signedAt: new Date(), // 签章操作时间
         signedRemark: remark || null,
-        status: STATUS_SIGNED,
+        status: CONTRACT_STATUS.SIGNED,
         version: { increment: 1 },
       },
     });

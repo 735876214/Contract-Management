@@ -11,20 +11,20 @@
 **/.vite
 **/*.tsbuildinfo
 
-# 版本控制 / CI / 编辑器
+# 版本控制 / CI / 编辑器 / 本机 AI 工具目录
 .git
 .github
 .vscode
 .idea
 .DS_Store
 .codebuddy
+.workbuddy
 
 # 环境变量、本地数据与日志
 .env
 .env.*
 **/*.db
 **/*.db-journal
-**/*.sqlite
 **/uploads
 **/tmp
 **/*.log
@@ -37,5 +37,4 @@ data-dev
 docs
 scripts
 hooks
-e2e-module-list.py
 *.png

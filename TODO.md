@@ -2,7 +2,7 @@
 
 > **本文件只列「未完成」任务**：完成一项就**直接删除条目**（不用 `[x]` 勾选、不写"已完成"段落，
 > 否则文件只增不减）；历史以 `git log` / PR 为准。
-> 改动前必读的约定与踩过的坑见 [AGENTS.md](AGENTS.md) 与 [.workbuddy/memory/MEMORY.md](.workbuddy/memory/MEMORY.md)。
+> 改动前必读的约定与踩过的坑见 [AGENTS.md](AGENTS.md)（**唯一事实源**；历史经验已在其中固化）。
 > 数据来源：对当前代码库的审计（非产品需求方录入），请按实际排期调整。
 > **基准**：main 分支 2026-10-14（**不在此逐批枚举已完成项**——那会随每次提交过期，历史见 `git log`）。
 
@@ -101,5 +101,6 @@
 2. **新增任务**：只写「未完成、可执行」的事项，附证据（文件/接口/命令）与**阻塞原因**；
    按阻塞条件分流到三档之一：`需业务澄清` / `需外部条件` / `可直接开工`。
 3. **需要长期记住的约定与坑**：**不要写在本文件**——写进 [AGENTS.md](AGENTS.md)（改动前必读的硬约定）
-   或 [.workbuddy/memory/MEMORY.md](.workbuddy/memory/MEMORY.md)（背景、成因、易错点）。
+   或 [docs/development.md](docs/development.md)（做法与命令）；本仓库已不再保留 `.workbuddy/memory/`
+   之类的历史记忆目录（2026-10-14 清理，内容含已废弃的 SQLite/双 schema 指引）。
 4. 与 [AGENTS.md](AGENTS.md) 的「验收铁律」配合使用：改完必须过构建 + 单测 + 真打请求。
