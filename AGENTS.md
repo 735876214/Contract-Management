@@ -26,7 +26,7 @@ Contract-Management/
 │   ├── 01~09-*.md       # 需求摘要/ER/接口清单/Docker/四域扩展/变量体系/关联审计/响应式/重构评估
 │   └── project-overview.md architecture.md user-guide.md development.md component-api.md
 ├── server/              # NestJS 后端
-│   ├── prisma/schema.prisma        # 全量数据模型（50 个 model，1306 行）
+│   ├── prisma/schema.prisma        # 全量数据模型（50 个 model）
 │   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 5 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders）
@@ -34,7 +34,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（21 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（22 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（3 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
@@ -204,7 +204,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（21 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（22 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
@@ -216,8 +216,10 @@ cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**：Nest 的输出带 ANSI 颜色码，grep 会漏判
    （2026-10-14 实测：`nest build` 看着"通过"，`npx tsc --noEmit` 才暴露 3 处类型收窄错误）。
    要么看命令退出码，要么直接跑 `npx tsc --noEmit`（平文输出）。
-2. `cd server && npm test` 须全绿（21 个 spec / 253 项断言，**无 DB 依赖**）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（22 个 spec，**无 DB 依赖**）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
+   断言数不写在这里（它随用例增减，以命令输出为准）；spec 数量与 `docs/development.md §5` 清单
+   由 `server/test/docStats.spec.mts` 锁定，**新增 spec 必须同步登记清单**。
    另有一套 **DB 集成测试** `cd server && npm run test:int`（3 个 spec：金额闸门 / 合同状态流转 /
    导入两阶段，需 `DATABASE_URL` 指向库名含 `test`/`int` 的测试库，见 docs/development.md §5.2）；
    **改金额判定、状态流转、导入相关代码时必须跑它**（纯函数单测证明不了"闸门是否真的接上了"）。
@@ -260,3 +262,11 @@ cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL
 > 配合 `db push` 跑本地库），已于 **2026-09-17 整体移除**——相关记忆与操作指引也于 2026-10-14 删除，
 > **勿再引入**（看到任何 sqlite/双 schema 的说法，都是过时信息）。
 > 同样已移除的还有「资审报告」阶段。以代码与本文档为准。
+
+> **统计数字的两种待遇（2026-10-14 定）**：
+> **活文档**（本文件、`docs/development.md`）说的是"现在是什么"，其中的 spec / model / 业务模块 /
+> 增量迁移 计数**必须与代码一致**，由 `server/test/docStats.spec.mts` 锁定——新增 spec 要同步
+> `docs/development.md §5` 的清单，新增迁移要同步本文件 §2 的迁移列表；
+> **历史报告**（`docs/07` §0.1、`docs/08` §0.1、`docs/09` §8 等**带日期的实施/验收记录**）说的是
+> "当时是什么"，就地标注「当时快照」即可，**不要**为了"看起来新"去追改（改了等于篡改记录）。
+> **断言数（如"253 项断言"）不进散文**：它随每次加/改用例变动，以 `npm test` 输出为准。

@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（21 个 spec / 253 项断言，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（22 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（3 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -134,6 +134,10 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
+  | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `AGENTS.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
+
+  > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
+  > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。
 
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。
@@ -143,12 +147,13 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 - 联调/验收脚本（**非单测**，需要先起本地栈，会写数据）：
 
   ```bash
-  node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api，84 项断言）
+  node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api）
   node scripts/verify-async-import.js        # 异步导入（>1000 行）验收；环境变量 BASE/ROWS
   node scripts/verify-import-rollback.js     # 导入事务回滚验收；环境变量 ROWS/BAD_ROW
   ```
 
   这些脚本**不在 CI 里跑**（CI 只跑无 DB 的单测 + DB 集成套件）；改动采购工作流时人工跑一遍。
+  断言项数随用例增减（脚本末行自己会打印 `N/M 通过`），故不在此写死。
   注：早期文档里提到的 `e2e-module-list.py` 早已不存在（2026-10-14 清理时确认），采购六模块列表
   由 `e2e-procurement-flow.mjs` 覆盖。
 

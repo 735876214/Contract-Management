@@ -57,16 +57,19 @@
 - **通知通道适配器**（企微/钉钉机器人 Webhook）：现状只有站内信
   （`notification.service.ts` 注释即写「邮件/短信/企微/钉钉接口预留」）。
   **阻塞原因**：需要机器人凭据与出网策略，且要业务定「哪些事件发到群里」。
+- **确认 CI 新 workflow 的首跑结果**：2026-10-14 改过 `.github/workflows/build.yml`（`test` job 新增
+  postgres service、建影子库、`prisma migrate diff --exit-code` 门禁与 `npm run test:int`），
+  但**本机无 `gh` CLI**、也无法本地解析 YAML 真跑一遍，只逐条验过里面的命令。需在 GitHub Actions 上
+  看该 job 是否绿（步骤序：prisma generate → 建 `cms_shadow` → migrate diff → `npm test` →
+  `npm run test:int` → server/web build）。**确认后删本条**。
 
 ## 可直接开工（工程项，按性价比排序）
 
-1. **删除 `useTablePage` 死代码**：`web/src/hooks/useTable.ts` 里该 Hook **全仓无引用**
-   （`docs/component-api.md` 已标注「⚠️ 死代码，全库无引用」）；删 Hook + 文档表行即可，零风险。
-2. **校准文档过期数字 + 给历史快照加标注**：
-   - `AGENTS.md` §2 写「`schema.prisma` 1306 行」，实测 **1312 行**；
-   - [docs/08](docs/08-全局响应式改造方案.md) §0.1 与 [docs/09](docs/09-重构方案评估与采纳建议.md) §8 的
-     「13 个 spec / 180 项断言」是**当时的验收快照**（现为 17 个 spec / 235 项断言），
-     需就地标注「当时快照，勿当现状」——否则下次梳理又会被当成过期数据反复改。
+- **解除 `.mts` 单测的「相对导入」限制**（低优先，**先评估再动手**）：`.spec.mts` 由 Node 原生擦除类型
+  加载，而 ESM 不做扩展名推断，故被测模块**不得有相对运行时 `import`**——`server/src/constants/procurementFlow.ts`
+  为能被 spec 加载，刻意不 import `./statuses`，改成裸字面量 + 靠漂移锁兜底（见该文件内的解释注释与
+  [AGENTS.md](AGENTS.md) §5）。解除需 TS ≥5.7（现 `^5.3.3`）并开 `allowImportingTsExtensions` /
+  `rewriteRelativeImportExtensions`。**代价**：TS 升级会牵动 `nest build` 与 Prisma 生成物，须整体回归。
 
 ## 四域扩展（评估已定，待实施）
 
@@ -103,4 +106,6 @@
 3. **需要长期记住的约定与坑**：**不要写在本文件**——写进 [AGENTS.md](AGENTS.md)（改动前必读的硬约定）
    或 [docs/development.md](docs/development.md)（做法与命令）；本仓库已不再保留 `.workbuddy/memory/`
    之类的历史记忆目录（2026-10-14 清理，内容含已废弃的 SQLite/双 schema 指引）。
+   同理，**本文件不写「现为 N 个 spec / N 项断言」这类会过期的数字**：活文档的计数由
+   `server/test/docStats.spec.mts` 锁，历史报告标「当时快照」即可（见 [AGENTS.md](AGENTS.md) §8 末尾）。
 4. 与 [AGENTS.md](AGENTS.md) 的「验收铁律」配合使用：改完必须过构建 + 单测 + 真打请求。

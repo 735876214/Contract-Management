@@ -1,6 +1,6 @@
 # 企业合同管理系统（CMS）
 
-React 18 + TypeScript + Vite + Ant Design 5 + Zustand 前端，NestJS + Prisma + PostgreSQL 后端，JWT + RBAC 鉴权。
+React 18 + TypeScript + Vite + Ant Design 5 + Zustand 前端，NestJS + Prisma + **PostgreSQL 16（唯一数据库）** 后端，JWT + RBAC 鉴权。
 
 ## 目录结构
 
@@ -101,11 +101,10 @@ server/src/
   `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件。
 - **npm 提示「install scripts not yet covered by allowScripts」**：npm 11 起的告警，
   prisma / esbuild 等确需构建脚本，可忽略（镜像内的 npm 10 不做拦截）。
-- **上传目录**：默认 `server/uploads`，由 `/api/files/**` 静态映射，生产环境建议替换为对象存储
-  （`FileController` 是唯一的写入点，替换实现即可）。
-- **MySQL 差异**：本模型使用 `Decimal(18,2)` 与 `String` 字典编码，MySQL 下同样适用；
-  差异在于 Postgres 支持 `@@unique` 中 nullable 列的多空值（MySQL 允许多个 NULL，语义一致），
-  若切换到 MySQL 需把 `@db.Text` 长文本字段改为 `@db.Text`（MySQL 支持）或 `String` 并指定长度。
+- **上传目录与对象存储**：默认落 `server/uploads`，由 `/api/files/**` 静态映射；
+  **落盘统一走 `server/src/common/services/storage.service.ts`（`StorageService`）**——换 MinIO/S3 只需
+  实现同一个 `StorageLike`、改 `common.module.ts` 的 provider 绑定，再把 `main.ts` 的静态服务改成
+  代理/302 重定向即可，调用方不用动。
 
 更多说明见 `docs/` 目录。
 

@@ -115,7 +115,6 @@
 |---|---|---|
 | `useTable<T>` | `(fetcher, defaultParams?) → { loading, list, total, params, setParams, search(extra), reload, pagination }` | 通用列表查询（默认 `page/pageSize=20`）；内部去抖动与丢弃过期响应 |
 | `useListColumns` | `({ configKey?, allKeys, lockedKeys? }) → { hiddenKeys, isHidden, toggle, reset, hiddenCount }` | 列表页**列显隐**偏好，按 `configKey` 存 localStorage（每浏览器，不落库）；纯逻辑在 `utils/listColumns.ts`（可单测）。与 `ledger.columns.config`（服务端共享配置）**语义不同**，勿混用 |
-| `useTablePage` | 同 `useTable` | ⚠️ 死代码，全库无引用 |
 
 （Sider 的 `useMenuData/useMenuSearch/useBreadcrumb` 见上。）
 
@@ -160,7 +159,7 @@
 | `ImportRunnerService` | 两阶段执行器；`RowError` · `ImportOutcome{total,created,updated,errors}` · `batchDup()` |
 | `ImportTaskService` | 异步导入（阈值 1000）：`list` / `findOne`（进度轮询）；完成发站内信，失败行出错误报告 |
 | `SysParamService` | `get(key, def)` · `set(key,value,remark)` · `getAll()` · `refresh()`（内存缓存） |
-| `StorageService` | `save(buffer,{sub?,ext?,name?})` · `read` · `exists` · `remove` · `publicUrl(key)` · `absPath(key)` · `resolveDir(sub?)` · `allocateName(ext)`（**文件落盘唯一入口**；相对键形如 `signed/x.pdf`，对外 URL `/api/files/<键>`；越权路径 400） |
+| `StorageService` | `save(buffer,{sub?,ext?,name?})` · `read` · `exists` · `remove` · `publicUrl(key)` · `absPath(key)` · `resolveDir(sub?)` · `allocateName(ext)` · `ensureRoot()`（**文件落盘唯一入口**；相对键形如 `signed/x.pdf`，对外 URL `/api/files/<键>`；越权路径 400） |
 | `LogService` | `operation(...)` · `login(...)`（失败不阻断） |
 | `pickFields(data, allowed, opts?)` | 白名单过滤（默认 warn，`strict` 抛 400） |
 | `utils/money` | `amountToChineseCapital` · `round` / `round2` / `round4` |

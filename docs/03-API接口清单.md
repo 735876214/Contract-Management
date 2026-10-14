@@ -415,7 +415,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| POST | `/files/upload` | 单/多文件上传（本地磁盘存储，返回 url；`FileController` 是**唯一写入点**，将来可替换为对象存储） | — |
+| POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 静态文件访问（`useStaticAssets(UPLOAD_DIR, '/api/files')`） | — |
 
 ---
