@@ -134,7 +134,21 @@ describe('合同链口径（含补充协议）', () => {
     const db = mockDb(contracts);
     assert.equal(await contractChainAmount(db, 'root'), 150);
     assert.equal(await contractChainAmount(db, 'sup2'), 150);
-    assert.equal(await contractChainAmount(db, 'ghost'), 0);
+    assert.equal(await contractChainAmount(db, 'ghost'), null, '合同不存在 → null 而非 0');
+  });
+
+  it('全链都未填合同额 → 返回 null（= 无上限，防「上限 0」误判所有单据超限）', async () => {
+    const noAmount = [
+      { id: 'root', parentContractId: null, amount: null },
+      { id: 'sup1', parentContractId: 'root', amount: null },
+    ];
+    assert.equal(await contractChainAmount(mockDb(noAmount), 'root'), null);
+    // 有任一份填了金额就按已填部分合计
+    const partial = [
+      { id: 'root', parentContractId: null, amount: null },
+      { id: 'sup1', parentContractId: 'root', amount: 30 },
+    ];
+    assert.equal(await contractChainAmount(mockDb(partial), 'root'), 30);
   });
 
   it('累计结算排除草稿、排除自身；NULL 状态视为已提交（计入）', async () => {

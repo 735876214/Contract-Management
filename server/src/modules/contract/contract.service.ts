@@ -504,6 +504,78 @@ export class ContractService {
     return { added, skipped: pool.length - added };
   }
 
+  /**
+   * 由「采购总清单」带入**起草期合同清单**（采购阶段已算过的量价不必在合同里重录）。
+   *
+   * 与 `draftDerive` 的区别：derive 取自本合同的「物料编码清单（物料池）」，
+   * 本方法取自采购任务的 `ProcurementTotalItem`，用于**自动生成合同时**预填清单行。
+   * - 税率与 `draftSave` 口径一致：一律取合同主表税率（物料税率不独立存储）；
+   * - 含税单价 / 暂定含税合价按同一公式服务端重算（4 位精度），不信任调用方传入；
+   * - 已存在的物资跳过（`@@unique([contractId, materialBaseId])`），可安全重复调用；
+   * - 调用方需容错：带入失败不应阻断合同生成（见 procurement-task.service 的调用点）。
+   *
+   * @param items 采购总清单行（`materialBaseId` 必填；`priceBeforeTax` 约定传「控制价」planPrice）
+   */
+  async seedDraftFromProcurementItems(
+    contractId: string,
+    items: {
+      materialBaseId?: string | null;
+      qty?: number | null;
+      priceBeforeTax?: number | null;
+      unit?: string | null;
+      remark?: string | null;
+    }[],
+  ): Promise<{ added: number; skipped: number }> {
+    await this.assertContractExists(contractId);
+    if (!Array.isArray(items) || !items.length) return { added: 0, skipped: 0 };
+    const contractPct = await this.contractTaxPct(contractId);
+    const existed = await this.prisma.contractDraftMaterial.findMany({
+      where: { contractId },
+      select: { materialBaseId: true, sortOrder: true },
+    });
+    const has = new Set(existed.map((e) => e.materialBaseId));
+    let maxSort = existed.reduce((m, e) => Math.max(m, e.sortOrder || 0), 0);
+
+    const numOf = (v: unknown): number | null => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    let added = 0;
+    let skipped = 0;
+    for (const it of items) {
+      const materialBaseId = String(it?.materialBaseId ?? '').trim();
+      if (!materialBaseId || has.has(materialBaseId)) {
+        skipped += 1;
+        continue;
+      }
+      const qty = numOf(it.qty);
+      const price = numOf(it.priceBeforeTax);
+      const priceWithTax = price != null && contractPct != null ? round4(price * (1 + contractPct / 100)) : null;
+      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      maxSort += 1;
+      has.add(materialBaseId);
+      await this.prisma.contractDraftMaterial.create({
+        data: {
+          contractId,
+          materialBaseId,
+          seqNo: maxSort,
+          sortOrder: maxSort,
+          unit: String(it.unit ?? '').trim(),
+          qty,
+          priceBeforeTax: price,
+          taxRatePct: contractPct,
+          priceWithTax,
+          totalWithTax,
+          remark: it.remark ?? '由采购总清单带入',
+        },
+      });
+      added += 1;
+    }
+    return { added, skipped };
+  }
+
   /** 保存草稿清单行（含税单价 / 暂定含税合价 服务端统一计算，4 位精度） */
   async draftSave(contractId: string, rows: any[]) {
     await this.assertContractExists(contractId);

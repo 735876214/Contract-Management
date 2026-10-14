@@ -4,6 +4,7 @@ import { paginate, buildResult, num, ratio, fmtDate, IMPORT_MAX_ROWS } from '../
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { calcLedgerCompliance } from './ledger-compliance';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { LEDGER_COLUMNS, ledgerColumnWidthPx } from './ledger-columns';
 
@@ -117,7 +118,7 @@ export class LedgerService {
         if (y) yearPaid[y] = Number(((yearPaid[y] || 0) + (num(p.amount) || 0)).toFixed(2));
       });
 
-      const compliance = this.calcCompliance(c.typeCode, firstEntryDate, ext.bidStartDate, ext.bidWinDate, c.signDate);
+      const compliance = calcLedgerCompliance(c.typeCode, firstEntryDate, ext.bidStartDate, ext.bidWinDate, c.signDate);
 
       return {
         id: c.id,
@@ -174,33 +175,6 @@ export class LedgerService {
     return { ...buildResult(rows, total, query), columns: await this.columns() };
   }
 
-  /**
-   * 合规性问题自动计算（不落库）
-   * 执行合同：进场 ≥ 签订 → 无问题；早于 → 未签合同先进场
-   * 非执行合同：依次比较 招标 → 定标 → 签订；关键时间缺失 → 时间数据不完整
-   */
-  private calcCompliance(typeCode: string, entry: Date | null, bidStart: any, bidWin: any, sign: any): string {
-    const execTypes = ['PURCHASE_EXEC', 'LEASE_EXEC'];
-    const d = (v: any) => (v ? new Date(v).getTime() : null);
-    const entryT = d(entry);
-
-    if (execTypes.includes(typeCode)) {
-      if (!entryT) return '';
-      const signT = d(sign);
-      if (!signT) return '时间数据不完整';
-      return entryT >= signT ? '无问题' : '未签合同先进场';
-    }
-
-    if (!entryT) return '时间数据不完整';
-    const bidStartT = d(bidStart);
-    const bidWinT = d(bidWin);
-    const signT = d(sign);
-    if (!bidStartT && !bidWinT && !signT) return '时间数据不完整';
-    if (bidStartT && entryT < bidStartT) return '未招标进场';
-    if (bidWinT && entryT < bidWinT) return '未定标进场';
-    if (signT && entryT < signT) return '未签合同进场';
-    return '无问题';
-  }
 
   /** 列配置（默认全部显示，hidden 列默认隐藏） */
   async columns() {

@@ -33,7 +33,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（9 个 spec，清单见 docs/development.md §5）
+│   └── test/           # node:test 单测（11 个 spec，清单见 docs/development.md §5）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -97,7 +97,15 @@ Contract-Management/
   （上限 = 合同链「主合同 + 补充协议」金额；累计结算**排除草稿**；累计付款**排除付款失败/已退款**）。
   策略由系统参数 `settlement.over_amount_policy` / `payment.over_amount_policy` 控制
   （`BLOCK` 拦截 / `WARN` 仅提示 / `OFF` 关闭，默认 `WARN`）；改判定规则请同步改 `amountGuard.spec.mts`。
+  ⚠️ **合同链未填金额时返回 `null` = 无上限**（不可校验）：不要把「无金额」当成上限 0，
+  否则任何一笔结算/付款都会被误判超限（BLOCK 下直接拦住合法单据）。
   注：清单项级「结算量 ≤ 已确认量」的量级校验**尚未做**（需先定变更口径，见 docs/09 §7）。
+- **采购总清单会带入合同起草清单**：任务全部阶段发布后自动生成合同时，
+  `generateLinkedContract()` 会把 `ProcurementTotalItem` 带入该合同的**起草期清单**
+  （`ContractDraftMaterial`）：`qty ← qty`、`priceBeforeTax ← planPrice`（控制价）、`unit ← unit`；
+  税率按**合同主表税率**预填、含税单价与暂定含税合价服务端重算（与 `draftSave` 同口径）。
+  多单位场景**每份合同都带入同一份清单**（由用户按成交单位裁剪）；带入失败只记日志、**不阻断**合同生成。
+  写入口：`contract.service.seedDraftFromProcurementItems()`（幂等，已存在的物资跳过）。
 - **合同台账列宽的单位契约**：`LEDGER_COLUMNS[].width`
   （`server/src/modules/ledger/ledger-columns.ts`）是 **Excel 字符宽（8~30）**，
   接口对外输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算为**像素**。
@@ -151,7 +159,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（9 个 spec，见 docs/development.md §5）
+cd server && npm test          # node:test 单测（11 个 spec，见 docs/development.md §5）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -159,7 +167,7 @@ cd server && npm test          # node:test 单测（9 个 spec，见 docs/develo
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（9 个 spec / 120 项断言）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（11 个 spec / 151 项断言）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。

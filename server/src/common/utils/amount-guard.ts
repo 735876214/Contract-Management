@@ -102,12 +102,19 @@ export async function contractChainIds(db: any, contractId: string): Promise<str
   return [rootId, ...children.map((c: any) => c.id)];
 }
 
-/** 合同链金额 = 链根 + 补充协议 的 amount 之和（金额未填按 0） */
-export async function contractChainAmount(db: any, contractId: string): Promise<number> {
+/**
+ * 合同链金额 = 链根 + 补充协议 的 amount 之和。
+ * **全链都未填合同额时返回 `null`（= 无上限，不可校验）**，而不是 0——
+ * 否则「合同没填金额」会被当成上限 0，任何一笔结算/付款都会被误判超限
+ * （BLOCK 策略下会直接拦住合法单据）。
+ */
+export async function contractChainAmount(db: any, contractId: string): Promise<number | null> {
   const ids = await contractChainIds(db, contractId);
-  if (!ids.length) return 0;
+  if (!ids.length) return null;
   const rows = await db.contract.findMany({ where: { id: { in: ids } }, select: { amount: true } });
-  return round2(rows.reduce((s: number, r: any) => s + toNum(r.amount), 0));
+  const filled = rows.filter((r: any) => r.amount !== null && r.amount !== undefined && r.amount !== '');
+  if (!filled.length) return null;
+  return round2(filled.reduce((s: number, r: any) => s + toNum(r.amount), 0));
 }
 
 /** 排除草稿的 where 片段（见文件头关于 NULL 的说明） */

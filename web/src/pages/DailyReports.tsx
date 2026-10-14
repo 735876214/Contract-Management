@@ -21,6 +21,8 @@ interface F {
   fixed?: 'left' | 'right';
   step?: number;
   precision?: number;
+  /** 整数字段：不加千分位（年份、月份等；数量/金额仍需分位符便于读数） */
+  noGroup?: boolean;
   /** 需求 2.1.4：来源为物资基础库的字段，总日报只读展示，不允许手工维护 */
   readonly?: boolean;
 }
@@ -29,7 +31,7 @@ interface F {
 // ⚠️ key 必须与 DailyReport 模型字段**逐字一致**：本数组同时驱动表格列（dataIndex）与表单字段（name），
 //    错一个字就会出现「表格列空白 + 保存 500」（Prisma 拒绝未知字段）。2026-10-14 修正了 10 处历史错名。
 const FIELDS: F[] = [
-  { key: 'periodYear', label: '账期/年', kind: 'number', width: 90 },
+  { key: 'periodYear', label: '账期/年', kind: 'number', noGroup: true, width: 90 },
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
@@ -248,7 +250,12 @@ export default function DailyReports() {
     }
     if (f.kind === 'money') return { ...base, render: money };
     if (f.kind === 'date') return { ...base, render: (v: string) => (v ? v.slice(0, 10) : '-') };
-    if (f.kind === 'number') return { ...base, render: (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN')) };
+    if (f.kind === 'number') {
+      return {
+        ...base,
+        render: (v: any) => (v == null ? '-' : f.noGroup ? String(v) : Number(v).toLocaleString('zh-CN')),
+      };
+    }
     return base;
   });
 

@@ -109,12 +109,14 @@ export interface EngineOptions {
 }
 
 interface Entry {
+  /** 在入参数组中的下标——**不能改用 rowId 反查**：本引擎按文档也可用于「前端复算/单测」，
+   *  那种场景下入参往往没有 id，用 rowId 匹配会退化成「总取第一个条目」。 */
+  srcIdx: number;
   month: string;
   payableAmount: number;
   payableDate: Date;
   overdueStart: Date;
   remaining: number;
-  rowId?: string; // 主行（materialAmount>0 的行）
 }
 
 /**
@@ -128,16 +130,16 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
 
   // ---- 1. 构建应付款条目（materialAmount>0 的行为主行） ----
   const entries: Entry[] = [];
-  for (const r of rows) {
+  rows.forEach((r, idx) => {
     const material = Number(r.materialAmount) || 0;
-    if (material <= 0) continue;
+    if (material <= 0) return;
     const ratio = r.paymentRatio === null || r.paymentRatio === undefined ? 1 : Number(r.paymentRatio);
     const payable = round(material * ratio, 2) || 0;
     const pDate = r.payableDate ? new Date(r.payableDate) : null;
-    if (!pDate || isNaN(pDate.getTime())) continue;
+    if (!pDate || isNaN(pDate.getTime())) return;
     const overdueStart = addDays(pDate, (opts.graceDays ?? 7) + 1);
-    entries.push({ month: r.settlementMonth, payableAmount: payable, payableDate: pDate, overdueStart, remaining: payable, rowId: r.id });
-  }
+    entries.push({ srcIdx: idx, month: r.settlementMonth, payableAmount: payable, payableDate: pDate, overdueStart, remaining: payable });
+  });
   // 按逾期起始日期顺序（应付款日期顺序）
   entries.sort((a, b) => a.overdueStart.getTime() - b.overdueStart.getTime() || a.month.localeCompare(b.month));
 
@@ -217,7 +219,7 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
     const r = rows[idx];
     const material = Number(r.materialAmount) || 0;
     if (material <= 0 || derived.has(idx)) continue;
-    const entry = entries.find((e) => e.rowId === r.id);
+    const entry = entries.find((e) => e.srcIdx === idx);
     if (!entry) continue;
     derived.set(idx, {
       payableAmount: entry.payableAmount,

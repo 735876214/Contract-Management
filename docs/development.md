@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test 单测（9 个 spec / 120 项断言，**CI 门禁**） |
+| server | `npm run test` | node:test 单测（11 个 spec / 151 项断言，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -120,7 +120,9 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** |
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
-  | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款） |
+  | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款、无金额→无上限） |
+  | `test/overdueCalculator.spec.ts` | 逾期利息引擎（DAYS360 / 付款分配 / 开累；手算对照） |
+  | `test/ledgerCompliance.spec.mts` | 合同台账合规判定（执行类 vs 非执行类的节点比较与优先级） |
 
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。

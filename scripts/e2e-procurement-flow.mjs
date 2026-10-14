@@ -49,7 +49,8 @@ async function flowEmergency() {
   const list = (await api('GET', '/materials?page=1&pageSize=1')).data?.list || [];
   ok('物资基础库有数据（seed）', list.length > 0);
   await must('编制总采购清单', 'PUT', `/procurement-tasks/${t.id}/total-list`, {
-    items: [{ materialBaseId: list[0].id, unit: UNIT, qty: 10, incomePrice: 1000, stdCost: 800, marketPrice: 1200, infoPrice: 1100 }],
+    // planPrice 是控制价 → 会作为「税前单价」带入合同的起草期清单（见下方断言）
+    items: [{ materialBaseId: list[0].id, unit: UNIT, qty: 10, planPrice: 900, incomePrice: 1000, stdCost: 800, marketPrice: 1200, infoPrice: 1100 }],
   });
   await must('发布总采购清单 → 进入合同阶段', 'POST', `/procurement-tasks/${t.id}/publish`);
   d = await must('查看任务详情', 'GET', `/procurement-tasks/${t.id}`);
@@ -59,6 +60,15 @@ async function flowEmergency() {
   ok('紧急采购只生成 1 份合同', (await contractsOfTask(t.id)).length === 1);
   ok('合同类型推导 = EMERGENCY（紧急采购合同）', c.contractType === 'EMERGENCY', c.contractType);
   ok('合同 taskId 关联', c.taskId === t.id);
+
+  // 采购总清单 → 合同起草期清单（采购阶段算过的量价不必在合同里重录）
+  const drafts = await must('读取合同起草清单', 'GET', `/contracts/${c.id}/draft-materials`);
+  ok('自动生成的合同已带入采购总清单行',
+    (drafts || []).length === 1 && drafts[0].materialBaseId === list[0].id,
+    `行数=${(drafts || []).length} materialBaseId=${drafts?.[0]?.materialBaseId}`);
+  ok('带入行保留数量与控制价（作为税前单价）',
+    Number(drafts?.[0]?.qty) === 10 && Number(drafts?.[0]?.priceBeforeTax) === 900,
+    `qty=${drafts?.[0]?.qty} priceBeforeTax=${drafts?.[0]?.priceBeforeTax}`);
   return { taskId: t.id, contractId: d.contractId };
 }
 

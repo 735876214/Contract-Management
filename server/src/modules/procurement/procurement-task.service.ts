@@ -665,6 +665,12 @@ export class ProcurementTaskService {
     }
     const units = resolveContractUnits(task.type, candidates, referenceSuppliers);
 
+    // 采购总清单：用于把「采购阶段已算过的量价」带入合同的起草期清单，避免在合同里重录
+    const totalItems = await this.prisma.procurementTotalItem.findMany({
+      where: { taskId: task.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+
     const created: any[] = [];
     try {
       for (const u of units) {
@@ -695,6 +701,24 @@ export class ProcurementTaskService {
           user,
         );
         created.push(contract);
+
+        // 采购总清单 → 起草期合同清单（计划价=控制价）。
+        // 多单位场景每份合同都带入同一份清单，由用户按成交单位裁剪；带入失败**不阻断**合同生成。
+        if (totalItems.length) {
+          try {
+            await this.contractService.seedDraftFromProcurementItems(
+              contract.id,
+              totalItems.map((it) => ({
+                materialBaseId: it.materialBaseId,
+                qty: it.qty,
+                priceBeforeTax: it.planPrice,
+                unit: it.unit,
+              })),
+            );
+          } catch (err) {
+            console.error('[采购任务] 采购总清单带入合同清单失败（不阻断合同生成）：', err);
+          }
+        }
       }
     } catch (err) {
       // 任务 6：批量生成任一失败则回滚已生成的合同，避免产生残缺多合同

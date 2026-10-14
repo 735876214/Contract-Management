@@ -4,7 +4,8 @@
 > 否则文件只增不减）；历史以 `git log` / PR 为准。
 > 改动前必读的约定与踩过的坑见 [AGENTS.md](AGENTS.md) 与 [.workbuddy/memory/MEMORY.md](.workbuddy/memory/MEMORY.md)。
 > 数据来源：对当前代码库的审计（非产品需求方录入），请按实际排期调整。
-> **基准**：main @ `2031def`（2026-10-14）。
+> **基准**：main @ `2031def`（2026-10-14）；最近一批已完成 P3 的「采购清单→合同清单衔接」、
+> 「金额计算补测（逾期利息引擎 + 台账合规判定）」与「日报页年份千分位」。
 
 图例：`P1` 应尽快（阻塞在外部输入）· `P2` 需业务澄清（未澄清前不要动手）· `P3` 可直接开工（工程项）
 
@@ -47,31 +48,25 @@
 
 ## P3 · 可直接开工（工程项，按性价比排序）
 
-1. **采购清单 → 合同清单衔接**（[docs/09](docs/09-重构方案评估与采纳建议.md) §2.2 缺口 C，本轮评估里最实的一条）：
-   自动生成合同时 `generateLinkedContract()`（`procurement-task.service.ts`）只带
-   `content / amount / templateId / formData`，**不带总采购清单** → 合同清单要用户从物料池重挑，
-   控制价/收入价/标准成本重录一遍。
-   **落点**：把 `ProcurementTotalItem` 映射成 **`ContractDraftMaterial`** 行（它已是"起草期清单"，
-   带 `@@unique([contractId, materialBaseId])`）。
-   **映射建议**：`qty ← qty`、`priceBeforeTax ← planPrice`（控制价；若业务要用 `infoPrice`/`stdCost` 另定）、
-   税率源数据没有 → 留空由人工填。可复用 `material.service.derive()` 的写法。
-2. **金额计算补测**（缺口 H，成本最低）：`server/src/modules/finance/overdue-calculator.ts`
-   （逾期利息 / 宽限期 / 利息上限）与台账聚合（`ledger.service`）均是纯计算，**至今无 spec**；
-   现有 9 个 spec 未覆盖这块。照 `server/test/amountGuard.spec.mts` 的零依赖写法补即可，防金额回归。
-3. **单花括号 / 英文遗留 key 的存量盘点与迁移**：`template.service.generate()` 仍兼容 `{变量名}`、
+1. **单花括号 / 英文遗留 key 的存量盘点与迁移**：`template.service.generate()` 仍兼容 `{变量名}`、
    `{{MATERIAL_CODE_TABLE}}`、`{合同额大写}` 等。**2026-10-14 实测**：库中 4 份合同模板里有 **1 份**
    （物资采购执行合同模板）同时使用英文 key 与 `{合同额大写}` → **不能直接删分支**，先把这 1 份模板迁到
    `{{}}` 规范再移除兼容逻辑（移除属破坏性变更，需单独排期）。
-4. **日报页「账期/年」显示成 `2,026`**：`DailyReports.tsx` 的 `kind === 'number'` 渲染统一走
-   `Number(v).toLocaleString('zh-CN')` → 年份被加了千分位。修法：年份列不走分位符（数量/金额列保留）。
-5. **台账/看板列配置扩展到更多列表页**：`ledger.columns.config`（`ledger.service.ts` 读写 + 页面列设置弹窗）
+2. **台账/看板列配置扩展到更多列表页**：`ledger.columns.config`（`ledger.service.ts` 读写 + 页面列设置弹窗）
    已是可用范式，可抽成通用组件供其他列表页复用。
-6. **`ImportTask` 崩溃恢复**：模型**无 `lockedAt` 字段**，进程重启后卡在 `RUNNING` 的任务无法重投。
+3. **`ImportTask` 崩溃恢复**：模型**无 `lockedAt` 字段**，进程重启后卡在 `RUNNING` 的任务无法重投。
    建议补 `lockedAt` 心跳 + 超时重投 + 幂等键（需要真队列时再上 **pg-boss**，基于 PG、无需 Redis）。
-7. **上传目录替换为对象存储**：`FileController` 用 multer `diskStorage`，是**唯一写入点**（表里只存 URL），
+4. **上传目录替换为对象存储**：`FileController` 用 multer `diskStorage`，是**唯一写入点**（表里只存 URL），
    替换实现即可接 MinIO/S3；顺带可加哈希校验与版本管理。
-8. **日志脱敏白名单 + 展示脱敏 `maskField()`**：现状**无 `maskField`**，唯一"脱敏"是操作日志对
+5. **日志脱敏白名单 + 展示脱敏 `maskField()`**：现状**无 `maskField`**，唯一"脱敏"是操作日志对
    `password` 打码。可参考 `common/pick-fields.ts` 的写法加 `maskField()`（行级 DataScope 视诉求）。
+
+6. **合并重复的「累计口径」计算**（2026-10-14 实施中发现的重复逻辑，**改动前先补测**）：
+   `overdue-calculator.recalculate()` 的 `stats` 已算出 `totalMaterial / totalPayment / currentCumulative /
+   prevCumulative / cumulativeByMonth`，而 `finance.service.listOverdue()` **又各算了一遍**；
+   且两处「上期开累」规则不同——引擎按「行内 `prevCumulative` 优先，否则上一结算月开累」，
+   `listOverdue` 取「最新月份那条带手动期初的行」。两套口径会漂移，建议收敛到一处
+   （注意 `listOverdue` 支持按 `settlementMonth` 过滤，收敛时要保留「筛选视图 vs 全量计算」的差异）。
 
 ## 四域扩展（评估已定，待实施）
 
