@@ -132,7 +132,7 @@ function UnitInput({ value, onChange }: { value?: string; onChange?: (v: string)
           onChange?.(code);
         }}
       />
-      <div style={{ fontSize: 12, color: invalid ? '#ff4d4f' : '#999', marginTop: 2 }}>
+      <div style={{ fontSize: 12, color: invalid ? 'var(--cms-error)' : 'var(--cms-muted-soft)', marginTop: 2 }}>
         {invalid ? '不在字典范围内，请先在字典管理中添加' : '默认取物资基础库，可输入字典内其他单位'}
       </div>
     </div>

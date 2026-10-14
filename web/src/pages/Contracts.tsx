@@ -510,7 +510,7 @@ export default function Contracts() {
         width={680}
       >
         <div
-          style={{ maxHeight: 480, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 16, background: '#fff' }}
+          style={{ maxHeight: 480, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 16, background: 'var(--cms-paper)' }}
           dangerouslySetInnerHTML={{ __html: clauseView?.content || '' }}
         />
       </Modal>
@@ -532,7 +532,7 @@ export default function Contracts() {
               </Typography.Title>
               {clause ? (
                 <div
-                  style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fff' }}
+                  style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 12, background: 'var(--cms-paper)' }}
                   dangerouslySetInnerHTML={{ __html: clause.content }}
                 />
               ) : (

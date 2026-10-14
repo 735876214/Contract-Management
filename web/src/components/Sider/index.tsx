@@ -18,12 +18,12 @@ const { Sider } = Layout;
 /** 侧栏宽度（展开态），抽屉模式复用同一宽度 */
 const SIDER_WIDTH = 220;
 /** 侧栏底色（与 index.less 的 @app-sider-bg 保持一致，抽屉 body 需显式设置） */
-const SIDER_BG = '#001529';
+const SIDER_BG = 'var(--cms-surface-dark)';
 
 /**
  * 左侧侧边导航栏（Sider）
  *
- * - **桌面/平板（≥768px）**：固定侧栏，宽度 220px ↔ 80px，深色主题 #001529，折叠状态持久化 localStorage
+ * - **桌面/平板（≥768px）**：固定侧栏，宽度 220px ↔ 80px，深色主题 var(--cms-surface-dark)，折叠状态持久化 localStorage
  * - **手机（<768px）**：改为 `<Drawer placement="left">` 覆盖式侧栏（docs/08 阶段 1），
  *   选中菜单后自动关闭；折叠按钮在抽屉模式下不渲染（用遮罩/选中关闭）
  * - 路由跳转 / 选中高亮 / 父级自动展开

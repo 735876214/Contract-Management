@@ -412,7 +412,7 @@ export default function ModuleListPage({
   const columnConfigContent = (
     <div style={{ maxWidth: 240 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 12, color: '#8c8c8c' }}>勾选要显示的列</span>
+        <span style={{ fontSize: 12, color: 'var(--cms-muted-soft)' }}>勾选要显示的列</span>
         <Button type="link" size="small" style={{ padding: 0 }} disabled={!hiddenCount} onClick={reset}>
           重置
         </Button>
@@ -459,10 +459,10 @@ export default function ModuleListPage({
   return (
     <div
       style={{
-        background: '#fff',
+        background: 'var(--cms-paper)',
         borderRadius: 8,
         padding: '16px 16px 8px',
-        border: '1px solid #f0f0f0',
+        border: '1px solid var(--cms-hairline-soft)',
       }}
     >
       {/* 1. 顶部筛选区（可折叠） */}
@@ -507,7 +507,7 @@ export default function ModuleListPage({
           {toolbarLeft}
         </Space>
         <Space size={12}>
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             本页: {rows.length}条 总计: {total}条
           </span>
           {effectiveColumnConfigKey && (

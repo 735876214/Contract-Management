@@ -80,7 +80,7 @@ export default function Messages() {
             fixed: 'right',
             render: (_: any, row: any) =>
               row.read ? (
-                <span style={{ color: '#999' }}>-</span>
+                <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>
               ) : (
                 <Button type="link" size="small" onClick={() => markRead(row.id)}>标记已读</Button>
               ),

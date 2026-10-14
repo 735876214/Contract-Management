@@ -3,6 +3,7 @@ import { Card, Row, Col, Statistic } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { dashboardApi } from '@/api/modules';
 import { useDictStore } from '@/store/dict';
+import { chartPalette } from '@/theme';
 
 const money = (v: any) =>
   v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
@@ -43,14 +44,14 @@ export default function Reports() {
         { type: 'value', name: '付款' },
       ],
       series: [
-        { name: '结算', type: 'bar', data: settle, itemStyle: { color: '#1677ff' } },
+        { name: '结算', type: 'bar', data: settle, itemStyle: { color: chartPalette[0] } },
         {
           name: '付款',
           type: 'line',
           yAxisIndex: 1,
           smooth: true,
           data: pay,
-          itemStyle: { color: '#52c41a' },
+          itemStyle: { color: chartPalette[1] },
         },
       ],
     };
@@ -83,7 +84,7 @@ export default function Reports() {
         type: 'category',
         data: byType.map((i: any) => label('invoice_type', i.code) || i.code),
       },
-      series: [{ type: 'bar', data: byType.map((i: any) => i.amount || 0), itemStyle: { color: '#722ed1' } }],
+      series: [{ type: 'bar', data: byType.map((i: any) => i.amount || 0), itemStyle: { color: chartPalette[2] } }],
     };
   }, [invoice, dictReady]);
 
@@ -97,7 +98,7 @@ export default function Reports() {
         type: 'category',
         data: byStatus.map((i: any) => label('invoice_status', i.code) || i.code),
       },
-      series: [{ type: 'bar', data: byStatus.map((i: any) => i.count || 0), itemStyle: { color: '#fa8c16' } }],
+      series: [{ type: 'bar', data: byStatus.map((i: any) => i.count || 0), itemStyle: { color: chartPalette[3] } }],
     };
   }, [invoice, dictReady]);
 

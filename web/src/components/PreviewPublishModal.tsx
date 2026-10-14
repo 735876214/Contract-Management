@@ -176,11 +176,11 @@ export default function PreviewPublishModal({
             maxHeight: '58vh',
             minHeight: 120,
             overflow: 'auto',
-            border: '1px solid #eee',
+            border: '1px solid var(--cms-hairline-soft)',
             // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
           }}
           dangerouslySetInnerHTML={{
-            __html: highlightPlaceholders(html) || '<p style="color:#999">暂无内容</p>',
+            __html: highlightPlaceholders(html) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
           }}
         />
       </Spin>

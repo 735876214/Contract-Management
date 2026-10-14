@@ -143,7 +143,7 @@ function Field({
 }) {
   return (
     <div>
-      <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>{label}</div>
       {editable ? (
         <Input value={value} placeholder={placeholder ?? `请填写${label}`} onChange={(e) => onChange(e.target.value)} />
       ) : (
@@ -417,7 +417,7 @@ export default function Notice() {
     <Card
       size="small"
       title={label}
-      extra={<span style={{ color: '#8c8c8c', fontSize: 12 }}>取自采购发起填写的标准（只读）</span>}
+      extra={<span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>取自采购发起填写的标准（只读）</span>}
     >
       <RichTextEditor
         value={currentTask?.[field] ?? ''}
@@ -464,7 +464,7 @@ export default function Notice() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准
           </span>
         }
@@ -576,7 +576,7 @@ export default function Notice() {
                   />
                 </Col>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购时间</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>采购时间</div>
                   {editable ? (
                     <DatePicker
                       style={{ width: '100%' }}
@@ -596,7 +596,7 @@ export default function Notice() {
                   />
                 </Col>
                 <Col xs={24}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 8 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 8 }}>
                     联系人 / 联系电话（可动态增加，多个时自动编号 联系人1、联系人2… / 联系电话1、联系电话2…）
                   </div>
                   <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -657,7 +657,7 @@ export default function Notice() {
             <Card
               size="small"
               title="二、采购清单"
-              extra={<span style={{ color: '#8c8c8c', fontSize: 12 }}>数据来自总采购清单，不可编辑</span>}
+              extra={<span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>数据来自总采购清单，不可编辑</span>}
             >
               <Table
                 size="small"

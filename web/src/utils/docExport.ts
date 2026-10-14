@@ -1,6 +1,14 @@
 /** 合同正文导出：Word(.doc) / 打印(PDF) */
 
 /** MSO 兼容 Word HTML 封装（导出 / 通用导出管线共用） */
+/**
+ * Word 导出模板（"所见即所得"）。
+ *
+ * ⚠️ 这里**故意写死字面色值**（宋体、黑体、`#000`、`#f2f2f2`），不走 `theme.ts` / CSS 变量：
+ * 1. Word 渲染 HTML 时不认识 CSS 变量与外部样式表；
+ * 2. 导出物是**要打印归档的公文**，观感必须稳定，不该随屏幕主题（奶油/深墨）变化。
+ * 故 `server/test/themeTokens.spec.mts` 把本文件列入白名单 —— 改屏幕视觉时**不要**顺手改这里。
+ */
 export const WORD_TPL = (title: string, body: string) => `<html xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:w="urn:schemas-microsoft-com:office:word"
  xmlns="http://www.w3.org/TR/REC-html40">

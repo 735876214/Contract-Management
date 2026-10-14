@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Layout, Dropdown, Space, Badge, Button, Avatar, Spin, Typography, theme } from 'antd';
+import { Layout, Dropdown, Space, Badge, Button, Avatar, Spin, Typography } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -38,9 +38,6 @@ export default function BasicLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
-  const {
-    token: { colorBgContainer },
-  } = theme.useToken();
 
   useEffect(() => {
     notificationApi.unreadCount().then((res: any) => setUnread(res?.count || 0)).catch(() => undefined);
@@ -64,13 +61,14 @@ export default function BasicLayout() {
       <AppSider collapsed={collapsed} onCollapsedChange={setCollapsed} />
       <Layout>
         <Header
+          className="cms-header"
           style={{
             padding: isMobile ? '0 8px' : '0 16px',
-            background: colorBgContainer,
+            // 深墨面：与侧栏同族，内容区奶油底——页面骨架即设计文档的「深墨 ↔ 奶油」节奏
+            background: 'var(--cms-surface-dark)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #f0f0f0',
           }}
         >
           <Space size={isMobile ? 4 : 8}>
@@ -102,7 +100,9 @@ export default function BasicLayout() {
               }}
             >
               <Space style={{ cursor: 'pointer' }}>
-                <Avatar style={{ backgroundColor: '#1677ff' }}>{user?.realName?.[0] || 'U'}</Avatar>
+                <Avatar style={{ backgroundColor: 'var(--cms-primary)', color: 'var(--cms-on-primary)' }}>
+                  {user?.realName?.[0] || 'U'}
+                </Avatar>
                 {/* 窄屏只留头像，名字放进下拉菜单（Header 精简，docs/08 阶段 1） */}
                 {!isMobile && <Typography.Text>{user?.realName}</Typography.Text>}
               </Space>

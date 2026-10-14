@@ -64,7 +64,7 @@ function LetterPreviewModal({
       <iframe
         title="授权委托书预览"
         srcDoc={html}
-        style={{ width: '100%', height: '68vh', border: 'none', background: '#fff' }}
+        style={{ width: '100%', height: '68vh', border: 'none', background: 'var(--cms-paper)' }}
       />
     </Modal>
   );
@@ -316,7 +316,7 @@ export default function Subcontractors() {
             },
           ]}
         />
-        <div style={{ marginTop: 8, color: '#888' }}>共 {total} 条分包商记录</div>
+        <div style={{ marginTop: 8, color: 'var(--cms-muted)' }}>共 {total} 条分包商记录</div>
 
         <Modal title="分包商详情" width={620} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
           <Descriptions column={1} size="small" bordered>
@@ -412,7 +412,7 @@ export default function Subcontractors() {
       <Card size="small" title="附件上传">
         <Row gutter={[16, 16]}>
           <Col xs={24} md={12}>
-            <div style={{ marginBottom: 6 }}>身份证正面 <span style={{ color: '#ff4d4f' }}>*</span></div>
+            <div style={{ marginBottom: 6 }}>身份证正面 <span style={{ color: 'var(--cms-error)' }}>*</span></div>
             <Upload
               listType="picture-card"
               maxCount={1}
@@ -427,7 +427,7 @@ export default function Subcontractors() {
             </Upload>
           </Col>
           <Col xs={24} md={12}>
-            <div style={{ marginBottom: 6 }}>身份证反面 <span style={{ color: '#ff4d4f' }}>*</span></div>
+            <div style={{ marginBottom: 6 }}>身份证反面 <span style={{ color: 'var(--cms-error)' }}>*</span></div>
             <Upload
               listType="picture-card"
               maxCount={1}

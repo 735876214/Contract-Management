@@ -73,7 +73,7 @@ const renderNumber = (
 
 /** 合价列：自动计算（单价 × 数量），只读（需求修正 修改一） */
 const renderAmount = (price?: number | null, qty?: number | null) => {
-  if (price == null && qty == null) return <span style={{ color: '#bfbfbf' }}>-</span>;
+  if (price == null && qty == null) return <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>;
   const v = calcAmount(price, qty);
   return <span>{v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>;
 };
@@ -311,7 +311,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       // 需求修正（修改三）：选择物资后直接显示真实规格型号，不再显示占位文字
       title: '规格型号',
       width: 130,
-      render: (_, r) => r.spec || <span style={{ color: '#bfbfbf' }}>-</span>,
+      render: (_, r) => r.spec || <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>,
     },
     {
       title: '计量单位',
@@ -346,7 +346,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       render: (_, r) => {
         const over = r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice;
         return (
-          <span style={over ? { color: '#cf1322' } : undefined} title={over ? '控制价超市场单价，重新修改' : undefined}>
+          <span style={over ? { color: 'var(--cms-error)' } : undefined} title={over ? '控制价超市场单价，重新修改' : undefined}>
             {renderNumber(r.planPrice, (v) => patchRow(r.key, { planPrice: v }), viewOnly)}
           </span>
         );
@@ -357,7 +357,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       onCell: (r: TotalRow) => ({
         style:
           r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice
-            ? { color: '#cf1322' }
+            ? { color: 'var(--cms-error)' }
             : undefined,
       }),
     },

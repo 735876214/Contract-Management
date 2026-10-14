@@ -64,11 +64,12 @@ export default function ModuleDetailCard({
           style={{
             maxHeight: '52vh',
             overflow: 'auto',
-            border: '1px solid #eee',
+            border: '1px solid var(--cms-hairline-soft)',
             // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
-            background: '#fff',
+            // 文档预览是「纸张」，恒为白、不随主题（DESIGN.md §6）
+            background: 'var(--cms-paper)',
           }}
-          dangerouslySetInnerHTML={{ __html: docHtml || '<p style="color:#bfbfbf">暂无内容</p>' }}
+          dangerouslySetInnerHTML={{ __html: docHtml || '<p style="color:var(--cms-muted-soft)">暂无内容</p>' }}
         />
       </Spin>
     </Card>

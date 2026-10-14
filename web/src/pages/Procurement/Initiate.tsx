@@ -274,7 +274,7 @@ export default function Initiate() {
       dataIndex: 'procurementCategory',
       width: 100,
       render: (v: string | null | undefined) =>
-        v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#bfbfbf' }}>-</span>,
+        v ? <Tag color="purple">{v}</Tag> : <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>,
     },
     {
       title: '状态',
@@ -503,7 +503,7 @@ export default function Initiate() {
                 {detail.procurementCategory ? (
                   <Tag color="purple">{detail.procurementCategory}</Tag>
                 ) : (
-                  <span style={{ color: '#bfbfbf' }}>未填写</span>
+                  <span style={{ color: 'var(--cms-muted-soft)' }}>未填写</span>
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="采购用途">{detail.purpose || '-'}</Descriptions.Item>

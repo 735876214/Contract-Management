@@ -201,23 +201,23 @@ export default function ImportButton({
             <Button
               size="large"
               style={{ textAlign: 'left', height: 72, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center' }}
-              icon={<DownloadOutlined style={{ fontSize: 22, color: '#1677ff' }} />}
+              icon={<DownloadOutlined style={{ fontSize: 22, color: 'var(--cms-primary)' }} />}
               onClick={doDownload}
               disabled={!templateUrl}
             >
               <span style={{ fontWeight: 600 }}>下载填写模板</span>
-              <span style={{ fontSize: 12, color: '#999' }}>导出空白 Excel 模板，按格式要求填写数据</span>
+              <span style={{ fontSize: 12, color: 'var(--cms-muted-soft)' }}>导出空白 Excel 模板，按格式要求填写数据</span>
             </Button>
             <Button
               size="large"
               style={{ textAlign: 'left', height: 72, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center' }}
-              icon={<UploadOutlined style={{ fontSize: 22, color: '#52c41a' }} />}
+              icon={<UploadOutlined style={{ fontSize: 22, color: 'var(--cms-success)' }} />}
               onClick={pickFile}
               loading={uploading}
               disabled={!uploadUrl && !onUpload}
             >
               <span style={{ fontWeight: 600 }}>上传导入数据</span>
-              <span style={{ fontSize: 12, color: '#999' }}>上传已填写好的模板文件，校验通过后写入系统</span>
+              <span style={{ fontSize: 12, color: 'var(--cms-muted-soft)' }}>上传已填写好的模板文件，校验通过后写入系统</span>
             </Button>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               单次导入最多 5000 行；采用「全成功或全失败」策略：任一行校验失败即整体回滚，不会写入部分数据。{extraHint || ''}
@@ -254,7 +254,7 @@ export default function ImportButton({
                 description={
                   <ul style={{ maxHeight: 240, overflowY: 'auto', paddingLeft: 18, margin: '4px 0 0' }}>
                     {result!.errors!.map((e, i) => (
-                      <li key={i} style={{ color: '#d4380d', lineHeight: '20px' }}>{renderError(e)}</li>
+                      <li key={i} style={{ color: 'var(--cms-error)', lineHeight: '20px' }}>{renderError(e)}</li>
                     ))}
                   </ul>
                 }

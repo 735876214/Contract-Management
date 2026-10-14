@@ -40,18 +40,18 @@ function buildTableHtml(headers: readonly string[], rows: readonly (string | num
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
   const thead = `<tr>${headers
-    .map((h) => `<th style="border:1px solid #000;padding:4px 6px;background:#f2f2f2;">${esc(h)}</th>`)
+    .map((h) => `<th style="border:1px solid var(--cms-ink);padding:4px 6px;background:var(--cms-paper-head);">${esc(h)}</th>`)
     .join('')}</tr>`;
   const tbody = rows.length
     ? rows
         .map(
           (r) =>
             `<tr>${r
-              .map((c) => `<td style="border:1px solid #000;padding:4px 6px;text-align:center;">${esc(c)}</td>`)
+              .map((c) => `<td style="border:1px solid var(--cms-ink);padding:4px 6px;text-align:center;">${esc(c)}</td>`)
               .join('')}</tr>`,
         )
         .join('')
-    : `<tr><td style="border:1px solid #000;padding:4px 6px;text-align:center;" colspan="${headers.length}">暂无数据</td></tr>`;
+    : `<tr><td style="border:1px solid var(--cms-ink);padding:4px 6px;text-align:center;" colspan="${headers.length}">暂无数据</td></tr>`;
   return `<table style="border-collapse:collapse;width:100%;">${thead}${tbody}</table>`;
 }
 
@@ -570,7 +570,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       )}
 
       <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnClose>
-        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
       </Modal>
     </Modal>
   );

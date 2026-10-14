@@ -667,7 +667,7 @@ export default function FrameworkExplanation() {
           onChange={(e) => patchForm({ [field]: e.target.value } as Partial<ExplanationForm>)}
         />
       ) : (
-        <div style={{ whiteSpace: 'pre-wrap', color: form[field] ? undefined : '#999' }}>
+        <div style={{ whiteSpace: 'pre-wrap', color: form[field] ? undefined : 'var(--cms-muted-soft)' }}>
           {form[field] || '（待填写）'}
         </div>
       )}
@@ -746,7 +746,7 @@ export default function FrameworkExplanation() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示引用框架协议类型的任务；编辑与发布以任务所处阶段为准
           </span>
         }
@@ -900,7 +900,7 @@ export default function FrameworkExplanation() {
               }
             >
               {fileList.length === 0 ? (
-                <span style={{ color: '#999' }}>（无附表）</span>
+                <span style={{ color: 'var(--cms-muted-soft)' }}>（无附表）</span>
               ) : (
                 <Space direction="vertical" size={4}>
                   {fileList.map((f) => (

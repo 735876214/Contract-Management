@@ -475,7 +475,7 @@ export default function Document() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准（需先完成采购公告）
           </span>
         }
@@ -597,7 +597,7 @@ export default function Document() {
             <Card size="small" title="一、采购文件基本信息">
               <Row gutter={[16, 16]}>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购时间</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>采购时间</div>
                   {editable ? (
                     <DatePicker
                       style={{ width: '100%' }}
@@ -611,7 +611,7 @@ export default function Document() {
                   )}
                 </Col>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     响应保证金（元）
                   </div>
                   {editable ? (
@@ -630,7 +630,7 @@ export default function Document() {
                   )}
                 </Col>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购编号</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>采购编号</div>
                   <div style={{ minHeight: 22 }}>{detail?.notice?.procurementNo || '-'}</div>
                 </Col>
               </Row>
@@ -641,7 +641,7 @@ export default function Document() {
               size="small"
               title="二、采购清单"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   数据来自总采购清单，不可编辑；价格列由投标方填写
                 </span>
               }
@@ -739,11 +739,11 @@ export default function Document() {
             maxHeight: '60vh',
             minHeight: 120,
             overflow: 'auto',
-            border: '1px solid #eee',
+            border: '1px solid var(--cms-hairline-soft)',
             // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
           }}
           dangerouslySetInnerHTML={{
-            __html: highlightPlaceholders(contractHtml) || '<p style="color:#999">暂无内容</p>',
+            __html: highlightPlaceholders(contractHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
           }}
         />
       </Modal>

@@ -494,7 +494,7 @@ export default function PriceCompare() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             显示「单项采购 / 引用框架协议」中已到达本阶段的任务；编辑与发布以任务所处阶段为准（单项采购需先完成成交报告，框架协议需先发布总清单）
           </span>
         }
@@ -612,7 +612,7 @@ export default function PriceCompare() {
             <Card size="small" title="一、项目基本情况">
               <Row gutter={[16, 16]}>
                 <Col xs={24} md={12}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     项目名称及编码
                   </div>
                   <div style={{ minHeight: 32, lineHeight: '32px' }}>
@@ -621,7 +621,7 @@ export default function PriceCompare() {
                   </div>
                 </Col>
                 <Col xs={24} md={12}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>计价方式</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>计价方式</div>
                   {editable ? (
                     <Select
                       style={{ width: '100%' }}
@@ -656,7 +656,7 @@ export default function PriceCompare() {
               size="small"
               title="三、采购价格对比明细表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   采购名称/规格/单位/数量/清单收入/标准成本/控制价/信息价来自总采购清单（只读）；成交价与备注由人工录入
                 </span>
               }
@@ -690,7 +690,7 @@ export default function PriceCompare() {
                   {fmtRate(summary.costReduceRate) || '-'}
                 </Descriptions.Item>
               </Descriptions>
-              <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 8 }}>
+              <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginTop: 8 }}>
                 计算规则：利润额 = 清单收入 − 成交价；采购效益率 = 利润额 ÷ 清单收入；
                 采购成本降低率 =（标准成本 − 成交价）÷ 标准成本；信息价下浮率 =（信息价 − 成交价）÷ 信息价。
               </div>

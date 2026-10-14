@@ -361,7 +361,7 @@ export default function BidderPanel({ taskId, editable }: Props) {
         size="small"
         title="六、投标单位（结构化）"
         extra={
-          <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
             {wonCount > 0 ? `当前中标 ${wonCount} 家 → 将生成 ${wonCount} 份合同` : '尚未勾选成交候选人'}
           </span>
         }
@@ -376,7 +376,7 @@ export default function BidderPanel({ taskId, editable }: Props) {
           scroll={{ x: 1200 }}
           locale={{ emptyText: '暂无数据，请先导入「响应单位情况汇总表」' }}
         />
-        <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 8 }}>
+        <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginTop: 8 }}>
           单位与两轮报价来自导入表；此处维护「状态 / 投标文件 / 最终确认价 / 备注」。
           勾选「拟推荐成交候选人」会把对应单位置为「中标」并写入最终确认价，生成合同的单位与金额取自中标行。
         </div>
@@ -418,7 +418,7 @@ export default function BidderPanel({ taskId, editable }: Props) {
           <Button type="primary" loading={saving} onClick={handleSave}>
             保存投标单位与评标记录
           </Button>
-          <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
             评标记录为全量替换：下方表格里删掉的行，保存后即从库中删除。
           </span>
         </Space>

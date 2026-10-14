@@ -39,9 +39,9 @@ const renderYearMap = (v: any) => {
 };
 
 const renderCompliance = (v: any) => {
-  if (!v || v === '无问题') return <span style={{ color: '#52c41a' }}>无问题</span>;
-  if (v === '时间数据不完整') return <span style={{ color: '#faad14' }}>时间数据不完整</span>;
-  return <span style={{ color: '#ff4d4f' }}>{v}</span>;
+  if (!v || v === '无问题') return <span style={{ color: 'var(--cms-success)' }}>无问题</span>;
+  if (v === '时间数据不完整') return <span style={{ color: 'var(--cms-warning)' }}>时间数据不完整</span>;
+  return <span style={{ color: 'var(--cms-error)' }}>{v}</span>;
 };
 
 const renderCell = (key: string, v: any) => {

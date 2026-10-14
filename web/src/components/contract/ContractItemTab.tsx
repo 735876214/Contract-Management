@@ -152,8 +152,8 @@ export default function ContractItemTab({
         <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
           保存清单
         </Button>
-        <span style={{ color: '#888' }}>
-          合计（暂定含税）：<b style={{ color: '#cf1322' }}>¥{totalAmount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>
+        <span style={{ color: 'var(--cms-muted)' }}>
+          合计（暂定含税）：<b style={{ color: 'var(--cms-error)' }}>¥{totalAmount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>
         </span>
       </Space>
 

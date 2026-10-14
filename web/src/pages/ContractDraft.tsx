@@ -592,7 +592,7 @@ export default function ContractDraft() {
           message="请核对合同完整内容；点击「确认无误」后「发布」按钮才可用。若返回修改合同内容，需重新预览确认。"
         />
         <div
-          style={{ maxHeight: 520, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }}
+          style={{ maxHeight: 520, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }}
           dangerouslySetInnerHTML={{ __html: preview?.html || '' }}
         />
       </Modal>

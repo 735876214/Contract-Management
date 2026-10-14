@@ -35,7 +35,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（22 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（23 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（4 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
@@ -186,6 +186,13 @@ Contract-Management/
 - **旧扁平路径改为重定向保号**：旧路径（`/projects`、`/ledger`、`/daily` …）通过
   `<Navigate to="/新路径" replace />` 跳到 Sider 新规范路径，书签不失效，但**不再重复渲染同一组件**。
   例外：`/contracts`（合同编辑页）在新菜单中无对应入口，保留为真实路由，去留待业务确认。
+- **视觉 token 只有一处来源**：`web/src/theme.ts`（JS 侧色板/语义色/图表配色）+ `web/src/index.css`
+  的 `--cms-*`（CSS 镜像）+ `components/Sider/index.less`（深色侧栏，LESS 不能用 `var()`）。
+  **页面/组件里不许写死 `#hex` / `rgb()`**——由 `server/test/themeTokens.spec.mts` 锁定，
+  白名单仅 `RichTextEditor.tsx`（编辑器调色板是功能）与 `utils/docExport.ts`（Word 内联样式）。
+  状态色**不重命名**（字典与 `TASK_STATUS_COLORS` 里是 `blue/green/orange…` 这类语义名，且是前后端镜像），
+  换视觉在渲染层做：`theme.PRESET_TONE_MAP` + index.css 的 `.ant-tag.ant-tag-<name>` 覆盖。
+  改视觉前读 [DESIGN.md](DESIGN.md)（§0 写了移植了什么、不搬什么，含"不搬 Anthropic 商标"）。
 - **断点唯一来源是 `useResponsive()`**（`web/src/hooks/useResponsive.ts`）：**禁止**组件内使用
   `window.innerWidth` / `matchMedia`。具体规格（`isMobile(<768)`）、四条硬性约定（Col 带断点、
   Table 声明 `scroll`、弹窗宽度可被全局兜底、≤md 侧栏走 Drawer）与明确取舍见
@@ -216,7 +223,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（22 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（23 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
@@ -228,7 +235,7 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**：Nest 的输出带 ANSI 颜色码，grep 会漏判
    （2026-10-14 实测：`nest build` 看着"通过"，`npx tsc --noEmit` 才暴露 3 处类型收窄错误）。
    要么看命令退出码，要么直接跑 `npx tsc --noEmit`（平文输出）。
-2. `cd server && npm test` 须全绿（22 个 spec，**无 DB 依赖**）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（23 个 spec，**无 DB 依赖**）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
    断言数不写在这里（它随用例增减，以命令输出为准）；spec 数量与 `docs/development.md §5` 清单
    由 `server/test/docStats.spec.mts` 锁定，**新增 spec 必须同步登记清单**。

@@ -391,7 +391,7 @@ export default function RichTextEditor({
                 <span
                   key={c}
                   onClick={() => applyColor('foreColor', c)}
-                  style={{ width: 22, height: 22, background: c, display: 'inline-block', cursor: 'pointer', borderRadius: 3, border: '1px solid #d9d9d9' }}
+                  style={{ width: 22, height: 22, background: c, display: 'inline-block', cursor: 'pointer', borderRadius: 3, border: '1px solid var(--cms-hairline)' }}
                 />
               ))}
             </Space>
@@ -409,7 +409,7 @@ export default function RichTextEditor({
                 <span
                   key={c}
                   onClick={() => applyColor('hiliteColor', c)}
-                  style={{ width: 22, height: 22, background: c, display: 'inline-block', cursor: 'pointer', borderRadius: 3, border: '1px solid #d9d9d9' }}
+                  style={{ width: 22, height: 22, background: c, display: 'inline-block', cursor: 'pointer', borderRadius: 3, border: '1px solid var(--cms-hairline)' }}
                 />
               ))}
             </Space>
@@ -485,8 +485,8 @@ export default function RichTextEditor({
         alignItems: 'center',
         gap: 2,
         padding: '4px 8px',
-        borderBottom: '1px solid #f0f0f0',
-        background: '#fafafa',
+        borderBottom: '1px solid var(--cms-hairline-soft)',
+        background: 'var(--cms-surface-soft)',
       }}
     >
       {primaryTools}
@@ -500,14 +500,15 @@ export default function RichTextEditor({
         position: 'fixed',
         inset: 0,
         zIndex: 1000,
-        background: '#fff',
+        // 编辑区按「纸张」呈现（与 Word 导出对应），故用 paper 而非主题底
+        background: 'var(--cms-paper)',
         display: 'flex',
         flexDirection: 'column',
       }
     : {
-        border: `1px solid ${focused ? '#1677ff' : '#d9d9d9'}`,
+        border: `1px solid ${focused ? 'var(--cms-primary)' : 'var(--cms-hairline)'}`,
         borderRadius: 6,
-        background: disabled ? '#f5f5f5' : '#fff',
+        background: disabled ? 'var(--cms-surface-soft)' : 'var(--cms-paper)',
         overflow: 'hidden',
       };
 
@@ -540,7 +541,7 @@ export default function RichTextEditor({
       <style>{`
         .cms-rich-text:empty::before {
           content: attr(data-placeholder);
-          color: #bfbfbf;
+          color: var(--cms-muted-soft);
         }
         .cms-rich-text table { border-collapse: collapse; width: 100%; margin: 8px 0; }
         .cms-rich-text td { border: 1px solid #d9d9d9; padding: 6px; }

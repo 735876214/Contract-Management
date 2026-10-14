@@ -164,7 +164,7 @@ export default function TaskViewModal({ task, open, onClose }: TaskViewModalProp
                       ]}
                     >
                       <Space size={8}>
-                        <FileWordOutlined style={{ color: '#2b7cff' }} />
+                        <FileWordOutlined style={{ color: 'var(--cms-primary)' }} />
                         {TASK_MODULE_LABELS[m]}
                       </Space>
                     </List.Item>

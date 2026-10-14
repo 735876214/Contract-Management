@@ -134,7 +134,7 @@ export default function Dict() {
                   cursor: 'pointer',
                   borderRadius: 6,
                   marginBottom: 4,
-                  background: currentType?.id === t.id ? '#e6f4ff' : 'transparent',
+                  background: currentType?.id === t.id ? 'var(--cms-surface-card)' : 'transparent',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -142,7 +142,7 @@ export default function Dict() {
               >
                 <Tooltip title={t.remark}>
                   <span>
-                    {t.name} <span style={{ color: '#999', fontSize: 12 }}>{t.code}</span>
+                    {t.name} <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>{t.code}</span>
                   </span>
                 </Tooltip>
                 <Space size={4}>

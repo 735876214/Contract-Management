@@ -126,7 +126,7 @@ export default function MaterialPickerModal({
             {
               title: '物资名称',
               dataIndex: 'name',
-              render: (v, row) => (excludeSet.has(row.id) ? <span style={{ color: '#bfbfbf' }}>{v}</span> : v),
+              render: (v, row) => (excludeSet.has(row.id) ? <span style={{ color: 'var(--cms-muted-soft)' }}>{v}</span> : v),
             },
             { title: '规格型号', dataIndex: 'spec', width: 180 },
             { title: 'MDM编码', dataIndex: 'mdmCode', width: 160, render: (v) => v || '-' },

@@ -155,7 +155,7 @@ function Field({
 }) {
   return (
     <div>
-      <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>{label}</div>
       {editable ? (
         <Input value={value} placeholder={placeholder ?? `请填写${label}`} onChange={(e) => onChange(e.target.value)} />
       ) : (
@@ -608,7 +608,7 @@ export default function PreMeetingMinutes() {
     tip?: string,
   ) => (
     <Card size="small" title={label}>
-      {tip && <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 8 }}>{tip}</div>}
+      {tip && <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 8 }}>{tip}</div>}
       <RichTextEditor
         value={form[field]}
         onChange={(html) => patchForm({ [field]: html } as Partial<MinutesForm>)}
@@ -650,7 +650,7 @@ export default function PreMeetingMinutes() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示单项采购且需要采前会（预计采购金额 ≥ 100 万）的任务
           </span>
         }
@@ -748,11 +748,11 @@ export default function PreMeetingMinutes() {
             <Card size="small" title="一、会议基本信息">
               <Row gutter={[16, 16]}>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>项目名称（自动带出）</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>项目名称（自动带出）</div>
                   <Input value={project.name ?? ''} disabled placeholder="（项目名称）" />
                 </Col>
                 <Col xs={24} md={8}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>会议时间</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>会议时间</div>
                   {editable ? (
                     <DatePicker
                       style={{ width: '100%' }}
@@ -875,7 +875,7 @@ export default function PreMeetingMinutes() {
                 pagination={false}
                 locale={{ emptyText: '暂无数据（可点击「从总采购清单导入」自动带出）' }}
                 summary={() => (
-                  <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 600 }}>
+                  <Table.Summary.Row style={{ background: 'var(--cms-surface-soft)', fontWeight: 600 }}>
                     <Table.Summary.Cell index={0} colSpan={3}>
                       合计
                     </Table.Summary.Cell>
@@ -923,7 +923,7 @@ export default function PreMeetingMinutes() {
                   </div>
                 )}
               </Upload>
-              {fileList.length === 0 && <div style={{ color: '#999' }}>（暂无询价单）</div>}
+              {fileList.length === 0 && <div style={{ color: 'var(--cms-muted-soft)' }}>（暂无询价单）</div>}
             </Card>
 
             {/* 操作 */}

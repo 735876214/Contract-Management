@@ -228,7 +228,7 @@ export default function ProcurementTemplates() {
             />
           </Form.Item>
           {editing && (
-            <div style={{ color: '#8c8c8c' }}>
+            <div style={{ color: 'var(--cms-muted-soft)' }}>
               提示：每个业务类型仅保留一个模板；选择已有模板的模块类型保存后将覆盖旧模板。
             </div>
           )}

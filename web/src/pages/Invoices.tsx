@@ -395,7 +395,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
           content: (
             <ul style={{ paddingLeft: 20, margin: 0 }}>
               {errs.map((e: string, i: number) => (
-                <li key={i} style={{ color: '#d4380d' }}>{e}</li>
+                <li key={i} style={{ color: 'var(--cms-error)' }}>{e}</li>
               ))}
             </ul>
           ),
@@ -469,7 +469,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
                     金额：¥{it.amountBeforeTax ?? '-'}｜日期：{it.invoiceDate || '-'}
                   </span>
                 ) : (
-                  <span style={{ color: '#d4380d' }}>{it.error}</span>
+                  <span style={{ color: 'var(--cms-error)' }}>{it.error}</span>
                 ),
             },
             {

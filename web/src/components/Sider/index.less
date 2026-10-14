@@ -1,10 +1,20 @@
 // ==============================================
-// 左侧固定侧边导航栏（需求：三、布局与样式规范 / 十、样式要求）
+// 左侧固定侧边导航栏
+//
+// 视觉：**深墨面**（外部设计文档的 surface-dark）——与顶栏同族、与奶油内容区形成
+// 「深墨 ↔ 奶油」的骨架节奏。色值与 `web/src/theme.ts` 的 palette 一一对应
+// （LESS 变量不能引用 CSS 自定义属性，故此处写死并在注释里指认来源）。
+// 本文件与 `src/index.css` 是全站仅有的两个样式文件（DESIGN.md §9）。
 // ==============================================
 
 @app-sider-width: 220px;
 @app-sider-collapsed-width: 80px;
-@app-sider-bg: #001529;
+@app-sider-bg: #181715; // theme.palette.surfaceDark
+@app-sider-elevated: #252320; // theme.palette.surfaceDarkElevated（选中态 / 抬高层）
+@app-sider-soft: #1f1e1b; // theme.palette.surfaceDarkSoft
+@app-sider-on: #faf9f5; // theme.palette.onDark
+@app-sider-on-soft: #a09d96; // theme.palette.onDarkSoft
+@app-coral: #cc785c; // theme.palette.primary
 
 .app-sider {
   position: sticky !important;
@@ -25,7 +35,7 @@
       width: 4px;
     }
     &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(250, 249, 245, 0.18);
       border-radius: 2px;
     }
   }
@@ -40,20 +50,24 @@
     cursor: pointer;
     overflow: hidden;
     white-space: nowrap;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid @app-sider-elevated;
 
+    // 衬线字标（与页面标题同一字体声音，DESIGN.md §4）
     .sider-logo__mark {
-      color: #fff;
+      color: @app-sider-on;
+      font-family: var(--cms-font-serif);
       font-size: 18px;
-      font-weight: 700;
+      font-weight: 400;
       letter-spacing: 1px;
       display: none;
     }
 
     .sider-logo__text {
-      color: #fff;
-      font-size: 18px;
-      font-weight: 700;
+      color: @app-sider-on;
+      font-family: var(--cms-font-serif);
+      font-size: 17px;
+      font-weight: 400;
+      letter-spacing: 0.5px;
       opacity: 1;
       transition: opacity 0.3s ease;
     }
@@ -73,21 +87,51 @@
   .sider-search {
     padding: 12px 8px;
 
-    .sider-search__input {
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 6px;
+    // 深墨面上的输入框：AntD 的 Input 默认取主题的 colorBgContainer（奶油底），
+    // 在深色侧栏里会亮得刺眼，故整条链路（wrapper/input/addon）都要重配。
+    .ant-input-affix-wrapper,
+    .ant-input,
+    .ant-input-group-addon {
+      background: @app-sider-elevated;
+      border-color: transparent;
+      box-shadow: none;
+      color: @app-sider-on-soft;
 
-      input {
+      input,
+      input.ant-input {
         background: transparent;
-        color: rgba(255, 255, 255, 0.65);
+        color: @app-sider-on-soft;
 
         &::placeholder {
-          color: rgba(255, 255, 255, 0.35);
+          color: rgba(250, 249, 245, 0.35);
         }
       }
+    }
 
-      .ant-input-clear-icon {
-        color: rgba(255, 255, 255, 0.45);
+    .ant-input-affix-wrapper:focus,
+    .ant-input-affix-wrapper-focused,
+    .ant-input:focus {
+      background: @app-sider-soft;
+      border-color: @app-coral;
+      box-shadow: none;
+    }
+
+    .ant-input-clear-icon,
+    .ant-input-search-icon {
+      color: rgba(250, 249, 245, 0.45);
+    }
+
+    // 搜索按钮（addon 里的 Button）：AntD 默认给它奶油底，在深墨侧栏上是一块刺眼的亮方
+    .ant-input-group-addon .ant-btn {
+      background: @app-sider-elevated;
+      border-color: transparent;
+      color: @app-sider-on-soft;
+      box-shadow: none;
+
+      &:hover {
+        background: @app-sider-soft;
+        border-color: transparent;
+        color: @app-sider-on;
       }
     }
 
@@ -99,7 +143,7 @@
 
       .sider-search__result-item {
         padding: 7px 10px;
-        border-radius: 6px;
+        border-radius: 8px;
         cursor: pointer;
         display: flex;
         flex-direction: column;
@@ -107,16 +151,16 @@
         transition: background-color 0.3s ease;
 
         &:hover {
-          background-color: rgba(255, 255, 255, 0.12);
+          background-color: @app-sider-soft;
         }
 
         .sider-search__result-label {
-          color: rgba(255, 255, 255, 0.85);
+          color: rgba(250, 249, 245, 0.85);
           font-size: 13px;
         }
 
         .sider-search__result-chain {
-          color: rgba(255, 255, 255, 0.4);
+          color: rgba(250, 249, 245, 0.45);
           font-size: 12px;
         }
       }
@@ -125,7 +169,7 @@
         margin: 12px 0;
 
         .ant-empty-description {
-          color: rgba(255, 255, 255, 0.45);
+          color: @app-sider-on-soft;
         }
       }
     }
@@ -145,18 +189,25 @@
       border-inline-end: none !important;
       padding: 4px 0;
 
-      // 菜单项：圆角 6px，左右边距 8px
+      // 菜单项：圆角 8px，左右边距 8px
       .ant-menu-item,
       .ant-menu-submenu-title {
         margin: 2px 8px;
         width: calc(100% - 16px);
-        border-radius: 6px;
+        border-radius: 8px;
         transition: all 0.3s ease;
       }
 
-      // 高亮
+      .ant-menu-item:hover,
+      .ant-menu-submenu-title:hover {
+        background-color: @app-sider-soft;
+      }
+
+      // 选中：抬高面 + 左侧珊瑚条（取代原来的"白 12% 底"）
       .ant-menu-item-selected {
-        background-color: rgba(255, 255, 255, 0.12) !important;
+        background-color: @app-sider-elevated !important;
+        color: @app-sider-on !important;
+        box-shadow: inset 2px 0 0 @app-coral;
       }
     }
   }
@@ -164,7 +215,7 @@
   .sider-loader__status {
     padding: 24px 8px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.45);
+    color: @app-sider-on-soft;
   }
 
   // ---------- 底部折叠按钮 ----------
@@ -176,7 +227,7 @@
     height: 48px;
     border: none;
     background: transparent;
-    color: #fff;
+    color: @app-sider-on;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -187,7 +238,7 @@
     transition: all 0.3s ease;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: @app-sider-soft;
     }
 
     .app-sider__collapse-text {
@@ -208,13 +259,13 @@
 }
 
 // ==============================================
-// 面包屑（需求 5.3）：内容区顶部
+// 面包屑：内容区顶部（奶油底，故用灰阶文字）
 // ==============================================
 .sider-breadcrumb {
   padding: 12px 0 4px;
 
   .sider-breadcrumb__current {
-    color: rgba(0, 0, 0, 0.65);
+    color: var(--cms-body);
   }
 }
 
@@ -225,7 +276,7 @@
 // ==============================================
 .app-sider-drawer {
   .ant-drawer-content-wrapper {
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.24);
+    box-shadow: 2px 0 12px rgba(20, 20, 19, 0.24);
   }
 }
 

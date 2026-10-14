@@ -227,10 +227,10 @@ export default function Finance() {
   return (
     <div
       style={{
-        background: '#fff',
+        background: 'var(--cms-paper)',
         borderRadius: 8,
         padding: 16,
-        border: '1px solid #f0f0f0',
+        border: '1px solid var(--cms-hairline-soft)',
       }}
     >
       {/* 问题四：外框样式与其他标准列表页对齐；页面结构（选合同 → 双台账 + 统计）保持不变 */}
@@ -366,8 +366,8 @@ export default function Finance() {
                         </Table.Summary>
                       )}
                     />
-                    <Card size="small" style={{ marginTop: 16, background: '#fafafa' }}>
-                      <div style={{ display: 'flex', gap: 48, color: '#555' }}>
+                    <Card size="small" style={{ marginTop: 16, background: 'var(--cms-surface-soft)' }}>
+                      <div style={{ display: 'flex', gap: 48, color: 'var(--cms-muted)' }}>
                         <span>经办人：____________</span>
                         <span>物资经理：____________</span>
                         <span>商务经理：____________</span>

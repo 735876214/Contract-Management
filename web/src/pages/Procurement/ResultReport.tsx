@@ -578,7 +578,7 @@ export default function ResultReport() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准（需先完成采购文件）
           </span>
         }
@@ -696,7 +696,7 @@ export default function ResultReport() {
             <Card size="small" title="一、成交报告基本信息">
               <Row gutter={[16, 16]}>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>成交单位数量</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>成交单位数量</div>
                   {editable ? (
                     <InputNumber
                       style={{ width: '100%' }}
@@ -711,7 +711,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购开启时间</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>采购开启时间</div>
                   {editable ? (
                     <DatePicker
                       style={{ width: '100%' }}
@@ -723,7 +723,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>开启地点</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>开启地点</div>
                   {editable ? (
                     <Input
                       value={form.openPlace}
@@ -735,7 +735,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>评审小组成员</div>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>评审小组成员</div>
                   {editable ? (
                     <Input
                       value={form.reviewMembers}
@@ -747,7 +747,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     审核通过响应单位数量
                   </div>
                   {editable ? (
@@ -764,7 +764,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     参与响应单位数量
                   </div>
                   {editable ? (
@@ -781,7 +781,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     弃权响应单位数量
                   </div>
                   {editable ? (
@@ -798,7 +798,7 @@ export default function ResultReport() {
                   )}
                 </Col>
                 <Col xs={24} md={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     有效响应文件数量
                   </div>
                   {editable ? (
@@ -822,7 +822,7 @@ export default function ResultReport() {
               size="small"
               title="二、响应单位情况汇总表（导入）"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   导入后自动生成下方四张表；重复导入将覆盖已有明细
                 </span>
               }
@@ -838,7 +838,7 @@ export default function ResultReport() {
                   disabled={!editable}
                   extraHint="导入将覆盖已有的响应单位明细。"
                 />
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   已导入 {suppliers.length} 家响应单位
                 </span>
               </Space>
@@ -859,7 +859,7 @@ export default function ResultReport() {
               size="small"
               title="三、开启报价情况表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   排序规则：按第一轮报价不含税总额由小到大
                 </span>
               }
@@ -880,7 +880,7 @@ export default function ResultReport() {
               size="small"
               title="四、第二轮报价情况表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   仅「通过第一轮报价=是」的单位；按第二轮报价不含税总额由小到大；勾选后生成候选人表
                 </span>
               }
@@ -901,7 +901,7 @@ export default function ResultReport() {
               size="small"
               title="五、拟推荐成交候选人表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   在第二轮报价情况表中勾选后自动填入
                 </span>
               }

@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import { dashboardApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import { useDictStore } from '@/store/dict';
+import { chartPalette } from '@/theme';
 
 const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
@@ -107,14 +108,16 @@ export default function Dashboard() {
     xAxis: { type: 'category', data: trend.map((t) => t.month) },
     yAxis: { type: 'value' },
     series: [
-      { name: '结算金额', type: 'line', smooth: true, data: trend.map((t) => t.settleAmount), itemStyle: { color: '#1677ff' } },
-      { name: '付款金额', type: 'bar', data: trend.map((t) => t.paidAmount), itemStyle: { color: '#52c41a' } },
+      { name: '结算金额', type: 'line', smooth: true, data: trend.map((t) => t.settleAmount), itemStyle: { color: chartPalette[0] } },
+      { name: '付款金额', type: 'bar', data: trend.map((t) => t.paidAmount), itemStyle: { color: chartPalette[1] } },
     ],
   };
 
   const typeOption = {
     tooltip: { trigger: 'item' },
     legend: { bottom: 0 },
+    // 系列配色统一取 theme 的 chartPalette（珊瑚 → 青 → 琥珀 → 绿 → 深墨 → 红）
+    color: [...chartPalette],
     series: [
       {
         type: 'pie',
@@ -169,7 +172,7 @@ export default function Dashboard() {
                     title={item.issuer || '-'}
                     description={`发票号码 ${item.invoiceNo || '-'} · 开票日期 ${item.invoiceDate?.slice(0, 10) || '-'}`}
                   />
-                  <span style={{ color: '#cf1322' }}>{money(item.amountWithTax)}</span>
+                  <span style={{ color: 'var(--cms-error)' }}>{money(item.amountWithTax)}</span>
                 </List.Item>
               )}
             />

@@ -221,7 +221,7 @@ export function buildInquirySheetsHtml(images: InquirySheet[] = []): string {
         (f, i) =>
           `<p>${esc(f?.fileName || `询价单${i + 1}`)}</p>` +
           (f?.url
-            ? `<p><img src="${esc(absoluteUrl(f.url))}" style="max-width:100%;border:1px solid #000" /></p>`
+            ? `<p><img src="${esc(absoluteUrl(f.url))}" style="max-width:100%;border:1px solid var(--cms-ink)" /></p>`
             : ''),
       )
       .join('') +
