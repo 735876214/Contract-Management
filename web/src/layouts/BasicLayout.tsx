@@ -111,8 +111,10 @@ export default function BasicLayout() {
         </Header>
         <Content style={{ margin: isMobile ? 8 : 16 }}>
           <BreadcrumbNav />
-          {/* 路由懒加载（见 router.tsx）的兜底：只替换内容区，侧栏/Header 不闪烁 */}
-          <Suspense fallback={<Spin style={{ display: 'block', margin: '80px auto' }} tip="页面加载中…" />}>
+          {/* 路由懒加载（见 router.tsx）的兜底：只替换内容区，侧栏/Header 不闪烁。
+              注意：`Spin` 的 `tip` 只在 nest/fullscreen 模式下生效，裸用会有 antd 控制台告警，
+              故这里不加 tip（文案对加载兜底没有信息量）。 */}
+          <Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '80px auto' }} />}>
             <Outlet />
           </Suspense>
         </Content>
