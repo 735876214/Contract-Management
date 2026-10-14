@@ -13,6 +13,7 @@ import {
   payableDateOf,
   OverdueRowInput,
 } from './overdue-calculator';
+import { summarizeOverdue, interestOf } from '../../common/utils/overdue-summary';
 
 /**
  * 资金费用服务（保理费用 / 逾期利息 / 合同资金参数）。
@@ -282,36 +283,27 @@ export class FinanceService {
       orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }, { createdAt: 'asc' }],
     });
     const supplierName = params.supplierName;
-    const totalMaterial = round(rows.reduce((a: number, r: any) => a + (num(r.materialAmount) || 0), 0), 2) || 0;
-    const totalPayment = round(rows.reduce((a: number, r: any) => a + (num(r.paymentAmount) > 0 ? num(r.paymentAmount) : 0), 0), 2) || 0;
-    const currentCumulative = round(rows.reduce((a: number, r: any) => a + (r.waived ? 0 : num(r.overdueInterest) || 0), 0), 2) || 0;
-    const capAmount = round(totalMaterial * params.interestCapRatio, 2);
-    // 上期开累：手动期初值优先，否则自动为上一结算月份的开累
-    const months = Array.from(new Set(rows.map((r: any) => r.settlementMonth))).sort();
-    let cum = 0;
-    const cumByMonth: Record<string, number> = {};
-    for (const m of months) {
-      cum = round(cum + rows.reduce((a: number, r: any) => (r.settlementMonth === m ? a + (r.waived ? 0 : num(r.overdueInterest) || 0) : a), 0), 2) || 0;
-      cumByMonth[m] = cum;
-    }
-    const currentMonth = months[months.length - 1] || '';
-    const manualPrev = rows.filter((r: any) => r.prevCumulative !== null && r.prevCumulative !== undefined).sort((a: any, b: any) => (b.settlementMonth || '').localeCompare(a.settlementMonth || ''))[0];
-    const prevCumulative = manualPrev ? num(manualPrev.prevCumulative) || 0 : cumByMonth[months[months.length - 2] || ''] || 0;
+    // 汇总口径与逾期利息引擎（recalculate().stats）**共用一份实现**，避免两处「上期开累」规则漂移；
+    // 注意 where 里可能带 settlementMonth：筛选视图只汇总被筛出的行（范围由调用方决定，汇总规则不变）
+    const summary = summarizeOverdue(rows, (r) => interestOf(r));
+    const capAmount = round(summary.totalMaterial * params.interestCapRatio, 2);
     return {
       contract: params,
       list: rows.map((r: any) => ({ ...r, supplierName })),
       stats: {
-        totalMaterial,
-        totalPayment,
-        currentCumulative,
+        totalMaterial: summary.totalMaterial,
+        totalPayment: summary.totalPayment,
+        currentCumulative: summary.currentCumulative,
         capRatio: params.interestCapRatio,
         capAmount,
-        capUsage: capAmount ? round((currentCumulative / capAmount) * 100, 2) : 0,
-        interestRatio: totalMaterial ? round((currentCumulative / totalMaterial) * 100, 2) : 0,
-        prevCumulative,
-        currentSettlement: round(currentCumulative - prevCumulative, 2) || 0,
-        cumulativeByMonth: cumByMonth,
-        currentMonth,
+        capUsage: capAmount ? round((summary.currentCumulative / capAmount) * 100, 2) : 0,
+        interestRatio: summary.totalMaterial
+          ? round((summary.currentCumulative / summary.totalMaterial) * 100, 2)
+          : 0,
+        prevCumulative: summary.prevCumulative,
+        currentSettlement: summary.currentSettlement,
+        cumulativeByMonth: summary.cumulativeByMonth,
+        currentMonth: summary.currentMonth,
       },
     };
   }

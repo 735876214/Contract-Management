@@ -131,6 +131,13 @@ Contract-Management/
   同名不同单位即视为缺陷；旧名经 `PROCUREMENT_VAR_ALIASES` 单向兼容，面板只展示规范名。
   改/加变量必须**同时**改面板定义（`web/src/constants/procurementVariables.ts`）与取值表
   （各 `utils/procurement*.ts` 的 `build*VariableValues`），否则变量漂移锁测试红。
+- **合同模板占位符只认双花括号**：`{{变量名}}`（表格占位符 `{{物料编码清单}}` / `{{合同清单}}` 同类），
+  渲染是零依赖纯函数 `server/src/modules/template/template-render.ts`（`renderTemplate()`），
+  由 `server/test/templateRender.spec.mts` 锁死。**单花括号 `{变量名}` 与英文遗留 key
+  （`MATERIAL_CODE_TABLE`/`CONTRACT_ITEM_TABLE`）的支持已移除**（2026-10-14，项目无存量业务数据；
+  旧写法还会误伤富文本里的 CSS 花括号）——别再加回兼容分支，也别把新模板写成单花括号。
+  改语法或改种子模板 `server/prisma/templates/*.ts` 后，须重跑
+  `npx ts-node prisma/templates/upsert-purchase-exec.ts`（已是真 upsert，会刷新内容）。
 - **依赖管理统一用 npm**：锁文件 `server|web/package-lock.json` **必须入库**（镜像与 CI 走
   `npm ci --legacy-peer-deps`，缺锁文件直接失败）；改了依赖要在对应目录跑
   `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件并一并提交。**勿用 pnpm/yarn**

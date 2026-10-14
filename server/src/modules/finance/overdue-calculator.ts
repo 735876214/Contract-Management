@@ -13,6 +13,7 @@
  */
 
 import { round } from '../../common/utils/money';
+import { summarizeOverdue } from '../../common/utils/overdue-summary';
 
 export { round };
 
@@ -231,41 +232,21 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
   }
 
   // ---- 5. 合计与结转统计 ----
-  const interestOf = (idx: number) => (rows[idx].waived ? 0 : derived.get(idx)?.overdueInterest || 0);
-  // 按结算月份排序计算开累
-  const months = Array.from(new Set(rows.map((r) => r.settlementMonth))).sort();
-  let cumulative = 0;
-  const cumulativeByMonth = new Map<string, number>();
-  for (const m of months) {
-    const monthInterest = rows.reduce((acc, r, idx) => (r.settlementMonth === m ? acc + interestOf(idx) : acc), 0);
-    cumulative = round(cumulative + monthInterest, 2) || 0;
-    cumulativeByMonth.set(m, cumulative);
-  }
-  const totalMaterial = round(rows.reduce((acc, r) => acc + (Number(r.materialAmount) || 0), 0), 2) || 0;
-  const totalPayment = round(rows.reduce((acc, r) => acc + (Number(r.paymentAmount) > 0 ? Number(r.paymentAmount) : 0), 0), 2) || 0;
-  const totalInterest = cumulative;
-  const perRowPrev = new Map<number, number | null>();
-  rows.forEach((r, idx) => {
-    // 上期开累 = 手动期初值优先，否则为上一结算月份的开累值
-    if (r.prevCumulative !== null && r.prevCumulative !== undefined) perRowPrev.set(idx, Number(r.prevCumulative));
-    else {
-      const ms = months.filter((m) => m < r.settlementMonth);
-      perRowPrev.set(idx, ms.length ? cumulativeByMonth.get(ms[ms.length - 1]) || 0 : 0);
-    }
-  });
-  const currentMonth = months[months.length - 1];
-  const prevCumulative = currentMonth ? perRowPrev.get(rows.findIndex((r) => r.settlementMonth === currentMonth)) || 0 : 0;
+  // 汇总口径（含「上期开累」规则）统一在 common/utils/overdue-summary.ts，与列表接口 listOverdue 共用一份实现
+  const summary = summarizeOverdue(rows, (row, idx) =>
+    row.waived ? 0 : derived.get(idx)?.overdueInterest || 0,
+  );
 
   return {
     derived,
     stats: {
-      totalMaterial,
-      totalPayment,
-      totalInterest,
-      currentCumulative: totalInterest,
-      prevCumulative,
-      currentSettlement: round(totalInterest - prevCumulative, 2) || 0,
-      cumulativeByMonth: Object.fromEntries(cumulativeByMonth),
+      totalMaterial: summary.totalMaterial,
+      totalPayment: summary.totalPayment,
+      totalInterest: summary.currentCumulative,
+      currentCumulative: summary.currentCumulative,
+      prevCumulative: summary.prevCumulative,
+      currentSettlement: summary.currentSettlement,
+      cumulativeByMonth: summary.cumulativeByMonth,
     },
   };
 }

@@ -117,11 +117,15 @@ export class InvoiceService {
     return true;
   }
 
-  /** 发票查验：预留第三方查验接口 */
+  /**
+   * 发票「查验」：把「待查验」置为「已查验」——用于**登记核对**
+   * （业务口径：录入/核对该发票的信息后标记为已查验）。
+   *
+   * ⚠️ **不做验真**，也不接第三方查验服务（如航信/百望）——业务侧明确不需要。
+   * 发票信息采集走 `POST /invoices/recognize`（二维码/OCR 识别）+ 人工补录。
+   */
   async verify(id: string) {
     const inv = await this.findOne(id);
-    // TODO: 接入第三方查验（如航信/百望）后替换此处实现
-    const result = { verified: true, provider: 'MOCK', message: '演示环境默认查验通过（第三方接口预留）' };
     return this.prisma.invoice.update({
       where: { id },
       data: { statusCode: inv.statusCode === 'WAIT_VERIFY' ? 'VERIFIED' : inv.statusCode },

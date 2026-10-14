@@ -215,12 +215,14 @@ describe('占位符高亮（docs/06 #6 回归锁定）', () => {
     assert.ok(out.includes('>{{项目名称}}<'), `双花括号应整体高亮，实际：${out}`);
   });
 
-  it('单花括号（合同模板遗留语法）仍能高亮', () => {
-    const out = highlightPlaceholders('{合同额}');
-    assert.ok(out.includes('>{合同额}<'));
+  it('**回归锁**：单花括号不再高亮（合同模板遗留语法已移除，docs/06 #5/#6）', () => {
+    // 旧实现会把 `{合同额}` 也高亮；现在只认双花括号——否则富文本里的 `{color:red}` 之类会被误标
+    assert.equal(highlightPlaceholders('{合同额}'), '{合同额}');
+    assert.equal(highlightPlaceholders('.x{color:red}'), '.x{color:red}');
   });
 
   it('纯空白花括号不视为占位符', () => {
     assert.equal(highlightPlaceholders('{ }'), '{ }');
+    assert.equal(highlightPlaceholders('{{ }}'), '{{ }}');
   });
 });

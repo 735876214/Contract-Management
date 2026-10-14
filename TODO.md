@@ -4,18 +4,14 @@
 > 否则文件只增不减）；历史以 `git log` / PR 为准。
 > 改动前必读的约定与踩过的坑见 [AGENTS.md](AGENTS.md) 与 [.workbuddy/memory/MEMORY.md](.workbuddy/memory/MEMORY.md)。
 > 数据来源：对当前代码库的审计（非产品需求方录入），请按实际排期调整。
-> **基准**：main @ `2031def`（2026-10-14）；最近一批已完成 P3 的「采购清单→合同清单衔接」、
-> 「金额计算补测（逾期利息引擎 + 台账合规判定）」、「日报页年份千分位」、「字段级展示脱敏的日志侧」
-> 与「`ImportTask` 崩溃恢复 + 幂等去重」。
+> **基准**：main 分支 2026-10-14（具体提交见 `git log`）。最近一批已完成：P3 的「采购清单→合同清单衔接」、
+> 「金额计算补测（逾期利息引擎 + 台账合规判定）」、「日报页年份千分位」、「字段级展示脱敏的日志侧」、
+> 「`ImportTask` 崩溃恢复 + 幂等去重」、「合同模板占位符语法收敛（移除单花括号/英文 key 兼容分支）」、
+> 「逾期利息汇总口径合并为单一实现」。
 
-图例：`P1` 应尽快（阻塞在外部输入）· `P2` 需业务澄清（未澄清前不要动手）· `P3` 可直接开工（工程项）
-
-## P1 · 应尽快（阻塞在外部输入）
-
-- **发票查验接第三方**：`POST /invoices/:id/verify` 目前是**演示实现**——`invoice.service.ts` 的
-  `verify()` 直接返回 `{ verified: true, provider: 'MOCK' }`，代码内留着
-  `TODO: 接入第三方查验（如航信/百望）后替换此处实现`。需先在需求侧确认服务商与接口协议。
-  （注：`invoice-recognizer.ts` 只做二维码/OCR 识别，不构成"查验"。）
+图例：`P2` 需业务澄清（未澄清前不要动手）· `P3` 可直接开工（工程项）
+> 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
+> 故此项已按业务澄清从待办中移除。
 
 ## P2 · 需业务澄清（未澄清前不要动手）
 
@@ -49,24 +45,16 @@
 
 ## P3 · 可直接开工（工程项，按性价比排序）
 
-1. **单花括号 / 英文遗留 key 的存量盘点与迁移**：`template.service.generate()` 仍兼容 `{变量名}`、
-   `{{MATERIAL_CODE_TABLE}}`、`{合同额大写}` 等。**2026-10-14 实测**：库中 4 份合同模板里有 **1 份**
-   （物资采购执行合同模板）同时使用英文 key 与 `{合同额大写}` → **不能直接删分支**，先把这 1 份模板迁到
-   `{{}}` 规范再移除兼容逻辑（移除属破坏性变更，需单独排期）。
-2. **台账/看板列配置扩展到更多列表页**：`ledger.columns.config`（`ledger.service.ts` 读写 + 页面列设置弹窗）
+1. **台账/看板列配置扩展到更多列表页**：`ledger.columns.config`（`ledger.service.ts` 读写 + 页面列设置弹窗）
    已是可用范式，可抽成通用组件供其他列表页复用。
-3. **上传目录替换为对象存储**：`FileController` 用 multer `diskStorage`，是**唯一写入点**（表里只存 URL），
-   替换实现即可接 MinIO/S3；顺带可加哈希校验与版本管理。
-4. **字段级展示脱敏（按权限打码）**：脱敏工具 `common/utils/mask.ts` 已具备
+2. **上传目录替换为对象存储**：落盘写入点有 **3 处**（`file.controller.ts` 的 multer、`contract.service.sign()`
+   的签章件、`import-task.service` 的导入错误报告；读取侧另有 `signedFile()` 与 `main.ts` 的静态服务
+   `useStaticAssets`）。工程路径：先把 3 处写入 + 读取收敛到 `common/services/storage.service.ts` 的存储接口，
+   再替换其实现接 MinIO/S3（静态服务需一并改为代理/重定向）；顺带可加哈希校验与版本管理。
+3. **字段级展示脱敏（按权限打码）**：脱敏工具 `common/utils/mask.ts` 已具备
    （`maskField()` / `maskByKey()` / `slimSecrets()`），**日志侧已强制脱敏**；
    剩下的是「**响应体按角色打码**」——需业务先定"哪些角色看不到哪些字段"，
    再仿 `common/pick-fields.ts` 的写法在序列化处接入（行级 DataScope 视诉求，见 [docs/05](docs/05-四域扩展可行性评估.md) §9）。
-5. **合并重复的「累计口径」计算**（2026-10-14 实施中发现的重复逻辑，**改动前先补测**）：
-   `overdue-calculator.recalculate()` 的 `stats` 已算出 `totalMaterial / totalPayment / currentCumulative /
-   prevCumulative / cumulativeByMonth`，而 `finance.service.listOverdue()` **又各算了一遍**；
-   且两处「上期开累」规则不同——引擎按「行内 `prevCumulative` 优先，否则上一结算月开累」，
-   `listOverdue` 取「最新月份那条带手动期初的行」。两套口径会漂移，建议收敛到一处
-   （注意 `listOverdue` 支持按 `settlementMonth` 过滤，收敛时要保留「筛选视图 vs 全量计算」的差异）。
 
 ## 四域扩展（评估已定，待实施）
 
@@ -87,8 +75,8 @@
 - **采购下游**：`PurchaseOrder`(+Item) → 到货验收（**复用收领单**，加 `purchaseOrderId`）→ `Reconciliation`。
 - **合同增强**：履约派生进度（零表）→（按需）`ContractFulfillment` → 归档锁定。
 
-> 注：上面 P3 第 1 条（采购清单 → 合同清单衔接）与四域扩展的「采购下游」是同一段链路的两端，
-> 可一并排期——先做衔接（无新表），再做订单/对账（要新表）。
+> 注：四域扩展的「采购下游」与已完成的「采购清单 → 合同清单衔接」是同一段链路的两端——
+> 衔接已做（无新表），后续再做订单/对账（要新表）。
 
 ### 待实施 · 按需
 

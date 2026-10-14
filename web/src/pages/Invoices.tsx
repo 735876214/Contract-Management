@@ -132,7 +132,7 @@ function InvoiceTab({
 
   const doVerify = async (id: string) => {
     await invoiceApi.verify(id);
-    message.success('已发起查验');
+    message.success('已标记为已查验');
     refreshList();
   };
 

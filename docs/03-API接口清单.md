@@ -169,15 +169,16 @@
 | POST | `/templates/:id/toggle` | 启用/停用 | `template:edit` |
 | GET | `/templates/:id/versions` | 版本列表 | `template:view` |
 | POST | `/templates/:id/rollback` | 回滚到指定版本 | `template:edit` |
-| POST | `/templates/migrate` | 存量模板变量迁移 | `template:edit` |
 | GET | `/templates/guide/categories` | 起草向导步骤三：可用模板分类（`isFramework`/`isSupplement`/`contractType`） | `template:view` |
 | POST | `/templates/guide/generate` | 按模板 + 合同 + 供应商生成合同正文（变量替换） | `template:edit` |
 | GET | `/templates/clauses` | 条款库列表 | `template:view` |
 | POST | `/templates/clauses` | 新增条款（technical/quality/payment/acceptance） | `template:edit` |
 | PUT | `/templates/clauses/:id` · DELETE `/templates/clauses/:id` | 修改 / 删除条款 | `template:edit` |
 
-> **占位符语法规范**：新模板一律使用双花括号 `{{变量名}}`。单花括号 `{变量名}` 与英文遗留 key
-> （`MATERIAL_CODE_TABLE`、`CONTRACT_ITEM_TABLE`）为**已废弃的兼容分支**，仅为不破坏既有模板而保留。
+> **占位符语法规范**：模板**只支持双花括号 `{{变量名}}`**（表格占位符 `{{物料编码清单}}` / `{{合同清单}}` 同类）。
+> 单花括号 `{变量名}` 与英文遗留 key（`MATERIAL_CODE_TABLE`、`CONTRACT_ITEM_TABLE`）的支持**已移除**
+> （2026-10-14，本项目无存量业务数据；存量模板内容已由迁移 `20261018000000_canonicalize_template_placeholders` 规范化），
+> 原「一键迁移」接口 `POST /templates/migrate` 一并下线。
 > 采购文档的变量体系另见 [docs/06](06-变量体系梳理与歧义清单.md)。
 
 ## 9. 采购任务 `/procurement-tasks`
@@ -330,7 +331,7 @@
 | GET | `/invoices/export` · GET `/invoices/template` | 导出 / 模板 | `invoice:view` |
 | GET | `/invoices/:id` | 详情 | `invoice:view` |
 | POST / PUT / DELETE | `/invoices[/:id]` | CRUD | `invoice:edit` |
-| POST | `/invoices/:id/verify` | 查验（**预留**：当前仅做二维码识别，未接第三方查验服务） | `invoice:edit` |
+| POST | `/invoices/:id/verify` | 标记为「已查验」（**登记核对**用：录入并核对该发票信息后手动标记；**不做验真**，不接第三方查验服务） | `invoice:edit` |
 | POST | `/invoices/recognize` | 发票 OCR/二维码识别 | `invoice:edit` |
 | POST | `/invoices/batch` | 批量登记 | `invoice:edit` |
 | POST | `/invoices/import` | 导入 Excel | `invoice:edit` |

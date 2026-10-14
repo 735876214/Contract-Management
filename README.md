@@ -75,7 +75,7 @@ server/src/
     ├── contract-item/ 合同清单
     ├── settlement/    结算单 + 结算台账
     ├── payment/       付款计划/申请/执行台账/核销/逾期
-    ├── invoice/       收票登记、开票申请、查重查重、查验预留
+    ├── invoice/       收票登记、查重、二维码/OCR 识别、查验（登记核对，不做验真）
     ├── ledger/        合同台账（聚合视图 + 合规性问题计算）
     ├── repayment/     还款协议 + 还款明细
     ├── approval/      审批流定义与审批中心

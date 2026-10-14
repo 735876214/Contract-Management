@@ -166,7 +166,7 @@ export default function Templates() {
             </Col>
             <Col xs={24}>
               <Form.Item name="content" label="模板内容" rules={[{ required: true, message: '请填写模板内容' }]}>
-                <RichTextEditor variableGroups={VARIABLE_GROUPS} minHeight={360} placeholder="在此编辑合同正文，可点击「插入变量」把占位符插入到光标处" />
+                <RichTextEditor variableGroups={VARIABLE_GROUPS} minHeight={360} placeholder="在此编辑合同正文，可点击「插入变量」把占位符插入到光标处（占位符语法：{{变量名}}，单花括号不生效）" />
               </Form.Item>
             </Col>
             <Col xs={24}>

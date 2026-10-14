@@ -4,6 +4,7 @@ import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers'
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+import { renderTemplate, pendingPlaceholders } from './template-render';
 
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
 const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
@@ -212,8 +213,8 @@ export class TemplateService {
 
   /**
    * 生成合同正文：变量替换。
-   * 表格占位符：新规范 {{物料编码清单}} / {{合同清单}}（双花括号）；
-   * 兼容旧模板 {{MATERIAL_CODE_TABLE}} / {{CONTRACT_ITEM_TABLE}} 与单花括号 {物料编码清单} / {合同清单}。
+   * 占位符语法**只支持双花括号** `{{变量名}}`（表格占位符 `{{物料编码清单}}` / `{{合同清单}}`）；
+   * 单花括号与英文遗留 key 的支持已移除，见 `template-render.ts` 文件头与 docs/06 #5。
    */
   async generate(params: { templateId: string; contractId: string; manual?: Record<string, any> }, projectId: string) {
     const template = await this.findOne(params.templateId);
@@ -273,34 +274,22 @@ export class TemplateService {
       ...(params.manual || {}),
     };
 
-    // 表格占位符：双花括号（先于单花括号变量替换，避免嵌套冲突）
-    // ⚠ 占位符语法规范：**新模板一律使用双花括号 `{{变量名}}`**（与采购模板体系一致）。
-    //    下面的单花括号 `{变量名}` 与英文遗留 key（MATERIAL_CODE_TABLE / CONTRACT_ITEM_TABLE）
-    //    是历史兼容分支，**已废弃**——仅为不破坏既有合同模板而保留，后续版本移除（docs/06 #5）。
-    let html = template.content || '';
-    // 新规范中文占位符
-    html = html.split('{{物料编码清单}}').join(tables.codeTable);
-    html = html.split('{{合同清单}}').join(tables.itemTable);
-    // 兼容旧英文占位符
-    html = html.split('{{MATERIAL_CODE_TABLE}}').join(tables.codeTable);
-    html = html.split('{{CONTRACT_ITEM_TABLE}}').join(tables.itemTable);
-    // 兼容单花括号中文别名
-    html = html.split('{物料编码清单}').join(tables.codeTable);
-    html = html.split('{合同清单}').join(tables.itemTable);
-    // 合同额大写（双花括号与单花括号均支持）
-    html = html.split('{{合同额大写}}').join(String(values['合同额大写'] ?? ''));
-    html = html.split('{合同额大写}').join(String(values['合同额大写'] ?? ''));
-
-    Object.entries(values).forEach(([key, value]) => {
-      html = html.split(`{${key}}`).join(String(value ?? ''));
-    });
-
     // 补充协议占位符：前端在 formData.supplement 中已解析好可直接注入的值（含表格 HTML 与各项汇总）
     const supp = this.parseSupplement(contract);
-    Object.entries(supp).forEach(([key, value]) => {
-      html = html.split(`{{${key}}}`).join(String(value ?? ''));
-      html = html.split(`{${key}}`).join(String(value ?? ''));
+
+    // 占位符替换（纯函数，见 template-render.ts）：表格 → 变量 → 补充协议（同名键以先替换者为准）
+    const html = renderTemplate({
+      html: template.content || '',
+      tables: { 物料编码清单: tables.codeTable, 合同清单: tables.itemTable },
+      values,
+      supplement: supp,
     });
+
+    const pending = pendingPlaceholders(html);
+    if (pending.length) {
+      // 模板里存在取值表未覆盖的占位符：不阻断生成，但留下线索便于维护者补变量
+      console.warn(`[template] 模板「${template.name}」生成后仍有未替换占位符：${pending.join('、')}`);
+    }
     Object.assign(values, supp);
 
     return { html, values, tables, templateName: template.name, variables: template.variables, pageSetup: (template as any).pageSetup || null };
@@ -325,16 +314,6 @@ export class TemplateService {
     } catch {
       return {};
     }
-  }
-
-  /** 将旧模板中的英文表格占位符批量替换为中文占位符（一键迁移） */
-  migratePlaceholders(content: string): string {
-    if (!content) return content;
-    return content
-      .split('{{MATERIAL_CODE_TABLE}}')
-      .join('{{物料编码清单}}')
-      .split('{{CONTRACT_ITEM_TABLE}}')
-      .join('{{合同清单}}');
   }
 
   // ---------------- 合同条款（需求 2.2/2.3：原条款库统一命名，固定四种类型） ----------------
