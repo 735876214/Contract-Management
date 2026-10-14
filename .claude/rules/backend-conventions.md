@@ -1,0 +1,63 @@
+# 后端约定细则（改动前必看）
+
+> **何时加载**：改动 `server/src/**`、`server/prisma/**`，或涉及迁移、service、controller、台账/结算/日志时。
+> 规则本体在 [CLAUDE.md](../../CLAUDE.md)；本文件是它的展开。
+
+## 迁移与外键
+
+- **新增采购阶段子模块需同步改六处**（漏一处必现"页面有、取值空"）：`schema.prisma`（含**两侧反引用**）→
+  迁移 SQL → service（`xxx()/saveXxx()/serializeXxx()/publish()` 校验）→ controller（GET+PUT）→
+  前端 `api/modules.ts` + `constants/procurementVariables.ts` → `utils/<模块>.ts` + 页面。
+- **加外键必须在同一迁移内先做数据清洗**（空串归一为 NULL、悬空引用置 NULL；不可空列则以
+  `RAISE EXCEPTION` 拦截而非静默删行），否则线上库 `ADD CONSTRAINT` 直接失败；
+  新增 `xxxId` 字段须建 `@relation` 或登记进 `schemaDanglingRefs.spec.mts` 的白名单。
+  范例：`prisma/migrations/20261014000000_p1_consistency/migration.sql`。
+- 迁移生成姿势（本机非交互 shell）见 [docs/development.md §9](../../docs/development.md)。
+
+## service 层通用
+
+- **乐观锁**：业务表多有 `version Int`，更新时用 `helpers.assertVersion(old, data)`（不一致抛 409）。
+- **写字段白名单**：service 用 `common/pick-fields.ts` 的 `pickFields` 过滤未知字段，防前端字段漂移 500。
+- **日志必须脱敏（白名单）**：操作日志拦截器把「请求参数 + 变更前后快照」整体写入 `OperationLog`
+  （日志页仅需 `system:user` 权限即可查看），**凭据/银行账号/证件号/联系方式不得明文入库**。
+  规则集中在 `common/utils/mask.ts`（`slimSecrets()` 深拷贝后按键名打码，**不改原对象**——入参可能是
+  即将返回给前端的响应体）；新增敏感字段须登记进 `SECRET_FIELD_KEYS`，契约由 `mask.spec.mts` 锁定。
+- **文件落盘只有一条路**：`common/services/storage.service.ts`（`StorageService`，上传/签章件/导入错误报告
+  三个写入点都走它）——**不要在 service/controller 里自己拼 `UPLOAD_DIR` 与文件名**；键是**相对 POSIX 路径**
+  （`signed/x.pdf`，用 `/` 不用 `path.join`，否则 Windows 下落库成 `signed\x.pdf`），对外 URL = `/api/files/<键>`，
+  越权键（`..`/绝对路径）一律 400。纯逻辑在 `common/utils/storage-keys.ts`。
+  ⚠️ multer 的 `destination/filename` 回调在**类定义期**求值，`this` 不是控制器实例——别在那里注入式取服务。
+  换对象存储只需实现同一个 `StorageLike` 并改 `common.module.ts` 的 provider 绑定 + `main.ts` 静态服务。
+  细节见 [docs/component-api.md](../../docs/component-api.md)。
+
+## 采购工作流与合同联动
+
+- **采购工作流有单一事实源**：后端 `constants/procurementFlow.ts` 与前端
+  `web/src/constants/procurementWorkflow.ts` 是**互为镜像**的两份常量，由
+  `frontendChainParity.spec.mts` 锁死。**必须同步改**，否则测试红。
+- **合同阶段的任务状态由「主合同」决定**：纯函数 `contractStageTaskStatus()`（草稿→合同编制中 /
+  审批中→合同审批中 / 已签章→已完成）；合同侧在签章、状态互转、提交、驳回时自动同步
+  （`contract.service.syncLinkedTaskStatus`），`POST /procurement-tasks/:id/sync-contract-status` 只作人工兜底。
+  ⚠️ 「主合同」= 该任务**最早创建**的合同（同批生成再按编号排序）；`GET /contracts` 按 `createdAt DESC`，
+  **`list[0]` 不是主合同**，别拿它判定。
+- **金额上限（防超结/防超付）**：判定在零依赖模块 `common/utils/amount-guard.ts`
+  （上限 = 合同链「主合同 + 补充协议」金额；累计结算排除草稿；累计付款排除失败/退款），
+  策略由系统参数 `settlement.over_amount_policy` / `payment.over_amount_policy` 控制
+  （`BLOCK`/`WARN`/`OFF`，默认 `WARN`）。⚠️ **合同链未填金额时返回 `null` = 无上限**，
+  别把「无金额」当成上限 0（否则 BLOCK 下会拦住合法单据）。锁定：`amountGuard.spec.mts` +
+  `test-integration/amount-guard.int.spec.ts`。细节见 docs/09 §8 B。
+
+## 日报 / 现场确认（结算量的来源）
+
+- **日报行是结算量的唯一来源**：`DailyReport` 每行带现场确认状态 `confirmStatusCode`（dict
+  `site_confirm_status`），状态只能经 `POST /daily-reports/confirm` 变更（`create/update` 不接受直传）；
+  口径开关 `settlement.require_confirmed`（默认 `true`）开启时，非「已确认」的现场记录**不计入结算口径**
+  （`contract-settled-qty` 会过滤）；收领单推送生成的行由 `receipt-order.service` 直接置「已确认」。
+  ⚠️ 改 `web/src/pages/DailyReports.tsx` 的 `FIELDS` 时，**key 必须与 Prisma 模型字段逐字一致**
+  （该数组同时驱动表格列与表单字段，错一个字 = 列空白 + 保存 500）。细节见 docs/09 §8 A。
+
+## 台账
+
+- **列宽的单位契约**：`modules/ledger/ledger-columns.ts` 的 `LEDGER_COLUMNS[].width` 是
+  **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
+  **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
