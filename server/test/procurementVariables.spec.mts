@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   PROCUREMENT_COMMON_VARS,
   PROCUREMENT_MODULE_VARS,
@@ -23,6 +25,9 @@ import { buildExplanationVariableValues } from '../../web/src/utils/frameworkExp
  *   ② 公共变量在某模块取值表里漏了 → 该模块文档出现空值。
  * 本测试把这两类漂移变成 CI 可捕获（无 DB 依赖，纯常量与纯函数）。
  */
+
+/** 相对本文件定位仓库内文件（源码扫描用） */
+const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 
 const PROJECT_CTX = {
   projectName: '滨江商务中心',
@@ -254,5 +259,64 @@ describe('采购变量「定义 ↔ 取值」一致性漂移锁（docs/06）', (
       if (allKeys.has(alias)) bad.push(`${alias} 既是别名又是已定义的变量`);
     }
     assert.deepEqual(bad, [], `别名映射不合法：\n  ${bad.join('\n  ')}`);
+  });
+
+  /**
+   * 「插入变量」面板必须标明**所属体系**（docs/06 §5 结构性歧义）。
+   *
+   * 采购模板变量与合同模板变量是两套互不相通的实现：同名 `{{项目名称}}` 由不同代码替换。
+   * 面板不标体系时，作者在合同正文里插了采购变量会**静默不替换**（正文留着占位符，只有预览才高亮）。
+   * 这里用源码扫描锁住「凡是传了变量列表的编辑器，都要声明体系」。
+   */
+  it('每个「插入变量」面板都声明了所属体系（variableScope）', () => {
+    const webRoot = here('../../web/src');
+    /** 收集 .tsx 文件，同时记录**相对 web/src 的 POSIX 路径**（报错要能定位；
+        不能用 `file.indexOf('web/src')`——Windows 下根路径是反斜杠，会算成 -1 打出 `x:211` 这种废话）*/
+    const files: Array<{ full: string; rel: string }> = [];
+    const walk = (dir: string, prefix: string) => {
+      for (const name of readdirSync(dir)) {
+        const full = `${dir}/${name}`;
+        const rel = prefix ? `${prefix}/${name}` : name;
+        if (statSync(full).isDirectory()) walk(full, rel);
+        else if (name.endsWith('.tsx')) files.push({ full, rel });
+      }
+    };
+    walk(webRoot, '');
+
+    const bad: string[] = [];
+    let scanned = 0;
+    for (const { full: file, rel } of files) {
+      const src = readFileSync(file, 'utf8');
+      for (const m of src.matchAll(/<RichTextEditor\b/g)) {
+        const start = m.index ?? 0;
+        // 扫描到该标签的结束 '>'（跳过花括号/引号内的内容）
+        let depth = 0;
+        let end = -1;
+        for (let i = start; i < src.length; i++) {
+          const ch = src[i];
+          if (ch === '{' || ch === '[' || ch === '(') depth++;
+          else if (ch === '}' || ch === ']' || ch === ')') depth--;
+          else if (ch === '>' && depth === 0) {
+            end = i;
+            break;
+          }
+        }
+        if (end < 0) continue;
+        const tag = src.slice(start, end + 1);
+        if (!/variables=|variableGroups=/.test(tag)) continue; // 没有变量面板，无需声明体系
+        scanned += 1;
+        if (!/variableScope=/.test(tag)) {
+          const line = src.slice(0, start).split('\n').length;
+          bad.push(`web/src/${rel}:${line}`);
+        }
+      }
+    }
+
+    assert.ok(scanned >= 5, `只扫到 ${scanned} 个带变量面板的编辑器，正则或组件改名了（勿让本锁空转）`);
+    assert.deepEqual(
+      bad,
+      [],
+      `以下「插入变量」面板未声明 variableScope（作者无法判断该用哪套变量）：\n  ${bad.join('\n  ')}`,
+    );
   });
 });

@@ -613,6 +613,7 @@ export default function PreMeetingMinutes() {
         value={form[field]}
         onChange={(html) => patchForm({ [field]: html } as Partial<MinutesForm>)}
         variableGroups={getProcurementVariableGroups(MODULE_TYPE)}
+        variableScope="procurement"
         disabled={!editable}
         minHeight={180}
         placeholder={`请填写${label}`}
@@ -688,7 +689,7 @@ export default function PreMeetingMinutes() {
         centered
         open={editOpen}
         onCancel={closeEdit}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>

@@ -231,7 +231,7 @@ function InvoiceTab({
         onOk={submit}
         onCancel={() => setModal(false)}
         width={960}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
@@ -416,7 +416,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
       open={open}
       onCancel={() => { onClose(); reset(); }}
       width={1080}
-      destroyOnClose
+      destroyOnHidden
       footer={
         done
           ? [<Button key="close" type="primary" onClick={() => { onClose(); reset(); }}>完成</Button>]

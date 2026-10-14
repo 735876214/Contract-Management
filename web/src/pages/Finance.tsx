@@ -389,7 +389,7 @@ export default function Finance() {
         onOk={submitFactoring}
         onCancel={() => { setFactoringModal(false); setFactoringEditing(null); }}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={factoringForm} layout="vertical">
           <Space size={16} style={{ display: 'flex' }}>
@@ -430,7 +430,7 @@ export default function Finance() {
         onOk={submitOverdue}
         onCancel={() => { setOverdueModal(false); setOverdueEditing(null); }}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
         width={560}
       >
         <Alert style={{ marginBottom: 12 }} type="info" showIcon
@@ -482,7 +482,7 @@ export default function Finance() {
         onOk={submitGenerate}
         onCancel={() => setGenerateModal(false)}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Alert style={{ marginBottom: 12 }} type="info" showIcon
           message={params?.paymentMode === '3382'
@@ -505,7 +505,7 @@ export default function Finance() {
         onOk={submitParams}
         onCancel={() => setParamsModal(false)}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={paramsForm} layout="vertical">
           <Form.Item name="paymentMode" label="付款模式" rules={[{ required: true }]}>

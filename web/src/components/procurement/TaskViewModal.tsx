@@ -93,7 +93,7 @@ export default function TaskViewModal({ task, open, onClose }: TaskViewModalProp
       open={open}
       onCancel={onClose}
       footer={<Button onClick={onClose}>关闭</Button>}
-      destroyOnClose
+      destroyOnHidden
     >
       <Spin spinning={loading}>
         {detail && (

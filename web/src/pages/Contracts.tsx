@@ -263,7 +263,7 @@ export default function Contracts() {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={960}
-        destroyOnClose
+        destroyOnHidden
       >
         <Tabs
           items={[
@@ -657,7 +657,7 @@ export default function Contracts() {
           reload();
         }}
         onCancel={() => setSupModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={supForm} layout="vertical">
           <Form.Item name="code" label="补充协议编号（自动生成，可微调）" rules={[{ required: true }]}>

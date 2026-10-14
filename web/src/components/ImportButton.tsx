@@ -164,7 +164,7 @@ export default function ImportButton({
         open={open}
         onCancel={() => setOpen(false)}
         width={520}
-        destroyOnClose
+        destroyOnHidden
         footer={
           stage === 'menu'
             ? [<Button key="cancel" onClick={() => setOpen(false)}>取消</Button>]

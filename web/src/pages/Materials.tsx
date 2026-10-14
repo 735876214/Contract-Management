@@ -171,7 +171,7 @@ export default function Materials() {
         onOk={submit}
         onCancel={() => { setModal(false); setEditing(null); }}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="物资名称" rules={[{ required: true, message: '请输入物资名称' }]}>

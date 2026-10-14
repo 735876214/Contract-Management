@@ -512,7 +512,7 @@ export default function Document() {
         centered
         open={editOpen}
         onCancel={closeEdit}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>
@@ -686,6 +686,7 @@ export default function Document() {
                 value={form.quoteDescription}
                 onChange={(html) => patchForm({ quoteDescription: html })}
                 variableGroups={getProcurementVariableGroups(MODULE_TYPE)}
+                variableScope="procurement"
                 disabled={!editable}
                 minHeight={200}
                 placeholder="请填写报价说明"

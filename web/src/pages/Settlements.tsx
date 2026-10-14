@@ -208,7 +208,7 @@ function SettlementsTab({
         onOk={submit}
         onCancel={() => setModal(false)}
         width={860}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>
@@ -389,7 +389,7 @@ function LedgerTab({
         onOk={submit}
         onCancel={() => setModal(false)}
         width={960}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>

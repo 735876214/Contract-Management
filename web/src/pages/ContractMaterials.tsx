@@ -354,7 +354,7 @@ export default function ContractMaterials() {
         onCancel={() => { setModal(false); setEditing(null); setPicked(null); }}
         confirmLoading={saving}
         width={680}
-        destroyOnClose
+        destroyOnHidden
         forceRender
       >
         <Form form={form} layout="vertical">
@@ -407,7 +407,7 @@ export default function ContractMaterials() {
         onCancel={() => setPickerOpen(false)}
         footer={null}
         width={760}
-        destroyOnClose
+        destroyOnHidden
       >
         <Input.Search
           placeholder="搜索物资名称/规格/MDM/DSC编码"
@@ -433,7 +433,7 @@ export default function ContractMaterials() {
         confirmLoading={deriveSubmitting}
         onCancel={() => setDeriveOpen(false)}
         width={620}
-        destroyOnClose
+        destroyOnHidden
       >
         <Alert
           type="warning"

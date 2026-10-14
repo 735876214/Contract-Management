@@ -784,7 +784,7 @@ export default function FrameworkExplanation() {
         centered
         open={editOpen}
         onCancel={closeEdit}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>

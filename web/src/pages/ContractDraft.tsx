@@ -368,7 +368,7 @@ export default function ContractDraft() {
         okText="创建草稿"
         cancelText="取消"
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="typeCode" label="合同类型" rules={[{ required: true, message: '请选择合同类型' }]}>
@@ -583,7 +583,7 @@ export default function ContractDraft() {
           </Button>,
         ]}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Alert
           type="info"

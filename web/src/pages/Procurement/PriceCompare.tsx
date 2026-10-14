@@ -531,7 +531,7 @@ export default function PriceCompare() {
         centered
         open={editOpen}
         onCancel={closeEdit}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
         footer={
           <Space style={{ float: 'right' }}>
@@ -645,6 +645,7 @@ export default function PriceCompare() {
                 value={form.benefitAnalysis}
                 onChange={(html) => setForm((f) => ({ ...f, benefitAnalysis: html }))}
                 variableGroups={getProcurementVariableGroups(MODULE_TYPE)}
+                variableScope="procurement"
                 disabled={!editable}
                 minHeight={180}
                 placeholder="请填写采购效益分析说明（可插入变量占位符）"

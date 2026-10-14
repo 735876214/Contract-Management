@@ -35,7 +35,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（23 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（24 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（4 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
@@ -203,11 +203,23 @@ Contract-Management/
   **别混用**：给台账页再传 `columnConfigKey` 会出现两套列设置打架；列显隐**不落 `sys_param`**
   （那是全局配置且需 `system:config` 权限，普通用户存不了）。
 - **两套测试，别混用**：`server/test/*.spec.*`（纯函数/漂移锁，**无 DB、秒级**，随 `npm test`）与
-  `server/test-integration/*.int.spec.ts`（真库，`npm run test:int`）。前者只允许 import
-  **无相对运行时依赖**的模块（`.mts` 由 Node 原生擦除类型加载，ESM 不做扩展名推断）；后者是 `.ts`，走 ts-node。
+  `server/test-integration/*.int.spec.ts`（真库，`npm run test:int`）。
+  ⚠️ **`.mts` spec 由 Node 原生类型擦除加载**（不经 ts-node），有三条硬约束（2026-10-15 专项调查结论）：
+  ① **相对运行时 `import` 必须带扩展名**（Node ESM 不做推断）——`import type` 可（会被擦除），
+  裸包（`@nestjs/common`）与内置模块可。**本仓构建侧没开扩展名选项，所以对 `server/src` 模块而言
+  实际等于"不得新增相对 import"**：要么把依赖抽成零依赖叶子（现状做法，推荐），要么先开
+  `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（见本条末）；
+  **这条由 `server/test/mtsConstraints.spec.mts` 兜底**（含多行 import 形态；报错直接给出两条出路）；
+  ② **装饰器与 JSX 不被擦除**——`@Injectable()` 的服务、`.tsx` 组件**永远**进不了 `.mts`，
+  这是**结构性限制**，不是配置问题（想覆盖它们只能用 `test-integration/`（ts-node）或引入打包器测试框架，
+  后者已被本仓库明确否决）；
+  ③ 内联 enum / 带运行时的 namespace 同样不支持。
+  另：`node:20` 会直接报无法识别 `.mts`，故**Node 需 ≥22.18**（本地 v24、CI 用 24）。
+  （若将来确要让被测模块复用兄弟模块，路径是 `tsconfig` 开 `allowImportingTsExtensions` +
+  `rewriteRelativeImportExtensions`（TS ≥5.7，本仓锁文件已是 5.9.3）并把相对 import 补成 `./x.ts`——
+  但要注意 ts-node 侧需同步放开，且收益仅限纯逻辑模块。）
 - **前端纯逻辑单测放在 `server/test/*.spec.mts`**（**不引入** jest/vitest）：直接 import `web/src/**` 中
-  **无 `@/` 别名、无运行时 `import`** 的模块（`import type` 可，会被擦除）。`.mts` 由 Node 原生
-  擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）——`node:20` 会直接报错。
+  **无 `@/` 别名、无运行时 `import`** 的模块（`import type` 可，会被擦除）。约束与兜底见上一条（§5 前段）。
   spec 清单见 [docs/development.md](docs/development.md) §5。
 
 ## 6. 常用命令
@@ -223,7 +235,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（23 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（24 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
@@ -235,7 +247,7 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**：Nest 的输出带 ANSI 颜色码，grep 会漏判
    （2026-10-14 实测：`nest build` 看着"通过"，`npx tsc --noEmit` 才暴露 3 处类型收窄错误）。
    要么看命令退出码，要么直接跑 `npx tsc --noEmit`（平文输出）。
-2. `cd server && npm test` 须全绿（23 个 spec，**无 DB 依赖**）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（24 个 spec，**无 DB 依赖**）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
    断言数不写在这里（它随用例增减，以命令输出为准）；spec 数量与 `docs/development.md §5` 清单
    由 `server/test/docStats.spec.mts` 锁定，**新增 spec 必须同步登记清单**。

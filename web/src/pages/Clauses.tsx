@@ -200,7 +200,7 @@ export default function Clauses() {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="条款名称" rules={[{ required: true }]}><Input placeholder="条款标题/名称" /></Form.Item>
@@ -208,7 +208,7 @@ export default function Clauses() {
             <Select placeholder="技术条款 / 质量条款 / 付款条件 / 验收方式" options={CLAUSE_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item name="content" label="条款内容" rules={[{ required: true }]}>
-            <RichTextEditor variables={VARIABLES} minHeight={200} placeholder="条款正文，支持富文本排版与变量占位符" />
+            <RichTextEditor variables={VARIABLES} variableScope="contract" minHeight={200} placeholder="条款正文，支持富文本排版与变量占位符" />
           </Form.Item>
         </Form>
       </Modal>

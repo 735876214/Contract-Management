@@ -320,7 +320,7 @@ export default function ContractQuery() {
         confirmLoading={signing}
         okText="保存签章信息"
         width={560}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={signForm} layout="vertical">
           <Form.Item label="合同编号">

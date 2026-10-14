@@ -37,6 +37,15 @@ export interface RichTextEditorProps {
   variables?: string[];
   /** 分类变量（优先于 variables），用于「插入变量」面板 */
   variableGroups?: VarGroup[];
+  /**
+   * 变量所属体系：面板顶部会据此显示提示（docs/06 §5 结构性歧义）。
+   *
+   * ⚠️ 采购模板变量与合同模板变量是**两套互不相通的实现**：同名 `{{项目名称}}` 由**不同代码**替换、
+   * 规则也不同。面板不标明体系时，作者很容易在合同正文里插入采购变量——那会**静默不替换**
+   * （正文里留着占位符，预览才高亮）。凡传了 `variables`/`variableGroups` 的调用点都应传本属性，
+   * 由 `server/test/procurementVariables.spec.mts` 的源码扫描锁定。
+   */
+  variableScope?: 'contract' | 'procurement';
   placeholder?: string;
   minHeight?: number;
   disabled?: boolean;
@@ -88,6 +97,7 @@ export default function RichTextEditor({
   onChange,
   variables = [],
   variableGroups,
+  variableScope,
   placeholder = '请输入内容…',
   minHeight = 320,
   disabled = false,
@@ -290,6 +300,16 @@ export default function RichTextEditor({
 
   const variableModal = (
     <div style={{ width: 380, maxHeight: 420, overflow: 'auto' }}>
+      {variableScope ? (
+        <div
+          className="cms-hint"
+          style={{ marginBottom: 8, lineHeight: 1.6, color: 'var(--cms-muted)' }}
+        >
+          {variableScope === 'procurement'
+            ? '采购模板变量 · 只在采购文档里生效；合同正文请改用合同模板变量'
+            : '合同模板变量 · 只在合同正文/条款里生效；采购文档请改用采购模板变量'}
+        </div>
+      ) : null}
       <Input
         allowClear
         prefix={<SearchOutlined />}
@@ -552,7 +572,7 @@ export default function RichTextEditor({
         .cms-rich-text blockquote { border-left: 3px solid #d9d9d9; padding-left: 12px; color: #595959; margin: 8px 0; }
       `}</style>
 
-      <Modal title="插入变量" open={varOpen} footer={null} onCancel={() => setVarOpen(false)} width={440} destroyOnClose>
+      <Modal title="插入变量" open={varOpen} footer={null} onCancel={() => setVarOpen(false)} width={440} destroyOnHidden>
         {variableModal}
       </Modal>
 

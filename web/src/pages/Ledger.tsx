@@ -189,7 +189,7 @@ export default function Ledger() {
         open={colModal}
         onOk={saveCols}
         onCancel={() => setColModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Checkbox.Group
           value={colChecked}

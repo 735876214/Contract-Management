@@ -110,7 +110,7 @@ function UsersTab() {
         ]}
       />
 
-      <Modal title={editing ? '编辑用户' : '新增用户'} open={modal} onOk={submit} onCancel={() => setModal(false)} width={640} destroyOnClose>
+      <Modal title={editing ? '编辑用户' : '新增用户'} open={modal} onOk={submit} onCancel={() => setModal(false)} width={640} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
             <Input disabled={!!editing} />
@@ -219,7 +219,7 @@ function RolesTab() {
           },
         ]}
       />
-      <Modal title={editing ? '编辑角色' : '新增角色'} open={modal} onOk={submit} onCancel={() => setModal(false)} width={560} destroyOnClose>
+      <Modal title={editing ? '编辑角色' : '新增角色'} open={modal} onOk={submit} onCancel={() => setModal(false)} width={560} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="角色编码" rules={[{ required: true }]}><Input disabled={!!editing} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>

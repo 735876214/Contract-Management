@@ -114,7 +114,7 @@ export default function Suppliers() {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="供应商名称（系统内唯一）" rules={[{ required: true }]}><Input /></Form.Item>

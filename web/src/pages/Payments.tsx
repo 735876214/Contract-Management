@@ -128,7 +128,7 @@ function RecordTab({ contractOptions }: { contractOptions: any[] }) {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>

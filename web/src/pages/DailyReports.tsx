@@ -336,7 +336,7 @@ export default function DailyReports() {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={1080}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>

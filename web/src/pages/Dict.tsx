@@ -299,7 +299,7 @@ export default function Dict() {
         open={typeModal}
         onOk={submitType}
         onCancel={() => setTypeModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={typeForm} layout="vertical">
           <Form.Item name="code" label="字典类型编码" rules={[{ required: true }]}>
@@ -325,7 +325,7 @@ export default function Dict() {
         open={itemModal}
         onOk={submitItem}
         onCancel={() => setItemModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={itemForm} layout="vertical">
           <Form.Item name="itemCode" label="字典项编码" rules={[{ required: true }]}>

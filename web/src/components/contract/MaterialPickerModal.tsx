@@ -88,7 +88,7 @@ export default function MaterialPickerModal({
       okText={`确认添加${selected.length ? `（${selected.length}）` : ''}`}
       cancelText="取消"
       width={900}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Space>
@@ -144,7 +144,7 @@ export default function MaterialPickerModal({
         confirmLoading={creating}
         okText="创建并勾选"
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="name" label="物资名称" rules={[{ required: true, message: '请输入物资名称' }]}>

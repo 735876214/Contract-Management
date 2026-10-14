@@ -91,20 +91,15 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **清理 AntD 弃用告警 `destroyOnClose` → `destroyOnHidden`**：全站 Modal 仍用旧属性名，
-  打开任一含弹窗的页面都会在控制台刷 `[antd: Modal] destroyOnClose is deprecated`（2026-10-15 全站
-  路由扫描时发现，约 20 个页面弹出）。纯机械改名，但**别与视觉改动混在一起提交**。
-- **变量面板标注「所属体系」**：采购模板变量与合同模板变量是**两套互不相通的实现**（同一个
-  `{{项目名称}}` 在采购文档与合同正文里由**不同代码**替换、规则不同，见
-  [docs/06](docs/06-变量体系梳理与歧义清单.md) §5 结构性歧义），但「插入变量」面板是**同一个通用壳**
-  （`RichTextEditor.tsx` 的 Modal，由调用方传组：合同侧传 `Clauses.VARIABLE_GROUPS`、
-  采购侧传 `getProcurementVariableGroups()`），**不标体系** → 在合同正文里插了采购体系的变量会**静默不替换**。
-  做法：面板里按体系标注（组名前缀或一行说明），零风险、不动取值逻辑。
-- **解除 `.mts` 单测的「相对导入」限制**（低优先，**先评估再动手**）：`.spec.mts` 由 Node 原生擦除类型
-  加载，而 ESM 不做扩展名推断，故被测模块**不得有相对运行时 `import`**——`server/src/constants/procurementFlow.ts`
-  为能被 spec 加载，刻意不 import `./statuses`，改成裸字面量 + 靠漂移锁兜底（见该文件内的解释注释与
-  [AGENTS.md](AGENTS.md) §5）。解除需 TS ≥5.7（现 `^5.3.3`）并开 `allowImportingTsExtensions` /
-  `rewriteRelativeImportExtensions`。**代价**：TS 升级会牵动 `nest build` 与 Prisma 生成物，须整体回归。
+- **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
+  更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，
+  `allowImportingTsExtensions` 与 `rewriteRelativeImportExtensions` 都可用
+  （原先写的「现 ^5.3.3」只看了声明下限）。
+  真正的限制是 **Node 类型擦除不支持装饰器与 JSX**：服务与 `.tsx` 组件**永远**进不了 `.mts`，
+  解除扩展名限制的收益**仅限纯逻辑模块**（如让 `procurementFlow.ts` 直接 import `./statuses` 而不是写裸字面量）。
+  **代价**：改 `tsconfig`（影响 `nest build` 与 ts-node 侧的 `.ts` spec/seed/`test:int`，需逐个验证），
+  并在相关相对 import 上补 `.ts` 扩展名。已落地的兜底：`test/mtsConstraints.spec.mts` 把「被 `.mts`
+  引用的模块不得新增无扩展名相对 import」钉死，所以**不做也不会踩雷**。
 
 ## 四域扩展（评估已定，待实施）
 

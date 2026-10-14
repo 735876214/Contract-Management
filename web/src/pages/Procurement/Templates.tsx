@@ -192,7 +192,7 @@ export default function ProcurementTemplates() {
         confirmLoading={saving}
         okText="保存"
         width={960}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Space size={16} style={{ display: 'flex' }}>
@@ -223,6 +223,7 @@ export default function ProcurementTemplates() {
                 contentRef.current = html;
               }}
               variableGroups={variableGroups}
+              variableScope="procurement"
               minHeight={380}
               placeholder="请输入模板内容，可使用「插入变量」添加占位符（如 {{项目名称}}、{{采购公告-采购清单}}）"
             />

@@ -569,7 +569,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
         </Space>
       )}
 
-      <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnClose>
+      <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnHidden>
         <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
       </Modal>
     </Modal>

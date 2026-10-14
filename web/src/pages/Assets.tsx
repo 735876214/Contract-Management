@@ -157,7 +157,7 @@ export default function Assets() {
         confirmLoading={submitting}
         onCancel={() => setModal(false)}
         width={1040}
-        destroyOnClose
+        destroyOnHidden
       >
         <AssetForm form={form} suppliers={suppliers} units={units} />
       </Modal>

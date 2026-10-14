@@ -209,7 +209,7 @@ export default function Repayments() {
         onOk={submit}
         onCancel={() => setModal(false)}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item

@@ -107,7 +107,7 @@ export default function Projects() {
         ]}
       />
 
-      <Modal title={editing ? '编辑项目' : '新建项目'} open={modal} onOk={submit} onCancel={() => setModal(false)} destroyOnClose>
+      <Modal title={editing ? '编辑项目' : '新建项目'} open={modal} onOk={submit} onCancel={() => setModal(false)} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Row gutter={12}>
             <Col xs={24} md={12}>

@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（23 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（24 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（4 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -136,6 +136,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `AGENTS.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
+  | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
   > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。
@@ -143,8 +144,21 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。
   要求：① `.mts` 由 Node 原生擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）；
-  ② 被测文件不得有运行时 `import`（`import type` 可，会被擦除）。
+  ② 被测文件不得有**相对**运行时 `import`（`import type` 可，会被擦除；裸包与内置模块可以）。
   前端质量门另有 `npm run build` 中的 `tsc --noEmit`。
+
+  > **`.mts` 的三条硬约束**（2026-10-15 专项调查结论，`server/test/mtsConstraints.spec.mts` 锁第 ① 条）：
+  > ① **相对 import 必须带扩展名**（Node ESM 不做推断）——**本仓构建侧未开扩展名选项，故对
+  > `server/src` 模块而言实际等于"不得新增相对 import"**（要么抽成零依赖叶子，要么先开下面两个选项）。
+  > 这条会随别人改动突然出现（给零依赖叶子加一行 `from './x'`），故由测试锁住，且**覆盖多行 import 形态**；
+  > ② **装饰器与 JSX 不被擦除**：NestJS 服务（`@Injectable()`）
+  > 与 `.tsx` 组件**永远**进不了 `.mts`——这是结构性限制，**不是编译选项问题**，想覆盖它们只能用
+  > `test-integration/`（ts-node），引入打包器型测试框架已被本仓库否决；③ 内联 enum / 带运行时的
+  > namespace 同样不支持。
+  > 真要解除 ①（让被测模块复用兄弟模块）：`tsconfig` 开 `allowImportingTsExtensions` +
+  > `rewriteRelativeImportExtensions`（TS ≥5.7；本仓锁文件的 typescript 已是 5.9.3，**不是版本障碍**），
+  > 并把相关相对 import 补成 `./x.ts`；注意 ts-node（`.ts` spec / seed / `test:int`）需同步验证，
+  > 且收益**仅限纯逻辑模块**；放宽范围到全仓 371 处相对 import 不值得。
 - 联调/验收脚本（**非单测**，需要先起本地栈，会写数据）：
 
   ```bash

@@ -481,7 +481,7 @@ export default function TotalListEditor({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <TotalListEditorContent task={task} readOnly />
     </Modal>
