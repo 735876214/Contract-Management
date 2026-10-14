@@ -26,16 +26,17 @@ Contract-Management/
 │   ├── 01~09-*.md       # 需求摘要/ER/接口清单/Docker/四域扩展/变量体系/关联审计/响应式/重构评估
 │   └── project-overview.md architecture.md user-guide.md development.md component-api.md
 ├── server/              # NestJS 后端
-│   ├── prisma/schema.prisma        # 全量数据模型（50 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 5 个增量迁移
+│   ├── prisma/schema.prisma        # 全量数据模型（52 个 model）
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 6 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
-│   │                               #    / import_task_recovery / canonicalize_template_placeholders）
+│   │                               #    / import_task_recovery / canonicalize_template_placeholders
+│   │                               #    / tender_bidder_and_evaluation）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
 │   ├── test/           # node:test 纯函数单测（22 个 spec，无 DB；清单见 docs/development.md §5）
-│   └── test-integration/ # DB 集成测试（3 个 spec，需 PostgreSQL：npm run test:int）
+│   └── test-integration/ # DB 集成测试（4 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -125,6 +126,17 @@ Contract-Management/
   税率按**合同主表税率**预填、含税单价与暂定含税合价服务端重算（与 `draftSave` 同口径）。
   多单位场景**每份合同都带入同一份清单**（由用户按成交单位裁剪）；带入失败只记日志、**不阻断**合同生成。
   写入口：`contract.service.seedDraftFromProcurementItems()`（幂等，已存在的物资跳过）。
+- **招标域：结构化行是事实源，JSON 只是发布快照**（2026-10-19，迁移 `20261019000000_tender_bidder_and_evaluation`）。
+  1. **导入双写**：导入「响应单位情况汇总表」时，同一事务内既写 `ProcurementResultReport.suppliers`（JSON 快照，
+     发布文档口径不变）又写 `ProcurementBidder` 结构化行（唯一键 `(taskId, bidderName)`）。
+     **单位与两轮报价以导入表为准**，面板只维护「状态 / 投标文件 / 最终确认价 / 备注」四项。
+  2. **定标 = 勾选「拟推荐成交候选人」**：服务端把勾中的单位置为 `WON` 并写 `finalPreTaxTotal`；
+     取消勾选回落「入围（通过第一轮）/ 已递交」（纯函数 `bidderStatusWhenNotWon()`）。
+     ⚠️ **生成合同的单位与金额只从结构化中标行取**（`candidatesFromBidders()` → `resolveContractUnits()`），
+     **别改回读 JSON `candidates`**——快照可能过期；`test-integration/tender-bidders.int.spec.ts` 有一条
+     「刻意篡改快照也不采信」的判据挡着。
+  3. **存量回填**由 `ensureBiddersFromSnapshot()` 在首次读取/生成合同时**幂等**完成（不写一次性迁移脚本）；
+     重新导入时**有评标记录的单位拒绝删除并报错**（静默丢评估数据比报错更糟）。
 - **合同台账列宽的单位契约**：`LEDGER_COLUMNS[].width`
   （`server/src/modules/ledger/ledger-columns.ts`）是 **Excel 字符宽（8~30）**，
   接口对外输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算为**像素**。
@@ -205,7 +217,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
 cd server && npm test          # node:test 纯函数单测（22 个 spec，无 DB）
-cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL 指向测试库）
+cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -220,8 +232,8 @@ cd server && npm run test:int  # DB 集成测试（3 个 spec，需 DATABASE_URL
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
    断言数不写在这里（它随用例增减，以命令输出为准）；spec 数量与 `docs/development.md §5` 清单
    由 `server/test/docStats.spec.mts` 锁定，**新增 spec 必须同步登记清单**。
-   另有一套 **DB 集成测试** `cd server && npm run test:int`（3 个 spec：金额闸门 / 合同状态流转 /
-   导入两阶段，需 `DATABASE_URL` 指向库名含 `test`/`int` 的测试库，见 docs/development.md §5.2）；
+   另有一套 **DB 集成测试** `cd server && npm run test:int`（4 个 spec：金额闸门 / 合同状态流转 /
+   导入两阶段 / 招标域投标·评标·定标，需 `DATABASE_URL` 指向库名含 `test`/`int` 的测试库，见 docs/development.md §5.2）；
    **改金额判定、状态流转、导入相关代码时必须跑它**（纯函数单测证明不了"闸门是否真的接上了"）。
    CI 同样会跑（postgres service），且会先跑 `prisma migrate diff --exit-code`：
    **改了 `schema.prisma` 却没生成迁移 → 红**；可执行配置里出现 `db push` 也会红（`test/noDbPush.spec.mts`）。

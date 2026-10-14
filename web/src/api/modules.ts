@@ -140,6 +140,14 @@ export const procurementTaskApi = {
   /** 「响应单位情况汇总表」导入模板下载地址 */
   resultReportTemplateUrl: (id: string) =>
     `${http.defaults.baseURL}/procurement-tasks/${id}/result-report/template`,
+  /** 结构化投标单位 + 评标记录（招标域）：读取时服务端对存量 JSON 快照做幂等回填 */
+  bidders: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/bidders`),
+  /** 保存投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与两轮报价来自导入表，不在此改） */
+  saveBidders: (id: string, bidders: unknown[]) =>
+    http.put<any, any>(`/procurement-tasks/${id}/bidders`, { bidders }),
+  /** 保存评标记录（全量替换） */
+  saveEvaluations: (id: string, evaluations: unknown[]) =>
+    http.put<any, any>(`/procurement-tasks/${id}/evaluations`, { evaluations }),
   /** 采购价格对比表（任务 3.6）：仅「单项采购」任务可用；入口条件为成交报告已完成 */
   priceCompare: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/price-compare`),
   savePriceCompare: (

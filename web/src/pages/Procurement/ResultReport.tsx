@@ -33,6 +33,7 @@ import {
 } from '@/constants/procurementVariables';
 import ImportButton from '@/components/ImportButton';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
+import BidderPanel from '@/components/procurement/BidderPanel';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, {
   moduleStatusOf,
@@ -915,6 +916,11 @@ export default function ResultReport() {
                 locale={{ emptyText: '暂无数据，请在第二轮报价情况表中勾选' }}
               />
             </Card>
+
+            {/* 六、七、招标域结构化：投标单位状态/投标文件 + 评标记录（与 JSON 快照双写） */}
+            {taskId ? (
+              <BidderPanel taskId={taskId} editable={editable} />
+            ) : null}
 
           </Space>
           )}

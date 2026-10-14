@@ -10,8 +10,9 @@
  *
  * == 防漂移 ==
  * `server/test/statusCodes.spec.mts` 双向锁定：
- * ① 有字典背书的组（settlement/payment/invoice/invoice_review/site_confirm/contract_execution）
- *   必须与字典项**集合完全相等**；② 五态合同类型必须与 `schema.prisma` 的 `enum ContractType` 完全相等；
+ * ① 有字典背书的组（settlement/payment/invoice/invoice_review/site_confirm/contract_execution/
+ *   bidder_status/evaluation_conclusion）必须与字典项**集合完全相等**；
+ * ② 五态合同类型必须与 `schema.prisma` 的 `enum ContractType` 完全相等；
  * ③ 采购任务状态必须与 `TASK_STATUS_LABELS` 的键集合完全相等；④ 组内 code 不得重复。
  * 任何一边新增/改名而另一边没跟上，测试即红。
  *
@@ -30,6 +31,8 @@ export const DICT_TYPES = {
   INVOICE_TRANSFER_STATUS: 'finance_transfer_status',
   CONTRACT_EXECUTION_STATUS: 'contract_execution_status',
   SITE_CONFIRM_STATUS: 'site_confirm_status',
+  BIDDER_STATUS: 'bidder_status',
+  EVALUATION_CONCLUSION: 'evaluation_conclusion',
 } as const;
 
 /**
@@ -115,6 +118,29 @@ export const SUBCONTRACTOR_STATUS = {
   COMPLETED: 'COMPLETED',
 } as const;
 export type SubcontractorStatus = (typeof SUBCONTRACTOR_STATUS)[keyof typeof SUBCONTRACTOR_STATUS];
+
+/**
+ * 投标 / 响应单位状态（dict `bidder_status`，招标域）。
+ * 其中 `WON` **由服务端驱动**：在成交报告里勾选「拟推荐成交候选人」即中标，取消勾选回落到
+ * 入围/已递交（判据是纯函数 `bidderStatusWhenNotWon()`，见 `constants/procurementFlow.ts`）；
+ * 其余状态（弃权/未中标等）由用户在结构化投标单位面板里维护。
+ */
+export const BIDDER_STATUS = {
+  SIGNED_UP: 'SIGNED_UP',
+  SUBMITTED: 'SUBMITTED',
+  ABSTAINED: 'ABSTAINED',
+  SHORTLISTED: 'SHORTLISTED',
+  WON: 'WON',
+  LOST: 'LOST',
+} as const;
+export type BidderStatus = (typeof BIDDER_STATUS)[keyof typeof BIDDER_STATUS];
+
+/** 评标结论（dict `evaluation_conclusion`，招标域评标记录） */
+export const EVALUATION_CONCLUSION = {
+  RECOMMEND: 'RECOMMEND',
+  NOT_RECOMMEND: 'NOT_RECOMMEND',
+} as const;
+export type EvaluationConclusion = (typeof EVALUATION_CONCLUSION)[keyof typeof EVALUATION_CONCLUSION];
 
 /**
  * 采购模块记录状态（**非字典驱动**）：`Procurement*Module.status`。

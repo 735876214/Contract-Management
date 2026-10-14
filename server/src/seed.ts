@@ -175,6 +175,8 @@ export async function seedDefaultProject(prisma: PrismaClient): Promise<void> {
 export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
   try {
     await seedSiteConfirmationDict(prisma);
+    await seedBidderStatusDict(prisma);
+    await seedEvaluationConclusionDict(prisma);
 
     const fixed = await prisma.templateVariable.updateMany({
       where: { varKey: '银行名称', varLabel: '开户银行' },
@@ -243,5 +245,74 @@ async function seedSiteConfirmationDict(prisma: PrismaClient): Promise<void> {
   ];
   for (const p of params) {
     await prisma.sysParam.upsert({ where: { key: p.key }, update: {}, create: p });
+  }
+}
+
+/**
+ * 招标域字典（docs/05 §6「设计 A」，2026-10-19）：
+ * `bidder_status` —— 投标/响应单位状态。`WON` 由服务端在「勾选拟推荐成交候选人」时驱动，
+ * 取消勾选回落到「入围/已递交」（判据：`constants/procurementFlow.ts` 的 `bidderStatusWhenNotWon()`）。
+ * code 的单一事实源是 `constants/statuses.ts` 的 `BIDDER_STATUS`，由 `test/statusCodes.spec.mts` 双向锁。
+ */
+async function seedBidderStatusDict(prisma: PrismaClient): Promise<void> {
+  const typeCode = 'bidder_status';
+  await prisma.dictType.upsert({
+    where: { code: typeCode },
+    update: {},
+    create: {
+      code: typeCode,
+      name: '投标单位状态',
+      remark: '成交报告「响应单位情况汇总表」的响应单位状态；WON 由勾选候选人驱动',
+      sort: 61,
+      status: 1,
+      isSystem: true,
+      scope: 'GLOBAL',
+    },
+  });
+
+  const items = [
+    { itemCode: 'SIGNED_UP', itemName: '已报名', sortOrder: 1, color: 'default', remark: null },
+    { itemCode: 'SUBMITTED', itemName: '已递交', sortOrder: 2, color: 'blue', remark: '导入响应单位后的默认态' },
+    { itemCode: 'ABSTAINED', itemName: '弃权', sortOrder: 3, color: 'default', remark: null },
+    { itemCode: 'SHORTLISTED', itemName: '入围', sortOrder: 4, color: 'cyan', remark: '通过第一轮报价但未中标；取消勾选时自动回落到此态' },
+    { itemCode: 'WON', itemName: '中标', sortOrder: 5, color: 'green', remark: '勾选「拟推荐成交候选人」即为此态；生成合同的单位与金额取自这些行' },
+    { itemCode: 'LOST', itemName: '未中标', sortOrder: 6, color: 'red', remark: null },
+  ];
+  for (const it of items) {
+    await prisma.dictItem.upsert({
+      where: { typeCode_itemCode: { typeCode, itemCode: it.itemCode } },
+      update: {},
+      create: { typeCode, itemCode: it.itemCode, itemName: it.itemName, sortOrder: it.sortOrder, status: 1, color: it.color, remark: it.remark, extField1: null },
+    });
+  }
+}
+
+/** 招标域字典：`evaluation_conclusion` —— 评标记录的结论（推荐 / 不推荐） */
+async function seedEvaluationConclusionDict(prisma: PrismaClient): Promise<void> {
+  const typeCode = 'evaluation_conclusion';
+  await prisma.dictType.upsert({
+    where: { code: typeCode },
+    update: {},
+    create: {
+      code: typeCode,
+      name: '评标结论',
+      remark: '评标记录（ProcurementEvaluation）的结论',
+      sort: 62,
+      status: 1,
+      isSystem: true,
+      scope: 'GLOBAL',
+    },
+  });
+
+  const items = [
+    { itemCode: 'RECOMMEND', itemName: '推荐', sortOrder: 1, color: 'green', remark: null },
+    { itemCode: 'NOT_RECOMMEND', itemName: '不推荐', sortOrder: 2, color: 'red', remark: null },
+  ];
+  for (const it of items) {
+    await prisma.dictItem.upsert({
+      where: { typeCode_itemCode: { typeCode, itemCode: it.itemCode } },
+      update: {},
+      create: { typeCode, itemCode: it.itemCode, itemName: it.itemName, sortOrder: it.sortOrder, status: 1, color: it.color, remark: it.remark, extField1: null },
+    });
   }
 }

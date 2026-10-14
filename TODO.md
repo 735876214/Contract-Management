@@ -10,7 +10,7 @@
 
 > 分组依据是**阻塞条件**（而不是"优先级"）：标着"可直接开工"却全是阻塞项，会让人排错期。
 > **例外**：「四域扩展」整块都**没有阻塞**（评估已定，见 [docs/05](docs/05-四域扩展可行性评估.md)），
-> 故其内部按**先后**标注 —— 「下一期」→「待实施」→「按需」，不做优先级排序。
+> 故其内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
 > 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
 > 故此项已按业务澄清从待办中移除。
 
@@ -105,43 +105,17 @@
 
 ## 四域扩展（评估已定，待实施）
 
-> 依据 [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md)。**以下均为待排期任务，尚未实施。**
+> 依据 [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md)。**招标域已实施（见上方"已定决策"），
+> 下面各条为待排期任务，尚未实施。**
 
 ### 已定决策（2026-10-13）
 
 - **招标域 = 设计 A**：招标作为**采购方式**并入现有采购工作流（与 `procurement_source` 字典语义一致），
   仅新增 `ProcurementBidder` + `ProcurementEvaluation` 两张结构化表，其余复用。
+  → ✅ **已实施**（2026-10-19，迁移 `20261019000000_tender_bidder_and_evaluation`；
+  双写/定标/存量回填的约定见 [AGENTS.md](AGENTS.md) §4「招标域」）。
 - **进出场 = 只做物资**：复用 `AssetLedger` / `DailyReport` / `ReceiptOrder`，**不建表**、不做人员/车辆。
 - **技术栈 = 沿用现有**；不引入微服务 / API 网关 / Redis / MQ / MongoDB / Flowable / Seata / 电子签章 / 低代码平台。
-
-### 下一期 · 招标域结构化（2026-10-14 定向）
-
-> 设计与决策见 [docs/05](docs/05-四域扩展可行性评估.md) §6（**设计 A**：招标作为**采购方式**并入现有采购工作流，
-> 只补结构化缺口，不另起平行域）。现状：`ProcurementResultReport.suppliers` / `candidates` 是 **JSON 字符串**，
-> 定标结果由 `resolveContractUnits()` 从 JSON 里取。按下面顺序做：
-
-1. **表 + 字典**：新增 `ProcurementBidder`（投标/响应单位：轮次、报价、单位状态、投标文件键）与
-   `ProcurementEvaluation`（评委、得分、排名、结论），`ProcurementTask` 补**两侧反引用**；
-   字典 `bidder_status`（已报名/已递交/弃权/入围/中标/未中标）加进 `server/src/seed.ts` 的
-   `fixLegacyData()`（**勿改自动生成的 `seed-data.ts`**），并在 `constants/statuses.ts` 建常量 +
-   同步 `test/statusCodes.spec.mts` 的双向锁。
-   ⚠️ 两处细节**动手前先定**：① docs/05 §6.2 的 `@@unique([taskId, supplierId, round])` 里 `supplierId`
-   **可空**，而 PG 允许多个 NULL → 未入库单位其实**不受唯一约束**，需让 `bidderName` 参与唯一键；
-   ② 新增的 `xxxId`（如 `bidderId`）**必须建 `@relation`**，否则 `test/schemaDanglingRefs.spec.mts` 直接红。
-2. **写入口 + 存量回填**：导入「响应单位情况汇总表」时**双写**——JSON 快照照旧（已发布文档不受影响），
-   同时幂等重建 `ProcurementBidder` 行；**存量 JSON 用同一个幂等函数在首次读取时回填**，
-   不写一次性迁移脚本（迁移只建表，不动数据）。
-3. **定标 → 合同衔接**：`resolveContractUnits()`（`server/src/constants/procurementFlow.ts`）的输入从
-   JSON `candidates` 改为**结构化中标/入围行**，`generateLinkedContract()` 相应调整；
-   `test/procurementFlow.spec.ts` 与 DB 集成套件要有"定标行 → 多份合同单位/金额"的断言。
-4. **页面**：先**在既有「成交报告」页内**接入（`web/src/pages/Procurement/ResultReport.tsx`，复用现有导入与
-   四张表派生，**不新增菜单与权限码**），评标记录作同页子区；若确认要独立菜单，再按
-   [AGENTS.md](AGENTS.md) §4 的「六处同步」走一遍（`menuTree.ts` + `ROUTE_PERMISSIONS` + `ICON_MAP` + 缓存键版本）。
-5. **验收**：`npx tsc --noEmit`、`nest build`、`npm test`、`npm run test:int`（改到了状态流转与合同生成）、
-   `prisma migrate diff --exit-code`、前端 CDP 真渲染核验（[docs/development.md](docs/development.md) §5.2）。
-
-**本域明确不做**（docs/05 §1/§6.2）：公告、采购文件、成交报告、价格对比**已存在，直接复用**；
-在线开标评标、加密递交、专家库、外部交易平台对接不做。
 
 ### 待实施 · 先设计后开发
 

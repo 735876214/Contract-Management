@@ -9,6 +9,8 @@ import {
   moduleStageBranches,
   deriveContractType,
   resolveContractUnits,
+  candidatesFromBidders,
+  bidderStatusWhenNotWon,
   CONTRACT_TYPE_LABELS,
   type TaskType,
   type ContractCategory,
@@ -247,5 +249,66 @@ describe('procurementFlow 单一事实源', () => {
       'LEASE_EXEC',
       'EMERGENCY',
     ]);
+  });
+
+  describe('招标域：结构化投标单位 → 定标 → 生成合同', () => {
+    it('candidatesFromBidders：只取「中标」行，按传入顺序输出', () => {
+      const bidders = [
+        { bidderName: '中建三局', status: 'WON', finalPreTaxTotal: 1200000, seq: 1 },
+        { bidderName: '中建八局', status: 'LOST', firstPreTaxTotal: 999 },
+        { bidderName: '中建一局', status: 'WON', finalPreTaxTotal: '980000.5', seq: 2 },
+      ];
+      assert.deepEqual(candidatesFromBidders(bidders), [
+        { name: '中建三局', finalPreTaxPrice: 1200000 },
+        { name: '中建一局', finalPreTaxPrice: 980000.5 },
+      ]);
+    });
+
+    it('candidatesFromBidders：缺最终确认价时回退「第二轮（须通过第一轮）→ 第一轮」', () => {
+      assert.deepEqual(
+        candidatesFromBidders([
+          { bidderName: 'A', status: 'WON', passedFirst: '是', firstPreTaxTotal: 100, secondPreTaxTotal: 90 },
+          { bidderName: 'B', status: 'WON', passedFirst: '否', firstPreTaxTotal: 200, secondPreTaxTotal: 150 },
+          { bidderName: 'C', status: 'WON', passedFirst: '是', firstPreTaxTotal: 300 },
+        ]),
+        [
+          { name: 'A', finalPreTaxPrice: 90 },
+          { name: 'B', finalPreTaxPrice: 200 },
+          { name: 'C', finalPreTaxPrice: 300 },
+        ],
+      );
+    });
+
+    it('candidatesFromBidders：空名与无名单位被剔除（不生成无主体合同）', () => {
+      assert.deepEqual(
+        candidatesFromBidders([
+          { bidderName: '  ', status: 'WON', finalPreTaxTotal: 1 },
+          { status: 'WON', finalPreTaxTotal: 2 },
+          { bidderName: 'D', status: 'WON' },
+        ]),
+        [{ name: 'D', finalPreTaxPrice: null }],
+      );
+      assert.deepEqual(candidatesFromBidders([]), []);
+    });
+
+    it('定标结果直接喂给 resolveContractUnits：一单位一合同', () => {
+      const bidders = [
+        { bidderName: '中建三局', status: 'WON', finalPreTaxTotal: 1200000 },
+        { bidderName: '中建八局', status: 'WON', finalPreTaxTotal: 980000 },
+      ];
+      assert.deepEqual(resolveContractUnits('SINGLE', candidatesFromBidders(bidders)), [
+        { name: '中建三局', amount: 1200000 },
+        { name: '中建八局', amount: 980000 },
+      ]);
+      // 无中标单位 → 回退单份合同（紧急采购等场景），不生成无主体合同
+      assert.deepEqual(resolveContractUnits('SINGLE', candidatesFromBidders([])), [{ name: null, amount: null }]);
+    });
+
+    it('bidderStatusWhenNotWon：取消勾选后回落到入围 / 已递交', () => {
+      assert.equal(bidderStatusWhenNotWon('是'), 'SHORTLISTED');
+      assert.equal(bidderStatusWhenNotWon('否'), 'SUBMITTED');
+      assert.equal(bidderStatusWhenNotWon(null), 'SUBMITTED');
+      assert.equal(bidderStatusWhenNotWon(undefined), 'SUBMITTED');
+    });
   });
 });

@@ -269,3 +269,60 @@ export function resolveContractUnits(
   units = units.filter((u) => u.name);
   return units.length ? units : [{ name: null, amount: null }];
 }
+
+/* ---------------- 招标域：投标/响应单位 → 定标 → 生成合同 ---------------- */
+
+/**
+ * 「中标」的投标单位状态 code。
+ *
+ * ⚠️ 本文件**不得有相对运行时 import**（`.spec.mts` 由 Node 原生擦除类型加载，ESM 不做扩展名推断，
+ * 见 AGENTS §5），故这里是**字面量**，与 `constants/statuses.ts` 的 `BIDDER_STATUS.WON`
+ * 由 `test/statusCodes.spec.mts` 锁死——两边改名而这里没跟上，测试即红。
+ */
+export const BIDDER_WON = 'WON';
+
+/** 其余状态同样以字面量持有（同上原因），仅本文件内部使用 */
+const BIDDER_SHORTLISTED = 'SHORTLISTED';
+const BIDDER_SUBMITTED = 'SUBMITTED';
+/** 导入表里「是/否」两列的字面值（导入原样存字符串，不转布尔） */
+const YES = '是';
+
+const numOrNull = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * 取消中标（在第二轮报价表取消勾选）后，该单位回落到什么状态：
+ * **通过第一轮报价的 = 入围（SHORTLISTED），否则回到已递交（SUBMITTED）**。
+ * 只在这两者之间回落，不臆造其它状态（弃权/未中标等由用户显式维护，服务端不覆盖）。
+ */
+export function bidderStatusWhenNotWon(passedFirst?: string | null): string {
+  return String(passedFirst ?? '').trim() === YES ? BIDDER_SHORTLISTED : BIDDER_SUBMITTED;
+}
+
+/**
+ * 中标单位（结构化）→ 生成合同的「单位（名称 / 金额）」列表，即 `resolveContractUnits()` 的输入。
+ *
+ * 事实源是**结构化行**（`ProcurementBidder.status = WON`），JSON `candidates` 只作发布快照。
+ * 取价口径：用户填的最终确认不含税价格优先；缺省时回退「第二轮（仅当通过第一轮）→ 第一轮」，
+ * 与前端 `defaultFinalPrice()` 同口径。
+ * 传入顺序即输出顺序（服务端按 `seq` / 创建时间排序后传入）。
+ */
+export function candidatesFromBidders(
+  bidders: Array<Record<string, any>> = [],
+): Array<{ name: string; finalPreTaxPrice: number | null }> {
+  return bidders
+    .filter((b) => String(b?.status ?? '') === BIDDER_WON)
+    .map((b) => {
+      const name = String(b?.bidderName ?? '').trim();
+      if (!name) return null;
+      const explicit = numOrNull(b?.finalPreTaxTotal);
+      const second = numOrNull(b?.secondPreTaxTotal);
+      const passed = String(b?.passedFirst ?? '').trim() === YES;
+      const fallback = passed && second != null ? second : numOrNull(b?.firstPreTaxTotal);
+      return { name, finalPreTaxPrice: explicit ?? fallback };
+    })
+    .filter((v): v is { name: string; finalPreTaxPrice: number | null } => v !== null);
+}

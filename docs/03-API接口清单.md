@@ -204,6 +204,9 @@
 | POST | `/procurement-tasks/:id/result-report/import` | 导入「响应单位情况汇总表」 |
 | GET | `/procurement-tasks/:id/result-report/template` | 成交报告导入模板 |
 | POST | `/procurement-tasks/:id/reject-result-report` | 成交报告退回 → 重发（回退阶段并清理草稿合同） |
+| GET | `/procurement-tasks/:id/bidders` | 结构化投标/响应单位 + 评标记录（读取时对存量 JSON 快照做幂等回填） |
+| PUT | `/procurement-tasks/:id/bidders` | 保存投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与报价来自导入表） |
+| PUT | `/procurement-tasks/:id/evaluations` | 保存评标记录（**全量替换**：评委 / 得分 / 排名 / 结论 / 备注 / 评标时间） |
 | GET/PUT | `/procurement-tasks/:id/price-compare` | 采购价格对比表 |
 | GET/PUT | `/procurement-tasks/:id/framework-explanation` | 框架协议事前说明 |
 | POST | `/procurement-tasks/:id/framework-explanation/import-price-compare` | 导入价格对比数据 |

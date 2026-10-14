@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  BIDDER_STATUS,
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
   DICT_TYPES,
+  EVALUATION_CONCLUSION,
   INVOICE_REVIEW_STATUS,
   INVOICE_STATUS,
   PAYMENT_STATUS,
@@ -14,6 +16,7 @@ import {
   SUBCONTRACTOR_STATUS,
 } from '../src/constants/statuses.ts';
 import {
+  BIDDER_WON,
   CONTRACT_TYPES,
   CONTRACT_STATUS_TO_TASK_STATUS,
   TASK_STATUS,
@@ -90,6 +93,8 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 ↔ schema）', () => 
       ['INVOICE_REVIEW_STATUS', INVOICE_REVIEW_STATUS, dictItems(DICT_TYPES.INVOICE_REVIEW_STATUS)],
       ['CONTRACT_EXECUTION_STATUS', CONTRACT_EXECUTION_STATUS, dictItems(DICT_TYPES.CONTRACT_EXECUTION_STATUS)],
       ['SITE_CONFIRM_STATUS', SITE_CONFIRM_STATUS, legacyDictItems(DICT_TYPES.SITE_CONFIRM_STATUS)],
+      ['BIDDER_STATUS', BIDDER_STATUS, legacyDictItems(DICT_TYPES.BIDDER_STATUS)],
+      ['EVALUATION_CONCLUSION', EVALUATION_CONCLUSION, legacyDictItems(DICT_TYPES.EVALUATION_CONCLUSION)],
     ];
     for (const [name, group, items] of cases) {
       assert.ok(items.length > 0, `${name} 对应字典项为空，检查字典类型是否改名`);
@@ -126,6 +131,13 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 ↔ schema）', () => 
     }
   });
 
+  it('招标域：「中标」字面量 == `BIDDER_STATUS.WON`（procurementFlow 里是字面量，靠这条锁兜住）', () => {
+    assert.equal(BIDDER_WON, BIDDER_STATUS.WON);
+    const src = readFileSync(here('../src/constants/procurementFlow.ts'), 'utf8');
+    // 防恒真：确认本文件确实声明了该常量（而不是导入了别处的东西）
+    assert.match(src, /export const BIDDER_WON = 'WON'/);
+  });
+
   it('`DICT_TYPES` 里的每个 typeCode 都真实存在（防拼错，validate 才拦得住）', () => {
     const declared = declaredDictTypes();
     for (const [name, code] of Object.entries(DICT_TYPES)) {
@@ -143,6 +155,8 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 ↔ schema）', () => 
       ['CONTRACT_EXECUTION_STATUS', CONTRACT_EXECUTION_STATUS],
       ['SITE_CONFIRM_STATUS', SITE_CONFIRM_STATUS],
       ['SUBCONTRACTOR_STATUS', SUBCONTRACTOR_STATUS],
+      ['BIDDER_STATUS', BIDDER_STATUS],
+      ['EVALUATION_CONCLUSION', EVALUATION_CONCLUSION],
       ['TASK_STATUS', TASK_STATUS],
     ];
     for (const [name, group] of groups) {

@@ -136,12 +136,33 @@ export class ProcurementTaskController {
     return this.service.saveResultReport(id, body);
   }
 
-  /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表 */
+  /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表，并双写结构化投标单位 */
   @RequirePermissions('contract:edit')
   @Post(':id/result-report/import')
   @UseInterceptors(FileInterceptor('file'))
-  importResultReport(@Param('id') id: string, @UploadedFile() file: any) {
-    return this.service.importResultReport(id, file?.buffer);
+  importResultReport(@Param('id') id: string, @UploadedFile() file: any, @CurrentUser() user: JwtUser) {
+    return this.service.importResultReport(id, file?.buffer, user);
+  }
+
+  /** 结构化投标单位 + 评标记录（招标域）：读取时对存量 JSON 快照做幂等回填 */
+  @RequirePermissions('contract:view')
+  @Get(':id/bidders')
+  bidders(@Param('id') id: string) {
+    return this.service.bidders(id);
+  }
+
+  /** 保存结构化投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与报价来自导入表，不在此改） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/bidders')
+  saveBidders(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveBidders(id, body);
+  }
+
+  /** 保存评标记录（全量替换：评委 / 得分 / 排名 / 结论 / 备注 / 评标时间） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/evaluations')
+  saveEvaluations(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveEvaluations(id, body);
   }
 
   /** 下载「响应单位情况汇总表」导入模板 */

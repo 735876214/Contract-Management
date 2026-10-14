@@ -119,6 +119,8 @@ model Project {
   procurementDocuments ProcurementDocument[]
   procurementResultReports ProcurementResultReport[]
   procurementPriceCompares ProcurementPriceCompare[]
+  procurementBidders       ProcurementBidder[]
+  procurementEvaluations   ProcurementEvaluation[]
   inspectionReports        InspectionReport[]
   @@index([createdAt])
 }
@@ -164,6 +166,7 @@ model Supplier {
   repayments  RepaymentAgreement[]
   assets      AssetLedger[]
   receiptOrders ReceiptOrder[]
+  procurementBidders ProcurementBidder[]
 }
 
 // ---------------- 分包商库（分包材料员授权委托书） ----------------
@@ -1108,6 +1111,8 @@ model ProcurementTask {
   procurementDocument  ProcurementDocument?
   procurementResultReport ProcurementResultReport?
   procurementPriceCompare ProcurementPriceCompare?
+  bidders               ProcurementBidder[]
+  evaluations           ProcurementEvaluation[]
   contracts              Contract[] @relation("TaskContracts")
 
   @@unique([projectId, taskNo])
@@ -1309,4 +1314,71 @@ model InspectionReport {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+}
+
+// ---------------- 招标域结构化（投标/响应单位 + 评标记录） ----------------
+
+/// 投标 / 响应单位：把 `ProcurementResultReport.suppliers` 的 **JSON 快照提升为关系表**。
+/// - 口径：导入「响应单位情况汇总表」时**双写**（JSON 快照仍保留，本表成为查询/统计/评标/定标衔接的事实源）；
+/// - 定标：在第二轮报价表勾选「拟推荐成交候选人」时，服务端把对应行置为 `WON` 并写入 `finalPreTaxTotal`，
+///   生成合同时的单位与金额即取自这些行（见 `constants/procurementFlow.ts` 的 `candidatesFromBidders`）；
+/// - 建模取舍：报价两轮在导入表里是**同一行的两列**，且导入模板与四张派生表都固定两轮，
+///   故按「单位一行 + 两轮各两列」建模，而不是 docs/05 §6.2 草图里的「(单位, 轮次) 一行」——
+///   后者要再拆一张报价子表才不丢 `passedFirst` 等字段，而本系统并不支持任意轮次。
+model ProcurementBidder {
+  id                String   @id @default(cuid())
+  projectId         String
+  taskId            String
+  supplierId        String? // 关联供应商库（可空：允许未入库单位）；按名称解析成功时回填
+  bidderName        String // 单位名称（导入快照）
+  seq               Int? // 导入表序号（展示与排序）
+  depositPaid       String? // 响应保证金是否缴纳（是/否，导入原样）
+  sealed            String? // 响应文件密封是否完整（是/否）
+  passedFirst       String? // 是否通过第一轮报价（是/否）
+  firstPreTaxTotal  Decimal? @db.Decimal(18, 2) // 第一轮报价不含税总额（元）
+  firstTax          Decimal? @db.Decimal(18, 2) // 第一轮报价税金（元）
+  secondPreTaxTotal Decimal? @db.Decimal(18, 2) // 第二轮报价不含税总额（元）
+  secondTax         Decimal? @db.Decimal(18, 2) // 第二轮报价税金（元）
+  finalPreTaxTotal  Decimal? @db.Decimal(18, 2) // 最终确认不含税价格（勾选候选人时写入，供生成合同取价）
+  status            String   @default("SUBMITTED") // dict: bidder_status（勾选候选人由服务端驱动为 WON）
+  bidFileUrl        String? // 投标/响应文件 URL（沿用 `ProcurementPriceCompare.attachments` 的口径）
+  remark            String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  version           Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task     ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  supplier Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  evaluations ProcurementEvaluation[]
+
+  // ⚠️ 唯一键必须含名称：`supplierId` 可空，而 PostgreSQL 允许多个 NULL——只靠它等于没有约束
+  @@unique([taskId, bidderName])
+  @@index([projectId, status])
+}
+
+/// 评标记录（评委打分 / 排名 / 结论）——docs/05 §6.2
+model ProcurementEvaluation {
+  id          String    @id @default(cuid())
+  projectId   String
+  taskId      String
+  bidderId    String
+  evaluator   String // 评委
+  score       Decimal?  @db.Decimal(9, 2) // 得分
+  rank        Int? // 排名
+  conclusion  String? // dict: evaluation_conclusion（推荐 / 不推荐）
+  comment     String?
+  evaluatedAt DateTime? // 评标时间
+  createdAt   DateTime  @default(now())
+  version     Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    ProcurementTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  bidder  ProcurementBidder @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([bidderId])
 }
