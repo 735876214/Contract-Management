@@ -9,6 +9,8 @@
 图例：`需业务澄清` 未澄清前不要动手 · `需外部条件` 等基础设施/凭据 · `可直接开工` 纯工程项
 
 > 分组依据是**阻塞条件**（而不是"优先级"）：标着"可直接开工"却全是阻塞项，会让人排错期。
+> **例外**：「四域扩展」整块都**没有阻塞**（评估已定，见 [docs/05](docs/05-四域扩展可行性评估.md)），
+> 故其内部按**先后**标注 —— 「下一期」→「待实施」→「按需」，不做优先级排序。
 > 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
 > 故此项已按业务澄清从待办中移除。
 
@@ -41,6 +43,19 @@
   `maskField()/maskByKey()/slimSecrets()`），**日志侧已强制脱敏**；缺的是「**哪些角色看不到哪些字段**」
   这张映射表——没有它就只能靠猜，容易把业务要看的字段打掉。澄清后仿 `common/pick-fields.ts`
   在序列化处接入（行级 DataScope 视诉求，见 [docs/05](docs/05-四域扩展可行性评估.md) §9）。
+- **资金费用与结算 / 付款的关联口径**：`FactoringCost`（融资贴息）与 `OverdueInterest`（逾期利息）
+  目前只挂 `contractId` + `settlementMonth`（**月份是文本**），与具体结算单、付款记录**没有外键**
+  ——[docs/07](docs/07-工作域信息关联审计.md) §4 #6 的遗留项，P1 批次未处置。
+  要确认的是：**是否需要"这笔贴息/利息归属哪张结算单、哪笔付款"**；不需要则明确写死"按合同汇总"。
+- **收领单 ↔ 结算 / 付款 / 发票 的显式关联**：三者的关系目前只经 `contractId` / `projectId` **间接**表达
+  （[docs/07](docs/07-工作域信息关联审计.md) §4 #7）。若要回答"这笔结算对应哪些收领单"，需补 FK
+  或关联表；**若确认不需要，也要把"只按合同聚合"写死**，别停在"关联不清晰"的状态里。
+- **行级数据权限（DataScope）**：现有维度只有**项目**，无部门模型；可复用 `ProjectMember.roleCode`
+  与 `createdBy` 做 `ALL / PROJECT / SELF` 三级（[docs/05](docs/05-四域扩展可行性评估.md) §9）。
+  **触发条件**：出现"同项目内不同人可见范围不同"；落点建议仿 `pick-fields.ts` 加集中助手 `withDataScope(where, user)`。
+- **供应商门户 / 外部账号体系**：`User` 无 `userType` / `supplierId`、无注册端点（全仓 0 命中，
+  [docs/05](docs/05-四域扩展可行性评估.md) §11 结论是"放最后"）。**前置条件**：必须先有**强制**的数据范围——
+  现状隔离靠约定，供应商一旦看到竞对报价就是商业事故。未澄清前不动。
 
 > **关联依赖**：**清单项级结算明细（`SettlementItem`）** 与「结算量 ≤ 已确认量」的**量级校验**依赖上面的
 > 「变更口径」澄清——否则会与补充协议口径打架（这也是 [docs/09](docs/09-重构方案评估与采纳建议.md) §4 缺口 E）。
@@ -55,8 +70,19 @@
   并把 `main.ts` 的静态服务 `useStaticAssets` 改为代理或 302 重定向；
   **阻塞原因**：无对象存储实例可供验收（写出来的 S3 分支无法真打）；顺带可加哈希校验与版本管理。
 - **通知通道适配器**（企微/钉钉机器人 Webhook）：现状只有站内信
-  （`notification.service.ts` 注释即写「邮件/短信/企微/钉钉接口预留」）。
+  （`notification.service.ts` 注释即写「邮件/短信/企微/钉钉接口预留」），`send()` 只做 DB insert。
   **阻塞原因**：需要机器人凭据与出网策略，且要业务定「哪些事件发到群里」。
+  **同一份应用凭据下的姊妹项**：企微/钉钉**免登 SSO**（OAuth → 映射现有 `User` → 签发现有 JWT，
+  **不新建平行账号体系**，见 [docs/05](docs/05-四域扩展可行性评估.md) §13 ②）——凭据就绪即可一并做，故不单列。
+- **多副本部署前的三项必办**（[docs/05](docs/05-四域扩展可行性评估.md) §4）：① 文件本地磁盘
+  （已由上面的"对象存储"条目覆盖）② **进程内缓存不一致**——`DictService.cache` 24h TTL、
+  `refreshCache()` 只清本实例，A 改字典 B 最长 24h 才可见（`SysParamService` 同理）
+  ③ **编号竞态**——`contract.service.nextCode()` 读 `max(yearSeq)` 再 +1，两副本会取到同号（被唯一约束挡住报错）。
+  **阻塞原因**：单实例下这三条都无影响，**只在确定要上多副本时才值得做**；届时前置还有共享 PG 与共享存储。
+- **定期备份与恢复演练**：README 与 docs **没有任何备份/恢复步骤**（`pg_dump` / `pg_restore` 0 命中），
+  而 [docs/05](docs/05-四域扩展可行性评估.md) §2 的选型表自己就写着"DB 主从/备份：按需，**先落实定期备份**"。
+  交付物：一份可执行步骤（compose 环境下 `pg_dump` → 留存 → `pg_restore` 到临时库）+ **本地实测一次恢复**
+  （只写文档不演练等于没做）。**阻塞原因**：NAS 上的落地位置与保留策略待定（可在本地先做通）。
 - **确认 CI 新 workflow 的首跑结果**：2026-10-14 改过 `.github/workflows/build.yml`（`test` job 新增
   postgres service、建影子库、`prisma migrate diff --exit-code` 门禁与 `npm run test:int`），
   但**本机无 `gh` CLI**、也无法本地解析 YAML 真跑一遍，只逐条验过里面的命令。需在 GitHub Actions 上
@@ -65,6 +91,12 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
+- **变量面板标注「所属体系」**：采购模板变量与合同模板变量是**两套互不相通的实现**（同一个
+  `{{项目名称}}` 在采购文档与合同正文里由**不同代码**替换、规则不同，见
+  [docs/06](docs/06-变量体系梳理与歧义清单.md) §5 结构性歧义），但「插入变量」面板是**同一个通用壳**
+  （`RichTextEditor.tsx` 的 Modal，由调用方传组：合同侧传 `Clauses.VARIABLE_GROUPS`、
+  采购侧传 `getProcurementVariableGroups()`），**不标体系** → 在合同正文里插了采购体系的变量会**静默不替换**。
+  做法：面板里按体系标注（组名前缀或一行说明），零风险、不动取值逻辑。
 - **解除 `.mts` 单测的「相对导入」限制**（低优先，**先评估再动手**）：`.spec.mts` 由 Node 原生擦除类型
   加载，而 ESM 不做扩展名推断，故被测模块**不得有相对运行时 `import`**——`server/src/constants/procurementFlow.ts`
   为能被 spec 加载，刻意不 import `./statuses`，改成裸字面量 + 靠漂移锁兜底（见该文件内的解释注释与
@@ -82,11 +114,38 @@
 - **进出场 = 只做物资**：复用 `AssetLedger` / `DailyReport` / `ReceiptOrder`，**不建表**、不做人员/车辆。
 - **技术栈 = 沿用现有**；不引入微服务 / API 网关 / Redis / MQ / MongoDB / Flowable / Seata / 电子签章 / 低代码平台。
 
+### 下一期 · 招标域结构化（2026-10-14 定向）
+
+> 设计与决策见 [docs/05](docs/05-四域扩展可行性评估.md) §6（**设计 A**：招标作为**采购方式**并入现有采购工作流，
+> 只补结构化缺口，不另起平行域）。现状：`ProcurementResultReport.suppliers` / `candidates` 是 **JSON 字符串**，
+> 定标结果由 `resolveContractUnits()` 从 JSON 里取。按下面顺序做：
+
+1. **表 + 字典**：新增 `ProcurementBidder`（投标/响应单位：轮次、报价、单位状态、投标文件键）与
+   `ProcurementEvaluation`（评委、得分、排名、结论），`ProcurementTask` 补**两侧反引用**；
+   字典 `bidder_status`（已报名/已递交/弃权/入围/中标/未中标）加进 `server/src/seed.ts` 的
+   `fixLegacyData()`（**勿改自动生成的 `seed-data.ts`**），并在 `constants/statuses.ts` 建常量 +
+   同步 `test/statusCodes.spec.mts` 的双向锁。
+   ⚠️ 两处细节**动手前先定**：① docs/05 §6.2 的 `@@unique([taskId, supplierId, round])` 里 `supplierId`
+   **可空**，而 PG 允许多个 NULL → 未入库单位其实**不受唯一约束**，需让 `bidderName` 参与唯一键；
+   ② 新增的 `xxxId`（如 `bidderId`）**必须建 `@relation`**，否则 `test/schemaDanglingRefs.spec.mts` 直接红。
+2. **写入口 + 存量回填**：导入「响应单位情况汇总表」时**双写**——JSON 快照照旧（已发布文档不受影响），
+   同时幂等重建 `ProcurementBidder` 行；**存量 JSON 用同一个幂等函数在首次读取时回填**，
+   不写一次性迁移脚本（迁移只建表，不动数据）。
+3. **定标 → 合同衔接**：`resolveContractUnits()`（`server/src/constants/procurementFlow.ts`）的输入从
+   JSON `candidates` 改为**结构化中标/入围行**，`generateLinkedContract()` 相应调整；
+   `test/procurementFlow.spec.ts` 与 DB 集成套件要有"定标行 → 多份合同单位/金额"的断言。
+4. **页面**：先**在既有「成交报告」页内**接入（`web/src/pages/Procurement/ResultReport.tsx`，复用现有导入与
+   四张表派生，**不新增菜单与权限码**），评标记录作同页子区；若确认要独立菜单，再按
+   [AGENTS.md](AGENTS.md) §4 的「六处同步」走一遍（`menuTree.ts` + `ROUTE_PERMISSIONS` + `ICON_MAP` + 缓存键版本）。
+5. **验收**：`npx tsc --noEmit`、`nest build`、`npm test`、`npm run test:int`（改到了状态流转与合同生成）、
+   `prisma migrate diff --exit-code`、前端 CDP 真渲染核验（[docs/development.md](docs/development.md) §5.2）。
+
+**本域明确不做**（docs/05 §1/§6.2）：公告、采购文件、成交报告、价格对比**已存在，直接复用**；
+在线开标评标、加密递交、专家库、外部交易平台对接不做。
+
 ### 待实施 · 先设计后开发
 
 - **单据关系设计（先做）**：采购任务 → 合同 → 采购订单 → 收货 → 对账 → 结算；明确与现有收领单/结算的复用边界。
-- **招标域**：`ProcurementBidder` + `ProcurementEvaluation` + 页面 + 定标→合同衔接
-  （复用 `generateLinkedContract` 写法）。
 - **采购下游**：`PurchaseOrder`(+Item) → 到货验收（**复用收领单**，加 `purchaseOrderId`）→ `Reconciliation`。
 - **合同增强**：履约派生进度（零表）→（按需）`ContractFulfillment` → 归档锁定。
 
