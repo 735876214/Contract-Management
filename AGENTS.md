@@ -34,7 +34,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（17 个 spec，清单见 docs/development.md §5）
+│   └── test/           # node:test 单测（18 个 spec，清单见 docs/development.md §5）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -139,6 +139,9 @@ Contract-Management/
   旧写法还会误伤富文本里的 CSS 花括号）——别再加回兼容分支，也别把新模板写成单花括号。
   改语法或改种子模板 `server/prisma/templates/*.ts` 后，须重跑
   `npx ts-node prisma/templates/upsert-purchase-exec.ts`（已是真 upsert，会刷新内容）。
+  ⚠️ **种子模板有两处，别只改一处**：`prisma/templates/*.ts`（独立文件）**和 `prisma/seed.ts` 里内联的
+  3 份**（空库 + `npm run seed` 才创建，改动当时不可见——2026-10-14 正是漏了后者导致新环境 seed 出的
+  模板残留 `{合同名称}` 之类裸占位符）。两道防线：`templatePlaceholderSyntax.spec.mts`（源码扫描 + 渲染无残留）。
 - **文件落盘只有一条路：`common/services/storage.service.ts`**（`StorageService`）。上传 / 合同签章件 /
   导入错误报告这 3 处写入点已全部收敛过去，**不要再在 service/controller 里自己拼 `UPLOAD_DIR` 与文件名**；
   键是**相对 POSIX 路径**（`signed/x.pdf`，用 `/` 不用 `path.join`，否则 Windows 下落库成 `signed\x.pdf`），
@@ -192,7 +195,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（17 个 spec，见 docs/development.md §5）
+cd server && npm test          # node:test 单测（18 个 spec，见 docs/development.md §5）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -200,9 +203,15 @@ cd server && npm test          # node:test 单测（17 个 spec，见 docs/devel
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（17 个 spec / 235 项断言）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（18 个 spec / 239 项断言）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
+   ⚠️ dev 容器（`docker-compose.dev.yml`）的 `nest start --watch` **不感知宿主机新增/修改的文件**
+   （bind mount 不转发变更事件）→ `dist/` 可能是**旧编译产物**，接口行为与源码不符
+   （2026-10-14 实测：新增的 `common/utils/overdue-summary.ts` 没进 dist，一度被误判成"逻辑没生效"）。
+   所以必须 `docker compose -f docker-compose.dev.yml restart server`（**不是** `up -d`：容器已在运行时
+   它既不重编译也不重跑 `migrate deploy`）；起疑时用
+   `docker exec cms-server-dev grep -c <新符号> /app/dist/src/<路径>.js` 自查是否在跑旧代码。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。
 5. 改前端 UI 时**真渲染核一眼**（构建通过发现不了"表头竖排"这类破版）；
    本机无 Playwright，用 Edge headless + CDP 手法，见 `.workbuddy/memory/MEMORY.md` 末节。
