@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import * as fs from 'fs';
 import * as path from 'path';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
@@ -10,6 +9,7 @@ import { ImportRunnerService, RowError, TxClient } from '../../common/services/i
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
+import { StorageService } from '../../common/services/storage.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
@@ -68,6 +68,7 @@ export class ContractService {
     private templateSvc: TemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private storage: StorageService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -1107,16 +1108,12 @@ export class ContractService {
     if (!signDate) throw new BadRequestException('请选择签订日期');
     const chosen = new Date(signDate);
     if (Number.isNaN(chosen.getTime())) throw new BadRequestException('签订日期格式不正确');
-    const uploadDir = process.env.UPLOAD_DIR || './uploads';
-    const dir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
-    const sub = path.join(dir, 'signed');
-    if (!fs.existsSync(sub)) fs.mkdirSync(sub, { recursive: true });
-    const stored = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
-    fs.writeFileSync(path.join(sub, stored), file.buffer);
+    // 落盘统一走 StorageService（相对键 `signed/<文件名>`；目录/命名/URL 规则都收在存储层）
+    const saved = await this.storage.save(file.buffer, { sub: 'signed', ext });
     await this.prisma.contract.update({
       where: { id },
       data: {
-        signedFilePath: path.join('signed', stored),
+        signedFilePath: saved.key,
         signedFileName: file.originalname,
         signDate: chosen, // 需求 2.3：覆盖合同主表签订日期
         signedDate: chosen, // 兼容历史展示逻辑
@@ -1135,12 +1132,9 @@ export class ContractService {
   async signedFile(id: string) {
     const c = await this.prisma.contract.findUnique({ where: { id } });
     if (!c?.signedFilePath) throw new NotFoundException('该合同尚未上传签章文件');
-    const uploadDir = process.env.UPLOAD_DIR || './uploads';
-    const abs = path.isAbsolute(uploadDir)
-      ? path.join(uploadDir, c.signedFilePath)
-      : path.join(process.cwd(), uploadDir, c.signedFilePath);
-    if (!fs.existsSync(abs)) throw new NotFoundException('签章文件已丢失，请重新上传');
-    return { buffer: fs.readFileSync(abs), filename: c.signedFileName || path.basename(abs) };
+    if (!(await this.storage.exists(c.signedFilePath))) throw new NotFoundException('签章文件已丢失，请重新上传');
+    const buffer = await this.storage.read(c.signedFilePath);
+    return { buffer, filename: c.signedFileName || c.signedFilePath.split('/').pop() || 'signed' };
   }
 
   async saveExt(contractId: string, data: any, tx?: TxClient) {

@@ -7,6 +7,7 @@ import { StyledExcelService } from './services/styled-excel.service';
 import { ImportTemplateService } from './services/import-template.service';
 import { ImportRunnerService } from './services/import-runner.service';
 import { ImportTaskService } from './services/import-task.service';
+import { StorageService } from './services/storage.service';
 import { ImportTaskController } from './import-task.controller';
 import { NotificationModule } from '../modules/notification/notification.module';
 
@@ -16,11 +17,11 @@ import { NotificationModule } from '../modules/notification/notification.module'
   controllers: [ImportTaskController],
   providers: [
     SysParamService, ExcelService, LogService, StyledExcelService, ImportTemplateService,
-    ImportRunnerService, ImportTaskService,
+    ImportRunnerService, ImportTaskService, StorageService,
   ],
   exports: [
     SysParamService, ExcelService, LogService, StyledExcelService, ImportTemplateService,
-    ImportRunnerService, ImportTaskService,
+    ImportRunnerService, ImportTaskService, StorageService,
   ],
 })
 export class CommonModule {}

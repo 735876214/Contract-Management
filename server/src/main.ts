@@ -7,8 +7,8 @@ import { OperationLogInterceptor } from './common/interceptors/operation-log.int
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
-import * as path from 'path';
 import * as fs from 'fs';
+import { resolveUploadRoot } from './common/utils/storage-keys';
 import { seedAdmin, seedDictAndParams, seedDefaultProject, fixLegacyData } from './seed';
 
 async function bootstrap() {
@@ -29,8 +29,11 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  const uploadDir = process.env.UPLOAD_DIR || './uploads';
-  const absUploadDir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
+  // 静态文件服务：把存储根目录整体暴露为 `/api/files/**`（本地磁盘实现的对外读取口）。
+  // ⚠️ 落盘写入已收敛到 `common/services/storage.service.ts`（三个写入点都走它），
+  //    但**静态读取**仍是这一处；将来换 MinIO/S3 时，这里要改成代理或 302 重定向
+  //    （本轮不做：无对象存储基础设施时写出的分支无法验收）。
+  const absUploadDir = resolveUploadRoot(process.env.UPLOAD_DIR);
   if (!fs.existsSync(absUploadDir)) fs.mkdirSync(absUploadDir, { recursive: true });
   app.useStaticAssets(absUploadDir, { prefix: '/api/files' });
 

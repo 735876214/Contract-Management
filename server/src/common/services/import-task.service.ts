@@ -1,9 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
-import * as fs from 'fs';
-import * as path from 'path';
 import { paginate, buildResult } from '../utils/helpers';
+import { StorageService } from './storage.service';
 import { ImportOutcome, ImportRowError, ImportRunnerService, RunOptions } from './import-runner.service';
 import { NotificationService } from '../../modules/notification/notification.service';
 import {
@@ -47,6 +46,7 @@ export class ImportTaskService implements OnModuleInit {
     private prisma: PrismaClient,
     private runner: ImportRunnerService,
     private notifier: NotificationService,
+    private storage: StorageService,
   ) {}
 
   onModuleInit(): void {
@@ -85,12 +85,6 @@ export class ImportTaskService implements OnModuleInit {
       console.error('[import-task] 回收僵尸任务失败:', e);
       return 0;
     }
-  }
-
-  private errorDir(): string {
-    const dir = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'import-errors');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    return dir;
   }
 
   async list(query: any = {}, user?: any) {
@@ -235,7 +229,7 @@ export class ImportTaskService implements OnModuleInit {
     }
   }
 
-  /** 生成错误报告 Excel（行号 + 错误字段 + 错误描述），返回相对下载地址 */
+  /** 生成错误报告 Excel（行号 + 错误字段 + 错误描述），返回相对下载地址（落盘走 StorageService） */
   private async writeErrorReport(taskId: string, errors: ImportRowError[]): Promise<string> {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('错误明细');
@@ -246,8 +240,11 @@ export class ImportTaskService implements OnModuleInit {
     ];
     errors.forEach((e) => ws.addRow({ row: e.row, field: e.field || '', message: e.message }));
     ws.getRow(1).font = { bold: true };
-    const file = path.join(this.errorDir(), `import-errors-${taskId}.xlsx`);
-    await wb.xlsx.writeFile(file);
-    return `/api/files/import-errors/import-errors-${taskId}.xlsx`;
+    const buf = await wb.xlsx.writeBuffer();
+    const saved = await this.storage.save(Buffer.from(buf), {
+      sub: 'import-errors',
+      name: `import-errors-${taskId}.xlsx`,
+    });
+    return saved.url;
   }
 }

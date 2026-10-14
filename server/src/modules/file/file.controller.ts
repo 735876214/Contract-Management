@@ -2,10 +2,22 @@ import { Controller, Post, UploadedFiles, UseGuards, UseInterceptors } from '@ne
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as path from 'path';
-import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { StorageService } from '../../common/services/storage.service';
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+/**
+ * 通用文件上传。
+ *
+ * 目录与命名规则**不再写在控制器里**，统一由 `StorageService` 决定：
+ * 默认落到 `<UPLOAD_DIR>/<YYYY-MM>/<时间戳>-<随机串><ext>`，对外 URL 为 `/api/files/<相对键>`
+ * （静态服务见 `main.ts` 的 `useStaticAssets`）。
+ *
+ * ⚠️ 这里是**模块级实例**而不是注入的 `this.storage`：`FilesInterceptor(...)` 的参数在**类定义期**求值，
+ * 那时的 `this` 不是控制器实例（`this.storage` 会是 undefined）——这也是改造前这些回调只用模块级常量的原因。
+ * `StorageService` 是无状态服务（根目录由环境派生、调用时才解析），故本地实例与容器内实例等价；
+ * 将来换对象存储时，本控制器应改为 `memoryStorage()` 收进内存再 `storage.save(buffer)`。
+ */
+const diskStorageService = new StorageService();
 
 @UseGuards(JwtAuthGuard)
 @Controller('files')
@@ -15,24 +27,26 @@ export class FileController {
     FilesInterceptor('files', 10, {
       storage: diskStorage({
         destination: (req, file, cb) => {
-          const dir = path.isAbsolute(UPLOAD_DIR) ? UPLOAD_DIR : path.join(process.cwd(), UPLOAD_DIR);
-          const sub = path.join(dir, new Date().toISOString().slice(0, 7));
-          if (!fs.existsSync(sub)) fs.mkdirSync(sub, { recursive: true });
-          cb(null, sub);
+          try {
+            // 缺省即默认上传目录（<UPLOAD_DIR>/<YYYY-MM>），与 StorageService.save() 口径一致
+            cb(null, diskStorageService.resolveDir());
+          } catch (e) {
+            cb(e as Error, '');
+          }
         },
-        filename: (req, file, cb) => {
-          const ext = path.extname(file.originalname);
-          const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
-          cb(null, name);
-        },
+        filename: (req, file, cb) => cb(null, diskStorageService.allocateName(path.extname(file?.originalname || ''))),
       }),
     }),
   )
   upload(@UploadedFiles() files: any[]) {
-    return (files || []).map((f) => ({
-      fileName: f.originalname,
-      url: `/api/files/${f.path.split(path.sep).slice(-2).join('/')}`,
-      size: f.size,
-    }));
+    return (files || []).map((f) => {
+      // multer 给的是绝对路径；相对键 = 相对存储根目录（统一以 `/` 分隔，避免 Windows 下写成反斜杠）
+      const key = path.relative(diskStorageService.root, f.path).split(path.sep).join('/');
+      return {
+        fileName: f.originalname,
+        url: diskStorageService.publicUrl(key),
+        size: f.size,
+      };
+    });
   }
 }

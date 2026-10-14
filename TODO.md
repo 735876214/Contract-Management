@@ -45,10 +45,12 @@
 
 ## P3 · 可直接开工（工程项，按性价比排序）
 
-1. **上传目录替换为对象存储**：落盘写入点有 **3 处**（`file.controller.ts` 的 multer、`contract.service.sign()`
-   的签章件、`import-task.service` 的导入错误报告；读取侧另有 `signedFile()` 与 `main.ts` 的静态服务
-   `useStaticAssets`）。工程路径：先把 3 处写入 + 读取收敛到 `common/services/storage.service.ts` 的存储接口，
-   再替换其实现接 MinIO/S3（静态服务需一并改为代理/重定向）；顺带可加哈希校验与版本管理。
+1. **上传目录替换为对象存储**：落盘写入点原有 **3 处**（`file.controller.ts` 的 multer、`contract.service.sign()`
+   的签章件、`import-task.service` 的导入错误报告），已统一收敛到 `common/services/storage.service.ts`
+   （`StorageLike` + `LocalStorageService`；目录/命名/越权校验/URL 都收在这一层）。
+   剩下的工作：实现 `S3StorageService`（MinIO/S3）、在 `common.module.ts` 换 provider 绑定，
+   并把 `main.ts` 的静态服务 `useStaticAssets` 改为代理或 302 重定向（**无基础设施时无法验收，故未做**）；
+   顺带可加哈希校验与版本管理。
 2. **字段级展示脱敏（按权限打码）**：脱敏工具 `common/utils/mask.ts` 已具备
    （`maskField()` / `maskByKey()` / `slimSecrets()`），**日志侧已强制脱敏**；
    剩下的是「**响应体按角色打码**」——需业务先定"哪些角色看不到哪些字段"，

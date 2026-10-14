@@ -27,13 +27,14 @@ Contract-Management/
 │   └── project-overview.md architecture.md user-guide.md development.md component-api.md
 ├── server/              # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（50 个 model，1306 行）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 2 个增量迁移
-│   │                               #   （20261014000000_p1_consistency / 20261015000000_site_confirmation）
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 5 个增量迁移
+│   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
+│   │                               #    / import_task_recovery / canonicalize_template_placeholders）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（13 个 spec，清单见 docs/development.md §5）
+│   └── test/           # node:test 单测（17 个 spec，清单见 docs/development.md §5）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -138,6 +139,14 @@ Contract-Management/
   旧写法还会误伤富文本里的 CSS 花括号）——别再加回兼容分支，也别把新模板写成单花括号。
   改语法或改种子模板 `server/prisma/templates/*.ts` 后，须重跑
   `npx ts-node prisma/templates/upsert-purchase-exec.ts`（已是真 upsert，会刷新内容）。
+- **文件落盘只有一条路：`common/services/storage.service.ts`**（`StorageService`）。上传 / 合同签章件 /
+  导入错误报告这 3 处写入点已全部收敛过去，**不要再在 service/controller 里自己拼 `UPLOAD_DIR` 与文件名**；
+  键是**相对 POSIX 路径**（`signed/x.pdf`，用 `/` 不用 `path.join`，否则 Windows 下落库成 `signed\x.pdf`），
+  对外 URL = `/api/files/<键>`（`publicUrl()`）。越权键（`..`/绝对路径）一律 400。
+  纯逻辑在 `common/utils/storage-keys.ts`（`server/test/storageKeys.spec.mts` 锁定）。
+  ⚠️ multer 的 `destination/filename` 回调在**类定义期**求值，`this` 不是控制器实例——别在那里注入式取服务。
+  切对象存储时只需实现同一个 `StorageLike` 并改 `common.module.ts` 的 provider 绑定，
+  另需把 `main.ts` 的 `useStaticAssets` 改为代理/重定向。
 - **依赖管理统一用 npm**：锁文件 `server|web/package-lock.json` **必须入库**（镜像与 CI 走
   `npm ci --legacy-peer-deps`，缺锁文件直接失败）；改了依赖要在对应目录跑
   `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件并一并提交。**勿用 pnpm/yarn**
@@ -183,7 +192,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（13 个 spec，见 docs/development.md §5）
+cd server && npm test          # node:test 单测（17 个 spec，见 docs/development.md §5）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -191,7 +200,7 @@ cd server && npm test          # node:test 单测（13 个 spec，见 docs/devel
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（13 个 spec / 180 项断言）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（17 个 spec / 235 项断言）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。
