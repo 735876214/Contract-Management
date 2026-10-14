@@ -336,6 +336,7 @@ export default function ContractDraft() {
 
       <ModuleListPage
         mode="generic"
+        columnConfigKey="contract.draft"
         fetcher={fetcher}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

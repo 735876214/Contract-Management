@@ -183,6 +183,7 @@ function InvoiceTab({
     <>
       <ModuleListPage
         mode="generic"
+        columnConfigKey="invoice.list"
         fetcher={(params) => invoiceApi.list(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

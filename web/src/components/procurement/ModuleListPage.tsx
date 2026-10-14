@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  Badge,
   Button,
+  Checkbox,
   Col,
   DatePicker,
   Dropdown,
@@ -8,6 +10,7 @@ import {
   Form,
   Input,
   Modal,
+  Popover,
   Row,
   Select,
   Space,
@@ -23,12 +26,15 @@ import {
   MoreOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SettingOutlined,
   UpOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { taskTypeLabel } from '@/constants/procurementWorkflow';
 import { useResponsive } from '@/hooks/useResponsive';
+import { useListColumns } from '@/hooks/useListColumns';
+import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
 
 /**
  * 采购六模块通用「标准列表页」（筛选区 + 工具栏 + 数据表格 + 分页）：
@@ -136,6 +142,14 @@ export interface ModuleListPageProps {
   }[];
   /** 空列表提示文案 */
   emptyText?: string;
+  /**
+   * 启用「列设置」的存储键（**每浏览器**偏好，存 localStorage，不落库）。
+   * 不传时：module 模式自动取 `procurement.<moduleKey>`；generic 模式不启用（该页可显式传 key 开启）。
+   * ⚠️ 台账页（Ledger）**不要**传——它用的是服务端共享列配置 `ledger.columns.config`，语义不同。
+   */
+  columnConfigKey?: string;
+  /** 额外不可隐藏的列标识（「操作」列与无标识列总是保留） */
+  columnConfigLockedKeys?: string[];
 }
 
 const PER_ROW_DESKTOP = 4; // 桌面每行筛选字段数
@@ -159,6 +173,8 @@ export default function ModuleListPage({
   rowMenuItems,
   showOpColumn = true,
   emptyText,
+  columnConfigKey,
+  columnConfigLockedKeys,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
   /** 断点唯一来源（docs/08 阶段 1/2）：窄屏筛选区两列、表格紧凑、冻结关键列 */
@@ -369,6 +385,57 @@ export default function ModuleListPage({
       : []),
   ];
 
+  /* ---------------- 列设置（每浏览器偏好，存 localStorage） ---------------- */
+
+  /** module 模式按模块自动取键；generic 模式须显式传 columnConfigKey 才启用 */
+  const effectiveColumnConfigKey =
+    columnConfigKey ?? (isModuleMode && moduleKey ? `procurement.${moduleKey}` : undefined);
+  // 用签名串做 useMemo 依赖：columns 每次渲染都是新数组，直接当依赖会让 memo 失效
+  const columnKeySignature = columns.map(columnKeyOf).filter(Boolean).join('|');
+  const columnKeys = useMemo(() => (columnKeySignature ? columnKeySignature.split('|') : []), [columnKeySignature]);
+  /** 「操作」列与关键标识列（module 模式的采购编号）不可隐藏 */
+  const lockedColumnKeys = useMemo(
+    () => ['op', ...(isModuleMode ? ['taskNo'] : []), ...(columnConfigLockedKeys ?? [])],
+    [isModuleMode, columnConfigLockedKeys],
+  );
+  const { hiddenKeys, isHidden, toggle, reset, hiddenCount } = useListColumns({
+    configKey: effectiveColumnConfigKey,
+    allKeys: columnKeys,
+    lockedKeys: lockedColumnKeys,
+  });
+  // 直接过滤（不做 useMemo）：`columns` 每轮渲染都是新数组，若把 memo 依赖设为键签名，
+  // 列内的 render/事件闭包会在依赖未变时滞留旧值（点「查看」调用旧 handler 这类隐性 bug）。
+  const visibleColumns = filterVisibleColumns(columns, hiddenKeys, lockedColumnKeys);
+  const columnConfigItems = columns
+    .map((c) => ({ key: columnKeyOf(c), title: c.title as ReactNode }))
+    .filter((c) => c.key !== '');
+  const columnConfigContent = (
+    <div style={{ maxWidth: 240 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: '#8c8c8c' }}>勾选要显示的列</span>
+        <Button type="link" size="small" style={{ padding: 0 }} disabled={!hiddenCount} onClick={reset}>
+          重置
+        </Button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+        {columnConfigItems.map((c) => {
+          const locked = lockedColumnKeys.includes(c.key);
+          return (
+            <Checkbox
+              key={c.key}
+              checked={locked || !isHidden(c.key)}
+              disabled={locked}
+              // 勾选框 checked = 「可见」，toggle 的第二参是「是否隐藏」→ 必须取反
+              onChange={(e) => toggle(c.key, !e.target.checked)}
+            >
+              {c.title || c.key}
+            </Checkbox>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   /* ---------------- 筛选控件 ---------------- */
 
   const renderControl = (f: ModuleListFilterField) => {
@@ -443,6 +510,15 @@ export default function ModuleListPage({
           <span style={{ color: '#8c8c8c', fontSize: 13 }}>
             本页: {rows.length}条 总计: {total}条
           </span>
+          {effectiveColumnConfigKey && (
+            <Popover content={columnConfigContent} trigger="click" placement="bottomRight">
+              <Tooltip title={hiddenCount ? `列设置（已隐藏 ${hiddenCount} 列）` : '列设置'}>
+                <Badge dot={hiddenCount > 0}>
+                  <Button size="small" icon={<SettingOutlined />} />
+                </Badge>
+              </Tooltip>
+            </Popover>
+          )}
           <Tooltip title="刷新">
             <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchRows(committed)} />
           </Tooltip>
@@ -453,7 +529,7 @@ export default function ModuleListPage({
       <Table<ModuleListRow>
         size={isMobile ? 'small' : 'middle'}
         rowKey="id"
-        columns={columns}
+        columns={visibleColumns}
         dataSource={rows}
         loading={loading}
         scroll={{ x: 'max-content' }}

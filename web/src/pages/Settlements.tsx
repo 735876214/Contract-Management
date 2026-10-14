@@ -163,6 +163,7 @@ function SettlementsTab({
     <>
       <ModuleListPage
         mode="generic"
+        columnConfigKey="settlement.list"
         fetcher={(params) => settlementApi.list(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
@@ -346,6 +347,7 @@ function LedgerTab({
     <>
       <ModuleListPage
         mode="generic"
+        columnConfigKey="settlement.ledger"
         fetcher={(params) => settlementApi.ledger(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

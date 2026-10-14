@@ -160,6 +160,11 @@ Contract-Management/
   `window.innerWidth` / `matchMedia`。具体规格（`isMobile(<768)`）、四条硬性约定（Col 带断点、
   Table 声明 `scroll`、弹窗宽度可被全局兜底、≤md 侧栏走 Drawer）与明确取舍见
   [DESIGN.md](DESIGN.md) §10。
+- **列表页列显隐有两条互不相同的路**：① 通用列表页 `ModuleListPage` 的 `columnConfigKey`（偏好存
+  **localStorage**，纯逻辑在 `web/src/utils/listColumns.ts`，由 `server/test/listColumns.spec.mts` 锁），
+  ② 合同台账 `Ledger` 的 `ledger.columns.config`（**服务端共享**配置，页面列也由后端返回）。
+  **别混用**：给台账页再传 `columnConfigKey` 会出现两套列设置打架；列显隐**不落 `sys_param`**
+  （那是全局配置且需 `system:config` 权限，普通用户存不了）。
 - **前端纯逻辑单测放在 `server/test/*.spec.mts`**（**不引入** jest/vitest）：直接 import `web/src/**` 中
   **无 `@/` 别名、无运行时 `import`** 的模块（`import type` 可，会被擦除）。`.mts` 由 Node 原生
   擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）——`node:20` 会直接报错。

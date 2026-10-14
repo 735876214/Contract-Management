@@ -236,6 +236,7 @@ export default function ContractQuery() {
     <>
       <ModuleListPage
         mode="generic"
+        columnConfigKey="contract.query"
         fetcher={fetcher}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

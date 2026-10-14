@@ -262,6 +262,7 @@ export default function ContractMaterials() {
 
       <ModuleListPage
         mode="generic"
+        columnConfigKey="contract.materials"
         fetcher={fetcher}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

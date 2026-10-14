@@ -102,7 +102,7 @@
 
 | 组件 | Props（要点） | 说明 |
 |---|---|---|
-| `ModuleListPage.tsx` | `moduleKey` `mode('module'\|'generic')` `fetcher` `baseParams?` `extraFilters?` `extraColumns?` `toolbarLeft?` `actionBeforeSearch?` `refreshKey?` `onView/onEdit/rowEditable/onDelete/rowDeletable/rowMenuItems` `showOpColumn?` `emptyText?` | 采购六模块通用标准列表页；导出 `moduleStatusOf`、`useModuleDelete` |
+| `ModuleListPage.tsx` | `moduleKey` `mode('module'\|'generic')` `fetcher` `baseParams?` `extraFilters?` `extraColumns?` `toolbarLeft?` `actionBeforeSearch?` `refreshKey?` `onView/onEdit/rowEditable/onDelete/rowDeletable/rowMenuItems` `showOpColumn?` `emptyText?` `columnConfigKey?` `columnConfigLockedKeys?` | 采购六模块通用标准列表页；导出 `moduleStatusOf`、`useModuleDelete`。**列设置**：传 `columnConfigKey` 即启用（module 模式自动取 `procurement.<moduleKey>`），偏好存 **localStorage**（每浏览器）；「操作」列与 module 模式的「采购编号」列不可隐藏 |
 | `ModuleDetailCard.tsx` | `title` `taskNo` `content` `statusLabel` `statusColor` `publishedAt` `extraDescriptions` `docHtml` `docLoading` `actions` | 只读详情卡片；含 `useModuleDetailDoc(...)` |
 | `TaskViewModal.tsx` | `task{id,taskNo,status,stage}` `open` `onClose` | 任务查看（基本信息 + 总清单 + 已生成文档导出） |
 | `TotalListEditor.tsx` | 导出 `TotalListEditor`、`TotalListEditorContent`（`readOnly`/`embedded`）、`TotalListContentRef` | 总采购清单编辑器（15 列，物资必须选自基础库） |
@@ -114,6 +114,7 @@
 | Hook | 签名 | 说明 |
 |---|---|---|
 | `useTable<T>` | `(fetcher, defaultParams?) → { loading, list, total, params, setParams, search(extra), reload, pagination }` | 通用列表查询（默认 `page/pageSize=20`）；内部去抖动与丢弃过期响应 |
+| `useListColumns` | `({ configKey?, allKeys, lockedKeys? }) → { hiddenKeys, isHidden, toggle, reset, hiddenCount }` | 列表页**列显隐**偏好，按 `configKey` 存 localStorage（每浏览器，不落库）；纯逻辑在 `utils/listColumns.ts`（可单测）。与 `ledger.columns.config`（服务端共享配置）**语义不同**，勿混用 |
 | `useTablePage` | 同 `useTable` | ⚠️ 死代码，全库无引用 |
 
 （Sider 的 `useMenuData/useMenuSearch/useBreadcrumb` 见上。）
@@ -128,6 +129,7 @@
 | `procurementExport.ts` | `buildProcurementDoc` `exportProcurementWord` `fetchModuleTemplate` `procurementExportFilename` `inlineImageUrls` | 采购统一导出管线：**模板优先 → 变量替换 → 图片内联** |
 | `procurementTaskDocs.ts` | `TaskModuleType` `TASK_MODULE_LABELS` `buildTaskModuleDoc` `exportTaskModuleWord` | 任务级文档 |
 | `procurementNotice.ts` / `procurementDocument.ts` / `procurementResultReport.ts` / `procurementPriceCompare.ts` / `preMeetingMinutes.ts` / `frameworkExplanation.ts` | `buildXxxDocHtml` `buildXxxVariableValues`（priceCompare/preMeetingMinutes 另含 `calcAmount/round2/deriveRow/rankByRound/defaultFinalPrice` 等） | 各采购模块「数据模型 + 派生计算 + 表格 HTML + 变量值 + 文档 HTML」 |
+| `listColumns.ts` | `columnKeyOf` `listColumnsStorageKey` `readHiddenColumns` `writeHiddenColumns` `clearHiddenColumns` `nextHiddenColumns` `filterVisibleColumns` | 列表列显隐的**纯逻辑**（零依赖，`server/test/listColumns.spec.mts` 覆盖）：存「隐藏的列」使新增列默认可见；至少保留一列；受保护列不可隐藏 |
 
 ## 四、前端 · 常量与 API 模块
 

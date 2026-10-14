@@ -320,6 +320,7 @@ export default function Initiate() {
       {/* 标准列表页（问题四：与六模块/合同/结算页面统一规约） */}
       <ModuleListPage
         mode="generic"
+        columnConfigKey="procurement.initiate"
         fetcher={(params) => procurementTaskApi.list(params)}
         extraFilters={extraFilters as never}
         extraColumns={extraColumns}

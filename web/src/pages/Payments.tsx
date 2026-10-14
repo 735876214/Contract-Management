@@ -89,6 +89,7 @@ function RecordTab({ contractOptions }: { contractOptions: any[] }) {
     <>
       <ModuleListPage
         mode="generic"
+        columnConfigKey="payment.list"
         fetcher={(params) => paymentApi.records(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}

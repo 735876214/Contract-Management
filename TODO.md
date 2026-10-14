@@ -45,13 +45,11 @@
 
 ## P3 · 可直接开工（工程项，按性价比排序）
 
-1. **台账/看板列配置扩展到更多列表页**：`ledger.columns.config`（`ledger.service.ts` 读写 + 页面列设置弹窗）
-   已是可用范式，可抽成通用组件供其他列表页复用。
-2. **上传目录替换为对象存储**：落盘写入点有 **3 处**（`file.controller.ts` 的 multer、`contract.service.sign()`
+1. **上传目录替换为对象存储**：落盘写入点有 **3 处**（`file.controller.ts` 的 multer、`contract.service.sign()`
    的签章件、`import-task.service` 的导入错误报告；读取侧另有 `signedFile()` 与 `main.ts` 的静态服务
    `useStaticAssets`）。工程路径：先把 3 处写入 + 读取收敛到 `common/services/storage.service.ts` 的存储接口，
    再替换其实现接 MinIO/S3（静态服务需一并改为代理/重定向）；顺带可加哈希校验与版本管理。
-3. **字段级展示脱敏（按权限打码）**：脱敏工具 `common/utils/mask.ts` 已具备
+2. **字段级展示脱敏（按权限打码）**：脱敏工具 `common/utils/mask.ts` 已具备
    （`maskField()` / `maskByKey()` / `slimSecrets()`），**日志侧已强制脱敏**；
    剩下的是「**响应体按角色打码**」——需业务先定"哪些角色看不到哪些字段"，
    再仿 `common/pick-fields.ts` 的写法在序列化处接入（行级 DataScope 视诉求，见 [docs/05](docs/05-四域扩展可行性评估.md) §9）。
