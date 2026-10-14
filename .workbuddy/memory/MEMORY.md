@@ -87,7 +87,7 @@
 
 ## 验收铁律
 改完必做：① `cd web && npm run build`（含 `tsc --noEmit`）与 `cd server && npm run build`；
-② `cd server && npm test`（11 个 spec / 151 项断言，**CI 门禁**：`.github/workflows/build.yml` 的
+② `cd server && npm test`（13 个 spec / 180 项断言，**CI 门禁**：`.github/workflows/build.yml` 的
    `test` job，`build` job `needs: test`，测试红则不发布新镜像）；
 ③ 重启后端**真打一个触发改动的请求**确认不报旧错（只看启动日志不够）；
 ④ 改过 `schema.prisma` 必须 `npx prisma migrate dev --name xxx` 生成并应用迁移，复查列已落地。

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import * as fs from 'fs';
@@ -6,9 +6,18 @@ import * as path from 'path';
 import { paginate, buildResult } from '../utils/helpers';
 import { ImportOutcome, ImportRowError, ImportRunnerService, RunOptions } from './import-runner.service';
 import { NotificationService } from '../../modules/notification/notification.service';
+import {
+  IMPORT_ACTIVE_STATUSES,
+  IMPORT_TASK_STALE_MESSAGE,
+  importDedupeKey,
+  isImportTaskStale,
+} from '../utils/import-task';
 
 /** 超过该行数走异步导入（需求 2.7） */
 export const ASYNC_IMPORT_THRESHOLD = 1000;
+
+/** 僵尸巡检间隔 = 僵尸阈值的一半（10 分钟阈值 → 5 分钟巡检一次） */
+const IMPORT_TASK_STALE_MS_HALF = 5 * 60 * 1000;
 
 export interface SubmitContext {
   module: string;
@@ -24,14 +33,59 @@ export interface SubmitContext {
  *
  * - ≤ 阈值行数：同步执行，直接返回结果
  * - > 阈值行数：立即返回 taskId，后台执行，可轮询进度、完成后站内通知、失败行可下载错误报告
+ * - **崩溃恢复**：执行期间持续刷新 `lockedAt` 心跳；启动时与定时回收「长时间无心跳」的
+ *   PENDING/RUNNING 任务（置 FAILED 并提示重新导入），避免进程崩溃后任务永久卡在进行中
+ * - **幂等去重**：同一份文件（模块+文件名+行数+内容摘要）在 PENDING/RUNNING 期间重复提交时，
+ *   直接返回既有 taskId，不再新建任务（挡双击与网络重试；已完成的任务不阻止再次导入同一文件）
  */
 @Injectable()
-export class ImportTaskService {
+export class ImportTaskService implements OnModuleInit {
+  /** 僵尸回收定时器（unref：不阻止进程退出） */
+  private reapTimer?: ReturnType<typeof setInterval>;
+
   constructor(
     private prisma: PrismaClient,
     private runner: ImportRunnerService,
     private notifier: NotificationService,
   ) {}
+
+  onModuleInit(): void {
+    // 启动即回收一次（上一条进程留下的僵尸），随后按阈值一半的间隔巡检
+    void this.reapStaleTasks();
+    this.reapTimer = setInterval(() => void this.reapStaleTasks(), IMPORT_TASK_STALE_MS_HALF);
+    this.reapTimer.unref?.();
+  }
+
+  /**
+   * 回收僵尸导入任务：把「长时间无心跳」的 PENDING/RUNNING 任务置为 FAILED。
+   * 判据是纯函数 `isImportTaskStale()`（启动时与定时各调一次；无僵尸时为空更新）。
+   */
+  async reapStaleTasks(): Promise<number> {
+    try {
+      const now = new Date();
+      const rows = await this.prisma.importTask.findMany({
+        where: { status: { in: [...IMPORT_ACTIVE_STATUSES] } },
+        select: { id: true, status: true, lockedAt: true, startedAt: true, createdAt: true },
+      });
+      const stale = rows.filter((r) => isImportTaskStale(r, now));
+      if (!stale.length) return 0;
+      await this.prisma.importTask.updateMany({
+        where: { id: { in: stale.map((r) => r.id) } },
+        data: { status: 'FAILED', message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
+      });
+      console.warn(
+        '[import-task] 已回收僵尸导入任务',
+        stale.length,
+        '个：',
+        stale.map((r) => r.id).join(', '),
+      );
+      return stale.length;
+    } catch (e) {
+      // 回收失败不影响服务启动
+      console.error('[import-task] 回收僵尸任务失败:', e);
+      return 0;
+    }
+  }
 
   private errorDir(): string {
     const dir = path.join(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'), 'import-errors');
@@ -63,39 +117,74 @@ export class ImportTaskService {
     ctx: SubmitContext,
     rows: any[],
     opts: RunOptions<T>,
-  ): Promise<ImportOutcome & { taskId?: string; async?: boolean }> {
+  ): Promise<ImportOutcome & { taskId?: string; async?: boolean; deduped?: boolean }> {
     if (!Array.isArray(rows)) throw new BadRequestException('导入内容为空');
     if (rows.length <= ASYNC_IMPORT_THRESHOLD) return this.runner.run(rows, opts);
 
-    const task = await this.prisma.importTask.create({
-      data: {
-        module: ctx.module,
-        moduleName: ctx.moduleName,
-        fileName: ctx.fileName,
-        totalRows: rows.length,
-        status: 'PENDING',
-        projectId: ctx.projectId,
-        userId: ctx.userId,
-        username: ctx.username,
-      },
+    // 幂等：同一份文件仍在处理中 → 直接返回既有任务，避免双击/重试产生重复导入。
+    // ⚠️ 「先查后建」存在竞态（两个并发提交都查不到、都建行）——而双击恰恰就是并发，
+    //    故用一个 PG **事务级咨询锁**（键 = dedupeKey 的哈希）把相同文件的提交串行化：
+    //    后到的请求会等前者提交后再查，从而必然看见新行。
+    const dedupeKey = importDedupeKey({ module: ctx.module, fileName: ctx.fileName, rows });
+    const picked = await this.prisma.$transaction(async (tx) => {
+      // 用 $executeRaw 而非 $queryRaw：pg_advisory_xact_lock 返回 void，
+      // Prisma 的 $queryRaw 会尝试反序列化该列并报 'Failed to deserialize column of type void'
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey})::bigint)`;
+      const active = await tx.importTask.findFirst({
+        where: { dedupeKey, status: { in: [...IMPORT_ACTIVE_STATUSES] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (active) return { id: active.id, deduped: true };
+      const created = await tx.importTask.create({
+        data: {
+          module: ctx.module,
+          moduleName: ctx.moduleName,
+          fileName: ctx.fileName,
+          totalRows: rows.length,
+          dedupeKey,
+          status: 'PENDING',
+          projectId: ctx.projectId,
+          userId: ctx.userId,
+          username: ctx.username,
+        },
+        select: { id: true },
+      });
+      return { id: created.id, deduped: false };
     });
-
-    // 后台执行：不阻塞请求
-    void this.execute(task.id, rows, opts, ctx).catch(() => undefined);
-    return { total: rows.length, created: 0, updated: 0, errors: [], taskId: task.id, async: true };
+    if (picked.deduped) {
+      // ⚠️ 去重命中时**绝不能**再跑一次 execute：否则两次执行并发写同一批数据，
+      //    后者会撞唯一约束并把任务置为 FAILED（而数量却是前者写成功的）——已实测踩到。
+      console.warn('[import-task] 相同文件正在处理中，复用既有任务:', picked.id);
+    } else {
+      // 后台执行：不阻塞请求
+      void this.execute(picked.id, rows, opts, ctx).catch(() => undefined);
+    }
+    return {
+      total: rows.length,
+      created: 0,
+      updated: 0,
+      errors: [],
+      taskId: picked.id,
+      async: true,
+      ...(picked.deduped ? { deduped: true } : {}),
+    };
   }
 
   /** 后台执行导入并更新任务状态 */
   private async execute<T>(taskId: string, rows: any[], opts: RunOptions<T>, ctx: SubmitContext) {
-    await this.prisma.importTask.update({ where: { id: taskId }, data: { status: 'RUNNING', startedAt: new Date() } });
+    await this.prisma.importTask.update({
+      where: { id: taskId },
+      data: { status: 'RUNNING', startedAt: new Date(), lockedAt: new Date() },
+    });
     let outcome: ImportOutcome;
     try {
       outcome = await this.runner.run(rows, {
         ...opts,
         onProgress: async (processed: number) => {
-          // 进度更新失败不阻断导入
+          // 进度 + 心跳一起刷新（心跳用于崩溃/超时判定）；更新失败不阻断导入
           await this.prisma.importTask
-            .update({ where: { id: taskId }, data: { processedRows: processed } })
+            .update({ where: { id: taskId }, data: { processedRows: processed, lockedAt: new Date() } })
             .catch(() => undefined);
         },
       });

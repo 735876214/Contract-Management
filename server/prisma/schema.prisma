@@ -899,10 +899,16 @@ model ImportTask {
   username      String?
   startedAt     DateTime?
   finishedAt    DateTime?
+  // 执行心跳：RUNNING 期间随进度刷新；超过阈值仍无心跳即视为僵尸（启动时与定时回收）
+  lockedAt      DateTime?
+  // 幂等去重键（模块+文件名+行数+行内容摘要的 sha1）：同一份文件在 PENDING/RUNNING 期间重复提交不再新建任务
+  dedupeKey     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  @@index([status])
+  // (status, lockedAt) 复合索引同时服务「按状态筛列表」与「按心跳回收僵尸」
+  @@index([status, lockedAt])
+  @@index([dedupeKey])
   @@index([createdAt])
   @@index([userId])
 }

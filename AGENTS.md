@@ -33,7 +33,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（11 个 spec，清单见 docs/development.md §5）
+│   └── test/           # node:test 单测（13 个 spec，清单见 docs/development.md §5）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -77,7 +77,19 @@ Contract-Management/
 - **乐观锁**：业务表多有 `version Int`，更新时用 `helpers.assertVersion(old, data)`（不一致抛 409）。
 - **导入**：走 `ImportRunnerService` 两阶段（先全量校验出计划，全通过才在事务内写入）——**全成功或全失败**；
   超过 1000 行自动转异步任务（`ImportTaskService`，返回 taskId 供轮询）。
+  - **执行期有心跳、崩溃可回收**：`execute()` 写 `lockedAt` 并随进度刷新；启动时与每 5 分钟巡检一次
+    （`reapStaleTasks()`，纯判据 `isImportTaskStale()`），把超过 10 分钟无心跳的 PENDING/RUNNING 任务置为
+    FAILED（提示重新导入）——此前进程崩溃会**永久卡在进行中**。
+  - **幂等去重**：同一份文件（`模块+文件名+行数+内容摘要` 的 sha1）在 PENDING/RUNNING 期间重复提交时
+    复用既有任务；`submit()` 用 PG **事务级咨询锁**串行化同键提交（双击就是并发，"先查后建"会双开）。
+    ⚠️ 去重命中后**绝不能再跑一次 execute**（两次并发写同一批数据 → 后者撞唯一约束，任务被误置 FAILED）。
 - **写字段白名单**：service 用 `common/pick-fields.ts` 的 `pickFields` 过滤未知字段，防前端字段漂移 500。
+- **日志必须脱敏（白名单）**：操作日志拦截器会把「请求参数 + 变更前后快照」整体写入 `OperationLog`
+  （日志页仅需 `system:user` 权限即可查看），**凭据/银行账号/证件号/联系方式不得明文入库**。
+  打码规则集中在 `common/utils/mask.ts`（`slimSecrets()` 深拷贝后按键名打码，**不改原对象**——
+  入参可能是即将返回给前端的响应体）。新增敏感字段须登记进 `SECRET_FIELD_KEYS`；
+  契约由 `server/test/mask.spec.mts` 锁定。历史遗留明文（35 条 JWT / 银行账号 / 证件号）
+  已由迁移 `20261016000000_scrub_log_secrets` 一次性清洗。
 - **合同阶段的任务状态由「主合同」决定**：映射是纯函数 `contractStageTaskStatus()`
   （`server/src/constants/procurementFlow.ts`）：草稿→合同编制中 / 审批中→合同审批中 / 已签章→已完成。
   合同侧在**签章、状态互转、提交、驳回**时自动同步任务状态（`contract.service.ts` 的
@@ -159,7 +171,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（11 个 spec，见 docs/development.md §5）
+cd server && npm test          # node:test 单测（13 个 spec，见 docs/development.md §5）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -167,7 +179,7 @@ cd server && npm test          # node:test 单测（11 个 spec，见 docs/devel
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（11 个 spec / 151 项断言）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（13 个 spec / 180 项断言）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。

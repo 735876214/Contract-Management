@@ -7,6 +7,7 @@ import {
 import { PrismaClient } from '@prisma/client';
 import { from, Observable, switchMap, tap, catchError, throwError } from 'rxjs';
 import { LogService } from '../services/log.service';
+import { slimSecrets } from '../utils/mask';
 
 /**
  * 全局操作日志拦截器（需求 2.6）
@@ -58,14 +59,13 @@ function safeJson(v: any, limit = 4000): string | null {
   }
 }
 
-/** 去掉二进制/大字段，避免日志膨胀 */
+/**
+ * 请求参数脱敏：按白名单深拷贝后打码（凭据 / 银行账号 / 证件号 / 联系方式）。
+ * 白名单与打码规则见 `common/utils/mask.ts`；**不再只处理三个密码键名**——
+ * 2026-10-14 实测发现登录响应里的 JWT、供应商银行账号都曾被明文写入日志。
+ */
 function slimParams(body: any): any {
-  if (!body || typeof body !== 'object') return body;
-  const clone: any = { ...body };
-  ['password', 'oldPassword', 'newPassword'].forEach((k) => {
-    if (k in clone) clone[k] = '******';
-  });
-  return clone;
+  return slimSecrets(body);
 }
 
 @Injectable()
@@ -134,8 +134,8 @@ export class OperationLogInterceptor implements NestInterceptor {
               url,
               params: safeJson(slimParams({ ...req.body, ...req.query })),
               ip,
-              beforeData: safeJson(before),
-              afterData: safeJson(data, 8000),
+              beforeData: safeJson(slimSecrets(before)),
+              afterData: safeJson(slimSecrets(data), 8000),
               result: 'SUCCESS',
               duration,
               bizType: route.model || biz,
@@ -157,7 +157,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               url,
               params: safeJson(slimParams({ ...req.body, ...req.query })),
               ip,
-              beforeData: safeJson(before),
+              beforeData: safeJson(slimSecrets(before)),
               result: 'FAIL',
               message: err?.message || String(err),
               duration: Date.now() - started,
