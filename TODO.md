@@ -91,6 +91,14 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
+- **组件级响应式改为 Container Queries**（[docs/08](docs/08-全局响应式改造方案.md) V2 方案，2026-10-15 立项）：
+  把**组件内部**布局的判定依据从"视口断点"改为"**容器宽度**"——受影响的真实场景：同一张表出现在整页与
+  900px 弹窗里、工作台 `lg=8` 侧列卡片、抽屉/弹窗内的表单、合同预览区。方案、技术约束（AntD 断点 prop
+  是视口驱动、CQ 无法驱动、`container-type` 的 containment 副作用）、五阶段迁移与容器级验收都已写好。
+  **两个前置**：① 确认客户端浏览器基线（CQ 需 Chromium 105+ / Safari 16+ / Firefox 110+，旧内核浏览器需定降级策略）；
+  ② 定**样式文件策略**——`@container` 无法纯内联表达，需放宽 [DESIGN.md](DESIGN.md) §9「只用两个样式文件」那条。
+  落地时同步改写 DESIGN.md §10（改为双层模型）并新增 `test/containerQuery.spec.mts`（禁拿视口值判断容器布局）。
+
 - **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
   更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，
   `allowImportingTsExtensions` 与 `rewriteRelativeImportExtensions` 都可用
