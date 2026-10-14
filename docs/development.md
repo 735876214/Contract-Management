@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test 单测（8 个 spec / 102 项断言，**CI 门禁**） |
+| server | `npm run test` | node:test 单测（9 个 spec / 120 项断言，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -102,7 +102,8 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   标记基线（只写迁移记录，不动数据），再拉新版本。步骤见 [../README.md](../README.md)。
 - 种子数据三个来源：
   - `server/prisma/seed.ts`（CLI，`npm run seed`）：完整演示数据；
-  - `server/src/seed.ts`（后端启动自动、幂等）：`seedAdmin` / `seedDefaultProject` / `seedDictAndParams`；
+  - `server/src/seed.ts`（后端启动自动、幂等）：`seedAdmin` / `seedDefaultProject` / `seedDictAndParams`
+    / `fixLegacyData`（增补字典与系统参数、修正历史数据——**新增字典/参数加在这里**，勿改自动生成的 `seed-data.ts`）；
   - `server/src/seed-data.ts`（自动生成的字典/参数初始数据，**勿手改**），上两者共用。
 
 ## 5. 测试
@@ -112,13 +113,14 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | 文件 | 覆盖 |
   |---|---|
   | `test/procurementFlow.spec.ts` | 采购工作流单一事实源（类型/合同类型推导/阶段链/门禁/多合同生成/列表分支） |
-  | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告） |
+  | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告）+ 现场确认（日报行）状态机 |
   | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量；含「合同状态→任务状态」映射） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** |
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
+  | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款） |
 
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。

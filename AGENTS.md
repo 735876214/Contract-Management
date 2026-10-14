@@ -23,16 +23,17 @@ Contract-Management/
 ├── TODO.md              # 剩余任务（只列未完成项，完成即删除条目）
 ├── README.md            # 部署与快速开始（面向运维）
 ├── docs/                # 参考文档（见 §8）
-│   ├── 01-需求确认摘要.md 02-数据库ER设计.md 03-API接口清单.md   # 早期需求/设计文档
+│   ├── 01~09-*.md       # 需求摘要/ER/接口清单/Docker/四域扩展/变量体系/关联审计/响应式/重构评估
 │   └── project-overview.md architecture.md user-guide.md development.md component-api.md
 ├── server/              # NestJS 后端
-│   ├── prisma/schema.prisma        # 全量数据模型（50 个 model，1253 行）
-│   ├── prisma/migrations/20260901000000_init/  # 折叠基线（唯一迁移）
+│   ├── prisma/schema.prisma        # 全量数据模型（50 个 model，1306 行）
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 2 个增量迁移
+│   │                               #   （20261014000000_p1_consistency / 20261015000000_site_confirmation）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   └── test/           # node:test 单测（3 个 spec）
+│   └── test/           # node:test 单测（9 个 spec，清单见 docs/development.md §5）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils}
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -150,7 +151,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 单测（7 个 spec，见 docs/development.md）
+cd server && npm test          # node:test 单测（9 个 spec，见 docs/development.md §5）
 ```
 
 完整清单见 [docs/development.md](docs/development.md)。
@@ -158,7 +159,7 @@ cd server && npm test          # node:test 单测（7 个 spec，见 docs/develo
 ## 7. 验收铁律（改完必做，做完才算完工）
 
 1. `cd web && npm run build`（含 `tsc --noEmit`）、`cd server && npm run build` 均须通过。
-2. `cd server && npm test` 须全绿（8 个 spec / 102 项断言）——该 job 已进 CI 门禁，
+2. `cd server && npm test` 须全绿（9 个 spec / 120 项断言）——该 job 已进 CI 门禁，
    `.github/workflows/build.yml` 的 `build` 依赖 `test`，**测试红则不发布新镜像**。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。
