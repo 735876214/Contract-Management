@@ -1,7 +1,7 @@
 # 开发指南（Development）
 
 > 面向开发者：环境搭建、命令、数据库迁移规则、测试、部署与**回归清单**。
-> AI 助手请先读 [../AGENTS.md](../AGENTS.md)。
+> AI 助手请先读 [../CLAUDE.md](../CLAUDE.md)。
 
 ## 1. 环境要求
 
@@ -134,7 +134,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
-  | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `AGENTS.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
+  | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
   | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |
 
@@ -250,7 +250,7 @@ cd server && DATABASE_URL="postgresql://cms:cms123456@localhost:15432/cms_int?sc
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
 - **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
 - **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），
-  硬约定见 [../AGENTS.md](../AGENTS.md) §4（改动前必看的高危约定），变量体系与缺陷清单见 [06](06-变量体系梳理与歧义清单.md)。
+  硬约定见 [../CLAUDE.md](../CLAUDE.md) §4（改动前必看的高危约定），变量体系与缺陷清单见 [06](06-变量体系梳理与歧义清单.md)。
 - 前端样式遵循 [../DESIGN.md](../DESIGN.md)；组件接口见 [component-api.md](component-api.md)。
 
 ## 8. 构建与部署
@@ -272,3 +272,39 @@ bash scripts/nas-deploy.sh
 - 镜像内 `nginx.conf` 托管前端并把 `/api` 反代到同容器后端；`start.sh` 用 bash `wait -n`
   实现「任一进程退出即整体退出」由重启策略自愈。
 - 详见 [../README.md](../README.md) 与部署文件 [deploy/single/](../deploy/single/)。
+
+## 9. 工具与本机操作要点（AI 助手/自动化脚本必看）
+
+> 这一节是**干活时的操作坑**，不是项目规则（项目规则见 [../CLAUDE.md](../CLAUDE.md)）。
+> 每条都是本机（Windows + Git Bash）实测踩过的。
+
+- **判成败看退出码，不要 grep 输出**：`nest build` 的输出带 ANSI 颜色码，`grep "error TS"` 会漏判
+  （见 §6 ①）；另外 **`cmd | head` 的 `$?` 是 `head` 的**，要判成败就别接管道——直连命令，
+  或 `> "$LOG" 2>&1` 落文件后再 grep。
+- **临时文件不要用 `/tmp`**：Git Bash 会把 `/tmp/x` 解析成 `C:\tmp\x`，重定向常报 `Permission denied`。
+  一律用 `C:/Users/<用户>/AppData/Local/Temp/...`。
+- **Git Bash 会把 `/` 开头的参数当路径改写**：`node shot.mjs /dashboard out.png` 里的 `/dashboard`
+  会变成 `C:/Program Files/Git/dashboard`（导航到非法 URL，页面停在登录页，**症状极像"登录态没注入成功"**）。
+  传路由/Unix 绝对路径参数时加 `MSYS_NO_PATHCONV=1`，或把值写进脚本而不要走命令行。
+- **改代码用编辑器/Edit 工具，别用 `sed`/`python -c`/heredoc 拼字符串**：heredoc 会吞反斜杠
+  （`\b` 曾写成退格符 0x08，导致正则静默失效、断言恒真）；确要用脚本改，改完必须 `cat -A` 或重跑测试复核。
+- **推送只走 SSH**：`git push git@github.com:735876214/Contract-Management.git main`
+  （本机 HTTPS 的 POST 被阻断）。推完 `git status` 可能仍显示 `ahead 1`，需用同址
+  `git fetch git@github.com:735876214/Contract-Management.git main:refs/remotes/origin/main` 复核远端。
+- **Prisma 命令的非交互姿势**：`prisma migrate dev` 在非交互 shell 直接拒绝。改完 schema 生成迁移用
+  ```bash
+  npx prisma migrate diff --from-migrations prisma/migrations \
+    --to-schema-datamodel prisma/schema.prisma \
+    --shadow-database-url "postgresql://cms:***@localhost:15432/cms_shadow?schema=public" \
+    --script > prisma/migrations/<时间戳>_<名字>/migration.sql
+  ```
+  再 `npm run prisma:deploy`。⚠️ **影子库会被这条命令重置**——绝不能指向 `cms_int` 或任何真库
+  （迁移历史会被清掉，随后 `migrate deploy` 报 P3005）。
+- **本机没有 `server/.env`**：跑 prisma/seed 要内联连接串
+  （dev PG 由 compose 映射到 `15432`：主库 `cms`、集成测试库 `cms_int`、影子库 `cms_shadow`）。
+- **改后端要重启 dev 容器**：`docker compose -f docker-compose.dev.yml restart server`
+  （`nest start --watch` 不感知宿主机新增/修改的文件，见 §6 ③）。
+- **改前端要真渲染核验**：手法见 §5.2（Edge headless + CDP）。两条实践细节：
+  ① 先访问 `/login` 再注入 `cms_token` 再跳目标路由（直接冷启动到受保护路由会被 `RequireAuth` 弹回登录页）；
+  ② 断言"控制台无报错"时要先**过滤 `chrome-extension://` 噪音**（headless 的 Edge 里挂了扩展，
+  会持续抛 `siteHostMap` 异常，否则全站每一步都"失败"）。

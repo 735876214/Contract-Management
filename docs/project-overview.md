@@ -112,7 +112,7 @@
 | Docker 镜像构建与优化 | [04-Docker镜像构建与优化.md](04-Docker镜像构建与优化.md) |
 | 需求确认 / 数据库 ER | [01-需求确认摘要.md](01-需求确认摘要.md) / [02-数据库ER设计.md](02-数据库ER设计.md) |
 | 进度与待办 | [../TODO.md](../TODO.md) |
-| AI 助手入门 | [../AGENTS.md](../AGENTS.md) |
+| AI 助手入门 | [../CLAUDE.md](../CLAUDE.md) |
 
 > ⚠️ `01`/`02` 为早期需求文档，部分内容（如部门管理）已随代码演进变化，以 `schema.prisma` 与
 > [architecture.md](architecture.md) 为准。

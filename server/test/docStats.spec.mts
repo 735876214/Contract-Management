@@ -7,12 +7,12 @@ import { fileURLToPath } from 'node:url';
  * 活文档「统计数字」漂移锁。
  *
  * 起因：本文件是**第二次**人工清理同一类过期数字后加的锁。第一次是 2026-10-14 上旬
- * （`AGENTS.md` 写「schema.prisma 1306 行」实测 1312、docs 里「13 个 spec / 180 项断言」早已过期），
+ * （`CLAUDE.md` 写「schema.prisma 1306 行」实测 1312、docs 里「13 个 spec / 180 项断言」早已过期），
  * 当时只在 `TODO.md` 里登记了「下次梳理要校准」——结果第二次梳理又撞上同样的腐烂，
  * 包括 `TODO.md` 自己写「现为 17 个 spec / 235 项断言」（实际 21 / 253）。
  *
- * 两类文档**待遇不同**（见 `AGENTS.md` §8 末尾）：
- * - **活文档**（`AGENTS.md`、`docs/development.md`）：描述的是「现在是什么」，必须与代码一致 → 由本文件锁；
+ * 两类文档**待遇不同**（见 `CLAUDE.md` §8 末尾）：
+ * - **活文档**（`CLAUDE.md`、`docs/development.md`）：描述的是「现在是什么」，必须与代码一致 → 由本文件锁；
  * - **历史报告**（`docs/08` §0.1、`docs/09` §8 等带日期的实施/验收记录）：描述的是「当时是什么」，
  *   就地标注「当时快照」即可，**不要**追改（改了等于篡改记录），本文件**不扫**它们。
  *
@@ -24,7 +24,7 @@ const abs = (rel: string) => fileURLToPath(new URL(`../../${rel}`, import.meta.u
 const read = (rel: string) => readFileSync(abs(rel), 'utf8');
 
 /** 活文档：数字必须与代码一致 */
-const LIVE_DOCS = ['AGENTS.md', 'docs/development.md'];
+const LIVE_DOCS = ['CLAUDE.md', 'docs/development.md'];
 
 const PURE_DIR = 'server/test';
 const INT_DIR = 'server/test-integration';
@@ -43,7 +43,7 @@ describe('活文档统计数字漂移锁', () => {
     assert.ok(intSpecs.length >= 3, `DB 集成套件数量异常：${intSpecs.length}`);
   });
 
-  it('AGENTS.md / docs/development.md 里的「N 个 spec」与实际文件数一致', () => {
+  it('CLAUDE.md / docs/development.md 里的「N 个 spec」与实际文件数一致', () => {
     const allowed = new Set([pureSpecs.length, intSpecs.length]);
     const seen = new Set<number>();
     let hits = 0;
@@ -92,7 +92,7 @@ describe('活文档统计数字漂移锁', () => {
     assert.deepEqual(missing, [], `新增了 spec 但 docs/development.md §5/§5.1 未登记：\n  ${missing.join('\n  ')}`);
   });
 
-  it('AGENTS.md §2 的 model / 业务模块 / 增量迁移 计数与代码一致', () => {
+  it('CLAUDE.md §2 的 model / 业务模块 / 增量迁移 计数与代码一致', () => {
     const models = read('server/prisma/schema.prisma').match(/^model /gm)?.length ?? 0;
     const migrationDirs = readdirSync(abs('server/prisma/migrations'), { withFileTypes: true }).filter((d) =>
       d.isDirectory(),
@@ -106,12 +106,12 @@ describe('活文档统计数字漂移锁', () => {
       { label: '增量迁移', re: /(\d+)\s*个\s*增量迁移/g, actual: migrationDirs.length - 1 },
     ];
 
-    const agents = read('AGENTS.md');
+    const agents = read('CLAUDE.md');
     for (const { label, re, actual } of refs) {
       const nums = [...agents.matchAll(re)].map((m) => Number(m[1]));
-      assert.ok(nums.length >= 1, `AGENTS.md 里找不到「N 个 ${label}」的声明（勿让本锁空转）`);
+      assert.ok(nums.length >= 1, `CLAUDE.md 里找不到「N 个 ${label}」的声明（勿让本锁空转）`);
       for (const n of nums) {
-        assert.equal(n, actual, `AGENTS.md 写了「${n} 个 ${label}」，实际是 ${actual}`);
+        assert.equal(n, actual, `CLAUDE.md 写了「${n} 个 ${label}」，实际是 ${actual}`);
       }
     }
 
@@ -120,7 +120,7 @@ describe('活文档统计数字漂移锁', () => {
       if (d.name === '20260901000000_init') continue;
       assert.ok(
         agents.includes(d.name.replace(/^\d+_/, '')),
-        `AGENTS.md §2 未登记迁移 ${d.name}（它只按名字列举增量迁移，不含时间戳前缀）`,
+        `CLAUDE.md §2 未登记迁移 ${d.name}（它只按名字列举增量迁移，不含时间戳前缀）`,
       );
     }
   });

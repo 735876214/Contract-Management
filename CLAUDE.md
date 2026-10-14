@@ -1,4 +1,4 @@
-# AGENTS.md · AI 进入本项目的必读信息
+# CLAUDE.md · AI 进入本项目的必读信息
 
 > 面向 AI 编码助手的项目入门。**动手前先读完本文件**，其余细节见文末索引。
 > 本文件只写**现状**与**会踩的坑**；历史修复记录见 [docs/09](docs/09-重构方案评估与采纳建议.md) §8 等
@@ -21,7 +21,7 @@
 
 ```
 Contract-Management/
-├── AGENTS.md            # 本文件（现状与陷阱）
+├── CLAUDE.md            # 本文件（现状与陷阱）
 ├── DESIGN.md            # 视觉与交互规则（token 唯一来源）
 ├── TODO.md              # 剩余任务（只列未完成项，完成即删除条目）
 ├── README.md            # 部署与快速开始（面向运维）
@@ -181,6 +181,9 @@ cd server && npm run build     # = nest build
 cd server && npm test          # node:test 纯函数单测（24 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
 ```
+
+> **工具与本机操作要点**（判成败看退出码、临时文件别放 `/tmp`、`MSYS_NO_PATHCONV=1`、SSH 推送、
+> Prisma 非交互生成迁移、CDP 真渲染细节）见 [docs/development.md](docs/development.md) §9。
 
 ## 7. 验收铁律（改完必做，做完才算完工）
 

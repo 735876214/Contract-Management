@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 /**
  * 迁移纪律门禁：**任何可执行配置里都不许出现 `prisma db push`**（铁律 1）。
  *
- * 为什么需要它：`AGENTS.md`/`README`/docs 都写了「禁止 db push」，但那是**给人看的**——
+ * 为什么需要它：`CLAUDE.md`/`README`/docs 都写了「禁止 db push」，但那是**给人看的**——
  * 2026-10 审计发现 CI 里其实**没有任何机器检查**，换句话说"禁止"只靠自觉；
  * 而历史上真的出现过（`.workbuddy/memory/2026-09-13.md` 还留着"改 schema 后务必 db push"的操作指引，
  * 已随本批清理）。`db push` 让库脱离迁移历史，问题只在别人/生产上暴露。

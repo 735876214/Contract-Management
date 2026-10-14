@@ -100,7 +100,7 @@ describe('.mts 加载约束锁（相对 import 必须带扩展名）', () => {
               `② 若要复用兄弟模块，先在 server/tsconfig.json 开 allowImportingTsExtensions + ` +
               `rewriteRelativeImportExtensions（TS ≥5.7，本仓已是 5.9）并把该行写成 '${spec}.ts'——` +
               `注意这会影响 nest build 与 ts-node（seed/.ts spec/test:int），需整体回归。` +
-              `（依据：AGENTS.md §5 / docs/development.md §5）`,
+              `（依据：CLAUDE.md §5 / docs/development.md §5）`,
           );
         }
       }

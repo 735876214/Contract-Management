@@ -16,7 +16,7 @@
 | 公共查询参数 | `page`（默认 1）、`pageSize`（默认 20）、`keyword`，以及各模块的筛选字段 |
 | 乐观锁 | 业务表多有 `version Int`，`PUT` 请求体须带上 `version`，不一致返回 `1409` |
 
-### 项目隔离口径（`AGENTS.md` 铁律 3）
+### 项目隔离口径（`CLAUDE.md` 铁律 3）
 
 隔离靠**约定**而非中间件：service 在 `where` 中显式带 `projectId`。**例外**：
 

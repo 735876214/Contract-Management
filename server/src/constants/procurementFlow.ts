@@ -276,7 +276,7 @@ export function resolveContractUnits(
  * 「中标」的投标单位状态 code。
  *
  * ⚠️ 本文件**不得有相对运行时 import**（`.spec.mts` 由 Node 原生擦除类型加载，ESM 不做扩展名推断，
- * 见 AGENTS §5），故这里是**字面量**，与 `constants/statuses.ts` 的 `BIDDER_STATUS.WON`
+ * 见 CLAUDE.md §5），故这里是**字面量**，与 `constants/statuses.ts` 的 `BIDDER_STATUS.WON`
  * 由 `test/statusCodes.spec.mts` 锁死——两边改名而这里没跟上，测试即红。
  */
 export const BIDDER_WON = 'WON';
