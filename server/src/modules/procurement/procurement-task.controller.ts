@@ -66,7 +66,7 @@ export class ProcurementTaskController {
     return this.service.importPriceCompare(id);
   }
 
-  /** 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退） */
+  /** 任务 7：成交报告「退回 → 重发」（纯状态回退） */
   @RequirePermissions('contract:edit')
   @Post(':id/reject-result-report')
   rejectResultReport(@Param('id') id: string) {

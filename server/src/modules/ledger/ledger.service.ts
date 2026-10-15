@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
+import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
+import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -58,7 +60,15 @@ export class LedgerService {
       this.prisma.settlementLedger.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, settleMonth: true, monthSettleAmount: true } }),
       this.prisma.settlement.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, actualAmount: true } }),
       this.prisma.invoice.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, amountWithTax: true } }),
-      this.prisma.paymentRecord.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, payMonth: true, amount: true } }),
+      // 排除"不构成实际出资"的状态（付款失败/已退款）——与防超付闸门用**同一份**清单，
+      // 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论
+      this.prisma.paymentRecord.findMany({
+        where: {
+          contractId: { in: contractIds },
+          NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } },
+        },
+        select: { contractId: true, payMonth: true, amount: true },
+      }),
     ]);
 
     const groupBy = (list: any[], key: string) =>
@@ -66,6 +76,16 @@ export class LedgerService {
         (acc[i[key]] = acc[i[key]] || []).push(i);
         return acc;
       }, {});
+
+    /**
+     * 合同链（业务口径 2026-10-15：**合同当前金额 = 主合同 + Σ 补充协议 changeAmount**）。
+     * 一次取项目内全部合同的四个字段后在内存算链；本页只展示 500 行，但链的成员可能不在本页，
+     * 故这里按项目取全（合同条数与台账行数同量级，可接受），避免逐行查库退化成 N+1。
+     */
+    const chainRows: ContractChainRow[] = await this.prisma.contract.findMany({
+      where: { projectId },
+      select: { id: true, parentContractId: true, amount: true, changeAmount: true },
+    });
 
     const itemMap = groupBy(items, 'contractId');
     const reportMap = groupBy(reports, 'contractId');
@@ -121,6 +141,13 @@ export class LedgerService {
         if (y) yearPaid[y] = Number(((yearPaid[y] || 0) + (num(p.amount) || 0)).toFixed(2));
       });
 
+      /**
+       * 合同当前金额（链口径）。补充协议行显示与其主合同**同一个数**——
+       * 它描述的是"这条链现在值多少钱"，比例与欠款都按它算。
+       */
+      const chain = resolveChainAmounts(chainRows, c.id);
+      const currentAmount = chain.currentAmount;
+
       const compliance = calcLedgerCompliance(c.typeCode, firstEntryDate, ext.bidStartDate, ext.bidWinDate, c.signDate);
 
       return {
@@ -141,7 +168,8 @@ export class LedgerService {
         authPerson: sup.contractAuthPerson,
         contactName: sup.contactName,
         contactPhone: sup.contactPhone,
-        amount, // null = 未填（前端 money(null) 显示 '-'、导出留白、汇总按 0 参与求和）
+        amount, // 本行合同额；null = 未填（前端显示 '-'、导出留白）
+        currentAmount, // 合同当前金额（链口径）：比例与欠款的分母
         taxRate,
         currentPayRatio: num(ext.currentPayRatio),
         paymentMethod: payMethodMap[c.paymentMethodCode]?.name || c.paymentMethodCode || '',
@@ -163,7 +191,9 @@ export class LedgerService {
         // 派生金额列统一走单一实现（口径见 common/utils/ledger-derived.ts）：
         // 合同额未填 → 相关列留空，而不是算成 0 / 负数
         ...deriveLedgerAmounts({
-          amount: c.amount,
+          // ⚠️ 传的是**合同当前金额**（链口径）而不是本行合同额：
+          // 业务口径「已结算金额占合同比例 = 已结算 ÷ 合同当前金额」（2026-10-15 澄清）
+          amount: currentAmount,
           cumSettleAmount,
           cumPaidAmount,
           auditedSettleAmount,
@@ -283,6 +313,7 @@ export class LedgerService {
         { header: '应付款金额', key: 'payableAmount', width: 130, type: 'money' },
         { header: '应付未付金额', key: 'unpaidAmount', width: 130, type: 'money' },
         { header: '100%欠款', key: 'debt100', width: 130, type: 'money' },
+        { header: '合同当前金额', key: 'currentAmount', width: 130, type: 'money' },
         { header: '已结算金额占合同比例', key: 'settleRatioPct', width: 150, type: 'pct' },
         { header: '已付款金额占结算比例', key: 'paidRatioPct', width: 150, type: 'pct' },
         { header: '总结算审减额', key: 'settleReduceAmount', width: 130, type: 'money' },

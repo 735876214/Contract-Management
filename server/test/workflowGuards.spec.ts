@@ -13,7 +13,7 @@ import {
 import { STAGE_KEYS, stageChain, stageView } from '../src/constants/procurementFlow';
 
 /**
- * 任务 7：三处驳回（无审批流，纯状态回退）状态机单测。
+ * 任务 7：三处驳回（纯状态回退）状态机单测。
  * 覆盖「合同签章→合同起草 / 结算→回填 / 成交报告→重发」的准入与拒绝分支，挡回归。
  * 2026-10-15 追加：现场确认（日报行）状态机（docs/09 §三「现场确认驱动结算」）。
  */
@@ -23,15 +23,15 @@ const REPORT_IDX = stageChain('SINGLE', false).findIndex((s) => s.key === STAGE_
 
 describe('驳回状态机（任务 7）', () => {
   describe('合同签章驳回 → 合同起草', () => {
-    it('「审批中 / 已签章」可驳回', () => {
+    it('「待签章 / 已签章」可驳回', () => {
       assert.doesNotThrow(() => assertContractRejectable(CONTRACT_STATUS.APPROVING));
       assert.doesNotThrow(() => assertContractRejectable(CONTRACT_STATUS.SIGNED));
     });
 
     it('草稿 / 未知状态不可驳回（避免无效回退）', () => {
-      assert.throws(() => assertContractRejectable(CONTRACT_STATUS.DRAFT), /仅「审批中 \/ 已签章」/);
-      assert.throws(() => assertContractRejectable(''), /仅「审批中 \/ 已签章」/);
-      assert.throws(() => assertContractRejectable(undefined as any), /仅「审批中 \/ 已签章」/);
+      assert.throws(() => assertContractRejectable(CONTRACT_STATUS.DRAFT), /仅「待签章 \/ 已签章」/);
+      assert.throws(() => assertContractRejectable(''), /仅「待签章 \/ 已签章」/);
+      assert.throws(() => assertContractRejectable(undefined as any), /仅「待签章 \/ 已签章」/);
     });
   });
 
@@ -100,7 +100,7 @@ describe('驳回状态机（任务 7）', () => {
       );
     });
 
-    it('下游合同已签章/审批中禁止退回（须先驳回合同，避免孤儿合同）', () => {
+    it('下游合同已签章/待签章禁止退回（须先驳回合同，避免孤儿合同）', () => {
       for (const s of [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED]) {
         assert.throws(
           () =>

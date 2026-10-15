@@ -30,11 +30,11 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
-/** 状态标签（需求修正6：审批中-蓝 / 已签章-绿；历史空状态与 COMPLETED 数据按审批中展示） */
+/** 状态标签（需求修正6：待签章-蓝 / 已签章-绿；历史空状态与 COMPLETED 数据按待签章展示） */
 function StatusTag({ status }: { status?: string | null }) {
   if (status === 'SIGNED') return <Tag color="green">已签章</Tag>;
   if (status === 'DRAFT') return <Tag color="default">草稿中</Tag>;
-  return <Tag color="blue">审批中</Tag>;
+  return <Tag color="blue">待签章</Tag>;
 }
 
 const ACCEPT = '.pdf,.jpg,.jpeg,.png,.docx';
@@ -42,11 +42,11 @@ const MAX_SIZE = 20 * 1024 * 1024;
 
 /**
  * 合同查询（需求 2.2 / 需求修正4/5/6；问题四：统一标准列表页规约）
- * - 展示审批中/已签章的正式合同（起草发布后自动流转至此）
+ * - 展示待签章/已签章的正式合同（起草发布后自动流转至此）
  * - 筛选区：合同编号/名称关键词、供应商、签订日期范围
  * - 行操作：查看（详情抽屉）+ 更多 → 合同签章 / 新增补充协议 / 导出Word / 下载签章合同
  * - 需求 2.1：合同类型只读（后端同步校验，发布后不可修改）
- * - 需求 2.2：导出 Word 仅草稿中不可用，审批中/已签章均可导出
+ * - 需求 2.2：导出 Word 仅草稿中不可用，待签章/已签章均可导出
  * - 需求 2.3：签章时选择的签订日期覆盖合同主表签订日期
  */
 export default function ContractQuery() {
@@ -97,7 +97,7 @@ export default function ContractQuery() {
     setDetailOpen(true);
   };
 
-  /** 需求 2.2：草稿中不可导出 Word，审批中 / 已签章均可导出 */
+  /** 需求 2.2：草稿中不可导出 Word，待签章 / 已签章均可导出 */
   const canExportWord = (row: any) => row?.status !== 'DRAFT';
 
   const handleExport = (row: any) => {
@@ -163,11 +163,11 @@ export default function ContractQuery() {
     }
   };
 
-  /** 任务 7：合同签章驳回 → 回退到「合同起草」（无审批流，纯状态回退） */
+  /** 任务 7：合同签章驳回 → 回退到「合同起草」（纯状态回退） */
   const handleReject = (row: any) => {
     Modal.confirm({
       title: '驳回合同签章',
-      content: '确认将该合同从「审批中/已签章」驳回回「合同起草」吗？驳回后需重新发布与签章。',
+      content: '确认将该合同从「待签章/已签章」驳回回「合同起草」吗？驳回后需重新发布与签章。',
       okText: '确认驳回',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -255,7 +255,7 @@ export default function ContractQuery() {
             ),
             onClick: () => openSign(row),
           },
-          // 任务 7：仅「审批中 / 已签章」可驳回回合同起草
+          // 任务 7：仅「待签章 / 已签章」可驳回回合同起草
           ...(r.status === 'APPROVING' || r.status === 'SIGNED'
             ? [
                 {

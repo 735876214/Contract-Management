@@ -238,7 +238,7 @@ export default function ContractDraft() {
           <p>发布后将执行以下动作，确认继续？</p>
           <ol style={{ paddingLeft: 20, margin: 0 }}>
             <li>合同清单推送至「合同物资」，作为正式执行数据；</li>
-            <li>合同状态置为「审批中」，从草稿列表移除并进入「合同查询」；</li>
+            <li>合同状态置为「待签章」，从草稿列表移除并进入「合同查询」；</li>
             <li>按所选模板生成合同正文（可先点击「预览合同」确认）；</li>
             <li>发布后合同类型不可再修改，可在「合同查询」中上传签章。</li>
           </ol>
@@ -252,7 +252,7 @@ export default function ContractDraft() {
         setPublishing(true);
         try {
           await contractApi.publish(editing.id);
-          message.success('合同已发布，状态：审批中');
+          message.success('合同已发布，状态：待签章');
           setEditorOpen(false);
           setEditing(null);
           refreshList();
@@ -415,7 +415,7 @@ export default function ContractDraft() {
             {editing?.status === 'SIGNED' ? (
               <Tag color="green">已签章</Tag>
             ) : editing?.status === 'APPROVING' ? (
-              <Tag color="blue">审批中</Tag>
+              <Tag color="blue">待签章</Tag>
             ) : (
               <Tag color="default">草稿中</Tag>
             )}
@@ -470,7 +470,7 @@ export default function ContractDraft() {
                 </Row>
                 <Row gutter={16}>
                   <Col xs={24} md={8}>
-                    {/* 需求 2.1：合同发布后（审批中/已签章）合同类型固化不可修改 */}
+                    {/* 需求 2.1：合同发布后（待签章/已签章）合同类型固化不可修改 */}
                     <Form.Item name="typeCode" label="合同类型" rules={[{ required: true }]}>
                       <DictSelect
                         typeCode="contract_type"

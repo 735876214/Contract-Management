@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Col, Row, Statistic, List, Tag, Empty, Spin } from 'antd';
+import { Alert, Button, Card, Col, Row, Space, Statistic, List, Tag, Empty, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined, ReconciliationOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
@@ -77,6 +77,7 @@ function OverdueDraftReminder() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [overview, setOverview] = useState<any>({});
   const [trend, setTrend] = useState<any[]>([]);
   const [typeStat, setTypeStat] = useState<any[]>([]);
@@ -148,6 +149,11 @@ export default function Dashboard() {
     ],
   };
 
+  /** 金额预警（业务口径 2026-10-15）：红/黄分级由后端按合同当前金额与补充协议占比算好 */
+  const alertList: any[] = reminders.amountAlerts || [];
+  const alertRed = alertList.filter((a: any) => a.level === 'RED').length;
+  const alertYellow = alertList.filter((a: any) => a.level === 'YELLOW').length;
+
   if (loading) return <Spin style={{ width: '100%', marginTop: 80 }} />;
 
   return (
@@ -178,6 +184,46 @@ export default function Dashboard() {
         <Col xs={24} lg={8}>
           <Card className="cq" ref={pieRef} title="合同类型金额分布">
             <ReactECharts option={typeOption} style={{ height: 300 }} />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card
+            title="合同金额预警"
+            extra={
+              <Space size={8}>
+                {alertRed > 0 && <Tag color="error">红 {alertRed}</Tag>}
+                {alertYellow > 0 && <Tag color="warning">黄 {alertYellow}</Tag>}
+              </Space>
+            }
+          >
+            <List
+              dataSource={alertList}
+              locale={{ emptyText: <Empty description="暂无金额预警" /> }}
+              renderItem={(a: any) => (
+                <List.Item>
+                  <List.Item.Meta
+                    title={
+                      <Space size={8} wrap>
+                        <Tag color={a.level === 'RED' ? 'error' : 'warning'}>
+                          {a.level === 'RED' ? '红' : '黄'}
+                        </Tag>
+                        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/ledger')}>
+                          {a.code}
+                        </Button>
+                        <span>{a.name}</span>
+                      </Space>
+                    }
+                    description={(a.reasons || []).join('；')}
+                  />
+                </List.Item>
+              )}
+            />
+            {reminders.amountAlertTotal > alertList.length && (
+              <div className="cms-hint">仅显示前 {alertList.length} 条，共 {reminders.amountAlertTotal} 条</div>
+            )}
           </Card>
         </Col>
       </Row>

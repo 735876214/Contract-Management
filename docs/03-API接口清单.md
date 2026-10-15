@@ -33,7 +33,7 @@
 
 以下端点**已不存在**，旧版本文档中的条目据此删除：`/system/depts`（部门管理已移除）、
 `/payments/plans`、`/payments/applies`、`/payments/verifications`（付款计划/申请/核销已重构为单表
-`/payments/records`）、`/invoices/applies`（开票申请）、`/approvals/*`（审批流，从未实现）。
+`/payments/records`）、`/invoices/applies`（开票申请）。
 
 > **核销（三单匹配）当前不做**：发票与付款之间没有核销关联模型，`/payments/records` 与 `/invoices`
 > 各自独立登记，仅通过 `contractId` 间接相关。详见 [docs/07](07-工作域信息关联审计.md) §3.2。
@@ -131,13 +131,13 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/contracts` | 列表（编号/名称/类型/供应商/执行情况/审批状态筛选） | `contract:view` |
+| GET | `/contracts` | 列表（编号/名称/类型/供应商/执行情况/状态筛选） | `contract:view` |
 | GET | `/contracts/options` | 下拉（当前项目） | `contract:view` `daily:edit` `settlement:edit` `payment:edit` `invoice:edit` `repayment:edit` |
 | GET | `/contracts/check-code` | 编号实时查重（`code`、`excludeId`） | `contract:view` `contract:edit` |
 | GET | `/contracts/next-code` | 生成下一个合同编号 | `contract:view` |
 | GET | `/contracts/name-preview` | 合同名称预览（按编号规则拼装） | `contract:view` |
 | GET | `/contracts/drafts` | 草稿列表（合同起草） | `contract:view` |
-| GET | `/contracts/published` | 已发布（审批中/已签章）列表——「合同查询」 | `contract:view` |
+| GET | `/contracts/published` | 已发布（待签章/已签章）列表——「合同查询」 | `contract:view` |
 | GET | `/contracts/template` | 导出用空白模板 | `contract:view` |
 | GET | `/contracts/:id` | 详情（含供应商、扩展信息、附件） | `contract:view` |
 | GET | `/contracts/:id/changes` | 变更记录 | `contract:view` |
@@ -146,9 +146,9 @@
 | PUT | `/contracts/:id` | 修改（记录变更日志） | `contract:edit` |
 | DELETE | `/contracts/:id` | 删除（仅草稿） | `contract:edit` |
 | DELETE | `/contracts/drafts/:id` | 删除草稿 | `contract:view` |
-| POST | `/contracts/:id/publish` | 提交（草稿 → 审批中） | `contract:edit` |
+| POST | `/contracts/:id/publish` | 提交（草稿 → 待签章） | `contract:edit` |
 | PUT | `/contracts/:id/status` | 直接置状态 | `contract:edit` |
-| POST | `/contracts/:id/reject` | 驳回回合同起草（仅审批中/已签章可驳回） | `contract:edit` |
+| POST | `/contracts/:id/reject` | 驳回回合同起草（仅待签章/已签章可驳回） | `contract:edit` |
 | POST | `/contracts/:id/sign` | 签章（上传签章件，记录签订日期） | `contract:edit` |
 | GET | `/contracts/:id/signed-file` | 下载签章合同 | `contract:view` |
 | GET | `/contracts/:id/export-word` | 导出 Word（变量替换后的正文） | `contract:view` |

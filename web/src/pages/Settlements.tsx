@@ -118,7 +118,7 @@ function SettlementsTab({
   };
 
   /** 筛选项（问题四：标准筛选区） */
-  /** 任务 7：结算驳回 → 回填（无审批流，纯状态回退到「草稿」） */
+  /** 任务 7：结算驳回 → 回填（纯状态回退到「草稿」） */
   const handleRejectSettlement = (row: any) => {
     Modal.confirm({
       title: '结算驳回回填',

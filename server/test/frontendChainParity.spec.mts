@@ -70,7 +70,7 @@ describe('前后端阶段链一致性（漂移锁）', () => {
       assert.deepEqual(missing, [], `前端缺少状态标签：${missing.join(', ')}`);
     });
 
-    it('草稿/未知/空值回退「合同编制中」，审批中→审批中，已签章→已完成', () => {
+    it('草稿/未知/空值回退「合同编制中」，待签章→待签章，已签章→已完成', () => {
       assert.equal(contractStageTaskStatus('DRAFT'), 'CONTRACT_EDITING');
       assert.equal(contractStageTaskStatus(null), 'CONTRACT_EDITING');
       assert.equal(contractStageTaskStatus(undefined), 'CONTRACT_EDITING');

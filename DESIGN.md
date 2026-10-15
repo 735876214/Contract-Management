@@ -103,9 +103,9 @@
 | `orange` `gold` `volcano` `warning` | amber（待处理/编辑中） | `#fbf1e0` / `#7d5a0e` |
 | `green` `lime` `success` | success | `#e8f4ea` / `#2c6b41` |
 | `red` `magenta` `error` | error | `#fbeae9` / `#9c3232` |
-| `purple` `geekblue` | coral（审批/特殊） | `#f9ece7` / `#a9583e` |
+| `purple` `geekblue` | coral（品牌/特殊） | `#f9ece7` / `#a9583e` |
 
-语义约定：**绿=完成/成功 · 青=进行中/信息 · 琥珀=待处理/编辑中 · 珊瑚=审批/品牌 · 红=错误/逾期**。
+语义约定：**绿=完成/成功 · 青=进行中/信息 · 琥珀=待处理/编辑中 · 珊瑚=品牌/特殊 · 红=错误/逾期**。
 覆盖规则写成 `.ant-tag.ant-tag-x`（特异度 0,2,0）——AntD 预置色样式的特异度是 (0,1,0)
 且运行时注入更晚，不提升特异度压不住（实测踩过）。
 

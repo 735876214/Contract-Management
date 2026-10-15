@@ -57,7 +57,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   PRICE_COMPARE_EDITING: '价格对比表编制中',
   FRAMEWORK_EDITING: '事前报告编制中',
   CONTRACT_EDITING: '合同编制中',
-  CONTRACT_APPROVING: '合同审批中',
+  CONTRACT_APPROVING: '合同待签章',
   COMPLETED: '已完成',
 };
 
@@ -165,7 +165,7 @@ export function contractStageState(
  *
  * 采购任务走完阶段链后进入合同阶段，其细分状态由**关联合同的状态**决定：
  * - 草稿               → 合同编制中（CONTRACT_EDITING）
- * - 审批中（APPROVING） → 合同审批中（CONTRACT_APPROVING）
+ * - 待签章（APPROVING） → 合同待签章（CONTRACT_APPROVING）
  * - 已签章（SIGNED）    → 已完成（COMPLETED，此时「生成合同」阶段显示为 done）
  *
  * 前端 `web/src/constants/procurementWorkflow.ts` 已按同一组状态码准备展示（标签/颜色），

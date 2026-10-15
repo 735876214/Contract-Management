@@ -4,6 +4,12 @@ import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers'
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+import { SysParamService } from '../../common/services/sys-param.service';
+import {
+  mergeSupplierFields,
+  parseSupplierSnapshot,
+  pickSupplierSnapshot,
+} from '../../common/utils/supplier-snapshot';
 import { renderTemplate, pendingPlaceholders } from './template-render';
 
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
@@ -19,7 +25,11 @@ export const CLAUSE_TYPES = [
 
 @Injectable()
 export class TemplateService {
-  constructor(private prisma: PrismaClient, private dict: DictService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private sysParam: SysParamService,
+  ) {}
 
   async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query);
@@ -227,7 +237,18 @@ export class TemplateService {
 
     const typeMap = await this.dict.nameMap('contract_type');
     const payMap = await this.dict.nameMap('payment_method');
-    const sup: any = (contract as any).supplier || {};
+    /**
+     * 供应商取值（业务口径 2026-10-15：合同正文导出取**签订时快照**）。
+     * `supplier.name.sync.history`：`KEEP`（默认）= 快照优先、逐字段回退实时；
+     * `SYNC` = 强制实时。参数此前只声明未实现（"产品在说谎"），这里补上。
+     * 存量合同没有快照 → 全字段回退实时，行为与改造前一致。
+     */
+    const syncMode = await this.sysParam.get('supplier.name.sync.history', 'KEEP');
+    const sup: any = mergeSupplierFields(
+      syncMode,
+      parseSupplierSnapshot((contract as any).supplierSnapshot),
+      pickSupplierSnapshot((contract as any).supplier) as unknown as Record<string, string>,
+    );
     const taxRate = num(contract.taxRate);
 
     // 模板变量中配置了默认值的，作为兜底值（系统值与手工填写值优先）
@@ -268,7 +289,10 @@ export class TemplateService {
       联系人姓名: sup.contactName || '',
       联系人电话: sup.contactPhone || '',
       联系人邮箱: sup.contactEmail || '',
-      甲方名称: (contract as any).partyAName || sup.partyAName || '中国建筑第八工程局有限公司',
+      // ⚠️ 全仓没有 `partyAName` 字段（`Contract` / `Supplier` 都没有，原写法是**死引用**：
+      // 两个取值永远为 undefined，这一直是写死的常量）。来源需要业务确认（自方？项目施工单位？），
+      // 在那之前保持常量，并登记在 TODO.md「需业务澄清」，不要凭空假设一个字段。
+      甲方名称: '中国建筑第八工程局有限公司',
       乙方名称: sup.name || '',
       当前日期: fmtDate(new Date()),
       ...(params.manual || {}),

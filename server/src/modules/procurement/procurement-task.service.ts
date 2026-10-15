@@ -960,7 +960,7 @@ export class ProcurementTaskService {
   /**
    * 同步合同阶段状态（批次后续「生成合同」调用）：
    * - 任务全部阶段已发布 → 按**主合同**状态映射
-   *   （DRAFT→合同编制中 / APPROVING→合同审批中 / SIGNED→已完成）
+   *   （DRAFT→合同编制中 / APPROVING→合同待签章 / SIGNED→已完成）
    * - 尚未到合同阶段 → 不变更
    * - 无关联合同 → 按「合同编制中」（合同可由用户在起草页手动新建）
    *
@@ -1062,7 +1062,7 @@ export class ProcurementTaskService {
   /**
    * 由阶段进度推导工作流状态。
    * 阶段链内取该阶段的编辑中状态；**合同阶段**（stage 已达链尾）的细分状态由关联合同状态决定
-   * （草稿→合同编制中 / 审批中→合同审批中 / 已签章→已完成），映射见
+   * （草稿→合同编制中 / 待签章→合同待签章 / 已签章→已完成），映射见
    * `contractStageTaskStatus`（单一事实源）。
    */
   private deriveStatus(
@@ -1715,10 +1715,10 @@ export class ProcurementTaskService {
   }
 
   /**
-   * 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退）。
+   * 任务 7：成交报告「退回 → 重发」（纯状态回退）。
    * 退回：清除成交报告发布时间、回退任务阶段到「成交报告编制中」、清理已自动生成的合同（草稿态），
    * 使报告可重新编辑并再次发布（重发）。
-   * 若下游合同已签章/审批中，则禁止退回，需先驳回合同，避免产生孤儿合同。
+   * 若下游合同已签章/待签章，则禁止退回，需先驳回合同，避免产生孤儿合同。
    */
   async rejectResultReport(taskId: string) {
     const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });

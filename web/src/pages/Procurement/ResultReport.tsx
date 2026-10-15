@@ -327,7 +327,7 @@ export default function ResultReport() {
     }
   };
 
-  /** 任务 7：成交报告「退回 → 重发」（无审批流，纯状态回退；若下游合同已签章则禁止） */
+  /** 任务 7：成交报告「退回 → 重发」（纯状态回退；若下游合同已签章则禁止） */
   const handleRejectResultReport = async () => {
     if (!taskId) return;
     Modal.confirm({

@@ -13,6 +13,8 @@ import { StorageService } from '../../common/services/storage.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
+import { computeSupplementDelta } from '../../common/utils/supplement-delta';
+import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
@@ -669,11 +671,51 @@ export class ContractService {
       where: { id: contractId },
       data: { status: CONTRACT_STATUS.APPROVING, version: { increment: 1 } },
     });
+    // 补充协议：清单已固化，按清单重算「带符号增量」（业务口径：合同当前金额 = 主合同 + Σ 增量）
+    const delta = await this.recalcSupplementDelta(contractId);
     await this.syncLinkedTaskStatus(contractId);
-    return { pushed, status: CONTRACT_STATUS.APPROVING };
+    return {
+      pushed,
+      status: CONTRACT_STATUS.APPROVING,
+      ...(delta ? { changeAmount: delta.amount, changeQty: delta.qty } : {}),
+    };
   }
 
-  /** 状态互转（需求修正：DRAFT 草稿中 / APPROVING 审批中 / SIGNED 已签章） */
+  /** 状态互转（需求修正：DRAFT 草稿中 / APPROVING 待签章 / SIGNED 已签章） */
+  /**
+   * 补充协议：按清单重算**带符号增量**并落库。
+   *
+   * 为什么要服务端算：补充协议的 `amount` 是自由填写字段，涨价/降价场景下用户往往填的是
+   * "剩余数量 × 新价"，直接相加会把那部分数量的原值**重复计入**；真正要加的是差额
+   * （见 `common/utils/supplement-delta.ts` 的说明）。
+   *
+   * ⚠️ 只在**已发布**（草稿清单已固化为正式清单）时重算：草稿阶段变更尚未生效，
+   * 不应抬高防超结的上限。非补充协议、或没有父合同 → 不做任何事。
+   */
+  private async recalcSupplementDelta(contractId: string) {
+    const c = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { isSupplement: true, parentContractId: true, supplementTypeCode: true },
+    });
+    if (!c || c.isSupplement !== 'Y' || !c.parentContractId) return null;
+
+    const select = { materialBaseId: true, qty: true, priceWithTax: true, totalWithTax: true };
+    const [suppRows, parentRows] = await Promise.all([
+      this.prisma.contractMaterial.findMany({ where: { contractId }, select }),
+      this.prisma.contractMaterial.findMany({ where: { contractId: c.parentContractId }, select }),
+    ]);
+    const delta = computeSupplementDelta({
+      typeCode: c.supplementTypeCode,
+      suppRows: suppRows as any,
+      parentRows: parentRows as any,
+    });
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { changeAmount: delta.amount, changeQty: delta.qty, version: { increment: 1 } },
+    });
+    return delta;
+  }
+
   async setStatus(contractId: string, status: string) {
     if (!CONTRACT_STATUSES.includes(status)) {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
@@ -688,18 +730,18 @@ export class ContractService {
   }
 
   /**
-   * 任务 7：合同签章驳回 → 回退到「合同起草」（DRAFT）。无审批流，纯状态回退。
-   * 仅「审批中 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。
+   * 任务 7：合同签章驳回 → 回退到「合同起草」（DRAFT），纯状态回退。
+   * 仅「待签章 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。
    */
   async rejectToDraft(contractId: string) {
     const c = await this.findOne(contractId);
-    // 状态机守卫（单一事实源）：仅「审批中 / 已签章」可驳回回合同起草
+    // 状态机守卫（单一事实源）：仅「待签章 / 已签章」可驳回回合同起草
     assertContractRejectable(c.status);
     await this.prisma.contract.update({
       where: { id: contractId },
       data: { status: CONTRACT_STATUS.DRAFT, signedFilePath: null, version: { increment: 1 } },
     });
-    // 关联采购任务（且为本任务主合同）时，同步任务状态（合同编制中 / 合同审批中 / 已完成）
+    // 关联采购任务（且为本任务主合同）时，同步任务状态（合同编制中 / 合同待签章 / 已完成）
     await this.syncLinkedTaskStatus(contractId);
     return this.findOne(contractId);
   }
@@ -719,9 +761,9 @@ export class ContractService {
 
   /**
    * 合同状态变化后，同步其**采购任务**的合同阶段状态
-   * （DRAFT → 合同编制中 / APPROVING → 合同审批中 / SIGNED → 已完成，映射见 `contractStageTaskStatus`）。
+   * （DRAFT → 合同编制中 / APPROVING → 合同待签章 / SIGNED → 已完成，映射见 `contractStageTaskStatus`）。
    *
-   * 调用时机：签章、状态互转、提交（草稿→审批中）、驳回回起草。
+   * 调用时机：签章、状态互转、提交（草稿→待签章）、驳回回起草。
    * 仅在「该合同是其任务的主合同」且「任务已走完阶段链」时同步——避免用户在起草页把合同
    * 关联到流程中的任务时误改该任务状态（那种情况下任务状态仍应由阶段进度决定）。
    */
@@ -850,8 +892,8 @@ export class ContractService {
       throw new BadRequestException('合同编号生成后不可变更');
     }
     delete data.code;
-    // 需求修正5 / 需求 2.1：发布后（审批中/已签章）合同类型固化不可修改；
-    // 历史空状态数据在 UI 上按「审批中」展示，同样视为已发布
+    // 需求修正5 / 需求 2.1：发布后（待签章/已签章）合同类型固化不可修改；
+    // 历史空状态数据在 UI 上按「待签章」展示，同样视为已发布
     if (
       data.typeCode !== undefined &&
       data.typeCode !== before.typeCode &&
@@ -977,13 +1019,13 @@ export class ContractService {
   // ==================== 合同查询（需求 2.2：已发布/正式合同） ====================
 
   /**
-   * 合同查询列表：展示审批中/已签章的正式合同（发布后流转至此；历史空状态数据一并兼容展示）
+   * 合同查询列表：展示待签章/已签章的正式合同（发布后流转至此；历史空状态数据一并兼容展示）
    * 筛选：编号/名称关键词、供应商、签订日期范围
    */
   async findPublished(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const and: any[] = [{ projectId }];
-    // 需求修正6：审批中/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
+    // 需求修正6：待签章/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
     and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, LEGACY_CONTRACT_STATUS_COMPLETED] } }, { status: null }] });
     if (query.keyword) {
       and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
@@ -1009,7 +1051,7 @@ export class ContractService {
 
   /**
    * 是否属于「未发布（草稿中）」：判定口径与「合同起草」草稿列表（draftWhere）保持一致
-   * 需求 2.2：草稿中不可导出 Word，审批中/已签章均可导出
+   * 需求 2.2：草稿中不可导出 Word，待签章/已签章均可导出
    */
   private isDraftContract(c: { status?: string | null; execStatus?: string | null }) {
     if (c.status === CONTRACT_STATUS.DRAFT) return true;
@@ -1026,7 +1068,7 @@ export class ContractService {
     const contract = await this.prisma.contract.findUnique({ where: { id } });
     if (!contract) throw new NotFoundException('合同不存在');
     if (contract.projectId !== projectId) throw new BadRequestException('合同不属于当前项目');
-    // 状态准入（需求 2.2）：草稿中不可导出；审批中 / 已签章均可导出
+    // 状态准入（需求 2.2）：草稿中不可导出；待签章 / 已签章均可导出
     if (this.isDraftContract(contract)) {
       throw new BadRequestException('草稿中的合同不可导出，请先发布后再导出 Word 文件');
     }
@@ -1117,9 +1159,17 @@ export class ContractService {
     if (Number.isNaN(chosen.getTime())) throw new BadRequestException('签订日期格式不正确');
     // 落盘统一走 StorageService（相对键 `signed/<文件名>`；目录/命名/URL 规则都收在存储层）
     const saved = await this.storage.save(file.buffer, { sub: 'signed', ext });
+    /**
+     * 冻结**签订时点的供应商信息快照**（业务口径 2026-10-15）：
+     * 合同正文导出取快照而非当前主数据，否则供应商改名/换银行会改变历史合同的再导出内容。
+     * 每次签章（含重新签章）都刷新为当时的主数据。
+     */
+    const forSnapshot = await this.findOne(id);
+    const supplierSnapshot = JSON.stringify(pickSupplierSnapshot(forSnapshot?.supplier));
     await this.prisma.contract.update({
       where: { id },
       data: {
+        supplierSnapshot,
         signedFilePath: saved.key,
         signedFileName: file.originalname,
         signDate: chosen, // 需求 2.3：覆盖合同主表签订日期

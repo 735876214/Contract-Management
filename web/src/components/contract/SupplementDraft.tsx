@@ -358,7 +358,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
     await persistFormData(id);
     Modal.confirm({
       title: '发布补充协议',
-      content: '发布后该补充协议将进入「合同查询」列表，状态为审批中，合同类型与内容不可再修改。',
+      content: '发布后该补充协议将进入「合同查询」列表，状态为待签章，合同类型与内容不可再修改。',
       okText: '确认发布',
       cancelText: '再检查一下',
       onOk: async () => {

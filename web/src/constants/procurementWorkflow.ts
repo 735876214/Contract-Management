@@ -25,7 +25,7 @@ export const TASK_STATUS_LABELS: Record<string, string> = {
   PRICE_COMPARE_EDITING: '价格对比表编制中',
   FRAMEWORK_EDITING: '事前报告编制中',
   CONTRACT_EDITING: '合同编制中',
-  CONTRACT_APPROVING: '合同审批中',
+  CONTRACT_APPROVING: '合同待签章',
   COMPLETED: '已完成',
 };
 

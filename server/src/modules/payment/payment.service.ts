@@ -4,18 +4,15 @@ import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } fr
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
-import { DICT_TYPES, PAYMENT_STATUS } from '../../constants/statuses';
+import { DICT_TYPES, PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
-import {
-  normalizePolicy,
-  checkOverAmount,
-  chainSettledTotal,
-  chainPaidTotal,
-} from '../../common/utils/amount-guard';
+import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
+// 链口径统一在 contract-chain（见该文件头）
+import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
 
 const RECORD_FIELDS = [
   'projectId', 'contractId', 'payMonth', 'amount', 'methodCode', 'payDate',
@@ -35,12 +32,12 @@ export class PaymentService {
     private sysParam: SysParamService,
   ) {}
 
-  /** 不构成实际出资的付款状态：不计入「累计付款」，自身为该状态时也不做超付校验 */
-  /** 不计入累计付款的状态（改造前为裸字符串，现取自单一事实源） */
-  private static readonly NON_PAYING_STATUSES: string[] = [
-    PAYMENT_STATUS.FAILED,
-    PAYMENT_STATUS.REFUNDED,
-  ];
+  /**
+   * 不构成实际出资的付款状态：不计入「累计付款」，自身为该状态时也不做超付校验。
+   * 取自 `constants/statuses.ts` 的单一事实源——合同台账用**同一份**，
+   * 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论。
+   */
+  private static readonly NON_PAYING_STATUSES: string[] = [...PAYMENT_EXCLUDED_STATUSES];
 
   /**
    * 防超付校验（docs/09 §四）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。

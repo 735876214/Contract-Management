@@ -1,16 +1,12 @@
 /**
- * 金额上限校验：防超结 / 防超付 —— docs/09 §四。
+ * 金额上限**判定**：防超结 / 防超付 —— docs/09 §四。
  *
- * **零 import 依赖**（不引 Prisma / Nest），可直接被 `server/test/*.spec.mts` 加载，
- * 也可传入 mock db 单测合同链口径。
+ * **零 import 依赖**（不引 Prisma / Nest），可直接被 `server/test/*.spec.mts` 加载。
  *
- * 口径（与 docs/09 §四一致）：
- * - 「合同链金额」= 主合同 amount + 其全部补充协议 amount 之和
- * - 「累计结算」= 该链上 `Settlement.actualAmount`（回退 `amount`）之和，**排除草稿**（`DRAFT` 是唯一未提交态）
- * - 「累计付款」= 该链上 `PaymentRecord.amount` 之和
- *
- * ⚠️ 注意 `statusCode != 'DRAFT'` 在 SQL 里会连带排除 NULL（三值逻辑），
- * 故排除条件一律写成 `OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }]`。
+ * 本文件只做**不碰数据库**的事：策略归一 + 「已占用 + 本次」与上限的比较。
+ * 链口径与所需的 db 查询（合同当前金额 / 累计结算 / 累计付款）自 2026-10-15 起
+ * 全部在 `common/utils/contract-chain.ts`——因为"上限"必须与"合同当前金额"是同一个口径，
+ * 而本文件被 `.mts` spec 加载、**不能新增相对 import**（见 .claude/rules/testing.md 第一条硬约束）。
  */
 
 /** 超限策略：BLOCK 拦截 / WARN 仅提示 / OFF 不校验 */
@@ -72,86 +68,4 @@ export function checkOverAmount(input: OverAmountInput): OverAmountResult {
     ? `累计${label}将达 ¥${total.toFixed(2)}，超过上限 ¥${limit.toFixed(2)}（其中已发生 ¥${used.toFixed(2)}，本次 ¥${current.toFixed(2)}，超出 ¥${overBy.toFixed(2)}）`
     : '';
   return { exceeded, overBy, limit, used, current, total, message };
-}
-
-/* ------------------------------------------------------------------ *
- * 合同链口径（需要 db，传 PrismaClient 或 mock；本文件不 import 任何类型）
- * ------------------------------------------------------------------ */
-
-/** 沿 `parentContractId` 上溯取链根（主合同）ID；防环（最多 8 层） */
-export async function contractChainRootId(db: any, contractId: string): Promise<string | null> {
-  let id = String(contractId ?? '');
-  if (!id) return null;
-  for (let depth = 0; depth < 8; depth++) {
-    const c = await db.contract.findUnique({ where: { id }, select: { id: true, parentContractId: true } });
-    if (!c) return depth === 0 ? null : id;
-    if (!c.parentContractId) return c.id;
-    id = c.parentContractId;
-  }
-  return id;
-}
-
-/** 链上全部合同 ID = 链根 + 其直接补充协议 */
-export async function contractChainIds(db: any, contractId: string): Promise<string[]> {
-  const rootId = await contractChainRootId(db, contractId);
-  if (!rootId) return [];
-  const children = await db.contract.findMany({
-    where: { parentContractId: rootId },
-    select: { id: true },
-  });
-  return [rootId, ...children.map((c: any) => c.id)];
-}
-
-/**
- * 合同链金额 = 链根 + 补充协议 的 amount 之和。
- * **全链都未填合同额时返回 `null`（= 无上限，不可校验）**，而不是 0——
- * 否则「合同没填金额」会被当成上限 0，任何一笔结算/付款都会被误判超限
- * （BLOCK 策略下会直接拦住合法单据）。
- */
-export async function contractChainAmount(db: any, contractId: string): Promise<number | null> {
-  const ids = await contractChainIds(db, contractId);
-  if (!ids.length) return null;
-  const rows = await db.contract.findMany({ where: { id: { in: ids } }, select: { amount: true } });
-  const filled = rows.filter((r: any) => r.amount !== null && r.amount !== undefined && r.amount !== '');
-  if (!filled.length) return null;
-  return round2(filled.reduce((s: number, r: any) => s + toNum(r.amount), 0));
-}
-
-/** 排除草稿的 where 片段（见文件头关于 NULL 的说明） */
-const notDraft = { OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }] };
-
-/** 链上累计结算额（`actualAmount` 回退 `amount`，排除草稿与 excludeId 自身） */
-export async function chainSettledTotal(db: any, contractId: string, excludeId?: string): Promise<number> {
-  const ids = await contractChainIds(db, contractId);
-  if (!ids.length) return 0;
-  const rows = await db.settlement.findMany({
-    where: { contractId: { in: ids }, ...notDraft, ...(excludeId ? { id: { not: excludeId } } : {}) },
-    select: { actualAmount: true, amount: true },
-  });
-  return round2(rows.reduce((s: number, r: any) => s + toNum(r.actualAmount ?? r.amount), 0));
-}
-
-/**
- * 链上累计付款额。
- * - `excludeId`：排除自身（编辑场景）
- * - `excludeStatuses`：排除**不构成实际出资**的状态（如 `FAILED 付款失败` / `REFUNDED 已退款`），
- *   否则一笔失败记录会虚增"累计付款"，在 BLOCK 策略下误挡后续正常付款
- */
-export async function chainPaidTotal(
-  db: any,
-  contractId: string,
-  excludeId?: string,
-  excludeStatuses: string[] = [],
-): Promise<number> {
-  const ids = await contractChainIds(db, contractId);
-  if (!ids.length) return 0;
-  const rows = await db.paymentRecord.findMany({
-    where: { contractId: { in: ids }, ...(excludeId ? { id: { not: excludeId } } : {}) },
-    select: { amount: true, statusCode: true },
-  });
-  return round2(
-    rows
-      .filter((r: any) => !excludeStatuses.includes(String(r.statusCode ?? '')))
-      .reduce((s: number, r: any) => s + toNum(r.amount), 0),
-  );
 }

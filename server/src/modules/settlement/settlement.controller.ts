@@ -116,7 +116,7 @@ export class SettlementController {
     return this.service.update(id, body);
   }
 
-  /** 任务 7：结算驳回 → 回填（无审批流，纯状态回退） */
+  /** 任务 7：结算驳回 → 回填（纯状态回退） */
   @RequirePermissions('settlement:edit')
   @Post(':id/reject')
   reject(@Param('id') id: string) {

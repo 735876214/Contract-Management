@@ -11,12 +11,10 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { assertSettlementRejectable, SETTLEMENT_STATUS } from '../../constants/workflowGuards';
 import { SysParamService } from '../../common/services/sys-param.service';
-import {
-  normalizePolicy,
-  checkOverAmount,
-  contractChainAmount,
-  chainSettledTotal,
-} from '../../common/utils/amount-guard';
+import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
+// 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
+// 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
+import { contractChainAmount, chainSettledTotal } from '../../common/utils/contract-chain';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -151,7 +149,7 @@ export class SettlementService {
 
   /**
    * 任务 7：结算驳回 → 回填（回退到「草稿」状态，可重新编辑提交）。
-   * 无审批流，纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
+   * 纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
    */
   async reject(id: string) {
     const before: any = await this.findOne(id);
@@ -346,6 +344,35 @@ export class SettlementService {
       ['合同名称', contract.name],
       ['年度 / 月份', `${year || '____'} 年 ${month || '__'} 月`],
     ];
+    /**
+     * 结算额占合同额比例的**自动档位**。
+     *
+     * 口径与台账/工作台一致（业务口径 2026-10-15）：
+     * - 分子 = 链上累计结算额（`actualAmount` 回退 `amount`，**排除草稿**）
+     * - 分母 = **合同当前金额** = 主合同 + Σ 补充协议带符号增量（**不是**本合同的 amount）
+     *
+     * 分母未知（合同未填金额）时保持空白 □ 并注明"金额未填，无法判定"——
+     * 这与"未填 ≠ 0"的既定口径一致，不臆造一个档位。
+     */
+    const [chainAmount, chainSettled] = await Promise.all([
+      contractChainAmount(this.prisma, contractId),
+      chainSettledTotal(this.prisma, contractId),
+    ]);
+    const ratioPct = chainAmount && chainAmount > 0 ? Number(((chainSettled / chainAmount) * 100).toFixed(2)) : null;
+    const TIERS: [string, (pct: number) => boolean][] = [
+      ['未超100%', (p) => p <= 100],
+      ['100%-110%', (p) => p > 100 && p <= 110],
+      ['110%-130%', (p) => p > 110 && p <= 130],
+      ['130%以上', (p) => p > 130],
+    ];
+    const ratioTierText =
+      ratioPct === null
+        ? '结算额占合同额比例（未超100% □　100%-110% □　110%-130% □　130%以上 □）' +
+          '　实际比例：合同当前金额未填，无法判定'
+        : '结算额占合同额比例（' +
+          TIERS.map(([label, hit]) => `${label} ${hit(ratioPct) ? '☑' : '□'}`).join('　') +
+          `）　实际比例：${ratioPct}%（已结算 ¥${chainSettled.toFixed(2)} ÷ 合同当前金额 ¥${chainAmount!.toFixed(2)}）`;
+
     const CHECKS: [string, string][] = [
       ['进场依据（首期月度结算填报）', '开始招标时间'],
       ['', '首次进场时间'],
@@ -360,7 +387,9 @@ export class SettlementService {
       ['', '上传收验货系统数量占比'],
       ['', '未传收验货系统数量'],
       ['', '未传收验货系统数量占比'],
-      ['结算增量情况', '结算额占合同额比例（未超100% □　100%-110% □　110%-130% □　130%以上 □）'],
+      // 该行由下方按「已结算 ÷ 合同当前金额」**自动带出**（业务口径 2026-10-15）：
+      // 这是本表里唯一能由系统判定的勾选项，其余（签字盖章、是否先进场后招标…）仍需人工勾
+      ['结算增量情况', ratioTierText],
       ['签字盖章合规性', '供应商签字为法人或授权委托人签字（是 □　否 □）'],
       ['', '（分包）收料人员签字有材料员授权委托书（是 □　否 □）'],
       ['', '盖章为公章或公章授权章（是 □　否 □）'],

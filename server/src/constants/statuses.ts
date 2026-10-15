@@ -37,7 +37,7 @@ export const DICT_TYPES = {
 
 /**
  * 合同状态：`Contract.status`（**非字典驱动**）。
- * 草稿 → 提交 → 审批中 → 签章；驳回把「审批中/已签章」打回草稿（见 `constants/workflowGuards.ts`）。
+ * 草稿 → 提交 → 待签章 → 签章；驳回把「待签章/已签章」打回草稿（见 `constants/workflowGuards.ts`）。
  */
 export const CONTRACT_STATUS = {
   DRAFT: 'DRAFT',
@@ -73,6 +73,13 @@ export const PAYMENT_STATUS = {
   REFUNDED: 'REFUNDED',
 } as const;
 export type PaymentStatus = (typeof PAYMENT_STATUS)[keyof typeof PAYMENT_STATUS];
+
+/**
+ * **不计入"累计付款"**的付款状态（不构成实际出资）。
+ * 单一事实源：防超付闸门（`payment.service`）与合同台账（`ledger.service`）必须用**同一份**，
+ * 否则同一笔失败付款在闸门里被排除、在台账里被算进去，两处给出相反结论。
+ */
+export const PAYMENT_EXCLUDED_STATUSES: string[] = [PAYMENT_STATUS.FAILED, PAYMENT_STATUS.REFUNDED];
 
 /** 发票状态（dict `invoice_status`）：查验仅用于登记核对，不代表验真 */
 export const INVOICE_STATUS = {

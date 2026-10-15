@@ -73,7 +73,21 @@ export async function makeSupplier(prisma: PrismaClient, projectId: string, tag 
 
 export async function makeContract(
   prisma: PrismaClient,
-  params: { projectId: string; code?: string; name?: string; amount?: number | null; status?: string | null; supplierId?: string | null; taskId?: string | null },
+  params: {
+    projectId: string;
+    code?: string;
+    name?: string;
+    amount?: number | null;
+    status?: string | null;
+    supplierId?: string | null;
+    taskId?: string | null;
+    /** 补充协议：`'Y'` + `parentContractId` 指向主合同 */
+    isSupplement?: string | null;
+    parentContractId?: string | null;
+    supplementTypeCode?: string | null;
+    /** 带符号增量（合同当前金额 = 主合同 + Σ changeAmount） */
+    changeAmount?: number | null;
+  },
 ) {
   const code = params.code ?? uniq('INT-HT').toUpperCase();
   return prisma.contract.create({
@@ -85,6 +99,10 @@ export async function makeContract(
       status: params.status === undefined ? null : params.status,
       supplierId: params.supplierId ?? null,
       taskId: params.taskId ?? null,
+      isSupplement: params.isSupplement ?? null,
+      parentContractId: params.parentContractId ?? null,
+      supplementTypeCode: params.supplementTypeCode ?? null,
+      changeAmount: params.changeAmount === undefined ? null : params.changeAmount,
     } as any,
   });
 }

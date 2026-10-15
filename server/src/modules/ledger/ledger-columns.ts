@@ -44,6 +44,9 @@ export const LEDGER_COLUMNS: { key: string; title: string; width?: number; defau
   { key: 'contactName', title: '联系人', width: 12 },
   { key: 'contactPhone', title: '联系人电话', width: 14 },
   { key: 'amount', title: '合同额', width: 16 },
+  // 业务口径（2026-10-15）：合同当前金额 = 主合同 + Σ 补充协议增量；
+  // 「已结算金额占合同比例」「100% 欠款」的分母都是它 —— 单列一列，否则读者看不到分母
+  { key: 'currentAmount', title: '合同当前金额', width: 18 },
   { key: 'taxRate', title: '税率', width: 10 },
   { key: 'currentPayRatio', title: '当前合同付款比例', width: 16 },
   { key: 'paymentMethod', title: '合同约定付款方式', width: 16 },

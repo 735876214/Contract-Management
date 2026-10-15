@@ -16,17 +16,17 @@ datasource db {
 // ---------------- 组织与权限 ----------------
 
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
+  id           String    @id @default(cuid())
+  username     String    @unique
   password     String
   realName     String
   phone        String?
   email        String?
-  status       Int      @default(1)
-  isSuperAdmin Boolean  @default(false)
+  status       Int       @default(1)
+  isSuperAdmin Boolean   @default(false)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   roles         UserRole[]
   members       ProjectMember[]
@@ -36,23 +36,23 @@ model User {
 }
 
 model Role {
-  id          String   @id @default(cuid())
-  code        String   @unique
+  id          String           @id @default(cuid())
+  code        String           @unique
   name        String
   remark      String?
-  status      Int      @default(1)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      Int              @default(1)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   users       UserRole[]
   permissions RolePermission[]
 }
 
 model Permission {
-  id        String   @id @default(cuid())
-  code      String   @unique
+  id        String           @id @default(cuid())
+  code      String           @unique
   name      String
   module    String
-  createdAt DateTime @default(now())
+  createdAt DateTime         @default(now())
   roles     RolePermission[]
 }
 
@@ -79,49 +79,50 @@ model RolePermission {
 // ---------------- 项目 ----------------
 
 model Project {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  name        String
-  nameAbbr    String? // 项目简称（文字版）
-  codeAbbr    String? @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
-  undertaker  String? // 承接单位
-  selfContractAmount Decimal? @db.Decimal(18, 2) // 项目自施合同额（万元）
-  industryType String? // dict: industry_type 项目业态
-  provinceCity   String? // 项目所在省市
-  siteLocation   String? // 工程地点
-  projectAddress String? // 项目地址
-  materialOrigin String? // 物资产地
-  status      String?  // dict: project_status
-  description String?
-  startDate   DateTime?
-  endDate     DateTime?
-  managerId   String?
-  createdAt   DateTime @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt   DateTime @updatedAt
+  id                 String    @id @default(cuid())
+  code               String    @unique
+  name               String
+  nameAbbr           String? // 项目简称（文字版）
+  codeAbbr           String?   @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
+  undertaker         String? // 承接单位
+  selfContractAmount Decimal?  @db.Decimal(18, 2) // 项目自施合同额（万元）
+  industryType       String? // dict: industry_type 项目业态
+  provinceCity       String? // 项目所在省市
+  siteLocation       String? // 工程地点
+  projectAddress     String? // 项目地址
+  materialOrigin     String? // 物资产地
+  status             String? // dict: project_status
+  description        String?
+  startDate          DateTime?
+  endDate            DateTime?
+  managerId          String?
+  createdAt          DateTime  @default(now())
+  version            Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt          DateTime  @updatedAt
 
-  members      ProjectMember[]
-  contracts    Contract[]
-  dailyReports DailyReport[]
-  settlements  Settlement[]
-  ledgers      SettlementLedger[]
-  payments     PaymentRecord[]
-  invoices     Invoice[]
-  repayments   RepaymentAgreement[]
-  assets       AssetLedger[]
-  receiptOrders ReceiptOrder[]
-  procurementTemplates ProcurementTemplate[]
-  procurementTasks     ProcurementTask[]
-  procurementTotalItems ProcurementTotalItem[]
-  frameworkExplanations FrameworkExplanation[]
-  preMeetingMinutes    PreMeetingMinutes[]
-  procurementNotices   ProcurementNotice[]
-  procurementDocuments ProcurementDocument[]
+  members                  ProjectMember[]
+  contracts                Contract[]
+  dailyReports             DailyReport[]
+  settlements              Settlement[]
+  ledgers                  SettlementLedger[]
+  payments                 PaymentRecord[]
+  invoices                 Invoice[]
+  repayments               RepaymentAgreement[]
+  assets                   AssetLedger[]
+  receiptOrders            ReceiptOrder[]
+  procurementTemplates     ProcurementTemplate[]
+  procurementTasks         ProcurementTask[]
+  procurementTotalItems    ProcurementTotalItem[]
+  frameworkExplanations    FrameworkExplanation[]
+  preMeetingMinutes        PreMeetingMinutes[]
+  procurementNotices       ProcurementNotice[]
+  procurementDocuments     ProcurementDocument[]
   procurementResultReports ProcurementResultReport[]
   procurementPriceCompares ProcurementPriceCompare[]
   procurementBidders       ProcurementBidder[]
   procurementEvaluations   ProcurementEvaluation[]
   inspectionReports        InspectionReport[]
+
   @@index([createdAt])
 }
 
@@ -158,43 +159,43 @@ model Supplier {
   status             Int      @default(1) // 1 启用 0 停用
   projectId          String? // 全局共享时为空
   createdAt          DateTime @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version            Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime @updatedAt
 
-  contracts   Contract[]
-  reports     DailyReport[]
-  repayments  RepaymentAgreement[]
-  assets      AssetLedger[]
-  receiptOrders ReceiptOrder[]
+  contracts          Contract[]
+  reports            DailyReport[]
+  repayments         RepaymentAgreement[]
+  assets             AssetLedger[]
+  receiptOrders      ReceiptOrder[]
   procurementBidders ProcurementBidder[]
 }
 
 // ---------------- 分包商库（分包材料员授权委托书） ----------------
 
 model Subcontractor {
-  id                    String   @id @default(cuid())
-  projectId             String? // 所属项目，全局共享时为空
-  subcontractorName     String // 分包商名称
-  subcontractContent    String? // 分包合同内容（关联的分包合同说明）
-  subcontractId         String? // 关联的分包合同 ID（用于与分包合同互锁）
+  id                   String    @id @default(cuid())
+  projectId            String? // 所属项目，全局共享时为空
+  subcontractorName    String // 分包商名称
+  subcontractContent   String? // 分包合同内容（关联的分包合同说明）
+  subcontractId        String? // 关联的分包合同 ID（用于与分包合同互锁）
   // 分包合同被删除时保留分包商档案本身，故 SetNull
-  subcontract           Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
-  legalPerson           String? // 法人姓名
-  authorizedPerson      String? // 材料授权人姓名
-  authorizedPersonIdNo  String? // 材料授权人身份证号
-  projectName           String? // 项目名称（授权委托书内填写）
-  idCardFront           String? // 材料授权人身份证照片正面
-  idCardBack            String? // 材料授权人身份证照片反面
-  signatureScreenshot   String? // 材料授权人签字部分截图
-  signedAuthFile        String? // 签字盖章版委托书（扫描件/PDF）
-  status                String   @default("EDITING") // EDITING 编辑中 / COMPLETED 已完成
-  remark                String?
-  createdBy             String?
-  createdAt             DateTime @default(now())
-  version               Int      @default(0)
-  updatedAt             DateTime @updatedAt
+  subcontract          Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
+  legalPerson          String? // 法人姓名
+  authorizedPerson     String? // 材料授权人姓名
+  authorizedPersonIdNo String? // 材料授权人身份证号
+  projectName          String? // 项目名称（授权委托书内填写）
+  idCardFront          String? // 材料授权人身份证照片正面
+  idCardBack           String? // 材料授权人身份证照片反面
+  signatureScreenshot  String? // 材料授权人签字部分截图
+  signedAuthFile       String? // 签字盖章版委托书（扫描件/PDF）
+  status               String    @default("EDITING") // EDITING 编辑中 / COMPLETED 已完成
+  remark               String?
+  createdBy            String?
+  createdAt            DateTime  @default(now())
+  version              Int       @default(0)
+  updatedAt            DateTime  @updatedAt
 
-  receiptOrders         ReceiptOrder[]
+  receiptOrders ReceiptOrder[]
 
   @@index([projectId])
   @@index([subcontractorName])
@@ -212,99 +213,111 @@ enum ContractType {
 }
 
 model Contract {
-  id                 String    @id @default(cuid())
-  projectId          String
-  code               String // 合同编号
-  name               String
-  typeCode           String? // dict: contract_type
-  contractType       ContractType? // 合同类型五态（由采购类型+采购品类推导）：PURCHASE/LEASE/PURCHASE_EXEC/LEASE_EXEC/EMERGENCY
-  subTypeCode        String? // dict: contract_sub_type 合同子类型（编号第4段）
-  supplierId         String?
-  signDate           DateTime?
-  amount             Decimal?  @db.Decimal(18, 2)
-  taxRate            Decimal?  @db.Decimal(9, 4)
-  paymentMethodCode  String? // dict: payment_method
-  isFramework        String? // dict: yes_no
-  isSupplement       String? // dict: yes_no
-  parentContractId   String? // 主合同ID（补充协议链）
-  yearSeq            String? // 年度顺序码（合同编号生成规则，如 2026001）
-  codeAbbrUsed       String? // 编号第3段项目字母简称（生成时固化）
-  supplementSeq      Int?    // 补充协议序号
-  supplementTypeCode String? // dict: supplement_agreement_type
-  execStatus         String? // dict: contract_execution_status
-  status             String? // dict: contract_status 起草流转状态：DRAFT 草稿中 / COMPLETED 已完成
-  templateId         String? // 关联合同模板 ID（起草时选择，用于回填与预览）
-  formData           String? // 模板变量填写值（JSON 文本，key=变量键）
+  id                  String        @id @default(cuid())
+  projectId           String
+  code                String // 合同编号
+  name                String
+  typeCode            String? // dict: contract_type
+  contractType        ContractType? // 合同类型五态（由采购类型+采购品类推导）：PURCHASE/LEASE/PURCHASE_EXEC/LEASE_EXEC/EMERGENCY
+  subTypeCode         String? // dict: contract_sub_type 合同子类型（编号第4段）
+  supplierId          String?
+  signDate            DateTime?
+  amount              Decimal?      @db.Decimal(18, 2)
+  taxRate             Decimal?      @db.Decimal(9, 4)
+  paymentMethodCode   String? // dict: payment_method
+  isFramework         String? // dict: yes_no
+  isSupplement        String? // dict: yes_no
+  parentContractId    String? // 主合同ID（补充协议链）
+  yearSeq             String? // 年度顺序码（合同编号生成规则，如 2026001）
+  codeAbbrUsed        String? // 编号第3段项目字母简称（生成时固化）
+  supplementSeq       Int? // 补充协议序号
+  supplementTypeCode  String? // dict: supplement_agreement_type
+  // —— 结构化变更（2026-10-15 业务澄清：变更口径需要结构化）——
+  // 「合同当前金额」= 主合同 amount + Σ 补充协议 changeAmount（**带符号**，降价为负）。
+  // ⚠️ 不要用 amount 参与链式求和：补充协议的 amount 是手填自由值，涨价/降价场景会把
+  //    「剩余数量的全值」重复计入。changeAmount 由服务端按清单重算（common/utils/supplement-delta.ts）。
+  changeAmount        Decimal?      @db.Decimal(18, 2) // 该补充协议带来的带符号增量（增项为正、减项为负）
+  changeQty           Decimal?      @db.Decimal(18, 2) // 带符号数量增量（同上）
+  changeEffectiveDate DateTime? // 变更生效日
+  execStatus          String? // dict: contract_execution_status
+  status              String? // dict: contract_status 起草流转状态：DRAFT 草稿中 / COMPLETED 已完成
+  templateId          String? // 关联合同模板 ID（起草时选择，用于回填与预览）
+  formData            String? // 模板变量填写值（JSON 文本，key=变量键）
   materialDescription String? // 物资名称（合同名称第4段，用户手填，如：PE管）
-  technicalClauseId  String? // 技术条款 ID（需求 2.3：创建合同时选择）
-  qualityClauseId    String? // 质量条款 ID
-  paymentClauseId    String? // 付款条件 ID
-  acceptanceClauseId String? // 验收方式 ID
-  signedFilePath     String? // 签章合同文件相对路径（相对上传目录，需求：合同签章）
-  signedFileName     String? // 签章合同原始文件名
-  signedDate         DateTime? // 签章时记录的签订日期
-  signedRemark       String? // 签章备注
-  signedAt           DateTime? // 签章操作时间（每次签章/重新签章刷新）
-  remark             String?
-  paymentMode        String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
-  monthlyRate        Decimal? @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
-  graceDays          Int?     // 逾期宽限天数
-  interestCapRatio   Decimal? @db.Decimal(9, 4) // 逾期利息上限比例（如 0.05 表示 5%）
-  createdBy          String?
-  createdAt          DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt          DateTime  @updatedAt
-  taskId            String? // 关联采购任务（一对多：一个任务可生成多个合同）
+  technicalClauseId   String? // 技术条款 ID（需求 2.3：创建合同时选择）
+  qualityClauseId     String? // 质量条款 ID
+  paymentClauseId     String? // 付款条件 ID
+  acceptanceClauseId  String? // 验收方式 ID
+  signedFilePath      String? // 签章合同文件相对路径（相对上传目录，需求：合同签章）
+  signedFileName      String? // 签章合同原始文件名
+  signedDate          DateTime? // 签章时记录的签订日期
+  signedRemark        String? // 签章备注
+  signedAt            DateTime? // 签章操作时间（每次签章/重新签章刷新）
+  /// 签订时点的供应商信息快照（JSON 文本）。
+  /// 业务口径（2026-10-15）：合同正文导出取**签订时快照**，不是当前主数据——
+  /// 否则供应商改名/换银行会改变历史合同再导出的内容。由 contract.service.sign() 冻结，
+  /// 模板取值走"快照优先 → 缺则回退实时"（存量合同无快照，行为不变）。
+  supplierSnapshot    String? // JSON：{ name, bankName, bankAccount, legalPerson, ... }
+  remark              String?
+  paymentMode         String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
+  monthlyRate         Decimal?      @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
+  graceDays           Int? // 逾期宽限天数
+  interestCapRatio    Decimal?      @db.Decimal(9, 4) // 逾期利息上限比例（如 0.05 表示 5%）
+  createdBy           String?
+  createdAt           DateTime      @default(now())
+  version             Int           @default(0) // 乐观锁版本号，更新时校验
+  updatedAt           DateTime      @updatedAt
+  taskId              String? // 关联采购任务（一对多：一个任务可生成多个合同）
 
-  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  task        ProcurementTask?      @relation("TaskContracts", fields: [taskId], references: [id])
-  supplier     Supplier?            @relation(fields: [supplierId], references: [id])
-  template     ContractTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  project                    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task                       ProcurementTask?        @relation("TaskContracts", fields: [taskId], references: [id])
+  supplier                   Supplier?               @relation(fields: [supplierId], references: [id])
+  template                   ContractTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
   // 四个条款引用：模板/条款被删除不应连带删除合同，故 SetNull
-  technicalClause     Clause?       @relation("ContractTechnicalClause", fields: [technicalClauseId], references: [id], onDelete: SetNull)
-  qualityClause       Clause?       @relation("ContractQualityClause", fields: [qualityClauseId], references: [id], onDelete: SetNull)
-  paymentClause       Clause?       @relation("ContractPaymentClause", fields: [paymentClauseId], references: [id], onDelete: SetNull)
-  acceptanceClause    Clause?       @relation("ContractAcceptanceClause", fields: [acceptanceClauseId], references: [id], onDelete: SetNull)
-  subcontractors Subcontractor[]    @relation("SubcontractContract")
-  parentContract Contract?          @relation("SupplementChain", fields: [parentContractId], references: [id])
-  supplements  Contract[]           @relation("SupplementChain")
-  ext          ContractExt?
-  attachments  ContractAttachment[]
-  changeLogs   ContractChangeLog[]
-  reports      DailyReport[]
-  settlements  Settlement[]
-  ledgers      SettlementLedger[]
-  payments     PaymentRecord[]
-  invoices     Invoice[]
-  repayments   RepaymentAgreement[]
-  materials    ContractMaterial[]
-  materialPools    ContractMaterialPool[]
-  draftMaterials   ContractDraftMaterial[]
-  factoringCosts   FactoringCost[]
-  overdueInterests OverdueInterest[]
-  receiptAsMaterialContract ReceiptOrder[] @relation("ReceiptMaterialContract")
-  receiptAsSubcontract       ReceiptOrder[] @relation("ReceiptSubcontract")
-  receiptAsSupplySubcontract ReceiptOrder[] @relation("ReceiptSupplySubcontract")
+  technicalClause            Clause?                 @relation("ContractTechnicalClause", fields: [technicalClauseId], references: [id], onDelete: SetNull)
+  qualityClause              Clause?                 @relation("ContractQualityClause", fields: [qualityClauseId], references: [id], onDelete: SetNull)
+  paymentClause              Clause?                 @relation("ContractPaymentClause", fields: [paymentClauseId], references: [id], onDelete: SetNull)
+  acceptanceClause           Clause?                 @relation("ContractAcceptanceClause", fields: [acceptanceClauseId], references: [id], onDelete: SetNull)
+  subcontractors             Subcontractor[]         @relation("SubcontractContract")
+  parentContract             Contract?               @relation("SupplementChain", fields: [parentContractId], references: [id])
+  supplements                Contract[]              @relation("SupplementChain")
+  ext                        ContractExt?
+  attachments                ContractAttachment[]
+  changeLogs                 ContractChangeLog[]
+  reports                    DailyReport[]
+  settlements                Settlement[]
+  ledgers                    SettlementLedger[]
+  payments                   PaymentRecord[]
+  invoices                   Invoice[]
+  repayments                 RepaymentAgreement[]
+  materials                  ContractMaterial[]
+  materialPools              ContractMaterialPool[]
+  draftMaterials             ContractDraftMaterial[]
+  factoringCosts             FactoringCost[]
+  overdueInterests           OverdueInterest[]
+  receiptAsMaterialContract  ReceiptOrder[]          @relation("ReceiptMaterialContract")
+  receiptAsSubcontract       ReceiptOrder[]          @relation("ReceiptSubcontract")
+  receiptAsSupplySubcontract ReceiptOrder[]          @relation("ReceiptSupplySubcontract")
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
 }
 
 model ContractExt {
-  id              String    @id @default(cuid())
-  contractId      String    @unique
-  financeCode     String? // 财务一体化合同编号
-  procurementSrc  String? // dict: procurement_source
+  id               String    @id @default(cuid())
+  contractId       String    @unique
+  financeCode      String? // 财务一体化合同编号
+  procurementSrc   String? // dict: procurement_source
   isDirectPurchase String? // dict: is_direct_purchase
-  bidName         String? // 招标名称
-  currentPayRatio Decimal?  @db.Decimal(9, 4) // 当前合同付款比例
+  bidName          String? // 招标名称
+  currentPayRatio  Decimal?  @db.Decimal(9, 4) // 当前合同付款比例
   supplierCategory String? // dict: supplier_category
-  bidStartDate    DateTime? // 开始招标时间
-  bidWinDate      DateTime? // 定标时间
-  disclosureDate  DateTime? // 合同交底时间
-  complaint       String? // 投诉情况
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  bidStartDate     DateTime? // 开始招标时间
+  bidWinDate       DateTime? // 定标时间
+  disclosureDate   DateTime? // 合同交底时间
+  complaint        String? // 投诉情况
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
 }
@@ -337,25 +350,25 @@ model ContractChangeLog {
 // ---------------- 模板 ----------------
 
 model ContractTemplate {
-  id          String   @id @default(cuid())
-  name        String
+  id           String   @id @default(cuid())
+  name         String
   categoryCode String? // dict: contract_template_category
-  tags        String?
-  status      Int      @default(1)
-  version     Int      @default(1)
-  content     String?  @db.Text
-  pageSetup   String?  // 页面设置（JSON：页边距/页眉/页脚页码等），生成 Word 时生效
-  projectId   String? // 空表示全局共享
-  parentId    String? // 上一版本
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  tags         String?
+  status       Int      @default(1)
+  version      Int      @default(1)
+  content      String?  @db.Text
+  pageSetup    String? // 页面设置（JSON：页边距/页眉/页脚页码等），生成 Word 时生效
+  projectId    String? // 空表示全局共享
+  parentId     String? // 上一版本
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   variables TemplateVariable[]
 
   // 版本链自关联：parentId 指向上一版本；删除历史版本不应连带删除新版本，故 SetNull
-  parent   ContractTemplate?  @relation("TemplateVersions", fields: [parentId], references: [id], onDelete: SetNull)
-  children ContractTemplate[] @relation("TemplateVersions")
+  parent    ContractTemplate?  @relation("TemplateVersions", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ContractTemplate[] @relation("TemplateVersions")
   contracts Contract[]
 }
 
@@ -372,16 +385,16 @@ model TemplateVariable {
 }
 
 model Clause {
-  id          String   @id @default(cuid())
-  title       String
-  content     String   @db.Text
+  id           String   @id @default(cuid())
+  title        String
+  content      String   @db.Text
   categoryCode String?
-  type        String? // 条款类型（需求 2.3 固定四种）：technical 技术条款 / quality 质量条款 / payment 付款条件 / acceptance 验收方式
-  sortOrder   Int      @default(0)
-  status      Int      @default(1)
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  type         String? // 条款类型（需求 2.3 固定四种）：technical 技术条款 / quality 质量条款 / payment 付款条件 / acceptance 验收方式
+  sortOrder    Int      @default(0)
+  status       Int      @default(1)
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // 合同侧反引用（需求 2.3：起草合同时按四种类型各选一个条款）
   contractTechnicalClauses  Contract[] @relation("ContractTechnicalClause")
@@ -393,67 +406,67 @@ model Clause {
 // ---------------- 日报 ----------------
 
 model DailyReport {
-  id               String    @id @default(cuid())
-  projectId        String
-  materialBaseId   String? // 物资主数据（物资名称/规格型号来源，禁止手输，应用层同步快照）
-  periodYear       Int?
-  periodMonth      Int?
-  entryDate        DateTime? // 进场日期
-  contractId       String?
-  isAsset          String?   // dict: yes_no（来自物资基础库，禁止手工维护）
-  isSafetyMaterial String?   // dict: yes_no（来自物资基础库，禁止手工维护）
-  assetSupervision String?   // 资产监管
-  department       String?
-  personnel        String?
-  assetStatus      String?   // dict: asset_status
-  sourceCode       String?   // dict: material_source
-  materialCategory String?   // dict: material_category
-  materialType     String?   // dict: material_type（按类别联动）
-  materialName     String?
-  steelBrand       String?
-  steelCount       Int?
-  spec             String?
-  unit             String?   // dict: measurement_unit
-  weighQty         Decimal?  @db.Decimal(18, 3)
-  deductQty        Decimal?  @db.Decimal(18, 3)
-  settleQty        Decimal?  @db.Decimal(18, 3)
-  isWeighed        String?   // dict: yes_no
-  noAcceptReason   String?   // 未云筑验收原因
-  priceBeforeTax   Decimal?  @db.Decimal(18, 4)
-  taxRate          Decimal?  @db.Decimal(9, 4)
-  priceAfterTax    Decimal?  @db.Decimal(18, 4)
-  amountBeforeTax  Decimal?  @db.Decimal(18, 2)
-  amountAfterTax   Decimal?  @db.Decimal(18, 2)
-  supplierId       String?   // 供应单位
-  receiveUnit      String?
-  receiver         String?
-  laborContract    String?
-  usePosition      String?
-  isProxy          String?   // 是否代购
-  plateNo          String?
-  receiptNo        String?   // 收领单编号（快照，展示/导入导出用；关联改由 receiptOrderId 承担）
-  receiptOrderId   String?   // 来源收领单（收领单推送总日报时写入），替代原先靠 receiptNo 文本匹配
-  remark           String?
+  id                String    @id @default(cuid())
+  projectId         String
+  materialBaseId    String? // 物资主数据（物资名称/规格型号来源，禁止手输，应用层同步快照）
+  periodYear        Int?
+  periodMonth       Int?
+  entryDate         DateTime? // 进场日期
+  contractId        String?
+  isAsset           String? // dict: yes_no（来自物资基础库，禁止手工维护）
+  isSafetyMaterial  String? // dict: yes_no（来自物资基础库，禁止手工维护）
+  assetSupervision  String? // 资产监管
+  department        String?
+  personnel         String?
+  assetStatus       String? // dict: asset_status
+  sourceCode        String? // dict: material_source
+  materialCategory  String? // dict: material_category
+  materialType      String? // dict: material_type（按类别联动）
+  materialName      String?
+  steelBrand        String?
+  steelCount        Int?
+  spec              String?
+  unit              String? // dict: measurement_unit
+  weighQty          Decimal?  @db.Decimal(18, 3)
+  deductQty         Decimal?  @db.Decimal(18, 3)
+  settleQty         Decimal?  @db.Decimal(18, 3)
+  isWeighed         String? // dict: yes_no
+  noAcceptReason    String? // 未云筑验收原因
+  priceBeforeTax    Decimal?  @db.Decimal(18, 4)
+  taxRate           Decimal?  @db.Decimal(9, 4)
+  priceAfterTax     Decimal?  @db.Decimal(18, 4)
+  amountBeforeTax   Decimal?  @db.Decimal(18, 2)
+  amountAfterTax    Decimal?  @db.Decimal(18, 2)
+  supplierId        String? // 供应单位
+  receiveUnit       String?
+  receiver          String?
+  laborContract     String?
+  usePosition       String?
+  isProxy           String? // 是否代购
+  plateNo           String?
+  receiptNo         String? // 收领单编号（快照，展示/导入导出用；关联改由 receiptOrderId 承担）
+  receiptOrderId    String? // 来源收领单（收领单推送总日报时写入），替代原先靠 receiptNo 文本匹配
+  remark            String?
   subcontractPeriod String?
-  incomePrice      Decimal?  @db.Decimal(18, 4)
-  incomeAmount     Decimal?  @db.Decimal(18, 2)
-  stdPrice         Decimal?  @db.Decimal(18, 4)
-  stdAmount        Decimal?  @db.Decimal(18, 2)
-  createdAt        DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt        DateTime  @updatedAt
+  incomePrice       Decimal?  @db.Decimal(18, 4)
+  incomeAmount      Decimal?  @db.Decimal(18, 2)
+  stdPrice          Decimal?  @db.Decimal(18, 4)
+  stdAmount         Decimal?  @db.Decimal(18, 2)
+  createdAt         DateTime  @default(now())
+  version           Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt         DateTime  @updatedAt
 
   // ---- 现场确认（结算依据闸门；docs/09 §三）----
   // 日报行是结算量的唯一来源（收领单推送也会生成日报行），故确认只需落在这一层，
   // 不另建 SiteRecord 本体。状态机守卫见 constants/workflowGuards.ts 的 assertSiteConfirmable()。
-  confirmStatusCode String?   // dict: site_confirm_status（PENDING 待确认 / CONFIRMED 已确认 / REJECTED 已驳回）
-  confirmedBy       String?   // 确认人（姓名快照，弱关联 User）
+  confirmStatusCode String? // dict: site_confirm_status（PENDING 待确认 / CONFIRMED 已确认 / REJECTED 已驳回）
+  confirmedBy       String? // 确认人（姓名快照，弱关联 User）
   confirmedAt       DateTime? // 确认时间
-  confirmRemark     String?   // 确认/驳回意见
+  confirmRemark     String? // 确认/驳回意见
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contract Contract? @relation(fields: [contractId], references: [id])
-  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract     Contract?     @relation(fields: [contractId], references: [id])
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
   materialBase MaterialBase? @relation(fields: [materialBaseId], references: [id])
   // onDelete: SetNull（非 Cascade）：日报是结算数量的来源，收领单删除不应连带改动结算口径
   receiptOrder ReceiptOrder? @relation(fields: [receiptOrderId], references: [id], onDelete: SetNull)
@@ -471,26 +484,26 @@ model DailyReport {
 // ---------------- 物资基础库 ----------------
 
 model MaterialBase {
-  id        String   @id @default(cuid())
-  name      String // 物资名称
-  spec      String // 规格型号
-  categoryLevel1 String? // 一级分类（dict: material_category_l1）
-  categoryLevel2 String? // 二级分类（dict: material_category_l2）
-  mdmCode   String? // MDM编码
-  dscCode   String? // DSC编码
-  unit      String? // 计量单位（dict: measurement_unit，创建后不可修改）
-  isAsset          Boolean @default(false) // 是否资产（需求 2.1.1）
-  isSafetyMaterial Boolean @default(false) // 是否安全物资（需求 2.1.1）
-  status    Int      @default(1) // 1 启用 0 停用（软删除）
-  remark    String?
-  createdAt DateTime @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  name             String // 物资名称
+  spec             String // 规格型号
+  categoryLevel1   String? // 一级分类（dict: material_category_l1）
+  categoryLevel2   String? // 二级分类（dict: material_category_l2）
+  mdmCode          String? // MDM编码
+  dscCode          String? // DSC编码
+  unit             String? // 计量单位（dict: measurement_unit，创建后不可修改）
+  isAsset          Boolean  @default(false) // 是否资产（需求 2.1.1）
+  isSafetyMaterial Boolean  @default(false) // 是否安全物资（需求 2.1.1）
+  status           Int      @default(1) // 1 启用 0 停用（软删除）
+  remark           String?
+  createdAt        DateTime @default(now())
+  version          Int      @default(0) // 乐观锁版本号，更新时校验
+  updatedAt        DateTime @updatedAt
 
-  contractMaterials ContractMaterial[]
-  contractPools     ContractMaterialPool[]
-  draftMaterials    ContractDraftMaterial[]
-  reports           DailyReport[]
+  contractMaterials     ContractMaterial[]
+  contractPools         ContractMaterialPool[]
+  draftMaterials        ContractDraftMaterial[]
+  reports               DailyReport[]
   procurementTotalItems ProcurementTotalItem[]
   receiptOrderDetails   ReceiptOrderDetail[]
 
@@ -501,24 +514,24 @@ model MaterialBase {
 // ---------------- 合同物资清单（合同 × 物资 实例行） ----------------
 
 model ContractMaterial {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   contractId     String
   materialBaseId String // 引用物资基础库，不重复录入名称/规格/编码
   unit           String // 计量单位（针对本合同的计量方式）
-  qty            Decimal?  @db.Decimal(18, 4) // 暂定数量
-  priceBeforeTax Decimal?  @db.Decimal(18, 4) // 税前单价
-  taxRatePct     Decimal?  @db.Decimal(5, 2) // 增值税（百分比，如 13.00）
-  priceWithTax   Decimal?  @db.Decimal(18, 4) // 含税单价 = 税前单价 × (1 + 增值税/100)
-  totalWithTax   Decimal?  @db.Decimal(18, 4) // 暂定含税合价 = 暂定数量 × 含税单价
+  qty            Decimal? @db.Decimal(18, 4) // 暂定数量
+  priceBeforeTax Decimal? @db.Decimal(18, 4) // 税前单价
+  taxRatePct     Decimal? @db.Decimal(5, 2) // 增值税（百分比，如 13.00）
+  priceWithTax   Decimal? @db.Decimal(18, 4) // 含税单价 = 税前单价 × (1 + 增值税/100)
+  totalWithTax   Decimal? @db.Decimal(18, 4) // 暂定含税合价 = 暂定数量 × 含税单价
   remark         String?
-  incomePrice    Decimal?  @db.Decimal(18, 4) // 收入单价
-  incomeTotal    Decimal?  @db.Decimal(18, 4) // 收入合价 = 暂定数量 × 收入单价
-  stdPrice       Decimal?  @db.Decimal(18, 4) // 标准成本单价
-  stdTotal       Decimal?  @db.Decimal(18, 4) // 标准成本合价 = 暂定数量 × 标准成本单价
-  sortOrder      Int       @default(0) // 行号，可手动调整
-  createdAt      DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt      DateTime  @updatedAt
+  incomePrice    Decimal? @db.Decimal(18, 4) // 收入单价
+  incomeTotal    Decimal? @db.Decimal(18, 4) // 收入合价 = 暂定数量 × 收入单价
+  stdPrice       Decimal? @db.Decimal(18, 4) // 标准成本单价
+  stdTotal       Decimal? @db.Decimal(18, 4) // 标准成本合价 = 暂定数量 × 标准成本单价
+  sortOrder      Int      @default(0) // 行号，可手动调整
+  createdAt      DateTime @default(now())
+  version        Int      @default(0) // 乐观锁版本号，更新时校验
+  updatedAt      DateTime @updatedAt
 
   contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
   materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
@@ -550,11 +563,11 @@ model ContractDraftMaterial {
   materialBaseId String
   seqNo          Int? // 序号
   unit           String? // 计量单位
-  qty            Decimal?  @db.Decimal(18, 4) // 暂定数量
-  priceBeforeTax Decimal?  @db.Decimal(18, 4) // 税前单价
-  taxRatePct     Decimal?  @db.Decimal(5, 2) // 税率（百分比，如 13.00）
-  priceWithTax   Decimal?  @db.Decimal(18, 4) // 含税单价 = 税前单价 × (1 + 税率/100)
-  totalWithTax   Decimal?  @db.Decimal(18, 4) // 暂定含税合价 = 含税单价 × 暂定数量
+  qty            Decimal? @db.Decimal(18, 4) // 暂定数量
+  priceBeforeTax Decimal? @db.Decimal(18, 4) // 税前单价
+  taxRatePct     Decimal? @db.Decimal(5, 2) // 税率（百分比，如 13.00）
+  priceWithTax   Decimal? @db.Decimal(18, 4) // 含税单价 = 税前单价 × (1 + 税率/100)
+  totalWithTax   Decimal? @db.Decimal(18, 4) // 暂定含税合价 = 含税单价 × 暂定数量
   remark         String?
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
@@ -574,45 +587,46 @@ model Settlement {
   projectId    String
   contractId   String?
   code         String?
-  typeCode     String?   // dict: settlement_type
+  typeCode     String? // dict: settlement_type
   amount       Decimal?  @db.Decimal(18, 2)
   deductAmount Decimal?  @db.Decimal(18, 2)
   actualAmount Decimal?  @db.Decimal(18, 2)
   settleDate   DateTime?
-  statusCode   String?   // dict: settlement_status
+  statusCode   String? // dict: settlement_status
   remark       String?
   createdAt    DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version      Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt    DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
   @@index([projectId, contractId])
   @@index([settleDate])
   @@index([projectId, createdAt])
 }
 
 model SettlementLedger {
-  id                 String   @id @default(cuid())
-  projectId          String
-  contractId         String?
-  settleMonth        String?  // YYYY-MM
-  monthSettleAmount  Decimal? @db.Decimal(18, 2) // 本月结算额
-  monthInvoiceAmount Decimal? @db.Decimal(18, 2) // 本月开票额
-  settleCount        Int?     // 结算次数
-  yearSettleAmount   Decimal? @db.Decimal(18, 2)
-  cumPurchaseAmount  Decimal? @db.Decimal(18, 2) // 截止当月开累采购额
-  startSettleAmount  Decimal? @db.Decimal(18, 2) // 开工结算额
+  id                  String   @id @default(cuid())
+  projectId           String
+  contractId          String?
+  settleMonth         String? // YYYY-MM
+  monthSettleAmount   Decimal? @db.Decimal(18, 2) // 本月结算额
+  monthInvoiceAmount  Decimal? @db.Decimal(18, 2) // 本月开票额
+  settleCount         Int? // 结算次数
+  yearSettleAmount    Decimal? @db.Decimal(18, 2)
+  cumPurchaseAmount   Decimal? @db.Decimal(18, 2) // 截止当月开累采购额
+  startSettleAmount   Decimal? @db.Decimal(18, 2) // 开工结算额
   monthActualPurchase Decimal? @db.Decimal(18, 2)
-  factoringDiscount  Decimal? @db.Decimal(18, 2) // 保理贴息
-  overdueInterest    Decimal? @db.Decimal(18, 2) // 逾期利息
-  yearSettleIncome   Decimal? @db.Decimal(18, 2)
-  cumSettleIncome    Decimal? @db.Decimal(18, 2)
-  isOnAccount        String?  // dict: yes_no 是否挂账
-  remark             String?
-  createdAt          DateTime @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt          DateTime @updatedAt
+  factoringDiscount   Decimal? @db.Decimal(18, 2) // 保理贴息
+  overdueInterest     Decimal? @db.Decimal(18, 2) // 逾期利息
+  yearSettleIncome    Decimal? @db.Decimal(18, 2)
+  cumSettleIncome     Decimal? @db.Decimal(18, 2)
+  isOnAccount         String? // dict: yes_no 是否挂账
+  remark              String?
+  createdAt           DateTime @default(now())
+  version             Int      @default(0) // 乐观锁版本号，更新时校验
+  updatedAt           DateTime @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -629,19 +643,20 @@ model PaymentRecord {
   id         String    @id @default(cuid())
   projectId  String
   contractId String?
-  payMonth   String?   // YYYY-MM 付款月份
+  payMonth   String? // YYYY-MM 付款月份
   amount     Decimal?  @db.Decimal(18, 2) // 本月付款额
-  methodCode String?   // dict: payment_method
+  methodCode String? // dict: payment_method
   payDate    DateTime?
-  receiptUrl String?   // 银行回单
-  statusCode String?   // dict: payment_status
+  receiptUrl String? // 银行回单
+  statusCode String? // dict: payment_status
   remark     String?
   createdAt  DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version    Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt  DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
   @@index([contractId])
   @@index([payMonth])
   @@index([projectId, createdAt])
@@ -650,30 +665,30 @@ model PaymentRecord {
 // ---------------- 发票 ----------------
 
 model Invoice {
-  id                   String    @id @default(cuid())
-  projectId            String
-  contractId           String?
-  goodsCategory        String?   // dict: goods_category
-  settlePeriod         String?   // 结算账期
-  invoiceCode          String?
-  invoiceNo            String?
-  typeCode             String?   // dict: invoice_type
-  invoiceDate          DateTime?
-  issuer               String?   // 开票单位
-  receiver             String?
-  amountBeforeTax      Decimal?  @db.Decimal(18, 2)
-  taxRate              Decimal?  @db.Decimal(9, 4)
-  amountWithTax        Decimal?  @db.Decimal(18, 2)
-  receiveDate          DateTime? // 发票收取时间
-  reviewStatus         String?   // dict: invoice_review_status
-  responsiblePerson    String?
-  financeTransferStatus String?  // dict: finance_transfer_status
-  imageUrl             String?
-  statusCode           String?   // dict: invoice_status
-  remark               String?
-  createdAt            DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
-  updatedAt            DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  projectId             String
+  contractId            String?
+  goodsCategory         String? // dict: goods_category
+  settlePeriod          String? // 结算账期
+  invoiceCode           String?
+  invoiceNo             String?
+  typeCode              String? // dict: invoice_type
+  invoiceDate           DateTime?
+  issuer                String? // 开票单位
+  receiver              String?
+  amountBeforeTax       Decimal?  @db.Decimal(18, 2)
+  taxRate               Decimal?  @db.Decimal(9, 4)
+  amountWithTax         Decimal?  @db.Decimal(18, 2)
+  receiveDate           DateTime? // 发票收取时间
+  reviewStatus          String? // dict: invoice_review_status
+  responsiblePerson     String?
+  financeTransferStatus String? // dict: finance_transfer_status
+  imageUrl              String?
+  statusCode            String? // dict: invoice_status
+  remark                String?
+  createdAt             DateTime  @default(now())
+  version               Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt             DateTime  @updatedAt
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -701,13 +716,13 @@ model RepaymentAgreement {
   overdueUnpaid    Decimal?  @db.Decimal(18, 2)
   remark           String?
   createdAt        DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version          Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt        DateTime  @updatedAt
 
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  supplier  Supplier?         @relation(fields: [supplierId], references: [id])
-  contract  Contract?         @relation(fields: [contractId], references: [id])
-  details   RepaymentDetail[]
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier Supplier?         @relation(fields: [supplierId], references: [id])
+  contract Contract?         @relation(fields: [contractId], references: [id])
+  details  RepaymentDetail[]
 
   @@unique([projectId, code])
   @@index([contractId])
@@ -717,7 +732,7 @@ model RepaymentAgreement {
 model RepaymentDetail {
   id          String    @id @default(cuid())
   agreementId String
-  period      Int?      // 期数
+  period      Int? // 期数
   amount      Decimal?  @db.Decimal(18, 2)
   dueDate     DateTime?
   remark      String?
@@ -739,10 +754,10 @@ model FactoringCost {
   financingInterest Decimal?  @db.Decimal(18, 2) // 融资利息
   handlingFee       Decimal?  @db.Decimal(18, 2) // 手续费
   totalCost         Decimal?  @db.Decimal(18, 2) // 费用合计（含税）= 融资利息 + 手续费，服务端自动计算
-  settlementMonth   String?   // 结算月份（YYYY-MM，"某年某月已办结算"）
-  remark            String?   // 备注
+  settlementMonth   String? // 结算月份（YYYY-MM，"某年某月已办结算"）
+  remark            String? // 备注
   createdAt         DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version           Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt         DateTime  @updatedAt
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -754,25 +769,25 @@ model FactoringCost {
 model OverdueInterest {
   id                 String    @id @default(cuid())
   contractId         String
-  settlementMonth    String    // 结算月份（YYYY-MM）
+  settlementMonth    String // 结算月份（YYYY-MM）
   materialAmount     Decimal?  @db.Decimal(18, 2) // 材料款金额（不含资金费用）
-  paymentRatio       Decimal?  @db.Decimal(9, 4)  // 付款比例（0.8 = 80%）
+  paymentRatio       Decimal?  @db.Decimal(9, 4) // 付款比例（0.8 = 80%）
   payableAmount      Decimal?  @db.Decimal(18, 2) // 应付款金额 = 材料款 × 付款比例，服务端自动计算
   payableDate        DateTime? // 应付款日期（按付款模式推导，可手动覆盖）
   overdueStartDate   DateTime? // 逾期起始日期 = 应付款日期 + 宽限期 + 1 天，服务端自动计算
   paymentDate        DateTime? // 实际付款日期
   paymentAmount      Decimal?  @db.Decimal(18, 2) // 本次付款金额（0 表示对剩余金额计息一次）
   interestAmount     Decimal?  @db.Decimal(18, 2) // 计息金额：有付款 = 付款金额；无付款 = 剩余未付金额，服务端自动计算
-  overdueDays        Int?      // 逾期天数 = DAYS360(逾期起始日期, 付款日期)，服务端自动计算
+  overdueDays        Int? // 逾期天数 = DAYS360(逾期起始日期, 付款日期)，服务端自动计算
   monthlyRate        Decimal?  @db.Decimal(18, 6) // 延期月利率（行级快照，取合同覆盖值或系统默认）
   overdueInterest    Decimal?  @db.Decimal(18, 2) // 逾期利息（含税），服务端自动计算
-  waived             Boolean   @default(false)    // 谈判减免：为 true 时利息记 0
+  waived             Boolean   @default(false) // 谈判减免：为 true 时利息记 0
   prevCumulative     Decimal?  @db.Decimal(18, 2) // 上期开累逾期利息（期初，手动录入或自动取上一结算月份）
   remark             String?
   isSettlementPeriod Boolean   @default(true) // 是否为本期结算行（区分开累/本期）
-  periodSeq          Int       @default(0)    // 同一结算月份内的行序号（多笔付款）
+  periodSeq          Int       @default(0) // 同一结算月份内的行序号（多笔付款）
   createdAt          DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version            Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime  @updatedAt
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
@@ -816,11 +831,11 @@ model AssetLedger {
   receiptOrderId    String? // 来源收领单 ID（收领单自动入账时写入）
   receiptDetailId   String? // 来源收领单明细 ID（防重唯一键，需求 2.2.2）
   createdAt         DateTime  @default(now())
-  version    Int      @default(0) // 乐观锁版本号，更新时校验
+  version           Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt         DateTime  @updatedAt
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
   // 收领单删除时其自动入账的资产台账记录一并删除（原先由 service 手工 deleteMany 维护）
   receiptOrder ReceiptOrder? @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
 
@@ -850,31 +865,31 @@ model Notification {
 }
 
 model OperationLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  username  String?
-  module    String?
-  action    String?
-  method    String?
-  url       String?
-  params    String?  @db.Text
-  ip        String?
+  id           String   @id @default(cuid())
+  userId       String?
+  username     String?
+  module       String?
+  action       String?
+  method       String?
+  url          String?
+  params       String?  @db.Text
+  ip           String?
   // —— 审计增强：变更前/后数据、结果、耗时、业务标识 ——
-  beforeData String? @db.Text
-  afterData  String? @db.Text
-  result     String? // SUCCESS / FAIL
-  message    String?
-  duration   Int?
-  bizType    String?
-  bizId      String?
-  projectId  String?
+  beforeData   String?  @db.Text
+  afterData    String?  @db.Text
+  result       String? // SUCCESS / FAIL
+  message      String?
+  duration     Int?
+  bizType      String?
+  bizId        String?
+  projectId    String?
   // —— 导入专项统计 ——
   importFile   String?
   importRows   Int?
   successCount Int?
   failCount    Int?
   errorFileUrl String?
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id])
 
@@ -886,15 +901,15 @@ model OperationLog {
 // ---------------- 异步导入任务 ----------------
 
 model ImportTask {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   module        String // 业务模块标识，如 contract / supplier / material
   moduleName    String? // 模块中文名
   fileName      String?
-  totalRows     Int      @default(0)
-  processedRows Int      @default(0)
-  successCount  Int      @default(0)
-  failCount     Int      @default(0)
-  status        String   @default("PENDING") // PENDING / RUNNING / SUCCESS / FAILED
+  totalRows     Int       @default(0)
+  processedRows Int       @default(0)
+  successCount  Int       @default(0)
+  failCount     Int       @default(0)
+  status        String    @default("PENDING") // PENDING / RUNNING / SUCCESS / FAILED
   errorFileUrl  String?
   message       String?
   projectId     String?
@@ -906,8 +921,8 @@ model ImportTask {
   lockedAt      DateTime?
   // 幂等去重键（模块+文件名+行数+行内容摘要的 sha1）：同一份文件在 PENDING/RUNNING 期间重复提交不再新建任务
   dedupeKey     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   // (status, lockedAt) 复合索引同时服务「按状态筛列表」与「按心跳回收僵尸」
   @@index([status, lockedAt])
@@ -919,14 +934,14 @@ model ImportTask {
 // ---------------- 数据归档记录 ----------------
 
 model ArchiveLog {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   table     String // 归档来源表
   fromDate  DateTime?
   toDate    DateTime?
-  rows      Int      @default(0)
+  rows      Int       @default(0)
   filePath  String?
   createdBy String?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([createdAt])
 }
@@ -987,42 +1002,42 @@ model SysParam {
 // ---------------- 收领单（日报管理 → 收领单，与总日报平级） ----------------
 
 model ReceiptOrder {
-  id                 String    @id @default(cuid())
-  projectId          String
-  orderNo            String // 收领单编号，自动生成（如 SO00009cy000217）
-  supplierId         String? // 供应单位
-  supplierName       String? // 供应单位名称（快照）
-  supplierType       String? // 供应单位类型：SUPPLIER 供应商 / OTHER_PROJECT 其他项目 / SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目
-  receivingUnitId    String? // 领用单位 ID
-  receivingUnitName  String? // 领用单位名称（快照）
-  receivingUnitType  String? // 领用单位类型：SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目 / OTHER_PROJECT 其他项目
-  subcontractId      String? // 分包合同 ID（领用单位选分包商时）
-  subcontractName    String? // 分包合同名称（快照）
+  id                    String    @id @default(cuid())
+  projectId             String
+  orderNo               String // 收领单编号，自动生成（如 SO00009cy000217）
+  supplierId            String? // 供应单位
+  supplierName          String? // 供应单位名称（快照）
+  supplierType          String? // 供应单位类型：SUPPLIER 供应商 / OTHER_PROJECT 其他项目 / SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目
+  receivingUnitId       String? // 领用单位 ID
+  receivingUnitName     String? // 领用单位名称（快照）
+  receivingUnitType     String? // 领用单位类型：SUBCONTRACTOR 分包商 / SELF_PROJECT 本项目 / OTHER_PROJECT 其他项目
+  subcontractId         String? // 分包合同 ID（领用单位选分包商时）
+  subcontractName       String? // 分包合同名称（快照）
   supplySubcontractId   String? // 供应分包合同 ID（供应单位选分包商时）
   supplySubcontractName String? // 供应分包合同名称（快照）
-  subcontractorId    String? // 关联分包商 ID（供应单位/领用单位选分包商时，用于领料人下拉与合同互锁）
-  orderDate          DateTime? // 日期
-  receiver           String? // 领料人（最长 50 字符）
-  materialContractId String? // 物资合同 ID
-  materialContractNo String? // 物资合同编号（快照）
-  status             String    @default("DRAFT") // DRAFT 草稿 / SAVED 已保存
-  pushedAt           DateTime? // 推送总日报时间
-  remark             String?
-  createdBy          String?
-  createdAt          DateTime  @default(now())
-  version            Int       @default(0) // 乐观锁版本号
-  updatedAt          DateTime  @updatedAt
+  subcontractorId       String? // 关联分包商 ID（供应单位/领用单位选分包商时，用于领料人下拉与合同互锁）
+  orderDate             DateTime? // 日期
+  receiver              String? // 领料人（最长 50 字符）
+  materialContractId    String? // 物资合同 ID
+  materialContractNo    String? // 物资合同编号（快照）
+  status                String    @default("DRAFT") // DRAFT 草稿 / SAVED 已保存
+  pushedAt              DateTime? // 推送总日报时间
+  remark                String?
+  createdBy             String?
+  createdAt             DateTime  @default(now())
+  version               Int       @default(0) // 乐观锁版本号
+  updatedAt             DateTime  @updatedAt
 
-  project          Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  supplier         Supplier?           @relation(fields: [supplierId], references: [id])
-  materialContract Contract?           @relation("ReceiptMaterialContract", fields: [materialContractId], references: [id])
-  subcontract      Contract?           @relation("ReceiptSubcontract", fields: [subcontractId], references: [id])
-  supplySubcontract Contract?          @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
+  project           Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier          Supplier?            @relation(fields: [supplierId], references: [id])
+  materialContract  Contract?            @relation("ReceiptMaterialContract", fields: [materialContractId], references: [id])
+  subcontract       Contract?            @relation("ReceiptSubcontract", fields: [subcontractId], references: [id])
+  supplySubcontract Contract?            @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
   // 分包商档案被删除时保留收领单（名称已是快照），故 SetNull
-  subcontractor    Subcontractor?      @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
-  details          ReceiptOrderDetail[]
-  assetLedgers     AssetLedger[]
-  dailyReports     DailyReport[]
+  subcontractor     Subcontractor?       @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  details           ReceiptOrderDetail[]
+  assetLedgers      AssetLedger[]
+  dailyReports      DailyReport[]
 
   @@unique([projectId, orderNo])
   @@index([projectId, orderDate])
@@ -1031,30 +1046,30 @@ model ReceiptOrder {
 }
 
 model ReceiptOrderDetail {
-  id                String   @id @default(cuid())
-  orderId           String
-  materialId        String? // 物资 ID（引用物资基础库）
-  categoryLevel1    String? // 一级分类
-  categoryLevel2    String? // 二级分类
-  materialName      String? // 物资名称
-  specModel         String? // 规格型号
-  unit              String? // 计量单位
-  contractQty       Decimal? @db.Decimal(18, 4) // 合同数量
-  deliveryQty       Decimal? @db.Decimal(18, 4) // 送货数量（手动填写）
-  receivedQty       Decimal? @db.Decimal(18, 4) // 实收数量（手动填写）
-  priceBeforeTax    Decimal? @db.Decimal(18, 4) // 税前单价
-  taxRate           Decimal? @db.Decimal(9, 4) // 税率（百分比，如 13.00）
-  priceWithTax      Decimal? @db.Decimal(18, 4) // 综合单价 = 税前单价 × (1 + 税率/100)
-  totalPrice        Decimal? @db.Decimal(18, 2) // 综合总价 = 实收数量 × 综合单价
-  usagePart         String? // 使用部位
-  brand             String? // 厂家/品牌
-  remark            String? // 备注
-  isAgentPurchase   String? // 是否代购（dict: yes_no）
-  sortOrder         Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  orderId         String
+  materialId      String? // 物资 ID（引用物资基础库）
+  categoryLevel1  String? // 一级分类
+  categoryLevel2  String? // 二级分类
+  materialName    String? // 物资名称
+  specModel       String? // 规格型号
+  unit            String? // 计量单位
+  contractQty     Decimal? @db.Decimal(18, 4) // 合同数量
+  deliveryQty     Decimal? @db.Decimal(18, 4) // 送货数量（手动填写）
+  receivedQty     Decimal? @db.Decimal(18, 4) // 实收数量（手动填写）
+  priceBeforeTax  Decimal? @db.Decimal(18, 4) // 税前单价
+  taxRate         Decimal? @db.Decimal(9, 4) // 税率（百分比，如 13.00）
+  priceWithTax    Decimal? @db.Decimal(18, 4) // 综合单价 = 税前单价 × (1 + 税率/100)
+  totalPrice      Decimal? @db.Decimal(18, 2) // 综合总价 = 实收数量 × 综合单价
+  usagePart       String? // 使用部位
+  brand           String? // 厂家/品牌
+  remark          String? // 备注
+  isAgentPurchase String? // 是否代购（dict: yes_no）
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  order ReceiptOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order        ReceiptOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   // 物资基础记录被删除时保留收领单明细（名称/规格为行内快照），故 SetNull
   materialBase MaterialBase? @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
@@ -1080,40 +1095,41 @@ model ProcurementTemplate {
   @@unique([projectId, moduleType]) // 每个业务类型每项目仅一个模板
   @@index([projectId])
 }
+
 // ---------------- 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态） ----------------
 
 model ProcurementTask {
-  id          String   @id @default(cuid())
-  projectId   String
-  taskNo      String // 采购编号：PROC-YYYYMMDD-XXX
-  type        String // FRAMEWORK 引用框架协议 | SINGLE 单项采购
-  content     String // 采购内容
-  purpose     String? // 采购用途
-  status      String   @default("NOT_STARTED") // 见 TASK_STATUSES 工作流状态
-  stage       Int      @default(0) // 已发布到的阶段序号（0=未发布任何阶段）
-  preMeetingRequired Boolean @default(false) // 单项采购：是否需要采前会会议纪要（金额≥100万）
-  totalListId String? // 总采购清单 ID（批次二后续任务关联）
+  id                  String   @id @default(cuid())
+  projectId           String
+  taskNo              String // 采购编号：PROC-YYYYMMDD-XXX
+  type                String // FRAMEWORK 引用框架协议 | SINGLE 单项采购
+  content             String // 采购内容
+  purpose             String? // 采购用途
+  status              String   @default("NOT_STARTED") // 见 TASK_STATUSES 工作流状态
+  stage               Int      @default(0) // 已发布到的阶段序号（0=未发布任何阶段）
+  preMeetingRequired  Boolean  @default(false) // 单项采购：是否需要采前会会议纪要（金额≥100万）
+  totalListId         String? // 总采购清单 ID（批次二后续任务关联）
   // 注：与合同的关系**只由 Contract.taskId 一条表达**（反引用 contracts，见下方 relations）。
   // 原先双写的 contractId 字段已移除（2026-10-14），避免同一关系两处可能不一致。
   procurementCategory String? // 采购品类：物资 | 租赁（采购发起第一步填写；决定合同模板映射）
-  techQuality String? // 技术质量标准（富文本 HTML；采购发起第三步填写，公告/文件/采前会/合同模板引用）
-  acceptanceMethod String? // 验收方式（富文本 HTML）
-  paymentMethod String? // 付款方式（富文本 HTML）
-  createdAt   DateTime @default(now())
-  version     Int      @default(0)
-  updatedAt   DateTime @updatedAt
+  techQuality         String? // 技术质量标准（富文本 HTML；采购发起第三步填写，公告/文件/采前会/合同模板引用）
+  acceptanceMethod    String? // 验收方式（富文本 HTML）
+  paymentMethod       String? // 付款方式（富文本 HTML）
+  createdAt           DateTime @default(now())
+  version             Int      @default(0)
+  updatedAt           DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  totalItems ProcurementTotalItem[]
-  frameworkExplanation FrameworkExplanation?
-  preMeetingMinutes    PreMeetingMinutes?
-  procurementNotice    ProcurementNotice?
-  procurementDocument  ProcurementDocument?
+  project                 Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  totalItems              ProcurementTotalItem[]
+  frameworkExplanation    FrameworkExplanation?
+  preMeetingMinutes       PreMeetingMinutes?
+  procurementNotice       ProcurementNotice?
+  procurementDocument     ProcurementDocument?
   procurementResultReport ProcurementResultReport?
   procurementPriceCompare ProcurementPriceCompare?
-  bidders               ProcurementBidder[]
-  evaluations           ProcurementEvaluation[]
-  contracts              Contract[] @relation("TaskContracts")
+  bidders                 ProcurementBidder[]
+  evaluations             ProcurementEvaluation[]
+  contracts               Contract[]               @relation("TaskContracts")
 
   @@unique([projectId, taskNo])
   @@index([projectId, status])
@@ -1122,7 +1138,7 @@ model ProcurementTask {
 // ---------------- 总采购清单明细（批次二 · 任务 2.2） ----------------
 
 model ProcurementTotalItem {
-  id             String  @id @default(cuid())
+  id             String   @id @default(cuid())
   projectId      String
   taskId         String
   materialBaseId String // 物资基础库记录（名称/规格只能从基础库选择）
@@ -1135,15 +1151,15 @@ model ProcurementTotalItem {
   marketPrice    Float? // 市场单价
   infoPrice      Float? // 信息价
   planPrice      Float? // 预计采购单价（控制价）
-  sortOrder      Int     @default(0)
+  sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
-  version        Int     @default(0)
+  version        Int      @default(0)
   updatedAt      DateTime @updatedAt
 
-  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task         ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   // 与 ContractMaterial 口径一致：被引用的物资基础记录禁止删除（需先改用「停用」）
-  materialBase MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
+  materialBase MaterialBase    @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
 
   @@index([taskId])
   @@index([materialBaseId])
@@ -1152,21 +1168,21 @@ model ProcurementTotalItem {
 // ---------------- 框架协议事前说明（批次二 · 任务 3.1，仅 FRAMEWORK 类型任务） ----------------
 
 model FrameworkExplanation {
-  id               String   @id @default(cuid())
-  projectId        String
-  taskId           String   @unique // 一个采购任务仅一份事前说明
-  frameworkIntro   String? // 一、框架简介（富文本 HTML）
-  negotiation      String? // 二、谈判情况（富文本 HTML）
-  inquiryRows      String? // 三、询价情况表 JSON: [{rank, unit, totalPrice, taxIncluded, type}]
-  priceCompareRows String? // 四、同城/相邻城市局其他单位执行合同价 JSON: [{unit, content, execPrice, note}]
-  execution        String? // 五、执行情况（富文本 HTML）
-  costRows         String? // 六、成本分析表 JSON: [{item, amount, ratio, note}]
-  attachments      String? // 七、附表 JSON: [{fileName, url, size}]
+  id                 String    @id @default(cuid())
+  projectId          String
+  taskId             String    @unique // 一个采购任务仅一份事前说明
+  frameworkIntro     String? // 一、框架简介（富文本 HTML）
+  negotiation        String? // 二、谈判情况（富文本 HTML）
+  inquiryRows        String? // 三、询价情况表 JSON: [{rank, unit, totalPrice, taxIncluded, type}]
+  priceCompareRows   String? // 四、同城/相邻城市局其他单位执行合同价 JSON: [{unit, content, execPrice, note}]
+  execution          String? // 五、执行情况（富文本 HTML）
+  costRows           String? // 六、成本分析表 JSON: [{item, amount, ratio, note}]
+  attachments        String? // 七、附表 JSON: [{fileName, url, size}]
   referenceSuppliers String? // 引用供应商及金额 JSON: [{supplier, amount}]（可自动填充询价最低价单位）
-  publishedAt      DateTime? // 发布时间（任务事前说明阶段发布后回填）
-  createdAt        DateTime @default(now())
-  version          Int      @default(0)
-  updatedAt        DateTime @updatedAt
+  publishedAt        DateTime? // 发布时间（任务事前说明阶段发布后回填）
+  createdAt          DateTime  @default(now())
+  version            Int       @default(0)
+  updatedAt          DateTime  @updatedAt
 
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task    ProcurementTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -1297,19 +1313,19 @@ model ProcurementDocument {
 
 /// 考察报告（批次二 · 任务 3.7）：独立模块，记录对供应商（考察单位）的考察情况
 model InspectionReport {
-  id             String    @id @default(cuid())
-  projectId      String
-  unitName       String // 考察单位名称（即供应商名称，用于导出命名）
-  inspectionTime DateTime? // 考察时间（日期）
+  id              String    @id @default(cuid())
+  projectId       String
+  unitName        String // 考察单位名称（即供应商名称，用于导出命名）
+  inspectionTime  DateTime? // 考察时间（日期）
   inspectionPlace String? // 考察地点
-  inspectors     String? // 考察人员
-  content        String? // 考察内容（富文本 HTML）
-  conclusion     String? // 考察结论（富文本 HTML）
-  photos         String? // 考察照片 JSON：[{ fileName, url, size }]
-  publishedAt    DateTime? // 发布时间（发布后状态「已完成」）
-  createdAt      DateTime  @default(now())
-  version        Int       @default(0)
-  updatedAt      DateTime  @updatedAt
+  inspectors      String? // 考察人员
+  content         String? // 考察内容（富文本 HTML）
+  conclusion      String? // 考察结论（富文本 HTML）
+  photos          String? // 考察照片 JSON：[{ fileName, url, size }]
+  publishedAt     DateTime? // 发布时间（发布后状态「已完成」）
+  createdAt       DateTime  @default(now())
+  version         Int       @default(0)
+  updatedAt       DateTime  @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

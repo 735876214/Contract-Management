@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { CONTRACT_STATUS, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from './statuses';
 
 /**
- * 任务 7：三处「驳回」（无审批流，纯状态回退）的状态机守卫 —— 单一事实源。
+ * 任务 7：三处「驳回」（纯状态回退）的状态机守卫 —— 单一事实源。
  * 供 service 与单测共用，避免驳回规则散落在各 service 中逐渐漂移。
  * - 合同签章驳回 → 回到「合同起草」
  * - 结算驳回 → 回到「回填（草稿）」
@@ -13,7 +13,7 @@ import { CONTRACT_STATUS, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from './statu
  */
 export { CONTRACT_STATUS, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS };
 
-/** 可被驳回回「合同起草」的合同状态：仅「审批中 / 已签章」（草稿本就处于起草，无需驳回） */
+/** 可被驳回回「合同起草」的合同状态：仅「待签章 / 已签章」（草稿本就处于起草，无需驳回） */
 export const CONTRACT_REJECTABLE_STATUSES: readonly string[] = [
   CONTRACT_STATUS.APPROVING,
   CONTRACT_STATUS.SIGNED,
@@ -28,10 +28,10 @@ export const SETTLEMENT_REJECTABLE_STATUSES: readonly string[] = [
   SETTLEMENT_STATUS.DONE,
 ];
 
-/** 合同签章驳回 → 合同起草：仅「审批中 / 已签章」可驳回 */
+/** 合同签章驳回 → 合同起草：仅「待签章 / 已签章」可驳回 */
 export function assertContractRejectable(status: string): void {
   if (!CONTRACT_REJECTABLE_STATUSES.includes(String(status ?? ''))) {
-    throw new BadRequestException('仅「审批中 / 已签章」的合同可驳回回合同起草');
+    throw new BadRequestException('仅「待签章 / 已签章」的合同可驳回回合同起草');
   }
 }
 
@@ -56,7 +56,7 @@ export interface ResultReportRejectContext {
  * 成交报告退回 → 重发：
  * - 仅「单项采购」有成交报告阶段；
  * - 成交报告须已发布（stage >= 成交报告下标）；
- * - 若下游合同已签章/审批中，禁止退回（需先驳回合同回到合同起草），避免产生孤儿合同。
+ * - 若下游合同已签章/待签章，禁止退回（需先驳回合同回到合同起草），避免产生孤儿合同。
  */
 export function assertResultReportRejectable(ctx: ResultReportRejectContext): void {
   if (ctx.type !== 'SINGLE') {
@@ -66,7 +66,7 @@ export function assertResultReportRejectable(ctx: ResultReportRejectContext): vo
     throw new BadRequestException('成交报告尚未发布，无需退回');
   }
   if (ctx.linkedContractStatus && ctx.linkedContractStatus !== CONTRACT_STATUS.DRAFT) {
-    throw new BadRequestException('下游合同已签章/审批中，无法退回成交报告，请先驳回合同回到合同起草');
+    throw new BadRequestException('下游合同已签章/待签章，无法退回成交报告，请先驳回合同回到合同起草');
   }
 }
 

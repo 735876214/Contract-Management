@@ -10,13 +10,13 @@ import { TASK_STATUS } from '../src/constants/procurementFlow';
  * 集成测试 · **合同状态流转与采购任务状态联动**（真库、真守卫、真联动）。
  *
  * 覆盖（对应用户点名的「状态流转」）：
- * ① 草稿 →(提交/互转) 审批中 →(签章) 已签章 →(驳回) 草稿，每一步都断言**关联采购任务**的状态；
+ * ① 草稿 →(提交/互转) 待签章 →(签章) 已签章 →(驳回) 草稿，每一步都断言**关联采购任务**的状态；
  * ② 签章件真的落盘且可按合同下载（走 StorageService 全链路）；
  * ③ 非法流转被状态机守卫拦住（草稿不可驳回）；
  * ④ 两条**防误改**规则：非主合同不改写任务状态、任务未走完阶段链时不介入。
  *
- * 注：项目**无审批流模型**（无 `Approval*` 表，合同 = status + /sign + /reject），
- * 所以「审批逻辑」在这里体现为「提交 → 审批中 → 签章 / 驳回」这条既有流转（见 docs/09 §2.2 F）。
+ * 注：项目**没有多级流程引擎**（无 `Approval*` 表，合同 = status + /sign + /reject），
+ * 所以这里验的是「提交 → 待签章 → 签章 / 驳回」这条既有状态流转（见 docs/09 §2.2 F）。
  */
 describe('集成 · 合同状态流转与任务联动', () => {
   let ctx: IntContext;
@@ -30,19 +30,19 @@ describe('集成 · 合同状态流转与任务联动', () => {
     await ctx.app.close();
   });
 
-  it('草稿 → 审批中 → 签章 → 驳回：合同与采购任务状态同步', async () => {
+  it('草稿 → 待签章 → 签章 → 驳回：合同与采购任务状态同步', async () => {
     const project = await makeProject(ctx.prisma, 'FLOW');
     // stage 设大值 = 阶段链已走完（否则合同状态不该改写任务状态）
     const task = await makeTask(ctx.prisma, { projectId: project.id, type: 'SINGLE', status: TASK_STATUS.CONTRACT_EDITING, stage: 99 });
     const c = await makeContract(ctx.prisma, { projectId: project.id, taskId: task.id, status: CONTRACT_STATUS.DRAFT, amount: 1000 });
 
-    // ① 草稿 → 审批中
+    // ① 草稿 → 待签章
     await contract.setStatus(c.id, CONTRACT_STATUS.APPROVING);
     assert.equal((await ctx.prisma.contract.findUnique({ where: { id: c.id } }))?.status, CONTRACT_STATUS.APPROVING);
     assert.equal(
       (await ctx.prisma.procurementTask.findUnique({ where: { id: task.id } }))?.status,
       TASK_STATUS.CONTRACT_APPROVING,
-      '审批中 → 任务应为「合同审批中」',
+      '待签章 → 任务应为「合同待签章」',
     );
 
     // ② 签章（真的落盘 + 可下载）

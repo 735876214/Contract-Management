@@ -162,7 +162,7 @@ export class ContractController {
     return this.contractService.setStatus(id, body?.status);
   }
 
-  /** 任务 7：合同签章驳回 → 回退到「合同起草」（无审批流） */
+  /** 任务 7：合同签章驳回 → 回退到「合同起草」 */
   @RequirePermissions('contract:edit')
   @Post(':id/reject')
   rejectToDraft(@Param('id') id: string) {

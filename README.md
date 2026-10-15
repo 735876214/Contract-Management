@@ -69,16 +69,15 @@ server/src/
     ├── dict/          字典类型/字典项、缓存、引用校验、导入导出
     ├── project/       项目管理与项目成员
     ├── supplier/      供应商库（合同创建自动带出）
-    ├── contract/      合同 CRUD、编号查重、审批、变更留痕
+    ├── contract/      合同 CRUD、编号查重、签章、变更留痕
     ├── template/      模板库、版本、条款库、生成向导
     ├── daily-report/  日报（物资种类按材料类别联动）
     ├── contract-item/ 合同清单
     ├── settlement/    结算单 + 结算台账
-    ├── payment/       付款计划/申请/执行台账/核销/逾期
+    ├── payment/       付款台账（只登记已完成付款）+ 逾期利息
     ├── invoice/       收票登记、查重、二维码/OCR 识别、查验（登记核对，不做验真）
     ├── ledger/        合同台账（聚合视图 + 合规性问题计算）
     ├── repayment/     还款协议 + 还款明细
-    ├── approval/      审批流定义与审批中心
     ├── notification/  站内信（邮件/短信/企微接口预留）
     ├── dashboard/     看板统计
     └── system/        用户/角色/权限/部门/参数/日志

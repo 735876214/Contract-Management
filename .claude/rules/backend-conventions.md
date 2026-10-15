@@ -40,6 +40,14 @@
   （`contract.service.syncLinkedTaskStatus`），`POST /procurement-tasks/:id/sync-contract-status` 只作人工兜底。
   ⚠️ 「主合同」= 该任务**最早创建**的合同（同批生成再按编号排序）；`GET /contracts` 按 `createdAt DESC`，
   **`list[0]` 不是主合同**，别拿它判定。
+- **合同当前金额 = 主合同 + Σ 补充协议 `changeAmount`**（**带符号增量**，业务口径 2026-10-16）：
+  单一实现在 `common/utils/contract-chain.ts` 的 `resolveChainAmounts()` / `contractChainAmount()`。
+  ⚠️ **不要用补充协议的 `amount` 参与链式求和**——它是自由填写字段，涨价/降价时往往填的是
+  "剩余数量的全价"，直接相加会**重复计入**；`changeAmount` 由服务端在发布时按清单重算
+  （`common/utils/supplement-delta.ts`）。台账「已结算金额占合同比例」「100% 欠款」的分母、
+  防超结上限、工作台红/黄预警**全部用这一个口径**。
+  ⚠️ 链 IO 只在 `contract-chain.ts`（不在 `amount-guard`）：`amount-guard` 被 `.mts` spec 加载，
+  **不能新增相对 import**（见 `.claude/rules/testing.md`）。
 - **金额上限（防超结/防超付）**：判定在零依赖模块 `common/utils/amount-guard.ts`
   （上限 = 合同链「主合同 + 补充协议」金额；累计结算排除草稿；累计付款排除失败/退款），
   策略由系统参数 `settlement.over_amount_policy` / `payment.over_amount_policy` 控制
