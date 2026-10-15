@@ -36,7 +36,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（24 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（25 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（4 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils} + theme.ts + index.css
@@ -76,7 +76,7 @@ Contract-Management/
 | 后端 service / 迁移 / 结算 / 台账 / 日志 | [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md) | 六处同步 · 外键清洗与 `@relation` · 乐观锁 · 写字段白名单 · 日志脱敏白名单 · 主合同判定（**`list[0]` 不是主合同**）· 日报行是结算量唯一来源 · 金额上限（**无金额 = 无上限**）· 台账列宽是**字符宽不是像素** · 存储单一入口 |
 | 招标·投标·评标 / 成交报告 / 采购变量 | [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md) | 导入**双写**（JSON 快照 + 结构化行）· 定标 = 勾选候选人 · 生成合同**只从结构化中标行取价** · 采购总清单带入合同清单 · 变量名必须带单位 · 面板别漏 `variableScope` · 项目字段名两套 |
 | 导入 / 模板与占位符 | [.claude/rules/import-and-templates.md](.claude/rules/import-and-templates.md) | 两阶段「全成功或全失败」· 心跳回收 · 幂等去重（**命中后不得再 execute**）· 占位符只认 `{{}}` · **种子模板有两处** |
-| 前端页面·组件·样式·路由 | [.claude/rules/frontend-conventions.md](.claude/rules/frontend-conventions.md) | `perm()` 工厂 + 权限码与菜单同码 · 视觉只改 token 层（禁写死色值）· 断点只走 `useResponsive()` · 列显隐两条路别混用 · 菜单权威在后端 |
+| 前端页面·组件·样式·路由 | [.claude/rules/frontend-conventions.md](.claude/rules/frontend-conventions.md) | `perm()` 工厂 + 权限码与菜单同码 · 视觉只改 token 层（禁写死色值）· **断点两层：外壳看视口 / 组件看容器（CQ）** · 列显隐两条路别混用 · 菜单权威在后端 |
 | 测试 / 改金额·状态·导入 | [.claude/rules/testing.md](.claude/rules/testing.md) | 两套测试分工（改金额/状态/导入**必跑 `test:int`**）· `.mts` 三条硬约束（装饰器与 JSX **永远**进不了）· 新增 spec 要同步 §5 清单与计数 |
 
 **最高频的 5 条**（直接写在这里，省得每次都翻文件）：
@@ -84,14 +84,19 @@ Contract-Management/
 1. 改模型必须出迁移（**禁 `db push`**）；加外键先在同一迁移内清洗数据。
 2. 项目隔离：新增查询/写入**自己带 `projectId`**（例外见 §3 铁律 3）。
 3. 状态 code 写常量（`SETTLEMENT_STATUS.DRAFT`），**不裸写** `'DRAFT'`。
-4. 前端色值只来自 `theme.ts` / `--cms-*`；断点只来自 `useResponsive()`。
+4. 前端色值只来自 `theme.ts` / `--cms-*`；**断点分两层**：页面外壳看视口（`useResponsive()`），
+   组件内部看容器（`.cq` + `@container` / `useContainerWidth()`）。
 5. 改完必须过 `web build` + `server build` + `npm test`，并**重启后端真打一次请求**（见 §7）。
 
 ## 5. 前端约定（速览）
 
 - 新页面用 `perm('/路径', <Page/>)`；后端菜单配了 `permission` 就要在 `ROUTE_PERMISSIONS` 登记**同一权限码**。
 - 视觉只改 token 层（`theme.ts`、`index.css` 的 `--cms-*`、`Sider/index.less`），页面/组件里**不写死色值**。
-- 断点只走 `useResponsive()`；表格必须声明 `scroll={{ x }}`；`≤md` 侧栏走 Drawer。
+- **断点分两层，别混用**：页面外壳（侧栏/顶栏/内容区边距/页面级栅格列数）看**视口**，走 `useResponsive()`；
+  组件内部（卡片内列数、工具条折行、弹窗/抽屉里的表格与预览区）看**容器**，走 `.cq` + `@container`，
+  CSS 表达不了的（AntD 的 JS prop、条件渲染）才用 `useContainerWidth()`。CQ 规则集中在
+  `styles/containers.css`，由 `containerQuery.spec.mts` 锁定。
+- 表格必须声明 `scroll={{ x }}`；`≤md` 侧栏走 Drawer。
 - 两套测试别混用；前端纯逻辑单测放 `server/test/*.spec.mts`（**不引入** jest/vitest）。
 - 细则见 [.claude/rules/frontend-conventions.md](.claude/rules/frontend-conventions.md)、
   [.claude/rules/testing.md](.claude/rules/testing.md)；视觉规则与取舍见 [DESIGN.md](DESIGN.md)。
@@ -109,7 +114,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（24 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（25 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
@@ -121,7 +126,7 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
 1. `cd web && npm run build`、`cd server && npm run build` 均须通过。
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**（Nest 输出带 ANSI 颜色码，会漏判）：
    看退出码，或直接跑 `npx tsc --noEmit`。
-2. `cd server && npm test` 须全绿（24 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
+2. `cd server && npm test` 须全绿（25 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
    spec 数量与清单由 `docStats.spec.mts` 锁定，**新增 spec 必须同步 `docs/development.md §5` 清单**。
    **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（4 个 spec：金额闸门 / 合同状态流转 /
    导入两阶段 / 招标域投标·评标·定标）——纯函数单测证明不了"闸门是否真的接上了"。

@@ -187,28 +187,40 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 - 改视觉**只改 `theme.ts`（JS 侧）与 `index.css` 的 `--cms-*`（CSS 侧）**——这两处是 token 层。
 - 标题用衬线类名（§2）、标签走 `DictTag`/语义色映射、图表走 `chartPalette`。
 - 新页面复用 `.page-card` 或 `ModuleListPage` 骨架；新列表优先 `useTable` + `ModuleListPage`。
-- **响应式按 §10 四条硬性约定执行**。
+- **响应式按 §10 的「双层模型」执行**（页面外壳看视口、组件内部看容器）。
 - 小字链接/强调文字用 `--cms-primary-active`（珊瑚深档）；正文走 ink/body 灰阶。
 
 **Don't**
 - **不在组件里写死 `#hex` / `rgb()`**：由 `server/test/themeTokens.spec.mts` 锁定，白名单只有
   `theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`（编辑器调色板是**功能**）、
   `docExport.ts`（Word 内联样式）。
-- 不引入第二套 UI 库（MUI/Tailwind）、不新增第三个样式文件。
+- 不引入第二套 UI 库（MUI/Tailwind）。样式仍集中在 `index.css`（token 层 + 页面外壳层的全局覆盖）
+  与 `Sider/index.less`；**组件级 Container Queries 规则另建 `web/src/styles/*.css`**
+  （落点 `styles/containers.css`）——`@container` 无法纯内联表达。该目录只放容器驱动规则、
+  **不得持有色值**（色值仍只来自 `--cms-*`，断点值只来自 `--cq-*` / `CONTAINER_BREAKPOINTS`），
+  由 `server/test/themeTokens.spec.mts` 与 `containerQuery.spec.mts` 分别看住。
 - 不把营销页组件搬进后台（hero/pricing/connector/footer），不使用 Anthropic 的商标与字标。
 - 不硬编码状态中文/颜色：状态展示取自字典或 `constants/procurementWorkflow.ts`。
 - 不用纯白做页面底（`paper` 只给文档预览）；不给卡片加重阴影。
 - 不在组件里用 `window.innerWidth` / `matchMedia` 自行判断断点（见 §10）。
 - 不为移动端给大宽表（36 列台账等）做卡片化——明确取舍，见 §10。
 
-## 10. 响应式（断点与降级规则）
+## 10. 响应式（**双层模型**）
 
-> 规范制定依据：[docs/08](docs/08-全局响应式改造方案.md)。**验收目标：≥768 平板完全可用；≥375 手机可读可操作。**
->
-> ⚠️ **本节是「页面外壳层」的规范**（判定依据 = **视口**：媒体查询 / AntD 断点 prop / `useResponsive()`）。
-> **组件内部**布局将改为 **Container Queries**（按**容器宽度**判断，而非视口）——
-> 方案与迁移计划见 [docs/08](docs/08-全局响应式改造方案.md) §1–§7（V2）。
-> **在该方案落地前，本节四条约定仍是唯一有效的口径**；落地时本节会按 docs/08 §6 改写为"双层模型"。
+> 规范制定依据：[docs/08](docs/08-全局响应式改造方案.md)（V1 视口层 + V2 容器层）。
+> **验收目标：≥768 平板完全可用；≥375 手机可读可操作。**
+
+**两层并存——判定依据不同，不是二选一**
+
+| 层 | 判定依据 | 机制 | 负责什么 |
+|---|---|---|---|
+| **页面外壳层** | **视口**宽度 | 媒体查询 / AntD 断点 prop / `useResponsive()` | 侧栏（固定 ↔ Drawer）、顶栏精简、内容区边距、**页面级栅格**的列数 |
+| **组件内部层** | **容器**宽度 | `.cq` + `@container` / `useContainerWidth()` | 卡片内列数、工具条折行、弹窗/抽屉里的表格与预览区、`.doc-preview` |
+
+为什么必须分两层：外壳的容器**就是**视口，按视口判断语义正确；而组件**不知道**自己会被放到多宽的地方——
+同一个表格在 1280 视口的整页里是"宽屏"，塞进 900px 弹窗里就撑破了，而视口值对此**无感**。
+
+### 10.1 页面外壳层（判定依据：**视口**）
 
 **断点唯一来源**
 
@@ -220,13 +232,34 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 
 **四条硬性约定**
 
-1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**；筛选区用
-   `xs={12} sm={12} md={8} lg={6}`（手机 2 列 / 平板 3 列 / 桌面 4 列）。
-2. **表格必须声明 `scroll={{ x }}`**；`≤md` 时关键列（如采购编号）`fixed: 'left'`，
-   操作列 `fixed: 'right'`；窄屏行高用 `size="small"`。
+1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**；页面级筛选区用
+   `xs={12} sm={12} md={8} lg={6}`（手机 2 列 / 平板 3 列 / 桌面 4 列）。**弹窗/抽屉内的表单除外**（见 §10.2）。
+2. **表格必须声明 `scroll={{ x }}`**；关键列（如采购编号）`fixed: 'left'`，
+   操作列 `fixed: 'right'`；紧凑行高用 `size="small"`。
+   （"窄到什么程度才冻结/紧凑"自 V2 起由**容器**决定，见 §10.2；`scroll` 本身是硬要求，与断点无关。）
 3. **弹窗宽度必须响应式**：宽度可在大屏取固定值，但必须能被全局 `max-width: calc(100vw - 16px)`
    兜住（该规则已在 `index.css` 全局生效，新增弹窗无需逐个改写）。
 4. **侧栏 `≤md` 走 Drawer**：由 `AppSider` 内部按 `useResponsive()` 自动切换，选中菜单后自动关闭。
+
+### 10.2 组件内部层（判定依据：**容器**）
+
+- **组件根挂 `.cq`**（`container-type: inline-size`），内部用 `@container (max-width: …)` 降级；
+  规则集中在 [web/src/styles/containers.css](web/src/styles/containers.css)。
+- ⚠️ `.cq` 只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）：`container-type: inline-size`
+  带 `contain: inline-size`，挂在 `inline-block` / `fit-content` 这类靠内容撑宽的元素上**宽度会塌**；
+  也别挂在含 `position: fixed; inset: 0` 全屏层的组件根上（containment 会让该 fixed 元素以它作包含块）
+  —— `RichTextEditor` 全屏即为此例，故它只用 `useContainerWidth()`、不挂 `.cq`。
+  CQ 也**只能查祖先**，标记挂在"外层包裹"上，不要挂到待降级元素自身。
+- **CSS 表达不了的才用 [`useContainerWidth()`](web/src/hooks/useContainerWidth.ts)**（`ResizeObserver`）：
+  传给 AntD 的 JS prop（`Descriptions column`、`Table size`）、条件渲染、按容器宽度算的值。
+- **写法规则**：宽容器形态 = 基线样式（写在 `index.css`），窄容器覆盖一律写进 `containers.css` 的
+  `@container` → 不支持 CQ 的旧内核（Chromium <105 / Safari <16 / Firefox <110）会忽略这些规则、
+  自动回落到基线，属**渐进增强**，故不写 `@supports` 分支、不加 polyfill。
+- ⚠️ **`@container` 的条件不支持 `var()`**（实测整条规则被丢弃），只能写字面值，且必须等于
+  [utils/containerSize.ts](web/src/utils/containerSize.ts) 的 `CONTAINER_BREAKPOINTS`；
+  断点单一事实源是它，`index.css` 的 `--cq-*` 是 CSS 镜像。**改断点要三处同步。**
+- 锁定：`server/test/containerQuery.spec.mts`（视口值只许外壳用 · 条件字面值合法 · `container-type` 位置 ·
+  三处断点一致 · `containers.css` 引入顺序）。
 
 **明确不做（取舍）**
 

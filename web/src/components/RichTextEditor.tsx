@@ -27,7 +27,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Select, Space, Tooltip, Modal, Input, Tag, Divider, Collapse, Popover } from 'antd';
 import type { VarGroup } from '@/pages/Clauses';
-import { useResponsive } from '@/hooks/useResponsive';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 
 export interface RichTextEditorProps {
   /** 编辑器内容（HTML 字符串） */
@@ -102,8 +102,17 @@ export default function RichTextEditor({
   minHeight = 320,
   disabled = false,
 }: RichTextEditorProps) {
-  /** 断点唯一来源（docs/08 阶段 4）：窄屏工具栏折叠为「更多」 */
-  const { isMobile } = useResponsive();
+  /**
+   * **容器**级响应式（docs/08 V2 阶段 2）：工具栏折行按**编辑器自身宽度**决定，不再看视口。
+   * 同一个编辑器在整页表单里和 900px 弹窗里宽度差很多，视口判断会给出错误答案。
+   *
+   * ⚠️ 这里**不用** `.cq` + `@container`：本组件的根元素在全屏模式下会变成
+   * `position: fixed; inset: 0`，给它挂 `container-type` 会让 containment 把它变成
+   * 其后代 fixed 元素的**包含块**（docs/08 §2.3），全屏层会缩成"充满编辑器框"。
+   * 折行本身也要读 JS 状态（`toolsOpen`），故走 `useContainerWidth()`。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const isNarrow = containerSize.isNarrow;
   const ref = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const [fontSize, setFontSize] = useState(12);
@@ -299,7 +308,9 @@ export default function RichTextEditor({
   );
 
   const variableModal = (
-    <div style={{ width: 380, maxHeight: 420, overflow: 'auto' }}>
+    // 宽度不能写死 380：弹窗在手机上会被全局 `max-width: calc(100vw - 16px)` 兜到 ~359px，
+    // 写死会把内容顶出弹窗（V2 阶段 2 顺手修掉的容器适配问题）
+    <div style={{ width: '100%', maxWidth: 380, maxHeight: 420, overflow: 'auto' }}>
       {variableScope ? (
         <div
           className="cms-hint"
@@ -351,10 +362,10 @@ export default function RichTextEditor({
     e.target.value = '';
   };
 
-  /** 窄屏工具栏：「更多」展开/收起低频项（docs/08 阶段 4） */
+  /** 窄容器工具栏：「更多」展开/收起低频项（按**编辑器自身宽度**判断，docs/08 V2 阶段 2） */
   const [toolsOpen, setToolsOpen] = useState(false);
 
-  /** 高频工具项：宽屏与窄屏都显示 */
+  /** 高频工具项：宽容器与窄容器都显示 */
   const primaryTools = (
     <>
       <Tooltip title="字体">
@@ -383,7 +394,7 @@ export default function RichTextEditor({
       {btn('加粗', <BoldOutlined />, 'bold')}
       {btn('斜体', <ItalicOutlined />, 'italic')}
       {btn('下划线', <UnderlineOutlined />, 'underline')}
-      {isMobile && (
+      {isNarrow && (
         <Tooltip title={toolsOpen ? '收起更多工具' : '更多工具'}>
           <Button
             size="small"
@@ -510,8 +521,8 @@ export default function RichTextEditor({
       }}
     >
       {primaryTools}
-      {/* 窄屏：低频项默认收起，点「更多」展开；宽屏：始终平铺 */}
-      {(!isMobile || toolsOpen) && moreTools}
+      {/* 窄容器：低频项默认收起，点「更多」展开；宽容器：始终平铺 */}
+      {(!isNarrow || toolsOpen) && moreTools}
     </div>
   );
 
@@ -533,7 +544,9 @@ export default function RichTextEditor({
       };
 
   return (
-    <div style={containerStyle}>
+    // ref 同时用于「测自身宽度」；全屏时本元素变 position: fixed、宽度即视口，
+    // 于是工具栏自然回到平铺形态——**不要**在这里挂 `.cq`（见上方注释）
+    <div ref={cqRef} style={containerStyle}>
       {toolbar}
       <div
         ref={ref}

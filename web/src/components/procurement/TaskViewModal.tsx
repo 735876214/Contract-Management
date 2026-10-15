@@ -11,6 +11,7 @@ import {
   type FlowStage,
 } from '@/constants/procurementWorkflow';
 import { TotalListEditorContent } from '@/components/procurement/TotalListEditor';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { TASK_MODULE_LABELS, exportTaskModuleWord, type TaskModuleType } from '@/utils/procurementTaskDocs';
 
 /**
@@ -53,6 +54,13 @@ export default function TaskViewModal({ task, open, onClose }: TaskViewModalProp
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  /**
+   * 容器级响应式（docs/08 V2 阶段 2）：本弹窗宽 1180，但同一视口下也可能被全局
+   * `max-width: calc(100vw - 16px)` 兜到很窄 —— 「几列信息」要按**弹窗宽度**决定，不是视口。
+   * `Descriptions column` 是 AntD 的 JS prop，CSS 驱动不了，所以这里用 `useContainerWidth()`
+   * （容器查询只解决得了 CSS 能表达的部分）。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
 
   useEffect(() => {
     if (!open || !task?.id) return;
@@ -97,84 +105,88 @@ export default function TaskViewModal({ task, open, onClose }: TaskViewModalProp
     >
       <Spin spinning={loading}>
         {detail && (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="采购编号">{detail.taskNo}</Descriptions.Item>
-              <Descriptions.Item label="采购类型">
-                <Tag color={detail.type === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(detail.type)}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="采购内容">{detail.content}</Descriptions.Item>
-              <Descriptions.Item label="当前状态">
-                <Tag color={TASK_STATUS_COLORS[detail.status] ?? 'default'}>
-                  {taskStatusLabel(detail.status) || TASK_STATUS_LABELS[detail.status] || detail.status}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="采购用途">{detail.purpose || '-'}</Descriptions.Item>
-              <Descriptions.Item label="预计采购合价合计">
-                {detail.estimatedAmountWan != null ? `${detail.estimatedAmountWan} 万元` : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="创建时间">
-                {detail.createdAt ? dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="采前会会议纪要">
-                {detail.type === 'FRAMEWORK' ? (
-                  <Tag>不需要（引用框架协议）</Tag>
-                ) : detail.preMeetingRequired ? (
-                  <Tag color="orange">需要（预计采购合价合计 ≥ 100 万元）</Tag>
-                ) : (
-                  <Tag>不需要（预计采购合价合计 &lt; 100 万元）</Tag>
-                )}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <div>
-              <div style={{ marginBottom: 8, fontWeight: 600 }}>采购明细（总采购清单）</div>
-              <TotalListEditorContent
-                task={{
-                  id: detail.id,
-                  taskNo: detail.taskNo,
-                  status: detail.status,
-                  stage: detail.stage,
-                }}
-                readOnly
-                embedded
-              />
-            </div>
-
-            <div>
-              <div style={{ marginBottom: 8, fontWeight: 600 }}>Word 文档</div>
-              {wordModules.length ? (
-                <List
-                  size="small"
-                  bordered
-                  dataSource={wordModules}
-                  renderItem={(m) => (
-                    <List.Item
-                      actions={[
-                        <Button
-                          key="export"
-                          type="link"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          loading={exporting === m}
-                          onClick={() => handleExport(m)}
-                        >
-                          导出Word
-                        </Button>,
-                      ]}
-                    >
-                      <Space size={8}>
-                        <FileWordOutlined style={{ color: 'var(--cms-primary)' }} />
-                        {TASK_MODULE_LABELS[m]}
-                      </Space>
-                    </List.Item>
+          // 容器标记 + 宽度测量都在这一层（与 `.cq` 同元素：CQ 量的是内容盒，
+          // ResizeObserver 的 contentRect 也是内容盒，两套判断取的宽度一致）
+          <div ref={cqRef} className="cq">
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Descriptions column={containerSize.isNarrow ? 1 : 2} size="small" bordered>
+                <Descriptions.Item label="采购编号">{detail.taskNo}</Descriptions.Item>
+                <Descriptions.Item label="采购类型">
+                  <Tag color={detail.type === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(detail.type)}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="采购内容">{detail.content}</Descriptions.Item>
+                <Descriptions.Item label="当前状态">
+                  <Tag color={TASK_STATUS_COLORS[detail.status] ?? 'default'}>
+                    {taskStatusLabel(detail.status) || TASK_STATUS_LABELS[detail.status] || detail.status}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="采购用途">{detail.purpose || '-'}</Descriptions.Item>
+                <Descriptions.Item label="预计采购合价合计">
+                  {detail.estimatedAmountWan != null ? `${detail.estimatedAmountWan} 万元` : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="创建时间">
+                  {detail.createdAt ? dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="采前会会议纪要">
+                  {detail.type === 'FRAMEWORK' ? (
+                    <Tag>不需要（引用框架协议）</Tag>
+                  ) : detail.preMeetingRequired ? (
+                    <Tag color="orange">需要（预计采购合价合计 ≥ 100 万元）</Tag>
+                  ) : (
+                    <Tag>不需要（预计采购合价合计 &lt; 100 万元）</Tag>
                   )}
+                </Descriptions.Item>
+              </Descriptions>
+
+              <div>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>采购明细（总采购清单）</div>
+                <TotalListEditorContent
+                  task={{
+                    id: detail.id,
+                    taskNo: detail.taskNo,
+                    status: detail.status,
+                    stage: detail.stage,
+                  }}
+                  readOnly
+                  embedded
                 />
-              ) : (
-                <Alert type="info" showIcon message="暂无已生成的模块 Word 文档（各阶段模块发布后此处提供导出）。" />
-              )}
-            </div>
-          </Space>
+              </div>
+
+              <div>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>Word 文档</div>
+                {wordModules.length ? (
+                  <List
+                    size="small"
+                    bordered
+                    dataSource={wordModules}
+                    renderItem={(m) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="export"
+                            type="link"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            loading={exporting === m}
+                            onClick={() => handleExport(m)}
+                          >
+                            导出Word
+                          </Button>,
+                        ]}
+                      >
+                        <Space size={8}>
+                          <FileWordOutlined style={{ color: 'var(--cms-primary)' }} />
+                          {TASK_MODULE_LABELS[m]}
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Alert type="info" showIcon message="暂无已生成的模块 Word 文档（各阶段模块发布后此处提供导出）。" />
+                )}
+              </div>
+            </Space>
+          </div>
         )}
       </Spin>
     </Modal>

@@ -1,0 +1,53 @@
+/* ============================================================================
+ * 组件级响应式：Container Queries（方案见 docs/08 V2 §1–§7；本文件承载阶段 1/2 的规则）
+ *
+ * 分工（双层模型，两层并存、不互替）：
+ *   - **页面外壳层**（侧栏、顶栏、内容区边距、页面级栅格列数）= **视口**驱动，
+ *     走 `useResponsive()` + AntD 断点 prop + index.css 的 `@media`，**不在本文件**。
+ *   - **组件内部**（卡片内列数、工具条折行、表格/预览区在窄容器下的降级）= **容器**驱动，
+ *     走 `.cq` + `@container` + `useContainerWidth()`，**只在本文件**。
+ *
+ * 硬约束（由 `server/test/containerQuery.spec.mts` 锁定）：
+ *   1. 色值只许来自 index.css 的 `--cms-*`（`themeTokens.spec.mts` 也扫本文件，写死即红）；
+ *   2. `@container` 的条件**只能写字面值**——`var()` 在容器查询条件里不被解析
+ *      （2026-10-15 Edge 实测：整条规则被丢弃，`calc(720px)` 与 `720px` 正常）；
+ *      字面值必须等于 `web/src/utils/containerSize.ts` 的 `CONTAINER_BREAKPOINTS`；
+ *   3. `container-type` 只许出现在本文件的 `.cq` 上（组件内联样式里挂会绕过这里的规范）。
+ *
+ * 写法规则：**宽容器形态 = 基线样式（写在 index.css），窄容器覆盖一律写进本文件的 `@container`。**
+ * 不支持 CQ 的旧内核会忽略本文件的规则、自动回落到基线形态 → 渐进增强，
+ * 故**不写 `@supports` 分支、不加 polyfill**（浏览器基线：Chromium 105+ / Safari 16+ / Firefox 110+）。
+ *
+ * ⚠️ 本文件必须在 `index.css` **之后**引入（见 `main.tsx`）：基线与本文件多为同特异度的
+ * 类选择器，靠顺序压过基线。该顺序由 `containerQuery.spec.mts` 校验。
+ * ============================================================================ */
+
+/**
+ * 容器标记：组件根元素挂上它，其**内部**才能用 `@container` 查询自己的宽度。
+ *
+ * ⚠️ 适用条件——只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）：
+ * `container-type: inline-size` 带 `contain: inline-size`，元素的宽度不再由内容撑开，
+ * 挂在 `display:inline-block` / `width:fit-content` 这类「靠内容撑宽」的元素上**宽度会塌**。
+ *
+ * ⚠️ 别挂在含 `position: fixed; inset: 0` 全屏层的组件根上：containment 会让该 fixed 元素
+ * 以本元素为包含块（`RichTextEditor` 全屏模式即为此例——它只用 `useContainerWidth()`、不挂 `.cq`）。
+ *
+ * ⚠️ CQ 只能查**祖先**容器、不能查自己，所以标记挂在「外层包裹」上，不要挂到待降级元素自身。
+ */
+.cq {
+  container-type: inline-size;
+}
+
+/* ---------------------------------------------------------------------------
+ * 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、
+ * 采购文件 `Document.tsx` 的合同模板预览弹窗共用；基线 `padding: 24px` 在 index.css）
+ *
+ * 窄容器 → 内边距 24 → 12。
+ * 与 V1 的差别正是 V2 的价值：V1 按视口判断，「桌面视口 + 弹窗压到 700px」不会收敛；
+ * 现在按**容器**判断，页面级窄屏与窄弹窗是同一套规则。
+ * --------------------------------------------------------------------------- */
+@container (max-width: 720px) {
+  .doc-preview {
+    padding: 12px;
+  }
+}

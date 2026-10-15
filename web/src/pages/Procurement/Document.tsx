@@ -734,19 +734,22 @@ export default function Document() {
           </Space>
         }
       >
-        <div
-          className="doc-preview"
-          style={{
-            maxHeight: '60vh',
-            minHeight: 120,
-            overflow: 'auto',
-            border: '1px solid var(--cms-hairline-soft)',
-            // padding 交由 .doc-preview 做断点收敛（docs/08 阶段 4）
-          }}
-          dangerouslySetInnerHTML={{
-            __html: highlightPlaceholders(contractHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
-          }}
-        />
+        {/* 容器标记：预览区按**弹窗自身宽度**降级（docs/08 V2 阶段 2） */}
+        <div className="cq">
+          <div
+            className="doc-preview"
+            style={{
+              maxHeight: '60vh',
+              minHeight: 120,
+              overflow: 'auto',
+              border: '1px solid var(--cms-hairline-soft)',
+              // padding 交由 .doc-preview 做容器级收敛（docs/08 V2 阶段 2）
+            }}
+            dangerouslySetInnerHTML={{
+              __html: highlightPlaceholders(contractHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
+            }}
+          />
+        </div>
       </Modal>
     </Space>
   );

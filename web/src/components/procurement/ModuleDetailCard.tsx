@@ -44,6 +44,9 @@ export default function ModuleDetailCard({
       size="small"
       title={title}
       extra={actions ? <Space wrap>{actions}</Space> : undefined}
+      // 容器标记：卡片内部（含下方 .doc-preview）按**卡片自身的宽度**降级，
+      // 而不是按视口——本卡片常出现在窄栅格列里（docs/08 V2 阶段 2/4）
+      className="cq"
     >
       <Descriptions column={3} size="small" bordered style={{ marginBottom: 12 }}>
         <Descriptions.Item label="采购编号">{taskNo || '-'}</Descriptions.Item>
