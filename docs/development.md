@@ -137,7 +137,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
   | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |
-  | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许在 `styles/*.css` 的 `.cq` 上 · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 |
+  | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许挂 `.cq`/`.ant-modal-body`/`.ant-drawer-body` · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 · `.doc-preview` 必须挂 `.cq` · `.col-secondary` 规则成对 · 窄容器表单栅格覆盖不得含 `.cq` · `RichTextEditor` 必须 portal 全屏层且内容同步 effect 依赖 `fullscreen` |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
   > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。

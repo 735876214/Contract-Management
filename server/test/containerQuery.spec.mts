@@ -36,9 +36,6 @@ const VIEWPORT_LAYER_ALLOWED: Record<string, string> = {
   'layouts/BasicLayout.tsx': '页面外壳：侧栏折叠、内容区边距、顶栏精简——它的容器就是视口',
   'components/Sider/index.tsx': '页面外壳：≤md 侧栏改 Drawer',
   'components/ProjectSwitch.tsx': '页面外壳：顶栏内的项目切换宽度',
-  // ↓↓↓ 过渡豁免：V2 分阶段迁移期间保留，迁走一个就删一行（留着会被"白名单条目必须带删除时机"约束盯住）
-  'components/procurement/ModuleListPage.tsx':
-    '过渡豁免（V2 阶段 3 迁走后删除）：冻结列/紧凑行高/筛选列数待改容器驱动',
 };
 
 /** 递归收集 web/src 下的样式与源码文件 */
@@ -218,6 +215,87 @@ describe('组件级响应式漂移锁（Container Queries）', () => {
       offenders,
       [],
       `预览区的外层包裹要挂 className="cq"（CQ 只能查祖先容器）：\n  ${offenders.join('\n  ')}`,
+    );
+  });
+});
+
+/**
+ * 阶段 3–5 新增的机制锁（表格次要列 / 窄容器表单栅格 / 容器白名单 / 全屏 portal）。
+ * 这几条都是"改了就静默失效、构建照样绿"的地方，故钉成机器可查。
+ */
+describe('容器级响应式的阶段 3–5 机制锁', () => {
+  const css = blankComments(read(`${SRC}/${CONTAINERS_CSS}`));
+
+  it('`.col-secondary` 的声明与隐藏规则必须成对存在', () => {
+    const usedInTsx = walk(SRC)
+      .filter((f) => /\.tsx$/.test(f))
+      .filter((f) => /col-secondary/.test(read(f)))
+      .map(relOf);
+    assert.ok(
+      usedInTsx.length >= 3,
+      `只有 ${usedInTsx.length} 处用了 .col-secondary —— 页面少了就该顺手删掉本规则，别让锁空转`,
+    );
+    assert.ok(
+      /@container[\s\S]{0,400}?\.col-secondary[\s\S]{0,200}?display:\s*none/.test(css),
+      'containers.css 里没有「@container 内隐藏 .col-secondary」的规则：' +
+        '一旦被改名或删掉，页面声明的次要列会静默地永远显示（窄容器破版）。',
+    );
+  });
+
+  it('窄容器表单栅格的覆盖只作用于弹窗/抽屉正文，不得含 .cq', () => {
+    // 取出「窄容器内 neutralise AntD 栅格类」的那一条：靠 ant-col- 特征定位，
+    // 不能只按 :is( 前缀取（`.col-secondary` 那条也以 :is( 开头）
+    const blocks = css.match(/@container[^{]*\{[\s\S]*?\n\}/g) ?? [];
+    const grid = blocks.find((b) => /ant-col-md-/.test(b));
+    assert.ok(grid, 'containers.css 里找不到「窄容器表单栅格」规则（ant-col-* 覆盖）');
+    assert.ok(
+      /\.ant-modal-body/.test(grid) && /\.ant-drawer-body/.test(grid),
+      '表单栅格覆盖必须同时覆盖弹窗与抽屉正文',
+    );
+    assert.ok(
+      !/\.cq[\s,)]/.test(grid.split('{')[0]),
+      '表单栅格覆盖**不能**含 `.cq`：`.cq` 也标在 `ModuleListPage` 上，' +
+        '放进去会把页面级筛选区的「手机 2 列」误降为单列（DESIGN.md §10.1）。',
+    );
+  });
+
+  it('`container-type` 只许挂在这三种选择器上（`.cq` / 弹窗正文 / 抽屉正文）', () => {
+    const ALLOWED = ['.cq', '.ant-modal-body', '.ant-drawer-body'];
+    const offenders: string[] = [];
+    let found = 0;
+    for (const chunk of css.split('}')) {
+      if (!/container-type/.test(chunk)) continue;
+      found += 1;
+      const parts = chunk
+        .split('{')[0]
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const p of parts) {
+        if (!ALLOWED.includes(p)) offenders.push(p);
+      }
+    }
+    assert.ok(found >= 1, '没扫到 container-type，本锁在空转');
+    assert.deepEqual(
+      offenders,
+      [],
+      `容器标记只许挂 ${ALLOWED.join(' / ')}（多一个就多一处 containment 副作用面）：\n  ${offenders.join('\n  ')}`,
+    );
+  });
+
+  it('RichTextEditor：全屏 portal 到 body，且内容同步 effect 依赖 fullscreen', () => {
+    const src = read(`${SRC}/components/RichTextEditor.tsx`);
+    assert.ok(
+      /createPortal\s*\(/.test(src),
+      'RichTextEditor 的全屏层是 `position: fixed; inset: 0`；弹窗正文自 V2 阶段 5 起是容器' +
+        '（containment 会把容器变成 fixed 后代的包含块）→ 全屏会只铺满弹窗。' +
+        '必须 `createPortal(frame, document.body)`。',
+    );
+    assert.ok(
+      /\[value,\s*fullscreen\]/.test(src),
+      '内容同步 effect 的依赖必须含 `fullscreen`：切全屏时**组件不重挂载**（只有 DOM 子树换到 body 下），' +
+        '新渲染的 contentEditable 是空的、而 `[value]` 没变 → effect 不重跑 → 编辑区内容静默丢失。' +
+        '（2026-10-15 真渲染验收抓到的真实缺陷。）',
     );
   });
 });

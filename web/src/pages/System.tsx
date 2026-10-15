@@ -417,6 +417,7 @@ function ParamsTab() {
                 title: '说明',
                 dataIndex: 'remark',
                 ellipsis: true,
+                className: 'col-secondary',
                 render: (v: any, row: any) => v || PARAM_REMARK[row.key] || '-',
               },
             ]}

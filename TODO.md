@@ -91,22 +91,11 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **组件级响应式：Container Queries 的阶段 3–5**（[docs/08](docs/08-全局响应式改造方案.md) V2 方案，
-  2026-10-15 立项并**同日完成阶段 0–2**，记录见该文 §0.2）：基建（`.cq` + `useContainerWidth()` +
-  `styles/containers.css` + 漂移锁 `containerQuery.spec.mts`）与**弹窗/抽屉族**（`.doc-preview`、
-  `TaskViewModal` 的 `Descriptions` 列数、`RichTextEditor` 工具条折行）已落地。
-  **剩余**：
-  - 阶段 3 · 表格族：`ModuleListPage` 的冻结列/紧凑行高/筛选列数改容器驱动（该文件当前是
-    `containerQuery.spec.mts` 白名单里的**过渡豁免**，迁走后要删那一行）；次级表格降级；
-    36 列台账的冻结列数与行高改容器驱动（**仍保持横向滚动**，不卡片化）。
-  - 阶段 4 · 卡片/图表族：工作台 `lg=8` 侧列卡、ECharts 图例在窄容器下的显隐
-    （`ModuleDetailCard` 与 `.doc-preview` 的容器标记已挂上，规则待补）。
-  - 阶段 5 · 表单族：弹窗/抽屉内表单的列数与 `label` 位置（页面级筛选区仍用 AntD 断点，不动）。
-  - `MaterialPickerModal` / `SupplementDraft` 等弹窗内表格：随阶段 3 的表格规则一并挂 `.cq`。
-  - 每阶段按 docs/08 §4 跑**容器级**验收（固定视口、只改容器宽度），不能只切视口。
-  **已定的两个前置**（不必再确认）：① 浏览器基线 = 只保现代浏览器（Chromium 105+ / Safari 16+ /
-  Firefox 110+），CQ 作渐进增强、不写 `@supports`；② 样式文件策略 = CQ 规则另建
-  `web/src/styles/*.css`（DESIGN.md §9 已放宽）。
+- **V2 收尾：弹窗内的 `Descriptions` 列数仍是固定值**（[docs/08](docs/08-全局响应式改造方案.md) §7 的
+  "有意留下的口子"）：`TaskViewModal` 与 `ModuleDetailCard` 两处已按容器驱动，其余弹窗里的
+  `Descriptions column={n}`（如合同详情弹窗）没接 `useContainerWidth()`，窄弹窗里会偏挤。
+  无阻塞；做法照 `ModuleDetailCard` 那三行（`isNarrow ? 1 : isWide ? 3 : 2`）即可。
+  注：V2 的阶段 0–5 已全部落地（实施记录见该文 §0.2，容器级验收见 §4），本条只是收尾。
 
 - **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
   更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，
@@ -143,7 +132,7 @@
 
 ### 待实施 · 按需
 
-- 移动刚需页 H5 精简版（响应式已完成 V1 视口层 + V2 容器层阶段 0–2，见 [docs/08](docs/08-全局响应式改造方案.md) §0.1/§0.2）。
+- 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层阶段 0–5 均已完成，见 [docs/08](docs/08-全局响应式改造方案.md) §0.1/§0.2）。
 - 可选：半结构化字段改 PG `jsonb`、招标立项前置状态、`DailyReport.exitDate`。
 
 ## 本文件的维护方式

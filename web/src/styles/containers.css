@@ -1,10 +1,10 @@
 /* ============================================================================
- * 组件级响应式：Container Queries（方案见 docs/08 V2 §1–§7；本文件承载阶段 1/2 的规则）
+ * 组件级响应式：Container Queries（方案见 docs/08 V2 §1–§7）
  *
  * 分工（双层模型，两层并存、不互替）：
  *   - **页面外壳层**（侧栏、顶栏、内容区边距、页面级栅格列数）= **视口**驱动，
  *     走 `useResponsive()` + AntD 断点 prop + index.css 的 `@media`，**不在本文件**。
- *   - **组件内部**（卡片内列数、工具条折行、表格/预览区在窄容器下的降级）= **容器**驱动，
+ *   - **组件内部**（卡片内列数、工具条折行、表格/表单/预览区在窄容器下的降级）= **容器**驱动，
  *     走 `.cq` + `@container` + `useContainerWidth()`，**只在本文件**。
  *
  * 硬约束（由 `server/test/containerQuery.spec.mts` 锁定）：
@@ -12,7 +12,7 @@
  *   2. `@container` 的条件**只能写字面值**——`var()` 在容器查询条件里不被解析
  *      （2026-10-15 Edge 实测：整条规则被丢弃，`calc(720px)` 与 `720px` 正常）；
  *      字面值必须等于 `web/src/utils/containerSize.ts` 的 `CONTAINER_BREAKPOINTS`；
- *   3. `container-type` 只许出现在本文件的 `.cq` 上（组件内联样式里挂会绕过这里的规范）。
+ *   3. `container-type` 只许出现在本文件、且只挂在 `.cq` 那一组选择器上。
  *
  * 写法规则：**宽容器形态 = 基线样式（写在 index.css），窄容器覆盖一律写进本文件的 `@container`。**
  * 不支持 CQ 的旧内核会忽略本文件的规则、自动回落到基线形态 → 渐进增强，
@@ -20,34 +20,117 @@
  *
  * ⚠️ 本文件必须在 `index.css` **之后**引入（见 `main.tsx`）：基线与本文件多为同特异度的
  * 类选择器，靠顺序压过基线。该顺序由 `containerQuery.spec.mts` 校验。
+ * 但**与 AntD 运行时注入的样式**不能靠顺序（cssinjs 的 style 标签晚于本文件），
+ * 故凡是要压过 AntD 的规则，选择器特异度都取到 **≥0,2,0**（用 `:is(…)` 提升，见各段注释）。
  * ============================================================================ */
 
 /**
  * 容器标记：组件根元素挂上它，其**内部**才能用 `@container` 查询自己的宽度。
  *
- * ⚠️ 适用条件——只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）：
- * `container-type: inline-size` 带 `contain: inline-size`，元素的宽度不再由内容撑开，
- * 挂在 `display:inline-block` / `width:fit-content` 这类「靠内容撑宽」的元素上**宽度会塌**。
+ * 三类容器，**只有这里能出现 `container-type`**：
+ *   1. `.cq` —— 组件自己声明"我的内部按我的宽度布局"（列表页、卡片、预览区…）；
+ *   2. `.ant-modal-body` / `.ant-drawer-body` —— **弹窗与抽屉的正文是天然的容器边界**：
+ *      全站 65 处 Modal + 若干 Drawer，逐个挂 `.cq` 既做不全也会漏；正文宽度与外层视口无关，
+ *      正是"组件不知道自己在多宽的地方"的典型。统一在这里标记，避免逐处漏挂。
+ *   3. ⚠️ **不允许任何其他元素成为容器**（尤其不要用 `container-type` 标记 `Form`、Card 根之外的
+ *      任意包装层）：`container-type: inline-size` 带 `contain: layout`，被标记的元素会成为其后代
+ *      `position: fixed/absolute` 的**包含块**。当前全站唯一的 `position: fixed` 后代是
+ *      `RichTextEditor` 的全屏层——它已改为 **portal 到 body**（见该组件注释），故不再受容器影响。
  *
- * ⚠️ 别挂在含 `position: fixed; inset: 0` 全屏层的组件根上：containment 会让该 fixed 元素
- * 以本元素为包含块（`RichTextEditor` 全屏模式即为此例——它只用 `useContainerWidth()`、不挂 `.cq`）。
+ * ⚠️ 只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）：`container-type: inline-size`
+ * 带 `contain: inline-size`，元素的宽度不再由内容撑开，挂在 `display:inline-block` / `width:fit-content`
+ * 这类「靠内容撑宽」的元素上**宽度会塌**。
  *
  * ⚠️ CQ 只能查**祖先**容器、不能查自己，所以标记挂在「外层包裹」上，不要挂到待降级元素自身。
  */
-.cq {
+.cq,
+.ant-modal-body,
+.ant-drawer-body {
   container-type: inline-size;
 }
 
 /* ---------------------------------------------------------------------------
- * 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、
- * 采购文件 `Document.tsx` 的合同模板预览弹窗共用；基线 `padding: 24px` 在 index.css）
+ * 1. 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、
+ *    采购文件 `Document.tsx` 的合同模板预览弹窗共用；基线 `padding: 24px` 在 index.css）
  *
- * 窄容器 → 内边距 24 → 12。
- * 与 V1 的差别正是 V2 的价值：V1 按视口判断，「桌面视口 + 弹窗压到 700px」不会收敛；
- * 现在按**容器**判断，页面级窄屏与窄弹窗是同一套规则。
+ *    窄容器 → 内边距 24 → 12。
+ *    与 V1 的差别正是 V2 的价值：V1 按视口判断，「桌面视口 + 弹窗压到 700px」不会收敛；
+ *    现在按**容器**判断，页面级窄屏与窄弹窗是同一套规则。
+ *    ⚠️ **字号刻意不跟着容器变**：预览的是"要打印导出的那张纸"，字号随容器变会让预览与
+ *    导出物不一致（与 DESIGN.md §3.1「paper 不随主题」同一道理）。
  * --------------------------------------------------------------------------- */
 @container (max-width: 720px) {
   .doc-preview {
+    padding: 12px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. 表格：窄容器下收起「次要列」（docs/08 V2 阶段 3）
+ *
+ *    页面给次要列加 `className: 'col-secondary'` 即完成声明——由容器宽度决定显隐，
+ *    **不要**再用 `useResponsive()` 去 JS 里判（那样又回到视口判断）。
+ *    行高/冻结列是 AntD 的 JS prop（`size` / `fixed`），CSS 驱动不了，
+ *    由 `useContainerWidth()` 在 `ModuleListPage` 里统一处理；此处只做「列显隐」这一件 CSS 能做的事。
+ *
+ *    特异度 `:is(…容器…) .col-secondary` = 0,2,0：压得过 AntD 运行时注入的单元格样式。
+ * --------------------------------------------------------------------------- */
+@container (max-width: 720px) {
+  :is(.cq, .ant-modal-body, .ant-drawer-body) .col-secondary {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. 窄容器内的表单栅格：降为单列（docs/08 V2 阶段 5）
+ *
+ *    页面级筛选区**不在**此列（它保留 AntD 断点、手机 2 列，见 DESIGN.md §10.1）；
+ *    这里只针对**弹窗 / 抽屉正文里的表单**——同一个 `md={6}` 字段：
+ *    在 1280 视口的整页里四列并排没问题，在 560px 的弹窗里会被压成豆腐块。
+ *
+ *    做法：把 AntD 的**视口断点类**（`.ant-col-md-6` 这类）在窄容器里就地失效。
+ *    用属性子串选择器一次覆盖 1..23（含 `offset-*`），不必枚举每一个数字——
+ *    枚举写死会随新页面加字段而静默失效。
+ *    `ant-col-24` 本来就是满宽，被覆盖也不变；`flex="auto"` 渲染出的裸 `.ant-col`
+ *    不带断点后缀，**不会被误伤**（这正是要的：那是"占满剩余"的列）。
+ *
+ *    特异度 = (0,2,0)（`:is(A,B)` 取最高者 1 个类 + `:is([class*=…])` 1 个类），
+ *    高于 AntD 的 (0,1,0)，故与引入顺序无关。
+ * --------------------------------------------------------------------------- */
+@container (max-width: 720px) {
+  :is(.ant-modal-body, .ant-drawer-body)
+    :is(
+      [class*='ant-col-xs-'],
+      [class*='ant-col-sm-'],
+      [class*='ant-col-md-'],
+      [class*='ant-col-lg-'],
+      [class*='ant-col-xl-'],
+      [class*='ant-col-xxl-']
+    ) {
+    flex: 0 0 100%;
+    max-width: 100%;
+    /* 顺带清掉 offset / push 造成的缩进：单列时留缩进很难看 */
+    margin-inline-start: 0;
+    inset-inline-start: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. 卡片 / 图表族：窄卡片里的数字与图例（docs/08 V2 阶段 4）
+ *
+ *    工作台 `lg=16` 主列 + `lg=8` 侧列：侧列卡片只有 ~380px 宽，
+ *    却按"桌面"渲染 → KPI 数字 30px 会顶破卡片、图例挤成两行。
+ *    ECharts 的图例/标签显隐是 JS 选项，由组件用 `useContainerWidth()` 决定（见 `Dashboard.tsx`）；
+ *    这里只收敛纯 CSS 的字号与内边距。
+ * --------------------------------------------------------------------------- */
+@container (max-width: 480px) {
+  /* KPI 数字：30px → 22px（基线在 index.css 的 .cms-title-kpi / AntD Statistic token） */
+  .cq .ant-statistic-content {
+    font-size: 22px;
+    letter-spacing: -0.4px;
+  }
+  /* 卡片内边距同步收敛，避免数字缩了而留白没缩 */
+  .cq .ant-card-body {
     padding: 12px;
   }
 }

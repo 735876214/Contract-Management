@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BoldOutlined,
   ItalicOutlined,
@@ -106,10 +107,10 @@ export default function RichTextEditor({
    * **容器**级响应式（docs/08 V2 阶段 2）：工具栏折行按**编辑器自身宽度**决定，不再看视口。
    * 同一个编辑器在整页表单里和 900px 弹窗里宽度差很多，视口判断会给出错误答案。
    *
-   * ⚠️ 这里**不用** `.cq` + `@container`：本组件的根元素在全屏模式下会变成
-   * `position: fixed; inset: 0`，给它挂 `container-type` 会让 containment 把它变成
-   * 其后代 fixed 元素的**包含块**（docs/08 §2.3），全屏层会缩成"充满编辑器框"。
-   * 折行本身也要读 JS 状态（`toolsOpen`），故走 `useContainerWidth()`。
+   * 这里**不用** `.cq` + `@container`：折行本身要读 JS 状态（`toolsOpen`），
+   * 且本组件的根元素在全屏模式下就是那个 `position: fixed; inset: 0` 的层
+   * （它已 portal 到 body，见 `frame` 注释）——给可查自身的元素挂容器标记既无意义也会踩
+   * containment 的包含块问题。故走 `useContainerWidth()`。
    */
   const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
   const isNarrow = containerSize.isNarrow;
@@ -120,6 +121,11 @@ export default function RichTextEditor({
   const [fullscreen, setFullscreen] = useState(false);
   const [varOpen, setVarOpen] = useState(false);
   const [varSearch, setVarSearch] = useState('');
+
+  /** 进入全屏会重建 DOM 节点（portal 切换），主动 focus 一次让人能接着打字 */
+  useEffect(() => {
+    if (fullscreen) ref.current?.focus();
+  }, [fullscreen]);
 
   // 查找替换弹窗
   const [frOpen, setFrOpen] = useState(false);
@@ -142,13 +148,21 @@ export default function RichTextEditor({
     return flatVars.filter((v) => v.key.includes(kw) || (v.tip && v.tip.includes(kw)));
   }, [flatVars, varSearch]);
 
-  // 外部 value 变化（如切换编辑记录）时同步到编辑区
+  /**
+   * 外部 value 变化（如切换编辑记录）时同步到编辑区。
+   *
+   * ⚠️ 依赖里必须带 `fullscreen`：切换全屏时**组件本身不会重挂载**（只是它的 DOM 子树
+   * 从弹窗里挪到了 body 下），新渲染出来的 `contentEditable` 节点是空的，而 `[value]`
+   * 这个依赖没变 → 这个 effect 不会重跑 → 编辑区内容**静默丢失**。
+   * （2026-10-15 真渲染验收抓到：输入 15 次 `input` 事件后点全屏，内容变空，而表单校验
+   * 证明 Form 里其实存着值 —— 丢的只是 DOM。）
+   */
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const next = value || '';
     if (next !== el.innerHTML) el.innerHTML = next;
-  }, [value]);
+  }, [value, fullscreen]);
 
   const emit = () => {
     const html = ref.current?.innerHTML || '';
@@ -543,9 +557,21 @@ export default function RichTextEditor({
         overflow: 'hidden',
       };
 
-  return (
-    // ref 同时用于「测自身宽度」；全屏时本元素变 position: fixed、宽度即视口，
-    // 于是工具栏自然回到平铺形态——**不要**在这里挂 `.cq`（见上方注释）
+  /**
+   * 编辑器外框。
+   *
+   * ⚠️ **全屏时整块 portal 到 `document.body`**（而不是就地 `position: fixed`）：
+   * 全屏层是 `position: fixed; inset: 0`，一旦它的某个祖先带了
+   * `container-type`（containment 的 `contain: layout` 会把该祖先变成 fixed 元素的**包含块**），
+   * 全屏就只会铺满那个祖先而不是视口。而本组件绝大多数使用点是**弹窗正文**，
+   * 弹窗正文自 V2 阶段 5 起统一是容器（`styles/containers.css` 的 `.ant-modal-body`），
+   * 曾经的"就地 fixed"必然被限制住。portal 后全屏层直接挂在 body 下，与任何容器无关。
+   *
+   * 副作用（可接受）：切换全屏会重建 DOM 节点 → 由 `useEffect([value])` 在挂载时回填内容，
+   * 且**所有使用点都是受控的**（显式 `value`/`onChange`，或由 `Form.Item` 注入）→ 内容不丢；
+   * 光标位置会重置，故进入全屏时主动 focus 一次（见下方 effect）。
+   */
+  const frame = (
     <div ref={cqRef} style={containerStyle}>
       {toolbar}
       <div
@@ -613,6 +639,9 @@ export default function RichTextEditor({
       </Modal>
     </div>
   );
+
+  // 全屏时整块挂到 body 之下（见 `frame` 上方注释）；非全屏就地渲染
+  return fullscreen ? createPortal(frame, document.body) : frame;
 }
 
 /** 按关键词过滤某组的变量 */

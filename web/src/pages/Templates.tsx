@@ -232,7 +232,7 @@ export default function Templates() {
           pagination={false}
           columns={[
             { title: '版本号', dataIndex: 'version', width: 90, render: (v) => <Tag color="blue">v{v}</Tag> },
-            { title: '修改人', dataIndex: 'operator', width: 120 },
+            { title: '修改人', dataIndex: 'operator', width: 120, className: 'col-secondary' },
             { title: '时间', dataIndex: 'createdAt', render: (v) => v?.slice(0, 19).replace('T', ' ') },
             {
               title: '操作',

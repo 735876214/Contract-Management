@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -17,6 +17,7 @@ import { ledgerApi } from '@/api/modules';
 import { supplierApi } from '@/api/business';
 import DictSelect from '@/components/DictSelect';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useDictStore } from '@/store/dict';
 
 const money = (v: any) =>
@@ -84,24 +85,34 @@ export default function Ledger() {
   }, []);
 
   /**
-   * 大宽表冻结前两列（序号 / 合同编号）：横向滚动时保持可见（docs/08 阶段 2 的大宽表策略）。
+   * 大宽表冻结列（docs/08 V2 阶段 3）：**张数随容器宽度收敛**——
+   * 宽容器冻结「序号 + 合同编号」（横向滚动时保持可见）；窄容器只冻结**合同编号**：
+   * 序号是装饰性的，窄容器里留着它只会白占可视区，而合同编号才是识别行的那一列。
+   * 行高不在这里管：它由 `ModuleListPage` 按同一个容器宽度给 `size`。
    * 列宽由后端 `/ledger/contracts` 返回，已是**像素**宽（后端把 Excel 字符宽统一换算过）。
    */
-  const FROZEN_LEFT_KEYS = ['index', 'contractCode'];
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const frozenLeftKeys = useMemo(
+    () => (containerSize.isNarrow ? ['contractCode'] : ['index', 'contractCode']),
+    [containerSize.isNarrow],
+  );
 
-  const buildColumns = (cols: any[]) =>
-    cols
-      .filter((c) => c.visible)
-      .map((c) => ({
-        title: c.title,
-        dataIndex: c.key,
-        key: c.key,
-        width: c.width || 140,
-        ...(FROZEN_LEFT_KEYS.includes(c.key) ? { fixed: 'left' as const } : {}),
-        render: (v: any) => renderCell(c.key, v),
-      }));
+  const buildColumns = useCallback(
+    (cols: any[]) =>
+      cols
+        .filter((c) => c.visible)
+        .map((c) => ({
+          title: c.title,
+          dataIndex: c.key,
+          key: c.key,
+          width: c.width || 140,
+          ...(frozenLeftKeys.includes(c.key) ? { fixed: 'left' as const } : {}),
+          render: (v: any) => renderCell(c.key, v),
+        })),
+    [frozenLeftKeys],
+  );
 
-  const tableColumns = useMemo(() => buildColumns(columns), [columns]);
+  const tableColumns = useMemo(() => buildColumns(columns), [buildColumns, columns]);
 
   const openColModal = () => {
     setColChecked(columns.filter((c) => c.visible).map((c) => c.key));
@@ -137,7 +148,7 @@ export default function Ledger() {
   ];
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space ref={cqRef} className="cq" direction="vertical" size={16} style={{ width: '100%' }}>
       {summary && (
         <Row gutter={16}>
           <Col xs={12} md={8} lg={4}>

@@ -49,10 +49,19 @@
   会在挂载时读到 `null`、之后**永远不再挂观察器** —— 容器明明变窄了、派生档位却一直停在「宽」，
   **静默失效且测试不会红**。（2026-10-15 真渲染验收时正是这么踩到的：容器压到 600px 仍渲染 2 列。）
 - `.cq` 的挂载条件：只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）——
-  `container-type: inline-size` 带 `contain: inline-size`，挂在靠内容撑宽的元素上**宽度会塌**；
-  也别挂在含 `position: fixed; inset: 0` 全屏层的组件根上（containment 会让该 fixed 元素以它作包含块，
-  `RichTextEditor` 全屏即为此例，故它只用 `useContainerWidth()`、不挂 `.cq`）。
+  `container-type: inline-size` 带 `contain: inline-size`，挂在靠内容撑宽的元素上**宽度会塌**。
   CQ 也**只能查祖先**，标记要挂在"外层包裹"上。
+- **弹窗 / 抽屉正文统一是容器**：`containers.css` 把 `.ant-modal-body` / `.ant-drawer-body` 也标了
+  `container-type: inline-size`（全站 65 处 `Modal`，逐个挂 `.cq` 必然漏）。所以**放进弹窗的组件就活在容器里**，
+  两个后果：① 弹窗内的表单栅格会被窄容器规则降为单列（`@container (max-width: 720px)` 里让
+  `ant-col-xs/sm/md/lg/xl/xxl-*` 失效；页面级筛选区**不**受影响，它不在弹窗里）；
+  ② **组件里若 `position: fixed/absolute` 的后代，容器会成为它的包含块**——自绘浮层必须走 portal
+  （AntD 的 Modal/Dropdown/Select 默认走 portal，安全）。
+- ⚠️ **portal 切换不会重挂载组件**：`RichTextEditor` 切全屏时只是 DOM 子树挪到 `body` 下，
+  组件实例与 state 还在 → **只依赖 `[value]` 的 effect 不会重跑**，新渲染的 `contentEditable` 是空的，
+  内容**静默丢失**（表单里其实存着值、测试全绿、只有 DOM 空了）。
+  凡用 portal 换挂载点，内容回填的 effect 依赖里必须带上那个"挂载点"状态
+  （该组件是 `[value, fullscreen]`，由 `containerQuery.spec.mts` 锁）。
 - **写法规则**：宽容器形态 = 基线样式（写在 `index.css`），窄容器覆盖一律写进 `containers.css` 的
   `@container` → 不支持 CQ 的旧内核自动回落到基线，属渐进增强（不写 `@supports`、不加 polyfill）。
 - ⚠️ `@container` 的条件**不支持 `var()`**（实测整条规则被丢弃），只能写字面值；字面值必须等于

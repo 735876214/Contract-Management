@@ -32,7 +32,7 @@ import {
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { taskTypeLabel } from '@/constants/procurementWorkflow';
-import { useResponsive } from '@/hooks/useResponsive';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useListColumns } from '@/hooks/useListColumns';
 import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
 
@@ -152,8 +152,19 @@ export interface ModuleListPageProps {
   columnConfigLockedKeys?: string[];
 }
 
-const PER_ROW_DESKTOP = 4; // 桌面每行筛选字段数
-const PER_ROW_MOBILE = 2; // 窄屏（<768）每行筛选字段数（docs/08 阶段 2：筛选区按断点自适应）
+/**
+ * 筛选字段的最小可用宽度（px）→ **每行几列**由容器宽度除出来，而不是套断点：
+ * 容器比视口窄掉整个外壳（侧栏 + 边距，1280 桌面只剩 ~996），直接套 480/720/1024 会把
+ * 每一档都往下挪一格（1280 桌面从 4 列掉成 3 列）。按"一个筛选项至少 240px 才不挤"推，
+ * 三档视口下的结果与 DESIGN.md §10 完全对齐：375 → 2 列 · 768 → 3 列 · 1280 → 4 列。
+ * （这不是"又一个断点"，是布局约束；断点仍只有 `containerSize.ts` 那一处。）
+ */
+const MIN_FILTER_FIELD_W = 240;
+const PER_ROW_MIN = 2; // 再窄也不单列：筛选区两列比一列更省纵向空间（DESIGN.md §10.1）
+const PER_ROW_MAX = 4;
+
+/** 由每行字段数推出 `Col flex`（用 CSS 值而不是 AntD 断点 prop：断点 prop 是视口驱动的） */
+const filterColFlexOf = (perRow: number) => `0 0 ${(100 / perRow).toFixed(4)}%`;
 
 export default function ModuleListPage({
   moduleKey,
@@ -177,9 +188,18 @@ export default function ModuleListPage({
   columnConfigLockedKeys,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
-  /** 断点唯一来源（docs/08 阶段 1/2）：窄屏筛选区两列、表格紧凑、冻结关键列 */
-  const { isMobile } = useResponsive();
-  const perRow = isMobile ? PER_ROW_MOBILE : PER_ROW_DESKTOP;
+  /**
+   * **容器**驱动（docs/08 V2 阶段 3）：冻结列、紧凑行高、筛选区列数由**列表页自身宽度**决定，
+   * 不再看视口——列表页可能被放进弹窗/抽屉/分栏里，"窗口宽不宽"推不出"表格挤不挤"。
+   * 列宽用 `Col flex`（CSS 值）而不是 `xs/md/lg` 断点 prop：断点 prop 是视口驱动的，改不动。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  // 容器宽度未知（首帧）时按 4 列渲染，避免先窄后宽闪一下
+  const perRow = Math.min(
+    PER_ROW_MAX,
+    Math.max(PER_ROW_MIN, Math.floor((containerSize.width || Infinity) / MIN_FILTER_FIELD_W)),
+  );
+  const filterColFlex = filterColFlexOf(perRow);
   const [form] = Form.useForm();
   const [rows, setRows] = useState<ModuleListRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -277,8 +297,8 @@ export default function ModuleListPage({
             title: '采购编号',
             dataIndex: 'taskNo',
             width: 170,
-            // 窄屏横向滚动时冻结关键列（docs/08 阶段 2：≤md 冻结关键列）
-            ...(isMobile ? { fixed: 'left' as const } : {}),
+            // 窄容器下横向滚动时冻结关键列（docs/08 V2 阶段 3：由容器宽度决定）
+            ...(containerSize.isNarrow ? { fixed: 'left' as const } : {}),
             render: (v: string, row) => (
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>
                 {v}
@@ -295,6 +315,8 @@ export default function ModuleListPage({
             title: '采购类型',
             dataIndex: 'type',
             width: 110,
+            // 窄容器下收起（styles/containers.css 的 [@container] 规则按容器宽度隐藏）
+            className: 'col-secondary',
             render: (v: string) => <Tag color="cyan">{taskTypeLabel(v)}</Tag>,
           },
         ] as ColumnsType<ModuleListRow>)
@@ -306,6 +328,7 @@ export default function ModuleListPage({
             title: '发布时间',
             key: 'publishedAt',
             width: 140,
+            className: 'col-secondary',
             render: (_v, row) =>
               row.module?.publishedAt ? dayjs(row.module.publishedAt).format('YYYY-MM-DD HH:mm') : '-',
           },
@@ -458,6 +481,8 @@ export default function ModuleListPage({
 
   return (
     <div
+      ref={cqRef}
+      className="cq"
       style={{
         background: 'var(--cms-paper)',
         borderRadius: 8,
@@ -469,7 +494,7 @@ export default function ModuleListPage({
       <Form form={form} layout="vertical" style={{ marginBottom: 4 }}>
         <Row key={expanded ? 'expanded' : 'collapsed'} gutter={[16, 0]} align="middle">
           {visibleFilters.map((f) => (
-            <Col key={f.key} xs={12} sm={12} md={8} lg={6} style={{ marginBottom: 12 }}>
+            <Col key={f.key} flex={filterColFlex} style={{ marginBottom: 12 }}>
               <Form.Item name={f.key} label={f.label} style={{ marginBottom: 0 }}>
                 {renderControl(f)}
               </Form.Item>
@@ -527,7 +552,7 @@ export default function ModuleListPage({
 
       {/* 3. 数据表格 + 分页 */}
       <Table<ModuleListRow>
-        size={isMobile ? 'small' : 'middle'}
+        size={containerSize.isNarrow ? 'small' : 'middle'}
         rowKey="id"
         columns={visibleColumns}
         dataSource={rows}

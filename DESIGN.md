@@ -153,8 +153,9 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
   状态/标签一律 `DictTag`（走 §3.2 的语义映射）；纯文本 `DictText`。
 - **按钮**：主按钮珊瑚底白字、高 40、圆角 8；次级奶油底 + hairline；文字链用 `colorLink`（珊瑚深档）。
 - **表格**：表头 `surfaceCard` + `--cms-ink` 文字、行 hover `surfaceSoft`、行分隔 `hairline`；
-  单元格内边距 `8/12`；`size` 按断点（≤md `small`）；**必须声明 `scroll={{ x }}`**；
-  `≤md` 冻结关键列（采购编号）、操作列 `fixed: 'right'`。
+  单元格内边距 `8/12`；**必须声明 `scroll={{ x }}`**；操作列 `fixed: 'right'`。
+  `size`（紧凑行高）与冻结关键列自 V2 起**按容器宽度**判断，不再按断点——见 §10.2；
+  次要列声明 `className: 'col-secondary'`，由容器宽度决定显隐。
 - **卡片**：`canvas` 底 + `1px hairline` + 12 圆角、**无阴影**；标题衬线（§2）。
 - **弹窗**：`canvas` 底、圆角 12、遮罩 `rgba(20,20,19,.45)`。
   `centered` **不强制全站**：轻量确认类弹窗加 `centered`；**高编辑弹窗保持顶部对齐**
@@ -232,34 +233,58 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 
 **四条硬性约定**
 
-1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**；页面级筛选区用
-   `xs={12} sm={12} md={8} lg={6}`（手机 2 列 / 平板 3 列 / 桌面 4 列）。**弹窗/抽屉内的表单除外**（见 §10.2）。
-2. **表格必须声明 `scroll={{ x }}`**；关键列（如采购编号）`fixed: 'left'`，
-   操作列 `fixed: 'right'`；紧凑行高用 `size="small"`。
-   （"窄到什么程度才冻结/紧凑"自 V2 起由**容器**决定，见 §10.2；`scroll` 本身是硬要求，与断点无关。）
+1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**。
+   **例外：列表页筛选区**（`ModuleListPage`）——它的列数与列宽自 V2 起由**列表页自身容器**决定
+   （`Col flex` +「每行字段数 = 容器宽 ÷ 240px，下限 2 上限 4」），因为容器比视口窄掉整个外壳
+   （1280 桌面只剩 ~996px），套 `lg={6}` 会算错档。**弹窗/抽屉内的表单**见 §10.2。
+2. **表格必须声明 `scroll={{ x }}`**；操作列 `fixed: 'right'`。
+   （紧凑行高、关键列 `fixed: 'left'`、次要列显隐自 V2 起由**容器**决定，见 §10.2；
+   `scroll` 本身是硬要求，与断点无关。）
 3. **弹窗宽度必须响应式**：宽度可在大屏取固定值，但必须能被全局 `max-width: calc(100vw - 16px)`
    兜住（该规则已在 `index.css` 全局生效，新增弹窗无需逐个改写）。
 4. **侧栏 `≤md` 走 Drawer**：由 `AppSider` 内部按 `useResponsive()` 自动切换，选中菜单后自动关闭。
 
 ### 10.2 组件内部层（判定依据：**容器**）
 
-- **组件根挂 `.cq`**（`container-type: inline-size`），内部用 `@container (max-width: …)` 降级；
-  规则集中在 [web/src/styles/containers.css](web/src/styles/containers.css)。
+- **三类容器**（`container-type` 只许出现在这三处，由 `containerQuery.spec.mts` 锁定）：
+  1. `.cq` —— 组件自己声明"我的内部按我的宽度布局"；
+  2. `.ant-modal-body` / `.ant-drawer-body` —— **弹窗与抽屉正文是天然的容器边界**。
+     全站 65 处 `Modal`，逐个挂 `.cq` 必然漏；统一在 `containers.css` 标记，于是**放进弹窗的组件自动活在容器里**。
+  3. 别的元素一律不许挂（多一处就多一处 containment 副作用面）。
 - ⚠️ `.cq` 只能挂在**宽度由外部决定**的元素上（块级 / 百分比宽 / 栅格列）：`container-type: inline-size`
-  带 `contain: inline-size`，挂在 `inline-block` / `fit-content` 这类靠内容撑宽的元素上**宽度会塌**；
-  也别挂在含 `position: fixed; inset: 0` 全屏层的组件根上（containment 会让该 fixed 元素以它作包含块）
-  —— `RichTextEditor` 全屏即为此例，故它只用 `useContainerWidth()`、不挂 `.cq`。
+  带 `contain: inline-size`，挂在 `inline-block` / `fit-content` 这类靠内容撑宽的元素上**宽度会塌**。
   CQ 也**只能查祖先**，标记挂在"外层包裹"上，不要挂到待降级元素自身。
+- ⚠️ **containment 会把容器变成其后代 `position: fixed/absolute` 的包含块**：自绘浮层必须走 portal
+  （AntD 的 Modal/Dropdown/Select 默认 portal，安全）。`RichTextEditor` 的全屏层为此改为
+  `createPortal(frame, document.body)`。
+  ⚠️ 顺带一条通用坑：**portal 切换不会重挂载组件**，只依赖 `[某状态]` 的 effect 不会重跑 →
+  内容回填的 effect 依赖必须带上"挂载点"状态（该组件是 `[value, fullscreen]`，有锁）。
 - **CSS 表达不了的才用 [`useContainerWidth()`](web/src/hooks/useContainerWidth.ts)**（`ResizeObserver`）：
-  传给 AntD 的 JS prop（`Descriptions column`、`Table size`）、条件渲染、按容器宽度算的值。
+  传给 AntD 的 JS prop（`Descriptions column`、`Table size`、`Descriptions` 的 `column`）、条件渲染、
+  ECharts 的图例/标签/边距、按容器宽度算的值。**它返回回调 ref**（元素可能是条件渲染的，`useRef` 会静默失效）。
+- **已落地的组件级规则**（`containers.css`）：
+  | 场景 | 窄容器（<720px） | 宽容器（基线） |
+  |---|---|---|
+  | 预览区 `.doc-preview` | padding 12px | padding 24px（`index.css`） |
+  | 表格次要列 `.col-secondary` | 收起 | 显示 |
+  | 弹窗/抽屉内的表单栅格（`ant-col-*`） | 降为单列 | 按原断点 |
+  | 列表页（`ModuleListPage`） | 筛选 2 列 · `size="small"` · 冻结关键列 | 筛选 = 容器宽 ÷ 240px（上限 4）· `middle` |
+  | 台账冻结列（`Ledger`） | 只冻结合同编号 | 序号 + 合同编号 |
+  | 卡片（`.cq` 卡片，如工作台统计卡） | KPI 字号 22px · `ant-card-body` padding 12 | 30px / 20px |
+  | ECharts（工作台两图） | 图例字号/尺寸收紧 · 饼图关扇形标签 | 默认 |
+- ⚠️ **`.doc-preview` 的字号刻意不随容器变**：预览的是"要打印导出的那张纸"，
+  字号随容器变会让预览与导出物不一致（与 §3.1「paper 不随主题」同理）。
 - **写法规则**：宽容器形态 = 基线样式（写在 `index.css`），窄容器覆盖一律写进 `containers.css` 的
   `@container` → 不支持 CQ 的旧内核（Chromium <105 / Safari <16 / Firefox <110）会忽略这些规则、
   自动回落到基线，属**渐进增强**，故不写 `@supports` 分支、不加 polyfill。
+  ⚠️ 与 **AntD 运行时注入的样式**不能靠引入顺序（cssinjs 的 `<style>` 晚于本文件），
+  凡是要压过 AntD 的规则，选择器特异度取到 **≥0,2,0**（用 `:is(…)` 提升）。
 - ⚠️ **`@container` 的条件不支持 `var()`**（实测整条规则被丢弃），只能写字面值，且必须等于
   [utils/containerSize.ts](web/src/utils/containerSize.ts) 的 `CONTAINER_BREAKPOINTS`；
   断点单一事实源是它，`index.css` 的 `--cq-*` 是 CSS 镜像。**改断点要三处同步。**
 - 锁定：`server/test/containerQuery.spec.mts`（视口值只许外壳用 · 条件字面值合法 · `container-type` 位置 ·
-  三处断点一致 · `containers.css` 引入顺序）。
+  三处断点一致 · `containers.css` 引入顺序 · `.col-secondary` 规则成对 · 表单栅格覆盖不含 `.cq` ·
+  编辑器 portal + 同步依赖）。
 
 **明确不做（取舍）**
 

@@ -8,6 +8,7 @@ import { dashboardApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 
 const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
@@ -101,10 +102,24 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const { ref: trendRef, size: trendSize } = useContainerWidth<HTMLDivElement>();
+  const { ref: pieRef, size: pieSize } = useContainerWidth<HTMLDivElement>();
+
+  /**
+   * 图表按**自身容器宽度**降级（docs/08 V2 阶段 4）：ECharts 的图例/标签/边距都是 JS 选项，
+   * CSS 的 `@container` 驱动不了 —— 图表的"响应式"必须落在 JS，故这里用 `useContainerWidth()`，
+   * 且量的是**卡片**宽度而不是视口：`lg=8` 侧列卡片只有 ~380px，按视口它会以为自己在大屏上。
+   */
   const trendOption = {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['结算金额', '付款金额'] },
-    grid: { left: 60, right: 20, top: 40, bottom: 30 },
+    legend: {
+      data: ['结算金额', '付款金额'],
+      ...(trendSize.isNarrow ? { itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 11 } } : {}),
+    },
+    // 窄容器里默认的左 60 / 右 20 边距会吃掉本就不多的绘图区
+    grid: trendSize.isNarrow
+      ? { left: 44, right: 8, top: 34, bottom: 26 }
+      : { left: 60, right: 20, top: 40, bottom: 30 },
     xAxis: { type: 'category', data: trend.map((t) => t.month) },
     yAxis: { type: 'value' },
     series: [
@@ -115,13 +130,19 @@ export default function Dashboard() {
 
   const typeOption = {
     tooltip: { trigger: 'item' },
-    legend: { bottom: 0 },
+    legend: {
+      bottom: 0,
+      ...(pieSize.isNarrow ? { itemWidth: 10, itemHeight: 8, textStyle: { fontSize: 11 } } : {}),
+    },
     // 系列配色统一取 theme 的 chartPalette（珊瑚 → 青 → 琥珀 → 绿 → 深墨 → 红）
     color: [...chartPalette],
     series: [
       {
         type: 'pie',
         radius: ['40%', '70%'],
+        // 窄容器：扇形上的标签会互相压字 → 关掉标签、把识别交给图例与 tooltip
+        label: pieSize.isNarrow ? { show: false } : undefined,
+        labelLine: pieSize.isNarrow ? { show: false } : undefined,
         data: typeStat.map((t) => ({ name: label('contract_type', t.typeCode), value: t.amount })),
       },
     ],
@@ -134,27 +155,28 @@ export default function Dashboard() {
       <OverdueDraftReminder />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
+          {/* 每张统计卡自己声明容器：卡只有 1/4 宽，字号要按**卡**宽收敛（见 containers.css §4） */}
+          <Card className="cq"><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="合同总额" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
+          <Card className="cq"><Statistic title="合同总额" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="累计结算额" value={overview.settleAmount || 0} precision={2} prefix={<AccountBookOutlined />} /></Card>
+          <Card className="cq"><Statistic title="累计结算额" value={overview.settleAmount || 0} precision={2} prefix={<AccountBookOutlined />} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="累计付款额" value={overview.paidAmount || 0} precision={2} prefix={<WalletOutlined />} /></Card>
+          <Card className="cq"><Statistic title="累计付款额" value={overview.paidAmount || 0} precision={2} prefix={<WalletOutlined />} /></Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={16}>
-          <Card title="近 12 个月结算 / 付款趋势">
+          <Card className="cq" ref={trendRef} title="近 12 个月结算 / 付款趋势">
             <ReactECharts option={trendOption} style={{ height: 300 }} />
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card title="合同类型金额分布">
+          <Card className="cq" ref={pieRef} title="合同类型金额分布">
             <ReactECharts option={typeOption} style={{ height: 300 }} />
           </Card>
         </Col>

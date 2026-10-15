@@ -186,7 +186,8 @@ export default function Projects() {
           pagination={false}
           columns={[
             { title: '姓名', render: (_, row: any) => row.user?.realName },
-            { title: '账号', render: (_, row: any) => row.user?.username },
+            // 窄容器（本表在 520px 弹窗里）收起次要列，见 styles/containers.css §2
+            { title: '账号', render: (_, row: any) => row.user?.username, className: 'col-secondary' },
             {
               title: '项目角色',
               dataIndex: 'roleCode',

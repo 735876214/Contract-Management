@@ -92,11 +92,15 @@ Contract-Management/
 
 - 新页面用 `perm('/路径', <Page/>)`；后端菜单配了 `permission` 就要在 `ROUTE_PERMISSIONS` 登记**同一权限码**。
 - 视觉只改 token 层（`theme.ts`、`index.css` 的 `--cms-*`、`Sider/index.less`），页面/组件里**不写死色值**。
-- **断点分两层，别混用**：页面外壳（侧栏/顶栏/内容区边距/页面级栅格列数）看**视口**，走 `useResponsive()`；
-  组件内部（卡片内列数、工具条折行、弹窗/抽屉里的表格与预览区）看**容器**，走 `.cq` + `@container`，
-  CSS 表达不了的（AntD 的 JS prop、条件渲染）才用 `useContainerWidth()`。CQ 规则集中在
-  `styles/containers.css`，由 `containerQuery.spec.mts` 锁定。
-- 表格必须声明 `scroll={{ x }}`；`≤md` 侧栏走 Drawer。
+- **断点分两层，别混用**：页面外壳（侧栏/顶栏/内容区边距）看**视口**，走 `useResponsive()`；
+  组件内部（卡片内列数、工具条折行、表格密度、弹窗/抽屉里的表单与预览区）看**容器**，
+  走 `.cq` + `@container`（规则集中在 `styles/containers.css`），CSS 表达不了的
+  （AntD 的 JS prop、ECharts 选项、条件渲染）才用 `useContainerWidth()`。
+  **弹窗/抽屉正文本身就是容器**（`.ant-modal-body`），放进弹窗的组件自动按弹窗宽度降级。
+- **表格必须声明 `scroll={{ x }}`**；次要列加 `className: 'col-secondary'`（容器窄时自动收起）；
+  紧凑行高与冻结关键列由 `ModuleListPage` 按容器给；`≤md` 侧栏走 Drawer。
+- ⚠️ 集合了 `container-type` 的祖先会成为其后代 `position: fixed` 的**包含块** → 自绘浮层走 portal；
+  且**portal 切换不会重挂载组件**，"外部值 → DOM" 的 effect 依赖要带上挂载点状态。
 - 两套测试别混用；前端纯逻辑单测放 `server/test/*.spec.mts`（**不引入** jest/vitest）。
 - 细则见 [.claude/rules/frontend-conventions.md](.claude/rules/frontend-conventions.md)、
   [.claude/rules/testing.md](.claude/rules/testing.md)；视觉规则与取舍见 [DESIGN.md](DESIGN.md)。

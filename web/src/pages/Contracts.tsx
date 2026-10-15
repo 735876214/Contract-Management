@@ -597,8 +597,9 @@ export default function Contracts() {
                       { title: '字段', dataIndex: 'fieldLabel' },
                       { title: '变更前', dataIndex: 'beforeValue' },
                       { title: '变更后', dataIndex: 'afterValue' },
-                      { title: '操作人', dataIndex: 'operator' },
-                      { title: '时间', dataIndex: 'createdAt', render: (v) => v?.slice(0, 19).replace('T', ' ') },
+                      // 窄容器收起次要列（见 styles/containers.css §2）
+                      { title: '操作人', dataIndex: 'operator', className: 'col-secondary' },
+                      { title: '时间', dataIndex: 'createdAt', className: 'col-secondary', render: (v) => v?.slice(0, 19).replace('T', ' ') },
                     ]}
                   />
                 ),
