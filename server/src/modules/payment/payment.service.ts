@@ -40,7 +40,7 @@ export class PaymentService {
   private static readonly NON_PAYING_STATUSES: string[] = [...PAYMENT_EXCLUDED_STATUSES];
 
   /**
-   * 防超付校验（docs/09 §四）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。
+   * 防超付校验（口径见 .claude/rules/backend-conventions.md「金额上限」）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。
    * 策略取系统参数 `payment.over_amount_policy`（BLOCK 拦截 / WARN 仅提示 / OFF 不校验，默认 WARN）。
    *
    * ⚠️ 仅在交互式写入（无 tx）时执行：事务内不得调用 `sysParam`（事务外连接，可能挂起）。

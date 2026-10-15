@@ -180,7 +180,7 @@ export const dailyApi = {
   // 按合同聚合日报「结算数量」合计（补充协议：原合同剩余数量 = 原合同数量 − 日报已发生数量）
   contractSettledQty: (contractId: string) =>
     http.get<any, any>('/daily-reports/contract-settled-qty', { params: { contractId } }),
-  // 现场确认（docs/09 §三）：单条传 id，批量传 ids；action = CONFIRM | REJECT
+  // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：单条传 id，批量传 ids；action = CONFIRM | REJECT
   confirm: (payload: { id?: string; ids?: string[]; action: 'CONFIRM' | 'REJECT'; remark?: string }) =>
     http.post<any, any>('/daily-reports/confirm', payload),
   // 某合同下未确认/已驳回的现场记录汇总（结算页提示用）

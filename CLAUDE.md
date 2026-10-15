@@ -1,16 +1,22 @@
 # CLAUDE.md · AI 进入本项目的必读信息
 
 > 面向 AI 编码助手的项目入门。**动手前先读完本文件**，其余细节见文末索引。
-> 本文件只写**现状**与**会踩的坑**；历史修复记录见 [docs/09](docs/09-重构方案评估与采纳建议.md) §8 等
-> 「当时快照」与 `git log`，不再搬到这里。
+> 本文件只写**现状**与**会踩的坑**；历史修复记录见 `git log`，不再搬到这里。
 
 ## 1. 这是什么
 
 **企业合同管理系统（CMS）**：面向工程/采购型企业的合同全生命周期管理，覆盖
 `项目 → 供应商/分包商 → 采购工作流 → 合同 → 日报/收领单 → 结算付款 → 发票 → 台账 → 还款协议` 主链路，
 并配套模板、通知、看板与系统管理。
-（注：**没有多级流程引擎**——合同的流转就是 `status`（草稿中 → 待签章 → 已签章）+ `/sign` + `/reject`
-的状态回退；业务已确认不做可配置流程，CLAUDE.md 与代码里都不再使用"审批"这一说法。）
+**已定的产品口径**（2026-10-16 业务答复，别再重新提议）：
+- **无多级流程引擎**：合同流转就是 `status`（草稿中 → 待签章 → 已签章）+ `/sign` + `/reject` 的状态回退；
+  不做可配置流程，CLAUDE.md 与代码里也不再使用"审批"这一说法。
+- **付款只有单表台账** `PaymentRecord`（登记**已完成**的付款），**不做**「计划 / 申请 / 核销（三单匹配）」。
+- **变更靠补充协议链表达**并**结构化**：**合同当前金额 = 主合同金额 + Σ 补充协议 `changeAmount`（带符号增量）**；
+  工作台对超 110%/80%（或补充协议超 130%/110%）出红/黄**预警**（只展示、不拦单据）。
+- **合同正文导出取签订时快照**（`Contract.supplierSnapshot`，签章时冻结；参数 `supplier.name.sync.history` 控制
+  `KEEP`/`SYNC`）。
+- 不引入 Flowable / Redis / MQ / 物化视图 / DB 枚举（理由见 [docs/05](docs/05-四域扩展可行性评估.md) §2/§5 与本文件铁律 4）。
 
 - 前端：React 18 + TypeScript + Vite 5 + Ant Design 5 + Zustand + ECharts
 - 后端：NestJS 10 + Prisma 5 + **PostgreSQL 16**（唯一数据库）
@@ -66,6 +72,8 @@ Contract-Management/
    service 里写 `SETTLEMENT_STATUS.DRAFT` 而不是 `'DRAFT'`；字典 typeCode 用 `DICT_TYPES.*`。
    两侧由 `server/test/statusCodes.spec.mts` **双向锁死**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum）。
 5. **供应商信息不冗余**：合同只存 `supplierId`，法人/联系人/银行等由供应商库实时关联。
+   例外：**签订时快照** `Contract.supplierSnapshot`（`contract.service.sign()` 冻结）——那是"历史合同再导出
+   不该被主数据改写"的留痕，不是把供应商信息冗余进合同；模板取值走"快照优先 → 逐字段回退实时"。
 
 ## 4. 改动前必看（细则在 `.claude/rules/`，按需加载）
 
@@ -164,17 +172,19 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
 | [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md) | 四域扩展评估 + 决策记录（含招标域落地增量） |
 | [docs/06-变量体系梳理与歧义清单.md](docs/06-变量体系梳理与歧义清单.md) | 采购/合同模板变量两套体系 + 歧义清单 |
 | [docs/07-工作域信息关联审计.md](docs/07-工作域信息关联审计.md) | 工作域关联审计（悬空外键、弱关联、核销缺失） |
-| [docs/09-重构方案评估与采纳建议.md](docs/09-重构方案评估与采纳建议.md) | 外部方案评估 + 现场确认/防超结/招标域落地记录 + 待业务澄清 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
 
-> **编号有缺号说明**：`docs/08`（全局响应式改造方案）是**方案类文档**——V1/V2 全部落地后按仓库惯例删除，
-> 当前口径已固化在 [DESIGN.md](DESIGN.md) §10（双层模型）与 `.claude/rules/frontend-conventions.md`，
-> 机器可查的契约在 `server/test/containerQuery.spec.mts`；沿革与逐次验收记录见 `git log`。
+> **编号有缺号说明（08 / 09 为已交付的方案类文档，落地后按惯例删除）**：
+> - **`docs/08`（全局响应式改造方案）**：V1/V2 全部落地 → 当前口径已固化在 [DESIGN.md](DESIGN.md) §10（双层模型）
+>   与 `.claude/rules/frontend-conventions.md`，机器可查的契约在 `server/test/containerQuery.spec.mts`。
+> - **`docs/09`（外部重构方案评估与采纳建议）**：评估出的缺口已全部实施或转为"不做"（见 §1「已定的产品口径」），
+>   唯一未实施的「清单项级结算明细」已转入 [TODO.md](TODO.md)「可直接开工」。
+> - 两者的沿革与逐次验收记录见 `git log`。
 
 > **技术选型**：数据库只有 **PostgreSQL 16**（Prisma + 迁移；**禁 `prisma db push`**，CI 有静态与 diff 两道门禁）。
 > 以代码与本文档为准。
 
 > **统计数字的两种待遇**：**活文档**（本文件、`docs/development.md`）里的 spec / model / 业务模块 /
 > 增量迁移 计数必须与代码一致，由 `docStats.spec.mts` 锁定；**历史报告**（docs/07 §0.1、
-> docs/09 §8 等带日期的记录）是"当时快照"，就地标注即可，**不要**追改。**断言数不进散文**
+> `docs/07` §0.1 等带日期的记录）是"当时快照"，就地标注即可，**不要**追改。**断言数不进散文**
 > （它随用例增减，以 `npm test` 输出为准）。

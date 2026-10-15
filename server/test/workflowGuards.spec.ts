@@ -15,7 +15,7 @@ import { STAGE_KEYS, stageChain, stageView } from '../src/constants/procurementF
 /**
  * 任务 7：三处驳回（纯状态回退）状态机单测。
  * 覆盖「合同签章→合同起草 / 结算→回填 / 成交报告→重发」的准入与拒绝分支，挡回归。
- * 2026-10-15 追加：现场确认（日报行）状态机（docs/09 §三「现场确认驱动结算」）。
+ * 2026-10-15 追加：现场确认（日报行）状态机（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）。
  */
 
 /** 成交报告在单项采购（无采前会）阶段链中的下标 */

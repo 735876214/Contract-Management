@@ -35,7 +35,7 @@ const FIELDS: F[] = [
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
-  // 现场确认状态（docs/09 §三）：决定该行是否计入结算口径
+  // 现场确认状态（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：决定该行是否计入结算口径
   { key: 'confirmStatusCode', label: '确认状态', kind: 'dict', dict: 'site_confirm_status', width: 110 },
   // 需求 2.1.4：「是否资产」「是否安全物资」由物资基础库带出，日报只读展示
   { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100, readonly: true },
@@ -194,7 +194,7 @@ export default function DailyReports() {
     search(p);
   };
 
-  /** 现场确认：单条或批量（docs/09 §三） */
+  /** 现场确认：单条或批量（口径见 .claude/rules/backend-conventions.md「日报/现场确认」） */
   const doConfirm = async (action: 'CONFIRM' | 'REJECT', ids: string[]) => {
     if (!ids.length) {
       message.warning('请先勾选要操作的日报行');

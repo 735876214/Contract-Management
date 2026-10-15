@@ -52,7 +52,7 @@ export class DailyReportController {
     return this.service.contractSettledQty(contractId, projectId);
   }
 
-  /** 某合同下未确认/已驳回的现场记录汇总（结算页提示用，docs/09 §三） */
+  /** 某合同下未确认/已驳回的现场记录汇总（结算页提示用，.claude/rules/backend-conventions.md「日报/现场确认」） */
   @RequirePermissions('daily:view')
   @Get('unconfirmed-summary')
   unconfirmedSummary(@Query('contractId') contractId: string, @ProjectId() projectId: string) {

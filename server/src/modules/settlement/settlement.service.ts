@@ -42,7 +42,7 @@ export class SettlementService {
   // ---------------- 结算单 ----------------
 
   /**
-   * 防超结校验（docs/09 §四）：累计结算（含补充协议链、排除草稿与自身）+ 本次 ≤ 合同链金额。
+   * 防超结校验（口径见 .claude/rules/backend-conventions.md「金额上限」）：累计结算（含补充协议链、排除草稿与自身）+ 本次 ≤ 合同链金额。
    * 策略取系统参数 `settlement.over_amount_policy`（BLOCK 拦截 / WARN 仅提示 / OFF 不校验，默认 WARN）。
    *
    * ⚠️ 仅在**交互式写入**（无 tx）且结果状态非草稿时执行：事务内不得调用 `sysParam`

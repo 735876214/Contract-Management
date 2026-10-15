@@ -71,7 +71,7 @@ export function assertResultReportRejectable(ctx: ResultReportRejectContext): vo
 }
 
 /**
- * 现场确认（日报行）状态机 —— docs/09 §三「现场确认驱动结算」。
+ * 现场确认（日报行）状态机 —— .claude/rules/backend-conventions.md「日报/现场确认」「现场确认驱动结算」。
  *
  * 日报行是结算量的唯一来源（收领单推送也会生成日报行），其确认状态决定该行是否计入结算口径：
  * - `PENDING`   待确认（日报页手工新增的默认态；未确认时不计入结算口径，见 daily-report.service）

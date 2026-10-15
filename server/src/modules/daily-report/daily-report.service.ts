@@ -42,7 +42,7 @@ export class DailyReportService {
     if (query.materialType) where.materialType = query.materialType;
     if (query.assetStatus) where.assetStatus = query.assetStatus;
     if (query.sourceCode) where.sourceCode = query.sourceCode;
-    // 现场确认状态筛选（docs/09 §三）；'PENDING' 需同时命中历史空值行
+    // 现场确认状态筛选（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）；'PENDING' 需同时命中历史空值行
     if (query.confirmStatusCode === SITE_CONFIRM_STATUS.PENDING) {
       where.OR = [...(where.OR ?? []), { confirmStatusCode: null }, { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING }];
     } else if (query.confirmStatusCode) {
@@ -86,7 +86,7 @@ export class DailyReportService {
    */
   async contractSettledQty(contractId: string, projectId: string) {
     if (!contractId) return [];
-    // 结算口径：开启闸门时只汇总「已确认」的现场记录（docs/09 §三）
+    // 结算口径：开启闸门时只汇总「已确认」的现场记录（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）
     const gated = await this.requireConfirmed();
     const rows = await this.prisma.dailyReport.groupBy({
       by: ['materialBaseId'],
@@ -104,7 +104,7 @@ export class DailyReportService {
     }));
   }
 
-  /* ==================== 现场确认（docs/09 §三：现场确认驱动结算） ==================== */
+  /* ==================== 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」） ==================== */
 
   /**
    * 结算口径是否只认「已确认」的现场记录。
@@ -245,7 +245,7 @@ export class DailyReportService {
       data: {
         ...this.normalize(data),
         projectId,
-        // 现场确认（docs/09 §三）：新建/导入的日报行默认「待确认」；
+        // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：新建/导入的日报行默认「待确认」；
         // 收领单推送生成的行由 receipt-order.service 直接置「已确认」（现场签收即确认）
         confirmStatusCode: SITE_CONFIRM_STATUS.PENDING,
       },

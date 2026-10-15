@@ -226,7 +226,7 @@ function SettlementsTab({
                 />
               </Form.Item>
             </Col>
-            {/* 现场确认缺口提示（docs/09 §三）：结算依据应来自「已确认」的现场记录 */}
+            {/* 现场确认缺口提示（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：结算依据应来自「已确认」的现场记录 */}
             <Col xs={24}>
               <Form.Item noStyle shouldUpdate={(prev, cur) => prev.contractId !== cur.contractId}>
                 {({ getFieldValue }: any) => <UnconfirmedHint contractId={getFieldValue('contractId')} />}
@@ -427,7 +427,7 @@ function LedgerTab({
 }
 
 /**
- * 现场确认缺口提示（docs/09 §三）：选定合同后提示该合同下还有多少条现场记录未确认。
+ * 现场确认缺口提示（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：选定合同后提示该合同下还有多少条现场记录未确认。
  * 只有「已确认」的现场记录才计入结算口径（系统参数 `settlement.require_confirmed` 控制），
  * 故把口径缺口显性化，避免结算时才发现取数偏少。
  */

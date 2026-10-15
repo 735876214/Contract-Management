@@ -162,7 +162,7 @@ export async function seedDefaultProject(prisma: PrismaClient): Promise<void> {
  * 历史数据修正同理（也不要去改已应用的迁移文件——会与 `_prisma_migrations` 的 checksum 冲突）。
  *
  * 当前处理项：
- * 1. 增补字典类型 `site_confirm_status`（现场确认状态，docs/09 §三）及其字典项；
+ * 1. 增补字典类型 `site_confirm_status`（现场确认状态，.claude/rules/backend-conventions.md「日报/现场确认」）及其字典项；
  * 2. 增补系统参数：`settlement.require_confirmed` / `settlement.over_amount_policy` / `payment.over_amount_policy`；
  * 3. 修正合同模板变量展示名：`银行名称` 的 varLabel 曾为「开户银行」（与 varKey 不一致，
  *    模板作者按展示名插入变量会拿到 `{开户银行}` 而永远不被替换，docs/06 #8）。
@@ -191,7 +191,7 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
 }
 
 /**
- * 现场确认字典与相关系统参数（docs/09 §三）。
+ * 现场确认字典与相关系统参数（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）。
  * - 字典类型 `site_confirm_status`：PENDING 待确认 / CONFIRMED 已确认 / REJECTED 已驳回
  * - 参数 `settlement.require_confirmed`（默认 true）：结算口径是否只认「已确认」的现场记录
  * - 参数 `settlement.over_amount_policy` / `payment.over_amount_policy`（默认 WARN）：

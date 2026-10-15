@@ -23,7 +23,7 @@
   `ContractDraftMaterial`（`qty ← qty`、`priceBeforeTax ← planPrice`（控制价）、`unit ← unit`；
   税率按**合同主表税率**预填，含税单价与暂定含税合价服务端重算，与 `draftSave` 同口径）。
 - 多单位场景**每份合同都带入同一份清单**（由用户按成交单位裁剪）；带入失败只记日志、**不阻断**合同生成。
-- 细节见 docs/09 §8.1。
+- 幂等与失败不阻断的细节见 `contract.service.seedDraftFromProcurementItems()` 的注释。
 
 ## 两套变量体系（互不相通）
 

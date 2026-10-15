@@ -16,7 +16,7 @@ import { TASK_STATUS } from '../src/constants/procurementFlow';
  * ④ 两条**防误改**规则：非主合同不改写任务状态、任务未走完阶段链时不介入。
  *
  * 注：项目**没有多级流程引擎**（无 `Approval*` 表，合同 = status + /sign + /reject），
- * 所以这里验的是「提交 → 待签章 → 签章 / 驳回」这条既有状态流转（见 docs/09 §2.2 F）。
+ * 所以这里验的是「提交 → 待签章 → 签章 / 驳回」这条既有状态流转。
  */
 describe('集成 · 合同状态流转与任务联动', () => {
   let ctx: IntContext;

@@ -742,7 +742,7 @@ export class ReceiptOrderService {
         isProxy: d.isAgentPurchase || null,
         receiptNo: order.orderNo || null,
         receiptOrderId: order.id,
-        // 现场确认（docs/09 §三）：收领单本身即现场签收 → 推送出的日报行直接置「已确认」，
+        // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：收领单本身即现场签收 → 推送出的日报行直接置「已确认」，
         // 避免收领单流程被二次卡住（若业务要求收领单也需单独确认，改这里即可）
         confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED,
         confirmedBy: order.receiver || order.createdBy || null,

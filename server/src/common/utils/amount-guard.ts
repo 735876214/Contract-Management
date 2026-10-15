@@ -1,5 +1,5 @@
 /**
- * 金额上限**判定**：防超结 / 防超付 —— docs/09 §四。
+ * 金额上限**判定**：防超结 / 防超付 —— .claude/rules/backend-conventions.md「金额上限」。
  *
  * **零 import 依赖**（不引 Prisma / Nest），可直接被 `server/test/*.spec.mts` 加载。
  *

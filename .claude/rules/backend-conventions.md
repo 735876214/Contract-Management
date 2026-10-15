@@ -53,7 +53,8 @@
   策略由系统参数 `settlement.over_amount_policy` / `payment.over_amount_policy` 控制
   （`BLOCK`/`WARN`/`OFF`，默认 `WARN`）。⚠️ **合同链未填金额时返回 `null` = 无上限**，
   别把「无金额」当成上限 0（否则 BLOCK 下会拦住合法单据）。锁定：`amountGuard.spec.mts` +
-  `test-integration/amount-guard.int.spec.ts`。细节见 docs/09 §8 B。
+  `test-integration/amount-guard.int.spec.ts`。链口径与策略取舍见 `common/utils/contract-chain.ts`
+  与 `common/utils/amount-guard.ts` 的文件头注释。
 
 ## 日报 / 现场确认（结算量的来源）
 
@@ -62,7 +63,8 @@
   口径开关 `settlement.require_confirmed`（默认 `true`）开启时，非「已确认」的现场记录**不计入结算口径**
   （`contract-settled-qty` 会过滤）；收领单推送生成的行由 `receipt-order.service` 直接置「已确认」。
   ⚠️ 改 `web/src/pages/DailyReports.tsx` 的 `FIELDS` 时，**key 必须与 Prisma 模型字段逐字一致**
-  （该数组同时驱动表格列与表单字段，错一个字 = 列空白 + 保存 500）。细节见 docs/09 §8 A。
+  （该数组同时驱动表格列与表单字段，错一个字 = 列空白 + 保存 500）。口径细节见
+  `daily-report.service.ts` 与 `constants/workflowGuards.ts` 的文件头注释。
 
 ## 台账
 
@@ -74,6 +76,11 @@
   的口径是"上限未知"（`contractChainAmount()` 返回 `null`）→ 会造出"同一件事两个相反结论"。
   ⚠️ **显式填 `0` 是真实的 `0`**（与 `amount-guard` 一致），照常参与计算：0 元合同却有付款
   算出的负欠款**正是该被看见的数据异常**，别抹平。锁定：`ledgerDerived.spec.mts`。
+- **「累计结算」有两个口径，是有意区分的，别去"统一"**：台账列「已结算金额占合同比例」的分子用
+  **开累结算金额**（`SettlementLedger.monthSettleAmount`，由结算/发票/保理/逾期派生）；
+  防超结闸门与工作台预警的分子用**结算单口径**（`Settlement.actualAmount`）。前者回答"这条链的账现在是多少"，
+  后者回答"有没有超结"，实测当前数据两者逐条相等；某月只有发票/保理而无结算时会分开，
+  届时应以台账列为准、并在预警里说明分母。
 - **列宽的单位契约**：`modules/ledger/ledger-columns.ts` 的 `LEDGER_COLUMNS[].width` 是
   **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
   **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
