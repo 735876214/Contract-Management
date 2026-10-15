@@ -90,15 +90,15 @@ export type ContractCategory = '物资' | '租赁' | null;
 
 /**
  * 合同类型（五态）——**code 的单一事实源**（评审意见：核心枚举不用裸字符串）。
- * 与 `schema.prisma` 的 `enum ContractType` **一一对应**（由 `server/test/statusCodes.spec.mts` 锁定），
- * 也是字典 `contract_type` 取值的**子集**（字典另有 `FRAMEWORK`：框架协议不进这五态）。
+ *
+ * ⚠️ 它**不再与任何 DB enum 对应**：此前 `schema.prisma` 里有一个 `enum ContractType` 作为它的副本，
+ * 2026-10-16 连列一起删除（那一列全仓无读者，且铁律 4 是"字典驱动、不加数据库枚举"）——
+ * 现在全库**零 DB enum**，五态只由本常量 + `deriveContractType()` 表达。
+ * 它是字典 `contract_type` 取值的**子集**（字典另有 `FRAMEWORK`：框架协议不进这五态），
+ * 由 `server/test/statusCodes.spec.mts` 锁定（该文件另有一条锁：schema 里不得出现任何 enum）。
  */
 export const CONTRACT_TYPES = ['PURCHASE', 'LEASE', 'PURCHASE_EXEC', 'LEASE_EXEC', 'EMERGENCY'] as const;
 export type ContractType = (typeof CONTRACT_TYPES)[number];
-
-/** 是否属于「五态合同类型」（用于把字典编码窄化进 DB enum 字段，替代原先的 `as any`） */
-export const isFiveStateContractType = (v: unknown): v is ContractType =>
-  typeof v === 'string' && (CONTRACT_TYPES as readonly string[]).includes(v);
 
 /**
  * 采购任务状态（`ProcurementTask.status`，**非字典驱动**；标签见 `TASK_STATUS_LABELS`）。

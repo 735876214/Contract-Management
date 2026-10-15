@@ -21,7 +21,6 @@ import {
   CONTRACT_STATUS_TO_TASK_STATUS,
   TASK_STATUS,
   TASK_STATUS_LABELS,
-  isFiveStateContractType,
 } from '../src/constants/procurementFlow.ts';
 
 /**
@@ -31,6 +30,9 @@ import {
  * 「字典驱动、不加数据库枚举」冲突，并牺牲可配置的下拉/颜色/排序。故采取
  * **「code 收敛到 `src/constants/statuses.ts` + 本测试双向锁」**：
  * 字典继续提供 label/color/排序，code 只此一份，两边任何一侧新增/改名都会在这里红。
+ *
+ * 2026-10-16 追加：`Contract.contractType`（全库唯一的 DB enum）删除后，本文件多一条锁——
+ * **`schema.prisma` 里不得出现任何 `enum`**，铁律 4 从此完全成立。
  *
  * ⚠️ 本文件**不能 import 含相对路径运行时依赖的模块**（Node 原生擦除类型加载 `.mts`，ESM 不做扩展名推断）——
  * 这也是 `constants/procurementFlow.ts` 选择「不 import statuses、用字面量 + 本锁兜」的原因。
@@ -65,24 +67,21 @@ const declaredDictTypes = (): string[] => [
   ...[...seedSrc.matchAll(/const typeCode = '([a-z_]+)';/g)].map((m) => m[1]),
 ];
 
-/** 取 `schema.prisma` 里某个 enum 的取值 */
-const schemaEnumValues = (name: string): string[] => {
-  const m = new RegExp(`enum ${name}\\s*\\{([^}]*)\\}`).exec(schemaSrc);
-  if (!m) return [];
-  return m[1]
-    .split('\n')
-    .map((l) => l.replace(/\/\/.*$/, '').trim())
-    .filter((l) => l && !l.startsWith('@@'));
-};
+/**
+ * `schema.prisma` 里声明的**数据库枚举**名。
+ * 2026-10-16 起应恒为空数组——铁律 4「字典驱动、**不加数据库枚举**」由下面的用例钉死
+ * （此前还剩 `ContractType` 这一个例外，且那一列全仓无读者，已删）。
+ */
+const schemaEnumNames = (): string[] => [...schemaSrc.matchAll(/^enum\s+(\w+)/gm)].map((m) => m[1]);
 
 const sameSet = (a: string[], b: string[]) =>
   [...new Set(a)].sort().join(',') === [...new Set(b)].sort().join(',');
 
-describe('核心状态 code 漂移锁（常量 ↔ 字典 ↔ schema）', () => {
+describe('核心状态 code 漂移锁（常量 ↔ 字典 + schema 零枚举）', () => {
   it('扫描面非空（防解析失效导致测试恒真）', () => {
     assert.ok(declaredDictTypes().length >= 8, '未解析到字典类型，seed-data 格式可能变了');
     assert.ok(dictItems('settlement_status').length >= 6, '未解析到 settlement_status 字典项');
-    assert.deepEqual(schemaEnumValues('ContractType').length, 5, '未解析到 ContractType 五态');
+    assert.ok(/^model Contract\s/m.test(schemaSrc), '未解析到 schema.prisma 的 Contract 模型，路径可能变了');
   });
 
   it('有字典背书的常量组 **集合完全相等** 于对应字典项', () => {
@@ -105,16 +104,21 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 ↔ schema）', () => 
     }
   });
 
-  it('五态合同类型 == `schema.prisma` 的 `enum ContractType`，且是字典 `contract_type` 的子集', () => {
-    assert.ok(sameSet([...CONTRACT_TYPES], schemaEnumValues('ContractType')), 'CONTRACT_TYPES 与 schema enum ContractType 不一致');
+  it('五态合同类型是字典 `contract_type` 的真子集（不再有 schema enum 可对照）', () => {
     const dict = dictItems(DICT_TYPES.CONTRACT_TYPE);
     assert.ok(dict.length >= 6, '未解析到 contract_type 字典项');
     for (const code of CONTRACT_TYPES) assert.ok(dict.includes(code), `五态 ${code} 不在字典 contract_type 中`);
     // 字典多出的 FRAMEWORK（框架协议）不属于五态——这是**有意**的，不是漏洞
     assert.deepEqual(dict.filter((c) => !(CONTRACT_TYPES as readonly string[]).includes(c)), ['FRAMEWORK']);
-    assert.equal(isFiveStateContractType('FRAMEWORK'), false);
-    assert.equal(isFiveStateContractType('PURCHASE_EXEC'), true);
-    assert.equal(isFiveStateContractType(null), false);
+  });
+
+  it('schema.prisma 里**不得出现任何数据库枚举**（铁律 4 的机器化）', () => {
+    assert.deepEqual(
+      schemaEnumNames(),
+      [],
+      'schema 里出现了数据库枚举：本项目一律用「字典驱动 + 常量单一事实源」（CLAUDE.md 铁律 4），' +
+        '枚举值应由 dict_item 提供，业务表存字典项编码字符串。',
+    );
   });
 
   it('采购任务状态 == `TASK_STATUS_LABELS` 的键集合（标签表不许漏/多）', () => {

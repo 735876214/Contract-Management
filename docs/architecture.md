@@ -154,7 +154,7 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 
 ## 6. 数据模型概览
 
-出处：`server/prisma/schema.prisma`（**52 个 model**，唯一 enum 为 `ContractType`）。
+出处：`server/prisma/schema.prisma`（**52 个 model**，**零 DB enum**——字典驱动，见 CLAUDE.md 铁律 4）。
 
 **通用约定**
 - 主键 `id String @id @default(cuid())`；时间 `createdAt`/`updatedAt`。

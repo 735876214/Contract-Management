@@ -204,26 +204,17 @@ model Subcontractor {
 
 // ---------------- 合同 ----------------
 
-enum ContractType {
-  PURCHASE
-  LEASE
-  PURCHASE_EXEC
-  LEASE_EXEC
-  EMERGENCY
-}
-
 model Contract {
-  id                  String        @id @default(cuid())
+  id                  String    @id @default(cuid())
   projectId           String
   code                String // 合同编号
   name                String
   typeCode            String? // dict: contract_type
-  contractType        ContractType? // 合同类型五态（由采购类型+采购品类推导）：PURCHASE/LEASE/PURCHASE_EXEC/LEASE_EXEC/EMERGENCY
   subTypeCode         String? // dict: contract_sub_type 合同子类型（编号第4段）
   supplierId          String?
   signDate            DateTime?
-  amount              Decimal?      @db.Decimal(18, 2)
-  taxRate             Decimal?      @db.Decimal(9, 4)
+  amount              Decimal?  @db.Decimal(18, 2)
+  taxRate             Decimal?  @db.Decimal(9, 4)
   paymentMethodCode   String? // dict: payment_method
   isFramework         String? // dict: yes_no
   isSupplement        String? // dict: yes_no
@@ -236,8 +227,8 @@ model Contract {
   // 「合同当前金额」= 主合同 amount + Σ 补充协议 changeAmount（**带符号**，降价为负）。
   // ⚠️ 不要用 amount 参与链式求和：补充协议的 amount 是手填自由值，涨价/降价场景会把
   //    「剩余数量的全值」重复计入。changeAmount 由服务端按清单重算（common/utils/supplement-delta.ts）。
-  changeAmount        Decimal?      @db.Decimal(18, 2) // 该补充协议带来的带符号增量（增项为正、减项为负）
-  changeQty           Decimal?      @db.Decimal(18, 2) // 带符号数量增量（同上）
+  changeAmount        Decimal?  @db.Decimal(18, 2) // 该补充协议带来的带符号增量（增项为正、减项为负）
+  changeQty           Decimal?  @db.Decimal(18, 2) // 带符号数量增量（同上）
   changeEffectiveDate DateTime? // 变更生效日
   execStatus          String? // dict: contract_execution_status
   status              String? // dict: contract_status 起草流转状态：DRAFT 草稿中 / COMPLETED 已完成
@@ -260,13 +251,13 @@ model Contract {
   supplierSnapshot    String? // JSON：{ name, bankName, bankAccount, legalPerson, ... }
   remark              String?
   paymentMode         String? // 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认）
-  monthlyRate         Decimal?      @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
+  monthlyRate         Decimal?  @db.Decimal(18, 6) // 延期月利率（如 0.006 表示 0.6%）
   graceDays           Int? // 逾期宽限天数
-  interestCapRatio    Decimal?      @db.Decimal(9, 4) // 逾期利息上限比例（如 0.05 表示 5%）
+  interestCapRatio    Decimal?  @db.Decimal(9, 4) // 逾期利息上限比例（如 0.05 表示 5%）
   createdBy           String?
-  createdAt           DateTime      @default(now())
-  version             Int           @default(0) // 乐观锁版本号，更新时校验
-  updatedAt           DateTime      @updatedAt
+  createdAt           DateTime  @default(now())
+  version             Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt           DateTime  @updatedAt
   taskId              String? // 关联采购任务（一对多：一个任务可生成多个合同）
 
   project                    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)

@@ -31,8 +31,8 @@ const CONTRACT_FIELDS = [
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
-  // 采购工作流（五态枚举 + 任务一对多）：关联采购任务与推导出的合同类型
-  'contractType', 'taskId',
+  // 采购工作流（任务一对多）：只关联采购任务；五态合同类型是派生值、不入库（2026-10-16 删列）
+  'taskId',
   // 合同起草（需求重构）：起草流转状态、关联模板、物资名称、模板变量值
   'status', 'templateId', 'materialDescription', 'formData',
 ];

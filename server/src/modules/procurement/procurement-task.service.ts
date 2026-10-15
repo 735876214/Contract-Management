@@ -19,7 +19,6 @@ import {
   TASK_STATUS,
   TASK_STATUS_LABELS,
   CONTRACT_TYPE_LABELS,
-  isFiveStateContractType,
   stageChain,
   stageView,
   contractStageState,
@@ -689,9 +688,9 @@ export class ProcurementTaskService {
           {
             code,
             typeCode: resolved.typeCode,
-            // 字典编码窄化进 DB enum 字段（原为 `as any`，绕过了类型检查）；
-            // typeCode 由 deriveContractType 推导，恒为五态之一，非五态时置 NULL 由 typeCode 表达
-            contractType: isFiveStateContractType(resolved.typeCode) ? resolved.typeCode : null,
+            // 五态（PURCHASE/LEASE/…）不落库：它是 `typeCode` + 采购品类的**派生值**，
+            // 由纯函数 `deriveContractType()` 推导（见 constants/procurementFlow.ts），
+            // 存一份副本只会制造"同一取值空间两处"的口径风险（2026-10-16 删除该列，全库已无 DB enum）。
             taskId: task.id,
             supplierId,
             isFramework: task.type === 'FRAMEWORK' ? 'Y' : 'N',
