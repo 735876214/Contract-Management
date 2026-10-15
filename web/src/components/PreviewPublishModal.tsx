@@ -158,7 +158,7 @@ export default function PreviewPublishModal({
       ]}
       onCancel={onClose}
     >
-      {/* 容器标记：预览区按**弹窗自身宽度**降级（docs/08 V2 阶段 2）——
+      {/* 容器标记：预览区按**弹窗自身宽度**降级（DESIGN.md §10.2）——
           桌面视口 + 窄弹窗时 `.doc-preview` 也会收敛，这是 V1 的视口判断做不到的 */}
       <div className="cq">
         {tipMessage && mode === 'publish' && (
@@ -180,7 +180,7 @@ export default function PreviewPublishModal({
               minHeight: 120,
               overflow: 'auto',
               border: '1px solid var(--cms-hairline-soft)',
-              // padding 交由 .doc-preview 做容器级收敛（docs/08 V2 阶段 2）
+              // padding 交由 .doc-preview 做容器级收敛（DESIGN.md §10.2）
             }}
             dangerouslySetInnerHTML={{
               __html: highlightPlaceholders(html) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',

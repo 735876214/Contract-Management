@@ -104,7 +104,7 @@ export default function RichTextEditor({
   disabled = false,
 }: RichTextEditorProps) {
   /**
-   * **容器**级响应式（docs/08 V2 阶段 2）：工具栏折行按**编辑器自身宽度**决定，不再看视口。
+   * **容器**级响应式（DESIGN.md §10.2）：工具栏折行按**编辑器自身宽度**决定，不再看视口。
    * 同一个编辑器在整页表单里和 900px 弹窗里宽度差很多，视口判断会给出错误答案。
    *
    * 这里**不用** `.cq` + `@container`：折行本身要读 JS 状态（`toolsOpen`），
@@ -376,7 +376,7 @@ export default function RichTextEditor({
     e.target.value = '';
   };
 
-  /** 窄容器工具栏：「更多」展开/收起低频项（按**编辑器自身宽度**判断，docs/08 V2 阶段 2） */
+  /** 窄容器工具栏：「更多」展开/收起低频项（按**编辑器自身宽度**判断，见 DESIGN.md §10.2） */
   const [toolsOpen, setToolsOpen] = useState(false);
 
   /** 高频工具项：宽容器与窄容器都显示 */

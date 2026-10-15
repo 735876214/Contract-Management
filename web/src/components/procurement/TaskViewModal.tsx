@@ -55,7 +55,7 @@ export default function TaskViewModal({ task, open, onClose }: TaskViewModalProp
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   /**
-   * 容器级响应式（docs/08 V2 阶段 2）：本弹窗宽 1180，但同一视口下也可能被全局
+   * 容器级响应式（DESIGN.md §10.2）：本弹窗宽 1180，但同一视口下也可能被全局
    * `max-width: calc(100vw - 16px)` 兜到很窄 —— 「几列信息」要按**弹窗宽度**决定，不是视口。
    * `Descriptions column` 是 AntD 的 JS prop，CSS 驱动不了，所以这里用 `useContainerWidth()`
    * （容器查询只解决得了 CSS 能表达的部分）。

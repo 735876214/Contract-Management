@@ -31,7 +31,8 @@
 
 ## 响应式（**两层，别混用**）
 
-> 完整口径见 [DESIGN.md](../../DESIGN.md) §10（双层模型）与 [docs/08](../../docs/08-全局响应式改造方案.md) V2。
+> 完整口径见 [DESIGN.md](../../DESIGN.md) §10（双层模型）；机器可查的契约在
+> `server/test/containerQuery.spec.mts`。
 
 - **页面外壳层 → 看视口**：侧栏（固定 ↔ Drawer）、顶栏精简、内容区边距、**页面级栅格的列数**。
   唯一来源 [`useResponsive()`](../../web/src/hooks/useResponsive.ts)；**禁止** `window.innerWidth` / `matchMedia`。

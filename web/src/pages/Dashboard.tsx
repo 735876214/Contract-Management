@@ -106,7 +106,7 @@ export default function Dashboard() {
   const { ref: pieRef, size: pieSize } = useContainerWidth<HTMLDivElement>();
 
   /**
-   * 图表按**自身容器宽度**降级（docs/08 V2 阶段 4）：ECharts 的图例/标签/边距都是 JS 选项，
+   * 图表按**自身容器宽度**降级（DESIGN.md §10.2）：ECharts 的图例/标签/边距都是 JS 选项，
    * CSS 的 `@container` 驱动不了 —— 图表的"响应式"必须落在 JS，故这里用 `useContainerWidth()`，
    * 且量的是**卡片**宽度而不是视口：`lg=8` 侧列卡片只有 ~380px，按视口它会以为自己在大屏上。
    */

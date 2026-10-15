@@ -18,7 +18,7 @@ import { notificationApi } from '@/api/modules';
 const { Header, Content } = Layout;
 
 /**
- * 主布局（docs/08 阶段 1：布局层响应式）
+ * 主布局（DESIGN.md §10.1：布局层响应式）
  *
  * - 左侧导航：`AppSider`——≥768px 固定侧栏，<768px 自动改为覆盖式抽屉
  * - 折叠状态：桌面端沿用本地持久化值；进入手机宽度自动收起（抽屉默认关闭），
@@ -103,7 +103,7 @@ export default function BasicLayout() {
                 <Avatar style={{ backgroundColor: 'var(--cms-primary)', color: 'var(--cms-on-primary)' }}>
                   {user?.realName?.[0] || 'U'}
                 </Avatar>
-                {/* 窄屏只留头像，名字放进下拉菜单（Header 精简，docs/08 阶段 1） */}
+                {/* 窄屏只留头像，名字放进下拉菜单（Header 精简，DESIGN.md §10.1） */}
                 {!isMobile && <Typography.Text>{user?.realName}</Typography.Text>}
               </Space>
             </Dropdown>

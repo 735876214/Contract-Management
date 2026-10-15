@@ -91,8 +91,8 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **V2 收尾：弹窗内的 `Descriptions` 列数仍是固定值**（[docs/08](docs/08-全局响应式改造方案.md) §7 的
-  "有意留下的口子"）：`TaskViewModal` 与 `ModuleDetailCard` 两处已按容器驱动，其余弹窗里的
+- **响应式收尾：弹窗内的 `Descriptions` 列数仍是固定值**（外层是弹窗、判定依据该是容器宽度）：
+  `TaskViewModal` 与 `ModuleDetailCard` 两处已按容器驱动，其余弹窗里的
   `Descriptions column={n}`（如合同详情弹窗）没接 `useContainerWidth()`，窄弹窗里会偏挤。
   无阻塞；做法照 `ModuleDetailCard` 那三行（`isNarrow ? 1 : isWide ? 3 : 2`）即可。
   注：V2 的阶段 0–5 已全部落地（实施记录见该文 §0.2，容器级验收见 §4），本条只是收尾。
@@ -132,7 +132,7 @@
 
 ### 待实施 · 按需
 
-- 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层阶段 0–5 均已完成，见 [docs/08](docs/08-全局响应式改造方案.md) §0.1/§0.2）。
+- 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层均已完成，规则见 [DESIGN.md](DESIGN.md) §10）。
 - 可选：半结构化字段改 PG `jsonb`、招标立项前置状态、`DailyReport.exitDate`。
 
 ## 本文件的维护方式

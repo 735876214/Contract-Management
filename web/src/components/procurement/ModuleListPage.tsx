@@ -189,7 +189,7 @@ export default function ModuleListPage({
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
   /**
-   * **容器**驱动（docs/08 V2 阶段 3）：冻结列、紧凑行高、筛选区列数由**列表页自身宽度**决定，
+   * **容器**驱动（DESIGN.md §10.2）：冻结列、紧凑行高、筛选区列数由**列表页自身宽度**决定，
    * 不再看视口——列表页可能被放进弹窗/抽屉/分栏里，"窗口宽不宽"推不出"表格挤不挤"。
    * 列宽用 `Col flex`（CSS 值）而不是 `xs/md/lg` 断点 prop：断点 prop 是视口驱动的，改不动。
    */
@@ -297,7 +297,7 @@ export default function ModuleListPage({
             title: '采购编号',
             dataIndex: 'taskNo',
             width: 170,
-            // 窄容器下横向滚动时冻结关键列（docs/08 V2 阶段 3：由容器宽度决定）
+            // 窄容器下横向滚动时冻结关键列（DESIGN.md §10.2）
             ...(containerSize.isNarrow ? { fixed: 'left' as const } : {}),
             render: (v: string, row) => (
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>

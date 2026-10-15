@@ -224,6 +224,29 @@ cd server && DATABASE_URL="postgresql://cms:cms123456@localhost:15432/cms_int?sc
 ⚠️ 断言要挑**可见**元素（如 `.ant-popover:not(.ant-popover-hidden)`）——antd 会把关闭的浮层留在 DOM 里，
 拿 `.ant-popover` 直接量会得到 `width: 0` 的假通过。
 
+### 5.2.1 响应式改动的**容器级**验收（不能只切视口）
+
+组件级响应式（Container Queries，规则见 [DESIGN.md](../DESIGN.md) §10.2）的判定依据是**容器宽度**，
+所以"切三档视口看页面"**测不到它**——1280 视口下把表格塞进 900px 弹窗，视口量出来仍是"宽屏"。
+
+正确手法：**固定视口，只改容器宽度**，看同一视口下形态是否翻转（这才是 CQ 与视口断点的判别点）：
+
+```js
+await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, ... });  // 全程不动
+// 断言初始形态 → 再只改容器：
+await evaluate(`document.querySelector('.ant-modal-body').style.width = '600px'`);
+await sleep(600);                                    // 等 ResizeObserver + React 重渲染
+// 断言：列数 / max-width / flex-basis / padding / 表头集合 变了，且视口仍是 1280
+```
+
+已用此手法验证过的判别点（照抄即可）：弹窗内 `md={12}` 的 `max-width` 100% ↔ 50% ·
+`.col-secondary` 列的显隐 · 列表页筛选区 `flex-basis` 25% ↔ 50% · 台账冻结列数 2 ↔ 1 ·
+`.doc-preview` padding 24 ↔ 12 · 卡片 KPI 字号。
+
+⚠️ 两个坑：① 断言 `getComputedStyle` 的值（`max-width`/`flex-basis`/`display`）比数元素个数稳，
+antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{type:'char'}`，
+`Input.insertText` 在 headless 下不一定触发 React 的 `onInput`（受控组件的值不会更新，测出来是假结果）。
+
 ## 6. 回归清单（改完必做，做完才算完工）
 
 > 这是本项目的「验收铁律」。逐条执行并确认，不要"改完即报完成"。
@@ -241,6 +264,8 @@ cd server && DATABASE_URL="postgresql://cms:cms123456@localhost:15432/cms_int?sc
 - [ ] **⑦' 金额 / 状态流转改动**：跑 `cd server && npm run test:int`——纯函数单测证明不了闸门与状态机
       **是否真的接上了**（金额上限策略、合同↔任务状态联动都在集成套件里）。
 - [ ] **⑧ 项目隔离**：新增业务查询/写入确认带上 `projectId`（或明确属于 dict/finance/supplier 例外）。
+- [ ] **⑨ 响应式改动**：按 §5.2.1 做**容器级**验收（固定视口、只改容器宽度，断言形态翻转）——
+      只切视口证明不了 Container Queries 生效；顺带跑三档视口回归确认没破版。
 
 ## 7. 编码约定
 

@@ -163,14 +163,17 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
 | [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md) | 四域扩展评估 + 决策记录（含招标域落地增量） |
 | [docs/06-变量体系梳理与歧义清单.md](docs/06-变量体系梳理与歧义清单.md) | 采购/合同模板变量两套体系 + 歧义清单 |
 | [docs/07-工作域信息关联审计.md](docs/07-工作域信息关联审计.md) | 工作域关联审计（悬空外键、弱关联、核销缺失） |
-| [docs/08-全局响应式改造方案.md](docs/08-全局响应式改造方案.md) | 响应式改造方案与实施记录 |
 | [docs/09-重构方案评估与采纳建议.md](docs/09-重构方案评估与采纳建议.md) | 外部方案评估 + 现场确认/防超结/招标域落地记录 + 待业务澄清 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
+
+> **编号有缺号说明**：`docs/08`（全局响应式改造方案）是**方案类文档**——V1/V2 全部落地后按仓库惯例删除，
+> 当前口径已固化在 [DESIGN.md](DESIGN.md) §10（双层模型）与 `.claude/rules/frontend-conventions.md`，
+> 机器可查的契约在 `server/test/containerQuery.spec.mts`；沿革与逐次验收记录见 `git log`。
 
 > **技术选型**：数据库只有 **PostgreSQL 16**（Prisma + 迁移；**禁 `prisma db push`**，CI 有静态与 diff 两道门禁）。
 > 以代码与本文档为准。
 
 > **统计数字的两种待遇**：**活文档**（本文件、`docs/development.md`）里的 spec / model / 业务模块 /
-> 增量迁移 计数必须与代码一致，由 `docStats.spec.mts` 锁定；**历史报告**（docs/07 §0.1、docs/08 §0.1、
+> 增量迁移 计数必须与代码一致，由 `docStats.spec.mts` 锁定；**历史报告**（docs/07 §0.1、
 > docs/09 §8 等带日期的记录）是"当时快照"，就地标注即可，**不要**追改。**断言数不进散文**
 > （它随用例增减，以 `npm test` 输出为准）。

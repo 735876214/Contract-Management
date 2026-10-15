@@ -4,7 +4,7 @@ import { useResponsive } from '@/hooks/useResponsive';
 
 /**
  * 项目切换下拉（Header 左侧）。
- * - 窄屏限宽（docs/08 阶段 1：Header 精简）——否则 220px 固定宽会在手机上把
+ * - 窄屏限宽（DESIGN.md §10.1：Header 精简）——否则 220px 固定宽会在手机上把
  *   消息/用户菜单挤出屏幕；
  * - 顶栏是**深墨面**，故加 `cms-header-select` 类由 index.css 重配深色样式（DESIGN.md §6）。
  */

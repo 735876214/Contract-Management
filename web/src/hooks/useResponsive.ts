@@ -8,7 +8,7 @@ export type BreakpointKey = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 export interface Responsive {
   /**
    * 手机宽度（< 768px）：侧栏改抽屉、表格冻结关键列、表单单列。
-   * 阈值取 antd 的 `md`，与 docs/08 的验收目标「≥768 平板完全可用；≥375 手机可读可操作」一致。
+   * 阈值取 antd 的 `md`，与 DESIGN.md §10 的验收目标「≥768 平板完全可用；≥375 手机可读可操作」一致。
    */
   isMobile: boolean;
   /** 平板（768 ~ 991px） */
@@ -20,7 +20,7 @@ export interface Responsive {
 }
 
 /**
- * 全局断点唯一来源（docs/08 阶段 1 基建）。
+ * 全局断点唯一来源（DESIGN.md §10.1 基建）。
  *
  * 使用约定：
  * - **不要在组件里用 `window.innerWidth` / `matchMedia`**——统一走本 hook，

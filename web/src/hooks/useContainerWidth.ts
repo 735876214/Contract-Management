@@ -24,7 +24,7 @@ export interface ContainerWidth<T extends HTMLElement> {
 }
 
 /**
- * 组件级响应式的 **JS 侧**入口：用 `ResizeObserver` 测「自己所在容器」的宽度（docs/08 V2 阶段 1）。
+ * 组件级响应式的 **JS 侧**入口：用 `ResizeObserver` 测「自己所在容器」的宽度（DESIGN.md §10.2）。
  *
  * **用在哪里**：只用于 **CSS 表达不了的场景**——
  * - 传给 AntD 的 JS prop（如 `Descriptions column`、`Table size`）；

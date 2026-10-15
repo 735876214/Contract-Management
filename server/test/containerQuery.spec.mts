@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { CONTAINER_BREAKPOINTS, resolveContainerSize } from '../../web/src/utils/containerSize.ts';
 
 /**
- * **组件级响应式（Container Queries）漂移锁** —— 方案见 docs/08 V2 §5。
+ * **组件级响应式（Container Queries）漂移锁** —— 契约见 DESIGN.md §10.2 与
+ * `.claude/rules/frontend-conventions.md`「响应式」一节；本文件是它们的机器可查版本。
  *
  * 背景：V1 全站按**视口**判断（`useResponsive()` / AntD 断点 prop），解决不了
  * 「桌面视口 + 900px 弹窗里的表格被挤破版」这类问题；V2 立规：**组件内部布局由容器宽度决定**。
@@ -141,7 +142,7 @@ describe('组件级响应式漂移锁（Container Queries）', () => {
         }
       }
       if (rel !== CONTAINERS_CSS && /@container/.test(src)) {
-        offenders.push(`${rel}  容器查询规则必须集中在 ${CONTAINERS_CSS}（docs/08 §6.2）`);
+        offenders.push(`${rel}  容器查询规则必须集中在 ${CONTAINERS_CSS}（见 DESIGN.md §9：CQ 规则另建 styles/*.css）`);
       }
     }
     assert.ok(conditions >= 1, `一条 @container 都没扫到，本锁在空转（${CONTAINERS_CSS} 应有规则）`);

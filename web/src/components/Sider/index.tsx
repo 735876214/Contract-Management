@@ -24,7 +24,7 @@ const SIDER_BG = 'var(--cms-surface-dark)';
  * 左侧侧边导航栏（Sider）
  *
  * - **桌面/平板（≥768px）**：固定侧栏，宽度 220px ↔ 80px，深色主题 var(--cms-surface-dark)，折叠状态持久化 localStorage
- * - **手机（<768px）**：改为 `<Drawer placement="left">` 覆盖式侧栏（docs/08 阶段 1），
+ * - **手机（<768px）**：改为 `<Drawer placement="left">` 覆盖式侧栏（DESIGN.md §10.1），
  *   选中菜单后自动关闭；折叠按钮在抽屉模式下不渲染（用遮罩/选中关闭）
  * - 路由跳转 / 选中高亮 / 父级自动展开
  * - 搜索：实时过滤（防抖 300ms），结果平铺，点击跳转后清空并恢复完整菜单
@@ -87,7 +87,7 @@ export default function AppSider({
       navigate(path);
       // 点击搜索结果跳转后清空搜索、恢复完整菜单
       clear();
-      // 抽屉模式：选中后自动关闭，避免遮挡内容（docs/08 阶段 1）
+      // 抽屉模式：选中后自动关闭，避免遮挡内容（DESIGN.md §10.1）
       if (isMobile) setCollapsed(true);
     },
     [navigate, clear, isMobile, setCollapsed],
