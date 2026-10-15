@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, ratio, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -87,7 +88,9 @@ export class LedgerService {
       const sup: any = c.supplier || {};
       const ext: any = c.ext || {};
       const taxRate = num(c.taxRate);
-      const amount = num(c.amount) || 0;
+      /** 合同额：未填（NULL/空串）时留 `null`，**不要**当成 0 —— 见 ledger-derived.ts 的口径说明 */
+      const amountFilled = c.amount !== null && c.amount !== undefined && c.amount !== '';
+      const amount = amountFilled ? num(c.amount) : null;
 
       // 供应材料：来自合同物资清单
       const materialNames = Array.from(new Set((itemMap[c.id] || []).map((i: any) => i.materialBase?.name).filter(Boolean))).join('、');
@@ -138,7 +141,7 @@ export class LedgerService {
         authPerson: sup.contractAuthPerson,
         contactName: sup.contactName,
         contactPhone: sup.contactPhone,
-        amount,
+        amount, // null = 未填（前端 money(null) 显示 '-'、导出留白、汇总按 0 参与求和）
         taxRate,
         currentPayRatio: num(ext.currentPayRatio),
         paymentMethod: payMethodMap[c.paymentMethodCode]?.name || c.paymentMethodCode || '',
@@ -157,11 +160,15 @@ export class LedgerService {
         cumInputTax,
         cumInvoiceAmount: Number(cumInvoiceAmount.toFixed(2)),
         cumPaidAmount: Number(cumPaidAmount.toFixed(2)),
-        payableAmount: Number((auditedSettleAmount * (num(ext.currentPayRatio) || 0)).toFixed(2)),
-        unpaidAmount: Number((auditedSettleAmount * (num(ext.currentPayRatio) || 0) - cumPaidAmount).toFixed(2)),
-        debt100: Number((amount - cumPaidAmount).toFixed(2)),
-        settleRatio: ratio(cumSettleAmount, amount),
-        paidRatio: ratio(cumPaidAmount, cumSettleAmount),
+        // 派生金额列统一走单一实现（口径见 common/utils/ledger-derived.ts）：
+        // 合同额未填 → 相关列留空，而不是算成 0 / 负数
+        ...deriveLedgerAmounts({
+          amount: c.amount,
+          cumSettleAmount,
+          cumPaidAmount,
+          auditedSettleAmount,
+          payRatio: ext.currentPayRatio,
+        }),
         settleReduceAmount: Number((auditedSettleAmount - cumSettleAmount).toFixed(2)),
         yearSettle,
         yearPaid,
@@ -205,6 +212,14 @@ export class LedgerService {
     const sumBy = (key: string) => list.reduce((s, r) => s + (Number(r[key]) || 0), 0);
     return {
       contractCount: list.length,
+      /**
+       * 未填合同额的条数：汇总卡片里的金额是"**已知部分的合计**"，
+       * 未填金额的合同按 0 参与求和（合同额未知，无从计入）。
+       * 不把这件事说出来的话，总额会看起来是完整的——前端据此显示"另有 N 份未填金额"。
+       * 口径见 common/utils/ledger-derived.ts。
+       */
+      // 复用同一口径的判定（显式填 0 不算"未填"）
+      amountMissingCount: list.filter((r) => !isFilledNumber(r.amount)).length,
       contractAmount: Number(sumBy('amount').toFixed(2)),
       settleAmount: Number(sumBy('cumSettleAmount').toFixed(2)),
       invoiceAmount: Number(sumBy('cumInvoiceAmount').toFixed(2)),

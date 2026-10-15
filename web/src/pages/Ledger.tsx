@@ -155,7 +155,15 @@ export default function Ledger() {
             <Card size="small"><Statistic title="合同数量" value={summary.contractCount ?? 0} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="合同总额" value={money(summary.contractAmount)} /></Card>
+            <Card size="small">
+              <Statistic title="合同总额" value={money(summary.contractAmount)} />
+              {/* 未填金额的合同按 0 参与求和（金额未知）——不说出来，总额会看起来是完整的 */}
+              {summary.amountMissingCount > 0 && (
+                <div className="cms-hint" style={{ marginTop: 4 }}>
+                  另有 {summary.amountMissingCount} 份未填金额
+                </div>
+              )}
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
             <Card size="small"><Statistic title="开累结算" value={money(summary.settleAmount)} /></Card>

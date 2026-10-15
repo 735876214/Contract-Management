@@ -58,6 +58,14 @@
 
 ## 台账
 
+- **派生金额的"三态"契约（未填 ≠ 0）**：台账里由合同额/结算额推出来的列（`100% 欠款`、
+  `已结算金额占合同比例`、`应付款金额`、`应付未付`、`已付款占结算比例`）**必须**走
+  `common/utils/ledger-derived.ts` 的 `deriveLedgerAmounts()`，**不要就地写算式**：
+  合同额未填（`NULL`/空串）时这些列要返回 `null`（前端显示 `-`、导出留白），
+  **不能兜成 0**——`0 − 已付款` 是负数、`结算/0` 是"谎称未结算"，而同一批合同在防超结闸门里
+  的口径是"上限未知"（`contractChainAmount()` 返回 `null`）→ 会造出"同一件事两个相反结论"。
+  ⚠️ **显式填 `0` 是真实的 `0`**（与 `amount-guard` 一致），照常参与计算：0 元合同却有付款
+  算出的负欠款**正是该被看见的数据异常**，别抹平。锁定：`ledgerDerived.spec.mts`。
 - **列宽的单位契约**：`modules/ledger/ledger-columns.ts` 的 `LEDGER_COLUMNS[].width` 是
   **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
   **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
