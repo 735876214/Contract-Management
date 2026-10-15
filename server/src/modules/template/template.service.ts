@@ -289,10 +289,18 @@ export class TemplateService {
       联系人姓名: sup.contactName || '',
       联系人电话: sup.contactPhone || '',
       联系人邮箱: sup.contactEmail || '',
-      // ⚠️ 全仓没有 `partyAName` 字段（`Contract` / `Supplier` 都没有，原写法是**死引用**：
-      // 两个取值永远为 undefined，这一直是写死的常量）。来源需要业务确认（自方？项目施工单位？），
-      // 在那之前保持常量，并登记在 TODO.md「需业务澄清」，不要凭空假设一个字段。
-      甲方名称: '中国建筑第八工程局有限公司',
+      /**
+       * 甲方名称 = **项目管理里的「承接单位」**（`Project.undertaker`，业务口径 2026-10-16）。
+       *
+       * 此前读的是 `(contract as any).partyAName || sup.partyAName`，而 `Contract` 与 `Supplier`
+       * **都没有 `partyAName` 字段**（死引用），所以这个变量一直落到兜底常量。项目未填承接单位时
+       * 仍回退兜底常量（历史合同里的默认甲方）。
+       *
+       * ⚠️ 承接单位是**项目主数据**，本变量因此随项目实时变化；与供应商字段不同，它**没有**签订时快照
+       * （快照机制见 `common/utils/supplier-snapshot.ts`，对应"供应商改名/换银行不该改写历史合同"那条口径）。
+       * 若业务也要求"甲方名称冻结在签订时"，需另立口径（改快照字段集或加列），不要顺手塞进 `supplierSnapshot`。
+       */
+      甲方名称: (contract as any).project?.undertaker || '中国建筑第八工程局有限公司',
       乙方名称: sup.name || '',
       当前日期: fmtDate(new Date()),
       ...(params.manual || {}),

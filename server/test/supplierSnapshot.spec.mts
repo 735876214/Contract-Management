@@ -63,7 +63,15 @@ describe('供应商快照：KEEP / SYNC', () => {
   });
 
   it('快照字段清单覆盖 generate() 用到的全部 sup.*（防漏项导致静默回退实时）', () => {
-    const src = readFileSync(`${repoRoot}server/src/modules/template/template.service.ts`, 'utf8');
+    /**
+     * ⚠️ 扫描前**必须剥注释**：注释里会提到 `sup.partyAName` 这类"曾经的死引用"
+     * （template.service 的注释中就留着这段历史说明），不剥会把注释当代码读而误报。
+     * 替换成等长空白以保住行号。
+     */
+    const raw = readFileSync(`${repoRoot}server/src/modules/template/template.service.ts`, 'utf8');
+    const src = raw
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/[^\n]*/g, (_m, pre: string, cmt: string) => pre + ' '.repeat(cmt.length));
     const used = new Set([...src.matchAll(/\bsup\.(\w+)/g)].map((m) => m[1]));
     assert.ok(used.size >= 10, `只扫到 ${used.size} 个 sup.* 字段，正则或代码结构可能已变（勿让本锁空转）`);
     const missing = [...used].filter((f) => !(SUPPLIER_SNAPSHOT_FIELDS as readonly string[]).includes(f));
