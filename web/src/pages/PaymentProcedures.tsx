@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { withToken } from '../utils/download';
 import { Button, Form, Input, Select, Space, Modal, message, Row, Col, DatePicker, Alert } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { paymentProcedureApi } from '@/api/modules';
+import { paymentProcedureApi, docTemplateApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 
@@ -109,6 +110,14 @@ export default function PaymentProcedures() {
         refreshKey={listRefresh}
         onEdit={(row) => openEdit(row)}
         onDelete={handleRemove}
+        rowMenuItems={(row: ModuleListRow) => [
+          {
+            key: 'doc',
+            label: '导出付款单',
+            // 用「单据模板」里启用中的付款单模板渲染（未配置时后端会明确提示去哪儿配）
+            onClick: () => window.open(withToken(docTemplateApi.renderPaymentUrl(row.id))),
+          },
+        ]}
         toolbarLeft={
           <Space wrap size={8}>
             <Button

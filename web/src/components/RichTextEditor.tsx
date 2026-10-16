@@ -41,12 +41,12 @@ export interface RichTextEditorProps {
   /**
    * 变量所属体系：面板顶部会据此显示提示（docs/06 §5 结构性歧义）。
    *
-   * ⚠️ 采购模板变量与合同模板变量是**两套互不相通的实现**：同名 `{{项目名称}}` 由**不同代码**替换、
-   * 规则也不同。面板不标明体系时，作者很容易在合同正文里插入采购变量——那会**静默不替换**
-   * （正文里留着占位符，预览才高亮）。凡传了 `variables`/`variableGroups` 的调用点都应传本属性，
-   * 由 `server/test/procurementVariables.spec.mts` 的源码扫描锁定。
+   * ⚠️ **三套变量体系互不相通**（采购模板 / 合同模板 / 单据模板）：同名 `{{项目名称}}` 由
+   * **不同代码**替换、规则也不同。面板不标明体系时，作者很容易在合同正文里插入采购变量——那会
+   * **静默不替换**（正文里留着占位符，预览才高亮）。凡传了 `variables`/`variableGroups` 的调用点
+   * 都应传本属性，由 `server/test/procurementVariables.spec.mts` 的源码扫描锁定。
    */
-  variableScope?: 'contract' | 'procurement';
+  variableScope?: 'contract' | 'procurement' | 'doc';
   placeholder?: string;
   minHeight?: number;
   disabled?: boolean;
@@ -215,10 +215,17 @@ export default function RichTextEditor({
     emit();
   };
 
-  /** 在光标处插入变量占位符；表格类使用双花括号原始文本 */
+  /**
+   * 在光标处插入变量占位符。
+   *
+   * ⚠️ 默认插**双花括号** `{{变量名}}`：渲染器（`template-render.ts`）只认双花括号，
+   * 单花括号的兼容分支早已按业务要求移除 —— 插成 `{变量名}` 会**静默不替换**
+   * （正文里留着占位符、只有预览才高亮），作者几乎发现不了。
+   * `raw` 仍可覆盖（表格类占位符等非变量文本）。
+   */
   const insertVariable = (item: { key: string; raw?: string }) => {
     if (disabled) return;
-    const text = item.raw || `{${item.key}}`;
+    const text = item.raw || `{{${item.key}}}`;
     ref.current?.focus();
     const el = ref.current;
     const sel = window.getSelection();
@@ -332,7 +339,9 @@ export default function RichTextEditor({
         >
           {variableScope === 'procurement'
             ? '采购模板变量 · 只在采购文档里生效；合同正文请改用合同模板变量'
-            : '合同模板变量 · 只在合同正文/条款里生效；采购文档请改用采购模板变量'}
+            : variableScope === 'doc'
+              ? '单据模板变量 · 只在结算单/总结算单/保理单/逾期利息/付款单里生效；合同正文与采购文档请改用各自体系的变量'
+              : '合同模板变量 · 只在合同正文/条款里生效；采购文档请改用采购模板变量'}
         </div>
       ) : null}
       <Input
@@ -352,9 +361,9 @@ export default function RichTextEditor({
           children: (
             <Space size={[4, 6]} wrap>
               {(kwFilter(g, varSearch).length ? kwFilter(g, varSearch) : g.items).map((it) => (
-                <Tooltip title={it.tip || it.raw || `{${it.key}}`} key={it.key}>
+                <Tooltip title={it.tip || it.raw || `{{${it.key}}}`} key={it.key}>
                   <Tag style={{ cursor: 'pointer' }} onClick={() => insertVariable(it)}>
-                    {it.raw || `{${it.key}}`}
+                    {it.raw || `{{${it.key}}}`}
                   </Tag>
                 </Tooltip>
               ))}

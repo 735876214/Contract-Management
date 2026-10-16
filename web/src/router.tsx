@@ -26,6 +26,7 @@ const Materials = lazy(() => import('@/pages/Materials'));
 const ContractMaterials = lazy(() => import('@/pages/ContractMaterials'));
 const Payments = lazy(() => import('@/pages/Payments'));
 const PaymentProcedures = lazy(() => import('@/pages/PaymentProcedures'));
+const DocTemplates = lazy(() => import('@/pages/DocTemplates'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
 const Ledger = lazy(() => import('@/pages/Ledger'));
 const Repayments = lazy(() => import('@/pages/Repayments'));
@@ -148,6 +149,7 @@ export const routes: RouteObject[] = [
       { path: 'base/subcontractor', element: perm('/base/subcontractor', <Subcontractors />) },
       { path: 'base/material', element: perm('/base/material', <Materials />) },
       { path: 'base/template', element: perm('/base/template', <Templates />) },
+      { path: 'base/doc-template', element: perm('/base/doc-template', <DocTemplates />) },
       { path: 'base/clause', element: perm('/base/clause', <Clauses />) },
 
       // —— 系统管理 ——

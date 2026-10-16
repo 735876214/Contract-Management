@@ -273,6 +273,18 @@ export const paymentProcedureApi = {
   remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
 };
 
+/** 单据模板（基础信息管理，业务口径 2026-10-16）：五类单据的 Word 模板 */
+export const docTemplateApi = {
+  list: (params?: any) => http.get<any, any>('/doc-templates', { params }),
+  detail: (id: string) => http.get<any, any>(`/doc-templates/${id}`),
+  create: (data: any) => http.post<any, any>('/doc-templates', data),
+  update: (id: string, data: any) => http.put<any, any>(`/doc-templates/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/doc-templates/${id}`),
+  /** 渲染付款单（付款手续 → Word）；`templateId` 可指定模板，不传则用启用中的「付款单」模板 */
+  renderPaymentUrl: (procedureId: string, templateId?: string) =>
+    `${http.defaults.baseURL}/doc-templates/render/payment-procedure/${procedureId}${templateId ? `?templateId=${templateId}` : ''}`,
+};
+
 export const invoiceApi = {
   list: (params?: any) => http.get<any, any>('/invoices', { params }),
   detail: (id: string) => http.get<any, any>(`/invoices/${id}`),

@@ -177,6 +177,7 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
     await seedSiteConfirmationDict(prisma);
     await seedBidderStatusDict(prisma);
     await seedEvaluationConclusionDict(prisma);
+    await seedDocTemplateCategoryDict(prisma);
 
     const fixed = await prisma.templateVariable.updateMany({
       where: { varKey: '银行名称', varLabel: '开户银行' },
@@ -277,6 +278,46 @@ async function seedBidderStatusDict(prisma: PrismaClient): Promise<void> {
     { itemCode: 'SHORTLISTED', itemName: '入围', sortOrder: 4, color: 'cyan', remark: '通过第一轮报价但未中标；取消勾选时自动回落到此态' },
     { itemCode: 'WON', itemName: '中标', sortOrder: 5, color: 'green', remark: '勾选「拟推荐成交候选人」即为此态；生成合同的单位与金额取自这些行' },
     { itemCode: 'LOST', itemName: '未中标', sortOrder: 6, color: 'red', remark: null },
+  ];
+  for (const it of items) {
+    await prisma.dictItem.upsert({
+      where: { typeCode_itemCode: { typeCode, itemCode: it.itemCode } },
+      update: {},
+      create: { typeCode, itemCode: it.itemCode, itemName: it.itemName, sortOrder: it.sortOrder, status: 1, color: it.color, remark: it.remark, extField1: null },
+    });
+  }
+}
+
+/**
+ * 单据模板分类字典（业务口径 2026-10-16）：基础信息管理 →「单据模板」模块用**五类**：
+ * 结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单。
+ *
+ * ⚠️ 刻意**不复用** `contract_template_category`：那是合同模板的分类，混在一起会让
+ * "合同模板"的分类下拉里冒出"付款单"，两类东西的编辑与生成路径都不同。
+ * 单据模板复用 `ContractTemplate` **表**（见 schema 注释），但分类走这一套字典。
+ */
+async function seedDocTemplateCategoryDict(prisma: PrismaClient): Promise<void> {
+  const typeCode = 'doc_template_category';
+  await prisma.dictType.upsert({
+    where: { code: typeCode },
+    update: {},
+    create: {
+      code: typeCode,
+      name: '单据模板分类',
+      remark: '基础信息管理 → 单据模板：结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单',
+      sort: 63,
+      status: 1,
+      isSystem: true,
+      scope: 'GLOBAL',
+    },
+  });
+
+  const items = [
+    { itemCode: 'SETTLEMENT', itemName: '结算单', sortOrder: 1, color: 'blue', remark: null },
+    { itemCode: 'FINAL_SETTLEMENT', itemName: '总结算单', sortOrder: 2, color: 'cyan', remark: null },
+    { itemCode: 'FACTORING', itemName: '保理单', sortOrder: 3, color: 'purple', remark: null },
+    { itemCode: 'OVERDUE', itemName: '逾期利息', sortOrder: 4, color: 'orange', remark: null },
+    { itemCode: 'PAYMENT', itemName: '付款单', sortOrder: 5, color: 'green', remark: '本期唯一接了 Word 生成路径的一类' },
   ];
   for (const it of items) {
     await prisma.dictItem.upsert({

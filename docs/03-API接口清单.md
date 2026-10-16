@@ -181,6 +181,25 @@
 > 原「一键迁移」接口 `POST /templates/migrate` 一并下线。
 > 采购文档的变量体系另见 [docs/06](06-变量体系梳理与歧义清单.md)。
 
+## 8.1 单据模板 `/doc-templates`
+
+基础信息管理 →「单据模板」（业务口径 2026-10-16）：五类单据的 Word 模板
+—— **结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单**。
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/doc-templates` | 列表（`?categoryCode=` 按分类筛；默认只列五类单据） | `template:view` |
+| GET | `/doc-templates/:id` | 详情 | `template:view` |
+| POST | `/doc-templates` | 新增（**分类走字典 `doc_template_category`**，用合同模板的分类会 400） | `template:edit` |
+| PUT | `/doc-templates/:id` | 修改 | `template:edit` |
+| DELETE | `/doc-templates/:id` | 删除 | `template:edit` |
+| GET | `/doc-templates/render/payment-procedure/:procedureId` | **渲染付款单 Word**（`?templateId=` 可指定模板，不传则取启用中的「付款单」模板） | `template:view` |
+
+> 存储**复用 `ContractTemplate` 表**，但分类走独立字典 `doc_template_category`（混用会让合同模板的
+> 分类下拉里冒出"付款单"）。**本期只有付款单接了生成路径**，其余四类先做模板存放与编辑。
+> 变量体系（付款单）见 `server/src/modules/doc-template/doc-template-vars.ts` 与
+> `web/src/constants/docVariables.ts`（互为镜像，由 `docVariables.spec.mts` 锁定）。
+
 ## 9. 采购任务 `/procurement-tasks`
 
 权限：读 `contract:view` / 写 `contract:edit`（采购工作流归属合同域）。
