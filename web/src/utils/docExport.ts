@@ -75,7 +75,7 @@ export function printHtml(html: string, title = '合同正文') {
 /**
  * 把仍未替换的占位符高亮出来，便于生成后核对。
  * - 只匹配双花括号 `{{变量名}}`（合同/采购模板**统一的规范语法**；单花括号 `{变量名}` 已废弃，
- *   见 server/src/modules/template/template-render.ts 文件头与 docs/06 #5）。
+ *   见 server/src/modules/template/template-render.ts 文件头）。
  * - 高亮**整段（含花括号）**：旧实现只匹配内层 `{x}`，`{{x}}` 是「靠内层间接生效」的脆弱写法。
  * - 纯空白不视为占位符。
  */

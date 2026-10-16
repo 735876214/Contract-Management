@@ -6,7 +6,7 @@ import { pendingPlaceholders, renderTemplate } from '../src/modules/template/tem
 import { PURCHASE_EXEC_TEMPLATE } from '../prisma/templates/purchase-exec-contract.ts';
 
 /**
- * 种子模板「占位符语法」漂移锁（docs/06 #5）。
+ * 种子模板「占位符语法」漂移锁。
  *
  * 起因（真实回归）：`generate()` 已于 2026-10 移除单花括号替换分支，当时的核对只覆盖了
  * 「独立种子模板文件」与「库里已有的模板行」，**漏了 `prisma/seed.ts` 里内联的 3 份模板**——

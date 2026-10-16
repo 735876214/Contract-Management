@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { renderTemplate, pendingPlaceholders } from '../src/modules/template/template-render.ts';
 
 /**
- * 合同模板占位符渲染的「语法契约」单测（docs/06 #5）。
+ * 合同模板占位符渲染的「语法契约」单测。
  *
  * 背景：`template.service.generate()` 曾同时兼容四种写法（`{{中文}}` / `{{ENGLISH_KEY}}` /
  * `{中文}` / 变量表每个 key 的 `{key}`），2026-10 定稿**只保留 `{{变量名}}`**——

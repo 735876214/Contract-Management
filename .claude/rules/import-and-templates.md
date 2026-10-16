@@ -26,4 +26,5 @@
   （后者只在空库 + `npm run seed` 时创建，改动当时不可见）。两道防线：`templateRender.spec.mts` +
   `templatePlaceholderSyntax.spec.mts`（源码扫描 + 渲染无残留）。
 - 改语法或改模板后，重跑 `npx ts-node prisma/templates/upsert-purchase-exec.ts`（已是真 upsert，会刷新内容）。
-- 细节见 docs/06 §3。
+- 采购/合同的**变量体系**（三套，互不相通）与其约定见同目录的
+  [procurement-and-tender.md](procurement-and-tender.md)「三套变量体系」一节。

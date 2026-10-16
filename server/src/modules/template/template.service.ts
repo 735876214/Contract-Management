@@ -224,7 +224,7 @@ export class TemplateService {
   /**
    * 生成合同正文：变量替换。
    * 占位符语法**只支持双花括号** `{{变量名}}`（表格占位符 `{{物料编码清单}}` / `{{合同清单}}`）；
-   * 单花括号与英文遗留 key 的支持已移除，见 `template-render.ts` 文件头与 docs/06 #5。
+   * 单花括号与英文遗留 key 的支持已移除，见 `template-render.ts` 文件头。
    */
   async generate(params: { templateId: string; contractId: string; manual?: Record<string, any> }, projectId: string) {
     const template = await this.findOne(params.templateId);

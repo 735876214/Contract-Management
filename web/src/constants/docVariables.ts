@@ -2,7 +2,7 @@
  * **单据模板变量**（付款单）的前端镜像 —— 与后端 `server/src/modules/doc-template/doc-template-vars.ts`
  * 的 `PAYMENT_DOC_VARIABLES` **必须逐条一致**（含 `(元)` 后缀），由 `server/test/docVariables.spec.mts` 锁死。
  *
- * 这是**第三套**变量体系（前两套是采购模板 / 合同模板，互不相通，见 docs/06）：
+ * 这是**第三套**变量体系（前两套是采购模板 / 合同模板，互不相通）：
  * 单据模板的变量只由 `doc-template.service.renderPaymentProcedure()` 替换。
  *
  * ⚠️ **金额类变量名必须带单位后缀**（`(元)`）——同名不同单位视为缺陷（仓库既有约定）。

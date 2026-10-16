@@ -165,7 +165,7 @@ export async function seedDefaultProject(prisma: PrismaClient): Promise<void> {
  * 1. 增补字典类型 `site_confirm_status`（现场确认状态，.claude/rules/backend-conventions.md「日报/现场确认」）及其字典项；
  * 2. 增补系统参数：`settlement.require_confirmed` / `settlement.over_amount_policy` / `payment.over_amount_policy`；
  * 3. 修正合同模板变量展示名：`银行名称` 的 varLabel 曾为「开户银行」（与 varKey 不一致，
- *    模板作者按展示名插入变量会拿到 `{开户银行}` 而永远不被替换，docs/06 #8）。
+ *    模板作者按展示名插入变量会拿到 `{开户银行}` 而永远不被替换）。
  *
  * ⚠️ 只做 **upsert / 定向 updateMany**：不覆盖已存在的字典项与参数值（业务可能已在页面上改过），
  *    也不删除任何数据。

@@ -17,11 +17,11 @@ import { buildPriceCompareVariableValues } from '../../web/src/utils/procurement
 import { buildExplanationVariableValues } from '../../web/src/utils/frameworkExplanation.ts';
 
 /**
- * 采购模板变量「定义 ↔ 取值」一致性漂移锁（docs/06 §7）。
+ * 采购模板变量「定义 ↔ 取值」一致性漂移锁。
  *
  * 背景：变量在 `constants/procurementVariables.ts` 声明（供富文本编辑器的「插入变量」面板使用），
  * 值由各模块的 `buildXxxVariableValues()` 产出。**两处会漂移**：
- *   ① 定义了变量却没有任何取值实现 → 模板里插入了占位符，预览永远高亮（docs/06 #4 即此类）；
+ *   ① 定义了变量却没有任何取值实现 → 模板里插入了占位符，预览永远高亮；
  *   ② 公共变量在某模块取值表里漏了 → 该模块文档出现空值。
  * 本测试把这两类漂移变成 CI 可捕获（无 DB 依赖，纯常量与纯函数）。
  */
@@ -124,7 +124,7 @@ const definedKeys = (moduleType: string): string[] =>
 
 /**
  * 有意在多个模块共用的同名变量（值取自同一来源，属设计而非疏漏）。
- * 新增条目必须确认「各模块取值来源一致」，否则就是 docs/06 #1/#3 那类同名异义事故。
+ * 新增条目必须确认「各模块取值来源一致」，否则就会造出「同名异义」那类事故。
  */
 const SHARED_ACROSS_MODULES: string[] = [
   // 均取自采购任务自身字段（task.content / task.techQuality / task.acceptanceMethod / task.paymentMethod）
@@ -134,7 +134,8 @@ const SHARED_ACROSS_MODULES: string[] = [
   '付款方式',
   // 采购编号：公告侧可编辑（默认取任务编号），采购文件继承公告值（produceTaskDocs 侧已统一口径）
   '采购编号',
-  // 采购时间：公告与采购文件各有独立可编辑字段，语义相同但分别落库（如需合并请先确认业务口径）
+  // 采购时间：**业务已确认（2026-10-16）**——公告与采购文件的时间是「编辑各自文件时的时间」，
+  // 不是同一个"采购时间"，故两处独立可编辑、各自落库是**有意为之**（变量同名但分属不同模块的面板，不会插错）
   '采购时间',
 ];
 
@@ -147,14 +148,14 @@ const valueKeys = (moduleType: string): string[] => {
 
 const sorted = (xs: string[]): string[] => [...new Set(xs)].sort();
 
-describe('采购变量「定义 ↔ 取值」一致性漂移锁（docs/06）', () => {
+describe('采购变量「定义 ↔ 取值」一致性漂移锁', () => {
   for (const { value: moduleType, label } of PROCUREMENT_MODULES) {
     if (!BUILDERS[moduleType]) {
       it(`${label}（${moduleType}）：无 Word 文档产出，不应定义模块专属变量`, () => {
         assert.deepEqual(
           PROCUREMENT_MODULE_VARS[moduleType],
           [],
-          `${moduleType} 的变量定义了却永不替换（docs/06 #4），应清空`,
+          `${moduleType} 的变量定义了却永不替换，应清空`,
         );
       });
       continue;
@@ -193,7 +194,7 @@ describe('采购变量「定义 ↔ 取值」一致性漂移锁（docs/06）', (
     );
   });
 
-  it('跨模块同名变量必须是已登记的同源共享（防新增「同名异义」，docs/06 #1 #3）', () => {
+  it('跨模块同名变量必须是已登记的同源共享（防新增「同名异义」）', () => {
     // 同名本身不是问题——问题在于「同名却取自不同源/不同口径」（如单位不同）。
     // 故此处维护一份**显式**的同源共享白名单：新增跨模块同名而未登记时测试失败，强制复核来源。
     const owner = new Map<string, string[]>();
@@ -225,7 +226,7 @@ describe('采购变量「定义 ↔ 取值」一致性漂移锁（docs/06）', (
     );
   });
 
-  it('「预计采购金额」必须带单位后缀，且两模块单位不同（锁定 docs/06 #1 不再回退）', () => {
+  it('「预计采购金额」必须带单位后缀，且两模块单位不同（不再回退）', () => {
     const pre = PROCUREMENT_MODULE_VARS.PRE_MEETING.map((v) => v.key);
     const res = PROCUREMENT_MODULE_VARS.RESULT_REPORT.map((v) => v.key);
     assert.ok(pre.includes('预计采购金额(万元)'), '采前会的预计采购金额应带「(万元)」单位后缀');
@@ -262,7 +263,7 @@ describe('采购变量「定义 ↔ 取值」一致性漂移锁（docs/06）', (
   });
 
   /**
-   * 「插入变量」面板必须标明**所属体系**（docs/06 §5 结构性歧义）。
+   * 「插入变量」面板必须标明**所属体系**——不标时作者会插错体系的变量，且**静默不替换**（正文留着占位符，只有预览才高亮）。
    *
    * 采购模板变量与合同模板变量是两套互不相通的实现：同名 `{{项目名称}}` 由不同代码替换。
    * 面板不标体系时，作者在合同正文里插了采购变量会**静默不替换**（正文留着占位符，只有预览才高亮）。

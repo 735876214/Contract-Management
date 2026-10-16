@@ -287,7 +287,7 @@ export function buildPreMeetingVariableValues(
     项目地址: ctx.projectAddress ?? '',
     物资产地: ctx.materialOrigin ?? '',
     采购内容: String(data.content ?? ctx.content ?? ''),
-    // 单位（万元）写进变量名：与成交报告的同名量（元）区分，避免差 10000 倍（docs/06 #1）
+    // 单位（万元）写进变量名：与成交报告的同名量（元）区分，避免差 10000 倍
     '预计采购金额(万元)': ctx.estimatedAmountWan == null ? '' : fmtWan(ctx.estimatedAmountWan),
     会议时间: fmtDate(data.meetingTime),
     主持人: String(data.host ?? ''),

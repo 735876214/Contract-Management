@@ -106,7 +106,7 @@
 | 前端组件与后端服务接口 | [component-api.md](component-api.md) |
 | 全量 REST 接口 | [03-API接口清单.md](03-API接口清单.md)（⚠️ 部分内容滞后，待重写） |
 | 四域扩展（招标/合同/采购/进出场）可行性与决策 | [05-四域扩展可行性评估.md](05-四域扩展可行性评估.md) |
-| 变量体系（采购/合同模板）与歧义清单 | [06-变量体系梳理与歧义清单.md](06-变量体系梳理与歧义清单.md) |
+| 变量体系（采购/合同/单据三套）与约定 | [../.claude/rules/procurement-and-tender.md](../.claude/rules/procurement-and-tender.md)「三套变量体系」 |
 | 响应式规则（视口层 + 容器层双层模型） | [../DESIGN.md](../DESIGN.md) §10 |
 | Docker 镜像构建与优化 | [04-Docker镜像构建与优化.md](04-Docker镜像构建与优化.md) |
 | 需求确认 / 数据库 ER | [01-需求确认摘要.md](01-需求确认摘要.md) / [02-数据库ER设计.md](02-数据库ER设计.md) |

@@ -287,7 +287,8 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
 - **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
 - **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），
-  硬约定见 [../CLAUDE.md](../CLAUDE.md) §4（改动前必看的高危约定），变量体系与缺陷清单见 [06](06-变量体系梳理与歧义清单.md)。
+  硬约定见 [../CLAUDE.md](../CLAUDE.md) §4（改动前必看的高危约定），变量体系（三套）与约定见
+  [../.claude/rules/procurement-and-tender.md](../.claude/rules/procurement-and-tender.md)「三套变量体系」。
 - 前端样式遵循 [../DESIGN.md](../DESIGN.md)；组件接口见 [component-api.md](component-api.md)。
 
 ## 8. 构建与部署
@@ -323,8 +324,13 @@ bash scripts/nas-deploy.sh
 - **Git Bash 会把 `/` 开头的参数当路径改写**：`node shot.mjs /dashboard out.png` 里的 `/dashboard`
   会变成 `C:/Program Files/Git/dashboard`（导航到非法 URL，页面停在登录页，**症状极像"登录态没注入成功"**）。
   传路由/Unix 绝对路径参数时加 `MSYS_NO_PATHCONV=1`，或把值写进脚本而不要走命令行。
-- **改代码用编辑器/Edit 工具，别用 `sed`/`python -c`/heredoc 拼字符串**：heredoc 会吞反斜杠
+- **改代码用编辑器/Edit 工具，别用 `sed`/`python -c`/`node -e`/heredoc 拼字符串**：heredoc 会吞反斜杠
   （`\b` 曾写成退格符 0x08，导致正则静默失效、断言恒真）；确要用脚本改，改完必须 `cat -A` 或重跑测试复核。
+  ⚠️ **含中文（尤其全角标点 `（）「」`）的批量替换只能用 Edit 工具**——经 shell 传参时这些字符会被改写：
+  2026-10-16 实测 `node -e` 收到的字符串里全角括号变了样，`split/join` 因此**命中错位**，
+  把一批文件里所有 `（` 替换成了别的字（连"压缩多余空格"的正则也把行首 2 空格缩进一起压掉，
+  12 个文件被整体改写）。恢复正常的方式是 `git show HEAD:<路径> > <路径>`（比 `git checkout --` 更不容易被权限拦），
+  然后用 Edit 重做。
 - **推送只走 SSH**：`git push git@github.com:735876214/Contract-Management.git main`
   （本机 HTTPS 的 POST 被阻断）。推完 `git status` 可能仍显示 `ahead 1`，需用同址
   `git fetch git@github.com:735876214/Contract-Management.git main:refs/remotes/origin/main` 复核远端。

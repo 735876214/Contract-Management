@@ -188,10 +188,14 @@ cd server && npm run test:int  # DB 集成测试（6 个 spec，需 DATABASE_URL
 | [docs/03-API接口清单.md](docs/03-API接口清单.md) | REST 接口清单（24 组，含权限码与项目隔离口径） |
 | [docs/04-Docker镜像构建与优化.md](docs/04-Docker镜像构建与优化.md) | 单容器镜像构建、踩坑与取舍 |
 | [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md) | 四域扩展评估 + 决策记录（含招标域落地增量） |
-| [docs/06-变量体系梳理与歧义清单.md](docs/06-变量体系梳理与歧义清单.md) | 采购/合同模板变量两套体系 + 歧义清单 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
 
-> **编号有缺号说明（07 / 08 / 09 为已交付的方案类文档，落地后按惯例删除）**：
+> **编号有缺号说明（06 / 07 / 08 / 09 为已交付的方案类文档，落地后按惯例删除）**：
+> - **`docs/06`（变量体系梳理与歧义清单）**：8 项歧义 + 3 项新发现 + 7 条修复建议 + 防回归**全部落地** →
+>   仍有效的部分（**三套变量体系**对照、采购侧逐模块「定义 ↔ 取值」表、公共变量清单、单据模板变量的面板规则、
+>   核对命令小抄）已并入 [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)
+>   「三套变量体系」一节；机器化的契约是 `procurementVariables.spec.mts` + `procurementVariableRender.spec.mts`
+>   + `docVariables.spec.mts`。
 > - **`docs/07`（工作域信息关联审计）**：审计出的 27 处悬空引用、8 类真实缺口、8 条关联不清晰与
 >   3 条待业务澄清**全部闭环**（含"明确不做"的发票核销）→ 结论已固化到四处永久落点：
 >   ① 删除语义与"刻意不建 FK"的取舍在 `server/prisma/schema.prisma` 的模型注释；
@@ -201,7 +205,7 @@ cd server && npm run test:int  # DB 集成测试（6 个 spec，需 DATABASE_URL
 >   与 `.claude/rules/frontend-conventions.md`，机器可查的契约在 `server/test/containerQuery.spec.mts`。
 > - **`docs/09`（外部重构方案评估与采纳建议）**：评估出的缺口已全部实施或转为"不做"（见 §1「已定的产品口径」），
 >   唯一未实施的「清单项级结算明细」已转入 [TODO.md](TODO.md)「可直接开工」。
-> - 三者的沿革与逐次验收记录见 `git log`。
+> - 四者的沿革与逐次验收记录见 `git log`。
 
 > **技术选型**：数据库只有 **PostgreSQL 16**（Prisma + 迁移；**禁 `prisma db push`**，CI 有静态与 diff 两道门禁）。
 > 以代码与本文档为准。

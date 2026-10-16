@@ -57,7 +57,7 @@ export const PROCUREMENT_COMMON_VARS: ProcurementVar[] = [
 /**
  * 废弃别名（旧变量名 → 规范变量名）。
  * 采前会原先使用「技术质量要求 / 验收标准 / 付款条件」，与公告、采购文件的
- * 「技术质量标准 / 验收方式 / 付款方式」同源却异名（docs/06 #3）。
+ * 「技术质量标准 / 验收方式 / 付款方式」同源却异名。
  * 现统一以公告/采购文件侧的名称为规范名：面板只展示规范名，别名仅用于替换，
  * 避免既有采前会模板里的旧占位符静默失效。
  */
@@ -69,7 +69,7 @@ export const PROCUREMENT_VAR_ALIASES: Record<string, string> = {
 
 /** 模块专属变量（带模块前缀区分重名） */
 export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementVar[]> = {
-  // 采购发起不产出 Word 文档，故无专属变量（docs/06 #4）：
+  // 采购发起不产出 Word 文档，故无专属变量：
   // 原先定义的「采购编号 / 采购内容 / 采购类型」无任何取值实现，可插入却永远不被替换，已移除。
   INITIATE: [],
   PRE_MEETING: [
@@ -89,7 +89,7 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
   NOTICE: [
     v('采购公告-采购清单', '表格变量：替换为采购清单表格（序号/物资名称/规格型号/计量单位/暂定数量/备注）', true),
     v('采购编号', '采购编号（文本）'),
-    v('采购时间', '采购时间（日期）'),
+    v('采购时间', '本公告的编辑时间（日期）'),
     v('采购内容', '采购内容（文本，默认带出采购任务内容）'),
     h('技术质量标准', '富文本内容，按 HTML 原样注入'),
     h('验收方式', '富文本内容，按 HTML 原样注入'),
@@ -112,7 +112,7 @@ export const PROCUREMENT_MODULE_VARS: Record<ProcurementModuleType, ProcurementV
     h('验收方式', '来源采购公告，富文本按 HTML 原样注入'),
     h('付款方式', '来源采购公告，富文本按 HTML 原样注入'),
     // 以下为本模块字段
-    v('采购时间', '采购文件中的采购时间（日期）'),
+    v('采购时间', '本采购文件的编辑时间（日期）'),
     v('响应保证金', '响应保证金（金额，元）'),
     h('报价说明', '报价说明（富文本，按 HTML 原样注入）'),
   ],

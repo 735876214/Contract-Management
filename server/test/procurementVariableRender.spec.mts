@@ -16,7 +16,7 @@ import { amountToChineseCapital } from '../../web/src/utils/money.ts';
 import { highlightPlaceholders } from '../../web/src/utils/docExport.ts';
 
 /**
- * 采购变量的**取值行为**单测（docs/06 修复项的回归锁定）。
+ * 采购变量的**取值行为**单测（历史修复项的回归锁定）。
  *
  * 与 `procurementVariables.spec.mts`（结构一致性）分工不同：本文件锁定「算出来的值对不对」——
  * 尤其金额单位口径（万元 / 元）、废弃别名解析、占位符保留与转义规则。
@@ -66,7 +66,7 @@ describe('金额口径与格式化', () => {
   });
 });
 
-describe('「预计采购金额」单位口径（docs/06 #1 回归锁定）', () => {
+describe('「预计采购金额」单位口径（回归锁定）', () => {
   const reportData = {
     unitCount: 1,
     openTime: '2026-10-01',
@@ -139,7 +139,7 @@ describe('占位符替换规则', () => {
   });
 });
 
-describe('废弃别名兼容（docs/06 #3 回归锁定）', () => {
+describe('废弃别名兼容（回归锁定）', () => {
   const CASES: Array<[string, string]> = [
     ['技术质量要求', '技术质量标准'],
     ['验收标准', '验收方式'],
@@ -209,13 +209,13 @@ describe('采购成本分析计算（金额换算）', () => {
   });
 });
 
-describe('占位符高亮（docs/06 #6 回归锁定）', () => {
+describe('占位符高亮（回归锁定）', () => {
   it('双花括号整体高亮（旧实现靠匹配内层 {x} 间接生效）', () => {
     const out = highlightPlaceholders('<p>{{项目名称}}</p>');
     assert.ok(out.includes('>{{项目名称}}<'), `双花括号应整体高亮，实际：${out}`);
   });
 
-  it('**回归锁**：单花括号不再高亮（合同模板遗留语法已移除，docs/06 #5/#6）', () => {
+  it('**回归锁**：单花括号不再高亮（合同模板遗留语法已移除）', () => {
     // 旧实现会把 `{合同额}` 也高亮；现在只认双花括号——否则富文本里的 `{color:red}` 之类会被误标
     assert.equal(highlightPlaceholders('{合同额}'), '{合同额}');
     assert.equal(highlightPlaceholders('.x{color:red}'), '.x{color:red}');

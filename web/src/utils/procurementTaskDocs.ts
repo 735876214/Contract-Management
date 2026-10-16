@@ -168,7 +168,7 @@ export async function buildTaskModuleDoc(
         ...baseCtx,
         content,
         // 与公告侧取值口径一致：公告未填采购编号时回退采购任务编号（taskNo），
-        // 否则会出现「公告显示任务编号、采购文件为空」的同一变量两处不一致（docs/06 #2）
+        // 否则会出现「公告显示任务编号、采购文件为空」的同一变量两处不一致
         procurementNo: notice.procurementNo || task.taskNo,
         techQuality: notice.techQuality,
         acceptanceMethod: notice.acceptanceMethod,

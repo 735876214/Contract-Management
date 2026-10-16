@@ -3,7 +3,7 @@
  *
  * 说明：
  * - content 为富文本 HTML，占位符语法**统一为 `{{变量名}}`**（含表格占位符 {{合同清单}} / {{物料编码清单}}）；
- *   旧写法 `{变量名}` 与英文 key {{MATERIAL_CODE_TABLE}}/{{CONTRACT_ITEM_TABLE}} 已废弃并从生成器移除（docs/06 #5）
+ *   旧写法 `{变量名}` 与英文 key {{MATERIAL_CODE_TABLE}}/{{CONTRACT_ITEM_TABLE}} 已废弃并从生成器移除
  * - variables 中 sourceType=CONTRACT/SUPPLIER 的变量由系统按合同/供应商自动取值，MANUAL 由起草时手工填写
  */
 export const PURCHASE_EXEC_TEMPLATE = {
@@ -241,7 +241,7 @@ export const PURCHASE_EXEC_TEMPLATE = {
     { varKey: '项目名称', varLabel: '项目名称', sourceType: 'CONTRACT' },
     { varKey: '供应商名称', varLabel: '供应商名称', sourceType: 'SUPPLIER' },
     { varKey: '公司地址', varLabel: '公司地址', sourceType: 'SUPPLIER' },
-    // 展示名与占位符键保持一致（原 varLabel 为「开户银行」而 varKey 为「银行名称」，易误选，docs/06 #8）
+    // 展示名与占位符键保持一致（原 varLabel 为「开户银行」而 varKey 为「银行名称」，易误选）
     { varKey: '银行名称', varLabel: '银行名称', sourceType: 'SUPPLIER' },
     { varKey: '银行账号', varLabel: '银行账号', sourceType: 'SUPPLIER' },
     { varKey: '法人姓名', varLabel: '法人姓名', sourceType: 'SUPPLIER' },

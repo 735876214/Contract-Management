@@ -180,7 +180,8 @@
 > 单花括号 `{变量名}` 与英文遗留 key（`MATERIAL_CODE_TABLE`、`CONTRACT_ITEM_TABLE`）的支持**已移除**
 > （2026-10-14，本项目无存量业务数据；存量模板内容已由迁移 `20261018000000_canonicalize_template_placeholders` 规范化），
 > 原「一键迁移」接口 `POST /templates/migrate` 一并下线。
-> 采购文档的变量体系另见 [docs/06](06-变量体系梳理与歧义清单.md)。
+> 采购文档的变量体系另见
+> [.claude/rules/procurement-and-tender.md](../.claude/rules/procurement-and-tender.md)「三套变量体系」。
 
 ## 8.1 单据模板 `/doc-templates`
 

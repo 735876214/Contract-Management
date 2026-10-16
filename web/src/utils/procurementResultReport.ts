@@ -335,7 +335,7 @@ export function buildResultReportVariableValues(
     项目地址: ctx.projectAddress ?? '',
     物资产地: ctx.materialOrigin ?? '',
     采购内容: ctx.content ?? '',
-    // 单位（元）写进变量名：与采前会的同名量（万元）区分，避免差 10000 倍（docs/06 #1）
+    // 单位（元）写进变量名：与采前会的同名量（万元）区分，避免差 10000 倍
     '预计采购金额(元)': fmtAmount(ctx.estimatedAmount),
     成交单位数量: fmtCount(data.unitCount),
     采购开启时间: fmtDate(data.openTime),
