@@ -82,6 +82,11 @@
     'Microsoft YaHei', sans-serif;
   --cms-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
+  /* 卡片悬停阴影（业务要求的唯一例外，见 DESIGN.md §5）：
+     静止仍然无阴影（"color-block first, shadow rare"），**仅悬停时**加深一档，
+     用来提示"这张卡可点/可进入"。别把它当默认卡片样式用。 */
+  --cms-shadow-card-hover: 0 4px 16px rgba(20, 20, 19, 0.1);
+
   /* 容器断点（**组件级**响应式；视口断点在 DESIGN.md §10-1，两者并存不互替）
      单一事实源是 `web/src/utils/containerSize.ts` 的 CONTAINER_BREAKPOINTS，
      本处是 CSS 镜像，由 `server/test/containerQuery.spec.mts` 校验两处逐个相等。
@@ -144,6 +149,19 @@ body {
 
 .stat-card {
   border-radius: var(--cms-radius-lg);
+}
+
+/* 卡片悬停加深一档阴影（业务要求，见 DESIGN.md §5）。
+   ⚠️ 只挂在 `.stat-card`（工作台的关键指标卡）与显式声明可点的卡片上；
+   **不要**给所有 `.ant-card` 加 —— 列表页里的卡片密密麻麻，全都浮起来会变成噪声。
+   过渡只做 box-shadow，避免整页重排。 */
+.stat-card,
+.cms-card-hoverable {
+  transition: box-shadow 0.18s ease;
+}
+.stat-card:hover,
+.cms-card-hoverable:hover {
+  box-shadow: var(--cms-shadow-card-hover);
 }
 
 /* ============================================================================

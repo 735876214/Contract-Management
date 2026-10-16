@@ -300,10 +300,12 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
   });
 
   const columns: ColumnsType<TotalRow> = [
-    { title: '序号', width: 52, render: (_, __, i) => i + 1 },
+    { title: '序号', width: 52, fixed: 'left' as const, render: (_, __, i) => i + 1 },
     {
       title: '物资名称',
       width: 190,
+      // 横向滚动时冻结：这是识别"哪一行"的那一列（表宽 1620，不冻结很容易看串行）
+      fixed: 'left' as const,
       render: (_, r) =>
         viewOnly ? (
           r.materialName || '-'
@@ -377,6 +379,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
     {
       title: '操作',
       width: 70,
+      fixed: 'right' as const,
       render: (_, r) =>
         viewOnly ? null : (
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeRow(r.key)}>
@@ -421,7 +424,21 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
         <Alert
           type="warning"
           showIcon
-          message="物资名称/规格型号只能从物资基础库选择；计量单位默认带出、可改为字典值（提交时同步到基础库）；预计采购单价不得高于市场单价。合价列与表底汇总由系统自动计算，保存后按「预计采购合价合计 ≥ 100 万元」自动判定是否需要采前会会议纪要。"
+          message={
+            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+              <li>
+                物资名称 / 规格型号只能从<b>物资基础库</b>选择（不能手输）；
+              </li>
+              <li>计量单位默认带出，可改为字典内的其他单位，提交时同步回基础库；</li>
+              <li>
+                预计采购单价<b>不得高于市场单价</b>；
+              </li>
+              <li>
+                合价列与表底汇总由系统自动计算；保存后按「预计采购合价合计 ≥ 100 万元」
+                自动判定是否需要采前会会议纪要。
+              </li>
+            </ul>
+          }
         />
       )}
       <Table<TotalRow>
@@ -452,11 +469,13 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
           </Table.Summary>
         )}
         footer={() =>
-          !viewOnly && (
+          // 只在**空态**给底部的虚线引导按钮：顶部已经有实心的「添加物资」主操作，
+          // 两处都给会在有数据时显得冗余（改造前的真实观感问题）
+          !viewOnly && rows.length === 0 ? (
             <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
               添加物资
             </Button>
-          )
+          ) : null
         }
       />
       {rows.length > 0 && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Col, Row, Space, Statistic, List, Tag, Empty, Spin } from 'antd';
+import { Alert, Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined, ReconciliationOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
@@ -9,6 +9,7 @@ import { contractApi } from '@/api/business';
 import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import EmptyState from '@/components/EmptyState';
 
 const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
@@ -163,17 +164,18 @@ export default function Dashboard() {
       <OverdueDraftReminder />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          {/* 每张统计卡自己声明容器：卡只有 1/4 宽，字号要按**卡**宽收敛（见 containers.css §4） */}
-          <Card className="cq"><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
+          {/* 每张统计卡自己声明容器：卡只有 1/4 宽，字号要按**卡**宽收敛（见 containers.css §4）；
+              `stat-card` 只加"悬停加深一档阴影"（业务要求，见 DESIGN.md §5） */}
+          <Card className="cq stat-card"><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card className="cq"><Statistic title="合同总额" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
+          <Card className="cq stat-card"><Statistic title="合同总额" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card className="cq"><Statistic title="累计结算额" value={overview.settleAmount || 0} precision={2} prefix={<AccountBookOutlined />} /></Card>
+          <Card className="cq stat-card"><Statistic title="累计结算额" value={overview.settleAmount || 0} precision={2} prefix={<AccountBookOutlined />} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card className="cq"><Statistic title="累计付款额" value={overview.paidAmount || 0} precision={2} prefix={<WalletOutlined />} /></Card>
+          <Card className="cq stat-card"><Statistic title="累计付款额" value={overview.paidAmount || 0} precision={2} prefix={<WalletOutlined />} /></Card>
         </Col>
       </Row>
 
@@ -203,7 +205,7 @@ export default function Dashboard() {
           >
             <List
               dataSource={alertList}
-              locale={{ emptyText: <Empty description="暂无金额预警" /> }}
+              locale={{ emptyText: <EmptyState compact description="暂无金额预警" /> }}
               renderItem={(a: any) => (
                 <List.Item>
                   <List.Item.Meta
@@ -239,7 +241,7 @@ export default function Dashboard() {
             {/* 单级预警（业务只给了"超过就预警"一个口径）：不冒充红/黄，避免暗示不存在的分级阈值 */}
             <List
               dataSource={payAlertList}
-              locale={{ emptyText: <Empty description="暂无付款超比例预警" /> }}
+              locale={{ emptyText: <EmptyState compact description="暂无付款超比例预警" /> }}
               renderItem={(a: any) => (
                 <List.Item>
                   <List.Item.Meta
@@ -276,7 +278,11 @@ export default function Dashboard() {
           <Card title="待查验发票" extra={<Tag color="red">{reminders.pendingInvoices?.length || 0}</Tag>}>
             <List
               dataSource={reminders.pendingInvoices || []}
-              locale={{ emptyText: <Empty description="暂无待查验发票" /> }}
+              locale={{
+                emptyText: (
+                  <EmptyState compact description="暂无待查验发票" actionText="前往发票管理" onAction={() => navigate('/invoice')} />
+                ),
+              }}
               renderItem={(item: any) => (
                 <List.Item>
                   <List.Item.Meta

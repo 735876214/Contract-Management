@@ -152,10 +152,10 @@ export default function Ledger() {
       {summary && (
         <Row gutter={16}>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="合同数量" value={summary.contractCount ?? 0} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="合同数量" value={summary.contractCount ?? 0} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small">
+            <Card size="small" className="stat-card">
               <Statistic title="合同总额" value={money(summary.contractAmount)} />
               {/* 未填金额的合同按 0 参与求和（金额未知）——不说出来，总额会看起来是完整的 */}
               {summary.amountMissingCount > 0 && (
@@ -166,19 +166,19 @@ export default function Ledger() {
             </Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="开累结算" value={money(summary.settleAmount)} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="开累结算" value={money(summary.settleAmount)} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="开累付款" value={money(summary.paidAmount)} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="开累付款" value={money(summary.paidAmount)} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="应付款" value={money(summary.payableAmount)} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="应付款" value={money(summary.payableAmount)} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="100%欠款" value={money(summary.debt100)} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="100%欠款" value={money(summary.debt100)} /></Card>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <Card size="small"><Statistic title="合规问题数" value={summary.complianceIssues ?? 0} /></Card>
+            <Card size="small" className="stat-card"><Statistic title="合规问题数" value={summary.complianceIssues ?? 0} /></Card>
           </Col>
         </Row>
       )}

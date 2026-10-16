@@ -14,6 +14,23 @@ export const PROCUREMENT_TASK_TYPES: { value: ProcurementTaskType; label: string
 export const taskTypeLabel = (t: string): string =>
   PROCUREMENT_TASK_TYPES.find((x) => x.value === t)?.label ?? t;
 
+/**
+ * 采购类型 → 标签色（**只加这一张映射，不动 `PROCUREMENT_TASK_TYPES` 的 value/label**，
+ * 故 `frontendChainParity.spec.mts` 的前后端一致性锁不受影响）。
+ *
+ * 起因：三种采购类型原本共用同一个 `cyan`，列表里**看不出区别**，
+ * 而"紧急采购"恰恰是要被优先看见的那一类。
+ * 取值是 AntD 预置色名（`blue/cyan/red`），由 index.css 的 `.ant-tag-*` 映射到本仓语义色：
+ * 框架协议 = 珊瑚（品牌/特殊）、单项采购 = 青（常规）、紧急采购 = 红（警示）。
+ */
+export const TASK_TYPE_TONES: Record<string, string> = {
+  FRAMEWORK: 'geekblue',
+  SINGLE: 'cyan',
+  EMERGENCY: 'red',
+};
+
+export const taskTypeTone = (t: string): string => TASK_TYPE_TONES[t] ?? 'default';
+
 /** 工作流状态 → 展示名 */
 export const TASK_STATUS_LABELS: Record<string, string> = {
   NOT_STARTED: '未发起',

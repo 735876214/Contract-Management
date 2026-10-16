@@ -31,6 +31,7 @@ import {
   TASK_STATUS_LABELS,
   taskStatusLabel,
   taskTypeLabel,
+  taskTypeTone,
   type FlowStage,
 } from '@/constants/procurementWorkflow';
 import { exportTaskModuleWord, TASK_MODULE_LABELS, type TaskModuleType } from '@/utils/procurementTaskDocs';
@@ -304,7 +305,7 @@ export default function Initiate() {
       title: '采购类型',
       dataIndex: 'type',
       width: 120,
-      render: (t: string) => <Tag color={t === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(t)}</Tag>,
+      render: (t: string) => <Tag color={taskTypeTone(t)}>{taskTypeLabel(t)}</Tag>,
     },
     {
       title: '采购品类',
@@ -524,7 +525,7 @@ export default function Initiate() {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="采购编号">{detail.taskNo}</Descriptions.Item>
               <Descriptions.Item label="采购类型">
-                <Tag color={detail.type === 'FRAMEWORK' ? 'geekblue' : 'cyan'}>{taskTypeLabel(detail.type)}</Tag>
+                <Tag color={taskTypeTone(detail.type)}>{taskTypeLabel(detail.type)}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="采购内容">{detail.content}</Descriptions.Item>
               <Descriptions.Item label="采购品类">

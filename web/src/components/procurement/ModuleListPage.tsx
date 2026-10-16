@@ -6,7 +6,6 @@ import {
   Col,
   DatePicker,
   Dropdown,
-  Empty,
   Form,
   Input,
   Modal,
@@ -31,10 +30,11 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
-import { taskTypeLabel } from '@/constants/procurementWorkflow';
+import { taskTypeLabel, taskTypeTone } from '@/constants/procurementWorkflow';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useListColumns } from '@/hooks/useListColumns';
 import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
+import EmptyState from '@/components/EmptyState';
 
 /**
  * 采购六模块通用「标准列表页」（筛选区 + 工具栏 + 数据表格 + 分页）：
@@ -343,7 +343,7 @@ export default function ModuleListPage({
             width: 110,
             // 窄容器下收起（styles/containers.css 的 [@container] 规则按容器宽度隐藏）
             className: 'col-secondary',
-            render: (v: string) => <Tag color="cyan">{taskTypeLabel(v)}</Tag>,
+            render: (v: string) => <Tag color={taskTypeTone(v)}>{taskTypeLabel(v)}</Tag>,
           },
         ] as ColumnsType<ModuleListRow>)
       : []),
@@ -584,7 +584,7 @@ export default function ModuleListPage({
         dataSource={rows}
         loading={loading}
         scroll={{ x: 'max-content' }}
-        locale={{ emptyText: <Empty description={emptyText ?? '暂无数据'} /> }}
+        locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
         pagination={{
           current: page,
           pageSize,
