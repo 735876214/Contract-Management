@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -22,6 +22,8 @@ import TotalListEditor, {
 import RichTextEditor from '@/components/RichTextEditor';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import {
   BASIC_EDITABLE_STATUSES,
   PROCUREMENT_TASK_TYPES,
@@ -57,12 +59,29 @@ interface TaskRow {
   createdAt: string;
 }
 
-/** 新建/编辑三步流程（问题一 + 补充三）：
- *  第一步 基本信息 + 采购品类 → 第二步 编制总采购清单 → 第三步 技术质量标准/验收方式/付款方式（保存并发布） */
+/** 列表与「新建/继续编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/procurement/initiate';
+
+/**
+ * 采购发起（新建/编辑三步流程，问题一 + 补充三）：
+ * 第一步 基本信息 + 采购品类 → 第二步 编制总采购清单 → 第三步 技术质量标准/验收方式/付款方式（保存并发布）。
+ *
+ * 三步向导改成**编辑器页签**（`?editor=new|<id>`）后：
+ * - 列表标签不再被向导顶掉（可以一边开着列表一边编）；
+ * - 原本 Modal 底部的「下一步 / 保存并发布」会被长内容（步骤二的总清单表格 `scroll.x=1620`、
+ *   步骤三的三个富文本）**滚出视口** —— 这是改造前的一个真实缺陷，现在由 `EditorTabPage`
+ *   的 sticky 底栏消除。
+ *
+ * 本组件同时承载列表与向导两种形态（由 `isEditor` 分支），**逻辑与字段一概未动**。
+ */
 export default function Initiate() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const isEditor = editorTab.isEditor;
+  /** 「继续编辑」时由列表页递过来的整行 */
+  const seedRow = (editorTab.seed as { row?: TaskRow } | undefined)?.row;
+
   const [form] = Form.useForm();
   const [editing, setEditing] = useState<TaskRow | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   /** 新建三步流程状态：0 基本信息 / 1 编制总采购清单 / 2 技术质量·验收·付款 */
@@ -75,6 +94,8 @@ export default function Initiate() {
   const [publishing, setPublishing] = useState(false);
   /** 第二步「下一步」保存总清单时的加载态（补充三：总清单保存后即进入第三步填写三字段） */
   const [advancing, setAdvancing] = useState(false);
+  /** 向导里的未保存改动（关闭页签时确认） */
+  const [dirty, setDirty] = useState(false);
 
   const [detail, setDetail] = useState<(TaskRow & { stages?: FlowStage[] }) | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -85,47 +106,61 @@ export default function Initiate() {
   /** 列表刷新键 */
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
+  /** 向导保存/发布后 bump → 被缓存的列表标签重新取数 */
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  useEffect(() => {
+    if (tabRefresh) refreshList();
+  }, [tabRefresh]);
 
-  /** 新建流程：第一步填采购类型、采购内容、采购品类（是否需要采前会由总清单合计自动判定） */
-  const openCreate = () => {
-    setEditing(null);
+  // ==================== 向导：进入时的初值 ====================
+
+  useEffect(() => {
+    if (!isEditor) return;
     setCreateStep(0);
-    setCreatedTask(null);
+    setDirty(false);
     form.resetFields();
-    form.setFieldsValue({ type: 'SINGLE' });
-    setModalOpen(true);
-  };
-
-  /**
-   * 继续编辑：预填基本信息 + 采购品类 + 三字段，从第一步进入（可回看/修改采购品类）。
-   * 第二步（编制总清单）与第三步（三字段）随后沿用既有数据。
-   */
-  const openEdit = async (row: TaskRow) => {
-    setEditing(row);
-    try {
-      const d: any = await procurementTaskApi.detail(row.id);
-      const task = d?.data ?? d;
-      form.setFieldsValue({
-        type: row.type,
-        content: row.content,
-        purpose: row.purpose,
-        procurementCategory: row.procurementCategory ?? undefined,
-        techQuality: task?.techQuality ?? '',
-        acceptanceMethod: task?.acceptanceMethod ?? '',
-        paymentMethod: task?.paymentMethod ?? '',
-      });
-    } catch {
-      form.setFieldsValue({
-        type: row.type,
-        content: row.content,
-        purpose: row.purpose,
-        procurementCategory: row.procurementCategory ?? undefined,
-      });
+    if (!seedRow) {
+      // 新建：采购类型默认「单项采购」
+      setEditing(null);
+      setCreatedTask(null);
+      form.setFieldsValue({ type: 'SINGLE' });
+      return;
     }
-    setCreatedTask({ id: row.id, taskNo: row.taskNo, status: row.status, stage: row.stage });
-    setCreateStep(0);
-    setModalOpen(true);
-  };
+    // 继续编辑：预填基本信息 + 采购品类 + 三字段，从第一步进入（可回看/修改采购品类）
+    setEditing(seedRow);
+    setCreatedTask({
+      id: seedRow.id,
+      taskNo: seedRow.taskNo,
+      status: seedRow.status,
+      stage: seedRow.stage,
+    });
+    procurementTaskApi
+      .detail(seedRow.id)
+      .then((d: any) => {
+        const task = d?.data ?? d;
+        form.setFieldsValue({
+          type: seedRow.type,
+          content: seedRow.content,
+          purpose: seedRow.purpose,
+          procurementCategory: seedRow.procurementCategory ?? undefined,
+          techQuality: task?.techQuality ?? '',
+          acceptanceMethod: task?.acceptanceMethod ?? '',
+          paymentMethod: task?.paymentMethod ?? '',
+        });
+      })
+      .catch(() => {
+        form.setFieldsValue({
+          type: seedRow.type,
+          content: seedRow.content,
+          purpose: seedRow.purpose,
+          procurementCategory: seedRow.procurementCategory ?? undefined,
+        });
+      });
+    // seed 由「打开编辑器」时一次性给定，故只在进入向导时回填
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditor]);
+
+  // ==================== 向导：动作 ====================
 
   /** 第一步「下一步：编制总采购清单」：新建则创建任务，编辑则保存基本信息，均进入第二步 */
   const handleSave = async () => {
@@ -162,9 +197,13 @@ export default function Initiate() {
           status: task.status ?? 'NOT_STARTED',
           stage: task.stage ?? 0,
         });
+        // 任务已落库：标签标题从「新建」换成带编号的（用户一眼知道在处理哪一个）
+        editorTab.setTitle(`采购发起 · ${task.taskNo}`);
         setCreateStep(1);
+        // 任务已落库，让列表标签也能看到
         refreshList();
       }
+      setDirty(false);
     } finally {
       setSaving(false);
     }
@@ -182,7 +221,7 @@ export default function Initiate() {
     }
   };
 
-  /** 第三步「保存并发布」：写入三字段，然后发布总清单阶段，关闭弹窗 */
+  /** 第三步「保存并发布」：写入三字段，然后发布总清单阶段，关闭页签并回列表 */
   const handleFinalPublish = async () => {
     if (!createdTask) return;
     const values = await form.validateFields(['techQuality', 'acceptanceMethod', 'paymentMethod']);
@@ -195,12 +234,8 @@ export default function Initiate() {
       });
       await procurementTaskApi.publish(createdTask.id);
       message.success('采购任务已发布，技术质量/验收方式/付款方式已记录');
-      setModalOpen(false);
-      setCreateStep(0);
-      setCreatedTask(null);
-      setEditing(null);
-      form.resetFields();
-      refreshList();
+      setDirty(false);
+      editorTab.closeEditor();
     } finally {
       setPublishing(false);
     }
@@ -208,6 +243,8 @@ export default function Initiate() {
 
   /** 上一步：2→1 / 1→0 */
   const goPrevStep = () => setCreateStep((s) => Math.max(0, s - 1));
+
+  // ==================== 列表：动作 ====================
 
   const openDetail = async (id: string) => {
     const d: any = await procurementTaskApi.detail(id);
@@ -315,104 +352,39 @@ export default function Initiate() {
     { key: 'keyword', label: '关键词', control: 'input' as const, placeholder: '编号 / 采购内容' },
   ];
 
-  return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      {/* 标准列表页（问题四：与六模块/合同/结算页面统一规约） */}
-      <ModuleListPage
-        mode="generic"
-        columnConfigKey="procurement.initiate"
-        fetcher={(params) => procurementTaskApi.list(params)}
-        extraFilters={extraFilters as never}
-        extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        actionBeforeSearch={
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            任务发起
-          </Button>
-        }
-        onView={handleViewRow}
-        onDelete={handleRemove}
-        rowMenuItems={(row) => {
-          const basicEditable = BASIC_EDITABLE_STATUSES.includes(row.status);
-          return [
-            {
-              key: 'totalList',
-              label: row.stage >= 1 ? '总采购清单(已冻结)' : '总采购清单',
-              onClick: () => setListTask(row),
-            },
-            {
-              key: 'continue',
-              label: '继续编辑',
-              disabled: !basicEditable,
-              onClick: () => openEdit(row as unknown as TaskRow),
-            },
-            // 问题二：已完成任务提供各模块 Word 文档导出子菜单
-            ...(row.status === 'COMPLETED'
-              ? [
-                  {
-                    key: 'exportWord',
-                    label: (
-                      <span>
-                        <FileWordOutlined /> 导出Word
-                      </span>
-                    ),
-                    children: exportWordChildren(row),
-                  },
-                ]
-              : []),
-          ];
-        }}
-      />
+  /* ==================== 向导视图（编辑器页签） ==================== */
 
-      {/* 新建（三步流程）/ 继续编辑（问题一：从第一步进入） */}
-      <Modal
-        title={
-          <Steps
-            size="small"
-            current={createStep}
-            items={[{ title: '基本信息' }, { title: '编制总采购清单' }, { title: '技术质量/验收/付款' }]}
-            style={{ maxWidth: 520 }}
-          />
+  if (isEditor) {
+    /** 底部主按钮随步骤切换：0 → 下一步（编制总清单）；1 → 无（下一步在左槽）；2 → 保存并发布 */
+    const onSave = createStep === 0 ? handleSave : createStep === 2 ? handleFinalPublish : undefined;
+    return (
+      <EditorTabPage
+        listPath={LIST_PATH}
+        title={editing ? '采购发起 · 继续编辑' : '采购发起 · 新建'}
+        titleExtra={createdTask?.taskNo ? <span className="cms-hint">{createdTask.taskNo}</span> : null}
+        saving={createStep === 0 ? saving : publishing}
+        saveText={createStep === 0 ? '下一步：编制总采购清单' : '保存并发布'}
+        onSave={onSave}
+        // 向导是多步的：「下一步」只推进步骤、不关标签（关标签由最后一步的发布自己做）
+        closeOnSave={false}
+        dirty={dirty}
+        footerLeft={
+          <Space wrap size={8}>
+            {createStep > 0 && <Button onClick={goPrevStep}>上一步</Button>}
+            {createStep === 1 && (
+              <Button type="primary" loading={advancing} disabled={!createdTask} onClick={goToStep3}>
+                下一步：填写技术质量等
+              </Button>
+            )}
+          </Space>
         }
-        open={modalOpen}
-        width={createStep === 1 ? 1320 : createStep === 2 ? 820 : 560}
-        footer={
-          createStep === 2
-            ? [
-                <Button key="cancel" onClick={() => setModalOpen(false)}>
-                  取消
-                </Button>,
-                <Button key="prev" onClick={goPrevStep}>
-                  上一步
-                </Button>,
-                <Button key="publish" type="primary" loading={publishing} onClick={handleFinalPublish}>
-                  保存并发布
-                </Button>,
-              ]
-            : createStep === 1
-              ? [
-                  <Button key="cancel" onClick={() => setModalOpen(false)}>
-                    取消
-                  </Button>,
-                  <Button key="prev" onClick={goPrevStep}>
-                    上一步
-                  </Button>,
-                  <Button key="next" type="primary" loading={advancing} onClick={goToStep3}>
-                    下一步：填写技术质量等
-                  </Button>,
-                ]
-              : [
-                  <Button key="cancel" onClick={() => setModalOpen(false)}>
-                    取消
-                  </Button>,
-                  <Button key="next" type="primary" loading={saving} onClick={handleSave}>
-                    下一步：编制总采购清单
-                  </Button>,
-                ]
-        }
-        onCancel={() => setModalOpen(false)}
-        forceRender
       >
+        <Steps
+          size="small"
+          current={createStep}
+          items={[{ title: '基本信息' }, { title: '编制总采购清单' }, { title: '技术质量/验收/付款' }]}
+          style={{ marginBottom: 16 }}
+        />
         {createStep === 1 && createdTask ? (
           <TotalListEditorContent
             ref={contentRef}
@@ -420,13 +392,16 @@ export default function Initiate() {
             embedded
             onSaved={() => {
               setCreatedTask((t) => (t ? { ...t, status: 'NOT_STARTED' } : t));
+              setDirty(false);
             }}
+            onDirty={() => setDirty(true)}
           />
         ) : createStep === 2 && createdTask ? (
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
             <Alert
               type="info"
               showIcon
+              closable
               style={{ marginBottom: 12 }}
               message="以下三项技术/验收/付款标准将随采购任务流转，自动推送到采前会会议纪要、采购公告、采购文件及关联合同模板的对应位置。"
             />
@@ -441,7 +416,7 @@ export default function Initiate() {
             </Form.Item>
           </Form>
         ) : (
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
             <Form.Item name="type" label="采购类型" rules={[{ required: true, message: '请选择采购类型' }]}>
               <Select disabled={!!editing} options={PROCUREMENT_TASK_TYPES} placeholder="请选择采购类型" />
             </Form.Item>
@@ -477,7 +452,60 @@ export default function Initiate() {
             )}
           </Form>
         )}
-      </Modal>
+      </EditorTabPage>
+    );
+  }
+
+  /* ==================== 列表视图 ==================== */
+
+  return (
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {/* 标准列表页（问题四：与六模块/合同/结算页面统一规约） */}
+      <ModuleListPage
+        mode="generic"
+        columnConfigKey="procurement.initiate"
+        fetcher={(params) => procurementTaskApi.list(params)}
+        extraFilters={extraFilters as never}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh + tabRefresh}
+        actionBeforeSearch={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+            任务发起
+          </Button>
+        }
+        onView={handleViewRow}
+        onDelete={handleRemove}
+        rowMenuItems={(row) => {
+          const basicEditable = BASIC_EDITABLE_STATUSES.includes(row.status);
+          return [
+            {
+              key: 'totalList',
+              label: row.stage >= 1 ? '总采购清单(已冻结)' : '总采购清单',
+              onClick: () => setListTask(row),
+            },
+            {
+              key: 'continue',
+              label: '继续编辑',
+              disabled: !basicEditable,
+              onClick: () => editorTab.openEdit(row.id, { row: row as unknown as TaskRow }),
+            },
+            // 问题二：已完成任务提供各模块 Word 文档导出子菜单
+            ...(row.status === 'COMPLETED'
+              ? [
+                  {
+                    key: 'exportWord',
+                    label: (
+                      <span>
+                        <FileWordOutlined /> 导出Word
+                      </span>
+                    ),
+                    children: exportWordChildren(row),
+                  },
+                ]
+              : []),
+          ];
+        }}
+      />
 
       {/* 任务查看弹窗（问题一：已完成任务「查看」→ 任务信息+采购明细+Word 文档） */}
       <TaskViewModal task={viewRow} open={!!viewRow} onClose={() => setViewRow(null)} />

@@ -91,6 +91,12 @@ export interface TotalListEditorContentProps {
   onSaved?: (res: any) => void;
   /** 发布成功后回调（刷新任务列表状态） */
   onPublished?: () => void;
+  /**
+   * 单元格被改动时回调（新增/删除行、改任一可编辑单元格）。
+   * 供**外层流程**（采购发起的三步向导）标记"有未保存内容"，从而在关闭编辑器页签前给出确认——
+   * 清单的未保存内容只活在本组件的 state 里，外层看不见，不报一声就会被静默丢掉。
+   */
+  onDirty?: () => void;
 }
 
 /** 对外暴露的动作（供外层 footer 调用；问题三：第二步「保存并发布」由外层触发） */
@@ -106,7 +112,7 @@ export interface TotalListContentRef {
  * 5 个合价列自动计算不可改；表底显示各合价汇总行。
  */
 export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListEditorContentProps>(
-  function TotalListEditorContent({ task, embedded, readOnly, onSaved, onPublished }, ref) {
+  function TotalListEditorContent({ task, embedded, readOnly, onSaved, onPublished, onDirty }, ref) {
   const [units, setUnits] = useState<DictOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [rows, setRows] = useState<TotalRow[]>([]);
@@ -172,6 +178,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
 
   const patchRow = (key: string, patch: Partial<TotalRow>) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    onDirty?.();
   };
 
   /** 选择物资：自动带出名称/规格/计量单位默认值并直接显示（需求 2.2.1 / 2.2.2 / 修改三） */
@@ -189,9 +196,15 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
     });
   };
 
-  const addRow = () => setRows((prev) => [...prev, { key: nextKey() }]);
+  const addRow = () => {
+    setRows((prev) => [...prev, { key: nextKey() }]);
+    onDirty?.();
+  };
 
-  const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key));
+  const removeRow = (key: string) => {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+    onDirty?.();
+  };
 
   /** 合价汇总（需求修正 修改一：表底汇总行） */
   const totals = useMemo(() => {
