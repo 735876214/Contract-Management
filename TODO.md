@@ -86,10 +86,12 @@
     结算单页顶部未生成提示 + 「生成本期结算」按钮。**不引入调度器**，故为手动触发）。
     ⚠️ 归属判据是**结算期**而不是自然月（起始日 ≠ 1 时期会跨月），详见
     [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md)「结算期与自动生成」。
-  - ⬜ **P4** 合同付款比例与分期：`ContractExt.settlementPayRatio`（月度比例）+ `paymentMode` 扩两种
-    （次月30日前 65% / 次月·次次月·次次次月 20-20-25）；`currentPayRatio` 改为服务端维护的**生效比例**
-    （总结算未办 = 月度比例；已办 = 100%）。
-  - ⬜ **P5** 工作台「超付款比例」预警（开累付款 > 开累结算 × 生效比例；比例未填不报）。
+  - ✅ **P4 合同付款比例与分期**（已实施：迁移 `20261024000000_settlement_pay_ratio` 加
+    `ContractExt.settlementPayRatio`；`paymentMode` 扩 `M65_1` / `M65_3` 两种月度安排（存量 `100`/`3382` 不动），
+    定义与文案在零依赖 `common/utils/pay-ratio.ts`，前端下拉是它的镜像；`currentPayRatio` 改为**服务端派生**
+    （已完已结 = 100%，否则按安排的月度比例，自定义取手填；推不出保持原值））。
+  - ✅ **P5 工作台「超付款比例」预警**（已实施：`evaluatePaymentRatioAlert()` 纯函数 + 工作台
+    `paymentRatioAlerts` 与「付款超比例预警」卡片；**单级**、比例未填/为 0 不报、"恰好等于上限"不算超）。
   - ⬜ **P6** 付款手续编制（新表 `PaymentProcedure`：供应商/开累结算/开累付款/付款时间/未付款额）+ 付款单模板。
   - ⬜ **P7** 总结算单模块（抓取该合同全部月度结算生成 + 附件上传 → 状态已结算 → 合同 `execStatus = DONE_SETTLED`
     且付款比例切 100%）。

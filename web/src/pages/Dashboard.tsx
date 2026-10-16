@@ -151,6 +151,8 @@ export default function Dashboard() {
 
   /** 金额预警（业务口径 2026-10-15）：红/黄分级由后端按合同当前金额与补充协议占比算好 */
   const alertList: any[] = reminders.amountAlerts || [];
+  /** 付款超比例预警（业务口径 2026-10-16）与上面的金额预警是**两个信号**，分列展示 */
+  const payAlertList: any[] = reminders.paymentRatioAlerts || [];
   const alertRed = alertList.filter((a: any) => a.level === 'RED').length;
   const alertYellow = alertList.filter((a: any) => a.level === 'YELLOW').length;
 
@@ -223,6 +225,47 @@ export default function Dashboard() {
             />
             {reminders.amountAlertTotal > alertList.length && (
               <div className="cms-hint">仅显示前 {alertList.length} 条，共 {reminders.amountAlertTotal} 条</div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card
+            title="付款超比例预警"
+            extra={<Tag color="warning">{reminders.paymentRatioAlertTotal || 0}</Tag>}
+          >
+            {/* 单级预警（业务只给了"超过就预警"一个口径）：不冒充红/黄，避免暗示不存在的分级阈值 */}
+            <List
+              dataSource={payAlertList}
+              locale={{ emptyText: <Empty description="暂无付款超比例预警" /> }}
+              renderItem={(a: any) => (
+                <List.Item>
+                  <List.Item.Meta
+                    title={
+                      <Space size={8} wrap>
+                        <Tag color="warning">付款超比例</Tag>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0 }}
+                          onClick={() => navigate('/settlement/payment')}
+                        >
+                          {a.code}
+                        </Button>
+                        <span>{a.name}</span>
+                      </Space>
+                    }
+                    description={a.reason}
+                  />
+                </List.Item>
+              )}
+            />
+            {reminders.paymentRatioAlertTotal > payAlertList.length && (
+              <div className="cms-hint">
+                仅显示前 {payAlertList.length} 条，共 {reminders.paymentRatioAlertTotal} 条
+              </div>
             )}
           </Card>
         </Col>

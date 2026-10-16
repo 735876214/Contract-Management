@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
-import { evaluateAmountAlert } from '../../common/utils/amount-alert';
+import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 
 @Injectable()
@@ -86,11 +86,12 @@ export class DashboardService {
 
   /** 提醒：发票待查验 + 合同金额红/黄预警 */
   async reminders(projectId: string, user: any) {
-    const [pendingInvoices, amountAlerts] = await Promise.all([
+    const [pendingInvoices, amountAlerts, paymentRatioAlerts] = await Promise.all([
       this.prisma.invoice.findMany({ where: { projectId, statusCode: 'WAIT_VERIFY' }, take: 10 }),
       this.amountAlerts(projectId),
+      this.paymentRatioAlerts(projectId),
     ]);
-    return { pendingInvoices, ...amountAlerts };
+    return { pendingInvoices, ...amountAlerts, ...paymentRatioAlerts };
   }
 
   /**
@@ -170,6 +171,95 @@ export class DashboardService {
       /** 预警明细（前端可只展示前 N 条，`total` 用于说明"还有多少条"） */
       amountAlerts: alerts.slice(0, 20),
       amountAlertTotal: alerts.length,
+    };
+  }
+
+  /**
+   * **付款超比例预警**（业务口径 2026-10-16）：开累付款 > 开累结算 × **当前生效比例**。
+   *
+   * 与 `amountAlerts`（结算是否超合同额）是**两个信号**，前端分列展示：
+   * 一个问"结算超没超合同"，一个问"钱是不是付多了/付早了"。
+   *
+   * 口径与闸门/台账**共用同一实现**，不要就地拼：
+   * - 开累结算 `chainSettledTotal` 的分子口径 = 结算单 `actualAmount`、排除草稿（这里批量取后在内存按链聚合）；
+   * - 开累付款排除 `PAYMENT_EXCLUDED_STATUSES`（失败/退款）—— 与防超付闸门、合同台账同一份常量；
+   * - 生效比例取 `ContractExt.currentPayRatio`（**派生列**，见 `contract.service.syncPayRatio`）。
+   *
+   * 只做**展示**：不拦截任何单据，也不改 `payment.over_amount_policy` 的策略。
+   */
+  private async paymentRatioAlerts(projectId: string) {
+    const [contracts, settlements, payments, exts] = await Promise.all([
+      this.prisma.contract.findMany({
+        where: { projectId },
+        select: { id: true, parentContractId: true, code: true, name: true },
+      }),
+      this.prisma.settlement.findMany({
+        where: { projectId, NOT: { statusCode: 'DRAFT' } },
+        select: { contractId: true, actualAmount: true, amount: true },
+      }),
+      this.prisma.paymentRecord.findMany({
+        where: { projectId, NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } } },
+        select: { contractId: true, amount: true },
+      }),
+      this.prisma.contractExt.findMany({ select: { contractId: true, currentPayRatio: true } }),
+    ]);
+
+    const sumByContract = (rows: any[], pick: (r: any) => number) => {
+      const map = new Map<string, number>();
+      for (const r of rows) {
+        const key = String(r.contractId ?? '');
+        if (!key) continue;
+        map.set(key, (map.get(key) ?? 0) + pick(r));
+      }
+      return map;
+    };
+    const settledByContract = sumByContract(settlements, (s) => Number(s.actualAmount ?? s.amount) || 0);
+    const paidByContract = sumByContract(payments, (p) => Number(p.amount) || 0);
+    const ratioByContract = new Map(exts.map((e: any) => [e.contractId, e.currentPayRatio]));
+
+    const alerts: {
+      contractId: string;
+      code: string;
+      name: string;
+      payRatio: number;
+      settledTotal: number;
+      paidTotal: number;
+      limit: number;
+      paidRatioPct: number | null;
+      reason: string;
+    }[] = [];
+
+    // 只对链根出预警（补充协议单独看没有意义，与金额预警同一取舍）
+    for (const c of contracts.filter((x: any) => !x.parentContractId)) {
+      const chain = resolveChainAmounts(contracts as any, c.id);
+      const settledTotal = chain.chainIds.reduce((s, id) => s + (settledByContract.get(id) ?? 0), 0);
+      const paidTotal = chain.chainIds.reduce((s, id) => s + (paidByContract.get(id) ?? 0), 0);
+      const ratio = ratioByContract.get(c.id);
+      const r = evaluatePaymentRatioAlert({
+        settledTotal,
+        paidTotal,
+        payRatio: ratio == null ? null : Number(ratio),
+      });
+      if (!r.exceeded) continue;
+      alerts.push({
+        contractId: c.id,
+        code: c.code,
+        name: c.name,
+        payRatio: Number(ratio),
+        settledTotal: Number(settledTotal.toFixed(2)),
+        paidTotal: Number(paidTotal.toFixed(2)),
+        limit: r.limit as number,
+        paidRatioPct: r.paidRatioPct,
+        reason: r.reason as string,
+      });
+    }
+
+    // 超出幅度大的排前面（付款额 - 上限），便于先处理最严重的
+    alerts.sort((a, b) => b.paidTotal - b.limit - (a.paidTotal - a.limit));
+
+    return {
+      paymentRatioAlerts: alerts.slice(0, 20),
+      paymentRatioAlertTotal: alerts.length,
     };
   }
 }

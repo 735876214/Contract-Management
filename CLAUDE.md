@@ -20,6 +20,12 @@
   （起始日 1 日时即自然月；起始日 26 时期会跨自然月）；**发票与收领单都按结算期归属到结算单上**（一结算单可对多张），
   台账的开票额按**关联**归集。本期结算由**手动按钮**生成（抓上一期未挂结算单的收领单，按物资合同各出一张草稿），
   **不引入调度器**。纯函数见 `common/utils/settlement-period.ts`。
+- **付款安排决定付款比例**（2026-10-16）：合同上**二选一** —— `M65_1`（当月结算后次月 30 日前付 65%）或
+  `M65_3`（次月/次次月/次次次月 20-20-25，合计仍 65%）；**总结算办理完成后按 100%**；
+  存量 `100`（次月 25 日 100%）与 `3382`（3 月 80% + 6 月 20%）**保留不动**。
+  「当前生效比例」`ContractExt.currentPayRatio` 是**服务端派生列**（`contract.service.syncPayRatio`）——
+  台账「当前合同付款比例」列、逾期引擎、工作台预警**都读它**，不要在界面手填。
+  付款**不与结算/发票关联**，只在**超付款比例**时工作台预警（开累付款 > 开累结算 × 生效比例）。
 - 不引入 Flowable / Redis / MQ / 物化视图 / DB 枚举（理由见 [docs/05](docs/05-四域扩展可行性评估.md) §2/§5 与本文件铁律 4）。
 
 - 前端：React 18 + TypeScript + Vite 5 + Ant Design 5 + Zustand + ECharts
@@ -39,17 +45,17 @@ Contract-Management/
 ├── docs/                # 参考文档（见 §8）
 ├── server/              # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（52 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 10 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 11 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
 │   │                               #    / drop_contract_type_enum / settlement_ledger_link
-│   │                               #    / settlement_invoice_receipt_link）
+│   │                               #    / settlement_invoice_receipt_link / settlement_pay_ratio）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（32 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（33 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（6 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils} + theme.ts + index.css
@@ -133,7 +139,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（32 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（33 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（6 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
@@ -145,7 +151,7 @@ cd server && npm run test:int  # DB 集成测试（6 个 spec，需 DATABASE_URL
 1. `cd web && npm run build`、`cd server && npm run build` 均须通过。
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**（Nest 输出带 ANSI 颜色码，会漏判）：
    看退出码，或直接跑 `npx tsc --noEmit`。
-2. `cd server && npm test` 须全绿（32 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
+2. `cd server && npm test` 须全绿（33 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
    spec 数量与清单由 `docStats.spec.mts` 锁定，**新增 spec 必须同步 `docs/development.md §5` 清单**。
    **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（6 个 spec：金额闸门 / 合同状态流转 /
    导入两阶段 / 招标域投标·评标·定标 / 结算台账↔结算单 1:1 / 发票·收领单↔结算期 + 月度结算生成）

@@ -12,6 +12,7 @@ import ImportButton from '@/components/ImportButton';
 import { useAuthStore } from '@/store/auth';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
+import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentModes';
 import { templateApi } from '@/api/business';
 import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from './Clauses';
 
@@ -94,6 +95,8 @@ export default function Contracts() {
   // 需求 2.1：合同发布后（待签章/已签章）合同类型固化；历史空状态在 UI 上按「待签章」展示，同样锁定
   const typeLocked = !!editing && editing.status !== 'DRAFT';
   const watchedSubType = Form.useWatch('subTypeCode', form);
+  /** 付款安排：决定「月度结算办理比例」是否可填（标准安排自带比例，自定义才要填） */
+  const watchedPayMode = Form.useWatch('paymentMode', extForm);
   useEffect(() => {
     if (modal && !editing) genCode(watchedType, watchedSubType);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,11 +142,20 @@ export default function Contracts() {
     }
     const materialIds = values.materialIds;
     delete values.materialIds;
+    /**
+     * 「付款安排」是**合同主表**字段（`Contract.paymentMode`），却和 ext 的「月度结算办理比例」并排显示
+     * —— 故在这里拆开归位：主表字段提到 payload 顶层，比例留在 `ext` 里。
+     * （两个都塞进 ext 会**静默丢失**：后端 `saveExt` 只认 `EXT_FIELDS` 白名单。）
+     */
+    const extValues = extForm.getFieldsValue();
+    // `currentPayRatio` 由服务端派生（见后端 `contract.service.syncPayRatio`），前端只展示、不回传
+    const { paymentMode, settlementPayRatio, currentPayRatio: _derivedRatio, ...extRest } = extValues;
     const payload = {
       ...values,
+      paymentMode,
       signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
       attachments,
-      ext: extForm.getFieldsValue(),
+      ext: { ...extRest, settlementPayRatio },
       materialIds: editing ? undefined : materialIds, // 仅创建时派生清单
     };
     if (editing) await contractApi.update(editing.id, payload);
@@ -166,6 +178,8 @@ export default function Contracts() {
     });
     extForm.setFieldsValue({
       ...(row.ext || {}),
+      // 付款安排在主表上，但和 ext 的比例并排显示、一起保存（见 submit 里的归位说明）
+      paymentMode: row.paymentMode ?? undefined,
       bidStartDate: row.ext?.bidStartDate ? dayjs(row.ext.bidStartDate) : null,
       bidWinDate: row.ext?.bidWinDate ? dayjs(row.ext.bidWinDate) : null,
       disclosureDate: row.ext?.disclosureDate ? dayjs(row.ext.disclosureDate) : null,
@@ -479,7 +493,42 @@ export default function Contracts() {
                       <Form.Item name="supplierCategory" label="分供方类别"><DictSelect typeCode="supplier_category" /></Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
-                      <Form.Item name="currentPayRatio" label="当前合同付款比例"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
+                      <Form.Item
+                        name="paymentMode"
+                        label="付款安排"
+                        extra="月度结算办理的付款节点；总结算办理完成后按 100%（当前生效比例由服务端派生）"
+                      >
+                        <Select allowClear placeholder="请选择付款安排" options={PAYMENT_MODE_OPTIONS} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="settlementPayRatio"
+                        label="月度结算办理比例"
+                        extra={
+                          watchedPayMode === CUSTOM_PAYMENT_MODE
+                            ? '自定义付款安排时必填（如 0.65 表示 65%）'
+                            : '标准付款安排的比例由安排本身决定，无需填写'
+                        }
+                      >
+                        <InputNumber
+                          style={{ width: '100%' }}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          precision={4}
+                          disabled={watchedPayMode !== CUSTOM_PAYMENT_MODE}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="currentPayRatio"
+                        label="当前合同付款比例"
+                        extra="只读：由服务端按「付款安排 / 已完已结」派生，保存后自动更新"
+                      >
+                        <Input readOnly placeholder="保存后自动计算" />
+                      </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
                       <Form.Item name="bidStartDate" label="开始招标时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>

@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（32 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（33 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（6 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -127,7 +127,8 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/contractChain.spec.mts` | **合同当前金额口径锁**（= 主合同 + Σ 补充协议 `changeAmount`，**不采信手填 amount**）· 主合同未填 → 当前金额未知（`null`，不是"只算补充协议"）· 只算直接补充协议、防环 · 链上累计结算（排除草稿/自身）与累计付款（排除失败/退款） |
   | `test/supplementDelta.spec.mts` | **补充协议带符号增量算法**：涨价/降价只计**差额**（防止把"剩余数量的全值"重复计入）· 增数量按原单价 · 新增物资全额 · 未知类型一律 0 · 主合同查不到的物资按全额并计数 |
   | `test/supplierSnapshot.spec.mts` | **签订时快照口径**（业务口径：合同正文导出取签订时快照）：`KEEP`（默认）快照优先逐字段回退实时 · `SYNC` 强制实时 · 快照缺失（存量合同）行为不变 · 空串视为未提供 · **扫源码核对快照字段清单覆盖 `generate()` 用的全部 `sup.*`**（漏一项就会静默回退实时） |
-  | `test/amountAlert.spec.mts` | **金额红/黄预警阈值**：红 = 结算 > 当前金额×110% 或 补充协议 > 主合同×130%；黄 = 80% / 110%；**恰好等于阈值不预警** · 红优先 · 分母未知时不误报 |
+  | `test/payRatio.spec.mts` | **付款安排与「当前生效比例」**（业务口径 2026-10-16）：两种月度安排的分期与比例（`M65_1` 次月 30 日 65%；`M65_3` 次月/次次月/次次次月 20/20/25，浮点求和须回到 0.65）· 存量 `100`/`3382` **不得改** · 生效比例四条规则（已完已结 = 100% 压过月度安排 · 按安排 · 自定义取手填 · **推不出 → `null` 不覆盖**，手填 0 也算推不出）· **前后端镜像**（`web/src/constants/paymentModes.ts` 的取值集合与 label 逐条相等——下拉里显示的就是它） |
+  | `test/amountAlert.spec.mts` | **金额红/黄预警阈值**：红 = 结算 > 当前金额×110% 或 补充协议 > 主合同×130%；黄 = 80% / 110%；**恰好等于阈值不预警** · 红优先 · 分母未知时不误报 · 同文件还锁 **付款超比例预警**（开累付款 > 开累结算 × 生效比例；比例未填/为 0 **不报**、分母为 0 不报、"恰好等于上限"不算超） |
   | `test/ledgerDerived.spec.mts` | **台账派生金额口径**（**未填金额 ≠ 0**）：合同额 NULL 时「100% 欠款」「已结算占合同比例」返回 `null` 而不是 0/负数 · 显式填 0 是真实的 0 · 分母为 0 → 比例不可计算 · 常规数值与修复前逐位一致 |
   | `test/mask.spec.mts` | 敏感字段打码白名单（凭据/银行账号/证件号/联系方式；不修改入参） |
   | `test/importTask.spec.mts` | 导入任务僵尸判定（心跳阈值/终态不回收）与幂等去重键 |

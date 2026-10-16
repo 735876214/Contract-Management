@@ -8,6 +8,7 @@ import { PlusOutlined, ExportOutlined, SettingOutlined, QuestionCircleOutlined, 
 import dayjs from 'dayjs';
 import { contractApi } from '@/api/business';
 import { financeApi } from '@/api/modules';
+import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentModes';
 
 const money = (v: any) => (v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
@@ -267,7 +268,7 @@ export default function Finance() {
               <Descriptions.Item label="供应商">{params.supplierName || '-'}</Descriptions.Item>
               <Descriptions.Item label="付款模式">
                 <Space>
-                  <Tag color="blue">{params.paymentMode === '3382' ? '3382 模式' : params.paymentMode === '100' ? '100% 模式' : '自定义'}</Tag>
+                  <Tag color="blue">{PAYMENT_MODE_OPTIONS.find((o) => o.value === params.paymentMode)?.label ?? '自定义'}</Tag>
                   <Button size="small" type="link" icon={<SettingOutlined />} onClick={() => {
                     paramsForm.setFieldsValue({
                       paymentMode: params.overrides?.paymentMode || params.paymentMode,
@@ -510,11 +511,18 @@ export default function Finance() {
         <Form form={paramsForm} layout="vertical">
           <Form.Item name="paymentMode" label="付款模式" rules={[{ required: true }]}>
             <Select
-              options={[
-                { value: '100', label: `100% 模式：${params?.mode100Description || '次月25日前支付100%（逾期宽限7天）'}` },
-                { value: '3382', label: `3382 模式：${params?.mode3382Description || '第3个月内支付80%，第6个月支付剩余（宽限7天）'}` },
-                { value: 'CUSTOM', label: '自定义（手动录入应付款行）' },
-              ]}
+              options={PAYMENT_MODE_OPTIONS.map((o) => ({
+                value: o.value,
+                // 100 / 3382 沿用后端返回的描述（可被系统参数改写），其余用镜像常量里的说明
+                label:
+                  o.value === '100'
+                    ? `100% 模式：${params?.mode100Description || o.label}`
+                    : o.value === '3382'
+                      ? `3382 模式：${params?.mode3382Description || o.label}`
+                      : o.value === CUSTOM_PAYMENT_MODE
+                        ? '自定义（手动录入应付款行）'
+                        : o.label,
+              }))}
             />
           </Form.Item>
           <Space size={16} style={{ display: 'flex' }}>

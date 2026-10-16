@@ -100,6 +100,25 @@
   **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
   **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
 
+## 付款安排与「当前生效比例」（2026-10-16 加的批次）
+
+- **付款安排（`Contract.paymentMode`）是合同字段**，取值 `100` / `3382` / `M65_1` / `M65_3` / `CUSTOM`，
+  定义与文案在零依赖模块 `common/utils/pay-ratio.ts`（`PAYMENT_MODES`）——**前端下拉是它的镜像**
+  （`web/src/constants/paymentModes.ts`），由 `payRatio.spec.mts` 锁住「取值集合 + label 逐条相等」。
+  取值不合法一律 **400**（写错会让派生比例错、进而让台账列与付款预警都错，从界面还看不出来）。
+- **`ContractExt.currentPayRatio` 是服务端派生列**，唯一实现在 `contract.service.syncPayRatio()`：
+  ① `execStatus = DONE_SETTLED`（已完已结 = 总结算已办理）→ **1.0**；② 否则按付款安排的**月度比例**
+  （`100`/`3382` → 1，`M65_1`/`M65_3` → 0.65）；③ `CUSTOM` → 用 `ContractExt.settlementPayRatio`（合同上手填）；
+  ④ **推不出来 → `null` 且保持原值不动**（"未知"不该被改写成某个数；手填 0 也算推不出来）。
+  ⚠️ 台账「当前合同付款比例」列、逾期引擎的 `paymentRatio`、工作台付款预警**都读这一列**。
+  ⚠️ 合同表单里它已改为**只读展示**、提交时前端会把它剥掉（`Contracts.tsx` 的 `submit`）。
+- **付款超比例预警**（工作台）：纯函数 `common/utils/amount-alert.ts` 的 `evaluatePaymentRatioAlert()`
+  —— 开累付款 > 开累结算 × 生效比例；**单级**（业务只给了"超过就报"）；比例未填/为 0 或开累结算为 0
+  → **不报**；"恰好等于上限"不算超。开累付款的分子排除 `PAYMENT_EXCLUDED_STATUSES`（失败/退款，
+  与防超付闸门/台账同一份常量）。
+  ⚠️ 它与「合同金额预警」（结算是否超合同额）是**两个信号**，工作台分列展示，**不要合并**；
+  两者都只展示、不拦单据——拦不拦由 `*_over_amount_policy` 决定。
+
 ## 结算期与自动生成（2026-10-16 加的批次，改发票/收领单/结算单前必看）
 
 - **归属判据是「结算期」，不是自然月**：唯一实现在零依赖模块 `common/utils/settlement-period.ts`

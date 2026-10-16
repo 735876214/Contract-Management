@@ -305,6 +305,9 @@ model ContractExt {
   isDirectPurchase String? // dict: is_direct_purchase
   bidName          String? // 招标名称
   currentPayRatio  Decimal?  @db.Decimal(9, 4) // 当前合同付款比例
+  /// **月度结算办理比例**：仅「自定义付款安排（`paymentMode = CUSTOM`）」时使用；
+  /// 标准安排（100 / 3382 / M65_1 / M65_3）的比例由安排本身决定（见 common/utils/pay-ratio.ts）。
+  settlementPayRatio Decimal? @db.Decimal(9, 4)
   supplierCategory String? // dict: supplier_category
   bidStartDate     DateTime? // 开始招标时间
   bidWinDate       DateTime? // 定标时间

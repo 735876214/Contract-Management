@@ -15,6 +15,12 @@ import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
 import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
+// 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
+import {
+  PAYMENT_MODES,
+  CUSTOM_PAYMENT_MODE,
+  resolveEffectivePayRatio,
+} from '../../common/utils/pay-ratio';
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
@@ -29,6 +35,9 @@ const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
   'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRate',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
+  // 付款安排（100 / 3382 / M65_1 / M65_3 / CUSTOM）：业务口径 2026-10-16「创建合同时二选一」，
+  // 取值校验见 assertPaymentMode()，定义与「当前生效比例」的派生见 common/utils/pay-ratio.ts
+  'paymentMode',
   'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
   // 采购工作流（任务一对多）：只关联采购任务；五态合同类型是派生值、不入库（2026-10-16 删列）
@@ -46,6 +55,7 @@ const CONTRACT_STATUSES: readonly string[] = [
 const PUBLISHED_STATUSES: readonly string[] = [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED];
 const EXT_FIELDS = [
   'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
+  'settlementPayRatio',
   'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
 ];
 
@@ -815,11 +825,65 @@ export class ContractService {
     }
   }
 
+  /**
+   * 付款安排取值校验（业务口径 2026-10-16：创建合同时**二选一**）。
+   *
+   * 取值不在 `PAYMENT_MODES` 里且不是 `CUSTOM` → 400。**不要放宽成任意字符串**：
+   * 付款安排决定「月度比例」，写错了 `currentPayRatio` 派生值就错，台账列与付款预警都会跟着错，
+   * 而且很难从界面上看出来。
+   */
+  private assertPaymentMode(mode: unknown) {
+    if (mode === undefined || mode === null || mode === '') return;
+    const known = Object.keys(PAYMENT_MODES);
+    if (!known.includes(String(mode)) && String(mode) !== CUSTOM_PAYMENT_MODE) {
+      throw new BadRequestException(
+        `付款安排「${mode}」不在可选范围内，请选择：${known.map((k) => `${k}（${PAYMENT_MODES[k].label}）`).join('、')}` +
+          `、${CUSTOM_PAYMENT_MODE}（自定义，需另填月度结算办理比例）`,
+      );
+    }
+  }
+
+  /**
+   * 重算并落库**当前生效付款比例**（`ContractExt.currentPayRatio`，业务口径 2026-10-16 定为派生列）。
+   *
+   * 判定只有一处实现（`common/utils/pay-ratio.ts` 的 `resolveEffectivePayRatio`）：
+   * ① 已完已结（总结算办理完成）→ 100%；② 否则按付款安排的月度比例；③ 自定义安排 → 合同上手填的比例。
+   *
+   * ⚠️ **推不出来时返回 `null` 且不动原值**：把"未知"改写成某个数，台账「当前合同付款比例」列与
+   * 付款预警都会给出假口径（"未填 ≠ 0"的既定原则在这儿同样适用）。
+   * ⚠️ 台账列、逾期引擎的 `paymentRatio`、工作台付款预警都读这一列 —— 改了这里就是改了那三处的口径。
+   */
+  async syncPayRatio(contractId: string, tx?: TxClient): Promise<number | null> {
+    const db: any = tx || this.prisma;
+    const c = await db.contract.findUnique({
+      where: { id: contractId },
+      select: {
+        execStatus: true,
+        paymentMode: true,
+        ext: { select: { settlementPayRatio: true } },
+      },
+    });
+    if (!c) return null;
+    const next = resolveEffectivePayRatio({
+      execStatus: c.execStatus,
+      paymentMode: c.paymentMode,
+      customRatio: c.ext?.settlementPayRatio == null ? null : Number(c.ext.settlementPayRatio),
+    });
+    if (next === null) return null;
+    const exist = await db.contractExt.findUnique({ where: { contractId }, select: { currentPayRatio: true } });
+    // 没有扩展行时不擅自创建（ext 由合同保存流程维护；这里凭空建行会让"合同有没有扩展信息"失真）
+    if (!exist) return null;
+    if (Number(exist.currentPayRatio) === next) return next;
+    await db.contractExt.update({ where: { contractId }, data: { currentPayRatio: next } });
+    return next;
+  }
+
   async create(data: any, projectId: string, user: any, tx?: TxClient) {
     const db: any = tx || this.prisma;
     if (!data.code) throw new BadRequestException('合同编号不能为空');
     await this.assertCodeUnique(data.code, projectId);
     await this.validateDict(data);
+    this.assertPaymentMode(data.paymentMode);
 
     // 名称自动生成（需求 3.4）：未手填名称或显式 autoName 时按规则拼接并锁定
     if (data.autoName !== false && (!data.name || data.autoName === true)) {
@@ -870,6 +934,8 @@ export class ContractService {
       },
     });
     if (ext) await this.saveExt(contract.id, ext, tx);
+    // 付款安排 / 扩展信息落库后重算「当前生效比例」（派生列，见 syncPayRatio）
+    await this.syncPayRatio(contract.id, tx);
     if (Array.isArray(attachments)) {
       await db.contractAttachment.createMany({
         data: attachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
@@ -902,6 +968,7 @@ export class ContractService {
       throw new BadRequestException('合同已发布，合同类型不可修改');
     }
     await this.validateDict({ ...before, ...data });
+    this.assertPaymentMode(data.paymentMode);
     // 名称自动生成（需求 3.4）：起草页传 autoName=true 时按规则重算并锁定
     if (data.autoName === true) {
       const built = await this.buildName({
@@ -924,12 +991,18 @@ export class ContractService {
       data: {
         ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
         ...signDatePatch,
-        amount: num(data.amount),
-        taxRate: num(data.taxRate),
+        /**
+         * ⚠️ 必须**按"传了才写"**处理：`num(undefined)` 返回 `null`，无条件赋值会让任何部分更新
+         * （例如只改付款安排）把合同额/税率**静默清空**。显式传 `null` 仍然是"清空"（业务上要能改回空）。
+         */
+        ...(data.amount !== undefined ? { amount: num(data.amount) } : {}),
+        ...(data.taxRate !== undefined ? { taxRate: num(data.taxRate) } : {}),
         version: { increment: 1 },
       },
     });
     if (ext) await this.saveExt(id, ext);
+    // 付款安排 / 执行情况（execStatus）变更后重算「当前生效比例」
+    await this.syncPayRatio(id);
     // 需求修正2：合同税率变更 → Tab2 合同清单所有物料税率同步更新并重算金额
     if (data.taxRate !== undefined) {
       await this.syncDraftTaxFromContract(id);
@@ -1205,6 +1278,8 @@ export class ContractService {
       isDirectPurchase: data.isDirectPurchase,
       bidName: data.bidName,
       currentPayRatio: num(data.currentPayRatio),
+      // 月度结算办理比例：仅「自定义付款安排」时使用（标准安排的比例由安排本身决定）
+      settlementPayRatio: num(data.settlementPayRatio),
       supplierCategory: data.supplierCategory,
       bidStartDate: data.bidStartDate ? new Date(data.bidStartDate) : null,
       bidWinDate: data.bidWinDate ? new Date(data.bidWinDate) : null,
@@ -1212,8 +1287,12 @@ export class ContractService {
       complaint: data.complaint,
     };
     const exist = await db.contractExt.findUnique({ where: { contractId } });
-    if (exist) return db.contractExt.update({ where: { contractId }, data: payload });
-    return db.contractExt.create({ data: { contractId, ...payload } });
+    const saved = exist
+      ? await db.contractExt.update({ where: { contractId }, data: payload })
+      : await db.contractExt.create({ data: { contractId, ...payload } });
+    // 付款安排能推出比例时，`currentPayRatio` 一律以派生值为准（前端已改成只读展示）
+    await this.syncPayRatio(contractId, tx);
+    return saved;
   }
 
   async getExt(contractId: string) {

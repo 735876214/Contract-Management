@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAmountAlert, ALERT_THRESHOLDS } from '../src/common/utils/amount-alert.ts';
+import {
+  evaluateAmountAlert,
+  evaluatePaymentRatioAlert,
+  ALERT_THRESHOLDS,
+} from '../src/common/utils/amount-alert.ts';
 
 /**
  * 合同金额红/黄预警的阈值锁（2026-10-15 业务给定）。
@@ -138,5 +142,56 @@ describe('金额预警：红黄优先级与"未知不当 0"', () => {
   it('比例按百分数两位小数返回（供工作台直接显示）', () => {
     const r = evaluateAmountAlert({ ...base, settledTotal: 833_333 });
     assert.equal(r.settledRatioPct, 83.33);
+  });
+});
+
+/**
+ * **付款超比例预警**（业务口径 2026-10-16）：开累付款 > 开累结算 × 当前生效比例。
+ * 与上面的金额预警是**两个信号**（一个问结算超没超合同，一个问钱是不是付多了）。
+ */
+describe('付款超比例预警：开累付款 / 开累结算', () => {
+  const evalPay = evaluatePaymentRatioAlert;
+
+  it('未超比例 → 不预警（但上限与占比照常返回，便于前端展示）', () => {
+    const r = evalPay({ settledTotal: 100_000, paidTotal: 60_000, payRatio: 0.65 });
+    assert.equal(r.exceeded, false);
+    assert.equal(r.limit, 65_000);
+    assert.equal(r.paidRatioPct, 60);
+    assert.equal(r.reason, null);
+  });
+
+  it('超过比例 → 预警，且理由里带上关键数字（人能直接核）', () => {
+    const r = evalPay({ settledTotal: 100_000, paidTotal: 65_000.01, payRatio: 0.65 });
+    assert.equal(r.exceeded, true);
+    assert.equal(r.limit, 65_000, '上限 = 开累结算 × 比例');
+    assert.equal(r.paidRatioPct, 65);
+    assert.match(r.reason!, /65000\.01/);
+    assert.match(r.reason!, /65%/);
+  });
+
+  it('恰好等于上限 → **不算**超（"超过"是严格大于）', () => {
+    const r = evalPay({ settledTotal: 100_000, paidTotal: 65_000, payRatio: 0.65 });
+    assert.equal(r.exceeded, false);
+    assert.equal(r.limit, 65_000);
+  });
+
+  it('比例未填 / 为 0 → 一律不报（未填 ≠ 0：拿 0 去比会让每笔付款都成预警）', () => {
+    for (const payRatio of [null, undefined, 0, Number.NaN]) {
+      const r = evalPay({ settledTotal: 100_000, paidTotal: 50_000, payRatio });
+      assert.equal(r.exceeded, false, `比例 ${String(payRatio)} 不该报`);
+      assert.equal(r.limit, null, '推不出上限时返回 null（不是 0）');
+    }
+  });
+
+  it('开累结算为 0 → 不报（没有结算就没有"按比例应付"的基准）', () => {
+    const r = evalPay({ settledTotal: 0, paidTotal: 10_000, payRatio: 0.65 });
+    assert.equal(r.exceeded, false);
+    assert.equal(r.limit, null);
+    assert.equal(r.paidRatioPct, null, '分母为 0 → 占比不可计算');
+  });
+
+  it('100% 安排：付款超过开累结算才报（与防超付闸门同向，但这里是展示信号）', () => {
+    assert.equal(evalPay({ settledTotal: 80_000, paidTotal: 80_000, payRatio: 1 }).exceeded, false);
+    assert.equal(evalPay({ settledTotal: 80_000, paidTotal: 80_001, payRatio: 1 }).exceeded, true);
   });
 });

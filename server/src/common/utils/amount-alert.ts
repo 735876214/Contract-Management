@@ -94,3 +94,60 @@ export function evaluateAmountAlert(input: AmountAlertInput): AmountAlertResult 
 
   return { level: null, reasons: [], settledRatioPct, supplementRatioPct };
 }
+
+/**
+ * **付款超比例预警**（业务口径 2026-10-16）：开累付款 > 开累结算 × **当前生效比例** ⇒ 预警。
+ *
+ * 与上面那条「合同金额预警」是**两个信号**，刻意不合并：
+ * - 金额预警问的是"结算/补充协议是否超出合同额"（分子是**结算**）；
+ * - 本条问的是"钱是不是付早了/付多了"（分子是**付款**，比例来自付款安排）。
+ * 两者都可能同时命中，工作台分列展示。
+ *
+ * ⚠️ 单级（不设红/黄）：业务只给了"超过就预警"这一个口径，擅自分级会让阈值变成新的未定义量。
+ * ⚠️ **比例未填 / 为 0 → 一律不报**（"未填 ≠ 0"的既定原则）：比例没填时算出的上限不是 0 而是"未知"，
+ * 拿 0 去比会让每一笔付款都成预警。
+ * ⚠️ 开累结算为 0 → 不报：没有结算就没有"按比例应付"的基准（分母为 0 无法判定，宁漏勿误）。
+ */
+export interface PaymentRatioAlertInput {
+  /** 开累结算额（合同链口径，排除草稿） */
+  settledTotal: number;
+  /** 开累付款额（合同链口径，排除失败/退款） */
+  paidTotal: number;
+  /** 当前生效付款比例（`ContractExt.currentPayRatio`）；未填 → `null` */
+  payRatio: number | null | undefined;
+}
+
+export interface PaymentRatioAlertResult {
+  exceeded: boolean;
+  /** 允许的付款上限 = 开累结算 × 比例；比例未填时为 `null`（**不是 0**） */
+  limit: number | null;
+  /** 开累付款 / 开累结算（百分数，两位小数）；分母为 0 → `null` */
+  paidRatioPct: number | null;
+  /** 给人看的一句话；无预警时 `null` */
+  reason: string | null;
+}
+
+export function evaluatePaymentRatioAlert(input: PaymentRatioAlertInput): PaymentRatioAlertResult {
+  const settled = Number(input.settledTotal) || 0;
+  const paid = Number(input.paidTotal) || 0;
+  const ratio = Number(input.payRatio);
+  const paidRatioPct = settled > 0 ? pct(paid, settled) : null;
+
+  // 比例未填/为 0、或没有结算 → 无法判定（见上方两条 ⚠️）
+  if (!Number.isFinite(ratio) || ratio <= 0) return { exceeded: false, limit: null, paidRatioPct, reason: null };
+  if (settled <= 0) return { exceeded: false, limit: null, paidRatioPct, reason: null };
+
+  const limit = Number((settled * ratio).toFixed(2));
+  // "超过"是严格大于：恰好等于上限不算超
+  if (paid <= limit) return { exceeded: false, limit, paidRatioPct, reason: null };
+
+  const pctOfRatio = Number((ratio * 100).toFixed(2));
+  return {
+    exceeded: true,
+    limit,
+    paidRatioPct,
+    reason:
+      `开累付款 ${paid.toFixed(2)} 已超过「开累结算 ${settled.toFixed(2)} × 生效比例 ${pctOfRatio}%」` +
+      `= ${limit.toFixed(2)}（已付占开累结算 ${paidRatioPct}%）`,
+  };
+}
