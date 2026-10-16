@@ -89,12 +89,53 @@ export class DocTemplateService {
   }
 
   /**
-   * **渲染付款单**（付款手续 → Word）：取单据上的快照值 + 合同/供应商/项目，套模板生成 docx。
+   * **通用渲染入口**：按分类取模板 → 用给定取值表渲染 → 出 docx。
+   * 各单据模块（付款单、总结算单…）都走这里，别各写一份"找模板 + 渲染 + 转 docx"。
    *
-   * - 未指定 `templateId` 时取该项目的**启用中**「付款单」模板；一张也没配就报错并说清去哪儿配
+   * - 未指定 `templateId` 时取该项目的**启用中**该分类模板；一张也没配就报错并说清去哪儿配
    *   （不内置兜底模板：打印出来的单据格式是业务资产，不该由代码偷偷决定）。
    * - 未取到值的占位符**原样保留**（`renderTemplate` 的行为）并记一条 warn：打印件上留着
    *   `{{xxx}}` 一眼就能看出缺什么，比静默留空好。
+   * - `tables` 用于表格类占位符（如总结算单的月度明细表）。
+   */
+  async renderDocx(opts: {
+    categoryCode: string;
+    categoryLabel: string;
+    projectId: string;
+    values: Record<string, string>;
+    tables?: Record<string, string>;
+    templateId?: string;
+    filename: string;
+  }): Promise<{ buffer: Buffer; filename: string; pending: string[] }> {
+    const template = opts.templateId
+      ? await this.findOne(opts.templateId)
+      : await this.prisma.contractTemplate.findFirst({
+          where: {
+            OR: [{ projectId: opts.projectId }, { projectId: null }],
+            categoryCode: opts.categoryCode,
+            status: 1,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+    if (!template) {
+      throw new BadRequestException(
+        `未找到启用中的「${opts.categoryLabel}」模板：请到「基础信息管理 → 单据模板」新增一张` +
+          `（分类选「${opts.categoryLabel}」）并启用。`,
+      );
+    }
+
+    const html = renderTemplate({ html: (template as any).content || '', values: opts.values, tables: opts.tables });
+    const pending = pendingPlaceholders(html);
+    if (pending.length) {
+      console.warn(`[doc-template] ${opts.categoryLabel}模板「${template.name}」生成后仍有未替换占位符：${pending.join('、')}`);
+    }
+    // 与合同正文导出同一套 HTML → docx（表格整行不跨页）
+    const buffer = (await HTMLtoDOCX(html, null, { table: { row: { cantSplit: true } } })) as Buffer;
+    return { buffer, filename: opts.filename, pending };
+  }
+
+  /**
+   * **渲染付款单**（付款手续 → Word）：取单据上的快照值 + 合同/供应商/项目，套模板生成 docx。
    */
   async renderPaymentProcedure(procedureId: string, templateId?: string) {
     const procedure: any = await this.prisma.paymentProcedure.findUnique({
@@ -114,31 +155,14 @@ export class DocTemplateService {
       select: { name: true, nameAbbr: true, code: true },
     });
 
-    const template = templateId
-      ? await this.findOne(templateId)
-      : await this.prisma.contractTemplate.findFirst({
-          where: {
-            OR: [{ projectId: procedure.projectId }, { projectId: null }],
-            categoryCode: 'PAYMENT',
-            status: 1,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-    if (!template) {
-      throw new BadRequestException(
-        '未找到启用中的「付款单」模板：请到「基础信息管理 → 单据模板」新增一张（分类选「付款单」）并启用。',
-      );
-    }
-
     const values = buildPaymentDocValues({ procedure, contract: procedure.contract, supplier, project });
-    const html = renderTemplate({ html: (template as any).content || '', values });
-    const pending = pendingPlaceholders(html);
-    if (pending.length) {
-      console.warn(`[doc-template] 付款单模板「${template.name}」生成后仍有未替换占位符：${pending.join('、')}`);
-    }
-
-    // 与合同正文导出同一套 HTML → docx（表格整行不跨页）
-    const buffer = (await HTMLtoDOCX(html, null, { table: { row: { cantSplit: true } } })) as Buffer;
-    return { buffer, filename: `${procedure.code || '付款单'}.docx`, pending };
+    return this.renderDocx({
+      categoryCode: 'PAYMENT',
+      categoryLabel: '付款单',
+      projectId: procedure.projectId,
+      values,
+      templateId,
+      filename: `${procedure.code || '付款单'}.docx`,
+    });
   }
 }

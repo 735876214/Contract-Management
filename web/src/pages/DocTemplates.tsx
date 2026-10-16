@@ -5,7 +5,17 @@ import { docTemplateApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import RichTextEditor from '@/components/RichTextEditor';
-import { PAYMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
+import { PAYMENT_DOC_VAR_GROUPS, FINAL_SETTLEMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
+
+/**
+ * **分类 → 变量面板**：只给**已接 Word 生成路径**的分类提供变量
+ * （当前：付款单、总结算单；其余三类插了也不会被替换，故面板层就不给）。
+ * 新增生成路径时在这里加一行即可。
+ */
+const VAR_GROUPS_BY_CATEGORY: Record<string, typeof PAYMENT_DOC_VAR_GROUPS | undefined> = {
+  PAYMENT: PAYMENT_DOC_VAR_GROUPS,
+  FINAL_SETTLEMENT: FINAL_SETTLEMENT_DOC_VAR_GROUPS,
+};
 
 /**
  * 单据模板（基础信息管理，业务口径 2026-10-16）：管理**五类**单据的 Word 模板
@@ -166,22 +176,22 @@ export default function DocTemplates() {
               <Switch />
             </Form.Item>
           </Space>
-          {/* 变量面板只在「付款单」分类下提供 —— 这里必须用 Form.Item 的 shouldUpdate 读值，
-              不能用 Form.useWatch：弹窗是 destroyOnHidden，关闭时 form 未连接，
-              useWatch 会**停在初始值**（真渲染实测：编辑付款单模板时面板不出现） */}
+          {/* 变量面板只对**已接生成路径**的分类开放（当前是付款单与总结算单）。
+              这里必须用 Form.Item 的 shouldUpdate 读值，不能用 Form.useWatch：弹窗是 destroyOnHidden，
+              关闭时 form 未连接，useWatch 会**停在初始值**（真渲染实测：编辑付款单模板时面板不出现） */}
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.categoryCode !== cur.categoryCode}>
             {({ getFieldValue }: any) => {
-              const showVars = getFieldValue('categoryCode') === 'PAYMENT';
+              const groups = VAR_GROUPS_BY_CATEGORY[getFieldValue('categoryCode') as string];
               return (
                 <Form.Item name="content" label="模板内容" rules={[{ required: true, message: '请编辑模板内容' }]}>
                   <RichTextEditor
-                    variableGroups={showVars ? PAYMENT_DOC_VAR_GROUPS : undefined}
-                    variableScope={showVars ? 'doc' : undefined}
+                    variableGroups={groups}
+                    variableScope={groups ? 'doc' : undefined}
                     minHeight={360}
                     placeholder={
-                      showVars
-                        ? '在此编辑付款单模板，可点击「插入变量」把占位符插到光标处（语法 {{变量名}}，单花括号不生效）'
-                        : '先在「分类」里选「付款单」才会出现该类的变量面板；其余四类的变量待各自模块接上生成路径后再放开'
+                      groups
+                        ? '在此编辑模板，可点击「插入变量」把占位符插到光标处（语法 {{变量名}}，单花括号不生效）'
+                        : '先在「分类」里选「付款单」或「总结算单」才会出现该类的变量面板；其余三类待各自模块接上生成路径后再放开'
                     }
                   />
                 </Form.Item>

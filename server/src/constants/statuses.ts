@@ -33,6 +33,7 @@ export const DICT_TYPES = {
   SITE_CONFIRM_STATUS: 'site_confirm_status',
   BIDDER_STATUS: 'bidder_status',
   EVALUATION_CONCLUSION: 'evaluation_conclusion',
+  FINAL_SETTLEMENT_STATUS: 'final_settlement_status',
 } as const;
 
 /**
@@ -110,6 +111,17 @@ export const CONTRACT_EXECUTION_STATUS = {
   DONE_SETTLED: 'DONE_SETTLED',
 } as const;
 export type ContractExecutionStatus = (typeof CONTRACT_EXECUTION_STATUS)[keyof typeof CONTRACT_EXECUTION_STATUS];
+
+/**
+ * 总结算单状态（dict `final_settlement_status`，业务口径 2026-10-16）：
+ * 待附件 → （上传附件）→ 已结算。**附件上传完成即「已结算」**，并驱动合同 `execStatus = DONE_SETTLED`
+ * （付款比例随之切到 100%，见 `contract.service.syncPayRatio`）。
+ */
+export const FINAL_SETTLEMENT_STATUS = {
+  PENDING_ATTACHMENT: 'PENDING_ATTACHMENT',
+  SETTLED: 'SETTLED',
+} as const;
+export type FinalSettlementStatus = (typeof FINAL_SETTLEMENT_STATUS)[keyof typeof FINAL_SETTLEMENT_STATUS];
 
 /** 现场确认状态（dict `site_confirm_status`）：只有「已确认」计入结算口径（口径开关见 workflowGuards） */
 export const SITE_CONFIRM_STATUS = {

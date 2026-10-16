@@ -110,6 +110,7 @@ model Project {
   ledgers                  SettlementLedger[]
   payments                 PaymentRecord[]
   paymentProcedures        PaymentProcedure[]
+  finalSettlements         FinalSettlement[]
   invoices                 Invoice[]
   repayments               RepaymentAgreement[]
   assets                   AssetLedger[]
@@ -285,6 +286,7 @@ model Contract {
   ledgers                    SettlementLedger[]
   payments                   PaymentRecord[]
   paymentProcedures          PaymentProcedure[]
+  finalSettlements           FinalSettlement[]
   invoices                   Invoice[]
   repayments                 RepaymentAgreement[]
   materials                  ContractMaterial[]
@@ -606,6 +608,8 @@ model Settlement {
   invoices     Invoice[]
   /// 一张结算单对应**多**张收领单（业务口径 2026-10-16）
   receiptOrders ReceiptOrder[]
+  /// 总结算单的明细行（业务口径 2026-10-16：总结算单抓取该合同的全部月度结算）
+  finalSettlementItems FinalSettlementItem[]
 
   @@index([projectId, contractId])
   @@index([settleDate])
@@ -706,8 +710,52 @@ model PaymentProcedure {
   @@index([supplierId])
 }
 
-// ---------------- 发票 ----------------
+/// **总结算单**（业务口径 2026-10-16）：抓取该合同的**全部月度结算**（月份 + 金额）生成，
+/// 附上附件后即为"已结算"——此时合同 `execStatus` 置 `DONE_SETTLED`，付款比例切到 100%。
+/// ⚠️ 明细是**生成时的快照**（月度结算事后被改，不回头改已出的总结算单）。
+model FinalSettlement {
+  id             String    @id @default(cuid())
+  projectId      String
+  contractId     String
+  code           String? // 单据编号（项目内唯一）
+  statusCode     String    @default("PENDING_ATTACHMENT") // dict: final_settlement_status
+  settledAt      DateTime? // 附件上传完成（= 已结算）的时间
+  totalAmount    Decimal?  @db.Decimal(18, 2) // 明细合计
+  attachmentUrl  String? // 附件（走 StorageService 落盘，对外 URL = /api/files/<键>）
+  attachmentName String?
+  remark         String?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  version        Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt      DateTime  @updatedAt
 
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  items    FinalSettlementItem[]
+
+  @@unique([projectId, code])
+  @@index([projectId, contractId])
+  @@index([statusCode])
+}
+
+/// 总结算单明细行：一行 = 该合同的一个月度结算（月份 + 金额 + 原结算单引用）
+model FinalSettlementItem {
+  id                String   @id @default(cuid())
+  finalSettlementId String
+  settleMonth       String // YYYY-MM
+  amount            Decimal? @db.Decimal(18, 2)
+  settlementId      String? // 对应月度结算单（删结算单不删明细：明细已是快照）
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  finalSettlement FinalSettlement @relation(fields: [finalSettlementId], references: [id], onDelete: Cascade)
+  settlement      Settlement?     @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([finalSettlementId])
+  @@index([settlementId])
+}
+
+// ---------------- 发票 ----------------
 model Invoice {
   id                    String    @id @default(cuid())
   projectId             String

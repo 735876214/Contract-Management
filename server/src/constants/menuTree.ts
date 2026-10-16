@@ -74,6 +74,8 @@ export const MENU_TREE: MenuNode[] = [
       { key: 'settlement-fund', label: '资金费用台账', icon: 'MoneyCollectOutlined', path: '/settlement/fund', permission: 'finance:view' },
       { key: 'settlement-ledger', label: '结算台账', icon: 'BookOutlined', path: '/settlement/ledger', permission: 'settlement:view' },
       { key: 'settlement-payment', label: '付款管理', icon: 'PayCircleOutlined', path: '/settlement/payment', permission: 'payment:view' },
+      // 总结算单（业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 → 合同已完已结
+      { key: 'settlement-final', label: '总结算单', icon: 'FileDoneOutlined', path: '/settlement/final-settlement', permission: 'settlement:view' },
       // 付款手续编制（业务口径 2026-10-16）：开累结算/付款/未付款三值由服务端按合同链口径取数
       { key: 'settlement-payment-procedure', label: '付款手续', icon: 'FileDoneOutlined', path: '/settlement/payment-procedure', permission: 'payment:view' },
     ],

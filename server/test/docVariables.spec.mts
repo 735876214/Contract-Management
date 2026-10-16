@@ -8,7 +8,15 @@ import {
   formatDocMoney,
   formatDocDate,
 } from '../src/modules/doc-template/doc-template-vars.ts';
-import { PAYMENT_DOC_VAR_GROUPS } from '../../web/src/constants/docVariables.ts';
+import {
+  PAYMENT_DOC_VAR_GROUPS,
+  FINAL_SETTLEMENT_DOC_VAR_GROUPS,
+} from '../../web/src/constants/docVariables.ts';
+import {
+  FINAL_SETTLEMENT_DOC_VARIABLES,
+  buildFinalSettlementDocValues,
+  buildItemsTable,
+} from '../src/modules/final-settlement/final-settlement-vars.ts';
 
 /**
  * **单据模板变量锁**（业务口径 2026-10-16 的第三套变量体系）。
@@ -84,6 +92,54 @@ describe('付款单取值表', () => {
     assert.equal(formatDocMoney('不是数字'), '');
     assert.equal(formatDocDate(undefined), '');
     assert.equal(formatDocDate('不是日期'), '');
+  });
+});
+
+describe('总结算单变量：前后端镜像', () => {
+  it('面板（前端）与取值表（后端）的变量名**逐条一致**', () => {
+    const backend = FINAL_SETTLEMENT_DOC_VARIABLES.map((v) => v.name).sort();
+    const front = FINAL_SETTLEMENT_DOC_VAR_GROUPS.flatMap((g) => g.items.map((i) => i.key)).sort();
+    assert.deepEqual(front, backend, 'docVariables.ts 的总结算单变量与 final-settlement-vars.ts 必须一致');
+  });
+
+  it('金额类变量名带单位后缀，且**必须有明细表占位符**（总结算单的核心内容）', () => {
+    const money = FINAL_SETTLEMENT_DOC_VARIABLES.filter((v) => /金额/.test(v.name));
+    assert.ok(money.length >= 1);
+    for (const v of money) assert.match(v.name, /\(元\)$/, `金额变量「${v.name}」必须带单位后缀 (元)`);
+    assert.ok(
+      FINAL_SETTLEMENT_DOC_VARIABLES.some((v) => v.name === '结算明细表'),
+      '合计只是总数，明细表才是这份单据的正文',
+    );
+  });
+
+  it('明细表按月份列出金额；空明细也出表头（不是一段裸文本）', () => {
+    const table = buildItemsTable([
+      { settleMonth: '2026-09', amount: 1000 },
+      { settleMonth: '2026-10', amount: 2000.5 },
+    ]);
+    assert.match(table, /<table/);
+    assert.match(table, /2026-09/);
+    assert.match(table, /2,000\.50/);
+    assert.match(buildItemsTable([]), /<table/, '空明细也要有表头，否则打印出来是一段空白');
+  });
+
+  it('取值表：合计与月数来自单据本身，附件名未上传时为空串（占位符原样保留）', () => {
+    const v = buildFinalSettlementDocValues({
+      doc: {
+        code: 'ZJS-HT-1-20261016',
+        totalAmount: 3000,
+        attachmentName: null,
+        items: [{ settleMonth: '2026-09', amount: 1000 }, { settleMonth: '2026-10', amount: 2000 }],
+      },
+      contract: { code: 'HT-1', name: '钢筋采购合同' },
+      supplier: { name: '宏基钢材贸易有限公司' },
+      project: { name: '滨江项目', nameAbbr: '滨江', code: 'PRJ-1' },
+      now: new Date(2026, 9, 20),
+    });
+    assert.equal(v['总结算金额(元)'], '3,000.00');
+    assert.equal(v.结算月数, '2');
+    assert.equal(v.附件名称, '');
+    assert.equal(v.打印日期, '2026-10-20');
   });
 });
 

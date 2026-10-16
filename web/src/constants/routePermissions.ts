@@ -36,6 +36,8 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/settlement/payment': ['payment:view'],
   // 付款手续编制：复用付款管理的权限码（同一批人管，不新开一套）
   '/settlement/payment-procedure': ['payment:view'],
+  // 总结算单：结算域单据，复用结算权限码
+  '/settlement/final-settlement': ['settlement:view'],
   // 单据模板：复用合同模板的权限码（同一批人维护模板）
   '/base/doc-template': ['template:view'],
   // 发票 / 还款 / 统计报表

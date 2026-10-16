@@ -178,6 +178,7 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
     await seedBidderStatusDict(prisma);
     await seedEvaluationConclusionDict(prisma);
     await seedDocTemplateCategoryDict(prisma);
+    await seedFinalSettlementStatusDict(prisma);
 
     const fixed = await prisma.templateVariable.updateMany({
       where: { varKey: '银行名称', varLabel: '开户银行' },
@@ -318,6 +319,40 @@ async function seedDocTemplateCategoryDict(prisma: PrismaClient): Promise<void> 
     { itemCode: 'FACTORING', itemName: '保理单', sortOrder: 3, color: 'purple', remark: null },
     { itemCode: 'OVERDUE', itemName: '逾期利息', sortOrder: 4, color: 'orange', remark: null },
     { itemCode: 'PAYMENT', itemName: '付款单', sortOrder: 5, color: 'green', remark: '本期唯一接了 Word 生成路径的一类' },
+  ];
+  for (const it of items) {
+    await prisma.dictItem.upsert({
+      where: { typeCode_itemCode: { typeCode, itemCode: it.itemCode } },
+      update: {},
+      create: { typeCode, itemCode: it.itemCode, itemName: it.itemName, sortOrder: it.sortOrder, status: 1, color: it.color, remark: it.remark, extField1: null },
+    });
+  }
+}
+
+/**
+ * 总结算单状态字典（业务口径 2026-10-16）：**待附件 → 已结算**。
+ * code 的单一事实源是 `constants/statuses.ts` 的 `FINAL_SETTLEMENT_STATUS`，
+ * 由 `test/statusCodes.spec.mts` 双向锁（常量 ↔ 本函数里的字典项）。
+ */
+async function seedFinalSettlementStatusDict(prisma: PrismaClient): Promise<void> {
+  const typeCode = 'final_settlement_status';
+  await prisma.dictType.upsert({
+    where: { code: typeCode },
+    update: {},
+    create: {
+      code: typeCode,
+      name: '总结算单状态',
+      remark: '附件上传完成即「已结算」，并驱动合同转为已完已结（付款比例切 100%）',
+      sort: 64,
+      status: 1,
+      isSystem: true,
+      scope: 'GLOBAL',
+    },
+  });
+
+  const items = [
+    { itemCode: 'PENDING_ATTACHMENT', itemName: '待附件', sortOrder: 1, color: 'orange', remark: '已抓取月度结算生成，待上传附件' },
+    { itemCode: 'SETTLED', itemName: '已结算', sortOrder: 2, color: 'green', remark: '附件已上传；合同执行情况置「已完已结」' },
   ];
   for (const it of items) {
     await prisma.dictItem.upsert({

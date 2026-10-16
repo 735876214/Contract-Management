@@ -8,6 +8,7 @@ import {
   CONTRACT_STATUS,
   DICT_TYPES,
   EVALUATION_CONCLUSION,
+  FINAL_SETTLEMENT_STATUS,
   INVOICE_REVIEW_STATUS,
   INVOICE_STATUS,
   PAYMENT_STATUS,
@@ -94,6 +95,7 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 + schema 零枚举）'
       ['SITE_CONFIRM_STATUS', SITE_CONFIRM_STATUS, legacyDictItems(DICT_TYPES.SITE_CONFIRM_STATUS)],
       ['BIDDER_STATUS', BIDDER_STATUS, legacyDictItems(DICT_TYPES.BIDDER_STATUS)],
       ['EVALUATION_CONCLUSION', EVALUATION_CONCLUSION, legacyDictItems(DICT_TYPES.EVALUATION_CONCLUSION)],
+      ['FINAL_SETTLEMENT_STATUS', FINAL_SETTLEMENT_STATUS, legacyDictItems(DICT_TYPES.FINAL_SETTLEMENT_STATUS)],
     ];
     for (const [name, group, items] of cases) {
       assert.ok(items.length > 0, `${name} 对应字典项为空，检查字典类型是否改名`);

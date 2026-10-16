@@ -273,6 +273,21 @@ export const paymentProcedureApi = {
   remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
 };
 
+/** 总结算单（结算及付款管理，业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 */
+export const finalSettlementApi = {
+  list: (params?: any) => http.get<any, any>('/final-settlements', { params }),
+  detail: (id: string) => http.get<any, any>(`/final-settlements/${id}`),
+  /** 生成：`contractId` 必填；一个合同只允许一张（重复会 400） */
+  generate: (contractId: string) => http.post<any, any>('/final-settlements/generate', { contractId }),
+  update: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}`, data),
+  /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
+  attach: (id: string, data: { url: string; fileName: string }) =>
+    http.post<any, any>(`/final-settlements/${id}/attach`, data),
+  remove: (id: string) => http.delete<any, any>(`/final-settlements/${id}`),
+  exportUrl: (id: string, templateId?: string) =>
+    `${http.defaults.baseURL}/final-settlements/${id}/export${templateId ? `?templateId=${templateId}` : ''}`,
+};
+
 /** 单据模板（基础信息管理，业务口径 2026-10-16）：五类单据的 Word 模板 */
 export const docTemplateApi = {
   list: (params?: any) => http.get<any, any>('/doc-templates', { params }),

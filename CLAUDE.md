@@ -26,6 +26,10 @@
   「当前生效比例」`ContractExt.currentPayRatio` 是**服务端派生列**（`contract.service.syncPayRatio`）——
   台账「当前合同付款比例」列、逾期引擎、工作台预警**都读它**，不要在界面手填。
   付款**不与结算/发票关联**，只在**超付款比例**时工作台预警（开累付款 > 开累结算 × 生效比例）。
+- **总结算单收口**（2026-10-16）：抓取该合同全部月度结算生成明细快照（一合同一张）；**附件上传完成即
+  「已结算」** → 合同 `execStatus = DONE_SETTLED`（已完已结）→ 付款比例按总结算节点切 **100%**；
+  删除已结算单据会把这两项**一并回退**。单据模板五类（结算单/总结算单/保理单/逾期利息/付款单）里，
+  本期接了 Word 生成路径的是**付款单与总结算单**。
 - 不引入 Flowable / Redis / MQ / 物化视图 / DB 枚举（理由见 [docs/05](docs/05-四域扩展可行性评估.md) §2/§5 与本文件铁律 4）。
 
 - 前端：React 18 + TypeScript + Vite 5 + Ant Design 5 + Zustand + ECharts
@@ -44,18 +48,18 @@ Contract-Management/
 ├── README.md            # 部署与快速开始（面向运维）
 ├── docs/                # 参考文档（见 §8）
 ├── server/              # NestJS 后端
-│   ├── prisma/schema.prisma        # 全量数据模型（53 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 12 个增量迁移
+│   ├── prisma/schema.prisma        # 全量数据模型（55 个 model）
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 13 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
 │   │                               #    / drop_contract_type_enum / settlement_ledger_link
 │   │                               #    / settlement_invoice_receipt_link / settlement_pay_ratio
-│   │                               #    / payment_procedure）
+│   │                               #    / payment_procedure / final_settlement）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
-│   ├── src/modules/    # 24 个业务模块
+│   ├── src/modules/    # 25 个业务模块
 │   ├── test/           # node:test 纯函数单测（34 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（6 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端

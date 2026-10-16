@@ -333,6 +333,24 @@
 | POST | `/settlements/generate` | **生成本期（默认上一期）结算单**：抓该期未挂结算单的收领单，按物资合同各出一张**草稿**（幂等，已有结算单的合同跳过并补挂迟到的收领单）；`refDate` / `contractId` 可选 | `settlement:edit` |
 | GET | `/settlements/compliance-sheet` | 合规性问题清单 | `settlement:view` |
 
+## 15.1 总结算单 `/final-settlements`
+
+结算及付款管理 →「总结算单」（业务口径 2026-10-16）：抓取该合同**全部月度结算**生成，
+附件上传到位即「已结算」——此时合同执行情况置 `DONE_SETTLED`（已完已结），**付款比例切到 100%**。
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/final-settlements` | 列表（`?contractId=` / `?statusCode=` / `?keyword=`，含明细） | `settlement:view` |
+| GET | `/final-settlements/:id` | 详情（含明细行） | `settlement:view` |
+| POST | `/final-settlements/generate` | **生成**（body `contractId`）：抓非草稿月度结算 → 明细快照 + 合计；**一个合同只允许一张**（重复 400），无月度结算也 400 | `settlement:edit` |
+| PUT | `/final-settlements/:id` | 修改备注（**状态不经此直传**，只由上传附件驱动） | `settlement:edit` |
+| POST | `/final-settlements/:id/attach` | **上传附件 → 已结算**：写附件 + 状态 `SETTLED` + 合同 `execStatus = DONE_SETTLED` + 重算付款比例（→ 100%） | `settlement:edit` |
+| DELETE | `/final-settlements/:id` | 删除；**已结算的删掉会把合同执行情况与比例一并回退**（不留无单据支撑的"已完已结"） | `settlement:edit` |
+| GET | `/final-settlements/:id/export` | 导出 Word（模板分类 `FINAL_SETTLEMENT`，明细走表格占位符 `{{结算明细表}}`；`?templateId=` 可指定） | `settlement:view` |
+
+> 明细与合计是**生成时的快照**：月度结算事后被改，不回头改已出的总结算单（要更新就删掉重生成）。
+> 附件经 `POST /files/upload` 落盘后传回 URL（落盘唯一入口是 `StorageService`）。
+
 ## 16. 付款 `/payments`
 
 | 方法 | 路径 | 说明 | 权限 |

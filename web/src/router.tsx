@@ -27,6 +27,7 @@ const ContractMaterials = lazy(() => import('@/pages/ContractMaterials'));
 const Payments = lazy(() => import('@/pages/Payments'));
 const PaymentProcedures = lazy(() => import('@/pages/PaymentProcedures'));
 const DocTemplates = lazy(() => import('@/pages/DocTemplates'));
+const FinalSettlements = lazy(() => import('@/pages/FinalSettlements'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
 const Ledger = lazy(() => import('@/pages/Ledger'));
 const Repayments = lazy(() => import('@/pages/Repayments'));
@@ -136,6 +137,7 @@ export const routes: RouteObject[] = [
       { path: 'settlement/ledger', element: perm('/settlement/ledger', <SettlementLedgerPage />) },
       { path: 'settlement/payment', element: perm('/settlement/payment', <Payments />) },
       { path: 'settlement/payment-procedure', element: perm('/settlement/payment-procedure', <PaymentProcedures />) },
+      { path: 'settlement/final-settlement', element: perm('/settlement/final-settlement', <FinalSettlements />) },
 
       // —— 发票 / 还款 / 消息 / 报表 ——
       { path: 'invoice', element: perm('/invoice', <Invoices />) },

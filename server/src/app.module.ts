@@ -26,6 +26,7 @@ import { SubcontractorModule } from './modules/subcontractor/subcontractor.modul
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { PaymentProcedureModule } from './modules/payment-procedure/payment-procedure.module';
 import { DocTemplateModule } from './modules/doc-template/doc-template.module';
+import { FinalSettlementModule } from './modules/final-settlement/final-settlement.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { DocTemplateModule } from './modules/doc-template/doc-template.module';
     ProcurementModule,
     PaymentProcedureModule,
     DocTemplateModule,
+    FinalSettlementModule,
   ],
 })
 export class AppModule {}
