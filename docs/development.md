@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（30 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（31 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（5 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -141,6 +141,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
+  | `test/startupSeed.spec.mts` | **启动播种的并发安全锁**：`src/main.ts` 与 `test-integration/helpers.ts` 都必须走 `runStartupSeed()`（不得直接调 `seed*` 函数）· 该入口必须保留**事务级**咨询锁（会话级在连接池下会「加锁/解锁不同连接」）。起因：CI 空库上多进程并发播种撞 P2002 → 字典漏播、用例红，而**本地因库已播种完全看不见** |
   | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |
   | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许挂 `.cq`/`.ant-modal-body`/`.ant-drawer-body` · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 · `.doc-preview` 必须挂 `.cq` · `.col-secondary` 规则成对 · 窄容器表单栅格覆盖不得含 `.cq` · `RichTextEditor` 必须 portal 全屏层且内容同步 effect 依赖 `fullscreen` |
 

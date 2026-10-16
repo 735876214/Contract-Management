@@ -8,7 +8,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from './common/services/storage.service';
-import { seedAdmin, seedDictAndParams, seedDefaultProject, fixLegacyData } from './seed';
+import { runStartupSeed } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -38,15 +38,11 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`CMS server running on http://localhost:${port}/api`);
 
-  // 首次部署空库时，自动 seed 一个默认管理员账号，保证可直接登录
+  // 启动播种（空库首启初始化 + 每次启动的历史数据修正）统一入口。
+  // ⚠️ 必须走这一条：它用事务级咨询锁把整段播种**串行化**，避免多进程同时启动时
+  // 在字典/参数的唯一键上撞 P2002 导致"播种中断、后面的项漏播"（CI 的并发集成测试必现）。
+  // 内部顺序：admin → 默认项目（依赖 admin）→ 字典/参数 → 历史数据修正。
   const prisma = app.get<PrismaClient>(PrismaClient);
-  await seedAdmin(prisma);
-  // 首次部署空库时，创建一个默认项目，解决 admin 登录报「缺少项目上下文（x-project-id）」的问题
-  // （顺序须位于 seedAdmin 之后，因为默认项目 seed 依赖 admin 已存在）
-  await seedDefaultProject(prisma);
-  // 首次部署空库时，写入字典类型 / 字典项 / 系统参数初始数据，保证字典与系统参数页面有内容
-  await seedDictAndParams(prisma);
-  // 每次启动修正有明确缺陷的历史数据（幂等，见函数注释）
-  await fixLegacyData(prisma);
+  await runStartupSeed(prisma);
 }
 bootstrap();

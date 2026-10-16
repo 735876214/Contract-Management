@@ -287,6 +287,40 @@ async function seedBidderStatusDict(prisma: PrismaClient): Promise<void> {
   }
 }
 
+/**
+ * **启动播种的唯一入口**（把 main.ts 里原先分散的四次调用串成一段，并加并发保护）。
+ *
+ * 为什么需要并发保护：Prisma 的 `upsert` **不保证原子**（会退化成 `insert` → 撞唯一键则 `update`），
+ * 空库上多进程同时走到 `insert` 分支时，后者抛 `P2002` → 该 seed 函数被中断
+ * → **它后面的字典项/参数就漏播了**（只有一条日志，极难察觉）。
+ * 真实触发场景有两个：
+ * ① 后端**多副本**、或容器重启与新实例重叠（同 CLAUDE.md 提到的多副本必办项）；
+ * ② **CI 的集成测试**：`test-integration/*.int.spec.ts` 每个文件并发跑、各自启动一次应用并跑一遍播种，
+ *    空库上必现（2026-10-16 实测：spec 从 4 个加到 5 个后 CI 每次都红，本地因库已播种而看不出来）。
+ *
+ * 做法：用**事务级**咨询锁（`pg_advisory_xact_lock`）把整段播种串行化。
+ * - 同一事务内的查询走**同一条连接**，锁在事务边界获取/释放 —— 规避了会话级
+ *   `pg_advisory_lock` 在连接池下"加锁与解锁不在同一连接"的经典坑；
+ * - 后到的进程会等前一个提交，之后它的 `upsert` 全部走 `update` 分支（幂等、无副作用）。
+ *
+ * ⚠️ 播种顺序有依赖：默认项目要把 admin 设为成员，故 admin 必须先建。
+ */
+export async function runStartupSeed(prisma: PrismaClient): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      // 键值任意，只要全仓一致即可；仅用于串行化"启动播种"这一段
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(854412)`;
+      // 事务客户端只用到各模型委托，与 PrismaClient 的差异在此不涉及
+      const client = tx as unknown as PrismaClient;
+      await seedAdmin(client);
+      await seedDefaultProject(client);
+      await seedDictAndParams(client);
+      await fixLegacyData(client);
+    },
+    { timeout: 60000 },
+  );
+}
+
 /** 招标域字典：`evaluation_conclusion` —— 评标记录的结论（推荐 / 不推荐） */
 async function seedEvaluationConclusionDict(prisma: PrismaClient): Promise<void> {
   const typeCode = 'evaluation_conclusion';
@@ -316,3 +350,4 @@ async function seedEvaluationConclusionDict(prisma: PrismaClient): Promise<void>
     });
   }
 }
+

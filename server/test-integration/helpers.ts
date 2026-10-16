@@ -5,7 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { AppModule } from '../src/app.module';
-import { fixLegacyData, seedDictAndParams } from '../src/seed';
+import { runStartupSeed } from '../src/seed';
 
 /**
  * DB 集成测试的公共设施（**需要真实 PostgreSQL**，与 `server/test/*.spec.*` 的纯函数套件分开）。
@@ -54,9 +54,12 @@ export async function bootIntApp(): Promise<IntContext> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const prisma = app.get(PrismaClient) as PrismaClient;
   if (!dictsReady) {
-    // 空测试库只有表结构，没有字典项；`dict.validate()` 会因字典项缺失而 400
-    await seedDictAndParams(prisma);
-    await fixLegacyData(prisma);
+    // 空测试库只有表结构，没有字典项；`dict.validate()` 会因字典项缺失而 400。
+    // ⚠️ 必须走 `runStartupSeed()` 而不是直接调两个 seed 函数：
+    // `node --test` **每个 spec 文件一个进程**，而每个进程都会走到这里（`dictsReady` 是进程内的），
+    // 空库上它们会**并发**插入同一批字典 → Prisma 的 upsert 非原子 → 撞 P2002 → 播种中断 → 用例红。
+    // `runStartupSeed` 用事务级咨询锁把播种串行化（生产多副本启动同理）。
+    await runStartupSeed(prisma);
     dictsReady = true;
   }
   return { app, prisma, get: <T>(token: any) => app.get(token) as T };
