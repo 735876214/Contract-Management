@@ -264,6 +264,15 @@ export const paymentApi = {
   },
 };
 
+/** 付款手续编制（业务口径 2026-10-16）：开累两值由服务端按合同链口径取数并快照，前端不提交 */
+export const paymentProcedureApi = {
+  list: (params?: any) => http.get<any, any>('/payment-procedures', { params }),
+  detail: (id: string) => http.get<any, any>(`/payment-procedures/${id}`),
+  create: (data: any) => http.post<any, any>('/payment-procedures', data),
+  update: (id: string, data: any) => http.put<any, any>(`/payment-procedures/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
+};
+
 export const invoiceApi = {
   list: (params?: any) => http.get<any, any>('/invoices', { params }),
   detail: (id: string) => http.get<any, any>(`/invoices/${id}`),

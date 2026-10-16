@@ -109,6 +109,7 @@ model Project {
   settlements              Settlement[]
   ledgers                  SettlementLedger[]
   payments                 PaymentRecord[]
+  paymentProcedures        PaymentProcedure[]
   invoices                 Invoice[]
   repayments               RepaymentAgreement[]
   assets                   AssetLedger[]
@@ -170,6 +171,7 @@ model Supplier {
   repayments         RepaymentAgreement[]
   assets             AssetLedger[]
   receiptOrders      ReceiptOrder[]
+  paymentProcedures  PaymentProcedure[]
   procurementBidders ProcurementBidder[]
 }
 
@@ -282,6 +284,7 @@ model Contract {
   settlements                Settlement[]
   ledgers                    SettlementLedger[]
   payments                   PaymentRecord[]
+  paymentProcedures          PaymentProcedure[]
   invoices                   Invoice[]
   repayments                 RepaymentAgreement[]
   materials                  ContractMaterial[]
@@ -669,6 +672,38 @@ model PaymentRecord {
   @@index([contractId])
   @@index([payMonth])
   @@index([projectId, createdAt])
+}
+
+/// **付款手续**（业务口径 2026-10-16）：付款管理下编制的付款单据，数据项为
+/// 供应商名称 / **开累结算金额** / **开累付款金额** / 付款时间 / **未付款金额**。
+/// ⚠️ 两个"开累"是**保存当时的快照**（打印出来的单据必须与当时一致，事后补录付款不该改写已出单据）；
+/// `unpaidAmount` 由服务端算（开累结算 − 开累付款），**不接受前端直传**。
+model PaymentProcedure {
+  id              String    @id @default(cuid())
+  projectId       String
+  supplierId      String?
+  contractId      String?
+  code            String? // 单据编号（项目内唯一）
+  settleCumAmount Decimal?  @db.Decimal(18, 2) // 开累结算金额（保存时快照）
+  paidCumAmount   Decimal?  @db.Decimal(18, 2) // 开累付款金额（保存时快照）
+  unpaidAmount    Decimal?  @db.Decimal(18, 2) // 未付款金额 = 开累结算 − 开累付款（服务端算）
+  payDate         DateTime? // 付款时间
+  statusCode      String? // dict: payment_status
+  remark          String?
+  createdBy       String?
+  createdAt       DateTime  @default(now())
+  version         Int       @default(0) // 乐观锁版本号，更新时校验
+  updatedAt       DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // 供应商/合同被删除时保留单据（单据是留痕），故 SetNull 而非 Cascade
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, code])
+  @@index([projectId, payDate])
+  @@index([contractId])
+  @@index([supplierId])
 }
 
 // ---------------- 发票 ----------------

@@ -24,6 +24,7 @@ import { AssetModule } from './modules/asset/asset.module';
 import { ReceiptOrderModule } from './modules/receipt-order/receipt-order.module';
 import { SubcontractorModule } from './modules/subcontractor/subcontractor.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
+import { PaymentProcedureModule } from './modules/payment-procedure/payment-procedure.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ProcurementModule } from './modules/procurement/procurement.module';
     ReceiptOrderModule,
     SubcontractorModule,
     ProcurementModule,
+    PaymentProcedureModule,
   ],
 })
 export class AppModule {}

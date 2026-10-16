@@ -34,6 +34,8 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/settlement/fund': ['finance:view'],
   '/settlement/ledger': ['settlement:view'],
   '/settlement/payment': ['payment:view'],
+  // 付款手续编制：复用付款管理的权限码（同一批人管，不新开一套）
+  '/settlement/payment-procedure': ['payment:view'],
   // 发票 / 还款 / 统计报表
   '/invoice': ['invoice:view'],
   '/repayment': ['repayment:view'],

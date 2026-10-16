@@ -327,6 +327,19 @@
 
 > 付款计划 / 付款申请 / 核销端点**已移除**，统一收敛为单表 `/payments/records`。
 
+## 16.1 付款手续 `/payment-procedures`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/payment-procedures` | 付款手续列表（按合同 / 供应商 / 关键词 / 付款日期区间筛选） | `payment:view` |
+| GET | `/payment-procedures/:id` | 详情 | `payment:view` |
+| POST | `/payment-procedures` | 编制（**合同必填**；开累结算 / 开累付款 / 未付款三值由服务端按合同链口径取数并**快照**，不接受前端直传） | `payment:edit` |
+| PUT | `/payment-procedures/:id` | 修改（换合同时按新合同重取三值；不换则保留原快照） | `payment:edit` |
+| DELETE | `/payment-procedures/:id` | 删除 | `payment:edit` |
+
+> 权限复用付款管理的 `payment:view` / `payment:edit`（同一批人管，不新开权限码）。
+> ⚠️ 付款单的 **Word 导出**待「单据模板」模块落地后接入。
+
 ## 17. 发票 `/invoices`
 
 | 方法 | 路径 | 说明 | 权限 |
