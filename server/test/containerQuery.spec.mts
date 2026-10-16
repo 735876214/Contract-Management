@@ -35,6 +35,7 @@ const CONTAINERS_CSS = 'styles/containers.css';
 const VIEWPORT_LAYER_ALLOWED: Record<string, string> = {
   'hooks/useResponsive.ts': '视口断点的定义处本身（封装 AntD Grid.useBreakpoint）',
   'layouts/BasicLayout.tsx': '页面外壳：侧栏折叠、内容区边距、顶栏精简——它的容器就是视口',
+  'layouts/TagsView.tsx': '页面外壳：主内容区顶部的多页签导航条，宽度由内容区（即视口）决定',
   'components/Sider/index.tsx': '页面外壳：≤md 侧栏改 Drawer',
   'components/ProjectSwitch.tsx': '页面外壳：顶栏内的项目切换宽度',
 };

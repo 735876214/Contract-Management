@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（34 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（35 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（6 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -135,6 +135,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/overdueSummary.spec.mts` | 逾期利息**汇总口径单一实现**（开累/上期开累/本期结算；含「手工期初填在较早月份」回归） |
   | `test/templateRender.spec.mts` | 合同模板占位符只认 `{{变量名}}`（**废弃写法不再被替换**的回归锁；值不转义、未取到值原样保留） |
   | `test/listColumns.spec.mts` | 列表列显隐偏好（localStorage 键与降级、至少保留一列、受保护列、列过滤） |
+  | `test/tabsStore.spec.mts` | **多页签导航纯逻辑**（`web/src/utils/tabs.ts`）：编辑器标签键与列表键**必须不同**（两者是独立页面实例）· `tabKeyOf` 只认 `editor` 参数并把噪声参数归一（否则会开出重复标签）· 重复打开**不得重置 version**（重置会让页面反复重挂载、页面状态缓存静默失效）· 关闭当前标签的落点顺序（右邻 → 左邻 → 首页）· 超出上限时**只淘汰非编辑器标签**（编辑到一半的页面被淘汰 = 无声的数据丢失）· 持久化**跳过编辑器标签**且能容忍各种脏数据 |
   | `test/storageKeys.spec.mts` | 存储键纯逻辑（相对键规范化 / 越权路径 `..`·绝对路径拦截 / 绝对路径与对外 URL） |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |

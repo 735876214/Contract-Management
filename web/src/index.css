@@ -147,6 +147,148 @@ body {
 }
 
 /* ============================================================================
+ * 多页签导航条（`layouts/TagsView.tsx`）
+ *
+ * 归属**页面外壳层**：它的宽度就是内容区宽度（受视口决定），故尺寸随视口收敛的规则
+ * 走 `.is-compact`（由 JS 的 useResponsive 挂上），**不使用 Container Queries**。
+ * 标签顺序稳定、激活态靠主色描边区分；编辑器标签用虚线边，与列表标签一眼可分。
+ * ============================================================================ */
+
+.cms-tags-view {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 6px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  background: var(--cms-canvas);
+  border-bottom: 1px solid var(--cms-hairline);
+}
+
+.cms-tags-view__item {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px;
+  border: 1px solid var(--cms-hairline);
+  border-radius: var(--cms-radius-pill);
+  background: var(--cms-surface-soft);
+  color: var(--cms-muted);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.cms-tags-view__item:hover {
+  color: var(--cms-body-strong);
+  border-color: var(--cms-surface-cream-strong);
+}
+.cms-tags-view__item.is-active {
+  background: var(--cms-canvas);
+  border-color: var(--cms-primary);
+  color: var(--cms-ink);
+}
+/* 编辑器标签：虚线边区分（它是"正在编辑的一条记录"，不是菜单页） */
+.cms-tags-view__item.is-editor {
+  border-style: dashed;
+}
+/* 未保存：标签后加一个琥珀色圆点（关闭时会先确认） */
+.cms-tags-view__item.is-dirty .cms-tags-view__label::after {
+  content: ' •';
+  color: var(--cms-warning);
+}
+
+.cms-tags-view__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cms-tags-view__close {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cms-muted-soft);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cms-tags-view__close:hover {
+  background: var(--cms-surface-cream-strong);
+  color: var(--cms-ink);
+}
+
+/* 手机/平板：标签更窄、无衬线变化，靠横向滚动容纳 */
+.cms-tags-view.is-compact {
+  gap: 4px;
+  padding: 4px 0;
+}
+.cms-tags-view.is-compact .cms-tags-view__item {
+  max-width: 140px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+/* 每个标签的内容容器：非活动的整体 display:none（由内联样式给），
+   这里只保证它在栅格/弹性布局里不会被内容撑破 */
+.cms-tab-pane {
+  min-width: 0;
+}
+
+/* ============================================================================
+ * 「编辑器页签」外壳（`components/editor/EditorTabPage.tsx`）
+ *
+ * 替代原来的"新增/编辑弹窗"：页头 + 正文 + **sticky 底栏**。
+ * `.page-card` 自带内边距，这里清零后由三个区块各自给——否则 sticky 底栏会顶着
+ * 卡片的 padding 出现一条"假的空白带"。
+ * ============================================================================ */
+
+.cms-editor {
+  padding: 0;
+}
+
+.cms-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 16px var(--cms-card-padding);
+  border-bottom: 1px solid var(--cms-hairline-soft);
+}
+
+.cms-editor__body {
+  padding: 16px var(--cms-card-padding);
+}
+
+.cms-editor__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px var(--cms-card-padding);
+  background: var(--cms-canvas);
+  border-top: 1px solid var(--cms-hairline);
+  border-radius: 0 0 var(--cms-radius-lg) var(--cms-radius-lg);
+}
+
+/* ============================================================================
  * 语义标签色：把 AntD 的**预置色类**重映射到本项目色板
  *
  * 为什么这样做：字典 `dict_item.color` 与 `TASK_STATUS_COLORS` 里存的是 `blue`/`green`/`orange`
@@ -315,6 +457,17 @@ body {
   /* 内容卡片内边距收紧（与 BasicLayout 的 Content margin: 8 配套） */
   .page-card {
     padding: 12px;
+  }
+
+  /* 编辑器页签的三个区块同理（`.cms-editor` 把 .page-card 的内边距清零了，见上文） */
+  .cms-editor {
+    padding: 0;
+  }
+  .cms-editor__head,
+  .cms-editor__body,
+  .cms-editor__footer {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   /* 弹窗兜底：个别位置即使仍写死大宽度，也不会溢出屏幕。

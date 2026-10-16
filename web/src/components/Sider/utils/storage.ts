@@ -9,6 +9,13 @@ export const STORAGE_KEYS = {
   menuCache: `${PREFIX}menu_cache_v6`,
   /** 菜单缓存写入时间戳（sessionStorage） */
   menuCacheAt: `${PREFIX}menu_cache_at_v6`,
+  /**
+   * 多页签导航的标签列表（localStorage，持久化）。
+   * ⚠️ **刻意不带版本后缀**：标签是用户自己的"打开过哪些页"，不随菜单结构变化而失效；
+   * 菜单项被删掉时，反序列化后的标签点进去会走到重定向/404 → 用户自己关掉即可。
+   * （与 `menuCache` 不同：那是接口数据缓存，过期/结构变了必须失效。）
+   */
+  tabs: `${PREFIX}tabs`,
 } as const;
 
 /** 菜单缓存有效期：5 分钟 */

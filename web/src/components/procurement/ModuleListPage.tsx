@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Badge,
   Button,
@@ -220,13 +220,39 @@ export default function ModuleListPage({
   );
   const collapsible = filters.length > perRow;
 
+  /**
+   * ⚠️ **引用稳定性**：取数 effect 的依赖里有 `fetchRows` → `buildParams`，
+   * 而 `buildParams` 要用 `baseParams` / `fetcher` 两个 **prop**。
+   * 调用方几乎都写成内联字面量（`baseParams={{ type: 'SINGLE' }}`、
+   * `fetcher={(p) => api.list(p)}`），引用**每轮渲染都会变** ——
+   * 若把它们直接放进依赖数组，effect 会在每次渲染后重跑：
+   * 取数 → `setRows(新数组)` → 重渲染 → 依赖又变 → 再取数，**形成请求风暴**
+   * （更糟的是多页签会把多个列表页同时挂在 DOM 上，风暴会成倍）。
+   *
+   * 因此这里做两件事：
+   * - `baseParams` 用**值的签名**（字符串）参与依赖：值变了才重新取数，引用变了不算；
+   * - `fetcher` 走 ref（函数无法序列化签名）：始终调用最新的那一个，但不因引用变化触发取数。
+   * 两者合起来使 `fetchRows` 只在 **page / pageSize / 筛选值 / baseParams 的值** 变化时才变。
+   */
+  const baseParamsKey = useMemo(() => {
+    try {
+      return JSON.stringify(baseParams ?? {});
+    } catch {
+      // 循环引用等异常：退化为"没有基础参数"，也绝不因此反复取数
+      return '{}';
+    }
+  }, [baseParams]);
+  const stableBaseParams = useMemo<Record<string, unknown>>(() => JSON.parse(baseParamsKey), [baseParamsKey]);
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+
   const buildParams = useCallback(
     (values: Record<string, any>) => {
       const params: Record<string, any> = {
         ...(isModuleMode ? { module: moduleKey } : {}),
         page,
         pageSize,
-        ...(baseParams ?? {}),
+        ...stableBaseParams,
       };
       Object.entries(values ?? {}).forEach(([k, v]) => {
         if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) return;
@@ -241,14 +267,14 @@ export default function ModuleListPage({
       });
       return params;
     },
-    [isModuleMode, moduleKey, page, pageSize, baseParams],
+    [isModuleMode, moduleKey, page, pageSize, stableBaseParams],
   );
 
   const fetchRows = useCallback(
     (values: Record<string, any>) => {
       setLoading(true);
-      const req = fetcher
-        ? Promise.resolve(fetcher(buildParams(values)))
+      const req = fetcherRef.current
+        ? Promise.resolve(fetcherRef.current(buildParams(values)))
         : procurementTaskApi.list(buildParams(values));
       req
         .then((res: any) => {
@@ -261,7 +287,7 @@ export default function ModuleListPage({
         })
         .finally(() => setLoading(false));
     },
-    [buildParams, fetcher],
+    [buildParams],
   );
 
   useEffect(() => {
