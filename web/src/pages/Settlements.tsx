@@ -22,6 +22,8 @@ import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -53,12 +55,20 @@ function useFilterDicts(types: string[]) {
   return dicts;
 }
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const ORDER_LIST_PATH = '/settlement/order';
+const LEDGER_LIST_PATH = '/settlement/ledger';
+
 /**
  * 结算单页面（问题四：统一标准列表页规约）
  */
 export function SettlementOrderPage() {
-  const { contracts, contractOptions } = useContractOptions();
+  const { contractOptions } = useContractOptions();
   const dicts = useFilterDicts(['settlement_type', 'settlement_status']);
+  const editorTab = useEditorTab(ORDER_LIST_PATH);
+  if (editorTab.isEditor) {
+    return <SettlementEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+  }
   return <SettlementsTab contractOptions={contractOptions} dicts={dicts} />;
 }
 
@@ -66,8 +76,12 @@ export function SettlementOrderPage() {
  * 结算台账页面（问题四：统一标准列表页规约）
  */
 export function SettlementLedgerPage() {
-  const { contracts, contractOptions } = useContractOptions();
+  const { contractOptions } = useContractOptions();
   const dicts = useFilterDicts(['yes_no']);
+  const editorTab = useEditorTab(LEDGER_LIST_PATH);
+  if (editorTab.isEditor) {
+    return <LedgerEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+  }
   return <LedgerTab contractOptions={contractOptions} dicts={dicts} />;
 }
 
@@ -83,9 +97,8 @@ function SettlementsTab({
   contractOptions: any[];
   dicts: Record<string, DictOption[]>;
 }) {
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  const editorTab = useEditorTab(ORDER_LIST_PATH);
+  const tabRefresh = useTabRefresh(ORDER_LIST_PATH);
   const [listRefresh, setListRefresh] = useState(0);
   /** 上一期（未生成）的抓取情况，用于顶部提示（业务口径 2026-10-16：手动按钮 + 未生成提示） */
   const [pending, setPending] = useState<any>(null);
@@ -117,24 +130,6 @@ function SettlementsTab({
         refreshList();
       },
     });
-  };
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    const payload = { ...v, settleDate: v.settleDate ? dayjs(v.settleDate).format('YYYY-MM-DD') : null };
-    if (editing) await settlementApi.update(editing.id, payload);
-    else await settlementApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    refreshList();
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue({ ...row, settleDate: row.settleDate ? dayjs(row.settleDate) : null });
-    setModal(true);
   };
 
   const handleRemove = (row: ModuleListRow) => {
@@ -215,8 +210,8 @@ function SettlementsTab({
         fetcher={(params) => settlementApi.list(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        onEdit={(row) => openEdit(row)}
+        refreshKey={listRefresh + tabRefresh}
+        onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row: ModuleListRow & { statusCode?: string }) =>
           // 任务 7：仅已提交的结算单可驳回回填（generic 模式下行即结算单记录）
@@ -237,11 +232,7 @@ function SettlementsTab({
         }
         toolbarLeft={
           <Space wrap size={8}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-              setEditing(null);
-              form.resetFields();
-              setModal(true);
-            }}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新增结算单
             </Button>
             {/* 手动生成本期结算：仓库不引入调度器（定时任务需另立决策），故做成按钮 + 顶部未生成提示 */}
@@ -252,61 +243,86 @@ function SettlementsTab({
         }
       />
 
-      <Modal
-        title={editing ? '编辑结算单' : '新增结算单'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={860}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="code" label="结算单编号" rules={[{ required: true }]}><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  allowClear
-                  placeholder="请选择合同"
-                  options={contractOptions}
-                />
-              </Form.Item>
-            </Col>
-            {/* 现场确认缺口提示（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：结算依据应来自「已确认」的现场记录 */}
-            <Col xs={24}>
-              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.contractId !== cur.contractId}>
-                {({ getFieldValue }: any) => <UnconfirmedHint contractId={getFieldValue('contractId')} />}
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="typeCode" label="结算类型" rules={[{ required: true }]}><DictSelect typeCode="settlement_type" /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="amount" label="结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="deductAmount" label="扣款金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="actualAmount" label="实际结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="settleDate" label="结算日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
-              <Form.Item name="statusCode" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
     </>
+  );
+}
+
+/** 结算单「新增/编辑」（表单正文从改造前的弹窗原样搬入，字段与校验规则未动） */
+function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) form.setFieldsValue({ ...editing, settleDate: editing.settleDate ? dayjs(editing.settleDate) : null });
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    const payload = { ...v, settleDate: v.settleDate ? dayjs(v.settleDate).format('YYYY-MM-DD') : null };
+    setSaving(true);
+    try {
+      if (editing) await settlementApi.update(editing.id, payload);
+      else await settlementApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={ORDER_LIST_PATH}
+      title={editing ? '编辑结算单' : '新增结算单'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="code" label="结算单编号" rules={[{ required: true }]}><Input /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择合同" options={contractOptions} />
+            </Form.Item>
+          </Col>
+          {/* 现场确认缺口提示（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：结算依据应来自「已确认」的现场记录 */}
+          <Col xs={24}>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.contractId !== cur.contractId}>
+              {({ getFieldValue }: any) => <UnconfirmedHint contractId={getFieldValue('contractId')} />}
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="typeCode" label="结算类型" rules={[{ required: true }]}><DictSelect typeCode="settlement_type" /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="amount" label="结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="deductAmount" label="扣款金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="actualAmount" label="实际结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="settleDate" label="结算日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="statusCode" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
 
@@ -317,9 +333,8 @@ function LedgerTab({
   contractOptions: any[];
   dicts: Record<string, DictOption[]>;
 }) {
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  const editorTab = useEditorTab(LEDGER_LIST_PATH);
+  const tabRefresh = useTabRefresh(LEDGER_LIST_PATH);
   const [refreshing, setRefreshing] = useState(false);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
@@ -333,30 +348,6 @@ function LedgerTab({
     } finally {
       setRefreshing(false);
     }
-  };
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    /**
-     * 保理贴息 / 逾期利息是**只读派生列**（业务口径 2026-10-16）：
-     * 它们分别来自「资金费用台账」与「逾期利息」，要改去源头改。
-     * 表单里虽已 `disabled`，但 antd 仍会把值放进 payload —— 服务端会**明确 400 拒绝**
-     * （而不是静默忽略），故这里必须剥掉，否则每次保存台账都会报错。
-     */
-    const { factoringDiscount: _fd, overdueInterest: _oi, ...payload } = v as any;
-    if (editing) await settlementApi.updateLedger(editing.id, payload);
-    else await settlementApi.createLedger(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    refreshList();
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue(row);
-    setModal(true);
   };
 
   const handleRemove = (row: ModuleListRow) => {
@@ -407,8 +398,8 @@ function LedgerTab({
         fetcher={(params) => settlementApi.ledger(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        onEdit={(row) => openEdit(row)}
+        refreshKey={listRefresh + tabRefresh}
+        onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         toolbarLeft={
           <Space wrap size={8}>
@@ -424,61 +415,84 @@ function LedgerTab({
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>
               导出台账
             </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                form.resetFields();
-                setModal(true);
-              }}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新增台账
             </Button>
           </Space>
         }
       />
 
-      <Modal
-        title={editing ? '编辑结算台账' : '新增结算台账'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={960}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  allowClear
-                  placeholder="请选择合同"
-                  options={contractOptions}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="settleMonth" label="结算月份(YYYY-MM)" rules={[{ required: true }]}><Input placeholder="如 2026-09" /></Form.Item>
-            </Col>
-            <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（自动抓取结算单）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（自动统计）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（只读·自动抓取资金费用台账）" tooltip="只读：要改请到「资金费用台账」修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（只读·自动抓取逾期利息）" tooltip="只读：要改请到「逾期利息」处修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="cumSettleIncome" label="开累结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="isOnAccount" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>
-          </Row>
-        </Form>
-      </Modal>
     </>
+  );
+}
+
+/** 结算台账「新增/编辑」（表单正文从改造前的弹窗原样搬入，字段与校验规则未动） */
+function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) form.setFieldsValue(editing);
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    /**
+     * 保理贴息 / 逾期利息是**只读派生列**（业务口径 2026-10-16）：
+     * 它们分别来自「资金费用台账」与「逾期利息」，要改去源头改。
+     * 表单里虽已 `disabled`，但 antd 仍会把值放进 payload —— 服务端会**明确 400 拒绝**
+     * （而不是静默忽略），故这里必须剥掉，否则每次保存台账都会报错。
+     */
+    const { factoringDiscount: _fd, overdueInterest: _oi, ...payload } = v as any;
+    setSaving(true);
+    try {
+      if (editing) await settlementApi.updateLedger(editing.id, payload);
+      else await settlementApi.createLedger(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LEDGER_LIST_PATH}
+      title={editing ? '编辑结算台账' : '新增结算台账'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择合同" options={contractOptions} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="settleMonth" label="结算月份(YYYY-MM)" rules={[{ required: true }]}><Input placeholder="如 2026-09" /></Form.Item>
+          </Col>
+          <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（自动抓取结算单）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（自动统计）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（只读·自动抓取资金费用台账）" tooltip="只读：要改请到「资金费用台账」修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（只读·自动抓取逾期利息）" tooltip="只读：要改请到「逾期利息」处修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="cumSettleIncome" label="开累结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="isOnAccount" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
 

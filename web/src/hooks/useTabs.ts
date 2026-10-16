@@ -64,8 +64,8 @@ export interface EditorTabApi {
   isEditor: boolean;
   /** 本标签的键（`useTabDirty` / `useTabActivate` / `retitle` 都要它） */
   tabKey: string;
-  /** 打开「新增」编辑器标签 */
-  openCreate: () => void;
+  /** 打开「新增」编辑器标签；`seed` 同 `openEdit`（如「新增收领单」需要先取号） */
+  openCreate: (seed?: unknown) => void;
   /**
    * 打开「编辑」编辑器标签。
    * `seed` 是列表页交给编辑器实例的初始数据（列表行）—— 编辑器与列表是**两个独立实例**，
@@ -78,7 +78,7 @@ export interface EditorTabApi {
   setTitle: (title: string) => void;
   /** 上报脏状态（关闭标签时确认） */
   setDirty: (dirty: boolean) => void;
-  /** 打开编辑器时由列表页传入的初始数据（只读取一次；取过即清） */
+  /** 打开编辑器时由列表页传入的初始数据（整行）；`undefined` 表示"新增" */
   seed: unknown;
 }
 
@@ -104,9 +104,14 @@ export function useEditorTab(listPath: string): EditorTabApi {
   const setTitle = useCallback((title: string) => store.getState().retitle(tabKey, title), [store, tabKey]);
   const setDirty = useCallback((dirty: boolean) => store.getState().setDirty(tabKey, dirty), [store, tabKey]);
 
-  const openCreate = useCallback(() => {
-    navigate(editorTabKey(listPath, 'new'));
-  }, [navigate, listPath]);
+  const openCreate = useCallback(
+    (seed?: unknown) => {
+      const key = editorTabKey(listPath, 'new');
+      if (seed !== undefined) store.getState().setEditorSeed(key, seed);
+      navigate(key);
+    },
+    [navigate, listPath, store],
+  );
 
   const openEdit = useCallback(
     (id: string, seed?: unknown) => {
@@ -127,13 +132,13 @@ export function useEditorTab(listPath: string): EditorTabApi {
     [navigate, listPath, store, tabKey],
   );
 
-  // 只在**首次渲染**取一次种子（取过即清）；渲染期写 ref 是安全的"读一次"闩锁，
-  // 不用 effect 是因为首帧就要用它初始化表单，effect 会晚一帧、表单先渲染成空。
+  // 只在**首次渲染**读一次：种子在 store 里按标签键保存，读取不改动它（"刷新标签"重挂载
+  // 时还要用）。挂在 ref 上是为了首帧就能初始化表单 —— 用 effect 会晚一帧、表单先渲染成空。
   const seedRef = useRef<unknown>(undefined);
   const seedTaken = useRef(false);
   if (isEditor && !seedTaken.current) {
     seedTaken.current = true;
-    seedRef.current = store.getState().takeEditorSeed(tabKey);
+    seedRef.current = store.getState().getEditorSeed(tabKey);
   }
 
   return {

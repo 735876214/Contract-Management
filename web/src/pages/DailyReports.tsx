@@ -6,7 +6,9 @@ import dayjs from 'dayjs';
 import { dailyApi, contractApi, supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
 
@@ -139,13 +141,10 @@ function UnitInput({ value, onChange }: { value?: string; onChange?: (v: string)
   );
 }
 
-export default function DailyReports() {
-  const { loading, list, params, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/daily/report';
 
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+export default function DailyReports() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [unitDict, setUnitDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
@@ -156,32 +155,31 @@ export default function DailyReports() {
     loadUnitDict().then(setUnitDict).catch(() => undefined);
   }, []);
 
-  const openEdit = (row?: any) => {
-    setEditing(row || null);
-    form.resetFields();
-    if (row) {
-      const v = { ...row, entryDate: row.entryDate ? dayjs(row.entryDate) : null };
-      form.setFieldsValue(v);
-    }
-    setModal(true);
-  };
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <DailyEditor contracts={contracts} suppliers={suppliers} seed={editorTab.seed} />;
+  }
+  return <DailyList contracts={contracts} suppliers={suppliers} unitDict={unitDict} />;
+}
 
-  const submit = async () => {
-    const values = await form.validateFields();
-    const payload: any = { ...values };
-    if (values.entryDate) payload.entryDate = values.entryDate.format('YYYY-MM-DD');
-    // 数值字段转 number
-    FIELDS.forEach((f) => {
-      if ((f.kind === 'number') && payload[f.key] != null) payload[f.key] = Number(payload[f.key]);
-    });
-    if (payload.taxRate != null) payload.taxRate = Number(payload.taxRate);
-    if (editing) await dailyApi.update(editing.id, payload);
-    else await dailyApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    setEditing(null);
-    reload();
-  };
+function DailyList({
+  contracts,
+  suppliers,
+  unitDict,
+}: {
+  contracts: any[];
+  suppliers: any[];
+  unitDict: { value: string; label: string }[];
+}) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const { loading, list, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   const onSearch = (v: any) => {
     const p: any = { ...v };
@@ -270,7 +268,7 @@ export default function DailyReports() {
         ) : (
           <Button type="link" size="small" onClick={() => doConfirm('CONFIRM', [row.id])}>确认</Button>
         )}
-        <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
+        <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
         <Popconfirm title="确认删除该日报？" onConfirm={async () => { await dailyApi.remove(row.id); message.success('已删除'); reload(); }}>
           <Button type="link" size="small" danger>删除</Button>
         </Popconfirm>
@@ -287,7 +285,7 @@ export default function DailyReports() {
           <Button onClick={() => doConfirm('REJECT', selectedKeys)} disabled={!selectedKeys.length}>批量驳回</Button>
           <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(dailyApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增日报</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增日报</Button>
         </Space>
       }
     >
@@ -329,66 +327,106 @@ export default function DailyReports() {
         }}
         columns={columns as any}
       />
-
-      <Modal
-        title={editing ? '编辑日报' : '新增日报'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={1080}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            {FIELDS.map((f) => (
-              <Col xs={24} md={8} key={f.key}>
-                {f.kind === 'contractSelect' && (
-                  <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                    <Select showSearch optionFilterProp="label" placeholder="请选择合同"
-                      options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))} />
-                  </Form.Item>
-                )}
-                {f.kind === 'supplierSelect' && (
-                  <Form.Item name="supplierId" label="供应单位" rules={[{ required: true }]}>
-                    <Select showSearch optionFilterProp="label" placeholder="请选择供应单位"
-                      options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
-                  </Form.Item>
-                )}
-                {f.kind === 'dict' && (
-                  <Form.Item
-                    name={f.key}
-                    label={f.readonly ? `${f.label}（物资基础库带出）` : f.label}
-                    extra={f.readonly ? '由物资基础库自动带出，无需手工填写' : undefined}
-                  >
-                    <DictSelect typeCode={f.dict!} disabled={f.readonly} />
-                  </Form.Item>
-                )}
-                {f.kind === 'unit' && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <UnitInput />
-                  </Form.Item>
-                )}
-                {f.kind === 'date' && (
-                  <Form.Item name={f.key} label={f.label}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
-                )}
-                {f.kind === 'number' && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <InputNumber style={{ width: '100%' }} min={0} step={f.step} precision={f.precision} />
-                  </Form.Item>
-                )}
-                {f.kind === 'text' && (
-                  <Form.Item name={f.key} label={f.label}><Input /></Form.Item>
-                )}
-                {(f.kind === 'money') && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} />
-                  </Form.Item>
-                )}
-              </Col>
-            ))}
-          </Row>
-        </Form>
-      </Modal>
     </Card>
   );
 }
+
+function DailyEditor({ contracts, suppliers, seed }: { contracts: any[]; suppliers: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  /** 列表页递过来的整行；`undefined` = 新增 */
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) {
+      form.setFieldsValue({ ...editing, entryDate: editing.entryDate ? dayjs(editing.entryDate) : null });
+    }
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    const payload: any = { ...values };
+    if (values.entryDate) payload.entryDate = values.entryDate.format('YYYY-MM-DD');
+    // 数值字段转 number
+    FIELDS.forEach((f) => {
+      if ((f.kind === 'number') && payload[f.key] != null) payload[f.key] = Number(payload[f.key]);
+    });
+    if (payload.taxRate != null) payload.taxRate = Number(payload.taxRate);
+    setSaving(true);
+    try {
+      if (editing) await dailyApi.update(editing.id, payload);
+      else await dailyApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑日报' : '新增日报'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      {/* 表单正文（从改造前的弹窗原样搬入，字段仍由 FIELDS 驱动，未增删） */}
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          {FIELDS.map((f) => (
+            <Col xs={24} md={8} key={f.key}>
+              {f.kind === 'contractSelect' && (
+                <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
+                  <Select showSearch optionFilterProp="label" placeholder="请选择合同"
+                    options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))} />
+                </Form.Item>
+              )}
+              {f.kind === 'supplierSelect' && (
+                <Form.Item name="supplierId" label="供应单位" rules={[{ required: true }]}>
+                  <Select showSearch optionFilterProp="label" placeholder="请选择供应单位"
+                    options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
+                </Form.Item>
+              )}
+              {f.kind === 'dict' && (
+                <Form.Item
+                  name={f.key}
+                  label={f.readonly ? `${f.label}（物资基础库带出）` : f.label}
+                  extra={f.readonly ? '由物资基础库自动带出，无需手工填写' : undefined}
+                >
+                  <DictSelect typeCode={f.dict!} disabled={f.readonly} />
+                </Form.Item>
+              )}
+              {f.kind === 'unit' && (
+                <Form.Item name={f.key} label={f.label}>
+                  <UnitInput />
+                </Form.Item>
+              )}
+              {f.kind === 'date' && (
+                <Form.Item name={f.key} label={f.label}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+              )}
+              {f.kind === 'number' && (
+                <Form.Item name={f.key} label={f.label}>
+                  <InputNumber style={{ width: '100%' }} min={0} step={f.step} precision={f.precision} />
+                </Form.Item>
+              )}
+              {f.kind === 'text' && (
+                <Form.Item name={f.key} label={f.label}><Input /></Form.Item>
+              )}
+              {(f.kind === 'money') && (
+                <Form.Item name={f.key} label={f.label}>
+                  <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} />
+                </Form.Item>
+              )}
+            </Col>
+          ))}
+        </Row>
+      </Form>
+    </EditorTabPage>
+  );
+}
+

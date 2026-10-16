@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert,
+  Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -9,8 +9,10 @@ import { assetApi } from '@/api/modules';
 import { supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 
 const money = (v: any) =>
   v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -26,12 +28,10 @@ const STATUS_QTY_KEYS: [string, string][] = [
   ['lostQty', '丢失'],
 ];
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/daily/asset';
+
 export default function Assets() {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
 
@@ -39,6 +39,23 @@ export default function Assets() {
     supplierApi.options().then((res: any) => setSuppliers(res || []));
     dictApi.options('measurement_unit').then((res: any) => setUnits(res || []));
   }, []);
+
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <AssetEditor suppliers={suppliers} units={units} seed={editorTab.seed} />;
+  }
+  return <AssetList suppliers={suppliers} units={units} />;
+}
+
+function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any[] = [
@@ -72,7 +89,7 @@ export default function Assets() {
       fixed: 'right' as const,
       render: (_: any, row: any) => (
         <Space size={4}>
-          <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
+          <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={async () => { await assetApi.remove(row.id); message.success('已删除'); reload(); }}>
             <Button type="link" size="small" danger>删除</Button>
           </Popconfirm>
@@ -80,42 +97,6 @@ export default function Assets() {
       ),
     },
   ];
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    setSubmitting(true);
-    try {
-      const payload = {
-        ...v,
-        date: v.date ? dayjs(v.date).format('YYYY-MM-DD') : null,
-      };
-      if (editing) await assetApi.update(editing.id, payload);
-      else await assetApi.create(payload);
-      message.success('保存成功');
-      setModal(false);
-      setEditing(null);
-      form.resetFields();
-      reload();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue({
-      ...row,
-      date: row.date ? dayjs(row.date) : null,
-    });
-    setModal(true);
-  };
-
-  const openCreate = () => {
-    setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({ date: dayjs() });
-    setModal(true);
-  };
 
   return (
     <Card title="资产管理台账">
@@ -137,7 +118,7 @@ export default function Assets() {
         <Space>
           <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} onUpload={(f) => assetApi.import(f)} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(assetApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增台账</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增台账</Button>
         </Space>
       </div>
 
@@ -149,23 +130,66 @@ export default function Assets() {
         scroll={{ x: 2600 }}
         columns={columns}
       />
-
-      <Modal
-        title={editing ? '编辑资产台账' : '新增资产台账'}
-        open={modal}
-        onOk={submit}
-        confirmLoading={submitting}
-        onCancel={() => setModal(false)}
-        width={1040}
-        destroyOnHidden
-      >
-        <AssetForm form={form} suppliers={suppliers} units={units} />
-      </Modal>
     </Card>
   );
 }
 
-function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; units: any[] }) {
+function AssetEditor({ suppliers, units, seed }: { suppliers: any[]; units: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  /** 列表页递过来的整行；`undefined` = 新增（其表单正文 `AssetForm` 原样复用，字段未动） */
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    if (editing) {
+      form.setFieldsValue({ ...editing, date: editing.date ? dayjs(editing.date) : null });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({ date: dayjs() });
+    }
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    const payload = { ...v, date: v.date ? dayjs(v.date).format('YYYY-MM-DD') : null };
+    setSaving(true);
+    try {
+      if (editing) await assetApi.update(editing.id, payload);
+      else await assetApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑资产台账' : '新增资产台账'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <AssetForm form={form} suppliers={suppliers} units={units} onDirty={() => setDirty(true)} />
+    </EditorTabPage>
+  );
+}
+
+function AssetForm({
+  form,
+  suppliers,
+  units,
+  onDirty,
+}: {
+  form: any;
+  suppliers: any[];
+  units: any[];
+  onDirty?: () => void;
+}) {
   const sourceCode = Form.useWatch('sourceCode', form);
   const feeMode = isFeeSource(sourceCode);
   // 数量/单价联动展示各项金额
@@ -186,7 +210,7 @@ function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; un
   const qtyRules = feeMode ? [] : [{ required: true, message: '请填写数量' }];
 
   return (
-    <Form form={form} layout="vertical">
+    <Form form={form} layout="vertical" onValuesChange={onDirty}>
       <Row gutter={16}>
         <Col xs={24} md={6}>
           <Form.Item name="date" label="日期" rules={[{ required: true }]}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>

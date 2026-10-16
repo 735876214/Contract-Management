@@ -66,8 +66,12 @@ interface TabsStoreState extends TabsState {
   setDirty: (key: string, dirty: boolean) => void;
   /** 放下编辑器标签的初始数据（列表页打开编辑器时调用） */
   setEditorSeed: (key: string, data: unknown) => void;
-  /** 取出编辑器标签的初始数据；`consume` 为 true 时取完即清（避免下次重挂载读到旧行） */
-  takeEditorSeed: (key: string) => unknown;
+  /**
+   * 取出编辑器标签的初始数据。
+   * ⚠️ **取出后不清除**：编辑器标签被「右键 → 刷新」时会重挂载，清掉种子会让它变成一张空表。
+   * 生命周期跟着标签走（关标签时由 `prune` 一并回收），重新从列表打开时会被覆盖。
+   */
+  getEditorSeed: (key: string) => unknown;
   /** 退出登录等场景：重置为只剩首页（并清掉 localStorage） */
   reset: () => void;
 }
@@ -184,16 +188,7 @@ export const useTabsStore = create<TabsStoreState>((set, get) => {
       set({ editorSeeds: { ...get().editorSeeds, [key]: data } });
     },
 
-    takeEditorSeed: (key) => {
-      const s = get();
-      const data = s.editorSeeds[key];
-      if (data !== undefined) {
-        const rest = { ...s.editorSeeds };
-        delete rest[key];
-        set({ editorSeeds: rest });
-      }
-      return data;
-    },
+    getEditorSeed: (key) => get().editorSeeds[key],
 
     reset: () => {
       const base = emptyTabs();

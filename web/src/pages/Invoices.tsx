@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -26,9 +26,14 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+
+/** 列表与「收票登记/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/invoice';
 
 /** 发票管理（问题四：统一标准列表页规约） */
 export default function Invoices() {
@@ -44,94 +49,30 @@ export default function Invoices() {
       setDicts(map);
     });
   }, []);
-  const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
+  const contractOptions = useMemo(
+    () => contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),
+    [contracts],
+  );
 
-  return <InvoiceTab contractOptions={contractOptions} dicts={dicts} />;
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <InvoiceEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+  }
+  return <InvoiceList contractOptions={contractOptions} dicts={dicts} />;
 }
 
-function InvoiceTab({
+function InvoiceList({
   contractOptions,
   dicts,
 }: {
   contractOptions: any[];
   dicts: Record<string, DictOption[]>;
 }) {
-  const [form] = Form.useForm();
-  /** 结算单候选项依赖所选合同（结算单按「合同 + 月份」归属） */
-  const formContractId = Form.useWatch('contractId', form);
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-  const [images, setImages] = useState<UploadFile[]>([]);
-  const [noStatus, setNoStatus] = useState<'' | 'error' | 'success'>('');
-  const [noMsg, setNoMsg] = useState('');
-  const [noTimer, setNoTimer] = useState<any>(null);
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
   const [batchOpen, setBatchOpen] = useState(false);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
-
-  const checkNo = (no: string) => {
-    if (!no) {
-      setNoStatus('');
-      setNoMsg('');
-      return;
-    }
-    if (noTimer) clearTimeout(noTimer);
-    setNoTimer(
-      setTimeout(async () => {
-        if (editing && editing.invoiceNo === no) {
-          setNoStatus('success');
-          setNoMsg('当前发票号码');
-          return;
-        }
-        const res: any = await invoiceApi.checkNo(no, editing?.id);
-        if (res?.exists) {
-          setNoStatus('error');
-          setNoMsg('发票号码已存在');
-        } else {
-          setNoStatus('success');
-          setNoMsg('发票号码可用');
-        }
-      }, 400),
-    );
-  };
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    if (noStatus === 'error') {
-      message.error('发票号码已存在，请修改');
-      return;
-    }
-    const payload = {
-      ...v,
-      invoiceDate: v.invoiceDate ? dayjs(v.invoiceDate).format('YYYY-MM-DD') : null,
-      receiveDate: v.receiveDate ? dayjs(v.receiveDate).format('YYYY-MM-DD') : null,
-      imageUrl: images?.[0]?.url,
-      images,
-    };
-    if (editing) await invoiceApi.update(editing.id, payload);
-    else await invoiceApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setImages([]);
-    setEditing(null);
-    setNoStatus('');
-    setNoMsg('');
-    refreshList();
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue({
-      ...row,
-      invoiceDate: row.invoiceDate ? dayjs(row.invoiceDate) : null,
-      receiveDate: row.receiveDate ? dayjs(row.receiveDate) : null,
-    });
-    setImages(row.images || []);
-    setNoStatus('');
-    setNoMsg('');
-    setModal(true);
-  };
 
   const doVerify = async (id: string) => {
     await invoiceApi.verify(id);
@@ -199,8 +140,8 @@ function InvoiceTab({
         fetcher={(params) => invoiceApi.list(params)}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        onEdit={(row) => openEdit(row)}
+        refreshKey={listRefresh + tabRefresh}
+        onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row) => [
           { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
@@ -219,95 +160,12 @@ function InvoiceTab({
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
               导出
             </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                form.resetFields();
-                setImages([]);
-                setNoStatus('');
-                setNoMsg('');
-                setModal(true);
-              }}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               收票登记
             </Button>
           </Space>
         }
       />
-
-      <Modal
-        title={editing ? '编辑发票' : '收票登记'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={960}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  allowClear
-                  placeholder="请选择合同"
-                  options={contractOptions}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="settlementId"
-                label="关联结算单"
-                extra="留空则自动匹配「同合同 + 同月」的结算单；只能选同月的"
-              >
-                <SettlementLinkSelect contractId={formContractId} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="goodsCategory" label="商品类别"><DictSelect typeCode="goods_category" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}><Form.Item name="settlePeriod" label="结算账期"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="issuer" label="开票单位"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="invoiceCode" label="发票代码"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="invoiceNo"
-                label="发票号码"
-                rules={[{ required: true }]}
-                validateStatus={noStatus}
-                help={noMsg}
-                hasFeedback
-              >
-                <Input onChange={(e) => checkNo(e.target.value)} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
-            <Col xs={24}>
-              <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item label="发票影像">
-                <Uploader value={images} onChange={setImages} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
 
       <BatchRecognizeModal
         open={batchOpen}
@@ -319,6 +177,167 @@ function InvoiceTab({
         }}
       />
     </>
+  );
+}
+
+/**
+ * 收票登记 / 编辑发票（表单正文从改造前的弹窗原样搬入，字段与校验规则未动）。
+ * 与列表是两个独立实例，故发票影像需要自己按 id 拉一次详情。
+ */
+function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  /** 结算单候选项依赖所选合同（结算单按「合同 + 月份」归属） */
+  const formContractId = Form.useWatch('contractId', form);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [images, setImages] = useState<UploadFile[]>([]);
+  const [noStatus, setNoStatus] = useState<'' | 'error' | 'success'>('');
+  const [noMsg, setNoMsg] = useState('');
+  const [noTimer, setNoTimer] = useState<any>(null);
+  const editingId = (seed as any)?.id as string | undefined;
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    const load = async () => {
+      form.resetFields();
+      setImages([]);
+      setNoStatus('');
+      setNoMsg('');
+      if (!editingId) return;
+      setLoading(true);
+      try {
+        const row: any = await invoiceApi.detail(editingId);
+        form.setFieldsValue({
+          ...row,
+          invoiceDate: row?.invoiceDate ? dayjs(row.invoiceDate) : null,
+          receiveDate: row?.receiveDate ? dayjs(row.receiveDate) : null,
+        });
+        setImages(row?.images || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  const checkNo = (no: string) => {
+    if (!no) {
+      setNoStatus('');
+      setNoMsg('');
+      return;
+    }
+    if (noTimer) clearTimeout(noTimer);
+    setNoTimer(
+      setTimeout(async () => {
+        if (editing && editing.invoiceNo === no) {
+          setNoStatus('success');
+          setNoMsg('当前发票号码');
+          return;
+        }
+        const res: any = await invoiceApi.checkNo(no, editingId);
+        if (res?.exists) {
+          setNoStatus('error');
+          setNoMsg('发票号码已存在');
+        } else {
+          setNoStatus('success');
+          setNoMsg('发票号码可用');
+        }
+      }, 400),
+    );
+  };
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    if (noStatus === 'error') {
+      message.error('发票号码已存在，请修改');
+      return;
+    }
+    const payload = {
+      ...v,
+      invoiceDate: v.invoiceDate ? dayjs(v.invoiceDate).format('YYYY-MM-DD') : null,
+      receiveDate: v.receiveDate ? dayjs(v.receiveDate).format('YYYY-MM-DD') : null,
+      imageUrl: images?.[0]?.url,
+      images,
+    };
+    setSaving(true);
+    try {
+      if (editingId) await invoiceApi.update(editingId, payload);
+      else await invoiceApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editingId ? '编辑发票' : '收票登记'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" disabled={loading} onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择合同" options={contractOptions} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="settlementId"
+              label="关联结算单"
+              extra="留空则自动匹配「同合同 + 同月」的结算单；只能选同月的"
+            >
+              <SettlementLinkSelect contractId={formContractId} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="goodsCategory" label="商品类别"><DictSelect typeCode="goods_category" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}><Form.Item name="settlePeriod" label="结算账期"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="issuer" label="开票单位"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="invoiceCode" label="发票代码"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="invoiceNo"
+              label="发票号码"
+              rules={[{ required: true }]}
+              validateStatus={noStatus}
+              help={noMsg}
+              hasFeedback
+            >
+              <Input onChange={(e) => checkNo(e.target.value)} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
+          <Col xs={24}>
+            <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item label="发票影像">
+              <Uploader value={images} onChange={setImages} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
 

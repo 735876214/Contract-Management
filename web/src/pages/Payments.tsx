@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -16,46 +16,45 @@ import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import { paymentApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
-/** 付款管理（问题四：统一标准列表页规约） */
+/**
+ * 付款管理。
+ *
+ * 列表与「新增/编辑」是**同一个路由的两种形态**：`/settlement/payment`（列表）与
+ * `/settlement/payment?editor=new|<id>`（编辑器页签）。表单原样来自改造前的弹窗，
+ * 字段与校验未动 —— 只有"外壳"从 Modal 换成了 `EditorTabPage`（见 `useEditorTab` 的注释）。
+ */
+const LIST_PATH = '/settlement/payment';
+
 export default function Payments() {
   const [contracts, setContracts] = useState<any[]>([]);
   useEffect(() => {
     contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
   }, []);
-  const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
+  const contractOptions = useMemo(
+    () => contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),
+    [contracts],
+  );
 
-  return <RecordTab contractOptions={contractOptions} />;
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <PaymentEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+  }
+  return <RecordList contractOptions={contractOptions} />;
 }
 
-function RecordTab({ contractOptions }: { contractOptions: any[] }) {
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+function RecordList({ contractOptions }: { contractOptions: any[] }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  /** 编辑器标签保存后会 bump 这个令牌 → 本（被缓存的）列表标签重新取数 */
+  const tabRefresh = useTabRefresh(LIST_PATH);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    const payload = { ...v };
-    if (editing) await paymentApi.updateRecord(editing.id, payload);
-    else await paymentApi.createRecord(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    refreshList();
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue(row);
-    setModal(true);
-  };
 
   const handleRemove = (row: ModuleListRow) => {
     Modal.confirm({
@@ -86,76 +85,88 @@ function RecordTab({ contractOptions }: { contractOptions: any[] }) {
   ];
 
   return (
-    <>
-      <ModuleListPage
-        mode="generic"
-        columnConfigKey="payment.list"
-        fetcher={(params) => paymentApi.records(params)}
-        extraFilters={extraFilters}
-        extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        onEdit={(row) => openEdit(row)}
-        onDelete={handleRemove}
-        toolbarLeft={
-          <Space wrap size={8}>
-            <ImportButton
-              moduleName="付款台账"
-              templateUrl={paymentApi.recordsTemplateUrl()}
-              uploadUrl={paymentApi.recordsImportUrl()}
-              onDone={refreshList}
-            />
-            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(paymentApi.exportRecordsUrl()))}>
-              导出台账
-            </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                form.resetFields();
-                setModal(true);
-              }}
-            >
-              新增台账
-            </Button>
-          </Space>
-        }
-      />
+    <ModuleListPage
+      mode="generic"
+      columnConfigKey="payment.list"
+      fetcher={(params) => paymentApi.records(params)}
+      extraFilters={extraFilters}
+      extraColumns={extraColumns}
+      refreshKey={listRefresh + tabRefresh}
+      onEdit={(row) => editorTab.openEdit(row.id, row)}
+      onDelete={handleRemove}
+      toolbarLeft={
+        <Space wrap size={8}>
+          <ImportButton
+            moduleName="付款台账"
+            templateUrl={paymentApi.recordsTemplateUrl()}
+            uploadUrl={paymentApi.recordsImportUrl()}
+            onDone={refreshList}
+          />
+          <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(paymentApi.exportRecordsUrl()))}>
+            导出台账
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+            新增台账
+          </Button>
+        </Space>
+      }
+    />
+  );
+}
 
-      <Modal
-        title={editing ? '编辑付款台账' : '新增付款台账'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={720}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  allowClear
-                  placeholder="请选择合同"
-                  options={contractOptions}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="payMonth" label="付款月份(YYYY-MM)" rules={[{ required: true }]}>
-                <Input placeholder="如 2026-09" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="amount" label="本月付款额" rules={[{ required: true }]}>
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
-    </>
+function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  /** 列表页打开编辑器时递过来的整行；`undefined` = 新增 */
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    if (editing) form.setFieldsValue(editing);
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定，不需要进依赖）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      if (editing) await paymentApi.updateRecord(editing.id, values);
+      else await paymentApi.createRecord(values);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑付款台账' : '新增付款台账'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择合同" options={contractOptions} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="payMonth" label="付款月份(YYYY-MM)" rules={[{ required: true }]}>
+              <Input placeholder="如 2026-09" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="amount" label="本月付款额" rules={[{ required: true }]}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
