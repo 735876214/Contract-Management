@@ -36,7 +36,8 @@
 `/payments/records`）、`/invoices/applies`（开票申请）。
 
 > **核销（三单匹配）当前不做**：发票与付款之间没有核销关联模型，`/payments/records` 与 `/invoices`
-> 各自独立登记，仅通过 `contractId` 间接相关。详见 [docs/07](07-工作域信息关联审计.md) §3.2。
+> 各自独立登记，仅通过 `contractId` 间接相关（业务 2026-10-16 再次确认「付款不需要核销」，
+> 见 [CLAUDE.md](../CLAUDE.md) §1「已定的产品口径」）。
 
 ---
 

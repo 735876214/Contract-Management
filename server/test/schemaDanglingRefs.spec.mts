@@ -5,14 +5,17 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * schema.prisma「悬空引用」漂移锁（docs/07 §6.7 / §7）。
+ * schema.prisma「悬空引用」漂移锁（源自 2026-10-13 的工作域关联审计 §6.7 / §7）。
  *
  * 背景：模型内形如 `xxxId` 的标量字段若**没有**出现在任何 `@relation(fields: [...])` 中，
- * 就是一处「有外键字段、无引用完整性」的悬空引用（docs/07 审计时共 27 处）。
+ * 就是一处「有外键字段、无引用完整性」的悬空引用（审计时共 27 处）。
  * 本测试把「关联中断」变成 CI 可捕获：新增悬空字段而未登记豁免时立即失败。
  *
- * 有意豁免的弱关联（docs/07 §3.3 C 类，属设计取舍而非遗漏）：
+ * 有意豁免的弱关联（审计的 C 类，属设计取舍而非遗漏）：
  * 通用表按 `bizType + bizId` 弱关联、多态归属、全局共享等，均不适合建单值外键。
+ *
+ * ⚠️ 那份审计文档已按仓库惯例**落地后删除**（其余两份方案文档 08/09 同理，见 CLAUDE.md §8）——
+ * 本测试与 `schema.prisma` 的模型注释就是它结论的永久落点，别再往回引用旧文档编号。
  */
 const ALLOWED_DANGLING: Record<string, string[]> = {
   // 防重唯一键：收领单「修改」会整体重建明细，建 Cascade 会与资产台账 upsert 逻辑冲突（见 schema 注释）
@@ -94,7 +97,7 @@ function findDanglingRefs(models: Map<string, ModelInfo>): Record<string, string
 const models = parseSchema(fs.readFileSync(SCHEMA_PATH, 'utf-8'));
 const dangling = findDanglingRefs(models);
 
-describe('schema 悬空引用漂移锁（docs/07）', () => {
+describe('schema 悬空引用漂移锁', () => {
   it('schema 至少解析出预期数量的模型（防止解析器失效导致测试恒真）', () => {
     assert.ok(models.size >= 50, `仅解析出 ${models.size} 个 model，解析逻辑可能已失效`);
   });
@@ -146,7 +149,7 @@ describe('schema 悬空引用漂移锁（docs/07）', () => {
     assert.deepEqual(missing, [], `以下字段应已建立 @relation 外键：\n  ${missing.join('\n  ')}`);
   });
 
-  it('死字段与双写字段已彻底移除（docs/07 §3.2、§4.1）', () => {
+  it('死字段与双写字段已彻底移除（审计 §3.2、§4.1）', () => {
     assert.ok(
       !models.get('PaymentRecord')?.fields.some((f) => f.startsWith('applyId')),
       'PaymentRecord.applyId 是指向已移除 PaymentApply 的死字段，应已删除',
