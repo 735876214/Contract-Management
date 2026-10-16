@@ -10,9 +10,11 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SettlementService } from '../settlement/settlement.service';
+import { periodMonthKey } from '../../common/utils/settlement-period';
 
 const INVOICE_FIELDS = [
-  'projectId', 'contractId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
+  'projectId', 'contractId', 'settlementId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
   'typeCode', 'invoiceDate', 'issuer', 'receiver', 'amountBeforeTax', 'taxRate',
   'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
   'imageUrl', 'statusCode', 'remark',
@@ -28,6 +30,7 @@ export class InvoiceService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private settlement: SettlementService,
   ) {}
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
@@ -43,7 +46,10 @@ export class InvoiceService {
     const [list, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where, skip, take, orderBy: { createdAt: 'desc' },
-        include: { contract: { select: { id: true, code: true, name: true, supplierId: true, supplier: { select: { id: true, name: true } } } } },
+        include: {
+          contract: { select: { id: true, code: true, name: true, supplierId: true, supplier: { select: { id: true, name: true } } } },
+          settlement: { select: { id: true, code: true, settleDate: true } },
+        },
       }),
       this.prisma.invoice.count({ where }),
     ]);
@@ -51,7 +57,10 @@ export class InvoiceService {
   }
 
   async findOne(id: string) {
-    const inv = await this.prisma.invoice.findUnique({ where: { id }, include: { contract: true } });
+    const inv = await this.prisma.invoice.findUnique({
+      where: { id },
+      include: { contract: true, settlement: { select: { id: true, code: true, settleDate: true } } },
+    });
     if (!inv) throw new NotFoundException('发票不存在');
     return inv;
   }
@@ -73,6 +82,53 @@ export class InvoiceService {
     await this.dict.validate('goods_category', data.goodsCategory);
   }
 
+  /**
+   * 结算单关联（业务口径 2026-10-16「发票与结算单对应，一张结算单可对多张发票」）：
+   *
+   * - 请求里**明确带了** `settlementId`（含显式 `null` 解绑）→ 当人工指定处理，
+   *   先校验「同项目 / 同合同 / 同月份」（见 `SettlementService.assertLinkable`）再落库；
+   * - **没带**且该发票原本也没关联 → **自动匹配**同合同同月的结算单
+   *   （发票的月份取「结算账期」文本，认不出就用开票日期，与台账口径一致）；
+   * - 已有关联且请求没带 → **保持不动**（不覆盖人工选择）。
+   *
+   * 返回值 `undefined` 表示"不改动"（`pickFields` 里没有这个键就不会写库）。
+   */
+  private async resolveSettlementId(
+    payload: any,
+    projectId: string,
+    before?: any,
+  ): Promise<string | null | undefined> {
+    /**
+     * 这张发票的「日期」——结算期归属用。
+     * `结算账期` 只精确到月，故取该月 1 日作为代表日期（与台账按账期归集同口径）；
+     * 账期认不出时才用开票日期。⚠️ 与 `SettlementService.linkOrphansForContract` 同一口径。
+     */
+    const period = payload.settlePeriod ?? before?.settlePeriod;
+    const key = periodMonthKey(period);
+    const date = key ? new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1) : (payload.invoiceDate ?? before?.invoiceDate);
+    const contractId = payload.contractId !== undefined ? payload.contractId : before?.contractId;
+    if (payload.settlementId !== undefined) {
+      if (!payload.settlementId) return null; // 显式解绑
+      await this.settlement.assertLinkable(payload.settlementId, projectId, { contractId, date, label: '发票' });
+      return payload.settlementId;
+    }
+    if (before?.settlementId) return undefined;
+    return this.settlement.findSettlementIdFor(contractId, date);
+  }
+
+  /**
+   * 发票变化后刷新结算台账的「本月开票额」。
+   * 改造前发票是**独立**于台账的（改发票要等人工点「刷新台账」才同步），
+   * 现在发票与结算单相挂，台账那一列必须跟着动，否则关联了也看不出效果。
+   * ⚠️ 只在**交互式写入**（无事务）时调用：`syncLedgerByContract` 走事务外连接，
+   *   事务内读不到未提交的数据（同 `SettlementService.create` 的说明）。
+   */
+  private async syncLedger(contractId: string | null | undefined, tx?: TxClient) {
+    if (tx || !contractId) return;
+    await this.settlement.linkOrphansForContract(contractId);
+    await this.settlement.syncLedgerByContract(contractId);
+  }
+
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.validate(data);
@@ -91,7 +147,11 @@ export class InvoiceService {
       const c = await this.prisma.contract.findUnique({ where: { id: payload.contractId }, include: { supplier: true } });
       payload.issuer = (c as any)?.supplier?.name;
     }
-    return db.invoice.create({ data: payload });
+    const link = await this.resolveSettlementId(payload, projectId);
+    if (link !== undefined) payload.settlementId = link;
+    const created = await db.invoice.create({ data: payload });
+    await this.syncLedger(payload.contractId, tx);
+    return created;
   }
 
   async update(id: string, data: any) {
@@ -109,12 +169,20 @@ export class InvoiceService {
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     delete payload.version;
-    return this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const link = await this.resolveSettlementId(payload, before.projectId, before);
+    if (link !== undefined) payload.settlementId = link;
+    const updated = await this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    // 合同可能被改到别的合同上 → 两个合同的开票额都要重算
+    for (const cid of new Set([before.contractId, payload.contractId ?? before.contractId].filter(Boolean))) {
+      await this.syncLedger(cid as string);
+    }
+    return updated;
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const before: any = await this.findOne(id);
     await this.prisma.invoice.delete({ where: { id } });
+    await this.syncLedger(before.contractId);
     return true;
   }
 
@@ -255,12 +323,15 @@ export class InvoiceService {
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
     ]);
     const codeOf = (items: any[], name: string) => items.find((i: any) => i.itemName === name || i.itemCode === name)?.itemCode || null;
+    /** 本批涉及到的合同：提交后要按这些合同重挂结算单关联并刷新台账 */
+    const affected = new Set<string>();
     return this.tasks.submit<any>({ module: 'invoice', moduleName: '发票台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
         if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
         if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
+        affected.add(contract.id);
         // 税率统一取自合同台账（需求 2.4）：子表未填时继承合同税率
         const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
         let taxRate = taxRaw !== null && taxRaw > 1 ? taxRaw / 100 : taxRaw;
@@ -293,6 +364,17 @@ export class InvoiceService {
       write: async (plans, tx) => {
         for (const p of plans) await this.create(p.data, projectId, tx);
         return { created: plans.length };
+      },
+      /**
+       * 提交后收尾：新导入的发票要挂到同月结算单上、并刷新台账的「本月开票额」。
+       * ⚠️ 必须在**事务外**做（`write` 里读不到自己刚写的行，且刷新会去读发票/结算单），
+       * 故走 runner 的 `afterCommit`；它同时覆盖**异步导入**（>1000 行）路径。
+       */
+      afterCommit: async () => {
+        for (const cid of affected) {
+          await this.settlement.linkOrphansForContract(cid);
+          await this.settlement.syncLedgerByContract(cid);
+        }
       },
     });
   }

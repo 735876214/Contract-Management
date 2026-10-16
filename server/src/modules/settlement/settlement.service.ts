@@ -15,6 +15,16 @@ import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guar
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
 // 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
 import { contractChainAmount, chainSettledTotal } from '../../common/utils/contract-chain';
+// 月份归集口径（`YYYY-MM`）与结算期纯函数：台账、发票/收领单自动匹配、月度结算期三处**共用**，
+// 不要在各服务里各写一份 `getFullYear/getMonth` 拼接
+import {
+  monthKey,
+  periodMonthKey,
+  periodKeyOf,
+  startDayOf,
+  formatDay,
+  previousSettlementPeriod,
+} from '../../common/utils/settlement-period';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -120,7 +130,11 @@ export class SettlementService {
      * 在事务里读不到尚未提交的结算单。事务内的调用方（如导入）需在提交后自行
      * 调 `refreshLedger(projectId)` 或 `syncLedgerByContract()`——导入路径已如此处理。
      */
-    if (!tx && created?.contractId) await this.syncLedgerByContract(created.contractId);
+    if (!tx && created?.contractId) {
+      // 先补挂该合同本月尚未关联的发票/收领单（它们会进台账的「本月开票额」），再刷新台账
+      await this.linkOrphansForContract(created.contractId);
+      await this.syncLedgerByContract(created.contractId);
+    }
     return { ...created, ...warn };
   }
 
@@ -153,9 +167,13 @@ export class SettlementService {
       ? {}
       : await this.checkOverSettlement(payload.contractId ?? before.contractId, resultingActual, id);
     const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
-    // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷
+    // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷。
+    // 同理也要**重算发票/收领单的关联**（改了月份后，旧关联按新月份解绑、当月未关联的补挂）。
     const affected = new Set<string>([before.contractId, updated.contractId].filter(Boolean) as string[]);
-    for (const cid of affected) await this.syncLedgerByContract(cid);
+    for (const cid of affected) {
+      await this.linkOrphansForContract(cid);
+      await this.syncLedgerByContract(cid);
+    }
     return { ...updated, ...warn };
   }
 
@@ -186,18 +204,10 @@ export class SettlementService {
 
   // ---------------- 结算台账 ----------------
 
-  /** 日期 → YYYY-MM */
-  private monthOf(d: any): string | null {
-    if (!d) return null;
-    const dt = new Date(d);
-    if (isNaN(dt.getTime())) return null;
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-  }
-
   /**
    * 结算台账自动抓取字段（数据自动生成，不依赖手工录入）：
    * - 本月结算额 / 结算次数：按结算月份从结算单（Settlement.settleDate）抓取实结金额
-   * - 本月开票额：从发票管理收票登记（Invoice）按结算账期抓取，无账期时回落到开票日期月份
+   * - 本月开票额：**优先按 `settlementId` 精确归集**（发票与结算单对应），未关联的退回按「合同 + 月份」
    * - 保理贴息：从资金费用台账保理费用（FactoringCost，融资利息 + 手续费）按结算月份抓取
    * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
    */
@@ -209,11 +219,25 @@ export class SettlementService {
       start = new Date(y, m - 1, 1);
       end = new Date(y, m, 1);
     }
-    const [settlements, invoices, factoring, overdue] = await Promise.all([
+    const settlements =
       start && end
-        ? this.prisma.settlement.findMany({ where: { contractId, settleDate: { gte: start, lt: end } } })
-        : Promise.resolve([] as any[]),
-      this.prisma.invoice.findMany({ where: { contractId } }),
+        ? await this.prisma.settlement.findMany({ where: { contractId, settleDate: { gte: start, lt: end } } })
+        : [];
+    /** 该行对应的结算单（同合同同月唯一 → 至多一张）；无则 null = 「仅费用行」 */
+    const settlementId = (settlements[0] as any)?.id ?? null;
+    const [invoices, factoring, overdue] = await Promise.all([
+      /**
+       * 发票按月归集（业务口径 2026-10-16「发票与结算单对应」）：
+       * ① **已挂到本行结算单**的发票全算 —— 精确到单据，与「结算账期」那串自由文本怎么写无关；
+       * ② **未挂任何结算单**的，退回按「合同 + 月份」归集（兼容存量数据，也支撑"当月无结算单"的仅费用行）；
+       * ⚠️ 已挂到**别的**结算单的发票一律不算 —— 它属于那一行的口径，两边都计会重复。
+       */
+      this.prisma.invoice.findMany({
+        where: settlementId
+          ? { OR: [{ settlementId }, { contractId, settlementId: null }] }
+          : { contractId, settlementId: null },
+        select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
+      }),
       this.prisma.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
       this.prisma.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
     ]);
@@ -222,7 +246,11 @@ export class SettlementService {
     const settleCount = settlements.length;
     const monthInvoiceAmount = round2(
       invoices
-        .filter((i: any) => (i.settlePeriod || this.monthOf(i.invoiceDate)) === settleMonth)
+        .filter(
+          (i: any) =>
+            (settlementId && i.settlementId === settlementId) ||
+            (periodMonthKey(i.settlePeriod) ?? monthKey(i.invoiceDate)) === settleMonth,
+        )
         .reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0),
     );
     const factoringDiscount = round2(
@@ -232,18 +260,13 @@ export class SettlementService {
       }, 0),
     );
     const overdueSum = round2(overdue.reduce((s: number, r: any) => (r.waived ? s : s + (num(r.overdueInterest) || 0)), 0));
-    /**
-     * `settlementId`：该月的结算单（业务口径 2026-10-16：**一结算单对应一行台账**，
-     * 且同合同同月只允许一张结算单，故取首张即可）。返回它是为了让调用方把它落进台账行；
-     * 当月**只有资金费用/逾期利息、没有结算单**时为 `null`（"仅费用行"，行照样要生成）。
-     */
     return {
       monthSettleAmount,
       monthInvoiceAmount,
       settleCount,
       factoringDiscount,
       overdueInterest: overdueSum,
-      settlementId: settlements[0]?.id ?? null,
+      settlementId,
     };
   }
 
@@ -261,7 +284,7 @@ export class SettlementService {
     excludeId?: string,
   ) {
     if (!contractId || !settleDate) return;
-    const month = this.monthOf(settleDate);
+    const month = monthKey(settleDate);
     if (!month) return;
     const [y, m] = month.split('-').map(Number);
     const dup = await this.prisma.settlement.findFirst({
@@ -324,7 +347,7 @@ export class SettlementService {
       select: { settleDate: true },
     });
     for (const s of settlements) {
-      const m = this.monthOf(s.settleDate);
+      const m = monthKey(s.settleDate);
       if (m) months.add(m);
     }
     // (b) 已有台账行的月份（含**仅费用行**：无结算单但有资金费用/逾期利息）
@@ -368,8 +391,8 @@ export class SettlementService {
     const add = (contractId: string | null, month: string | null) => {
       if (contractId && month) combos.add(`${contractId}|${month}`);
     };
-    for (const s of settlements) add(s.contractId, this.monthOf(s.settleDate));
-    for (const i of invoices) add(i.contractId, i.settlePeriod || this.monthOf(i.invoiceDate));
+    for (const s of settlements) add(s.contractId, monthKey(s.settleDate));
+    for (const i of invoices) add(i.contractId, periodMonthKey(i.settlePeriod) ?? monthKey(i.invoiceDate));
     for (const f of factoring) if (contractIds.has(f.contractId)) add(f.contractId, f.settlementMonth);
     for (const o of overdue) if (contractIds.has(o.contractId)) add(o.contractId, o.settlementMonth);
     let created = 0;
@@ -386,6 +409,349 @@ export class SettlementService {
       else created++;
     }
     return { created, updated };
+  }
+
+  // ---------------- 发票 / 收领单 ↔ 结算单 的关联（业务口径 2026-10-16） ----------------
+
+  /** 项目的**月度结算起始日**（未设置 → 1，即自然月）；关联归属与生成结算都按它算期 */
+  private async startDayOf(projectId: string, db: any = this.prisma): Promise<number> {
+    const p = await db.project.findUnique({ where: { id: projectId }, select: { settlementStartDate: true } });
+    return startDayOf(p?.settlementStartDate);
+  }
+
+  /**
+   * 同合同 + **同一结算期**的那张结算单 id（没有 → `null`）—— 发票/收领单**自动匹配**的口径。
+   *
+   * 「同一结算期」而不是「同一自然月」：起始日不是 1 日时两者会错开
+   * （起始日 26 日 → 期 9/26–10/25 属于 10 月），9/28 的单据就该归到期末 10/25 的那张结算单上。
+   * 起始日 = 1 日时（业务给的例子）两者等价。判据本身在 `periodKeyOf()`。
+   */
+  async findSettlementIdFor(
+    contractId: string | null | undefined,
+    date: unknown,
+  ): Promise<string | null> {
+    if (!contractId || !monthKey(date)) return null;
+    const c = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    if (!c) return null;
+    const startDay = await this.startDayOf(c.projectId);
+    const want = periodKeyOf(startDay, date);
+    if (!want) return null;
+    const list: any[] = await this.prisma.settlement.findMany({
+      where: { contractId },
+      select: { id: true, settleDate: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return list.find((s) => periodKeyOf(startDay, s.settleDate) === want)?.id ?? null;
+  }
+
+  /**
+   * 发票/收领单与结算单的关联**必须同项目、同合同、同结算期**。
+   *
+   * 为什么强制同期：台账的「本月开票额」是按**行**（合同 + 结算期）汇总的，跨期关联会让一张发票
+   * 出现在它并不属于的那一行上，口径就散了。同合同的判断在 `contractId` 两边都有值时才做
+   * （收领单用的是 `materialContractId`，可能为空）；日期两边都能解析出期时才比期。
+   *
+   * 返回该结算单，供调用方直接落 `settlementId`。
+   */
+  async assertLinkable(
+    settlementId: string,
+    projectId: string,
+    opts: { contractId?: string | null; date?: unknown; label: string },
+  ) {
+    const s = await this.prisma.settlement.findUnique({
+      where: { id: settlementId },
+      select: { id: true, projectId: true, contractId: true, settleDate: true, code: true },
+    });
+    if (!s || s.projectId !== projectId) throw new NotFoundException('结算单不存在');
+    if (opts.contractId && s.contractId && s.contractId !== opts.contractId) {
+      throw new BadRequestException(`该结算单不属于本${opts.label}的合同，无法关联。`);
+    }
+    const startDay = await this.startDayOf(projectId);
+    const own = periodKeyOf(startDay, s.settleDate);
+    const mine = periodKeyOf(startDay, opts.date);
+    if (own && mine && own !== mine) {
+      throw new BadRequestException(
+        `该结算单的结算期是 ${own}（期末 ${monthKey(s.settleDate)}），` +
+          `与本${opts.label}的日期不在同一个结算期：结算台账按「合同 + 结算期」汇总，只能关联同期的结算单。`,
+      );
+    }
+    return s;
+  }
+
+  /**
+   * **自动匹配**：把该合同**尚未关联**的发票/收领单挂到同期那张结算单上，
+   * 并把已经挂在某张结算单上、却**不在它的结算期内**的行解绑（改了结算日期或项目起算日之后要重算）。
+   *
+   * - 发票的日期：`结算账期` 文本优先（解析得出月份时），否则用开票日期；
+   * - 收领单的日期：下单日期；合同取 `materialContractId`（物资合同）；
+   * - **只动未关联的行**：人工指定的关联不会被自动改（除非它与结算期矛盾，那属于脏数据，
+   *   由第二遍「解绑」纠正 —— 与台账刷新「先清后挂」同一个道理）。
+   *
+   * 关联变化会影响台账的「本月开票额」，调用方随后要 `syncLedgerByContract()`。
+   */
+  async linkOrphansForContract(contractId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
+    const empty = { invoices: 0, receiptOrders: 0, detached: 0 };
+    if (!contractId) return empty;
+    const contract = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    if (!contract) return empty;
+    const settlements: any[] = await db.settlement.findMany({
+      where: { contractId },
+      select: { id: true, settleDate: true },
+    });
+    if (!settlements.length) return empty;
+
+    const startDay = await this.startDayOf(contract.projectId, db);
+    /** 结算单 id → 它所属的结算期（标签）；算不出期的结算单（没填日期）不参与关联 */
+    const periodOf = new Map<string, string>();
+    for (const s of settlements) {
+      const key = periodKeyOf(startDay, s.settleDate);
+      if (key && !periodOf.has(key)) periodOf.set(key, s.id);
+    }
+    if (!periodOf.size) return empty;
+
+    /**
+     * 单据日期：发票优先用「结算账期」文本（它才是账期口径），认不出才退回开票日期；
+     * 收领单只有下单日期。⚠️ 两处都必须与 `computeLedgerAutoFields()` 同口径。
+     */
+    const invoiceDate = (i: any) => periodMonthKey(i.settlePeriod) ?? i.invoiceDate;
+
+    const linkedIds = [...periodOf.values()];
+    // ① 解绑：挂在某张结算单上、但不在它的结算期内的行（改过 settleDate 之后会留下这种）
+    const linkedInv: any[] = await db.invoice.findMany({
+      where: { settlementId: { in: linkedIds } },
+      select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true },
+    });
+    const staleInv = linkedInv
+      .filter((i: any) => {
+        const sid = i.settlementId;
+        const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
+        const own = periodKeyOf(startDay, invoiceDate(i));
+        return period && own && own !== period;
+      })
+      .map((i: any) => i.id);
+    let detached = 0;
+    if (staleInv.length) {
+      detached += (await db.invoice.updateMany({ where: { id: { in: staleInv } }, data: { settlementId: null } })).count;
+    }
+    const linkedRo: any[] = await db.receiptOrder.findMany({
+      where: { settlementId: { in: linkedIds } },
+      select: { id: true, settlementId: true, orderDate: true },
+    });
+    const staleRo = linkedRo
+      .filter((r: any) => {
+        const sid = r.settlementId;
+        const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
+        const own = periodKeyOf(startDay, r.orderDate);
+        return period && own && own !== period;
+      })
+      .map((r: any) => r.id);
+    if (staleRo.length) {
+      detached += (await db.receiptOrder.updateMany({ where: { id: { in: staleRo } }, data: { settlementId: null } })).count;
+    }
+
+    // ② 挂载：未关联 + 与本合同同期
+    let invoices = 0;
+    let receiptOrders = 0;
+    const orphanInv: any[] = await db.invoice.findMany({
+      where: { settlementId: null, contractId },
+      select: { id: true, settlePeriod: true, invoiceDate: true },
+    });
+    const orphanRo: any[] = await db.receiptOrder.findMany({
+      where: { settlementId: null, materialContractId: contractId },
+      select: { id: true, orderDate: true },
+    });
+    for (const [period, settlementId] of periodOf) {
+      const invIds = orphanInv
+        .filter((i: any) => periodKeyOf(startDay, invoiceDate(i)) === period)
+        .map((i: any) => i.id);
+      if (invIds.length) {
+        invoices += (await db.invoice.updateMany({ where: { id: { in: invIds } }, data: { settlementId } })).count;
+      }
+      const roIds = orphanRo.filter((r: any) => periodKeyOf(startDay, r.orderDate) === period).map((r: any) => r.id);
+      if (roIds.length) {
+        receiptOrders += (await db.receiptOrder.updateMany({ where: { id: { in: roIds } }, data: { settlementId } })).count;
+      }
+    }
+    return { invoices, receiptOrders, detached };
+  }
+
+  // ---------------- 月度结算自动生成（业务口径 2026-10-16） ----------------
+
+  /**
+   * 预览「上一期」的抓取情况（结算单页顶部提示用）：
+   * 该期有几张**未挂结算单**的收领单、涉及几个合同 —— 有值就说明该生成结算了。
+   *
+   * 期间算法见 `common/utils/settlement-period.ts`（期 = 起始日 → 下月同日的前一日；
+   * 起始日取项目的「月度结算起始日期」，未设置按自然月）。
+   */
+  async previewPreviousPeriod(projectId: string, refDate?: string) {
+    const startDay = await this.startDayOf(projectId);
+    const period = previousSettlementPeriod(startDay, refDate ? new Date(refDate) : new Date());
+    const orders = await this.prisma.receiptOrder.findMany({
+      where: {
+        projectId,
+        settlementId: null,
+        materialContractId: { not: null },
+        orderDate: { gte: period.start, lt: period.endExclusive },
+      },
+      select: { id: true, materialContractId: true },
+    });
+    const contractIds = [...new Set(orders.map((o: any) => o.materialContractId))];
+    // 已有结算单的合同不算"待生成"（同合同同期唯一，重跑会跳过）
+    const existing = await this.prisma.settlement.findMany({
+      where: { projectId, contractId: { in: contractIds }, settleDate: { gte: period.start, lt: period.endExclusive } },
+      select: { contractId: true },
+    });
+    const done = new Set(existing.map((s: any) => s.contractId));
+    const pending = contractIds.filter((id) => !done.has(id));
+    return {
+      month: period.month,
+      startDate: formatDay(period.start),
+      endDate: formatDay(period.end),
+      startDay,
+      /** 期间内未挂结算单的收领单张数 */
+      orderCount: orders.length,
+      /** 还需要生成结算单的合同数 */
+      pendingContracts: pending.length,
+      /** 期间内完全没有收领单（前端据此提示"本期无可结算数据"而不是"去生成"） */
+      empty: orders.length === 0,
+    };
+  }
+
+  /**
+   * **生成本期（默认上一期）结算单**（业务口径 2026-10-16）。
+   *
+   * 抓取来源 = 该期间内**未挂结算单**的收领单（`orderDate` 在期内、`settlementId` 为空），
+   * 按**物资合同**（`ReceiptOrder.materialContractId`）分组：每个合同生成**一张草稿**结算单，
+   * 金额 = Σ(实收数量 × 含税单价)，`settleDate` = **期末**（台账的 `settleMonth` 由它派生，
+   * 两边必须同口径），并把参与的收领单回挂到这张结算单上。
+   *
+   * **幂等**：同一合同同一期已有结算单 → 跳过（`skipped` 计数），并把该合同本期**尚未挂单**的
+   * 收领单补挂到那张已有结算单上（补关联、**不改金额**；金额定稿后不由服务端擅自改动）。
+   * 重跑不会重复生成结算单；并发下即使两个请求同时通过预检，`create()` 的同期唯一校验也会拦下后一个，
+   * 这里把它算作"跳过"。
+   *
+   * ⚠️ 收领单的回挂**不**走 `linkOrphansForContract()`：那个函数按"结算期"匹配，
+   * 而这里我们已知每张收领单属于本期的哪一张结算单 —— 直接按 id 回挂更准且更快。
+   */
+  async generateForPeriod(
+    projectId: string,
+    opts: { refDate?: string; contractId?: string | null; user?: any } = {},
+  ) {
+    const startDay = await this.startDayOf(projectId);
+    const period = previousSettlementPeriod(startDay, opts.refDate ? new Date(opts.refDate) : new Date());
+    const orders = await this.prisma.receiptOrder.findMany({
+      where: {
+        projectId,
+        settlementId: null,
+        materialContractId: { not: null },
+        ...(opts.contractId ? { materialContractId: opts.contractId } : {}),
+        orderDate: { gte: period.start, lt: period.endExclusive },
+      },
+      include: { details: { select: { receivedQty: true, priceWithTax: true } } },
+    });
+
+    const byContract = new Map<string, any[]>();
+    for (const o of orders) {
+      const cid = o.materialContractId as string;
+      const list = byContract.get(cid) ?? [];
+      list.push(o);
+      byContract.set(cid, list);
+    }
+
+    const contracts: any[] = byContract.size
+      ? await this.prisma.contract.findMany({
+          where: { id: { in: [...byContract.keys()] } },
+          select: { id: true, code: true },
+        })
+      : [];
+    const codeOf = new Map(contracts.map((c: any) => [c.id, c.code]));
+
+    let created = 0;
+    let skipped = 0;
+    const createdItems: any[] = [];
+    for (const [contractId, list] of byContract) {
+      const existing = await this.findSettlementIdFor(contractId, period.end);
+      if (existing) {
+        /**
+         * 该合同本期**已有结算单** → 不重复生成，但把这些尚未挂单的收领单**补挂**上去
+         * （否则它们会一直悬空：本期再也不会被"抓取"到了）。
+         * ⚠️ 只补关联、**不动结算单金额** —— 金额可能已按当时的收领单定稿甚至已提交，
+         * 服务端不该悄悄改它；要改由人在结算单上改。
+         */
+        await this.prisma.receiptOrder.updateMany({
+          where: { id: { in: list.map((o: any) => o.id) } },
+          data: { settlementId: existing },
+        });
+        skipped++;
+        continue;
+      }
+      const amount = round2(
+        list.reduce(
+          (s, o) =>
+            s +
+            (o.details || []).reduce(
+              (t: number, d: any) => t + (num(d.receivedQty) || 0) * (num(d.priceWithTax) || 0),
+              0,
+            ),
+          0,
+        ),
+      );
+      try {
+        const settlement: any = await this.create(
+          {
+            contractId,
+            code: `JS${period.month.replace('-', '')}-${codeOf.get(contractId) || ''}`,
+            typeCode: 'PROGRESS', // 月度结算按「进度款」记；如有异议可在结算单上改
+            statusCode: SETTLEMENT_STATUS.DRAFT,
+            amount,
+            actualAmount: amount,
+            settleDate: period.end,
+            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 张收领单）`,
+          },
+          projectId,
+        );
+        await this.prisma.receiptOrder.updateMany({
+          where: { id: { in: list.map((o: any) => o.id) } },
+          data: { settlementId: settlement.id },
+        });
+        // 回挂收领单后重刷台账（本期结算额/开票额都以结算单为准）
+        await this.syncLedgerByContract(contractId);
+        created++;
+        createdItems.push({
+          id: settlement.id,
+          code: settlement.code,
+          contractId,
+          amount,
+          receiptOrders: list.length,
+        });
+      } catch (e: any) {
+        // 并发下撞上"同合同同期唯一"：这与"已有结算单"是同一类结果，算跳过而不是报错
+        const isDup = e instanceof BadRequestException || e?.status === 400 || e?.getStatus?.() === 400;
+        if (isDup) {
+          skipped++;
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    return {
+      month: period.month,
+      startDate: formatDay(period.start),
+      endDate: formatDay(period.end),
+      startDay,
+      receiptOrders: orders.length,
+      created,
+      skipped,
+      /**
+       * 金额为 0 的生成张数：收领单**明细没有含税单价**时（数据没录全）就会算出 0 元。
+       * 这不是错误（照常生成草稿，由人补金额），但**必须提示**——否则 0 元结算单会被直接提交。
+       */
+      zeroAmount: createdItems.filter((i) => !i.amount).length,
+      contracts: createdItems,
+    };
   }
 
   async findLedger(query: any = {}, projectId: string, maxPageSize = 500) {

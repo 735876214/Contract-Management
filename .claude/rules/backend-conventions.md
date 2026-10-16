@@ -99,3 +99,24 @@
 - **列宽的单位契约**：`modules/ledger/ledger-columns.ts` 的 `LEDGER_COLUMNS[].width` 是
   **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
   **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
+
+## 结算期与自动生成（2026-10-16 加的批次，改发票/收领单/结算单前必看）
+
+- **归属判据是「结算期」，不是自然月**：唯一实现在零依赖模块 `common/utils/settlement-period.ts`
+  （`currentSettlementPeriod` / `previousSettlementPeriod` / `periodKeyOf` / `periodMonthKey`），
+  期的起始日取自 `Project.settlementStartDate`（未设置 = 1 日 = 自然月）。
+  ⚠️ 起始日不是 1 日时**期会跨自然月**（起始日 26 → 期 9/26–10/25）：9/28 的收领单与期末 10/25 的结算单**同期**，
+  用自然月比会误判成"不同月"而拒绝关联。**别在各 service 里自己拼 `getFullYear/getMonth`**。
+- **发票/收领单 ↔ 结算单：自动匹配为主 + 人工可指定**（一张结算单对多张）。
+  `findSettlementIdFor()` 在保存时按同期自动找；请求显式带 `settlementId`（含 `null` = 解绑）按人工指定，
+  先过 `assertLinkable()`（同项目/同合同/同期，违反 **400**）。发票的「日期」= `结算账期` 解析出的月份 **1 日**，
+  认不出才退回开票日期。⚠️ 关联变化会影响台账「本月开票额」，调用方随后**必须** `syncLedgerByContract()`；
+  `linkOrphansForContract()` 是"先解绑再补挂"，**只动未关联的行**（不覆盖人工选择，除非它与期矛盾）。
+- **生成结算单必须幂等**（`generateForPeriod()`）：抓**上一期**未挂结算单的收领单，按**物资合同**各生成一张
+  **草稿**（`settleDate` = **期末** → 台账月份由它派生，两边必须同口径；金额 = Σ(实收数量 × 含税单价)），
+  期内收领单回挂；该合同本期**已有结算单 → 跳过并补挂**迟到的收领单（**只补关联、不改金额**：金额可能已定稿甚至已提交）。
+  ⚠️ 它是**手动按钮**触发的（仓库不引入调度器），前端另有「上一期未生成」提示。
+  锁定：`settlementPeriod.spec.mts` + `test-integration/settlement-period-link.int.spec.ts`。
+- **导入的收尾动作走 `RunOptions.afterCommit`**：发票导入后要挂结算单并刷台账，而这件事必须**读得到刚提交的数据**
+  （事务内读不到未提交行）→ 写在 runner 的 `afterCommit`（同步与异步两条导入路径都覆盖），
+  且失败**只记日志、不改变导入结果**（数据已提交，"少刷一次台账"比把导入标成失败轻得多）。

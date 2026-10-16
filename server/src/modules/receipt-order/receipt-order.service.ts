@@ -10,6 +10,8 @@ import { paginate, buildResult, num, toDate, assertVersion } from '../../common/
 import { round2, round4 } from '../../common/utils/money';
 import { DictService } from '../dict/dict.service';
 import { TxClient } from '../../common/services/import-runner.service';
+import { SettlementService } from '../settlement/settlement.service';
+
 
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [
@@ -74,7 +76,39 @@ export class ReceiptOrderService {
   constructor(
     private prisma: PrismaClient,
     private dict: DictService,
+    private settlement: SettlementService,
   ) {}
+
+  // ==================== 结算单关联 ====================
+
+  /**
+   * 结算单关联（业务口径 2026-10-16「收领单仅与结算单对应，一张结算单可对多张收领单」）：
+   *
+   * - 请求里**明确带了** `settlementId`（含显式 `null` 解绑）→ 当人工指定，
+   *   先校验「同项目 / 同合同（收领单的合同是**物资合同** `materialContractId`）/ 同月份」；
+   * - **没带**且原来也没关联 → **自动匹配**「物资合同 + 下单日期所在月份」的那张结算单
+   *   （收领单是月度结算的抓取来源，同月同合同即归属同一张）；
+   * - 已有关联且没带 → 保持不动（不覆盖人工选择）。
+   */
+  private async resolveSettlementId(
+    data: any,
+    projectId: string,
+    current?: string | null,
+    fallback?: any,
+  ): Promise<string | null> {
+    const contractId =
+      data.materialContractId !== undefined
+        ? data.materialContractId || null
+        : (fallback?.materialContractId ?? null);
+    const date = data.orderDate !== undefined ? data.orderDate : fallback?.orderDate;
+    if (data.settlementId !== undefined) {
+      if (!data.settlementId) return null; // 显式解绑
+      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
+      return data.settlementId;
+    }
+    if (current) return current;
+    return this.settlement.findSettlementIdFor(contractId, date);
+  }
 
   // ==================== 编号生成 ====================
 
@@ -135,6 +169,7 @@ export class ReceiptOrderService {
         include: {
           supplier: { select: { id: true, name: true } },
           materialContract: { select: { id: true, code: true, name: true } },
+          settlement: { select: { id: true, code: true, settleDate: true } },
         },
       }),
       this.prisma.receiptOrder.count({ where }),
@@ -149,6 +184,7 @@ export class ReceiptOrderService {
         supplier: { select: { id: true, name: true } },
         materialContract: { select: { id: true, code: true, name: true } },
         subcontract: { select: { id: true, code: true, name: true } },
+        settlement: { select: { id: true, code: true, settleDate: true } },
         details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
       },
     });
@@ -523,11 +559,14 @@ export class ReceiptOrderService {
     // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
     // 连接池耗尽时事务会一直等待而挂起
     const assetDict = await this.loadAssetDict();
+    // 同理：结算单关联也在事务外解析（要查结算单表）
+    const settlementId = await this.resolveSettlementId(data, projectId);
 
     const order = await this.prisma.$transaction(async (tx) => {
       const created = await tx.receiptOrder.create({
         data: {
           ...this.normalizeHeader(data),
+          settlementId,
           orderNo,
           projectId,
           status: 'SAVED',
@@ -558,6 +597,8 @@ export class ReceiptOrderService {
     // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
     // 连接池耗尽时事务会一直等待而挂起
     const assetDict = await this.loadAssetDict();
+    // 同理：结算单关联也在事务外解析（改了物资合同/日期会重新匹配月份）
+    const settlementId = await this.resolveSettlementId(data, before.projectId, before.settlementId, before);
 
     return this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
@@ -566,6 +607,7 @@ export class ReceiptOrderService {
         where: { id },
         data: {
           ...this.normalizeHeader(data),
+          settlementId,
           status: 'SAVED',
           pushedAt: new Date(),
           version: { increment: 1 },

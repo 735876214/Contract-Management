@@ -78,11 +78,14 @@
 - **结算域重构与新增单据（业务 2026-10-16 答复的批次，分批实施）** —— 共 8 个阶段，**每阶段独立可验收**：
   - ✅ **P1 台账 ↔ 结算单 1:1 + 台账派生列只读**（已实施：迁移 `20261022000000_settlement_ledger_link`，
     接上了此前**无调用点**的 `syncLedgerByContract()`；口径见 [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md) 「台账」一节）。
-  - ⬜ **P2** 仅费用行（无结算但有资金费用/逾期利息也要有台账行）+ `ReceiptOrder.settlementId` /
-    `Invoice.settlementId`（一结算单对多收领单 / 多发票）。
-  - ⬜ **P3** 项目「月度结算起始日期」→ 结算期 = `[起始日, 下月同日的前一日]`；
-    手动「生成本期结算」（抓取该期未挂结算单的收领单，按合同生成结算单，**幂等**）+ 未生成提示。
-    （不引入调度器，故为手动触发。）
+  - ✅ **P2 仅费用行 + 发票/收领单挂结算单**（已实施：迁移 `20261023000000_settlement_invoice_receipt_link`
+    加 `Invoice.settlementId` / `ReceiptOrder.settlementId`（SetNull）；「仅费用行」由 `refreshLedger()` 的
+    combos 保住；台账「本月开票额」改为**按 `settlementId` 精确归集**、未关联才退回按「合同 + 月」）。
+  - ✅ **P3 月度结算期 + 手动生成本期结算**（已实施：`Project.settlementStartDate`；纯函数
+    `common/utils/settlement-period.ts`；`POST /settlements/generate` + `GET /settlements/generate/preview`；
+    结算单页顶部未生成提示 + 「生成本期结算」按钮。**不引入调度器**，故为手动触发）。
+    ⚠️ 归属判据是**结算期**而不是自然月（起始日 ≠ 1 时期会跨月），详见
+    [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md)「结算期与自动生成」。
   - ⬜ **P4** 合同付款比例与分期：`ContractExt.settlementPayRatio`（月度比例）+ `paymentMode` 扩两种
     （次月30日前 65% / 次月·次次月·次次次月 20-20-25）；`currentPayRatio` 改为服务端维护的**生效比例**
     （总结算未办 = 月度比例；已办 = 100%）。

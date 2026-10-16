@@ -93,6 +93,9 @@ model Project {
   materialOrigin     String? // 物资产地
   status             String? // dict: project_status
   description        String?
+  /// 月度结算起始日期：其**日**即每期起始日（每期 = 起始日 → 下月同日的前一日）。
+  /// 自动生成结算按它算「上一期」，纯函数见 common/utils/settlement-period.ts。
+  settlementStartDate DateTime?
   startDate          DateTime?
   endDate            DateTime?
   managerId          String?
@@ -593,6 +596,10 @@ model Settlement {
   contract    Contract?         @relation(fields: [contractId], references: [id], onDelete: Cascade)
   /// 该结算单对应的那**一行**结算台账（1:1；同月每合同只允许一张结算单）
   ledgerEntry SettlementLedger?
+  /// 一张结算单对应**多**张发票（业务口径 2026-10-16）；发票侧 settlementId 可空，删结算单时 SetNull
+  invoices     Invoice[]
+  /// 一张结算单对应**多**张收领单（业务口径 2026-10-16）
+  receiptOrders ReceiptOrder[]
 
   @@index([projectId, contractId])
   @@index([settleDate])
@@ -667,6 +674,9 @@ model Invoice {
   id                    String    @id @default(cuid())
   projectId             String
   contractId            String?
+  /// 对应的**结算单**（业务口径 2026-10-16：发票与结算单对应，一张结算单可对多张发票）。
+  /// 服务端按「合同 + 月份」自动匹配；也可在发票页人工指定。删结算单 → SetNull（发票仍在，只是回到未关联）。
+  settlementId          String?
   goodsCategory         String? // dict: goods_category
   settlePeriod          String? // 结算账期
   invoiceCode           String?
@@ -691,9 +701,12 @@ model Invoice {
 
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// 归属的结算单（SetNull：删结算单后发票保留，回到「未关联」）
+  settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, invoiceNo])
   @@index([contractId])
+  @@index([settlementId])
   @@index([settlePeriod])
   @@index([projectId, createdAt])
 }
@@ -1019,6 +1032,9 @@ model ReceiptOrder {
   receiver              String? // 领料人（最长 50 字符）
   materialContractId    String? // 物资合同 ID
   materialContractNo    String? // 物资合同编号（快照）
+  /// 对应的**结算单**（业务口径 2026-10-16：收领单仅与结算单对应，一张结算单可对多张收领单）。
+  /// 服务端按「物资合同 + 日期所属月份」自动匹配；也可在收领单页人工指定。删结算单 → SetNull。
+  settlementId          String?
   status                String    @default("DRAFT") // DRAFT 草稿 / SAVED 已保存
   pushedAt              DateTime? // 推送总日报时间
   remark                String?
@@ -1034,6 +1050,8 @@ model ReceiptOrder {
   supplySubcontract Contract?            @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
   // 分包商档案被删除时保留收领单（名称已是快照），故 SetNull
   subcontractor     Subcontractor?       @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  /// 归属的结算单（SetNull：删结算单后收领单保留，回到「未关联」）
+  settlement        Settlement?          @relation(fields: [settlementId], references: [id], onDelete: SetNull)
   details           ReceiptOrderDetail[]
   assetLedgers      AssetLedger[]
   dailyReports      DailyReport[]
@@ -1042,6 +1060,7 @@ model ReceiptOrder {
   @@index([projectId, orderDate])
   @@index([materialContractId])
   @@index([supplierId])
+  @@index([settlementId])
 }
 
 model ReceiptOrderDetail {

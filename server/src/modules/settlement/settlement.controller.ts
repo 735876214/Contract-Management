@@ -59,6 +59,34 @@ export class SettlementController {
     return this.service.refreshLedger(projectId);
   }
 
+  /**
+   * 预览「上一期」的待生成情况（结算单页顶部提示）：
+   * 该期未挂结算单的收领单张数、还差几个合同 —— 有值就提示"去生成"。
+   */
+  @RequirePermissions('settlement:view')
+  @Get('generate/preview')
+  previewGenerate(@ProjectId() projectId: string, @Query('refDate') refDate?: string) {
+    return this.service.previewPreviousPeriod(projectId, refDate);
+  }
+
+  /**
+   * **生成本期（默认上一期）结算单**：抓取期间内未挂结算单的收领单，按物资合同各生成一张草稿结算单。
+   * 幂等：已有结算单的合同会被跳过（`skipped` 计数）。
+   */
+  @RequirePermissions('settlement:edit')
+  @Post('generate')
+  generate(
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Body() body: { refDate?: string; contractId?: string } = {},
+  ) {
+    return this.service.generateForPeriod(projectId, {
+      refDate: body?.refDate,
+      contractId: body?.contractId,
+      user,
+    });
+  }
+
   @RequirePermissions('settlement:view')
   @Get('compliance-sheet')
   async exportComplianceSheet(

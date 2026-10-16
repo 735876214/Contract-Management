@@ -235,6 +235,13 @@ export const settlementApi = {
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
   refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
+  /** 预览「上一期」待生成的结算（顶部提示用）：未挂结算单的收领单张数、还差几个合同 */
+  previewGenerate: (params?: any) => http.get<any, any>('/settlements/generate/preview', { params }),
+  /**
+   * 生成本期（默认上一期）结算单：抓取期间内未挂结算单的收领单，按合同各生成一张草稿结算单。
+   * 幂等 —— 已有结算单的合同会被跳过（返回 `skipped`）。
+   */
+  generate: (data?: { refDate?: string; contractId?: string }) => http.post<any, any>('/settlements/generate', data || {}),
   ledgerImport: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);

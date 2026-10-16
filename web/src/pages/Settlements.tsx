@@ -14,7 +14,7 @@ import {
   InputNumber,
   DatePicker,
 } from 'antd';
-import { PlusOutlined, ExportOutlined, RollbackOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';
@@ -25,6 +25,9 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+
+/** 期边界显示：服务端返回的**已经是 `YYYY-MM-DD` 字符串**（不是 Date，避免时区差一天），截前 10 位即可 */
+const fmtDay = (v: any) => (v ? String(v).slice(0, 10) : '-');
 
 /** 加载合同下拉选项（结算单/结算台账共用） */
 function useContractOptions() {
@@ -84,7 +87,37 @@ function SettlementsTab({
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [listRefresh, setListRefresh] = useState(0);
+  /** 上一期（未生成）的抓取情况，用于顶部提示（业务口径 2026-10-16：手动按钮 + 未生成提示） */
+  const [pending, setPending] = useState<any>(null);
   const refreshList = () => setListRefresh((k) => k + 1);
+
+  useEffect(() => {
+    settlementApi
+      .previewGenerate()
+      .then((res: any) => setPending(res))
+      .catch(() => setPending(null));
+  }, [listRefresh]);
+
+  /** 生成本期结算：抓取上一期未挂结算单的收领单，按合同各生成一张草稿结算单（服务端幂等） */
+  const doGenerate = (refDate?: string) => {
+    Modal.confirm({
+      title: `生成本期结算${pending?.month ? `（${pending.month}）` : ''}`,
+      content: pending
+        ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内「未挂结算单」的收领单，按物资合同各生成一张草稿结算单；已有结算单的合同会自动跳过。`
+        : '将抓取上一期内未挂结算单的收领单，按物资合同各生成一张草稿结算单。',
+      okText: '生成',
+      cancelText: '取消',
+      onOk: async () => {
+        const res: any = await settlementApi.generate(refDate ? { refDate } : undefined);
+        message.success(`已生成 ${res?.created ?? 0} 张，跳过 ${res?.skipped ?? 0} 张`);
+        // 0 元结算单照常生成（数据没录全时金额算不出来），但必须提醒，否则会被直接提交
+        if (res?.zeroAmount) {
+          message.warning(`其中 ${res.zeroAmount} 张金额为 0：收领单明细没有含税单价，请核对后补金额`);
+        }
+        refreshList();
+      },
+    });
+  };
 
   const submit = async () => {
     const v = await form.validateFields();
@@ -161,6 +194,21 @@ function SettlementsTab({
 
   return (
     <>
+      {/* 未生成提示（业务口径 2026-10-16）：上一期还有合同时，直接在列表上方提醒并给一键入口 */}
+      {pending && !pending.empty && pending.pendingContracts > 0 && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`上一期（${pending.month}）还有 ${pending.pendingContracts} 个合同的结算单未生成`}
+          description={`结算期 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)}，期间有 ${pending.orderCount} 张尚未结转的收领单。`}
+          action={
+            <Button size="small" type="primary" onClick={() => doGenerate()}>
+              立即生成
+            </Button>
+          }
+        />
+      )}
       <ModuleListPage
         mode="generic"
         columnConfigKey="settlement.list"
@@ -188,17 +236,19 @@ function SettlementsTab({
             : []
         }
         toolbarLeft={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
+          <Space wrap size={8}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               setEditing(null);
               form.resetFields();
               setModal(true);
-            }}
-          >
-            新增结算单
-          </Button>
+            }}>
+              新增结算单
+            </Button>
+            {/* 手动生成本期结算：仓库不引入调度器（定时任务需另立决策），故做成按钮 + 顶部未生成提示 */}
+            <Button icon={<ThunderboltOutlined />} onClick={() => doGenerate()}>
+              生成本期结算
+            </Button>
+          </Space>
         }
       />
 

@@ -16,6 +16,10 @@
   工作台对超 110%/80%（或补充协议超 130%/110%）出红/黄**预警**（只展示、不拦单据）。
 - **合同正文导出取签订时快照**（`Contract.supplierSnapshot`，签章时冻结；参数 `supplier.name.sync.history` 控制
   `KEEP`/`SYNC`）。
+- **结算按「月度结算期」组织**（2026-10-16）：项目基本信息填**月度结算起始日期**，期 = **起始日 → 下月同日的前一日**
+  （起始日 1 日时即自然月；起始日 26 时期会跨自然月）；**发票与收领单都按结算期归属到结算单上**（一结算单可对多张），
+  台账的开票额按**关联**归集。本期结算由**手动按钮**生成（抓上一期未挂结算单的收领单，按物资合同各出一张草稿），
+  **不引入调度器**。纯函数见 `common/utils/settlement-period.ts`。
 - 不引入 Flowable / Redis / MQ / 物化视图 / DB 枚举（理由见 [docs/05](docs/05-四域扩展可行性评估.md) §2/§5 与本文件铁律 4）。
 
 - 前端：React 18 + TypeScript + Vite 5 + Ant Design 5 + Zustand + ECharts
@@ -35,17 +39,18 @@ Contract-Management/
 ├── docs/                # 参考文档（见 §8）
 ├── server/              # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（52 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 9 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 10 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
-│   │                               #    / drop_contract_type_enum / settlement_ledger_link）
+│   │                               #    / drop_contract_type_enum / settlement_ledger_link
+│   │                               #    / settlement_invoice_receipt_link）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
-│   ├── test/           # node:test 纯函数单测（31 个 spec，无 DB；清单见 docs/development.md §5）
-│   └── test-integration/ # DB 集成测试（5 个 spec，需 PostgreSQL：npm run test:int）
+│   ├── test/           # node:test 纯函数单测（32 个 spec，无 DB；清单见 docs/development.md §5）
+│   └── test-integration/ # DB 集成测试（6 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils} + theme.ts + index.css
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -128,8 +133,8 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（31 个 spec，无 DB）
-cd server && npm run test:int  # DB 集成测试（5 个 spec，需 DATABASE_URL 指向测试库）
+cd server && npm test          # node:test 纯函数单测（32 个 spec，无 DB）
+cd server && npm run test:int  # DB 集成测试（6 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
 > **工具与本机操作要点**（判成败看退出码、临时文件别放 `/tmp`、`MSYS_NO_PATHCONV=1`、SSH 推送、
@@ -140,10 +145,11 @@ cd server && npm run test:int  # DB 集成测试（5 个 spec，需 DATABASE_URL
 1. `cd web && npm run build`、`cd server && npm run build` 均须通过。
    ⚠️ **别用 `grep "error TS"` 判断 `nest build` 成败**（Nest 输出带 ANSI 颜色码，会漏判）：
    看退出码，或直接跑 `npx tsc --noEmit`。
-2. `cd server && npm test` 须全绿（31 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
+2. `cd server && npm test` 须全绿（32 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
    spec 数量与清单由 `docStats.spec.mts` 锁定，**新增 spec 必须同步 `docs/development.md §5` 清单**。
-   **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（5 个 spec：金额闸门 / 合同状态流转 /
-   导入两阶段 / 招标域投标·评标·定标）——纯函数单测证明不了"闸门是否真的接上了"。
+   **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（6 个 spec：金额闸门 / 合同状态流转 /
+   导入两阶段 / 招标域投标·评标·定标 / 结算台账↔结算单 1:1 / 发票·收领单↔结算期 + 月度结算生成）
+   ——纯函数单测证明不了"闸门与链路是否真的接上了"。
    CI 还会先跑 `prisma migrate diff --exit-code`（改了 schema 没出迁移 → 红）与静态扫描
    `noDbPush.spec.mts`（可执行配置里出现 `db push` → 红）。
 3. **重启后端真打一个触发改动的请求**确认不报旧错——只看启动日志不算。

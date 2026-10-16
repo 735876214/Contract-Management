@@ -310,6 +310,8 @@
 | DELETE | `/settlements/ledger/:id` | 删除 | `settlement:edit` |
 | POST | `/settlements/ledger/refresh` | 按合同重派生台账 | `settlement:edit` |
 | POST | `/settlements/ledger/import` | 导入 Excel | `settlement:edit` |
+| GET | `/settlements/generate/preview` | 预览「上一期」待生成情况（未挂结算单的收领单张数 / 还差几个合同；`?refDate=` 可指定参照日） | `settlement:view` |
+| POST | `/settlements/generate` | **生成本期（默认上一期）结算单**：抓该期未挂结算单的收领单，按物资合同各出一张**草稿**（幂等，已有结算单的合同跳过并补挂迟到的收领单）；`refDate` / `contractId` 可选 | `settlement:edit` |
 | GET | `/settlements/compliance-sheet` | 合规性问题清单 | `settlement:view` |
 
 ## 16. 付款 `/payments`

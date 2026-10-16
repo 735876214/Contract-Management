@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col } from 'antd';
+import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col, DatePicker } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
@@ -23,8 +24,15 @@ export default function Projects() {
 
   const submit = async () => {
     const values = await form.validateFields();
-    if (editing) await projectApi.update(editing.id, values);
-    else await projectApi.create(values);
+    const payload = {
+      ...values,
+      // 月度结算起始日期只取「日」（每期 = 起始日 → 下月同日的前一日）
+      settlementStartDate: values.settlementStartDate
+        ? dayjs(values.settlementStartDate).format('YYYY-MM-DD')
+        : null,
+    };
+    if (editing) await projectApi.update(editing.id, payload);
+    else await projectApi.create(payload);
     message.success('保存成功');
     setModal(false);
     form.resetFields();
@@ -97,7 +105,14 @@ export default function Projects() {
             render: (_, row) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
-                <Button type="link" size="small" onClick={() => { setEditing(row); form.setFieldsValue(row); setModal(true); }}>编辑</Button>
+                <Button type="link" size="small" onClick={() => {
+                  setEditing(row);
+                  form.setFieldsValue({
+                    ...row,
+                    settlementStartDate: row.settlementStartDate ? dayjs(row.settlementStartDate) : null,
+                  });
+                  setModal(true);
+                }}>编辑</Button>
                 <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); reload(); }}>
                   <Button type="link" size="small" danger>删除</Button>
                 </Popconfirm>
@@ -155,6 +170,15 @@ export default function Projects() {
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="materialOrigin" label="物资产地"><Input maxLength={100} placeholder="如 河北唐山" /></Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="settlementStartDate"
+                label="月度结算起始日期"
+                extra="每期 = 起始日 → 下月同日的前一日；只取日期里的「日」，其余部分不参与计算。留空则按自然月（每月 1 日）"
+              >
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="如 2026-01-01（即每月 1 日）" />
+              </Form.Item>
             </Col>
             <Col xs={24} md={12}>
               <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>

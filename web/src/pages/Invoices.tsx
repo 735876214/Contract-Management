@@ -23,6 +23,7 @@ import { invoiceApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
 
@@ -56,6 +57,8 @@ function InvoiceTab({
   dicts: Record<string, DictOption[]>;
 }) {
   const [form] = Form.useForm();
+  /** 结算单候选项依赖所选合同（结算单按「合同 + 月份」归属） */
+  const formContractId = Form.useWatch('contractId', form);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [images, setImages] = useState<UploadFile[]>([]);
@@ -164,6 +167,15 @@ function InvoiceTab({
     { title: '序号', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
     { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v: any) => <DictTag typeCode="goods_category" value={v} /> },
     { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
+    {
+      title: '结算单',
+      dataIndex: ['settlement', 'id'],
+      width: 160,
+      render: (_v: any, r: any) =>
+        r.settlement
+          ? `${r.settlement.settleDate ? String(r.settlement.settleDate).slice(0, 7) : ''}${r.settlement.code ? ` ${r.settlement.code}` : ''}`.trim()
+          : '未关联',
+    },
     { title: '开票单位', dataIndex: 'issuer', width: 200, ellipsis: true },
     { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v: any) => v?.slice(0, 10) },
     { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
@@ -247,6 +259,15 @@ function InvoiceTab({
                   placeholder="请选择合同"
                   options={contractOptions}
                 />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="settlementId"
+                label="关联结算单"
+                extra="留空则自动匹配「同合同 + 同月」的结算单；只能选同月的"
+              >
+                <SettlementLinkSelect contractId={formContractId} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>

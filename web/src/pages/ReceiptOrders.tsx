@@ -12,6 +12,7 @@ import { contractApi, receiptOrderApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { DictTag } from '@/components/DictSelect';
+import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 
 /** 数字格式化 */
 const fmtNum = (v: any, digits = 4) =>
@@ -463,6 +464,8 @@ export default function ReceiptOrders() {
         receiver: detail.receiver,
         materialContractId: detail.materialContractId,
         materialContractNo: detail.materialContractNo,
+        // 结算单关联：留空时服务端按「物资合同 + 日期月份」自动匹配（业务口径 2026-10-16）
+        settlementId: detail.settlementId || undefined,
         remark: detail.remark,
       });
       // 回填互锁数据源
@@ -498,7 +501,8 @@ export default function ReceiptOrders() {
   /** 选择物资合同 → 自动带出合同编号 + 加载合同物资清单（需求 2.4.3 供应商场景） */
   const onContractChange = async (contractId: string) => {
     const hit = contracts.find((c) => c.id === contractId);
-    headerForm.setFieldsValue({ materialContractNo: hit?.code || '' });
+    // 换合同 → 原结算单不属于新合同（后端会报「不属于本合同」），故先解绑，由服务端按新合同重新自动匹配
+    headerForm.setFieldsValue({ materialContractNo: hit?.code || '', settlementId: undefined });
     if (!contractId) {
       setDetails([]);
       return;
@@ -722,6 +726,14 @@ export default function ReceiptOrders() {
               ),
             },
             { title: '物资合同编号', dataIndex: 'materialContractNo', width: 190, render: (v: any) => v || '-' },
+            {
+              title: '结算单', dataIndex: 'settlementId', width: 150,
+              // 未挂结算单的收领单：仍会被「生成本期结算」抓到（按物资合同 + 期间归集），故显示为「未关联」
+              render: (_v: any, row: any) =>
+                row.settlement
+                  ? `${row.settlement.settleDate ? String(row.settlement.settleDate).slice(0, 7) : ''}${row.settlement.code ? ` ${row.settlement.code}` : ''}`.trim()
+                  : '未关联',
+            },
             { title: '供应分包合同', dataIndex: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
             { title: '分包合同', dataIndex: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
             { title: '领料人', dataIndex: 'receiver', width: 110, render: (v: any) => v || '-' },
@@ -816,6 +828,18 @@ export default function ReceiptOrders() {
                     options={contracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
                     onChange={onContractChange}
                   />
+                </Form.Item>
+              </Col>
+            )}
+
+            {showMaterialContract && (
+              <Col xs={24} md={12}>
+                <Form.Item
+                  name="settlementId"
+                  label="关联结算单"
+                  extra="留空则自动匹配「物资合同 + 日期所在月」的结算单"
+                >
+                  <SettlementLinkSelect contractId={watchMaterialContractId} />
                 </Form.Item>
               </Col>
             )}

@@ -12,6 +12,8 @@ const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'selfContractAmount', 'industryType',
   'provinceCity', 'siteLocation', 'projectAddress', 'materialOrigin',
   'status', 'description', 'startDate', 'endDate', 'managerId',
+  // 月度结算起始日期（其「日」为每期起始日；自动生成结算与发票/收领单归属都按它算期）
+  'settlementStartDate',
 ];
 const CODE_ABBR_RE = /^[A-Z0-9]+$/;
 
