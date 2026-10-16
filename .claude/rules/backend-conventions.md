@@ -68,6 +68,21 @@
 
 ## 台账
 
+- **台账行与结算单 1:1**（业务口径 2026-10-16）：`SettlementLedger.settlementId`（**唯一键**）指向该行对应的结算单，
+  由 `settlement.service.syncLedgerByContract()` 统一维护（结算单 create/update/remove 后自动调用；
+  改造前这个函数**全仓没有调用点**，台账只能手动刷新，这正是"看不出关联"的根因）。
+  ⚠️ **同合同同月只允许一张结算单**（`assertMonthUniqueForContract()` 在登记时 400 拦住并提示已有单号）——
+  台账的结算额/发票额/资金费用都是按**月**归集的，同月两张无法归属。
+  ⚠️ **改月份时必须"先清后挂"**：`settlementId` 是唯一键，结算单从 A 月挪到 B 月时若不先清掉 A 月行上的链接，
+  B 月建行就会撞唯一约束（真库实测踩到；`syncLedgerByContract` 里已把"清空 + 逐月 upsert"放进一个事务）。
+- **`settlementId` 可以为空 = 「仅费用行」**：当月**没有结算单但有资金费用/逾期利息**时，台账行照样要生成
+  （`monthSettleAmount = 0`）。"结算单驱动"与"仅费用驱动"两条路径**汇合在同一个 `upsertLedgerRow()`**，
+  不要在别处手拼台账的自动字段。
+- **`factoringDiscount` / `overdueInterest` 是只读派生列**：分别来自「资金费用台账」与「逾期利息」，
+  `updateLedger()` / `createLedger()` 收到它们一律 **400**（**不静默忽略**——静默会让人以为改成功了）；
+  前端台账表单也置灰并在提交前剥掉这两个 key。唯一例外是台账 **Excel 导入**
+  （`createLedger(data, projectId, tx, { fromImport: true })`：导入模板仍带这两列，
+  且它们本来就会被自动字段覆盖，行为与改造前一致）。锁定：`settlement-link.int.spec.ts`。
 - **派生金额的"三态"契约（未填 ≠ 0）**：台账里由合同额/结算额推出来的列（`100% 欠款`、
   `已结算金额占合同比例`、`应付款金额`、`应付未付`、`已付款占结算比例`）**必须**走
   `common/utils/ledger-derived.ts` 的 `deriveLedgerAmounts()`，**不要就地写算式**：

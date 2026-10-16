@@ -589,8 +589,10 @@ model Settlement {
   version      Int       @default(0) // 乐观锁版本号，更新时校验
   updatedAt    DateTime  @updatedAt
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract    Contract?         @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// 该结算单对应的那**一行**结算台账（1:1；同月每合同只允许一张结算单）
+  ledgerEntry SettlementLedger?
 
   @@index([projectId, contractId])
   @@index([settleDate])
@@ -601,6 +603,8 @@ model SettlementLedger {
   id                  String   @id @default(cuid())
   projectId           String
   contractId          String?
+  /// 对应的**结算单**（业务口径 2026-10-16：一结算单对应一行结算台账；同合同同月不允许第二张）。
+  settlementId        String?  @unique
   settleMonth         String? // YYYY-MM
   monthSettleAmount   Decimal? @db.Decimal(18, 2) // 本月结算额
   monthInvoiceAmount  Decimal? @db.Decimal(18, 2) // 本月开票额
@@ -619,8 +623,12 @@ model SettlementLedger {
   version             Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt           DateTime @updatedAt
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contract   Contract?   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// 结算单 → 台账是 `SetNull`：结算单删掉后行仍保留（变成「仅费用行」的形态），自动字段随之重算。
+  /// ⚠️ 可为空是**有意**的——当月无结算单但有资金费用/逾期利息时，台账行照样要生成
+  /// （`settlementId = null`、`monthSettleAmount = 0`）。
+  settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, contractId, settleMonth]) // 同一合同同一结算月份仅一条台账
   @@index([contractId, settleMonth])

@@ -35,17 +35,17 @@ Contract-Management/
 ├── docs/                # 参考文档（见 §8）
 ├── server/              # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（52 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 8 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 9 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
-│   │                               #    / drop_contract_type_enum）
+│   │                               #    / drop_contract_type_enum / settlement_ledger_link）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 22 个业务模块
 │   ├── test/           # node:test 纯函数单测（30 个 spec，无 DB；清单见 docs/development.md §5）
-│   └── test-integration/ # DB 集成测试（4 个 spec，需 PostgreSQL：npm run test:int）
+│   └── test-integration/ # DB 集成测试（5 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                 # React 前端
 │   └── src/{api,components,constants,hooks,layouts,pages,store,utils} + theme.ts + index.css
 ├── deploy/single/       # 单容器部署：Dockerfile.single / nginx.conf / start.sh
@@ -129,7 +129,7 @@ cd web    && npm ci --legacy-peer-deps && npm run dev
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
 cd server && npm test          # node:test 纯函数单测（30 个 spec，无 DB）
-cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL 指向测试库）
+cd server && npm run test:int  # DB 集成测试（5 个 spec，需 DATABASE_URL 指向测试库）
 ```
 
 > **工具与本机操作要点**（判成败看退出码、临时文件别放 `/tmp`、`MSYS_NO_PATHCONV=1`、SSH 推送、
@@ -142,7 +142,7 @@ cd server && npm run test:int  # DB 集成测试（4 个 spec，需 DATABASE_URL
    看退出码，或直接跑 `npx tsc --noEmit`。
 2. `cd server && npm test` 须全绿（30 个 spec，无 DB）——该 job 已进 CI 门禁（`build` 依赖 `test`，红则不发镜像）。
    spec 数量与清单由 `docStats.spec.mts` 锁定，**新增 spec 必须同步 `docs/development.md §5` 清单**。
-   **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（4 个 spec：金额闸门 / 合同状态流转 /
+   **改金额判定 / 状态流转 / 导入相关代码必须另跑 `npm run test:int`**（5 个 spec：金额闸门 / 合同状态流转 /
    导入两阶段 / 招标域投标·评标·定标）——纯函数单测证明不了"闸门是否真的接上了"。
    CI 还会先跑 `prisma migrate diff --exit-code`（改了 schema 没出迁移 → 红）与静态扫描
    `noDbPush.spec.mts`（可执行配置里出现 `db push` → 红）。

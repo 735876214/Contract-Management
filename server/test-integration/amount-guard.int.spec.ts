@@ -35,35 +35,40 @@ describe('集成 · 金额上限闸门', () => {
     const supplier = await makeSupplier(ctx.prisma, project.id);
     const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
 
-    const payload = {
+    /**
+     * ⚠️ 每笔用**不同月份**：2026-10-16 起「同合同同月只允许一张结算单」
+     * （台账改为"一结算单对应一行"，同月两张无法归属发票/资金费用），
+     * 同月再建会被 400 拦住——那会盖住本用例真正要验的"累计超结"。
+     */
+    const payloadOfMonth = (monthIdx: number) => ({
       contractId: contract.id,
       typeCode: 'PROGRESS',
       statusCode: SETTLEMENT_STATUS.PENDING,
       amount: 60000,
-      settleDate: new Date(),
-    };
+      settleDate: new Date(2026, monthIdx, 15),
+    });
 
     await sysParam.set('settlement.over_amount_policy', 'BLOCK');
-    const first = await settle.create({ ...payload }, project.id);
+    const first = await settle.create({ ...payloadOfMonth(0) }, project.id);
     assert.ok(first?.id, '首笔（未超限）应写入成功');
 
     await assert.rejects(
-      () => settle.create({ ...payload }, project.id),
+      () => settle.create({ ...payloadOfMonth(1) }, project.id),
       (e: any) => e instanceof BadRequestException && /超过/.test(e.message),
       '累计 12 万 > 上限 10 万，BLOCK 下应被 400 拦住',
     );
 
     await sysParam.set('settlement.over_amount_policy', 'WARN');
-    const warned = await settle.create({ ...payload }, project.id);
+    const warned = await settle.create({ ...payloadOfMonth(2) }, project.id);
     assert.ok(warned?.id, 'WARN 策略应放行');
 
     await sysParam.set('settlement.over_amount_policy', 'BLOCK');
-    const draft = await settle.create({ ...payload, statusCode: SETTLEMENT_STATUS.DRAFT }, project.id);
+    const draft = await settle.create({ ...payloadOfMonth(3), statusCode: SETTLEMENT_STATUS.DRAFT }, project.id);
     assert.ok(draft?.id, '草稿不受上限约束（且不计入累计）');
 
     // 合同未填金额 → 上限为 null（不可校验）→ BLOCK 下也必须放行
     const noAmount = await makeContract(ctx.prisma, { projectId: project.id, amount: null });
-    const ok = await settle.create({ ...payload, contractId: noAmount.id }, project.id);
+    const ok = await settle.create({ ...payloadOfMonth(4), contractId: noAmount.id }, project.id);
     assert.ok(ok?.id, '合同未填金额时不得拦截（回归：曾把"无金额"当上限 0）');
 
     await sysParam.set('settlement.over_amount_policy', 'WARN');

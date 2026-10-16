@@ -76,7 +76,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（30 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（4 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（5 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -186,6 +186,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 
 | spec | 覆盖 |
 |---|---|
+| `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 |
 | `amount-guard.int.spec.ts` | 金额上限闸门：`BLOCK` 真的拦住超结/超付、`WARN` 放行、草稿豁免、**合同未填金额=无上限**、失败/退款不计入累计、**补充协议带符号增量进上限**（降价→上限下降拦住原本合法的单；增项→回升放行；求和用 `changeAmount` 而非手填 `amount`） |
 | `contract-flow.int.spec.ts` | 合同 草稿→审批中→签章→驳回 全链 + 采购任务状态联动 + 签章件落盘/下载 + 两条防误改规则（非主合同、阶段链未走完） |
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |

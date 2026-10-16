@@ -287,7 +287,13 @@ function LedgerTab({
 
   const submit = async () => {
     const v = await form.validateFields();
-    const payload = { ...v };
+    /**
+     * 保理贴息 / 逾期利息是**只读派生列**（业务口径 2026-10-16）：
+     * 它们分别来自「资金费用台账」与「逾期利息」，要改去源头改。
+     * 表单里虽已 `disabled`，但 antd 仍会把值放进 payload —— 服务端会**明确 400 拒绝**
+     * （而不是静默忽略），故这里必须剥掉，否则每次保存台账都会报错。
+     */
+    const { factoringDiscount: _fd, overdueInterest: _oi, ...payload } = v as any;
     if (editing) await settlementApi.updateLedger(editing.id, payload);
     else await settlementApi.createLedger(payload);
     message.success('保存成功');
@@ -414,8 +420,8 @@ function LedgerTab({
             <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（自动抓取资金费用）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（自动抓取资金费用）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（只读·自动抓取资金费用台账）" tooltip="只读：要改请到「资金费用台账」修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（只读·自动抓取逾期利息）" tooltip="只读：要改请到「逾期利息」处修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="cumSettleIncome" label="开累结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="isOnAccount" label="是否挂账"><DictSelect typeCode="yes_no" /></Form.Item></Col>

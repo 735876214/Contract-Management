@@ -99,6 +99,8 @@ export class SettlementService {
     const db: any = tx || this.prisma;
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
+    // 同合同同月唯一（业务口径 2026-10-16，见 assertMonthUniqueForContract 的说明）
+    await this.assertMonthUniqueForContract(data.contractId, data.settleDate);
     const actual = data.actualAmount ?? (num(data.amount) || 0) - (num(data.deductAmount) || 0);
     // 防超结：仅交互式写入（非事务）且非草稿时校验
     const warn =
@@ -112,6 +114,13 @@ export class SettlementService {
         settleDate: toDate(data.settleDate),
       },
     });
+    /**
+     * 结算单 → 台账（业务口径 2026-10-16：一结算单对应一行台账）。
+     * ⚠️ 只在**无外部事务**时刷新：`computeLedgerAutoFields` 走 `this.prisma`（事务外连接），
+     * 在事务里读不到尚未提交的结算单。事务内的调用方（如导入）需在提交后自行
+     * 调 `refreshLedger(projectId)` 或 `syncLedgerByContract()`——导入路径已如此处理。
+     */
+    if (!tx && created?.contractId) await this.syncLedgerByContract(created.contractId);
     return { ...created, ...warn };
   }
 
@@ -120,6 +129,12 @@ export class SettlementService {
     assertVersion(before, data);
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
+    // 同合同同月唯一（改日期/改合同都要校验，排除自身）
+    await this.assertMonthUniqueForContract(
+      data.contractId ?? before.contractId,
+      data.settleDate ?? before.settleDate,
+      id,
+    );
     const payload: any = pickFields(data, SETTLE_FIELDS, { label: '结算单' });
     ['amount', 'deductAmount', 'actualAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
@@ -138,12 +153,18 @@ export class SettlementService {
       ? {}
       : await this.checkOverSettlement(payload.contractId ?? before.contractId, resultingActual, id);
     const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷
+    const affected = new Set<string>([before.contractId, updated.contractId].filter(Boolean) as string[]);
+    for (const cid of affected) await this.syncLedgerByContract(cid);
     return { ...updated, ...warn };
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const before: any = await this.findOne(id);
     await this.prisma.settlement.delete({ where: { id } });
+    // 台账行上的 settlementId 由 DB 级 `SET NULL` 解除，随后重算该合同的台账
+    // （该行会退回"仅费用行"形态：monthSettleAmount=0、settleCount=0）
+    if (before?.contractId) await this.syncLedgerByContract(before.contractId);
     return true;
   }
 
@@ -197,6 +218,7 @@ export class SettlementService {
       this.prisma.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
     ]);
     const monthSettleAmount = round2(settlements.reduce((s: number, r: any) => s + (num(r.actualAmount ?? r.amount) || 0), 0));
+    /** 该行对应的结算单数：同合同同月唯一 → 恒为 0（仅费用行）或 1（字段保留兼容导出/列定义） */
     const settleCount = settlements.length;
     const monthInvoiceAmount = round2(
       invoices
@@ -210,25 +232,126 @@ export class SettlementService {
       }, 0),
     );
     const overdueSum = round2(overdue.reduce((s: number, r: any) => (r.waived ? s : s + (num(r.overdueInterest) || 0)), 0));
-    return { monthSettleAmount, monthInvoiceAmount, settleCount, factoringDiscount, overdueInterest: overdueSum };
+    /**
+     * `settlementId`：该月的结算单（业务口径 2026-10-16：**一结算单对应一行台账**，
+     * 且同合同同月只允许一张结算单，故取首张即可）。返回它是为了让调用方把它落进台账行；
+     * 当月**只有资金费用/逾期利息、没有结算单**时为 `null`（"仅费用行"，行照样要生成）。
+     */
+    return {
+      monthSettleAmount,
+      monthInvoiceAmount,
+      settleCount,
+      factoringDiscount,
+      overdueInterest: overdueSum,
+      settlementId: settlements[0]?.id ?? null,
+    };
+  }
+
+  /**
+   * **同合同同月只允许一张结算单**（业务口径 2026-10-16）。
+   *
+   * 起因：台账已改为"一结算单对应一行台账"（`SettlementLedger.settlementId`），
+   * 而同月里该行的结算额、发票额、资金费用都是按**月**归集的——同月两张结算单会让
+   * 这些口径无法归属（要么重复计入，要么得引入分摊规则）。业务确认"不存在这种情况"，
+   * 故在登记时就**报错拦住**，而不是静默合并。
+   */
+  private async assertMonthUniqueForContract(
+    contractId: string | null | undefined,
+    settleDate: unknown,
+    excludeId?: string,
+  ) {
+    if (!contractId || !settleDate) return;
+    const month = this.monthOf(settleDate);
+    if (!month) return;
+    const [y, m] = month.split('-').map(Number);
+    const dup = await this.prisma.settlement.findFirst({
+      where: {
+        contractId,
+        settleDate: { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true, code: true },
+    });
+    if (dup) {
+      throw new BadRequestException(
+        `该合同 ${month} 已有结算单${dup.code ? `（${dup.code}）` : ''}：同一合同同一月份只允许一张结算单。`,
+      );
+    }
+  }
+
+  /**
+   * 生成/刷新**一行**台账（按 合同 + 月份 upsert），并把 `settlementId` 一并落库。
+   * 这是"结算单驱动台账"与"仅费用行"两条路径的**同一个汇合点**——
+   * 自动字段（含 `settlementId`）全部来自 `computeLedgerAutoFields()`，不要在别处手拼。
+   */
+  private async upsertLedgerRow(
+    contractId: string,
+    projectId: string,
+    settleMonth: string,
+    tx?: TxClient,
+  ) {
+    const db: any = tx || this.prisma;
+    const auto = await this.computeLedgerAutoFields(contractId, settleMonth);
+    const exist = await db.settlementLedger.findFirst({ where: { projectId, contractId, settleMonth } });
+    if (exist) {
+      return db.settlementLedger.update({
+        where: { id: exist.id },
+        data: { ...auto, version: { increment: 1 } },
+      });
+    }
+    return db.settlementLedger.create({ data: { projectId, contractId, settleMonth, ...auto } });
   }
 
   /**
    * 需求 2.3：合同物资/金额变更时，自动重新派生该合同下全部结算台账的自动抓取字段
-   * （本月结算额、本月开票额、结算次数、保理贴息、逾期利息）
+   * （本月结算额、本月开票额、结算次数、保理贴息、逾期利息、对应结算单）。
+   *
+   * 2026-10-16 起它**同时负责建行**：该合同每张结算单所在的月份都必须有台账行并挂上
+   * `settlementId`（此前它只刷新"已存在的行"，而全仓又没有调用点 —— 这正是
+   * "台账与结算单看不出关联"的根因）。仅费用行（无结算单）也一并重算。
    */
   async syncLedgerByContract(contractId: string, tx?: TxClient) {
     if (!contractId) return 0;
     const db: any = tx || this.prisma;
+    const contract = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    if (!contract) return 0;
+    const projectId: string = contract.projectId;
+
+    const months = new Set<string>();
+    // (a) 该合同所有结算单所在的月份
+    const settlements = await db.settlement.findMany({
+      where: { contractId },
+      select: { settleDate: true },
+    });
+    for (const s of settlements) {
+      const m = this.monthOf(s.settleDate);
+      if (m) months.add(m);
+    }
+    // (b) 已有台账行的月份（含**仅费用行**：无结算单但有资金费用/逾期利息）
     const rows = await db.settlementLedger.findMany({
       where: { contractId },
-      select: { id: true, settleMonth: true },
+      select: { settleMonth: true },
     });
-    for (const r of rows) {
-      const auto = await this.computeLedgerAutoFields(contractId, r.settleMonth);
-      await db.settlementLedger.update({ where: { id: r.id }, data: { ...auto, version: { increment: 1 } } });
-    }
-    return rows.length;
+    for (const r of rows) if (r.settleMonth) months.add(r.settleMonth);
+
+    const run = async (exec: any) => {
+      /**
+       * ① **先清后挂**：`settlementId` 是唯一键，结算单改了月份时，
+       * 旧月份的行上仍挂着它——不先清掉，新月份建行时就会撞唯一约束
+       * （真库实测：这正是"改月份"用例暴露的问题）。
+       */
+      await exec.settlementLedger.updateMany({
+        where: { contractId, settlementId: { not: null } },
+        data: { settlementId: null },
+      });
+      // ② 再逐月 upsert：每行重新挂上它**当月**的那张结算单（或保持 null = 仅费用行）
+      for (const m of months) await this.upsertLedgerRow(contractId, projectId, m, exec);
+    };
+    // 整体放在一个事务里：清空与重挂之间不能有窗口（否则中途失败会留下"全部无关联"的台账）
+    if (tx) await run(tx);
+    else await this.prisma.$transaction(async (t) => run(t), { timeout: 30000 });
+
+    return months.size;
   }
 
   /** 一键自动生成/刷新台账：扫描结算单、收票登记、资金费用台账中的合同+月份组合，自动生成缺失行并刷新自动字段 */
@@ -253,15 +376,14 @@ export class SettlementService {
     let updated = 0;
     for (const combo of combos) {
       const [contractId, settleMonth] = combo.split('|');
-      const auto = await this.computeLedgerAutoFields(contractId, settleMonth);
-      const exist = await this.prisma.settlementLedger.findFirst({ where: { projectId, contractId, settleMonth } });
-      if (exist) {
-        await this.prisma.settlementLedger.update({ where: { id: exist.id }, data: auto });
-        updated++;
-      } else {
-        await this.prisma.settlementLedger.create({ data: { projectId, contractId, settleMonth, ...auto } });
-        created++;
-      }
+      const exist = await this.prisma.settlementLedger.findFirst({
+        where: { projectId, contractId, settleMonth },
+        select: { id: true },
+      });
+      // 与「结算单驱动」共用同一个 upsert（自动字段 + settlementId 都在那里落）
+      await this.upsertLedgerRow(contractId, projectId, settleMonth);
+      if (exist) updated++;
+      else created++;
     }
     return { created, updated };
   }
@@ -288,8 +410,34 @@ export class SettlementService {
     return l;
   }
 
-  async createLedger(data: any, projectId: string, tx?: TxClient) {
+  /**
+   * 台账里的**只读派生字段**（业务口径 2026-10-16："资金费用在结算台账中只读，若修改需要从资金费用台账中修改"）。
+   *
+   * 两者都来自**别的台账**：`factoringDiscount ← 资金费用台账（FactoringCost）`、
+   * `overdueInterest ← 逾期利息台账（OverdueInterest）`。它们本来就会被 `computeLedgerAutoFields()`
+   * 在每次刷新时覆盖——与其"改了没用"，不如**明确报错**并把人引到正确的入口
+   * （静默忽略会让人以为改成功了，那比报错更糟）。
+   */
+  private static readonly READONLY_LEDGER_FIELDS = ['factoringDiscount', 'overdueInterest'] as const;
+
+  private assertLedgerWritable(data: any) {
+    const bad = SettlementService.READONLY_LEDGER_FIELDS.filter((f) => data?.[f] !== undefined);
+    if (bad.length) {
+      throw new BadRequestException(
+        `结算台账的「${bad.join('、')}」是**只读**派生字段：` +
+          '资金费用请到「资金费用台账」修改、逾期利息请到「逾期利息」处修改，保存后结算台账会自动同步。',
+      );
+    }
+  }
+
+  /**
+   * @param opts.fromImport 仅**台账导入**路径传 true：导入模板里仍带着「保理贴息/逾期利息」两列，
+   *   且改造前它们同样会被 `computeLedgerAutoFields()` 覆盖（"从业务数据自动抓取，忽略手工传入"）——
+   *   行为不变，只是不再被只读断言拦下。**接口调用方一律不给这个开关**。
+   */
+  async createLedger(data: any, projectId: string, tx?: TxClient, opts?: { fromImport?: boolean }) {
     const db: any = tx || this.prisma;
+    if (!opts?.fromImport) this.assertLedgerWritable(data);
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = { ...pickFields(data, LEDGER_FIELDS, { label: '结算台账' }), projectId };
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -307,6 +455,7 @@ export class SettlementService {
   async updateLedger(id: string, data: any) {
     const old = await this.ledgerOne(id);
     assertVersion(old, data);
+    await this.assertLedgerWritable(data);
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = pickFields(data, LEDGER_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -577,7 +726,7 @@ export class SettlementService {
         };
       },
       write: async (plans, tx) => {
-        for (const p of plans) await this.createLedger(p.data, projectId, tx);
+        for (const p of plans) await this.createLedger(p.data, projectId, tx, { fromImport: true });
         return { created: plans.length };
       },
     });
