@@ -71,7 +71,10 @@ export const MENU_TREE: MenuNode[] = [
     icon: 'DollarOutlined',
     children: [
       { key: 'settlement-order', label: '结算单', icon: 'AuditOutlined', path: '/settlement/order', permission: 'settlement:view' },
-      { key: 'settlement-fund', label: '资金费用台账', icon: 'MoneyCollectOutlined', path: '/settlement/fund', permission: 'finance:view' },
+      // 资金费用拆成两个独立菜单（业务口径 2026-10-16）：两张表结构完全不同，
+      // 挤在一个页面里既没法分别配权限，也没法各自套结算台账的标准列表页骨架
+      { key: 'settlement-factoring', label: '保理费用台账', icon: 'MoneyCollectOutlined', path: '/settlement/factoring', permission: 'finance:view' },
+      { key: 'settlement-overdue', label: '逾期利息台账', icon: 'FundOutlined', path: '/settlement/overdue', permission: 'finance:view' },
       { key: 'settlement-ledger', label: '结算台账', icon: 'BookOutlined', path: '/settlement/ledger', permission: 'settlement:view' },
       { key: 'settlement-payment', label: '付款管理', icon: 'PayCircleOutlined', path: '/settlement/payment', permission: 'payment:view' },
       // 总结算单（业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 → 合同已完已结

@@ -150,6 +150,22 @@ export interface ModuleListPageProps {
   columnConfigKey?: string;
   /** 额外不可隐藏的列标识（「操作」列与无标识列总是保留） */
   columnConfigLockedKeys?: string[];
+  /**
+   * 命中这些字段名时，筛选值变化**立即查询**（等价于点一次「查询」）。
+   *
+   * 用途：像「资金费用台账」这种"先选合同才加载"的页面 —— 选了合同还要用户再点一次查询
+   * 会很别扭。其余筛选条件仍保持"点查询才生效"的手感。
+   */
+  autoSearchOnChange?: string[];
+  /**
+   * 任一筛选值变化时的回调（收到全部值与本次变更的字段）。
+   * 用途：让页面把筛选值同步到自己的 state（如上例中要拿 `contractId` 去拉合同资金参数）。
+   */
+  onFilterChange?: (values: Record<string, any>, changed: Record<string, any>) => void;
+  /** 取数完成后的回调（拿到接口原始响应）——供页面取出 `totals`/`stats` 这类汇总数据 */
+  onFetched?: (res: any) => void;
+  /** 表格合计行（`Table.Summary` 的内容）。需要页面自己先经 `onFetched` 拿到汇总数据再拼 */
+  tableSummary?: ReactNode;
 }
 
 /**
@@ -186,6 +202,10 @@ export default function ModuleListPage({
   emptyText,
   columnConfigKey,
   columnConfigLockedKeys,
+  autoSearchOnChange,
+  onFilterChange,
+  onFetched,
+  tableSummary,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
   /**
@@ -245,6 +265,9 @@ export default function ModuleListPage({
   const stableBaseParams = useMemo<Record<string, unknown>>(() => JSON.parse(baseParamsKey), [baseParamsKey]);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  /** 取数完成回调同样走 ref：调用方一般传行内箭头函数，不应影响取数 effect 的依赖 */
+  const onFetchedRef = useRef(onFetched);
+  onFetchedRef.current = onFetched;
 
   const buildParams = useCallback(
     (values: Record<string, any>) => {
@@ -280,6 +303,7 @@ export default function ModuleListPage({
         .then((res: any) => {
           setRows(res?.list ?? res?.data?.list ?? []);
           setTotal(res?.total ?? res?.data?.total ?? 0);
+          onFetchedRef.current?.(res);
         })
         .catch(() => {
           setRows([]);
@@ -301,7 +325,22 @@ export default function ModuleListPage({
   const handleReset = () => {
     form.resetFields();
     setPage(1);
-    setCommitted({});
+    // 重置同样要让页面知道（被清空的字段可能就是页面依赖的那个，如合同）
+    const values = form.getFieldsValue();
+    onFilterChange?.(values, values);
+    setCommitted(values);
+  };
+
+  /**
+   * 表单值变化：先把变更透出给页面（如"选合同 → 去拉合同资金参数"），
+   * 命中 `autoSearchOnChange` 的字段则**立即查询**（等价于点一次「查询」）。
+   */
+  const handleValuesChange = (changed: Record<string, any>, all: Record<string, any>) => {
+    onFilterChange?.(all, changed);
+    if (!autoSearchOnChange?.length) return;
+    if (!Object.keys(changed).some((k) => autoSearchOnChange.includes(k))) return;
+    setPage(1);
+    setCommitted({ ...all });
   };
 
   /* ---------------- 表格列 ---------------- */
@@ -517,7 +556,7 @@ export default function ModuleListPage({
       }}
     >
       {/* 1. 顶部筛选区（可折叠） */}
-      <Form form={form} layout="vertical" style={{ marginBottom: 4 }}>
+      <Form form={form} layout="vertical" style={{ marginBottom: 4 }} onValuesChange={handleValuesChange}>
         <Row key={expanded ? 'expanded' : 'collapsed'} gutter={[16, 0]} align="middle">
           {visibleFilters.map((f) => (
             <Col key={f.key} flex={filterColFlex} style={{ marginBottom: 12 }}>
@@ -584,6 +623,7 @@ export default function ModuleListPage({
         dataSource={rows}
         loading={loading}
         scroll={{ x: 'max-content' }}
+        {...(tableSummary ? { summary: () => tableSummary } : {})}
         locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
         pagination={{
           current: page,

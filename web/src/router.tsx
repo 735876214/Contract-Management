@@ -31,7 +31,8 @@ const FinalSettlements = lazy(() => import('@/pages/FinalSettlements'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
 const Ledger = lazy(() => import('@/pages/Ledger'));
 const Repayments = lazy(() => import('@/pages/Repayments'));
-const Finance = lazy(() => import('@/pages/Finance'));
+const FinanceFactoring = lazy(() => import('@/pages/FinanceFactoring'));
+const FinanceOverdue = lazy(() => import('@/pages/FinanceOverdue'));
 const Assets = lazy(() => import('@/pages/Assets'));
 const Messages = lazy(() => import('@/pages/Messages'));
 const Reports = lazy(() => import('@/pages/Reports'));
@@ -133,7 +134,8 @@ export const routes: RouteObject[] = [
 
       // —— 结算及付款管理 ——
       { path: 'settlement/order', element: perm('/settlement/order', <Settlements />) },
-      { path: 'settlement/fund', element: perm('/settlement/fund', <Finance />) },
+      { path: 'settlement/factoring', element: perm('/settlement/factoring', <FinanceFactoring />) },
+      { path: 'settlement/overdue', element: perm('/settlement/overdue', <FinanceOverdue />) },
       { path: 'settlement/ledger', element: perm('/settlement/ledger', <SettlementLedgerPage />) },
       { path: 'settlement/payment', element: perm('/settlement/payment', <Payments />) },
       { path: 'settlement/payment-procedure', element: perm('/settlement/payment-procedure', <PaymentProcedures />) },
@@ -178,7 +180,9 @@ export const routes: RouteObject[] = [
       { path: 'contract-materials', element: <Navigate to="/contract/material" replace /> },
       { path: 'ledger', element: <Navigate to="/contract/list" replace /> },
       { path: 'settlements', element: <Navigate to="/settlement/order" replace /> },
-      { path: 'finance', element: <Navigate to="/settlement/fund" replace /> },
+      // 旧路径保号：资金费用台账已拆成「保理费用台账 / 逾期利息台账」两个模块（2026-10-16）
+      { path: 'settlement/fund', element: <Navigate to="/settlement/factoring" replace /> },
+      { path: 'finance', element: <Navigate to="/settlement/factoring" replace /> },
       { path: 'payments', element: <Navigate to="/settlement/payment" replace /> },
       { path: 'invoices', element: <Navigate to="/invoice" replace /> },
       { path: 'repayments', element: <Navigate to="/repayment" replace /> },

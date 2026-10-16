@@ -137,6 +137,21 @@ export default function BasicLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
+  /**
+   * 渲染一个「标签面板」。抽成函数是为了让「标签项」与「无标签兜底」两支产出**结构完全一致**的
+   * 元素 —— 结构一致时，标签真正建出来的那一刻 React 才会复用同一个 fiber（不重挂载、不丢状态）。
+   */
+  const renderPane = (cacheKey: string, scope: TabScope, element: ReactElement, active: boolean) => (
+    <TabScopeProvider key={cacheKey} value={scope}>
+      <div className="cms-tab-pane" style={active ? undefined : { display: 'none' }}>
+        {/* 每个标签自己的 Suspense：某个标签在加载分包时不会把别的标签一起清空 */}
+        <Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '80px auto' }} />}>
+          {element}
+        </Suspense>
+      </div>
+    </TabScopeProvider>
+  );
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       {/* 左侧导航：窄屏自动切换为抽屉式（内部由 useResponsive 决定） */}
@@ -208,18 +223,20 @@ export default function BasicLayout() {
             // 否则会在 0×0 的容器里初始化 ECharts / rc-table，量到的宽高全是 0。
             if (!element) return null;
             const cacheKey = cacheKeyOf(t);
-            const active = t.key === tabKey;
-            return (
-              <TabScopeProvider key={cacheKey} value={scopes[cacheKey]}>
-                <div className="cms-tab-pane" style={active ? undefined : { display: 'none' }}>
-                  {/* 每个标签自己的 Suspense：某个标签在加载分包时不会把别的标签一起清空 */}
-                  <Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '80px auto' }} />}>
-                    {element}
-                  </Suspense>
-                </div>
-              </TabScopeProvider>
-            );
+            return renderPane(cacheKey, scopes[cacheKey], element, t.key === tabKey);
           })}
+
+          {/*
+            当前路由**没有对应标签**时的兜底渲染。
+            两条真实场景：
+            ① 旧扁平路径（`/ledger`、`/projects`…）——它们在路由表里是 `<Navigate>` 重定向，
+               不建标签；**不渲染就等于重定向不执行**，内容区会空着（2026-10-17 实测踩到）；
+            ② 菜单还没加载完（冷启动）——此时 `menuLabel` 为空、标签尚未创建，先把页面显示出来。
+            ⚠️ 这一支与上面的标签项用的是**同一个缓存键与同一层结构**（见 renderPane），
+            所以菜单加载完、标签真正建出来时，React 会复用同一个 fiber，**不会重挂载**。
+          */}
+          {outlet && !tabs.some((t) => t.key === tabKey) &&
+            renderPane(`${tabKey}#0`, { tabKey, path: location.pathname, href: tabKey, editorId }, outlet, true)}
         </Content>
       </Layout>
     </Layout>

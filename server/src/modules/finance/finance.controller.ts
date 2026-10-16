@@ -39,8 +39,8 @@ export class FinanceController {
 
   @RequirePermissions('finance:view')
   @Get('factoring-costs')
-  listFactoring(@Query('contractId') contractId: string) {
-    return this.service.listFactoring(contractId);
+  listFactoring(@Query('contractId') contractId: string, @Query() query: any) {
+    return this.service.listFactoring(contractId, query);
   }
 
   @RequirePermissions('finance:view')

@@ -354,13 +354,15 @@ export const financeApi = {
   contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),
   saveContractParams: (contractId: string, data: any) => http.put<any, any>(`/finance/contract-params/${contractId}`, data),
   // 保理费用台账
-  factoring: (contractId: string) => http.get<any, any>('/finance/factoring-costs', { params: { contractId } }),
+  factoring: (contractId: string, params?: any) =>
+    http.get<any, any>('/finance/factoring-costs', { params: { contractId, ...(params ?? {}) } }),
   createFactoring: (data: any) => http.post<any, any>('/finance/factoring-costs', data),
   updateFactoring: (id: string, data: any) => http.put<any, any>(`/finance/factoring-costs/${id}`, data),
   removeFactoring: (id: string) => http.delete<any, any>(`/finance/factoring-costs/${id}`),
   exportFactoringUrl: (contractId: string) => `${http.defaults.baseURL}/finance/factoring-costs/export?contractId=${contractId}`,
   // 逾期利息台账
-  overdue: (contractId: string) => http.get<any, any>('/finance/overdue-interests', { params: { contractId } }),
+  overdue: (contractId: string, params?: any) =>
+    http.get<any, any>('/finance/overdue-interests', { params: { contractId, ...(params ?? {}) } }),
   generateOverdue: (data: { contractId: string; settlementMonth: string; materialAmount: number }) =>
     http.post<any, any>('/finance/overdue-interests/generate', data),
   createOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests', data),

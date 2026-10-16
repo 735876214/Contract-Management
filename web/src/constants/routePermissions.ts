@@ -31,7 +31,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/daily/asset': ['asset:view'],
   // 结算及付款管理
   '/settlement/order': ['settlement:view'],
-  '/settlement/fund': ['finance:view'],
+  // 资金费用拆成两个独立模块（2026-10-16）：权限码沿用 finance:view（同一批人维护）
+  '/settlement/factoring': ['finance:view'],
+  '/settlement/overdue': ['finance:view'],
   '/settlement/ledger': ['settlement:view'],
   '/settlement/payment': ['payment:view'],
   // 付款手续编制：复用付款管理的权限码（同一批人管，不新开一套）

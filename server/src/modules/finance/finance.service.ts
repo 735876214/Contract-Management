@@ -16,6 +16,21 @@ import {
 import { summarizeOverdue, interestOf } from '../../common/utils/overdue-summary';
 
 /**
+ * 内存分页切片（保理费用 / 逾期利息共用）。
+ *
+ * 为什么不做 SQL 分页：这两个列表的**合计行**是"该合同一共多少"（保理费用的合计、逾期利息的
+ * `stats` 汇总），必须覆盖全量行；走 SQL 的 `skip/take` 就只剩当前页可汇总，口径会错。
+ * 行数按月增长但量级很小（一个合同几十到几百行），先全量取回再切片最不容易出错。
+ * 未传 `page`/`pageSize` 时**返回全量** —— 导出路径（Excel）依赖这个行为。
+ */
+function pageSlice<T>(rows: T[], query: any = {}): T[] {
+  const pageSize = Number(query.pageSize);
+  if (!pageSize || pageSize <= 0) return rows;
+  const page = Math.max(1, Number(query.page) || 1);
+  return rows.slice((page - 1) * pageSize, page * pageSize);
+}
+
+/**
  * 资金费用服务（保理费用 / 逾期利息 / 合同资金参数）。
  *
  * ⚠️ **项目隔离例外（有意为之，勿"顺手"补 `projectId` 过滤）**：
@@ -143,7 +158,14 @@ export class FinanceService {
     return contract;
   }
 
-  async listFactoring(contractId: string) {
+  /**
+   * 保理费用列表（按合同 + 分页）。
+   *
+   * ⚠️ 分页是**在内存里切片**的：合计 `totals` 必须覆盖**该合同全部**行（页面底部就是"这个合同的
+   * 保理费用一共多少"），若走 SQL 的 `skip/take` 就只能对当前页求和、口径会错。
+   * 行数按月增长但量级很小（一个合同几十行），先取全量再切片是这里最不容易出错的写法。
+   */
+  async listFactoring(contractId: string, query: any = {}) {
     const contract = await this.contractScope(contractId);
     const list = await this.prisma.factoringCost.findMany({
       where: { contractId },
@@ -160,7 +182,12 @@ export class FinanceService {
       handlingFee: round(rows.reduce((a: number, r: any) => a + (num(r.handlingFee) || 0), 0), 2),
       totalCost: round(rows.reduce((a: number, r: any) => a + (num(r.totalCost) || 0), 0), 2),
     };
-    return { contract: { id: contract.id, code: contract.code, name: contract.name, supplierName: contract.supplier?.name || '' }, list: rows, totals };
+    return {
+      contract: { id: contract.id, code: contract.code, name: contract.name, supplierName: contract.supplier?.name || '' },
+      list: pageSlice(rows, query),
+      total: rows.length,
+      totals,
+    };
   }
 
   private factoringPayload(data: any, keep?: any) {
@@ -289,7 +316,8 @@ export class FinanceService {
     const capAmount = round(summary.totalMaterial * params.interestCapRatio, 2);
     return {
       contract: params,
-      list: rows.map((r: any) => ({ ...r, supplierName })),
+      list: pageSlice(rows.map((r: any) => ({ ...r, supplierName })), query),
+      total: rows.length,
       stats: {
         totalMaterial: summary.totalMaterial,
         totalPayment: summary.totalPayment,

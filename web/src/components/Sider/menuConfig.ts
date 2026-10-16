@@ -51,7 +51,8 @@ export const MENU_CONFIG: MenuItem[] = [
     icon: 'DollarOutlined',
     children: [
       { key: 'settlement-order', label: '结算单', icon: 'AuditOutlined', path: '/settlement/order', permission: 'settlement:view' },
-      { key: 'settlement-fund', label: '资金费用台账', icon: 'MoneyCollectOutlined', path: '/settlement/fund', permission: 'finance:view' },
+      { key: 'settlement-factoring', label: '保理费用台账', icon: 'MoneyCollectOutlined', path: '/settlement/factoring', permission: 'finance:view' },
+      { key: 'settlement-overdue', label: '逾期利息台账', icon: 'FundOutlined', path: '/settlement/overdue', permission: 'finance:view' },
       { key: 'settlement-ledger', label: '结算台账', icon: 'BookOutlined', path: '/settlement/ledger', permission: 'settlement:view' },
       { key: 'settlement-payment', label: '付款管理', icon: 'PayCircleOutlined', path: '/settlement/payment', permission: 'payment:view' },
     ],
