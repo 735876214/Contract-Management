@@ -3,7 +3,6 @@
 > **本文件只列「未完成」任务**：完成一项就**直接删除条目**（不用 `[x]` 勾选、不写"已完成"段落，
 > 否则文件只增不减）；历史以 `git log` / PR 为准。
 > 改动前必读的约定与踩过的坑见 [CLAUDE.md](CLAUDE.md)（**唯一事实源**；历史经验已在其中固化）。
-> 数据来源：对当前代码库的审计（非产品需求方录入），请按实际排期调整。
 > **基准**：main 分支 2026-10-14（**不在此逐批枚举已完成项**——那会随每次提交过期，历史见 `git log`）。
 
 图例：`需业务澄清` 未澄清前不要动手 · `需外部条件` 等基础设施/凭据 · `可直接开工` 纯工程项
@@ -16,24 +15,11 @@
 
 ## 需业务澄清（澄清前不要动手）
 
-> 按错方向做会**造出两套口径或推翻既有决策**，故先澄清再排期。
-
-> **2026-10-16 已清空两批**：
-> ① 付款三级模型 / 合同正文导出快照 / 变更口径 / 审批流 —— 业务已答复并**落地**，
-> 见 [CLAUDE.md](CLAUDE.md) §1「已定的产品口径」；并**连带解锁**了「清单项级结算明细」（已列「可直接开工」）。
-> ② 原「工作域信息关联审计」里最后三条待澄清（台账↔结算单 / 资金费用↔结算 / 收领单↔结算）
-> —— 业务**全部翻案**（都要强关联），并追加合同付款比例节点、总结算单、单据模板、付款手续、付款超比例预警；
-> 「结算域重构与新增单据」批次（8 阶段）**已全部落地**（见下方条目的 ✅ 标）。
-
 - **「新增进编辑器页签」两处有意保留弹窗（业务 2026-10-17 口径：新增必须进编辑界面）**：
   ① 基础配置类 6 个模块（字典 / 用户角色 / 合同模板 / 条款 / 单据模板 / 采购模板）**保留弹窗**
   （低频简单表单，业务确认保留；若后续要统一再改页签）；② 「新增补充协议」（ContractQuery 的
   SupplementDraft 向导弹窗 + 合同详情里的简易补充协议弹窗）是**向导型动作**（选类型→生成草稿→发布），
   暂保留弹窗，如业务要求统一改页签再动。
-
-> **2026-10-17 已清空一批**（答复见 [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)「系统能力边界」）：
-> ① `/contracts` **补回菜单入口**（已实施：菜单「合同管理 → 合同台账维护」+ 路由权限 + 缓存 v12）；
-> ② 响应体打码 / 行级 DataScope / 供应商门户 —— 业务明确**本系统都不做**，条目删除。
 
 ## 需外部条件（基础设施 / 凭据 / 他人配合就绪即可做）
 
@@ -65,48 +51,6 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-
-- **结算域重构与新增单据（业务 2026-10-16 答复的批次，分批实施）** —— 共 8 个阶段，**每阶段独立可验收**：
-  - ✅ **P1 台账 ↔ 结算单 1:1 + 台账派生列只读**（已实施：迁移 `20261022000000_settlement_ledger_link`，
-    接上了此前**无调用点**的 `syncLedgerByContract()`；口径见 [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md) 「台账」一节）。
-  - ✅ **P2 仅费用行 + 发票/收领单挂结算单**（已实施：迁移 `20261023000000_settlement_invoice_receipt_link`
-    加 `Invoice.settlementId` / `ReceiptOrder.settlementId`（SetNull）；「仅费用行」由 `refreshLedger()` 的
-    combos 保住；台账「本月开票额」改为**按 `settlementId` 精确归集**、未关联才退回按「合同 + 月」）。
-  - ✅ **P3 月度结算期 + 手动生成本期结算**（已实施：`Project.settlementStartDate`；纯函数
-    `common/utils/settlement-period.ts`；`POST /settlements/generate` + `GET /settlements/generate/preview`；
-    结算单页顶部未生成提示 + 「生成本期结算」按钮。**不引入调度器**，故为手动触发）。
-    ⚠️ 归属判据是**结算期**而不是自然月（起始日 ≠ 1 时期会跨月），详见
-    [.claude/rules/backend-conventions.md](.claude/rules/backend-conventions.md)「结算期与自动生成」。
-  - ✅ **P4 合同付款比例与分期**（已实施：迁移 `20261024000000_settlement_pay_ratio` 加
-    `ContractExt.settlementPayRatio`；`paymentMode` 扩 `M65_1` / `M65_3` 两种月度安排（存量 `100`/`3382` 不动），
-    定义与文案在零依赖 `common/utils/pay-ratio.ts`，前端下拉是它的镜像；`currentPayRatio` 改为**服务端派生**
-    （已完已结 = 100%，否则按安排的月度比例，自定义取手填；推不出保持原值））。
-  - ✅ **P5 工作台「超付款比例」预警**（已实施：`evaluatePaymentRatioAlert()` 纯函数 + 工作台
-    `paymentRatioAlerts` 与「付款超比例预警」卡片；**单级**、比例未填/为 0 不报、"恰好等于上限"不算超）。
-  - ✅ **P6 付款手续编制**（已实施：迁移 `20261025000000_payment_procedure` 建 `PaymentProcedure`；
-    后端 `payment-procedure` 模块 + 菜单「付款手续」+ 页面 `/settlement/payment-procedure`。
-    口径取舍：**合同必填**（开累本来就是合同链口径），开累结算/开累付款/未付款三值由服务端
-    **按链口径取数并快照**、前端只读展示 —— 单据要的是"编制当时的口径"，事后补录付款不改写已出单据）。
-  - ✅ **P7 总结算单模块**（已实施：迁移 `20261026000000_final_settlement` 建 `FinalSettlement` +
-    `FinalSettlementItem`；页面 `/settlement/final-settlement`。**生成**抓该合同全部非草稿月度结算落成
-    明细快照（一个合同只允许一张）；**上传附件 → 已结算 → 合同 `execStatus = DONE_SETTLED`
-    且付款比例切 100%**（走 P4 的 `syncPayRatio`）；**删除已结算单据会把合同状态与比例一并回退**，
-    不留"没有单据支撑的已完已结"；可导出 Word（模板分类 `FINAL_SETTLEMENT`，明细走 `{{结算明细表}}`））。
-  - ✅ **P8 单据模板模块**（已实施：基础信息管理 →「单据模板」页 `/base/doc-template`，五类
-    —— 结算单/总结算单/保理单/逾期利息/付款单。存储**复用 `ContractTemplate` 表**、分类走**新字典**
-    `doc_template_category`（不复用合同模板分类，否则合同模板的下拉里会冒出"付款单"）；
-    **付款单已接 Word 生成路径**（付款手续行内「导出付款单」，变量取值见 `doc-template-vars.ts`）。
-    其余四类本期只提供模板存放与编辑，生成随各自单据模块接 —— 变量面板也**只对付款单开放**，
-    避免作者插了变量却不被替换）。顺手修：变量面板默认插入的是**单花括号** `{名}`，
-    而渲染器只认 `{{名}}` —— 插了静默不替换，现已改双花括号并由 `docVariables.spec.mts` 锁住。
-
-- **清单项级结算明细 + 量级校验**——**已全部落地**（2026-10-17，实施见 `git log`）：
-  新表 `SettlementItem`（迁移 `20261103000000_settlement_item`）+ 服务端重算价格（综合单价/合价不信任前端）、
-  量级闸门（`chainMaterialQty`/`chainSettledItemQty`；Σ明细量 + 历史已结 ≤ 合同链清单量，
-  策略复用 `settlement.over_amount_policy`，无清单行=无上限、草稿豁免）、
-  生成本期结算按收领单明细自动产明细行、结算单编辑器明细子表。
-  锁定：`settlement-item.int.spec.ts`。
-
 - **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
   更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，
   `allowImportingTsExtensions` 与 `rewriteRelativeImportExtensions` 都可用
@@ -119,17 +63,9 @@
 
 ## 四域扩展（评估已定，待实施）
 
-> 依据 [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md)。**招标域已实施（见上方"已定决策"），
-> 下面各条为待排期任务，尚未实施。**
-
-### 已定决策（2026-10-13）
-
-- **招标域 = 设计 A**：招标作为**采购方式**并入现有采购工作流（与 `procurement_source` 字典语义一致），
-  仅新增 `ProcurementBidder` + `ProcurementEvaluation` 两张结构化表，其余复用。
-  → ✅ **已实施**（2026-10-19，迁移 `20261019000000_tender_bidder_and_evaluation`；
-  双写/定标/存量回填的约定见 [CLAUDE.md](CLAUDE.md) §4「招标域」）。
-- **进出场 = 只做物资**：复用 `AssetLedger` / `DailyReport` / `ReceiptOrder`，**不建表**、不做人员/车辆。
-- **技术栈 = 沿用现有**；不引入微服务 / API 网关 / Redis / MQ / MongoDB / Flowable / Seata / 电子签章 / 低代码平台。
+> 依据 [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md)。**招标域已实施**（迁移
+> `20261019000000_tender_bidder_and_evaluation`，约定见 [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
+> 下面各条为待排期任务，尚未实施。
 
 ### 待实施 · 先设计后开发
 
