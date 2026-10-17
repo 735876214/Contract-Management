@@ -89,7 +89,7 @@ cd server && npm run test:int  # DB 集成测试（7 个 spec，改金额/状态
 | [docs/development.md](docs/development.md) | 开发方式、命令、测试清单、回归清单、本机操作要点（§9） |
 | [docs/component-api.md](docs/component-api.md) | 前端组件与后端通用服务的接口 |
 | [docs/02-数据库ER设计.md](docs/02-数据库ER设计.md) / [03-API接口清单.md](docs/03-API接口清单.md) | 数据模型 / REST 接口清单 |
-| [docs/04-Docker镜像构建与优化.md](docs/04-Docker镜像构建与优化.md) / [05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md) | 镜像构建 / 四域扩展决策记录 |
+| [docs/04-Docker镜像构建与优化.md](docs/04-Docker镜像构建与优化.md) | 镜像构建 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
 
 > **统计数字的两种待遇**：**活文档**（本文件、`docs/development.md`）里的 spec / model / 业务模块 /

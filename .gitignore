@@ -42,3 +42,8 @@ pnpm-debug.log*
 # 镜像（deploy/single/Dockerfile.single）与 CI 均用 `npm ci --legacy-peer-deps`，
 # 没有锁文件就无法复现构建。2026-10 起统一为 npm，原 pnpm-lock.yaml 因过期已移除（详见 README）。
 
+
+# 备份产物（scripts/backup.sh 的输出，绝不入库）
+backups/
+.drill/
+data-drill/

@@ -8,7 +8,8 @@
 图例：`需业务澄清` 未澄清前不要动手 · `需外部条件` 等基础设施/凭据 · `可直接开工` 纯工程项
 
 > 分组依据是**阻塞条件**（而不是"优先级"）：标着"可直接开工"却全是阻塞项，会让人排错期。
-> **例外**：「四域扩展」整块都**没有阻塞**（评估已定，见 [docs/05](docs/05-四域扩展可行性评估.md)），
+> **例外**：「四域扩展」整块都**没有阻塞**（评估已定，决策留痕见 `git log`——原 docs/05 评估文档已删除，
+> 关键结论沉淀在 [CLAUDE.md](CLAUDE.md) 与 [.claude/rules/](.claude/rules/)），
 > 故其内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
 > 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
 > 故此项已按业务澄清从待办中移除。
@@ -33,16 +34,12 @@
   （`notification.service.ts` 注释即写「邮件/短信/企微/钉钉接口预留」），`send()` 只做 DB insert。
   **阻塞原因**：需要机器人凭据与出网策略，且要业务定「哪些事件发到群里」。
   **同一份应用凭据下的姊妹项**：企微/钉钉**免登 SSO**（OAuth → 映射现有 `User` → 签发现有 JWT，
-  **不新建平行账号体系**，见 [docs/05](docs/05-四域扩展可行性评估.md) §13 ②）——凭据就绪即可一并做，故不单列。
-- **多副本部署前的三项必办**（[docs/05](docs/05-四域扩展可行性评估.md) §4）：① 文件本地磁盘
+  **不新建平行账号体系**）——凭据就绪即可一并做，故不单列。
+- **多副本部署前的三项必办**：① 文件本地磁盘
   （已由上面的"对象存储"条目覆盖）② **进程内缓存不一致**——`DictService.cache` 24h TTL、
   `refreshCache()` 只清本实例，A 改字典 B 最长 24h 才可见（`SysParamService` 同理）
   ③ **编号竞态**——`contract.service.nextCode()` 读 `max(yearSeq)` 再 +1，两副本会取到同号（被唯一约束挡住报错）。
   **阻塞原因**：单实例下这三条都无影响，**只在确定要上多副本时才值得做**；届时前置还有共享 PG 与共享存储。
-- **定期备份与恢复演练**：README 与 docs **没有任何备份/恢复步骤**（`pg_dump` / `pg_restore` 0 命中），
-  而 [docs/05](docs/05-四域扩展可行性评估.md) §2 的选型表自己就写着"DB 主从/备份：按需，**先落实定期备份**"。
-  交付物：一份可执行步骤（compose 环境下 `pg_dump` → 留存 → `pg_restore` 到临时库）+ **本地实测一次恢复**
-  （只写文档不演练等于没做）。**阻塞原因**：NAS 上的落地位置与保留策略待定（可在本地先做通）。
 - **确认 CI 新 workflow 的首跑结果**：2026-10-14 改过 `.github/workflows/build.yml`（`test` job 新增
   postgres service、建影子库、`prisma migrate diff --exit-code` 门禁与 `npm run test:int`），
   但**本机无 `gh` CLI**、也无法本地解析 YAML 真跑一遍，只逐条验过里面的命令。需在 GitHub Actions 上
@@ -56,7 +53,8 @@
 
 ## 四域扩展（评估已定，待实施）
 
-> 依据 [docs/05-四域扩展可行性评估.md](docs/05-四域扩展可行性评估.md)。**招标域已实施**（迁移
+> 依据四域扩展可行性评估（已删除，决策留痕见 `git log`；关键结论沉淀在
+> [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）。**招标域已实施**（迁移
 > `20261019000000_tender_bidder_and_evaluation`，约定见 [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
 > 下面各条为待排期任务，尚未实施。
 

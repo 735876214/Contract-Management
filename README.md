@@ -146,3 +146,47 @@ docker compose up -d --build    # 构建并启动，产出同一个 ghcr.io/7358
 ```
 
 内部 `start.sh` 让后端与 nginx 任一进程退出即整体退出，由重启策略自愈。
+
+## 备份与恢复（2026-10-17 起，已演练验证）
+
+**每天一次**：首次全量、之后**硬链接增量**（rsync `--link-dest`，未变文件是到前一日的硬链接，不占额外空间），
+**保留 7 天**滚动清理。范围 = **PostgreSQL 数据库**（`pg_dump -Fc` 自定义格式）+ **上传附件**（`${CMS_DATA:-./data}`）。
+
+### 产物结构
+
+```
+backups/
+├── db/<YYYY-MM-DD>/cms.dump     # 数据库（pg_restore 恢复）
+├── files/<YYYY-MM-DD>/...       # 附件快照（恢复 = 直接拷贝该目录）
+└── backup.log                   # 运行日志（cron 重定向追加）
+```
+
+### 配置每日定时（Linux/NAS 宿主机）
+
+```bash
+crontab -e
+# 每天 02:30 备份（容器名/路径可用环境变量覆盖，见脚本头注释）
+30 2 * * * CMS_DIR=/path/to/Contract-Management /path/to/Contract-Management/scripts/backup.sh >> /path/to/Contract-Management/backups/backup.log 2>&1
+```
+
+- 脚本幂等：同一天重复跑会覆盖当天产物；postgres 容器名不匹配时自动按名字兜底查找。
+- **NAS 计划任务注意**：用绝对路径，不依赖工作目录；脚本只依赖 `bash / docker / rsync`。
+- 首次运行（无前一日目录）自动为全量；`RETAIN_DAYS=7` 可改，目录数 < 2 时**不会**执行清理（防呆）。
+
+### 恢复（与备份同一入口演练过）
+
+```bash
+scripts/restore.sh 2026-10-17            # 交互确认后 pg_restore --clean 覆盖 + 附件目录还原
+scripts/restore.sh 2026-10-17 --drop     # 演练模式：先 DROP 重建再重放（会断开现有连接）
+scripts/restore.sh 2026-10-17 --yes      # 跳过交互确认（自动化）
+```
+
+> 生产恢复前**先停后端容器**（`docker compose stop cms`）避免恢复期间写入；恢复完 `docker compose start cms`。
+
+### 演练记录
+
+- **2026-10-17 本机全流程演练通过**（alpine 容器内跑同一脚本，连 dev 库 cms）：
+  ① 首日全量（db 352K + 附件 2 文件）；② 次日增量——改 1 文件 + 新增 1 文件后重跑，
+  「新建 3 个（硬链接复用 1 个）」，`find -links +1` 验证硬链接成立；
+  ③ 插入脏数据后 `restore.sh --drop` 回滚——脏数据消失、users=3 冒烟通过；
+  ④ 手工造 10 天前的过期目录再跑——「清理 2 个过期目录」，最近备份保留。

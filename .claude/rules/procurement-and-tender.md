@@ -14,8 +14,8 @@
   「刻意篡改快照也不采信」的判据挡着。
 - **存量回填**由 `ensureBiddersFromSnapshot()` 在首次读取/生成合同时**幂等**完成（不写一次性迁移脚本）；
   重新导入时**有评标记录的单位拒绝删除并报错**（静默丢评估数据比报错更糟）。
-- 设计与实际落地的两处偏差（唯一键为何含 `bidderName`、报价为何按列而非按轮次）见 docs/05 §6.2、
-  docs/02。相关锁定：`statusCodes.spec.mts`（`bidder_status` 常量 ↔ 字典）。
+- 设计与实际落地的两处偏差（唯一键为何含 `bidderName`、报价为何按列而非按轮次）已注明在
+  `schema.prisma` 的 `ProcurementBidder` 注释与 docs/02。相关锁定：`statusCodes.spec.mts`（`bidder_status` 常量 ↔ 字典）。
 
 ## 采购总清单 → 合同起草清单
 

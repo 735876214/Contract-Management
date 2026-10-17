@@ -465,8 +465,7 @@
 | GET | `/system/logs/operations` | 操作日志 | `system:log` |
 | GET | `/system/logs/logins` | 登录日志 | `system:log` |
 
-> `/system/depts`（部门管理）**已移除**：系统无部门模型，行级数据权限的相关设计见
-> [docs/05](05-四域扩展可行性评估.md) §9。
+> `/system/depts`（部门管理）**已移除**：系统无部门模型；行级数据权限已明确**不做**（业务 2026-10-17 确认）。
 
 ## 24. 文件 `/files`
 
