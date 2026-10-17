@@ -16,11 +16,8 @@
 
 ## 需业务澄清（澄清前不要动手）
 
-- **「新增进编辑器页签」两处有意保留弹窗（业务 2026-10-17 口径：新增必须进编辑界面）**：
-  ① 基础配置类 6 个模块（字典 / 用户角色 / 合同模板 / 条款 / 单据模板 / 采购模板）**保留弹窗**
-  （低频简单表单，业务确认保留；若后续要统一再改页签）；② 「新增补充协议」（ContractQuery 的
-  SupplementDraft 向导弹窗 + 合同详情里的简易补充协议弹窗）是**向导型动作**（选类型→生成草稿→发布），
-  暂保留弹窗，如业务要求统一改页签再动。
+> 当前无。「两处新增保留弹窗」已由业务 2026-10-17 确认并登记进
+> [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)「界面形态」一节。
 
 ## 需外部条件（基础设施 / 凭据 / 他人配合就绪即可做）
 
@@ -40,16 +37,14 @@
   `refreshCache()` 只清本实例，A 改字典 B 最长 24h 才可见（`SysParamService` 同理）
   ③ **编号竞态**——`contract.service.nextCode()` 读 `max(yearSeq)` 再 +1，两副本会取到同号（被唯一约束挡住报错）。
   **阻塞原因**：单实例下这三条都无影响，**只在确定要上多副本时才值得做**；届时前置还有共享 PG 与共享存储。
-- **确认 CI 新 workflow 的首跑结果**：2026-10-14 改过 `.github/workflows/build.yml`（`test` job 新增
-  postgres service、建影子库、`prisma migrate diff --exit-code` 门禁与 `npm run test:int`），
-  但**本机无 `gh` CLI**、也无法本地解析 YAML 真跑一遍，只逐条验过里面的命令。需在 GitHub Actions 上
-  看该 job 是否绿（步骤序：prisma generate → 建 `cms_shadow` → migrate diff → `npm test` →
-  `npm run test:int` → server/web build）。**确认后删本条**。
 
 ## 可直接开工（工程项，按性价比排序）
 
-> 当前为空。已完成的工程项按「完成即删除」惯例移除（最近一批：清单项级结算明细、
-> 响应式收尾、`.mts` 相对导入限制解除——见 `git log`）。
+- **单据模板 Excel 的表格占位符支持真正的行展开**（按需，体验增强非缺陷）：现状
+  `server/src/modules/doc-template/doc-excel.ts:13` 的 `replaceCellText()` 把 `{{结算明细表}}` 等
+  表格占位符整格替换成**多行文本**（每行 `列1\t列2`，单元格内换行），行/列不落独立单元格，
+  导出后不能直接筛选/合计。做法：定位占位符单元格、保留其样式作为行模板，按行写出并下推其余单元格。
+  **无阻塞**（业务 2026-10-17 已接受多行文本形态，满足「数据来自表格、导出 Excel」的核对场景）。
 
 ## 四域扩展（评估已定，待实施）
 
