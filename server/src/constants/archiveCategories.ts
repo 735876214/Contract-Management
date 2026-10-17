@@ -63,7 +63,7 @@ export const ARCHIVE_CATEGORIES: ArchiveCategory[] = [
     key: 'labor-auth',
     dir: '11.分包授权台账',
     label: '分包授权台账（Excel 内嵌照片）',
-    sourceModule: '劳务管理',
+    sourceModule: '分包管理',
   },
   { key: 'repayment', dir: '13.还款协议', label: '还款协议', sourceModule: '还款协议' },
 ];

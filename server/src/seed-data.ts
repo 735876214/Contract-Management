@@ -181,7 +181,7 @@ export const dictItems: SeedDictItem[] = [
   { typeCode: "material_source", itemCode: "BRANCH_OUT", itemName: "分公司内部调出", sortOrder: 6, status: 1, color: "orange", remark: null, extField1: null },
   { typeCode: "material_source", itemCode: "CROSS_BRANCH_OUT", itemName: "跨分公司调出", sortOrder: 7, status: 1, color: "volcano", remark: null, extField1: null },
   { typeCode: "material_source", itemCode: "RETURN", itemName: "材料退货", sortOrder: 8, status: 1, color: "red", remark: null, extField1: null },
-  { typeCode: "material_source", itemCode: "LABOR_RETURN", itemName: "劳务退库", sortOrder: 9, status: 1, color: "magenta", remark: null, extField1: null },
+  { typeCode: "material_source", itemCode: "LABOR_RETURN", itemName: "分包退库", sortOrder: 9, status: 1, color: "magenta", remark: null, extField1: null },
   { typeCode: "material_source", itemCode: "MIX_STATION", itemName: "自拌站", sortOrder: 10, status: 1, color: "lime", remark: null, extField1: null },
   { typeCode: "material_source", itemCode: "WASTE", itemName: "闲废处理", sortOrder: 11, status: 1, color: "default", remark: null, extField1: null },
   { typeCode: "material_type", itemCode: "STEEL", itemName: "钢材", sortOrder: 0, status: 1, color: "blue", remark: null, extField1: "ENG" },

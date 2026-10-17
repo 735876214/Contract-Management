@@ -47,9 +47,9 @@ const PERMISSIONS = [
   { code: 'finance:edit', name: '维护资金费用台账', module: '资金费用台账' },
   { code: 'asset:view', name: '查看资产管理台账', module: '资产管理台账' },
   { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
-  // 劳务管理 / 成本管理（附件需求 2026-10-17 新增模块）
-  { code: 'labor:view', name: '查看分包授权台账', module: '劳务管理' },
-  { code: 'labor:edit', name: '维护分包授权台账', module: '劳务管理' },
+  // 分包管理（原「劳务管理」，统一改名）/ 成本管理（附件需求 2026-10-17 新增模块）
+  { code: 'labor:view', name: '查看分包授权台账', module: '分包管理' },
+  { code: 'labor:edit', name: '维护分包授权台账', module: '分包管理' },
   { code: 'cost:view', name: '查看成本台账', module: '成本管理' },
   { code: 'cost:edit', name: '维护成本台账', module: '成本管理' },
   // 项目资料归档（一键打包下载）

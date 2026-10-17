@@ -210,10 +210,17 @@ export class CostService {
 
   // ==================== 归档导出（archive.service 调用，按分包商/账期分组） ====================
 
-  /** 分包领用盘点表（某分包商 + 某账期；periodDir 形如 `2026年10月`） */
-  async exportReceivingSheet(projectId: string, subcontractorName: string, periodDir: string): Promise<Buffer> {
+  /**
+   * 分包领用盘点表（某分包单位 + 某账期；periodDir 形如 `2026年10月`）。
+   * 按 `subcontractorId`（分包授权台账 ID）过滤——不按名称（改名/重名不失联）；
+   * ID 为空的历史行回退按名称（快照）匹配。
+   */
+  async exportReceivingSheet(projectId: string, subcontractorId: string | null, subcontractorName: string, periodDir: string): Promise<Buffer> {
     const rows = await this.prisma.subcontractReceiving.findMany({
-      where: { projectId, subcontractorName },
+      where: {
+        projectId,
+        ...(subcontractorId ? { subcontractorId } : { subcontractorName }),
+      },
       orderBy: [{ period: 'asc' }, { createdAt: 'asc' }],
     });
     const hit = rows.filter((r) => periodDirOfRows(r.period) === periodDir);

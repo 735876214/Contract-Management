@@ -49,7 +49,7 @@ Contract-Management/
 ├── docs/                # 参考文档（见 §8）
 ├── server/              # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（58 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 17 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 18 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -57,7 +57,7 @@ Contract-Management/
 │   │                               #    / settlement_invoice_receipt_link / settlement_pay_ratio
 │   │                               #    / payment_procedure / final_settlement
 │   │                               #    / procurement_task_clauses / labor_and_cost_modules / merge_subcontractor_into_labor
-│   │                               #    / labor_receiving_summary）
+│   │                               #    / labor_receiving_summary / labor_summary_by_id）
 │   ├── prisma/seed.ts  src/seed.ts  src/seed-data.ts
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts

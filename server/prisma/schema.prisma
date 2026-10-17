@@ -214,7 +214,7 @@ model LaborAuthLedger {
   receiptOrders ReceiptOrder[]
   // 成本管理 · 分包领用汇总的反引用（分包商下拉的关联；SetNull：删台账行保留领用行，名称已是快照）
   subcontractReceiving SubcontractReceiving[]
-  // 成本管理 · 劳务队领用月度汇总的反引用（同上：SetNull 保留快照行）
+  // 成本管理 · 分包单位领用月度汇总的反引用（同上：删台账行连带删汇总行——行按台账 ID 定位）
   laborReceivingSummaries LaborReceivingSummary[]
 
   @@index([projectId])
@@ -250,15 +250,16 @@ model SubcontractReceiving {
   @@index([projectId])
 }
 
-// 劳务队领用月度汇总（附件需求 2026-10-17 第二批；图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
-// 一行 = 分包商 × 结算期 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
-// （领用单位=分包商、orderDate 落在该结算期），不落库、每次读取实时算；
+// 分包单位领用月度汇总（附件需求 2026-10-17 第二批；图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
+// 一行 = 分包单位 × 结算期 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
+// （领用单位=分包单位、orderDate 落在该结算期；按 laborAuthId 关联聚合，分包商改名不断档），
+// 不落库、每次读取实时算；
 // 落库的只有**手填字段**（退库/盘点/设计量开累/损耗率/手改单价）。
 model LaborReceivingSummary {
   id                String    @id @default(cuid())
   projectId         String
-  laborAuthId       String? // 关联分包授权台账（LaborAuthLedger）
-  subcontractorName String // 分包商名称（快照）
+  laborAuthId       String // 关联分包授权台账（LaborAuthLedger；定位与聚合都按 ID，改名不断档）
+  subcontractorName String // 分包商名称（快照；展示/归档目录用，不参与唯一键与聚合）
   period            String // 结算期标签 'YYYY-MM'（periodKeyOf 派生，取期末所在月）
   materialName      String
   spec              String?
@@ -276,9 +277,9 @@ model LaborReceivingSummary {
   updatedAt         DateTime  @updatedAt
 
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  laborAuth    LaborAuthLedger? @relation(fields: [laborAuthId], references: [id], onDelete: SetNull)
+  laborAuth    LaborAuthLedger  @relation(fields: [laborAuthId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, subcontractorName, period, materialName, spec])
+  @@unique([projectId, laborAuthId, period, materialName, spec])
   @@index([projectId, period])
 }
 

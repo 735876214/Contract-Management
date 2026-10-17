@@ -96,7 +96,7 @@ export class CostController {
       where: { id: subcontractorId },
       select: { subcontractorName: true },
     });
-    const name = `${auth?.subcontractorName ?? '劳务队'}-${period}-盘点领用表.xlsx`;
+    const name = `${auth?.subcontractorName ?? '分包单位'}-${period}-盘点领用表.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.end(buf);

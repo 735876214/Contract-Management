@@ -14,17 +14,19 @@ import {
 } from '../../common/utils/settlement-period';
 
 /**
- * 劳务队领用月度汇总（附件需求 2026-10-17 第二批）。
+ * 分包单位领用月度汇总（附件需求 2026-10-17 第二批）。
  *
- * 数据模型：一行 = 分包商 × 结算期 × 材料（名称+规格）。**落库的只有手填字段**
+ * 数据模型：一行 = 分包单位 × 结算期 × 材料（名称+规格）。**落库的只有手填字段**
  * （退库/盘点/设计量开累/损耗率/手改单价/备注）；本期领用数量与平均单价每次读取时
- * 从收领单明细**实时聚合**（领用单位=分包商 + orderDate 落在该结算期），
+ * 从收领单明细**实时聚合**（按 `laborAuthId` 关联 + orderDate 落在该结算期），
  * 「上期末累计」由已存行按期链式推出（J(期N) = J(期N−1) + 净领(期N−1)，首期 0）。
  *
  * 口径：
+ * - **按 ID 关联，不按名称**：定位/聚合/查询一律用 `laborAuthId`（分包商改名不断档；
+ *   `subcontractorName` 只是展示快照，由台账带出）。
  * - 结算期归属用 `periodKeyOf(startDay, date)`（`common/utils/settlement-period.ts`），
  *   起始日取 `Project.settlementStartDate` 的日——**不许各处自己拼 getMonth**。
- * - 平均单价 = 该分包商全部期间同「名称+规格」的 Σ(实收×税前单价) ÷ Σ实收
+ * - 平均单价 = 该分包单位全部期间同「名称+规格」的 Σ(实收×税前单价) ÷ Σ实收
  *   （`averageUnitPrice`）；行上手改过单价（`priceOverridden`）则保留手填值。
  * - 派生列全部走 `deriveReceivingRow()`，不许就地写算式。
  */
@@ -39,7 +41,7 @@ const EDIT_FIELDS = [
 export class LaborReceivingService {
   constructor(private prisma: PrismaClient) {}
 
-  /** 分包商下拉（劳务授权台账）+ 已有汇总的期间列表 */
+  /** 分包单位下拉（分包授权台账）+ 已有汇总的期间列表 */
   async options(projectId: string) {
     const [subcontractors, periods] = await Promise.all([
       this.prisma.laborAuthLedger.findMany({
@@ -61,7 +63,7 @@ export class LaborReceivingService {
 
   /**
    * 合并读取：自动聚合（领用/单价）+ 已存手填行 + 派生列。
-   * `subcontractorId` 为劳务授权台账 ID；`period` 为结算期标签 `YYYY-MM`。
+   * `subcontractorId` 为分包授权台账 ID；`period` 为结算期标签 `YYYY-MM`。
    */
   async summary(subcontractorId: string, period: string, projectId: string) {
     const auth = await this.prisma.laborAuthLedger.findUnique({ where: { id: subcontractorId } });
@@ -69,12 +71,12 @@ export class LaborReceivingService {
     if (!/^\d{4}-\d{2}$/.test(period)) throw new BadRequestException('账期格式应为 YYYY-MM');
     const startDay = await this.projectStartDay(projectId);
 
-    // 1. 收领单明细聚合：本期领用 + 全期间单价聚合（一次查全，按期分组）
-    const agg = await this.aggregateReceipts(projectId, auth.subcontractorName, startDay);
+    // 1. 收领单明细聚合：本期领用 + 全期间单价聚合（一次查全，按期分组）——按 ID 关联
+    const agg = await this.aggregateReceipts(projectId, subcontractorId, startDay);
 
-    // 2. 已存手填行（该分包商全部期间——链式推上期末累计需要历史期）
+    // 2. 已存手填行（该分包单位全部期间——链式推上期末累计需要历史期）
     const saved = await this.prisma.laborReceivingSummary.findMany({
-      where: { projectId, subcontractorName: auth.subcontractorName },
+      where: { projectId, laborAuthId: subcontractorId },
       orderBy: [{ period: 'asc' }, { materialName: 'asc' }],
     });
     const savedKeyMap = new Map(saved.map((r) => [rowKey(r.period, r.materialName, r.spec), r]));
@@ -138,18 +140,16 @@ export class LaborReceivingService {
     return buildResult(list, list.length);
   }
 
-  /** upsert 单行手填字段（按 projectId+分包商+期+材料+规格 定位） */
+  /** upsert 单行手填字段（按 projectId+分包单位(台账ID)+期+材料+规格 定位） */
   async upsert(data: any, projectId: string, user: any) {
-    const payload: any = pickFields(data, EDIT_FIELDS, { label: '劳务队领用汇总' });
+    const payload: any = pickFields(data, EDIT_FIELDS, { label: '分包单位领用汇总' });
     if (!/^\d{4}-\d{2}$/.test(String(payload.period || ''))) throw new BadRequestException('账期格式应为 YYYY-MM');
     if (!String(payload.materialName || '').trim()) throw new BadRequestException('物资名称不能为空');
-    // 关联台账 + 名称快照（名称可手改覆盖，但选了台账就带出）
-    if (data?.laborAuthId) {
-      const auth = await this.prisma.laborAuthLedger.findUnique({ where: { id: data.laborAuthId } });
-      if (!auth) throw new BadRequestException('所选分包商不存在');
-      payload.subcontractorName = auth.subcontractorName;
-    }
-    if (!String(payload.subcontractorName || '').trim()) throw new BadRequestException('分包商名称不能为空');
+    // 分包单位必选（按 ID 定位）；名称只是快照，由台账带出
+    if (!data?.laborAuthId) throw new BadRequestException('请选择分包单位');
+    const auth = await this.prisma.laborAuthLedger.findUnique({ where: { id: data.laborAuthId } });
+    if (!auth) throw new BadRequestException('所选分包单位不存在');
+    payload.subcontractorName = auth.subcontractorName;
     // 手改单价 → 标记覆盖；未传 unitPrice 或清空 → 不动标记
     if (payload.unitPrice !== undefined) {
       payload.priceOverridden = num(payload.unitPrice) != null;
@@ -161,9 +161,9 @@ export class LaborReceivingService {
     // spec 落库统一为空串（复合唯一键不接受 null；对外序列化仍输出 ''）
     payload.spec = String(payload.spec ?? '').trim();
     const where = {
-      projectId_subcontractorName_period_materialName_spec: {
+      projectId_laborAuthId_period_materialName_spec: {
         projectId,
-        subcontractorName: payload.subcontractorName,
+        laborAuthId: payload.laborAuthId,
         period: payload.period,
         materialName: payload.materialName,
         spec: payload.spec,
@@ -211,14 +211,14 @@ export class LaborReceivingService {
 
     const wb = new ExcelJS.Workbook();
 
-    // ---- Sheet1 图一：劳务队月度库存盘点表 ----
+    // ---- Sheet1 图一：分包单位月度库存盘点表 ----
     const ws1 = wb.addWorksheet('月度库存盘点表');
     ws1.mergeCells('B1:E1');
-    ws1.getCell('B1').value = `劳务队月度库存盘点表（${periodLabel}）`;
+    ws1.getCell('B1').value = `分包单位月度库存盘点表（${periodLabel}）`;
     ws1.getCell('B1').font = { size: 14, bold: true };
     ws1.getCell('B1').alignment = { horizontal: 'center' };
     ws1.getRow(2).values = ['', '项目名称', project?.name ?? '', '', `${periodLabel}1日`];
-    ws1.getRow(3).values = ['', '劳务队名称', auth?.subcontractorName ?? ''];
+    ws1.getRow(3).values = ['', '分包单位名称', auth?.subcontractorName ?? ''];
     ws1.getRow(4).values = ['序号', '物资名称', '规格型号', '单位', '本月库存', '备注'];
     ws1.getRow(4).font = { bold: true };
     rows.forEach((r, i) => {
@@ -229,11 +229,11 @@ export class LaborReceivingService {
     });
     ws1.columns.forEach((c) => (c.width = 16));
 
-    // ---- Sheet2 图二：劳务队领用物资月度汇总表 ----
+    // ---- Sheet2 图二：分包单位领用物资月度汇总表 ----
     const ws2 = wb.addWorksheet('领用物资月度汇总表');
-    ws2.getCell('A1').value = `劳务队领用物资月度汇总表（${periodLabel}）`;
+    ws2.getCell('A1').value = `分包单位领用物资月度汇总表（${periodLabel}）`;
     ws2.getCell('A1').font = { size: 14, bold: true };
-    ws2.getRow(2).values = ['项目名称', project?.name ?? '', '', '劳务队名称', auth?.subcontractorName ?? ''];
+    ws2.getRow(2).values = ['项目名称', project?.name ?? '', '', '分包单位名称', auth?.subcontractorName ?? ''];
     ws2.getRow(3).values = ['序号', '物资名称', '规格型号', '单位', '上期末累计', '本期领用数量', '本期退库数量', '本期净领数量', '备注'];
     ws2.getRow(3).font = { bold: true };
     rows.forEach((r, i) => {
@@ -248,7 +248,7 @@ export class LaborReceivingService {
     const ws3 = wb.addWorksheet('甲供材节超分析表');
     ws3.getCell('A1').value = `甲供材节超分析表（${periodLabel}）`;
     ws3.getCell('A1').font = { size: 14, bold: true };
-    ws3.getRow(2).values = ['工程名称', project?.name ?? '', '', '劳务单位', auth?.subcontractorName ?? ''];
+    ws3.getRow(2).values = ['工程名称', project?.name ?? '', '', '分包单位', auth?.subcontractorName ?? ''];
     ws3.getRow(3).values = [
       '序号', '材料名称', '规格型号', '单位', '单价(元)', '扣款单价(元)',
       '设计量·至本期末开累', '损耗率%', '设计量小计(含损耗)',
@@ -279,13 +279,18 @@ export class LaborReceivingService {
   }
 
   /**
-   * 收领单明细聚合（领用单位 = 分包商）：
+   * 收领单明细聚合（领用单位 = 分包单位，按 `laborAuthId` 关联——不按名称）：
    * - `receivedByPeriod`：期标签 → (材料key → 本期领用数量/单位)；
    * - `avgPriceByKey`：材料key → 全期间平均单价（Σ税前总价 ÷ Σ数量）。
    */
-  private async aggregateReceipts(projectId: string, subcontractorName: string, startDay: number) {
+  private async aggregateReceipts(projectId: string, subcontractorId: string, startDay: number) {
     const orders = await this.prisma.receiptOrder.findMany({
-      where: { projectId, receivingUnitType: 'SUBCONTRACTOR', subcontractor: { subcontractorName } },
+      where: {
+        projectId,
+        receivingUnitType: 'SUBCONTRACTOR',
+        // 分包商在收领单上可能出现在两侧：供应单位（subcontractorId）或领用单位（receivingUnitId）
+        OR: [{ subcontractorId }, { receivingUnitId: subcontractorId }],
+      },
       select: {
         id: true, orderDate: true,
         details: { select: { materialName: true, specModel: true, unit: true, receivedQty: true, priceBeforeTax: true } },

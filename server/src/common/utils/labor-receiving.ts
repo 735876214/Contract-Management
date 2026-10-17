@@ -1,5 +1,5 @@
 /**
- * 劳务队领用月度汇总的**派生口径**纯函数（零依赖，可被 `.mts` spec 加载）。
+ * 分包单位领用月度汇总的**派生口径**纯函数（零依赖，可被 `.mts` spec 加载）。
  *
  * 业务口径（附件需求 2026-10-17 第二批，图一/图二/图三）：
  * - 图二（数据基础）：本期净领 = 本期领用 − 本期退库；上期末累计 = 上一期的「至本期末累计」；
@@ -101,7 +101,7 @@ export function deriveReceivingRow(input: DeriveReceivingInput): DerivedReceivin
 }
 
 /**
- * 平均单价 = Σ税前总价 ÷ Σ数量（图三口径：来自该劳务有价格的材料的平均单价）。
+ * 平均单价 = Σ税前总价 ÷ Σ数量（图三口径：来自该分包单位有价格的材料的平均单价）。
  * 聚合输入为空（无记录/Σ数量 0）→ null。
  */
 export function averageUnitPrice(totalPrice: number | null | undefined, totalQty: number | null | undefined): number | null {

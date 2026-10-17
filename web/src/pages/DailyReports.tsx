@@ -67,7 +67,7 @@ const FIELDS: F[] = [
   { key: 'supplierId', label: '供应单位', kind: 'supplierSelect', width: 180 },
   { key: 'receiveUnit', label: '领用单位', kind: 'text', width: 140 },
   { key: 'receiver', label: '领料人', kind: 'text', width: 110 },
-  { key: 'laborContract', label: '劳务合同', kind: 'text', width: 140 },
+  { key: 'laborContract', label: '分包合同', kind: 'text', width: 140 },
   { key: 'usePosition', label: '使用部位', kind: 'text', width: 140 },
   { key: 'isProxy', label: '是否代购', kind: 'dict', dict: 'yes_no', width: 100 },
   { key: 'plateNo', label: '车牌号', kind: 'text', width: 120 },

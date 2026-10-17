@@ -85,10 +85,10 @@ export const MENU_TREE: MenuNode[] = [
   },
   { key: 'invoice', label: '发票管理', icon: 'FileInvoiceOutlined', path: '/invoice', permission: 'invoice:view' },
   { key: 'repayment', label: '还款协议', icon: 'FileProtectOutlined', path: '/repayment', permission: 'repayment:view' },
-  // 劳务管理（附件需求 2026-10-17 新增一级模块）：分包授权台账
+  // 分包管理（附件需求 2026-10-17 新增一级模块；原「劳务管理」统一改名 2026-10-17）：分包授权台账
   {
     key: 'labor',
-    label: '劳务管理',
+    label: '分包管理',
     icon: 'TeamOutlined',
     children: [
       { key: 'labor-auth', label: '分包授权台账', icon: 'SolutionOutlined', path: '/labor/auth', permission: 'labor:view' },
@@ -101,7 +101,7 @@ export const MENU_TREE: MenuNode[] = [
     icon: 'FundProjectionScreenOutlined',
     children: [
       { key: 'cost-receiving', label: '分包领用汇总', icon: 'ShoppingOutlined', path: '/cost/receiving', permission: 'cost:view' },
-      { key: 'cost-labor-receiving', label: '劳务队领用汇总', icon: 'CalculatorOutlined', path: '/cost/labor-receiving', permission: 'cost:view' },
+      { key: 'cost-labor-receiving', label: '分包单位领用汇总', icon: 'CalculatorOutlined', path: '/cost/labor-receiving', permission: 'cost:view' },
       { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' },
     ],
   },

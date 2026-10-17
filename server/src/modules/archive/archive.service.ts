@@ -221,17 +221,24 @@ export class ArchiveService {
         }
         case 'sub-receiving': {
           const rows = await this.prisma.subcontractReceiving.findMany({ where: { projectId } });
-          const bySupplier = new Map<string, typeof rows>();
+          // 优先按分包单位 ID 分组（改名不失联）；无 ID 的历史行回退按名称快照
+          const bySupplier = new Map<string, { id: string | null; name: string; rows: typeof rows }>();
           for (const r of rows) {
-            const key = r.subcontractorName || '未分组';
-            if (!bySupplier.has(key)) bySupplier.set(key, []);
-            bySupplier.get(key)!.push(r);
+            const key = r.subcontractorId ?? `name:${r.subcontractorName || '未分组'}`;
+            if (!bySupplier.has(key)) {
+              bySupplier.set(key, {
+                id: r.subcontractorId,
+                name: r.subcontractorName || '未分组',
+                rows: [],
+              });
+            }
+            bySupplier.get(key)!.rows.push(r);
           }
-          for (const [supplier, list] of bySupplier) {
-            const periods = Array.from(new Set(list.map((r) => periodDirOf(r.period))));
+          for (const group of bySupplier.values()) {
+            const periods = Array.from(new Set(group.rows.map((r) => periodDirOf(r.period))));
             for (const p of periods) {
-              push(`${cat.dir}/${sanitizeSegment(supplier)}`, `盘点领用表-${p}.xlsx`, {
-                buffer: await this.costService.exportReceivingSheet(projectId, supplier, p),
+              push(`${cat.dir}/${sanitizeSegment(group.name)}`, `盘点领用表-${p}.xlsx`, {
+                buffer: await this.costService.exportReceivingSheet(projectId, group.id, group.name, p),
               });
             }
           }
