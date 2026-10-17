@@ -517,6 +517,13 @@ export class ReceiptOrderService {
     p.materialContractId = data.materialContractId || null;
     p.materialContractNo = data.materialContractNo ?? null;
     p.remark = data.remark ?? null;
+    // 收领单扫描件（附件需求 2026-10-17）：值是 `/api/files/<键>` 或相对键，统一存相对键
+    if (data.scanUrl !== undefined) {
+      const s = String(data.scanUrl || '');
+      const i = s.indexOf('/api/files/');
+      p.scanUrl = data.scanUrl ? (i >= 0 ? s.slice(i + '/api/files/'.length) : s.replace(/^\//, '')) : null;
+      p.scanFileName = data.scanUrl ? data.scanFileName ?? null : null;
+    }
     if (data.orderDate !== undefined) p.orderDate = toDate(data.orderDate);
     return p;
   }

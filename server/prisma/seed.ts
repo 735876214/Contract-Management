@@ -47,6 +47,13 @@ const PERMISSIONS = [
   { code: 'finance:edit', name: '维护资金费用台账', module: '资金费用台账' },
   { code: 'asset:view', name: '查看资产管理台账', module: '资产管理台账' },
   { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
+  // 劳务管理 / 成本管理（附件需求 2026-10-17 新增模块）
+  { code: 'labor:view', name: '查看分包授权台账', module: '劳务管理' },
+  { code: 'labor:edit', name: '维护分包授权台账', module: '劳务管理' },
+  { code: 'cost:view', name: '查看成本台账', module: '成本管理' },
+  { code: 'cost:edit', name: '维护成本台账', module: '成本管理' },
+  // 项目资料归档（一键打包下载）
+  { code: 'archive:view', name: '查看项目资料归档', module: '项目资料归档' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:role', name: '角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },

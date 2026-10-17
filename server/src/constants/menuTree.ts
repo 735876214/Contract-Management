@@ -85,8 +85,29 @@ export const MENU_TREE: MenuNode[] = [
   },
   { key: 'invoice', label: '发票管理', icon: 'FileInvoiceOutlined', path: '/invoice', permission: 'invoice:view' },
   { key: 'repayment', label: '还款协议', icon: 'FileProtectOutlined', path: '/repayment', permission: 'repayment:view' },
+  // 劳务管理（附件需求 2026-10-17 新增一级模块）：分包授权台账
+  {
+    key: 'labor',
+    label: '劳务管理',
+    icon: 'TeamOutlined',
+    children: [
+      { key: 'labor-auth', label: '分包授权台账', icon: 'SolutionOutlined', path: '/labor/auth', permission: 'labor:view' },
+    ],
+  },
+  // 成本管理（附件需求 2026-10-17 新增一级模块）：分包领用汇总 + 盈亏分析
+  {
+    key: 'cost',
+    label: '成本管理',
+    icon: 'FundProjectionScreenOutlined',
+    children: [
+      { key: 'cost-receiving', label: '分包领用汇总', icon: 'ShoppingOutlined', path: '/cost/receiving', permission: 'cost:view' },
+      { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' },
+    ],
+  },
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
+  // 项目资料归档（附件需求 2026-10-17）：按需求目录树一键打包 ZIP
+  { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },
   {
     key: 'base',
     label: '基础信息管理',

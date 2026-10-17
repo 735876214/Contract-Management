@@ -115,6 +115,9 @@ model Project {
   repayments               RepaymentAgreement[]
   assets                   AssetLedger[]
   receiptOrders            ReceiptOrder[]
+  laborAuthLedgers         LaborAuthLedger[]
+  subcontractReceiving     SubcontractReceiving[]
+  profitLossAnalyses       ProfitLossAnalysis[]
   procurementTemplates     ProcurementTemplate[]
   procurementTasks         ProcurementTask[]
   procurementTotalItems    ProcurementTotalItem[]
@@ -176,6 +179,83 @@ model Supplier {
   procurementBidders ProcurementBidder[]
 }
 
+// ---------------- 劳务管理（分包授权台账；附件需求 2026-10-17） ----------------
+
+// 分包授权台账。与 Subcontractor（分包材料员授权委托书）的关系：
+// Subcontractor 是**分包商档案**（含材料员身份证照片/签字截图，供互锁与归档收集），
+// 本表是**台账登记**（授权期间、快照字段可改），归档时两者合并导出。
+model LaborAuthLedger {
+  id                String    @id @default(cuid())
+  projectId         String
+  subcontractorId   String? // 关联分包商库（可空：允许先登记台账后补档案）
+  subcontractorName String // 分包商名称（快照；导出/归档命名用）
+  legalPerson       String? // 法人代表（快照，可改）
+  authorizedPerson  String? // 授权委托人（快照，可改）
+  authStartDate     DateTime? // 授权期间起
+  authEndDate       DateTime? // 授权期间止
+  status            String    @default("EDITING") // dict 复用 subcontractor_status
+  remark            String?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+}
+
+// ---------------- 成本管理（分包领用汇总 / 盈亏分析；附件需求 2026-10-17） ----------------
+
+// 分包领用汇总（结构化台账；归档目录第二段 = 分包商名称快照）
+model SubcontractReceiving {
+  id                String    @id @default(cuid())
+  projectId         String
+  subcontractorId   String? // 关联分包商库
+  subcontractorName String // 分包商名称（快照）
+  period            String? // 账期（如 2026.10）
+  materialName      String? // 物资名称
+  spec              String? // 规格型号
+  unit              String? // 计量单位（dict measurement_unit）
+  qty               Decimal?  @db.Decimal(18, 3) // 领用数量
+  unitPrice         Decimal?  @db.Decimal(18, 2) // 单价
+  amount            Decimal?  @db.Decimal(18, 2) // 金额 = qty × unitPrice（服务端算）
+  useLocation       String? // 使用部位
+  remark            String?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+}
+
+// 降本创效主材盈亏分析（结构化台账；profitLoss/profitRate 服务端派生，防两套口径）
+model ProfitLossAnalysis {
+  id             String    @id @default(cuid())
+  projectId      String
+  period         String? // 账期（如 2024.10）
+  materialName   String? // 主材名称
+  contractAmount Decimal?  @db.Decimal(18, 2) // 合同额（该主材）
+  settleAmount   Decimal?  @db.Decimal(18, 2) // 结算额
+  actualCost     Decimal?  @db.Decimal(18, 2) // 实际成本
+  profitLoss     Decimal?  @db.Decimal(18, 2) // 盈亏额 = 结算额 − 实际成本（服务端算，可为负）
+  profitRate     Decimal?  @db.Decimal(9, 4) // 盈亏率（派生）
+  remark         String?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  version        Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
 // ---------------- 分包商库（分包材料员授权委托书） ----------------
 
 model Subcontractor {
@@ -202,6 +282,9 @@ model Subcontractor {
   updatedAt            DateTime  @updatedAt
 
   receiptOrders ReceiptOrder[]
+  // 劳务/成本台账反引用（附件需求 2026-10-17；SetNull：删分包商档案保留台账行，名称已是快照）
+  laborAuthLedgers     LaborAuthLedger[]
+  subcontractReceiving SubcontractReceiving[]
 
   @@index([projectId])
   @@index([subcontractorName])
@@ -1128,6 +1211,10 @@ model ReceiptOrder {
   /// 服务端按「物资合同 + 日期所属月份」自动匹配；也可在收领单页人工指定。删结算单 → SetNull。
   settlementId          String?
   status                String    @default("DRAFT") // DRAFT 草稿 / SAVED 已保存
+  /// 收领单扫描件（附件需求 2026-10-17）：上传环节存原图（jpg/png/pdf 均可），
+  /// 归档打包时统一转成单页 PDF（`项目简称/5.物资结算/收领单/<供应商>-<物资>-<账期>-收领单.pdf`）
+  scanUrl               String? // StorageService 键（相对 POSIX 路径）
+  scanFileName          String? // 原始文件名
   pushedAt              DateTime? // 推送总日报时间
   remark                String?
   createdBy             String?

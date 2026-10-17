@@ -354,6 +354,40 @@ export const repaymentApi = {
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
 };
 
+/** 劳务管理 · 分包授权台账（附件需求 2026-10-17 新增模块） */
+export const laborApi = {
+  list: (params?: any) => http.get<any, any>('/labor/auth-ledger', { params }),
+  detail: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}`),
+  create: (data: any) => http.post<any, any>('/labor/auth-ledger', data),
+  update: (id: string, data: any) => http.put<any, any>(`/labor/auth-ledger/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/labor/auth-ledger/${id}`),
+};
+
+/** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 盈亏分析 */
+export const costApi = {
+  receiving: {
+    list: (params?: any) => http.get<any, any>('/cost/receiving', { params }),
+    detail: (id: string) => http.get<any, any>(`/cost/receiving/${id}`),
+    create: (data: any) => http.post<any, any>('/cost/receiving', data),
+    update: (id: string, data: any) => http.put<any, any>(`/cost/receiving/${id}`, data),
+    remove: (id: string) => http.delete<any, any>(`/cost/receiving/${id}`),
+  },
+  profitLoss: {
+    list: (params?: any) => http.get<any, any>('/cost/profit-loss', { params }),
+    detail: (id: string) => http.get<any, any>(`/cost/profit-loss/${id}`),
+    create: (data: any) => http.post<any, any>('/cost/profit-loss', data),
+    update: (id: string, data: any) => http.put<any, any>(`/cost/profit-loss/${id}`, data),
+    remove: (id: string) => http.delete<any, any>(`/cost/profit-loss/${id}`),
+  },
+};
+
+/** 项目资料归档（附件需求 2026-10-17）：目录树 + 一键/按目录打包 ZIP */
+export const archiveApi = {
+  entries: () => http.get<any, any>('/archive/entries'),
+  downloadUrl: (scope?: string) =>
+    `${http.defaults.baseURL}/archive/download${scope && scope !== 'all' ? `?scope=${encodeURIComponent(scope)}` : ''}`,
+};
+
 export const financeApi = {
   // 合同资金参数（付款模式/月利率/宽限期/上限比例）
   contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),

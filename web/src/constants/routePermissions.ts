@@ -46,6 +46,11 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/invoice': ['invoice:view'],
   '/repayment': ['repayment:view'],
   '/statistics': ['dashboard:view'],
+  // 劳务管理 / 成本管理 / 项目资料归档（附件需求 2026-10-17 新增）
+  '/labor/auth': ['labor:view'],
+  '/cost/receiving': ['cost:view'],
+  '/cost/profit-loss': ['cost:view'],
+  '/archive': ['archive:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

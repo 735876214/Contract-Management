@@ -27,6 +27,9 @@ import { ProcurementModule } from './modules/procurement/procurement.module';
 import { PaymentProcedureModule } from './modules/payment-procedure/payment-procedure.module';
 import { DocTemplateModule } from './modules/doc-template/doc-template.module';
 import { FinalSettlementModule } from './modules/final-settlement/final-settlement.module';
+import { LaborModule } from './modules/labor/labor.module';
+import { CostModule } from './modules/cost/cost.module';
+import { ArchiveModule } from './modules/archive/archive.module';
 
 @Module({
   imports: [
@@ -58,6 +61,9 @@ import { FinalSettlementModule } from './modules/final-settlement/final-settleme
     PaymentProcedureModule,
     DocTemplateModule,
     FinalSettlementModule,
+    LaborModule,
+    CostModule,
+    ArchiveModule,
   ],
 })
 export class AppModule {}

@@ -41,6 +41,8 @@ import {
   TrophyOutlined,
   FileSyncOutlined,
   EyeOutlined,
+  FundProjectionScreenOutlined,
+  PieChartOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -87,6 +89,8 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   TrophyOutlined,
   FileSyncOutlined,
   EyeOutlined,
+  FundProjectionScreenOutlined,
+  PieChartOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */
