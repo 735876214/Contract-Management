@@ -76,3 +76,25 @@
 - ② 合同台账 `Ledger` 的 `ledger.columns.config`：**服务端共享**配置，页面列也由后端返回。
 - 给台账页再传 `columnConfigKey` 会出现两套列设置打架；列显隐**不落 `sys_param`**（那是全局配置且需
   `system:config` 权限，普通用户存不了）。
+
+## 多页签与编辑器页签（2026-10-17 批次，硬约定见 CLAUDE.md §5）
+
+- **页面按标签缓存，不按路由**：`BasicLayout` 把 `useOutlet()` 的元素按标签键存进 Map、
+  非活动项 `display:none`。**页面禁止用 `useLocation()` 判断自身形态**——列表标签
+  （`/x`）与编辑器标签（`/x?editor=1`）会同时挂在 DOM 上，按 URL 判断会让被缓存的列表
+  实例也变成编辑器。一律 `useEditorTab()`（读 `TabScope` 上下文，值来自该标签自己的键）。
+- **编辑器页签 = 查询参数约定**：`?editor=new|<id>`，不新增路由（权限表是一致性锁，
+  加子路由会连锁红）。最简范例 `Payments.tsx`；带种子/多步范例 `Initiate.tsx`、`ReceiptOrders.tsx`。
+- **跨标签刷新**：编辑器保存后 `closeEditor()`（内部 `bumpRefresh(列表路径)`）；
+  列表的取数 `refreshKey` 必须**加上** `useTabRefresh(列表路径)`——否则被缓存的列表
+  不会重新取数，"保存成功、列表还是旧的"。
+- **被缓存页面的复检挂 `useTabActivate(标签键, cb)`**：页面不会重新挂载，
+  `useEffect([])` 整天只跑一次（工作台浮窗、ECharts/表格重测量都靠它 + 全局 resize 派发）。
+- **种子（`useEditorTab().seed`）取出不删**：右键"刷新标签"会重挂载编辑器，
+  清掉种子会让它变成空表；生命周期跟着标签走（关标签时回收）。
+- **非菜单路径必须有兜底渲染**：旧扁平路径（`/ledger` 等 `<Navigate>` 重定向）建不出标签，
+  `BasicLayout` 的无标签兜底支漏了它们会**静默失效**（内容区空白）。有回归锁（验收脚本）。
+- 持久化（`scm_sider_tabs`）**跳过编辑器标签**、上限 12 个且**只淘汰非编辑器标签**
+  （编辑到一半被淘汰 = 无声的数据丢失）；纯逻辑锁在 `server/test/tabsStore.spec.mts`。
+- 「我的待办」分类镜像：后端 `constants/todoCategories.ts` ↔ 前端
+  `constants/dashboardTodoTabs.ts`，改一侧必须同步另一侧（`dashboardTodo.spec.mts` 锁）。

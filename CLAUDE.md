@@ -128,6 +128,24 @@ Contract-Management/
   紧凑行高与冻结关键列由 `ModuleListPage` 按容器给；`≤md` 侧栏走 Drawer。
 - ⚠️ 集合了 `container-type` 的祖先会成为其后代 `position: fixed` 的**包含块** → 自绘浮层走 portal；
   且**portal 切换不会重挂载组件**，"外部值 → DOM" 的 effect 依赖要带上挂载点状态。
+- **多页签（keep-alive）与编辑器页签**（2026-10-17 批次，视觉口径见 [DESIGN.md](DESIGN.md) §10.1）：
+  - 页面实例由 `BasicLayout` 按**标签**缓存（非活动的 `display:none`，state 保留）；
+    被缓存的页面想知道"我又被显示了"只能靠 `useTabActivate(标签键, cb)`——
+    页面不会重新挂载，靠 `useEffect([])` 做的"首检"整天只跑一次（工作台浮窗踩过）。
+  - **编辑器页签 = 同一路由的 `?editor=new|<id>` 查询参数**（不新增路由——
+    `routePermissionCodes()` 是精确匹配，加子路由会连带改权限表与一致性锁）。
+    页面**禁止用 `useLocation()` 判断自己是不是编辑器**：列表标签与编辑器标签会**同时挂在 DOM 上**，
+    按 URL 判断会让被缓存的列表实例也变成编辑器；一律经 `useEditorTab()`（读 `TabScope` 上下文）。
+    页面形态切换模式见 `Payments.tsx`（最简）与 `Initiate.tsx`（三步向导）。
+  - 编辑器保存成功后要让**另一个被缓存的列表标签**重新取数：列表 `refreshKey` 加
+    `useTabRefresh(列表路径)`，编辑器 `closeEditor()`（内部 `bumpRefresh`）。
+  - 页面实例缓存的 key 里带 `version`（右键"刷新标签"递增即重挂载）；
+    持久化**跳过编辑器标签**（未保存内容无法恢复，恢复一个空编辑器更糟）。
+  - ⚠️ **当前路由没有对应标签时必须有兜底渲染**（`BasicLayout` 的 `renderPane` 兜底支）——
+    旧扁平路径（`/ledger` 等重定向）不在菜单里、建不出标签，漏了它重定向会**静默失效**
+    （内容区空白，实测踩到）。
+  - 编辑器的"初始数据种子"存 `store/tabs.ts` 的 `editorSeeds`（按标签键），**取出不删**——
+    右键"刷新"重挂载时还要用；关标签时随 `prune` 回收。
 - 两套测试别混用；前端纯逻辑单测放 `server/test/*.spec.mts`（**不引入** jest/vitest）。
 - 细则见 [.claude/rules/frontend-conventions.md](.claude/rules/frontend-conventions.md)、
   [.claude/rules/testing.md](.claude/rules/testing.md)；视觉规则与取舍见 [DESIGN.md](DESIGN.md)。

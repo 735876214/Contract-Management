@@ -205,9 +205,34 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
   由 `server/test/themeTokens.spec.mts` 与 `containerQuery.spec.mts` 分别看住。
 - 不把营销页组件搬进后台（hero/pricing/connector/footer），不使用 Anthropic 的商标与字标。
 - 不硬编码状态中文/颜色：状态展示取自字典或 `constants/procurementWorkflow.ts`。
-- 不用纯白做页面底（`paper` 只给文档预览）；不给卡片加重阴影。
+- 不用纯白做页面底（`paper` 只给文档预览）；不给卡片加重阴影（**唯一例外**：§5 的
+  `.stat-card` / `.cms-card-hoverable` 悬停一档）。
 - 不在组件里用 `window.innerWidth` / `matchMedia` 自行判断断点（见 §10）。
 - 不为移动端给大宽表（36 列台账等）做卡片化——明确取舍，见 §10。
+- **不用冷灰底替代暖奶油体系**（2026-10-17 外部建议书评估结论）：`#f0f2f5` 内容区、`#f5f7fa`
+  表头、`--el-color-primary` 一类 Element 体系的色值**不采纳**——本仓已有完整的暖奶油 token
+  体系（§1–§3），其"意图"（主题色变量化、背景分层、圆角统一、Tag 对比度）全部已满足；
+  组件里写死这些色值会被 `themeTokens.spec.mts` 判红。
+- **不用瞬时浮层（notification/message）承载常驻信息**：常驻信息（预警、待办）必须有可回溯的
+  出口（工作台卡片、消息中心）；瞬时浮层只用于操作反馈。当天首屏的"待办汇总"用 **Modal**
+  （明确关闭语义 + 关闭后当天不再弹，见 `pages/dashboardTodo.tsx`），不用 notification 堆叠。
+- **空状态统一走 `components/EmptyState.tsx`**（`compact` 变体给表格空态，`actionText` 给出口），
+  别再散落裸 `<Empty>`；**不做自定义 SVG 插画**（无设计资源，§0 已声明不搬插画规范）。
+
+## 10.1 多页签与编辑器页签（2026-10-17 批次新增）
+
+> 多页签（keep-alive）+ 编辑器页签的完整实现与取舍见
+> [CLAUDE.md §5](CLAUDE.md) 与 `.claude/rules/frontend-conventions.md`；这里只写视觉与交互口径。
+
+- **标签栏属页面外壳层**（宽度=内容区=视口），响应式按 §10.1 走 `useResponsive()`
+  （≤md 紧凑形态 `.is-compact`）；`layouts/TagsView.tsx` 已登记进 `containerQuery.spec.mts`
+  的视口层白名单。
+- 标签样式（`index.css` 的 `.cms-tags-view*`）：pill 形、顺序稳定不因激活重排、激活态主色描边、
+  **编辑器标签用虚线边**与菜单标签区分、有未保存内容的标签打琥珀点（关闭前会确认）。
+- 标签栏在顶栏与内容区之间 `position: sticky`；≤md 横向滚动、不撑破页面。
+- **编辑器页签壳**（`components/editor/EditorTabPage.tsx`）：页头（衬线标题 + 状态 Tag 槽位）+
+  正文 + **sticky 底栏**（hairline 顶边 + canvas 底）——"长表单的底部按钮被滚出视口"由它兜住。
+  底栏按钮层级：主操作实心品牌色、取消描边、附加动作（预览/导出）走左槽或 `footerExtra`。
 
 ## 10. 响应式（**双层模型**）
 
