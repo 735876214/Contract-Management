@@ -34,6 +34,7 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 import MaterialPoolTab from '@/components/contract/MaterialPoolTab';
 import ContractItemTab from '@/components/contract/ContractItemTab';
 import EditorTabPage from '@/components/editor/EditorTabPage';
+import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 
 /** 草稿超时阈值（需求 2.1.3：新增后 2 小时内未完成即视为超时） */
 const OVERDUE_HOURS = 2;
@@ -177,6 +178,11 @@ export default function ContractDraft() {
           signDate: detail.signDate ? dayjs(detail.signDate) : null,
           // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
           taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
+          // 条款选择回显（业务口径 2026-10-16）
+          technicalClauseId: detail.technicalClauseId,
+          qualityClauseId: detail.qualityClauseId,
+          acceptanceClauseId: detail.acceptanceClauseId,
+          paymentClauseId: detail.paymentClauseId,
         });
         editorTab.setTitle(`合同起草 · ${detail.code || ''}`.trim());
       })
@@ -200,6 +206,11 @@ export default function ContractDraft() {
         signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
         // 合同级税率：用户填 13 → 后端按小数 0.13 存储；保存后 Tab2 所有物料税率自动同步
         taxRate: values.taxRate != null && values.taxRate !== '' ? Number(values.taxRate) / 100 : null,
+        // 条款选择（业务口径 2026-10-16）：Contract 的 4 个条款外键
+        technicalClauseId: values.technicalClauseId || null,
+        qualityClauseId: values.qualityClauseId || null,
+        acceptanceClauseId: values.acceptanceClauseId || null,
+        paymentClauseId: values.paymentClauseId || null,
       });
       const detail: any = await contractApi.detail(editing.id);
       setEditing(detail);
@@ -482,7 +493,7 @@ export default function ContractDraft() {
         {editing ? (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Card size="small" title="基础信息">
-              <Form form={basicForm} layout="vertical">
+              <Form form={basicForm} layout="vertical" onValuesChange={() => setDirty(true)}>
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <Form.Item label="合同编号（自动生成，保存后不可变更）">
@@ -558,6 +569,10 @@ export default function ContractDraft() {
                     </Form.Item>
                   </Col>
                 </Row>
+                {/* 条款选择（业务口径 2026-10-16）：Contract 本就有 4 个条款外键，
+                    旧合同编辑页会填，新起草页此前没有入口 —— 不补的话合同模板里的
+                    {{技术条款}} 等变量恒为空。同样"只选不录"，条款库维护在 /base/clause。 */}
+                <ClauseSelectRow form={basicForm} />
               </Form>
             </Card>
 

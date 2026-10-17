@@ -35,6 +35,7 @@ import {
 import { assertResultReportRejectable } from '../../constants/workflowGuards';
 import { BIDDER_STATUS, CONTRACT_STATUS, DICT_TYPES, MODULE_RECORD_STATUS } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
+import { resolveClauseSnapshot, CLAUSE_TYPE_LABELS, type ClauseSnapshot } from './clause-snapshot';
 
 /** 文本归一化：trim 后空串转 null（各阶段表单共用，避免重复定义） */
 const textOf = (v: any): string | null => {
@@ -155,6 +156,11 @@ interface TaskRow {
   techQuality: string | null;
   acceptanceMethod: string | null;
   paymentMethod: string | null;
+  /** 条款选择（业务口径 2026-10-16）：仅用于回显，正文快照在三个文本列里 */
+  technicalClauseId?: string | null;
+  qualityClauseId?: string | null;
+  paymentClauseId?: string | null;
+  acceptanceClauseId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -387,6 +393,11 @@ export class ProcurementTaskService {
       techQuality?: string;
       acceptanceMethod?: string;
       paymentMethod?: string;
+      /** 条款选择（业务口径 2026-10-16）：条款只在「合同条款」维护，这里只存 id */
+      technicalClauseId?: string | null;
+      qualityClauseId?: string | null;
+      paymentClauseId?: string | null;
+      acceptanceClauseId?: string | null;
     },
   ) {
     const current = await this.prisma.procurementTask.findUnique({ where: { id } });
@@ -403,6 +414,10 @@ export class ProcurementTaskService {
       techQuality?: string | null;
       acceptanceMethod?: string | null;
       paymentMethod?: string | null;
+      technicalClauseId?: string | null;
+      qualityClauseId?: string | null;
+      paymentClauseId?: string | null;
+      acceptanceClauseId?: string | null;
     } = {};
     if (data?.content != null) {
       const c = String(data.content).trim();
@@ -422,8 +437,65 @@ export class ProcurementTaskService {
       if (current.stage >= 1) throw new BadRequestException('总采购清单已发布，不可调整采前会要求');
       patch.preMeetingRequired = data.preMeetingRequired === true;
     }
+
+    // ==================== 条款选择（业务口径 2026-10-16） ====================
+    // 四个 id 可空（新项目条款库可能为空）；传了就校验"存在 + 类型匹配"，然后**把条款正文
+    // 快照进既有文本列** —— 下游 20+ 处消费点（采前会/公告/文件/成交报告/Word 导出）零改动。
+    const clauseInput: {
+      technicalClauseId?: string | null;
+      qualityClauseId?: string | null;
+      paymentClauseId?: string | null;
+      acceptanceClauseId?: string | null;
+    } = {};
+    let hasClauseInput = false;
+    for (const k of ['technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId'] as const) {
+      if (data?.[k] === undefined) continue;
+      hasClauseInput = true;
+      clauseInput[k] = data[k] === null || data[k] === '' ? null : String(data[k]);
+    }
+    if (hasClauseInput) {
+      const snapshots = await this.resolveClauseSnapshots(clauseInput);
+      Object.assign(patch, clauseInput, snapshots);
+    }
+
     const updated = await this.prisma.procurementTask.update({ where: { id }, data: patch });
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
+  }
+
+  /**
+   * 校验条款选择并产出**正文快照**（业务口径 2026-10-16）。
+   *
+   * 规则（纯逻辑在 `clause-snapshot.ts`，由 `clauseSelection.spec.mts` 锁定；本方法只做查库与报错）：
+   * - id 必须存在于 `Clause` 且 `type` 与槽位匹配（写错类型会让模板变量拿到奇怪内容，从界面看不出来）；
+   * - `techQuality` = 技术条款正文 +（选了质量条款时）质量条款正文（两段拼接）；
+   *   `acceptanceMethod` = 验收方式正文；`paymentMethod` = 付款条件正文；
+   * - 某槽位传 `null` = 清除该选择 → 对应文本列**一并清空**（否则界面看着没选、变量却还有值）。
+   *
+   * 快照语义：条款库后续被改，**不影响已保存的采购任务**（下游采前会/公告/文件/成交报告读的都是
+   * 文本列，跟着快照走）。
+   */
+  private async resolveClauseSnapshots(input: {
+    technicalClauseId?: string | null;
+    qualityClauseId?: string | null;
+    paymentClauseId?: string | null;
+    acceptanceClauseId?: string | null;
+  }): Promise<ClauseSnapshot> {
+    const ids = Object.values(input).filter((v): v is string => !!v);
+    const fetched = ids.length
+      ? await this.prisma.clause.findMany({ where: { id: { in: ids } } })
+      : [];
+    const byId = new Map(fetched.map((c) => [c.id, c]));
+    return resolveClauseSnapshot(
+      input,
+      (id) => byId.get(id),
+      () => new BadRequestException('所选条款不存在，请刷新后重试'),
+      (slot, expected, actual) =>
+        new BadRequestException(
+          `条款类型与所选槽位不匹配（${slot} 需要 ${CLAUSE_TYPE_LABELS[expected]}，实际为 ${
+            (actual as string) ?? '未分类'
+          }）`,
+        ),
+    );
   }
 
   /**
@@ -2345,6 +2417,11 @@ export class ProcurementTaskService {
       techQuality: r.techQuality ?? '',
       acceptanceMethod: r.acceptanceMethod ?? '',
       paymentMethod: r.paymentMethod ?? '',
+      // 条款选择的回显（业务口径 2026-10-16）：前端据此在四个下拉里选中"选的是哪一条"
+      technicalClauseId: r.technicalClauseId ?? null,
+      qualityClauseId: r.qualityClauseId ?? null,
+      paymentClauseId: r.paymentClauseId ?? null,
+      acceptanceClauseId: r.acceptanceClauseId ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

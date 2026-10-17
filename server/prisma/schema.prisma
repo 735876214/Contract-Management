@@ -403,6 +403,12 @@ model Clause {
   contractQualityClauses    Contract[] @relation("ContractQualityClause")
   contractPaymentClauses    Contract[] @relation("ContractPaymentClause")
   contractAcceptanceClauses Contract[] @relation("ContractAcceptanceClause")
+
+  // 采购侧反引用（业务口径 2026-10-16：采购发起第三步也改为"选择条款"）
+  technicalTasks  ProcurementTask[] @relation("TaskTechnicalClause")
+  qualityTasks    ProcurementTask[] @relation("TaskQualityClause")
+  paymentTasks    ProcurementTask[] @relation("TaskPaymentClause")
+  acceptanceTasks ProcurementTask[] @relation("TaskAcceptanceClause")
 }
 
 // ---------------- 日报 ----------------
@@ -1216,14 +1222,25 @@ model ProcurementTask {
   // 注：与合同的关系**只由 Contract.taskId 一条表达**（反引用 contracts，见下方 relations）。
   // 原先双写的 contractId 字段已移除（2026-10-14），避免同一关系两处可能不一致。
   procurementCategory String? // 采购品类：物资 | 租赁（采购发起第一步填写；决定合同模板映射）
-  techQuality         String? // 技术质量标准（富文本 HTML；采购发起第三步填写，公告/文件/采前会/合同模板引用）
-  acceptanceMethod    String? // 验收方式（富文本 HTML）
-  paymentMethod       String? // 付款方式（富文本 HTML）
+  techQuality         String? // 技术质量标准（= 所选技术/质量条款正文的**快照**；公告/文件/采前会/合同模板都读它）
+  acceptanceMethod    String? // 验收方式（= 所选验收方式条款正文的快照）
+  paymentMethod       String? // 付款方式（= 所选付款条件条款正文的快照）
+  // 条款选择（业务口径 2026-10-16）：条款**只在「基础信息管理 → 合同条款」维护**，
+  // 采购清单只做"选择"；四个外键用于回显"选的是哪一条"，正文另存快照（上三列）——
+  // 这样条款库后续被改动不会改写已发布的采购文档（与"发布即定型"的语义一致）。
+  technicalClauseId   String? // 技术条款 ID
+  qualityClauseId     String? // 质量条款 ID（与技术条款合成 techQuality 两段）
+  paymentClauseId     String? // 付款条件 ID
+  acceptanceClauseId  String? // 验收方式 ID
   createdAt           DateTime @default(now())
   version             Int      @default(0)
   updatedAt           DateTime @updatedAt
 
   project                 Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  technicalClause         Clause?                  @relation("TaskTechnicalClause", fields: [technicalClauseId], references: [id], onDelete: SetNull)
+  qualityClause           Clause?                  @relation("TaskQualityClause", fields: [qualityClauseId], references: [id], onDelete: SetNull)
+  paymentClause           Clause?                  @relation("TaskPaymentClause", fields: [paymentClauseId], references: [id], onDelete: SetNull)
+  acceptanceClause        Clause?                  @relation("TaskAcceptanceClause", fields: [acceptanceClauseId], references: [id], onDelete: SetNull)
   totalItems              ProcurementTotalItem[]
   frameworkExplanation    FrameworkExplanation?
   preMeetingMinutes       PreMeetingMinutes?

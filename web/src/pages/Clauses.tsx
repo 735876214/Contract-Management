@@ -3,6 +3,10 @@ import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag
 import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
 import RichTextEditor from '@/components/RichTextEditor';
+// 条款类型常量抽到零依赖文件（`server/test/clauseSelection.spec.mts` 要直接加载它锁
+// "四个槽位 ↔ 四种条款类型"的对应关系；.tsx 进不了 .mts，见该常量文件的注释）
+import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
+export { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL }; // 兼容旧引用（Contracts.tsx 从本页 import）
 
 /** 模板/条款内容可用变量占位符（按类别分组，供「插入变量」面板展示与搜索） */
 export interface VarItem {
@@ -81,18 +85,8 @@ export const VARIABLES = VARIABLE_GROUPS.flatMap((g) => g.items.map((i) => i.key
  * 合同条款页面（需求 2.2 修正：原「条款库」统一命名为「合同条款」，功能完整迁移至此）
  * 路由 /base/clause，接口与数据模型不变（/templates/clauses）。
  * 需求 2.3：条款固定四种类型（技术条款/质量条款/付款条件/验收方式），支持按类型筛选。
+ * 类型常量在 `@/constants/clauseTypes`（本文件 re-export 以兼容旧引用）。
  */
-export const CLAUSE_TYPE_OPTIONS = [
-  { value: 'technical', label: '技术条款' },
-  { value: 'quality', label: '质量条款' },
-  { value: 'payment', label: '付款条件' },
-  { value: 'acceptance', label: '验收方式' },
-];
-
-/** 类型编码 → 名称 */
-export const CLAUSE_TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  CLAUSE_TYPE_OPTIONS.map((t) => [t.value, t.label]),
-);
 export default function Clauses() {
   const [clauses, setClauses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

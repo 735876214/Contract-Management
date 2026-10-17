@@ -36,6 +36,11 @@ export const procurementTaskApi = {
       techQuality?: string;
       acceptanceMethod?: string;
       paymentMethod?: string;
+      /** 条款选择（业务口径 2026-10-16）：正文由后端快照进 techQuality/acceptanceMethod/paymentMethod */
+      technicalClauseId?: string | null;
+      qualityClauseId?: string | null;
+      acceptanceClauseId?: string | null;
+      paymentClauseId?: string | null;
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */

@@ -19,7 +19,7 @@ import TotalListEditor, {
   TotalListEditorContent,
   type TotalListContentRef,
 } from '@/components/procurement/TotalListEditor';
-import RichTextEditor from '@/components/RichTextEditor';
+import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -144,9 +144,11 @@ export default function Initiate() {
           content: seedRow.content,
           purpose: seedRow.purpose,
           procurementCategory: seedRow.procurementCategory ?? undefined,
-          techQuality: task?.techQuality ?? '',
-          acceptanceMethod: task?.acceptanceMethod ?? '',
-          paymentMethod: task?.paymentMethod ?? '',
+          // 条款选择回显（业务口径 2026-10-16：第三步已从富文本改为"选择条款"）
+          technicalClauseId: task?.technicalClauseId ?? undefined,
+          qualityClauseId: task?.qualityClauseId ?? undefined,
+          acceptanceClauseId: task?.acceptanceClauseId ?? undefined,
+          paymentClauseId: task?.paymentClauseId ?? undefined,
         });
       })
       .catch(() => {
@@ -222,19 +224,25 @@ export default function Initiate() {
     }
   };
 
-  /** 第三步「保存并发布」：写入三字段，然后发布总清单阶段，关闭页签并回列表 */
+  /** 第三步「保存并发布」：写入条款选择（后端快照进文本列），然后发布总清单阶段，关闭页签并回列表 */
   const handleFinalPublish = async () => {
     if (!createdTask) return;
-    const values = await form.validateFields(['techQuality', 'acceptanceMethod', 'paymentMethod']);
+    const values = await form.validateFields([
+      'technicalClauseId',
+      'qualityClauseId',
+      'acceptanceClauseId',
+      'paymentClauseId',
+    ]);
     setPublishing(true);
     try {
       await procurementTaskApi.update(createdTask.id, {
-        techQuality: values.techQuality || '',
-        acceptanceMethod: values.acceptanceMethod || '',
-        paymentMethod: values.paymentMethod || '',
+        technicalClauseId: values.technicalClauseId || null,
+        qualityClauseId: values.qualityClauseId || null,
+        acceptanceClauseId: values.acceptanceClauseId || null,
+        paymentClauseId: values.paymentClauseId || null,
       });
       await procurementTaskApi.publish(createdTask.id);
-      message.success('采购任务已发布，技术质量/验收方式/付款方式已记录');
+      message.success('采购任务已发布，条款已随任务固化（快照）');
       setDirty(false);
       editorTab.closeEditor();
     } finally {
@@ -404,17 +412,9 @@ export default function Initiate() {
               showIcon
               closable
               style={{ marginBottom: 12 }}
-              message="以下三项技术/验收/付款标准将随采购任务流转，自动推送到采前会会议纪要、采购公告、采购文件及关联合同模板的对应位置。"
+              message="技术质量 / 验收方式 / 付款方式从「基础信息管理 → 合同条款」中选择（条款正文随任务保存为快照，后续修改条款库不影响本任务）；如需新增或调整条款，请前往合同条款页。"
             />
-            <Form.Item name="techQuality" label="技术质量标准" getValueFromEvent={(h: string) => h || ''}>
-              <RichTextEditor placeholder="填写技术质量标准（富文本）" minHeight={150} />
-            </Form.Item>
-            <Form.Item name="acceptanceMethod" label="验收方式" getValueFromEvent={(h: string) => h || ''}>
-              <RichTextEditor placeholder="填写验收方式（富文本）" minHeight={150} />
-            </Form.Item>
-            <Form.Item name="paymentMethod" label="付款方式" getValueFromEvent={(h: string) => h || ''}>
-              <RichTextEditor placeholder="填写付款方式（富文本）" minHeight={150} />
-            </Form.Item>
+            <ClauseSelectRow form={form} onAfterChange={() => setDirty(true)} />
           </Form>
         ) : (
           <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
