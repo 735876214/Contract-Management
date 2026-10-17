@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { averageUnitPrice, deriveReceivingRow } from '../src/common/utils/labor-receiving.ts';
+import { averageUnitPrice, deriveReceivingRow, weightedUnitPrice } from '../src/common/utils/labor-receiving.ts';
 
 /**
  * 劳务队领用月度汇总 · 派生口径（附件需求 2026-10-17 第二批）。
@@ -70,4 +70,25 @@ test('平均单价 = Σ税前总价 ÷ Σ数量；空聚合 / 0 数量 → null'
   assert.equal(averageUnitPrice(0, 0), null);
   assert.equal(averageUnitPrice(null, 10), null);
   assert.equal(averageUnitPrice(1, 3), 0.3333);
+});
+
+test('加权单价 = Σ(数量×单价) ÷ Σ数量（月度盈亏分析汇总表跨队合并）', () => {
+  assert.equal(
+    weightedUnitPrice([
+      { qty: 100, unitPrice: 10 },
+      { qty: 300, unitPrice: 20 },
+    ]),
+    17.5,
+  );
+  // 单价未知的队：数量进分母、金额不虚构
+  assert.equal(
+    weightedUnitPrice([
+      { qty: 100, unitPrice: 10 },
+      { qty: 100, unitPrice: null },
+    ]),
+    5,
+  );
+  assert.equal(weightedUnitPrice([{ qty: 0, unitPrice: 10 }]), null);
+  assert.equal(weightedUnitPrice([{ qty: 10, unitPrice: null }]), null);
+  assert.equal(weightedUnitPrice([]), null);
 });

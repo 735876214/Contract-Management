@@ -268,6 +268,30 @@ export class LaborReceivingService {
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
+  /**
+   * 某分包单位某结算期的**节超快照行**（月度盈亏分析明细的取数入口；
+   * 与 summary() 同源的派生口径，只是返回精简结构）。
+   * 供 `MonthlyProfitLossService` 生成快照用——不要复制聚合逻辑。
+   */
+  async periodSnapshotRows(subcontractorId: string, period: string, projectId: string) {
+    const res: any = await this.summary(subcontractorId, period, projectId);
+    return (res.list || []).map((r: any) => ({
+      laborAuthId: subcontractorId,
+      materialName: r.materialName,
+      spec: r.spec ?? '',
+      unit: r.unit ?? null,
+      unitPrice: r.unitPrice,
+      entryQty: r.usedCum, // 进场量 = 至本期末累计领用
+      designQty: r.designQtyCum, // 图纸设计量（设计量·开累）
+      lossRate: r.lossRate,
+      theoryUseQty: r.designSubtotal, // 理论消耗量 = 设计小计（含损耗）
+      actualUseQty: r.actualUse, // 实际消耗量
+      stockQty: r.stockTakeQty, // 库存量
+      saveOverQty: r.saveOver, // 盈(+)亏(−)数量（正 = 超耗）
+      remark: r.remark ?? '',
+    }));
+  }
+
   // ==================== 私有 ====================
 
   private async projectStartDay(projectId: string): Promise<number> {

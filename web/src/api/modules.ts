@@ -376,7 +376,7 @@ export const laborApi = {
   exportWorkbookUrl: () => `${http.defaults.baseURL}/labor/auth-ledger/export`,
 };
 
-/** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 盈亏分析 */
+/** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 月度盈亏分析 + 分包单位领用月度汇总 */
 export const costApi = {
   receiving: {
     list: (params?: any) => http.get<any, any>('/cost/receiving', { params }),
@@ -385,14 +385,18 @@ export const costApi = {
     update: (id: string, data: any) => http.put<any, any>(`/cost/receiving/${id}`, data),
     remove: (id: string) => http.delete<any, any>(`/cost/receiving/${id}`),
   },
-  profitLoss: {
-    list: (params?: any) => http.get<any, any>('/cost/profit-loss', { params }),
-    detail: (id: string) => http.get<any, any>(`/cost/profit-loss/${id}`),
-    create: (data: any) => http.post<any, any>('/cost/profit-loss', data),
-    update: (id: string, data: any) => http.put<any, any>(`/cost/profit-loss/${id}`, data),
-    remove: (id: string) => http.delete<any, any>(`/cost/profit-loss/${id}`),
+  /** 月度盈亏分析（附件需求 2026-10-17 第三批；一个月一条，明细=当期节超快照） */
+  monthlyProfitLoss: {
+    list: (params?: any) => http.get<any, any>('/cost/monthly-profit-loss', { params }),
+    detail: (id: string) => http.get<any, any>(`/cost/monthly-profit-loss/${id}`),
+    create: (data: any) => http.post<any, any>('/cost/monthly-profit-loss', data),
+    update: (id: string, data: any) => http.put<any, any>(`/cost/monthly-profit-loss/${id}`, data),
+    remove: (id: string) => http.delete<any, any>(`/cost/monthly-profit-loss/${id}`),
+    /** 重新抓取当期快照（手填项按 分包单位+材料+规格 回填） */
+    reSnapshot: (id: string) => http.post<any, any>(`/cost/monthly-profit-loss/${id}/re-snapshot`),
+    exportUrl: (id: string) => `${http.defaults.baseURL}/cost/monthly-profit-loss/${id}/export`,
   },
-  /** 劳务队领用月度汇总（附件需求 2026-10-17 第二批）：领用自动聚合 + 退库/盘点手填 + 三表导出 */
+  /** 分包单位领用月度汇总（附件需求 2026-10-17 第二批）：领用自动聚合 + 退库/盘点手填 + 三表导出 */
   laborReceiving: {
     options: () => http.get<any, any>('/cost/labor-receiving/options'),
     summary: (subcontractorId: string, period: string) =>

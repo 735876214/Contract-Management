@@ -19,7 +19,7 @@ const RECEIVING_FIELDS = [
   'subcontractorId', 'subcontractorName', 'period', 'materialName', 'spec', 'unit',
   'qty', 'unitPrice', 'useLocation', 'remark',
 ];
-const PROFIT_FIELDS = ['period', 'materialName', 'contractAmount', 'settleAmount', 'actualCost', 'remark'];
+// 旧手工台账 ProfitLossAnalysis 已删除（2026-10-17 第三批：月度盈亏分析见 monthly-profit-loss.service.ts）
 
 @Injectable()
 export class CostService {
@@ -126,88 +126,6 @@ export class CostService {
     };
   }
 
-  // ==================== 盈亏分析 ====================
-
-  async listProfitLoss(query: any = {}, projectId: string) {
-    const { skip, take } = paginate(query);
-    const where: any = { projectId };
-    if (query.period) where.period = query.period;
-    if (query.keyword) where.materialName = { contains: query.keyword };
-    const [rows, total] = await Promise.all([
-      this.prisma.profitLossAnalysis.findMany({ where, skip, take, orderBy: [{ period: 'desc' }, { createdAt: 'desc' }] }),
-      this.prisma.profitLossAnalysis.count({ where }),
-    ]);
-    return buildResult(rows.map((r) => this.serializeProfitLoss(r)), total, query);
-  }
-
-  async getProfitLoss(id: string) {
-    const r = await this.prisma.profitLossAnalysis.findUnique({ where: { id } });
-    if (!r) throw new NotFoundException('盈亏分析记录不存在');
-    return this.serializeProfitLoss(r);
-  }
-
-  async createProfitLoss(data: any, projectId: string, user: any) {
-    const payload = this.buildProfitPayload(data, projectId);
-    payload.createdBy = user?.id;
-    const created = await this.prisma.profitLossAnalysis.create({ data: payload });
-    return this.serializeProfitLoss(created);
-  }
-
-  async updateProfitLoss(id: string, data: any) {
-    const current = await this.prisma.profitLossAnalysis.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('盈亏分析记录不存在');
-    assertVersion(current, data);
-    const payload: any = pickFields(data, PROFIT_FIELDS, { label: '盈亏分析' });
-    this.applyProfitDerived(payload);
-    payload.version = current.version + 1;
-    const updated = await this.prisma.profitLossAnalysis.update({ where: { id }, data: payload });
-    return this.serializeProfitLoss(updated);
-  }
-
-  async removeProfitLoss(id: string) {
-    await this.prisma.profitLossAnalysis.delete({ where: { id } });
-    return true;
-  }
-
-  private buildProfitPayload(data: any, projectId: string) {
-    const payload: any = pickFields(data, PROFIT_FIELDS, { label: '盈亏分析' });
-    payload.projectId = projectId;
-    this.applyProfitDerived(payload);
-    return payload;
-  }
-
-  /** 盈亏额 = 结算额 − 实际成本（可为负）；盈亏率 = 盈亏额 ÷ 结算额（分母未知/为 0 → null，不谎称 0） */
-  private applyProfitDerived(payload: any) {
-    if (
-      payload.settleAmount !== undefined || payload.actualCost !== undefined ||
-      payload.contractAmount !== undefined
-    ) {
-      const settle = num(payload.settleAmount);
-      const cost = num(payload.actualCost);
-      payload.profitLoss = settle != null && cost != null ? round(settle - cost, 2) : null;
-      payload.profitRate = settle != null && settle !== 0 && payload.profitLoss != null
-        ? round(payload.profitLoss / settle, 4)
-        : null;
-    }
-  }
-
-  private serializeProfitLoss(r: any) {
-    return {
-      id: r.id,
-      period: r.period ?? '',
-      materialName: r.materialName ?? '',
-      contractAmount: r.contractAmount == null ? null : Number(r.contractAmount),
-      settleAmount: r.settleAmount == null ? null : Number(r.settleAmount),
-      actualCost: r.actualCost == null ? null : Number(r.actualCost),
-      profitLoss: r.profitLoss == null ? null : Number(r.profitLoss),
-      profitRate: r.profitRate == null ? null : Number(r.profitRate),
-      remark: r.remark ?? '',
-      version: r.version,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    };
-  }
-
   // ==================== 归档导出（archive.service 调用，按分包商/账期分组） ====================
 
   /**
@@ -232,31 +150,6 @@ export class CostService {
         i + 1, r.period ?? '', r.materialName ?? '', r.spec ?? '', r.unit ?? '',
         r.qty == null ? null : Number(r.qty), r.unitPrice == null ? null : Number(r.unitPrice),
         r.amount == null ? null : Number(r.amount), r.useLocation ?? '', r.remark ?? '',
-      ];
-    });
-    ws.columns.forEach((c) => (c.width = 16));
-    return Buffer.from(await wb.xlsx.writeBuffer());
-  }
-
-  /** 盈亏分析表（某账期；periodDir 形如 `2024年10月`） */
-  async exportProfitLossSheet(projectId: string, periodDir: string): Promise<Buffer> {
-    const rows = await this.prisma.profitLossAnalysis.findMany({
-      where: { projectId },
-      orderBy: [{ period: 'asc' }, { createdAt: 'asc' }],
-    });
-    const hit = rows.filter((r) => periodDirOfRows(r.period) === periodDir);
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('盈亏分析');
-    ws.getRow(1).values = ['序号', '账期', '主材名称', '合同额', '结算额', '实际成本', '盈亏额', '盈亏率', '备注'];
-    hit.forEach((r, i) => {
-      ws.getRow(i + 2).values = [
-        i + 1, r.period ?? '', r.materialName ?? '',
-        r.contractAmount == null ? null : Number(r.contractAmount),
-        r.settleAmount == null ? null : Number(r.settleAmount),
-        r.actualCost == null ? null : Number(r.actualCost),
-        r.profitLoss == null ? null : Number(r.profitLoss),
-        r.profitRate == null ? null : Number(r.profitRate),
-        r.remark ?? '',
       ];
     });
     ws.columns.forEach((c) => (c.width = 16));

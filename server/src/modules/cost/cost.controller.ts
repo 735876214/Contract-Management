@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards 
 import type { Response } from 'express';
 import { CostService } from './cost.service';
 import { LaborReceivingService } from './labor-receiving.service';
+import { MonthlyProfitLossService } from './monthly-profit-loss.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -18,6 +19,7 @@ export class CostController {
   constructor(
     private service: CostService,
     private laborReceiving: LaborReceivingService,
+    private monthlyProfitLoss: MonthlyProfitLossService,
   ) {}
 
   // ---- 分包领用汇总 ----
@@ -102,35 +104,58 @@ export class CostController {
     res.end(buf);
   }
 
-  // ---- 盈亏分析 ----
+  // ---- 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账 ProfitLossAnalysis） ----
 
   @RequirePermissions('cost:view')
-  @Get('profit-loss')
-  listProfitLoss(@Query() query: any, @ProjectId() projectId: string) {
-    return this.service.listProfitLoss(query, projectId);
+  @Get('monthly-profit-loss')
+  listMonthlyProfitLoss(@Query() query: any, @ProjectId() projectId: string) {
+    return this.monthlyProfitLoss.list(query, projectId);
   }
 
   @RequirePermissions('cost:view')
-  @Get('profit-loss/:id')
-  getProfitLoss(@Param('id') id: string) {
-    return this.service.getProfitLoss(id);
+  @Get('monthly-profit-loss/:id')
+  getMonthlyProfitLoss(@Param('id') id: string) {
+    return this.monthlyProfitLoss.detail(id);
+  }
+
+  /** 新建（选结算期 → 生成当期节超快照明细） */
+  @RequirePermissions('cost:edit')
+  @Post('monthly-profit-loss')
+  createMonthlyProfitLoss(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    return this.monthlyProfitLoss.create(body, projectId, user);
   }
 
   @RequirePermissions('cost:edit')
-  @Post('profit-loss')
-  createProfitLoss(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    return this.service.createProfitLoss(body, projectId, user);
+  @Put('monthly-profit-loss/:id')
+  updateMonthlyProfitLoss(@Param('id') id: string, @Body() body: any) {
+    return this.monthlyProfitLoss.update(id, body);
   }
 
   @RequirePermissions('cost:edit')
-  @Put('profit-loss/:id')
-  updateProfitLoss(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateProfitLoss(id, body);
+  @Delete('monthly-profit-loss/:id')
+  removeMonthlyProfitLoss(@Param('id') id: string) {
+    return this.monthlyProfitLoss.remove(id);
   }
 
+  /** 重新抓取：删明细重生成快照（手填项按 分包单位+材料+规格 回填） */
   @RequirePermissions('cost:edit')
-  @Delete('profit-loss/:id')
-  removeProfitLoss(@Param('id') id: string) {
-    return this.service.removeProfitLoss(id);
+  @Post('monthly-profit-loss/:id/re-snapshot')
+  reSnapshotMonthlyProfitLoss(@Param('id') id: string) {
+    return this.monthlyProfitLoss.reSnapshot(id);
+  }
+
+  /** 导出三 sheet xlsx（封面 / 明细表 / 汇总表） */
+  @RequirePermissions('cost:view')
+  @Get('monthly-profit-loss/:id/export')
+  async exportMonthlyProfitLoss(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
+    const buf = await this.monthlyProfitLoss.exportWorkbook(id, projectId);
+    const rec = await this.monthlyProfitLoss['prisma'].monthlyProfitLoss.findUnique({
+      where: { id },
+      select: { period: true },
+    });
+    const name = `降本、创效、主材盈亏分析表-${rec?.period ?? id}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.end(buf);
   }
 }

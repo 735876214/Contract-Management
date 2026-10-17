@@ -13,6 +13,7 @@ import { DailyReportService } from '../daily-report/daily-report.service';
 import { RepaymentService } from '../repayment/repayment.service';
 import { FinanceService } from '../finance/finance.service';
 import { CostService } from '../cost/cost.service';
+import { MonthlyProfitLossService } from '../cost/monthly-profit-loss.service';
 import { periodKeyOf } from '../../common/utils/settlement-period';
 import {
   type ArchiveFile,
@@ -53,6 +54,7 @@ export class ArchiveService {
     private repaymentService: RepaymentService,
     private financeService: FinanceService,
     private costService: CostService,
+    private monthlyProfitLossService: MonthlyProfitLossService,
   ) {}
 
   /** 目录树（前端归档页）：每目录的文件数与明细 */
@@ -267,11 +269,16 @@ export class ArchiveService {
           break;
         }
         case 'profit-loss': {
-          const rows = await this.prisma.profitLossAnalysis.findMany({ where: { projectId } });
-          const periods = Array.from(new Set(rows.map((r) => periodDirOf(r.period))));
-          for (const p of periods) {
-            push(cat.dir, `降本、创效、主材盈亏分析表-${p}.xlsx`, {
-              buffer: await this.costService.exportProfitLossSheet(projectId, p),
+          // 月度盈亏分析（2026-10-17 第三批替换原手工台账）：一月一条，导出三 sheet 工作簿
+          const records = await this.prisma.monthlyProfitLoss.findMany({
+            where: { projectId },
+            orderBy: { period: 'asc' },
+            select: { id: true, period: true },
+          });
+          for (const rec of records) {
+            const label = periodDirOf(rec.period);
+            push(cat.dir, `降本、创效、主材盈亏分析表-${label}.xlsx`, {
+              buffer: await this.monthlyProfitLossService.exportWorkbook(rec.id, projectId),
             });
           }
           break;

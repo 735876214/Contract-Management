@@ -118,7 +118,7 @@ model Project {
   laborAuthLedgers         LaborAuthLedger[]
   laborReceivingSummaries  LaborReceivingSummary[]
   subcontractReceiving     SubcontractReceiving[]
-  profitLossAnalyses       ProfitLossAnalysis[]
+  monthlyProfitLosses      MonthlyProfitLoss[]
   procurementTemplates     ProcurementTemplate[]
   procurementTasks         ProcurementTask[]
   procurementTotalItems    ProcurementTotalItem[]
@@ -216,6 +216,8 @@ model LaborAuthLedger {
   subcontractReceiving SubcontractReceiving[]
   // 成本管理 · 分包单位领用月度汇总的反引用（同上：删台账行连带删汇总行——行按台账 ID 定位）
   laborReceivingSummaries LaborReceivingSummary[]
+  // 成本管理 · 月度盈亏分析明细行的反引用（SetNull：删台账行保留盈亏明细快照）
+  monthlyProfitLossDetails MonthlyProfitLossDetail[]
 
   @@index([projectId])
   @@index([subcontractorName])
@@ -283,26 +285,59 @@ model LaborReceivingSummary {
   @@index([projectId, period])
 }
 
-// 降本创效主材盈亏分析（结构化台账；profitLoss/profitRate 服务端派生，防两套口径）
-model ProfitLossAnalysis {
+// 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账 ProfitLossAnalysis）。
+// **一个月一条记录**：明细 = 新建时把当期各分包单位「甲供材节超分析」行**快照**落库
+// （单价/数量冻结——历史表样不随后续改单变化）；责任人/扣款/备注可手改，「重新抓取」重算快照。
+// 汇总表（按材料跨队合计）不落库，导出时由明细行加权汇总派生。
+model MonthlyProfitLoss {
+  id                String    @id @default(cuid())
+  projectId         String
+  period            String // 结算期标签 'YYYY-MM'（项目内唯一）
+  sixSavingsAmount  Decimal?  @db.Decimal(18, 2) // 六项降本创效金额（手填）
+  totalDeductAmount Decimal?  @db.Decimal(18, 2) // 劳务计价累计扣款金额（手填，不从节超扣款自动汇总）
+  remark            String?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  project Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  details MonthlyProfitLossDetail[]
+
+  @@unique([projectId, period])
+  @@index([projectId])
+}
+
+// 月度盈亏分析明细行（节超分析快照；owner/deductAmount/remark 及各数量列可手改覆盖）
+model MonthlyProfitLossDetail {
   id             String    @id @default(cuid())
-  projectId      String
-  period         String? // 账期（如 2024.10）
-  materialName   String? // 主材名称
-  contractAmount Decimal?  @db.Decimal(18, 2) // 合同额（该主材）
-  settleAmount   Decimal?  @db.Decimal(18, 2) // 结算额
-  actualCost     Decimal?  @db.Decimal(18, 2) // 实际成本
-  profitLoss     Decimal?  @db.Decimal(18, 2) // 盈亏额 = 结算额 − 实际成本（服务端算，可为负）
-  profitRate     Decimal?  @db.Decimal(9, 4) // 盈亏率（派生）
+  profitLossId   String // 归属月度记录（删除 Cascade）
+  sortOrder      Int       @default(0)
+  laborAuthId    String? // 来源分包单位（台账 ID；台账被删 SetNull，行保留快照）
+  laborTeamName  String // 劳务队名称（快照）
+  owner          String? // 责任人（手填）
+  materialName   String
+  spec           String?
+  unit           String?
+  unitPrice      Decimal?  @db.Decimal(18, 4) // 单价
+  entryQty       Decimal?  @db.Decimal(18, 3) // 进场量（= 至本期末累计领用）
+  designQty      Decimal?  @db.Decimal(18, 3) // 图纸设计量（= 设计量·至本期末开累）
+  lossRate       Decimal?  @db.Decimal(9, 4) // 损耗率 %
+  theoryUseQty   Decimal?  @db.Decimal(18, 3) // 理论消耗量 = 设计量 × (1 + 损耗率)
+  actualUseQty   Decimal?  @db.Decimal(18, 3) // 实际消耗量 = 开累领用 − 盘点
+  stockQty       Decimal?  @db.Decimal(18, 3) // 库存量（盘点）
+  saveOverQty    Decimal?  @db.Decimal(18, 3) // 盈(+)亏(−)数量 = 实际消耗 − 理论消耗（正 = 超耗）
+  saveOverAmount Decimal?  @db.Decimal(18, 2) // 盈亏金额 = 盈亏数量 × 单价
+  saveRate       Decimal?  @db.Decimal(9, 4) // 节超率 = 盈亏数量 ÷ 理论消耗量（分母未知/0 → null）
+  deductAmount   Decimal?  @db.Decimal(18, 2) // 劳务计价已扣（手填，行级）
   remark         String?
-  createdBy      String?
   createdAt      DateTime  @default(now())
-  version        Int       @default(0)
   updatedAt      DateTime  @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profitLoss MonthlyProfitLoss @relation(fields: [profitLossId], references: [id], onDelete: Cascade)
+  laborAuth  LaborAuthLedger?  @relation(fields: [laborAuthId], references: [id], onDelete: SetNull)
 
-  @@index([projectId])
+  @@index([profitLossId])
 }
 
 // ---------------- 合同 ----------------

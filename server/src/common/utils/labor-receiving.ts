@@ -110,3 +110,28 @@ export function averageUnitPrice(totalPrice: number | null | undefined, totalQty
   if (p == null || q == null || q === 0) return null;
   return r(p / q, 4);
 }
+
+/**
+ * 加权单价 = Σ(数量×单价) ÷ Σ数量 —— 月度盈亏分析**汇总表**跨劳务队合并同一材料时用
+ * （附件需求 2026-10-17 第三批图一）。任一队单价未知：该队的数量仍进分母、金额只累已知队
+ * （保守口径——不虚构缺失单价）；Σ数量 0 / 全部未知 → null。
+ */
+export function weightedUnitPrice(
+  rows: Array<{ qty: number | null | undefined; unitPrice: number | null | undefined }>,
+): number | null {
+  let totalQty = 0;
+  let totalAmount = 0;
+  let known = false;
+  for (const row of rows) {
+    const q = n(row.qty);
+    const p = n(row.unitPrice);
+    if (q == null) continue;
+    totalQty += q;
+    if (p != null) {
+      totalAmount += q * p;
+      known = true;
+    }
+  }
+  if (!known || totalQty === 0) return null;
+  return r(totalAmount / totalQty, 4);
+}
