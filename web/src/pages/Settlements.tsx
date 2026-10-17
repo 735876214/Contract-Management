@@ -3,6 +3,7 @@ import { withToken } from '../utils/download';
 import {
   Alert,
   Button,
+  Card,
   Form,
   Input,
   Select,
@@ -13,10 +14,12 @@ import {
   Col,
   InputNumber,
   DatePicker,
+  Table,
+  Tag,
 } from 'antd';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { settlementApi, dailyApi } from '@/api/modules';
+import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
@@ -253,6 +256,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const editing = seed as any | undefined;
+  const watchContractId = Form.useWatch('contractId', form);
 
   useEffect(() => {
     form.resetFields();
@@ -262,9 +266,69 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
+  // ---- 清单项级结算明细（业务 2026-10-17）----
+  const [items, setItems] = useState<any[]>(editing?.items ?? []);
+  // 合同清单（可结算的物资范围）+ 链上已结算量（量级提示）
+  const [contractMaterials, setContractMaterials] = useState<any[]>([]);
+  const [settledQty, setSettledQty] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    // 编辑时切合同不清已有明细（换成别的合同时应由用户自查；量级闸门在后端拦）
+    if (!watchContractId) {
+      setContractMaterials([]);
+      setSettledQty({});
+      return;
+    }
+    let alive = true;
+    contractMaterialApi.list(watchContractId).then((res: any) => {
+      if (alive) setContractMaterials(res?.list || []);
+    });
+    dailyApi
+      .contractSettledQty(watchContractId)
+      .then((res: any) => {
+        if (!alive) return;
+        const map: Record<string, number> = {};
+        (res || []).forEach((r: any) => (map[r.materialBaseId] = Number(r.settleQty) || 0));
+        setSettledQty(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [watchContractId]);
+
+  const materialOptions = contractMaterials.map((m: any) => ({
+    value: m.materialBaseId || m.materialId,
+    label: `${m.materialBase?.name || m.materialName || '-'} / ${m.materialBase?.spec || m.specModel || '-'}`,
+  }));
+  const baselineOf = (mid: string) =>
+    Number(contractMaterials.find((m: any) => (m.materialBaseId || m.materialId) === mid)?.qty) || 0;
+
+  const patchItem = (key: React.Key, field: string, value: any) =>
+    setItems((prev) => prev.map((r: any) => (r.key === key ? { ...r, [field]: value } : r)));
+
+  /** 明细合价合计（前端实时预览；服务端保存时按行重算） */
+  const itemsTotal = items.reduce(
+    (s, r) => s + (Number(r.qty) || 0) * (Number(r.priceWithTax) || 0),
+    0,
+  );
+
   const submit = async () => {
     const v = await form.validateFields();
-    const payload = { ...v, settleDate: v.settleDate ? dayjs(v.settleDate).format('YYYY-MM-DD') : null };
+    const invalid = items.find((r) => !r.materialBaseId);
+    if (invalid) return message.warning('明细行缺少物资，请补全或删除该行');
+    const payload = {
+      ...v,
+      settleDate: v.settleDate ? dayjs(v.settleDate).format('YYYY-MM-DD') : null,
+      items: items.map((r, i) => ({
+        materialBaseId: r.materialBaseId,
+        qty: r.qty,
+        priceBeforeTax: r.priceBeforeTax,
+        taxRatePct: r.taxRatePct,
+        remark: r.remark,
+        sortOrder: i + 1,
+      })),
+    };
     setSaving(true);
     try {
       if (editing) await settlementApi.update(editing.id, payload);
@@ -322,6 +386,125 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
           </Col>
         </Row>
       </Form>
+
+      {/* 清单项级结算明细（业务 2026-10-17）：结算量 ≤ 合同链清单量（后端闸门 settlement.over_amount_policy） */}
+      <Card size="small" title={`结算明细（${items.length} 行，合计 ¥${itemsTotal.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}）`}
+        extra={
+          <Space>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择合同清单物资添加明细"
+              style={{ minWidth: 300 }}
+              value={null}
+              options={materialOptions}
+              onSelect={(mid: string) => {
+                if (items.some((r) => r.materialBaseId === mid)) {
+                  message.warning('该物资已有明细行（每单每物资一行）');
+                  return;
+                }
+                const hit: any = contractMaterials.find((m: any) => (m.materialBaseId || m.materialId) === mid);
+                setItems((prev) => [
+                  ...prev,
+                  {
+                    key: `it-${Date.now()}-${prev.length}`,
+                    materialBaseId: mid,
+                    qty: null,
+                    priceBeforeTax: hit?.priceBeforeTax ?? null,
+                    taxRatePct: hit?.taxRatePct ?? null,
+                    remark: '',
+                  },
+                ]);
+                setDirty(true);
+              }}
+            />
+          </Space>
+        }
+      >
+        {items.length === 0 ? (
+          <span style={{ color: 'var(--cms-muted-soft)' }}>
+            暂无明细。可选填：留空则结算单只有金额；填写后服务端按行重算价格并做量级校验（自动生成的结算单已带明细）。
+          </span>
+        ) : (
+          <Table
+            rowKey="key"
+            size="small"
+            pagination={false}
+            scroll={{ x: 1100 }}
+            dataSource={items}
+            columns={[
+              {
+                title: '物资', width: 220, fixed: 'left' as const,
+                render: (_: any, r: any) => {
+                  const hit: any = contractMaterials.find((m: any) => (m.materialBaseId || m.materialId) === r.materialBaseId);
+                  return `${hit?.materialBase?.name || r.materialBase?.name || '-'} / ${hit?.materialBase?.spec || r.materialBase?.spec || '-'}`;
+                },
+              },
+              {
+                title: '结算数量', dataIndex: 'qty', width: 130,
+                render: (v: any, r: any) => (
+                  <InputNumber style={{ width: '100%' }} min={0} precision={4} value={v}
+                    onChange={(val) => { patchItem(r.key, 'qty', val); setDirty(true); }} />
+                ),
+              },
+              {
+                title: '税前单价', dataIndex: 'priceBeforeTax', width: 130,
+                render: (v: any, r: any) => (
+                  <InputNumber style={{ width: '100%' }} min={0} precision={4} value={v}
+                    onChange={(val) => { patchItem(r.key, 'priceBeforeTax', val); setDirty(true); }} />
+                ),
+              },
+              {
+                title: '税率(%)', dataIndex: 'taxRatePct', width: 110,
+                render: (v: any, r: any) => (
+                  <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} value={v}
+                    onChange={(val) => { patchItem(r.key, 'taxRatePct', val); setDirty(true); }} />
+                ),
+              },
+              {
+                title: '合价（自动）', width: 130, align: 'right' as const,
+                render: (_: any, r: any) => {
+                  const withTax =
+                    r.priceBeforeTax != null && r.taxRatePct != null
+                      ? Number(r.priceBeforeTax) * (1 + Number(r.taxRatePct) / 100)
+                      : null;
+                  const total = withTax != null && r.qty != null ? Number(r.qty) * withTax : null;
+                  return total == null ? '-' : <b>{total.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>;
+                },
+              },
+              {
+                title: '可结余量', width: 150, align: 'right' as const,
+                render: (_: any, r: any) => {
+                  const base = baselineOf(r.materialBaseId);
+                  const used = settledQty[r.materialBaseId] || 0;
+                  if (!base) return <Tag>无清单上限</Tag>;
+                  const remain = base - used;
+                  return (
+                    <Tag color={remain - (Number(r.qty) || 0) < 0 ? 'red' : 'green'}>
+                      {remain.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}
+                    </Tag>
+                  );
+                },
+              },
+              {
+                title: '备注', dataIndex: 'remark', width: 160,
+                render: (v: any, r: any) => (
+                  <Input value={v} onChange={(e) => { patchItem(r.key, 'remark', e.target.value); setDirty(true); }} />
+                ),
+              },
+              {
+                title: '操作', width: 70,
+                render: (_: any, r: any) => (
+                  <Button type="link" size="small" danger
+                    onClick={() => { setItems((prev) => prev.filter((x) => x.key !== r.key)); setDirty(true); }}>
+                    删除
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Card>
     </EditorTabPage>
   );
 }

@@ -14,6 +14,7 @@ import { contractApi, laborApi } from '@/api/business';
 import { fileApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
@@ -191,30 +192,7 @@ function LaborAuthList() {
         <div style={{ marginTop: 8, color: 'var(--cms-muted)' }}>共 {total} 条分包商记录</div>
 
         <Modal title="分包商详情" width={620} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="分包商名称">{detail?.subcontractorName || '-'}</Descriptions.Item>
-            <Descriptions.Item label="分包合同内容">{detail?.subcontractContent || '-'}</Descriptions.Item>
-            <Descriptions.Item label="法人姓名">{detail?.legalPerson || '-'}</Descriptions.Item>
-            <Descriptions.Item label="材料授权人姓名">{detail?.authorizedPerson || '-'}</Descriptions.Item>
-            <Descriptions.Item label="授权人身份证号">{detail?.authorizedPersonIdNo || '-'}</Descriptions.Item>
-            <Descriptions.Item label="项目名称">{detail?.projectName || '-'}</Descriptions.Item>
-            <Descriptions.Item label="状态">
-              {detail?.status ? <Tag color={STATUS_META[detail.status]?.color}>{STATUS_META[detail.status]?.label}</Tag> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="备注">{detail?.remark || '-'}</Descriptions.Item>
-            <Descriptions.Item label="身份证正面">
-              {detail?.idCardFront ? <Image src={detail.idCardFront} width={140} /> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="身份证反面">
-              {detail?.idCardBack ? <Image src={detail.idCardBack} width={140} /> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="签字盖章版委托书">
-              {detail?.signedAuthFile ? <a href={detail.signedAuthFile} target="_blank" rel="noreferrer">查看文件</a> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="签字部分截图">
-              {detail?.signatureScreenshot ? <Image src={detail.signatureScreenshot} width={160} /> : '-'}
-            </Descriptions.Item>
-          </Descriptions>
+          <LaborAuthDetailBody detail={detail} />
         </Modal>
       </Card>
   );
@@ -480,5 +458,38 @@ function LaborAuthList() {
         onExport={doExportPdf}
       />
     </EditorTabPage>
+  );
+}
+
+/** 详情弹窗正文：列数按弹窗容器宽度降级（DESIGN.md §10.2） */
+function LaborAuthDetailBody({ detail }: { detail: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq">
+      <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
+        <Descriptions.Item label="分包商名称">{detail?.subcontractorName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="分包合同内容">{detail?.subcontractContent || '-'}</Descriptions.Item>
+        <Descriptions.Item label="法人姓名">{detail?.legalPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="材料授权人姓名">{detail?.authorizedPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="授权人身份证号">{detail?.authorizedPersonIdNo || '-'}</Descriptions.Item>
+        <Descriptions.Item label="项目名称">{detail?.projectName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="状态">
+          {detail?.status ? <Tag color={STATUS_META[detail.status]?.color}>{STATUS_META[detail.status]?.label}</Tag> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="备注">{detail?.remark || '-'}</Descriptions.Item>
+        <Descriptions.Item label="身份证正面">
+          {detail?.idCardFront ? <Image src={detail.idCardFront} width={140} /> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="身份证反面">
+          {detail?.idCardBack ? <Image src={detail.idCardBack} width={140} /> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="签字盖章版委托书">
+          {detail?.signedAuthFile ? <a href={detail.signedAuthFile} target="_blank" rel="noreferrer">查看文件</a> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="签字部分截图">
+          {detail?.signatureScreenshot ? <Image src={detail.signatureScreenshot} width={160} /> : '-'}
+        </Descriptions.Item>
+      </Descriptions>
+    </div>
   );
 }

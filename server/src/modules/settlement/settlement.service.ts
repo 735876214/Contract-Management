@@ -14,7 +14,12 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
 // 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
-import { contractChainAmount, chainSettledTotal } from '../../common/utils/contract-chain';
+import {
+  contractChainAmount,
+  chainSettledTotal,
+  chainMaterialQty,
+  chainSettledItemQty,
+} from '../../common/utils/contract-chain';
 // 月份归集口径（`YYYY-MM`）与结算期纯函数：台账、发票/收领单自动匹配、月度结算期三处**共用**，
 // 不要在各服务里各写一份 `getFullYear/getMonth` 拼接
 import {
@@ -30,6 +35,8 @@ const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
   'settleDate', 'statusCode', 'remark',
 ];
+/** 清单项级结算明细的写字段白名单（items 随结算单 body 一并传） */
+const SETTLEMENT_ITEM_FIELDS = ['materialBaseId', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder'];
 const LEDGER_FIELDS = [
   'projectId', 'contractId', 'settleMonth', 'monthSettleAmount', 'monthInvoiceAmount', 'settleCount',
   'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount', 'monthActualPurchase',
@@ -82,6 +89,97 @@ export class SettlementService {
   private isDraft(statusCode: any): boolean {
     return String(statusCode ?? SETTLEMENT_STATUS.DRAFT) === SETTLEMENT_STATUS.DRAFT;
   }
+
+  // ---------------- 清单项级结算明细（业务 2026-10-17） ----------------
+
+  /** 明细行归一化：白名单 + 数值清洗 + 服务端重算综合单价/合价（不信任前端） */
+  private normalizeItem(d: any, index: number) {
+    const out: any = pickFields(d, SETTLEMENT_ITEM_FIELDS, { label: '结算明细' });
+    out.qty = num(out.qty);
+    out.priceBeforeTax = num(out.priceBeforeTax);
+    out.taxRatePct = num(out.taxRatePct);
+    out.priceWithTax =
+      out.priceBeforeTax != null && out.taxRatePct != null
+        ? Number((out.priceBeforeTax * (1 + out.taxRatePct / 100)).toFixed(4))
+        : out.priceBeforeTax;
+    out.totalWithTax =
+      out.priceWithTax != null && out.qty != null ? round2(out.priceWithTax * out.qty) : null;
+    out.sortOrder = out.sortOrder ?? index + 1;
+    return out;
+  }
+
+  /**
+   * **量级校验闸门**（清单项级，业务 2026-10-17）：
+   * Σ(本单明细 qty) + 链上历史已结算明细量 ≤ 合同链清单量（`chainMaterialQty`）。
+   * 策略复用 `settlement.over_amount_policy`（BLOCK 拦截 / WARN 提示 / OFF 不校验，默认 WARN）；
+   * 链上某物资**无清单行 = 无上限**（与金额口径「无金额=无上限」一致，不拦）。
+   * ⚠️ 仅在**非草稿**且**无外部事务**时执行（事务内不得调 sysParam，同 checkOverSettlement）。
+   */
+  private async checkOverSettlementQty(
+    contractId: string | null | undefined,
+    items: any[],
+    excludeId?: string,
+  ): Promise<{ overQtyWarning?: string }> {
+    if (!contractId || !items.length) return {};
+    const policy = normalizePolicy(await this.sysParam.get('settlement.over_amount_policy', 'WARN'));
+    if (policy === 'OFF') return {};
+    const [baselines, used] = await Promise.all([
+      chainMaterialQty(this.prisma, contractId),
+      chainSettledItemQty(this.prisma, contractId, excludeId),
+    ]);
+    const incoming = new Map<string, number>();
+    for (const it of items) {
+      if (!it.materialBaseId) continue;
+      incoming.set(it.materialBaseId, (incoming.get(it.materialBaseId) || 0) + (Number(it.qty) || 0));
+    }
+    const names = items.length
+      ? await this.prisma.materialBase.findMany({
+          where: { id: { in: [...incoming.keys()] } },
+          select: { id: true, name: true, spec: true },
+        })
+      : [];
+    const nameOf = new Map(names.map((n: any) => [n.id, `${n.name} / ${n.spec || '-'}`]));
+    const overs: string[] = [];
+    for (const [mid, qty] of incoming) {
+      const baseline = baselines.get(mid);
+      if (baseline === undefined) continue; // 链上无清单行 = 无上限
+      const already = used.get(mid) || 0;
+      if (already + qty > baseline) {
+        overs.push(`${nameOf.get(mid) || mid}（已结 ${already} + 本单 ${qty} ＞ 清单 ${baseline}）`);
+      }
+    }
+    if (!overs.length) return {};
+    const message = `结算量超过合同清单量：${overs.join('；')}`;
+    if (policy === 'BLOCK') throw new BadRequestException(message);
+    console.warn('[结算/量级闸门]', message);
+    return { overQtyWarning: message };
+  }
+
+  /**
+   * 同事务内整体替换明细（replace-all 语义，随 create/update 一起写）；
+   * 返回明细行（含服务端重算的价格）。
+   */
+  private async syncItems(settlementId: string, items: any[], db: any) {
+    await db.settlementItem.deleteMany({ where: { settlementId } });
+    const rows = (Array.isArray(items) ? items : []).filter((d: any) => d?.materialBaseId);
+    if (!rows.length) return [];
+    const baseRows = await db.materialBase.findMany({
+      where: { id: { in: rows.map((d: any) => d.materialBaseId) } },
+      select: { id: true, unit: true },
+    });
+    const unitOf = new Map(baseRows.map((b: any) => [b.id, b.unit]));
+    await db.settlementItem.createMany({
+      data: rows.map((d: any, i: number) => ({
+        ...this.normalizeItem(d, i),
+        settlementId,
+      })),
+    });
+    return db.settlementItem.findMany({
+      where: { settlementId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
@@ -100,7 +198,16 @@ export class SettlementService {
   }
 
   async findOne(id: string) {
-    const s = await this.prisma.settlement.findUnique({ where: { id }, include: { contract: true } });
+    const s = await this.prisma.settlement.findUnique({
+      where: { id },
+      include: {
+        contract: true,
+        items: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          include: { materialBase: { select: { id: true, name: true, spec: true, unit: true } } },
+        },
+      },
+    });
     if (!s) throw new NotFoundException('结算单不存在');
     return s;
   }
@@ -117,6 +224,10 @@ export class SettlementService {
       tx || this.isDraft(data.statusCode)
         ? {}
         : await this.checkOverSettlement(data.contractId, num(actual));
+    // 清单项级量级闸门（同防超结口径：非事务、非草稿才校验）
+    const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
+    const qtyWarn =
+      tx || this.isDraft(data.statusCode) ? {} : await this.checkOverSettlementQty(data.contractId, items);
     const created: any = await db.settlement.create({
       data: {
         ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
@@ -124,6 +235,7 @@ export class SettlementService {
         settleDate: toDate(data.settleDate),
       },
     });
+    if (items.length) await this.syncItems(created.id, items, db);
     /**
      * 结算单 → 台账（业务口径 2026-10-16：一结算单对应一行台账）。
      * ⚠️ 只在**无外部事务**时刷新：`computeLedgerAutoFields` 走 `this.prisma`（事务外连接），
@@ -135,7 +247,7 @@ export class SettlementService {
       await this.linkOrphansForContract(created.contractId);
       await this.syncLedgerByContract(created.contractId);
     }
-    return { ...created, ...warn };
+    return { ...created, ...warn, ...qtyWarn };
   }
 
   async update(id: string, data: any) {
@@ -166,7 +278,14 @@ export class SettlementService {
     const warn = this.isDraft(resultingStatus)
       ? {}
       : await this.checkOverSettlement(payload.contractId ?? before.contractId, resultingActual, id);
+    // 清单项级量级闸门：items 传入时按「更新后」校验（排除自身历史明细）
+    const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
+    const qtyWarn =
+      this.isDraft(resultingStatus) || !data.items
+        ? {}
+        : await this.checkOverSettlementQty(payload.contractId ?? before.contractId, items, id);
     const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    if (data.items) await this.syncItems(id, items, this.prisma);
     // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷。
     // 同理也要**重算发票/收领单的关联**（改了月份后，旧关联按新月份解绑、当月未关联的补挂）。
     const affected = new Set<string>([before.contractId, updated.contractId].filter(Boolean) as string[]);
@@ -174,7 +293,7 @@ export class SettlementService {
       await this.linkOrphansForContract(cid);
       await this.syncLedgerByContract(cid);
     }
-    return { ...updated, ...warn };
+    return { ...updated, ...warn, ...qtyWarn };
   }
 
   async remove(id: string) {
@@ -649,7 +768,13 @@ export class SettlementService {
         ...(opts.contractId ? { materialContractId: opts.contractId } : {}),
         orderDate: { gte: period.start, lt: period.endExclusive },
       },
-      include: { details: { select: { receivedQty: true, priceWithTax: true } } },
+      include: {
+        details: {
+          select: {
+            materialId: true, receivedQty: true, priceBeforeTax: true, taxRate: true, priceWithTax: true, unit: true,
+          },
+        },
+      },
     });
 
     const byContract = new Map<string, any[]>();
@@ -687,6 +812,36 @@ export class SettlementService {
         skipped++;
         continue;
       }
+      // 明细按 materialBaseId 聚合（清单项级结算明细，业务 2026-10-17）：
+      // qty = 当期实收合计；单价取该物资最近一条明细的税前价/税率（服务端重算综合单价与合价）
+      const byMaterial = new Map<string, { qty: number; priceBeforeTax: number | null; taxRatePct: number | null; remark: string }>();
+      let orderCount = 0;
+      for (const o of list) {
+        orderCount++;
+        for (const d of o.details || []) {
+          if (!d.materialId) continue;
+          const qty = num(d.receivedQty) || 0;
+          const hit = byMaterial.get(d.materialId);
+          if (hit) {
+            hit.qty += qty;
+          } else {
+            byMaterial.set(d.materialId, {
+              qty,
+              priceBeforeTax: num(d.priceBeforeTax),
+              taxRatePct: num(d.taxRate),
+              remark: `来自收领单明细（单位 ${d.unit || '-'}）`,
+            });
+          }
+        }
+      }
+      const items = [...byMaterial.entries()].map(([materialBaseId, m], i) => ({
+        materialBaseId,
+        qty: m.qty,
+        priceBeforeTax: m.priceBeforeTax,
+        taxRatePct: m.taxRatePct,
+        remark: m.remark,
+        sortOrder: i + 1,
+      }));
       const amount = round2(
         list.reduce(
           (s, o) =>
@@ -708,7 +863,8 @@ export class SettlementService {
             amount,
             actualAmount: amount,
             settleDate: period.end,
-            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 张收领单）`,
+            items,
+            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${orderCount} 张收领单）`,
           },
           projectId,
         );
@@ -724,6 +880,7 @@ export class SettlementService {
           code: settlement.code,
           contractId,
           amount,
+          items: items.length,
           receiptOrders: list.length,
         });
       } catch (e: any) {

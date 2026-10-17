@@ -114,22 +114,12 @@
     避免作者插了变量却不被替换）。顺手修：变量面板默认插入的是**单花括号** `{名}`，
     而渲染器只认 `{{名}}` —— 插了静默不替换，现已改双花括号并由 `docVariables.spec.mts` 锁住。
 
-- **清单项级结算明细 + 量级校验**（**口径已解锁**，2026-10-16）：现状
-  `Settlement` 只有总额、`SettlementLedger` 只有按月汇总、**都没有 `materialBaseId`**，所以做不到
-  "某清单项结算了多少、还剩多少可结"，也做不了"结算量 ≤ 已确认量"的量级校验。
-  现在口径齐了：基线取**合同链的 `ContractMaterial`**（与 `common/utils/contract-chain.ts` 同一形状，
-  补充协议自己就带清单行），可结量 = 链上清单量 + 已生效变更增量。
-  ⚠️ 两处必须一起处理，否则会添第三套口径：① `SettlementLedger` 是**派生**表
-  （由结算/发票/保理/逾期按 `contractId + 月` 合成，见 `settlement.service` 的 `computeLedgerAutoFields`），
-  ② 现场确认闸门（`settlement.require_confirmed`）目前只作用到金额与提示层。
-  落地点：新表 `SettlementItem`（`settlementId + materialBaseId + qty + amount`）+ 服务端按已确认量校验
-  + 结算单界面行级录入 + 台账/导出接线。规模中等，建议先出一份设计再动手。
-
-- **响应式收尾：弹窗内的 `Descriptions` 列数仍是固定值**（外层是弹窗、判定依据该是容器宽度）：
-  `TaskViewModal` 与 `ModuleDetailCard` 两处已按容器驱动，其余弹窗里的
-  `Descriptions column={n}`（如合同详情弹窗）没接 `useContainerWidth()`，窄弹窗里会偏挤。
-  无阻塞；做法照 `ModuleDetailCard` 那三行（`isNarrow ? 1 : isWide ? 3 : 2`）即可。
-  注：V2 的阶段 0–5 已全部落地（实施记录见该文 §0.2，容器级验收见 §4），本条只是收尾。
+- **清单项级结算明细 + 量级校验**——**已全部落地**（2026-10-17，实施见 `git log`）：
+  新表 `SettlementItem`（迁移 `20261103000000_settlement_item`）+ 服务端重算价格（综合单价/合价不信任前端）、
+  量级闸门（`chainMaterialQty`/`chainSettledItemQty`；Σ明细量 + 历史已结 ≤ 合同链清单量，
+  策略复用 `settlement.over_amount_policy`，无清单行=无上限、草稿豁免）、
+  生成本期结算按收领单明细自动产明细行、结算单编辑器明细子表。
+  锁定：`settlement-item.int.spec.ts`。
 
 - **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
   更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，

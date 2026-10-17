@@ -9,6 +9,7 @@ import dayjs from 'dayjs';
 import { contractApi, supplierApi, projectApi, materialApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 import { useAuthStore } from '@/store/auth';
@@ -154,37 +155,7 @@ function ContractList() {
               {
                 key: 'info',
                 label: '合同信息',
-                children: (
-                  <Descriptions column={2} size="small" bordered>
-                    <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
-                    <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
-                    <Descriptions.Item label="合同类型"><DictTag typeCode="contract_type" value={detail.typeCode} /></Descriptions.Item>
-                    <Descriptions.Item label="合同子类型"><DictTag typeCode="contract_sub_type" value={detail.subTypeCode} /></Descriptions.Item>
-                    {detail.codeAbbrUsed && <Descriptions.Item label="编号项目简称">{detail.codeAbbrUsed}</Descriptions.Item>}
-                    {detail.parentContractId && (
-                      <Descriptions.Item label="父合同" span={2}>
-                        {detail.parentContract ? `${detail.parentContract.code} ${detail.parentContract.name}` : '-'}
-                      </Descriptions.Item>
-                    )}
-                    <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="法人">{detail.supplier?.legalPerson || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="授权人">{detail.supplier?.contractAuthPerson || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="联系人">{detail.supplier?.contactName || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="联系人电话">{detail.supplier?.contactPhone || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="合同额">{money(detail.amount)}</Descriptions.Item>
-                    <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
-                    <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
-                    <Descriptions.Item label="备注" span={2}>{detail.remark || '-'}</Descriptions.Item>
-                    {detail.attachments?.length ? (
-                      <Descriptions.Item label="附件" span={2}>
-                        {detail.attachments.map((a: any) => (
-                          <Tag key={a.id}><a href={a.url} target="_blank" rel="noreferrer">{a.fileName}</a></Tag>
-                        ))}
-                      </Descriptions.Item>
-                    ) : null}
-                  </Descriptions>
-                ),
+                children: <ContractDetailInfo detail={detail} />,
               },
               {
                 key: 'changes',
@@ -624,19 +595,7 @@ function ContractEditor({ seed }: { seed: unknown }) {
                         style={{ marginBottom: 12 }}
                         message="以下信息由供应商库自动带出，只读展示；修改请在【供应商库】维护"
                       />
-                      <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
-                        <Descriptions.Item label="法人姓名">{supplier.legalPerson || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="法人电话">{supplier.legalPhone || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="合同授权人姓名">{supplier.contractAuthPerson || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="合同授权人电话">{supplier.contractAuthPhone || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="授权人身份证号">{supplier.contractAuthIdNo || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="联系人姓名">{supplier.contactName || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="联系人电话">{supplier.contactPhone || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="联系人邮箱">{supplier.contactEmail || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="银行名称">{supplier.bankName || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="银行账号">{supplier.bankAccount || '-'}</Descriptions.Item>
-                        <Descriptions.Item label="公司地址" span={2}>{supplier.address || '-'}</Descriptions.Item>
-                      </Descriptions>
+                      <SupplierInfoDescriptions supplier={supplier} />
                     </>
                   )}
                 </>
@@ -764,5 +723,65 @@ function ContractEditor({ seed }: { seed: unknown }) {
         </Space>
       </Modal>
     </EditorTabPage>
+  );
+}
+
+/** 合同详情弹窗正文：列数按弹窗容器宽度降级（DESIGN.md §10.2） */
+function ContractDetailInfo({ detail }: { detail: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq">
+      <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
+        <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
+        <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
+        <Descriptions.Item label="合同类型"><DictTag typeCode="contract_type" value={detail.typeCode} /></Descriptions.Item>
+        <Descriptions.Item label="合同子类型"><DictTag typeCode="contract_sub_type" value={detail.subTypeCode} /></Descriptions.Item>
+        {detail.codeAbbrUsed && <Descriptions.Item label="编号项目简称">{detail.codeAbbrUsed}</Descriptions.Item>}
+        {detail.parentContractId && (
+          <Descriptions.Item label="父合同" span={size.isNarrow ? 1 : 2}>
+            {detail.parentContract ? `${detail.parentContract.code} ${detail.parentContract.name}` : '-'}
+          </Descriptions.Item>
+        )}
+        <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="法人">{detail.supplier?.legalPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="授权人">{detail.supplier?.contractAuthPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人">{detail.supplier?.contactName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人电话">{detail.supplier?.contactPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同额">{money(detail.amount)}</Descriptions.Item>
+        <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
+        <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
+        <Descriptions.Item label="备注" span={size.isNarrow ? 1 : 2}>{detail.remark || '-'}</Descriptions.Item>
+        {detail.attachments?.length ? (
+          <Descriptions.Item label="附件" span={size.isNarrow ? 1 : 2}>
+            {detail.attachments.map((a: any) => (
+              <Tag key={a.id}><a href={a.url} target="_blank" rel="noreferrer">{a.fileName}</a></Tag>
+            ))}
+          </Descriptions.Item>
+        ) : null}
+      </Descriptions>
+    </div>
+  );
+}
+
+/** 编辑器「供应商信息带出」只读区：列数按容器宽度降级 */
+function SupplierInfoDescriptions({ supplier }: { supplier: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq" style={{ marginBottom: 16 }}>
+      <Descriptions bordered size="small" column={size.isNarrow ? 1 : 2}>
+        <Descriptions.Item label="法人姓名">{supplier.legalPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="法人电话">{supplier.legalPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同授权人姓名">{supplier.contractAuthPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同授权人电话">{supplier.contractAuthPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="授权人身份证号">{supplier.contractAuthIdNo || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人姓名">{supplier.contactName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人电话">{supplier.contactPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人邮箱">{supplier.contactEmail || '-'}</Descriptions.Item>
+        <Descriptions.Item label="银行名称">{supplier.bankName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="银行账号">{supplier.bankAccount || '-'}</Descriptions.Item>
+        <Descriptions.Item label="公司地址" span={size.isNarrow ? 1 : 2}>{supplier.address || '-'}</Descriptions.Item>
+      </Descriptions>
+    </div>
   );
 }

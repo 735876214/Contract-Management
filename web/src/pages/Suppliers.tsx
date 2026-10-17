@@ -5,6 +5,7 @@ import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons'
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 
@@ -113,17 +114,26 @@ function SupplierList() {
         ]}
       />
 
-      {/* 详情弹窗（查看，不是编辑） */}
+      {/* 详情弹窗（查看，不是编辑）；列数按弹窗容器宽度降级 */}
       <Modal title="供应商详情" width={520} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
-        <Descriptions column={1} size="small" bordered>
-          <Descriptions.Item label="供应商名称">{detail?.name}</Descriptions.Item>
-          {FIELDS.map(([key, label]) => (
-            <Descriptions.Item key={key} label={label}>{detail?.[key] || '-'}</Descriptions.Item>
-          ))}
-          <Descriptions.Item label="备注">{detail?.remark || '-'}</Descriptions.Item>
-        </Descriptions>
+        <SupplierDetailBody detail={detail} />
       </Modal>
     </Card>
+  );
+}
+
+function SupplierDetailBody({ detail }: { detail: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq">
+      <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
+        <Descriptions.Item label="供应商名称">{detail?.name}</Descriptions.Item>
+        {FIELDS.map(([key, label]) => (
+          <Descriptions.Item key={key} label={label}>{detail?.[key] || '-'}</Descriptions.Item>
+        ))}
+        <Descriptions.Item label="备注">{detail?.remark || '-'}</Descriptions.Item>
+      </Descriptions>
+    </div>
   );
 }
 

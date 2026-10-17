@@ -26,6 +26,7 @@ import { DictTag } from '@/components/DictSelect';
 import SupplementDraft from '@/components/contract/SupplementDraft';
 import { withToken } from '../utils/download';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -402,47 +403,7 @@ export default function ContractQuery() {
                 </Button>
               )}
             </Space>
-            <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
-            <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
-            <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
-            <Descriptions.Item
-              label="合同类型（只读）"
-            >
-              {detail.typeCode ? <DictTag typeCode="contract_type" value={detail.typeCode} /> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="签订日期">
-              {detail.signDate || detail.signedDate
-                ? String(detail.signDate || detail.signedDate).slice(0, 10)
-                : '未签订'}
-            </Descriptions.Item>
-            {detail.signedAt && (
-              <Descriptions.Item label="签章操作时间">
-                {String(detail.signedAt).slice(0, 19).replace('T', ' ')}
-              </Descriptions.Item>
-            )}
-            <Descriptions.Item label="合同金额">{money(detail.amount)}</Descriptions.Item>
-            <Descriptions.Item label="执行状态">
-              {detail.execStatus ? <DictTag typeCode="contract_execution_status" value={detail.execStatus} /> : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="关联合同模板">{detail.templateId || '未关联'}</Descriptions.Item>
-            <Descriptions.Item label="签章文件">
-              {detail.signedFilePath ? (
-                <a onClick={() => window.open(withToken(contractApi.signedFileUrl(detail.id)))}>
-                  {detail.signedFileName || '下载签章合同'}
-                </a>
-              ) : (
-                '未上传'
-              )}
-            </Descriptions.Item>
-            {detail.signedRemark && (
-              <Descriptions.Item label="签章备注">{detail.signedRemark}</Descriptions.Item>
-            )}
-            <Descriptions.Item label="创建时间">
-              {detail.createdAt ? String(detail.createdAt).slice(0, 19).replace('T', ' ') : '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="备注">{detail.remark || '-'}</Descriptions.Item>
-          </Descriptions>
+            <ContractQueryDetailBody detail={detail} />
           </Space>
         )}
       </Modal>
@@ -454,5 +415,53 @@ export default function ContractQuery() {
         onDone={() => { setSuppOpen(false); refreshList(); }}
       />
     </>
+  );
+}
+
+/** 详情弹窗正文：列数按弹窗容器宽度降级（DESIGN.md §10.2；窄容器单列） */
+function ContractQueryDetailBody({ detail }: { detail: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq" style={{ width: '100%' }}>
+      <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
+        <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
+        <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
+        <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同类型（只读）">
+          {detail.typeCode ? <DictTag typeCode="contract_type" value={detail.typeCode} /> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="签订日期">
+          {detail.signDate || detail.signedDate
+            ? String(detail.signDate || detail.signedDate).slice(0, 10)
+            : '未签订'}
+        </Descriptions.Item>
+        {detail.signedAt && (
+          <Descriptions.Item label="签章操作时间">
+            {String(detail.signedAt).slice(0, 19).replace('T', ' ')}
+          </Descriptions.Item>
+        )}
+        <Descriptions.Item label="合同金额">{money(detail.amount)}</Descriptions.Item>
+        <Descriptions.Item label="执行状态">
+          {detail.execStatus ? <DictTag typeCode="contract_execution_status" value={detail.execStatus} /> : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="关联合同模板">{detail.templateId || '未关联'}</Descriptions.Item>
+        <Descriptions.Item label="签章文件">
+          {detail.signedFilePath ? (
+            <a onClick={() => window.open(withToken(contractApi.signedFileUrl(detail.id)))}>
+              {detail.signedFileName || '下载签章合同'}
+            </a>
+          ) : (
+            '未上传'
+          )}
+        </Descriptions.Item>
+        {detail.signedRemark && (
+          <Descriptions.Item label="签章备注">{detail.signedRemark}</Descriptions.Item>
+        )}
+        <Descriptions.Item label="创建时间">
+          {detail.createdAt ? String(detail.createdAt).slice(0, 19).replace('T', ' ') : '-'}
+        </Descriptions.Item>
+        <Descriptions.Item label="备注">{detail.remark || '-'}</Descriptions.Item>
+      </Descriptions>
+    </div>
   );
 }

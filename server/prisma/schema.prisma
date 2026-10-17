@@ -644,6 +644,7 @@ model MaterialBase {
   reports               DailyReport[]
   procurementTotalItems ProcurementTotalItem[]
   receiptOrderDetails   ReceiptOrderDetail[]
+  settlementItems       SettlementItem[]
 
   @@unique([name, spec]) // 物资名称 + 规格型号 组合唯一（主数据唯一约束）
   @@index([name])
@@ -746,10 +747,44 @@ model Settlement {
   receiptOrders ReceiptOrder[]
   /// 总结算单的明细行（业务口径 2026-10-16：总结算单抓取该合同的全部月度结算）
   finalSettlementItems FinalSettlementItem[]
+  /// 清单项级结算明细（业务 2026-10-17）：一行 = 本单对某清单物资的结算量；实际结算金额 = Σ 明细（服务端算）
+  items SettlementItem[]
 
   @@index([projectId, contractId])
   @@index([settleDate])
   @@index([projectId, createdAt])
+}
+
+/// 清单项级结算明细：一行 = 结算单 × 清单物资（materialBaseId）。
+/// 口径（业务 2026-10-17）：
+/// - 结算量基线 = **合同链清单**（contractChainIds 的 ContractMaterial 按 materialBaseId 求和 qty）；
+/// - 可结量 = 基线 + 已生效变更增量（补充协议清单行自身在链上，求和即含）；
+/// - 量级闸门：Σ(本单 items.qty) + 历史已结算明细 ≤ 链上清单量（闸门复用 `settlement.over_amount_policy`）；
+/// - `actualAmount` 若由明细汇总反写，**唯一写入点在 settlement.service**（防第三套口径）。
+model SettlementItem {
+  id              String   @id @default(cuid())
+  settlementId    String
+  materialBaseId  String
+  /// 结算数量（手填；generateForPeriod 自动生成时 = 当期收领单实收合计）
+  qty             Decimal? @db.Decimal(18, 4)
+  /// 税前单价（手填/带出合同清单）
+  priceBeforeTax  Decimal? @db.Decimal(18, 4)
+  taxRatePct      Decimal? @db.Decimal(5, 2) // 税率（百分比，如 13.00）
+  priceWithTax    Decimal? @db.Decimal(18, 4) // 综合单价 = 税前 × (1 + 税率/100)，服务端算
+  /// 该行结算金额 = qty × priceWithTax（服务端算；Σ 回填结算单 actualAmount 由 service 决定）
+  totalWithTax    Decimal? @db.Decimal(18, 2)
+  remark          String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  version         Int      @default(0)
+
+  settlement    Settlement   @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  /// 与 ContractMaterial 同口径：物资基础记录被引用时不允许删（Restrict）
+  materialBase  MaterialBase @relation(fields: [materialBaseId], references: [id], onDelete: Restrict)
+
+  @@unique([settlementId, materialBaseId])
+  @@index([settlementId])
+  @@index([materialBaseId])
 }
 
 model SettlementLedger {

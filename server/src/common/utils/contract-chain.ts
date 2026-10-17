@@ -170,6 +170,52 @@ export async function chainSettledTotal(db: any, contractId: string, excludeId?:
 }
 
 /**
+ * **链上清单量基线**（按 materialBaseId 求和；清单项级结算明细的"可结量"上限，业务 2026-10-17）。
+ * 链成员 = 链根 + 其直接补充协议（与金额口径同一条链）——补充协议清单行自身在链上，
+ * 求和即含已生效变更增量；同物资跨链成员叠加。
+ * 返回 Map(materialBaseId → 合计 qty)；链上没有清单 → 空 Map。
+ */
+export async function chainMaterialQty(db: any, contractId: string): Promise<Map<string, number>> {
+  const ids = await contractChainIds(db, contractId);
+  const map = new Map<string, number>();
+  if (!ids.length) return map;
+  const rows = await db.contractMaterial.findMany({
+    where: { contractId: { in: ids } },
+    select: { materialBaseId: true, qty: true },
+  });
+  for (const r of rows) {
+    if (!r.materialBaseId) continue;
+    map.set(r.materialBaseId, (map.get(r.materialBaseId) || 0) + (Number(r.qty) || 0));
+  }
+  return map;
+}
+
+/** 链上已结算明细量（SettlementItem 按 materialBaseId 求和；排除 excludeId 结算单自身，排除草稿单） */
+export async function chainSettledItemQty(
+  db: any,
+  contractId: string,
+  excludeId?: string,
+): Promise<Map<string, number>> {
+  const ids = await contractChainIds(db, contractId);
+  const map = new Map<string, number>();
+  if (!ids.length) return map;
+  const rows = await db.settlementItem.findMany({
+    where: {
+      settlement: {
+        contractId: { in: ids },
+        ...notDraft,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    },
+    select: { materialBaseId: true, qty: true },
+  });
+  for (const r of rows) {
+    map.set(r.materialBaseId, (map.get(r.materialBaseId) || 0) + (Number(r.qty) || 0));
+  }
+  return map;
+}
+
+/**
  * 链上累计付款额。
  * - `excludeId`：排除自身（编辑场景）
  * - `excludeStatuses`：排除**不构成实际出资**的状态（如 `FAILED 付款失败` / `REFUNDED 已退款`），
