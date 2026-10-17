@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, AutoComplete, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
-  Row, Select, Space, Table, Tabs, Tag, Tooltip, message,
+  Row, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
-  SearchOutlined, SelectOutlined, SyncOutlined,
+  ArrowLeftOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
+  SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { receiptOrderApi } from '@/api/business';
+import { fileApi } from '@/api/auth';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
@@ -300,6 +301,10 @@ export default function ReceiptOrders() {
   const watchMaterialContractId = Form.useWatch('materialContractId', headerForm);
   // 「是否为资产」= 是 → 明细显示「保管单位及保管人」列（业务 2026-10-17）
   const watchIsAssetFlag = Form.useWatch('isAssetFlag', headerForm);
+  // 收领单扫描件（附件需求）：归档到「5.物资结算/收领单」
+  const watchScanUrl = Form.useWatch('scanUrl', headerForm);
+  const watchScanFileName = Form.useWatch('scanFileName', headerForm);
+  const [uploadingScan, setUploadingScan] = useState(false);
 
   const [details, setDetails] = useState<any[]>(() => seed?.details ?? []);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -499,6 +504,9 @@ export default function ReceiptOrders() {
         materialContractId: detail.materialContractId,
         materialContractNo: detail.materialContractNo, // 快照落库，不在界面显示
         isAssetFlag: detail.isAssetFlag || undefined,
+        // 扫描件：后端存相对键，展示用完整 URL（提交时后端归一化回相对键）
+        scanUrl: detail.scanUrl ? `/api/files/${detail.scanUrl}` : null,
+        scanFileName: detail.scanFileName || null,
         remark: detail.remark,
       };
       // 回填互锁数据源（这些数据由**编辑器实例**持有，故随 seed 一起递过去）
@@ -800,6 +808,17 @@ export default function ReceiptOrders() {
             { title: '分包合同', dataIndex: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
             { title: '领料人', dataIndex: 'receiver', width: 110, render: (v: any) => v || '-' },
             {
+              title: '附件', dataIndex: 'scanUrl', width: 110,
+              render: (v: any, row: any) =>
+                v ? (
+                  <a href={`/api/files/${v}`} target="_blank" rel="noreferrer">
+                    <PaperClipOutlined /> {row.scanFileName || '附件'}
+                  </a>
+                ) : (
+                  '-'
+                ),
+            },
+            {
               title: '状态', dataIndex: 'status', width: 100,
               render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
             },
@@ -844,6 +863,8 @@ export default function ReceiptOrders() {
           <Form.Item name="supplySubcontractName" hidden><Input /></Form.Item>
           <Form.Item name="subcontractName" hidden><Input /></Form.Item>
           <Form.Item name="subcontractorId" hidden><Input /></Form.Item>
+          <Form.Item name="scanUrl" hidden><Input /></Form.Item>
+          <Form.Item name="scanFileName" hidden><Input /></Form.Item>
           <Row gutter={16}>
             {/* ---- 供应单位 ---- */}
             <Col xs={24} md={12}>
@@ -999,6 +1020,51 @@ export default function ReceiptOrders() {
             </Col>
           </Row>
         </Form>
+      </Card>
+
+      {/* ==================== 附件（收领单扫描件；归档到「5.物资结算/收领单」） ==================== */}
+      <Card size="small" title="附件（收领单扫描件）" style={{ marginBottom: 12 }}>
+        <Space wrap>
+          <Upload
+            name="files"
+            multiple={false}
+            showUploadList={false}
+            accept=".jpg,.jpeg,.png,.pdf"
+            customRequest={async (options: any) => {
+              setUploadingScan(true);
+              try {
+                const arr = await fileApi.upload([options.file as File]);
+                headerForm.setFieldsValue({ scanUrl: arr?.[0]?.url, scanFileName: arr?.[0]?.fileName });
+                message.success(`「${arr?.[0]?.fileName}」上传成功`);
+                options.onSuccess?.(arr?.[0]);
+              } catch (e) {
+                options.onError?.(e);
+              } finally {
+                setUploadingScan(false);
+              }
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={uploadingScan}>
+              {watchScanUrl ? '重新上传' : '上传扫描件'}
+            </Button>
+          </Upload>
+          {watchScanUrl ? (
+            <Space size={4}>
+              <PaperClipOutlined />
+              <a href={watchScanUrl} target="_blank" rel="noreferrer">{watchScanFileName || '附件'}</a>
+              <Popconfirm
+                title="确认删除该附件？"
+                okText="删除"
+                okType="danger"
+                onConfirm={() => headerForm.setFieldsValue({ scanUrl: null, scanFileName: null })}
+              >
+                <Button type="link" size="small" danger>删除</Button>
+              </Popconfirm>
+            </Space>
+          ) : (
+            <span style={{ color: 'var(--cms-muted-soft)' }}>未上传（jpg/png/pdf；项目资料归档时归入「5.物资结算/收领单」）</span>
+          )}
+        </Space>
       </Card>
 
       {/* ==================== 物资明细 ==================== */}
