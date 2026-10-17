@@ -179,40 +179,53 @@ model Supplier {
   procurementBidders ProcurementBidder[]
 }
 
-// ---------------- 劳务管理（分包授权台账；附件需求 2026-10-17） ----------------
+// ---------------- 劳务管理（分包材料员授权委托书；原「分包商库」并入本表，2026-10-17） ----------------
 
-// 分包授权台账。与 Subcontractor（分包材料员授权委托书）的关系：
-// Subcontractor 是**分包商档案**（含材料员身份证照片/签字截图，供互锁与归档收集），
-// 本表是**台账登记**（授权期间、快照字段可改），归档时两者合并导出。
+// 分包授权台账 = **分包商档案 + 台账登记**二合一（2026-10-17 业务确认合并）：
+// 填报样式沿用原分包商库（委托书预览/导出 PDF、四类图片、关联分包合同），
+// 导出用台账格式（分包材料员授权信息表.xlsx，图片内嵌单元格，见 labor-excel.ts）；
+// 归档目录「11.分包授权台账」的数据源就是本表。
 model LaborAuthLedger {
   id                String    @id @default(cuid())
   projectId         String
-  subcontractorId   String? // 关联分包商库（可空：允许先登记台账后补档案）
-  subcontractorName String // 分包商名称（快照；导出/归档命名用）
-  legalPerson       String? // 法人代表（快照，可改）
-  authorizedPerson  String? // 授权委托人（快照，可改）
+  subcontractorName String // 分包商名称
+  subcontractContent String? // 分包合同内容（关联的分包合同说明）
+  subcontractId     String? // 关联的分包合同 ID（与分包合同互锁；合同删除 SetNull）
+  legalPerson       String? // 法人代表
+  authorizedPerson  String? // 授权委托人
+  authorizedPersonIdNo String? // 授权材料员身份证号
+  projectName       String? // 项目名称（授权委托书内填写）
+  idCardFront       String? // 授权材料员身份证照片正面（StorageService 键/URL）
+  idCardBack        String? // 授权材料员身份证照片反面
+  signatureScreenshot String? // 授权材料员签字部分截图
+  signedAuthFile    String? // 签字盖章版委托书（扫描件/PDF）
   authStartDate     DateTime? // 授权期间起
   authEndDate       DateTime? // 授权期间止
-  status            String    @default("EDITING") // dict 复用 subcontractor_status
+  status            String    @default("EDITING") // dict subcontractor_status：EDITING / COMPLETED
   remark            String?
   createdBy         String?
   createdAt         DateTime  @default(now())
   version           Int       @default(0)
   updatedAt         DateTime  @updatedAt
 
-  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subcontract  Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
+  receiptOrders ReceiptOrder[]
+  // 成本管理 · 分包领用汇总的反引用（分包商下拉的关联；SetNull：删台账行保留领用行，名称已是快照）
+  subcontractReceiving SubcontractReceiving[]
 
   @@index([projectId])
+  @@index([subcontractorName])
+  @@index([subcontractId])
 }
 
 // ---------------- 成本管理（分包领用汇总 / 盈亏分析；附件需求 2026-10-17） ----------------
 
-// 分包领用汇总（结构化台账；归档目录第二段 = 分包商名称快照）
+// 分包领用汇总（结构化台账；归档目录第二段 = 分包商名称快照；分包商下拉数据源 = 分包授权台账）
 model SubcontractReceiving {
   id                String    @id @default(cuid())
   projectId         String
-  subcontractorId   String? // 关联分包商库
+  subcontractorId   String? // 关联分包授权台账（LaborAuthLedger；合并后台账即分包商档案）
   subcontractorName String // 分包商名称（快照）
   period            String? // 账期（如 2026.10）
   materialName      String? // 物资名称
@@ -228,8 +241,8 @@ model SubcontractReceiving {
   version           Int       @default(0)
   updatedAt         DateTime  @updatedAt
 
-  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  laborAuthLedger   LaborAuthLedger?  @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
 }
@@ -254,41 +267,6 @@ model ProfitLossAnalysis {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
-}
-
-// ---------------- 分包商库（分包材料员授权委托书） ----------------
-
-model Subcontractor {
-  id                   String    @id @default(cuid())
-  projectId            String? // 所属项目，全局共享时为空
-  subcontractorName    String // 分包商名称
-  subcontractContent   String? // 分包合同内容（关联的分包合同说明）
-  subcontractId        String? // 关联的分包合同 ID（用于与分包合同互锁）
-  // 分包合同被删除时保留分包商档案本身，故 SetNull
-  subcontract          Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
-  legalPerson          String? // 法人姓名
-  authorizedPerson     String? // 材料授权人姓名
-  authorizedPersonIdNo String? // 材料授权人身份证号
-  projectName          String? // 项目名称（授权委托书内填写）
-  idCardFront          String? // 材料授权人身份证照片正面
-  idCardBack           String? // 材料授权人身份证照片反面
-  signatureScreenshot  String? // 材料授权人签字部分截图
-  signedAuthFile       String? // 签字盖章版委托书（扫描件/PDF）
-  status               String    @default("EDITING") // EDITING 编辑中 / COMPLETED 已完成
-  remark               String?
-  createdBy            String?
-  createdAt            DateTime  @default(now())
-  version              Int       @default(0)
-  updatedAt            DateTime  @updatedAt
-
-  receiptOrders ReceiptOrder[]
-  // 劳务/成本台账反引用（附件需求 2026-10-17；SetNull：删分包商档案保留台账行，名称已是快照）
-  laborAuthLedgers     LaborAuthLedger[]
-  subcontractReceiving SubcontractReceiving[]
-
-  @@index([projectId])
-  @@index([subcontractorName])
-  @@index([subcontractId])
 }
 
 // ---------------- 合同 ----------------
@@ -358,7 +336,7 @@ model Contract {
   qualityClause              Clause?                 @relation("ContractQualityClause", fields: [qualityClauseId], references: [id], onDelete: SetNull)
   paymentClause              Clause?                 @relation("ContractPaymentClause", fields: [paymentClauseId], references: [id], onDelete: SetNull)
   acceptanceClause           Clause?                 @relation("ContractAcceptanceClause", fields: [acceptanceClauseId], references: [id], onDelete: SetNull)
-  subcontractors             Subcontractor[]         @relation("SubcontractContract")
+  laborAuthLedgers           LaborAuthLedger[]      @relation("SubcontractContract")
   parentContract             Contract?               @relation("SupplementChain", fields: [parentContractId], references: [id])
   supplements                Contract[]              @relation("SupplementChain")
   ext                        ContractExt?
@@ -1227,8 +1205,8 @@ model ReceiptOrder {
   materialContract  Contract?            @relation("ReceiptMaterialContract", fields: [materialContractId], references: [id])
   subcontract       Contract?            @relation("ReceiptSubcontract", fields: [subcontractId], references: [id])
   supplySubcontract Contract?            @relation("ReceiptSupplySubcontract", fields: [supplySubcontractId], references: [id])
-  // 分包商档案被删除时保留收领单（名称已是快照），故 SetNull
-  subcontractor     Subcontractor?       @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  // 分包商档案（分包授权台账）被删除时保留收领单（名称已是快照），故 SetNull
+  subcontractor     LaborAuthLedger?     @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
   /// 归属的结算单（SetNull：删结算单后收领单保留，回到「未关联」）
   settlement        Settlement?          @relation(fields: [settlementId], references: [id], onDelete: SetNull)
   details           ReceiptOrderDetail[]

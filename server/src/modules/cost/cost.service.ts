@@ -68,7 +68,7 @@ export class CostService {
     const payload: any = pickFields(data, RECEIVING_FIELDS, { label: '分包领用汇总' });
     if (data?.subcontractorId !== undefined) {
       const sc = data.subcontractorId
-        ? await this.prisma.subcontractor.findUnique({ where: { id: data.subcontractorId } })
+        ? await this.prisma.laborAuthLedger.findUnique({ where: { id: data.subcontractorId } })
         : null;
       payload.subcontractorName = sc?.subcontractorName ?? (payload.subcontractorName || '');
     }
@@ -87,7 +87,7 @@ export class CostService {
     const payload: any = pickFields(data, RECEIVING_FIELDS, { label: '分包领用汇总' });
     payload.projectId = projectId;
     if (data?.subcontractorId) {
-      const sc = await this.prisma.subcontractor.findUnique({ where: { id: data.subcontractorId } });
+      const sc = await this.prisma.laborAuthLedger.findUnique({ where: { id: data.subcontractorId } });
       payload.subcontractorName = sc?.subcontractorName ?? payload.subcontractorName;
     }
     if (!String(payload.subcontractorName || '').trim()) {

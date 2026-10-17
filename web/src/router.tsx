@@ -17,7 +17,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Dict = lazy(() => import('@/pages/Dict'));
 const Projects = lazy(() => import('@/pages/Projects'));
 const Suppliers = lazy(() => import('@/pages/Suppliers'));
-const Subcontractors = lazy(() => import('@/pages/Subcontractors'));
 const Contracts = lazy(() => import('@/pages/Contracts'));
 const Templates = lazy(() => import('@/pages/Templates'));
 const DailyReports = lazy(() => import('@/pages/DailyReports'));
@@ -160,7 +159,8 @@ export const routes: RouteObject[] = [
       // —— 基础信息管理 ——
       { path: 'base/project', element: perm('/base/project', <Projects />) },
       { path: 'base/supplier', element: perm('/base/supplier', <Suppliers />) },
-      { path: 'base/subcontractor', element: perm('/base/subcontractor', <Subcontractors />) },
+      // 「分包商库」已并入「劳务管理 → 分包授权台账」（附件需求 2026-10-17）：保号重定向
+      { path: 'base/subcontractor', element: <Navigate to='/labor/auth' replace /> },
       { path: 'base/material', element: perm('/base/material', <Materials />) },
       { path: 'base/template', element: perm('/base/template', <Templates />) },
       { path: 'base/doc-template', element: perm('/base/doc-template', <DocTemplates />) },
@@ -181,7 +181,7 @@ export const routes: RouteObject[] = [
       { path: 'dict', element: <Navigate to="/system/dict" replace /> },
       { path: 'projects', element: <Navigate to="/base/project" replace /> },
       { path: 'suppliers', element: <Navigate to="/base/supplier" replace /> },
-      { path: 'subcontractors', element: <Navigate to="/base/subcontractor" replace /> },
+      { path: 'subcontractors', element: <Navigate to='/labor/auth' replace /> },
       { path: 'templates', element: <Navigate to="/base/template" replace /> },
       { path: 'materials', element: <Navigate to="/base/material" replace /> },
       { path: 'daily', element: <Navigate to="/daily/report" replace /> },

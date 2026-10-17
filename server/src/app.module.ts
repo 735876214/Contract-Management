@@ -22,7 +22,7 @@ import { SystemModule } from './modules/system/system.module';
 import { FileModule } from './modules/file/file.module';
 import { AssetModule } from './modules/asset/asset.module';
 import { ReceiptOrderModule } from './modules/receipt-order/receipt-order.module';
-import { SubcontractorModule } from './modules/subcontractor/subcontractor.module';
+
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { PaymentProcedureModule } from './modules/payment-procedure/payment-procedure.module';
 import { DocTemplateModule } from './modules/doc-template/doc-template.module';
@@ -56,7 +56,7 @@ import { ArchiveModule } from './modules/archive/archive.module';
     FileModule,
     AssetModule,
     ReceiptOrderModule,
-    SubcontractorModule,
+
     ProcurementModule,
     PaymentProcedureModule,
     DocTemplateModule,

@@ -54,7 +54,6 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],
-  '/base/subcontractor': ['subcontractor:view'],
   '/base/material': ['material:view'],
   '/base/template': ['template:view'],
   '/base/procurement-template': ['template:view'],

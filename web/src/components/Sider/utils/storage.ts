@@ -7,9 +7,9 @@ export const STORAGE_KEYS = {
   /** 菜单缓存数据（sessionStorage，5 分钟 TTL）
    *  版本后缀：菜单结构发生变更（如新增采购管理分组、付款手续、单据模板、总结算单、
    *  资金费用拆分为保理/逾期两项）时递增，用于让旧缓存自然失效 */
-  menuCache: `${PREFIX}menu_cache_v8`,
+  menuCache: `${PREFIX}menu_cache_v9`,
   /** 菜单缓存写入时间戳（sessionStorage） */
-  menuCacheAt: `${PREFIX}menu_cache_at_v8`,
+  menuCacheAt: `${PREFIX}menu_cache_at_v9`,
   /**
    * 多页签导航的标签列表（localStorage，持久化）。
    * ⚠️ **刻意不带版本后缀**：标签是用户自己的"打开过哪些页"，不随菜单结构变化而失效；

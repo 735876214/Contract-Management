@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Form, Input, InputNumber, Select, Space, Modal, message, Row, Col } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { costApi, subcontractorApi } from '@/api/modules';
+import { costApi, laborApi } from '@/api/modules';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
@@ -91,7 +91,7 @@ function ReceivingEditor({ seed }: { seed: unknown }) {
   const editing = seed as any | undefined;
 
   useEffect(() => {
-    subcontractorApi.list({ pageSize: 1000 }).then((res: any) => setSubcontractors(res?.list || []));
+    laborApi.list({ pageSize: 1000 }).then((res: any) => setSubcontractors(res?.list || []));
   }, []);
 
   useEffect(() => {

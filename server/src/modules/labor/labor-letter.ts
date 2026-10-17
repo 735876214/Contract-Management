@@ -1,7 +1,7 @@
 import { CSCEC_LOGO_PNG_BASE64 } from '../../common/services/cscec-logo.base64';
 
 /**
- * 分包材料员授权委托书（表格编号：CCCEC-SW-B40410）渲染
+ * 分包材料员授权委托书（表格编号：CCCEC-SW-B40410）渲染（自 subcontractor 模块迁入，分包商库已并入分包授权台账）
  *
  * 版式严格对齐附件《分包材料员授权委托书.xlsx》：
  *  - 第一行：左「中国建筑」标识 + 右「项目管理表格」

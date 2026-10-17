@@ -1,143 +1,211 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, toDate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
-import { SubcontractorService } from '../subcontractor/subcontractor.service';
 
-const FIELDS = [
-  'projectId', 'subcontractorId', 'subcontractorName', 'legalPerson', 'authorizedPerson',
-  'authStartDate', 'authEndDate', 'status', 'remark',
+/** 允许从前端写入的字段白名单（原分包商库字段 + 台账独有的授权期间） */
+const EDITABLE_FIELDS = [
+  'subcontractorName',
+  'subcontractContent',
+  'subcontractId',
+  'legalPerson',
+  'authorizedPerson',
+  'authorizedPersonIdNo',
+  'projectName',
+  'idCardFront',
+  'idCardBack',
+  'signatureScreenshot',
+  'signedAuthFile',
+  'authStartDate',
+  'authEndDate',
+  'remark',
 ];
 
 /**
- * 劳务管理 · 分包授权台账（附件需求 2026-10-17）。
+ * 状态：编辑中 / 已完成（code 单一事实源在 `constants/statuses.ts`）。
+ * 流转（沿用原分包商库口径）：
+ *  - 导出 PDF 版委托书后 → EDITING（编辑中），信息落库
+ *  - 上传签字盖章版委托书 + 签字部分截图后 → COMPLETED（已完成）
+ */
+export const SUB_STATUS = SUBCONTRACTOR_STATUS;
+
+/**
+ * 劳务管理 · 分包授权台账（原「分包商库」并入本表，附件需求 2026-10-17）。
  *
- * 与 `Subcontractor`（分包商档案）的关系：档案里是材料员身份证照片/签字截图（归档收集源），
- * 本表是**台账登记**（授权期间、快照字段可改）。选中分包商时自动带出名称/法人/授权人快照
- * （快照可改——台账要的是"登记当时的口径"，事后改档案不改写台账行）。
+ * 功能 = 原分包商库的全部能力（委托书预览/导出 PDF、四类图片、关联分包合同互锁）
+ * + 台账独有字段（授权期间）+ 台账格式 Excel 导出（`labor-excel.ts`，图片内嵌）。
+ *
+ * 消费关系：收领单「供应单位/领用单位」下拉与合同互锁读本表；成本管理 · 分包领用汇总的
+ * 分包商下拉读本表；归档目录「11.分包授权台账」由本表 + 委托书扫描件组成。
  */
 @Injectable()
 export class LaborService {
-  constructor(
-    private prisma: PrismaClient,
-    private subcontractorService: SubcontractorService,
-  ) {}
+  constructor(private prisma: PrismaClient) {}
 
-  async findAll(query: any = {}, projectId: string) {
+  // ==================== 查询 ====================
+
+  async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query);
-    const where: any = { projectId };
-    if (query.subcontractorId) where.subcontractorId = query.subcontractorId;
+    const where: any = {};
+    if (projectId) where.projectId = projectId;
     if (query.status) where.status = query.status;
     if (query.keyword) {
       where.OR = [
         { subcontractorName: { contains: query.keyword } },
+        { legalPerson: { contains: query.keyword } },
         { authorizedPerson: { contains: query.keyword } },
-        { remark: { contains: query.keyword } },
+        { subcontractContent: { contains: query.keyword } },
       ];
     }
-    const [rows, total] = await Promise.all([
+    const [list, total] = await Promise.all([
       this.prisma.laborAuthLedger.findMany({
-        where, skip, take,
+        where,
+        skip,
+        take,
         orderBy: { createdAt: 'desc' },
-        include: { subcontractor: { select: { legalPerson: true, authorizedPerson: true, signedAuthFile: true, idCardFront: true, idCardBack: true, signatureScreenshot: true } } },
       }),
       this.prisma.laborAuthLedger.count({ where }),
     ]);
-    return buildResult(
-      rows.map((r: any) => this.serialize(r)),
-      total,
-      query,
-    );
+    return buildResult(list, total, query);
+  }
+
+  /**
+   * 收领单下拉数据源：返回 编辑中 + 已完成 的分包商（需求 2.1.4）
+   * 供「供应单位 - 分包商」「领用单位 - 分包商」两个 Tab 使用
+   * （原分包商库 options，合并后改查台账表；字段兼容：台账即有 name/legalPerson/authorizedPerson）
+   */
+  async options(query: any = {}, projectId?: string) {
+    const where: any = { status: { in: [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED] } };
+    if (projectId) where.projectId = projectId;
+    if (query.keyword) {
+      where.OR = [
+        { subcontractorName: { contains: query.keyword } },
+        { legalPerson: { contains: query.keyword } },
+        { authorizedPerson: { contains: query.keyword } },
+      ];
+    }
+    return this.prisma.laborAuthLedger.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
   }
 
   async findOne(id: string) {
-    const r = await this.prisma.laborAuthLedger.findUnique({
-      where: { id },
-      include: { subcontractor: { select: { legalPerson: true, authorizedPerson: true, signedAuthFile: true, idCardFront: true, idCardBack: true, signatureScreenshot: true } } },
-    });
-    if (!r) throw new NotFoundException('分包授权台账记录不存在');
-    return this.serialize(r);
+    const row = await this.prisma.laborAuthLedger.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('分包授权台账记录不存在');
+    return row;
   }
 
-  async create(data: any, projectId: string, user: any) {
-    const payload = await this.buildPayload(data, projectId);
-    payload.createdBy = user?.id;
-    const created = await this.prisma.laborAuthLedger.create({ data: payload });
-    return this.serialize(created);
+  // ==================== 写入 ====================
+
+  private validate(data: any) {
+    if (!String(data?.subcontractorName || '').trim()) {
+      throw new BadRequestException('分包商名称不能为空');
+    }
+  }
+
+  private pick(data: any) {
+    const out: any = {};
+    for (const f of EDITABLE_FIELDS) {
+      if (data[f] !== undefined) {
+        // 日期两列转 Date；其余原样（空串归 null）
+        out[f] = f === 'authStartDate' || f === 'authEndDate'
+          ? (data[f] ? toDate(data[f]) : null)
+          : data[f] === '' ? null : data[f];
+      }
+    }
+    return out;
+  }
+
+  async create(data: any, projectId?: string, user?: any) {
+    this.validate(data);
+    const payload = this.pick(data);
+    return this.prisma.laborAuthLedger.create({
+      data: {
+        ...payload,
+        projectId: projectId || null,
+        status: data?.status || SUB_STATUS.EDITING,
+        createdBy: user?.userId || user?.id || null,
+      },
+    });
   }
 
   async update(id: string, data: any) {
-    const current = await this.prisma.laborAuthLedger.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('分包授权台账记录不存在');
-    assertVersion(current, data);
-    const payload: any = pickFields(data, FIELDS.filter((f) => f !== 'projectId'), { label: '分包授权台账' });
-    if (payload.authStartDate !== undefined) payload.authStartDate = toDate(payload.authStartDate);
-    if (payload.authEndDate !== undefined) payload.authEndDate = toDate(payload.authEndDate);
-    if (data?.subcontractorId !== undefined) {
-      Object.assign(payload, await this.resolveSubcontractorSnapshot(data.subcontractorId));
+    const old = await this.findOne(id);
+    assertVersion(old, data);
+    if (data?.subcontractorName !== undefined) this.validate(data);
+    const payload = this.pick(data);
+    // 状态只能通过明确的状态流转接口变更，避免越权
+    if (data?.status && [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED].includes(data.status)) {
+      payload.status = data.status;
     }
-    payload.version = current.version + 1;
-    const updated = await this.prisma.laborAuthLedger.update({ where: { id }, data: payload });
-    return this.serialize(updated);
+    return this.prisma.laborAuthLedger.update({
+      where: { id },
+      data: { ...payload, version: { increment: 1 } },
+    });
   }
 
   async remove(id: string) {
+    await this.findOne(id);
     await this.prisma.laborAuthLedger.delete({ where: { id } });
     return true;
   }
 
-  /** 选中分包商 → 带出快照（名称/法人/授权人）；未选 → 名称必填（允许无档案先登记） */
-  private async buildPayload(data: any, projectId: string) {
-    const payload: any = pickFields(data, [...FIELDS.filter((f) => f !== 'projectId')], { label: '分包授权台账' });
-    payload.projectId = projectId;
-    payload.authStartDate = data?.authStartDate ? toDate(data.authStartDate) : null;
-    payload.authEndDate = data?.authEndDate ? toDate(data.authEndDate) : null;
-    if (data?.subcontractorId) {
-      Object.assign(payload, await this.resolveSubcontractorSnapshot(data.subcontractorId));
-      if (!payload.subcontractorName) throw new BadRequestException('所选分包商不存在');
+  /**
+   * 导出 PDF 版委托书后：自动保存已填写信息并落库，状态置为「编辑中」
+   * 语义：新增授权委托书 → 填写信息 → 导出 PDF 触发落库
+   * （原分包商库 exportMark，合并后改写台账表；按 id 或「同分包商 + 同授权人」去重）
+   */
+  async exportMark(payload: any, projectId?: string, user?: any) {
+    this.validate(payload);
+    const data = this.pick(payload);
+    const existing = payload?.id
+      ? await this.prisma.laborAuthLedger.findUnique({ where: { id: payload.id } })
+      : await this.prisma.laborAuthLedger.findFirst({
+          where: {
+            projectId: projectId || null,
+            subcontractorName: data.subcontractorName,
+            authorizedPerson: data.authorizedPerson ?? null,
+          },
+        });
+    if (existing) {
+      return this.prisma.laborAuthLedger.update({
+        where: { id: existing.id },
+        data: { ...data, status: SUB_STATUS.EDITING, version: { increment: 1 } },
+      });
     }
-    if (!String(payload.subcontractorName || '').trim()) {
-      throw new BadRequestException('分包商名称不能为空');
-    }
-    return payload;
+    return this.prisma.laborAuthLedger.create({
+      data: {
+        ...data,
+        projectId: projectId || null,
+        status: SUB_STATUS.EDITING,
+        createdBy: user?.userId || user?.id || null,
+      },
+    });
   }
 
-  /** 从分包商档案带快照（name 快照不允许后端覆盖已显式传入的值——台账可手改） */
-  private async resolveSubcontractorSnapshot(subcontractorId: string) {
-    const sc = await this.prisma.subcontractor.findUnique({ where: { id: subcontractorId } });
-    if (!sc) return { subcontractorName: '' };
-    return {
-      subcontractorName: sc.subcontractorName,
-      legalPerson: sc.legalPerson,
-      authorizedPerson: sc.authorizedPerson,
-    };
-  }
+  /**
+   * 上传签字盖章版委托书 + 签字部分截图 → 状态置为「已完成」
+   * 两个文件都到齐才允许完成（需求 2.1.3 流程）
+   */
+  async complete(id: string, data: any) {
+    const old: any = await this.findOne(id);
+    const signedAuthFile = data?.signedAuthFile ?? old.signedAuthFile;
+    const signatureScreenshot = data?.signatureScreenshot ?? old.signatureScreenshot;
+    if (!signedAuthFile) throw new BadRequestException('请先上传签字盖章版委托书');
+    if (!signatureScreenshot) throw new BadRequestException('请先上传委托书签字部分截图');
 
-  private serialize(r: any) {
-    return {
-      id: r.id,
-      subcontractorId: r.subcontractorId,
-      subcontractorName: r.subcontractorName,
-      legalPerson: r.legalPerson ?? '',
-      authorizedPerson: r.authorizedPerson ?? '',
-      authStartDate: r.authStartDate?.toISOString?.() ?? null,
-      authEndDate: r.authEndDate?.toISOString?.() ?? null,
-      status: r.status,
-      remark: r.remark ?? '',
-      version: r.version,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      // 分包商档案里的材料员照片/委托书（归档与"分包材料员授权信息表"导出用）
-      subcontractor: r.subcontractor
-        ? {
-            legalPerson: r.subcontractor.legalPerson ?? '',
-            authorizedPerson: r.subcontractor.authorizedPerson ?? '',
-            signedAuthFile: r.subcontractor.signedAuthFile,
-            idCardFront: r.subcontractor.idCardFront,
-            idCardBack: r.subcontractor.idCardBack,
-            signatureScreenshot: r.subcontractor.signatureScreenshot,
-          }
-        : null,
-    };
+    return this.prisma.laborAuthLedger.update({
+      where: { id },
+      data: {
+        ...this.pick(data),
+        signedAuthFile,
+        signatureScreenshot,
+        status: SUB_STATUS.COMPLETED,
+        version: { increment: 1 },
+      },
+    });
   }
 }

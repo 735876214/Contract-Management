@@ -289,8 +289,8 @@ export class ArchiveService {
         }
         case 'labor-auth': {
           push(cat.dir, '分包授权台账.xlsx', { buffer: await this.laborAuthBuffer(projectId) });
-          const scs = await this.prisma.subcontractor.findMany({
-            where: { OR: [{ projectId }, { projectId: null }] },
+          const scs = await this.prisma.laborAuthLedger.findMany({
+            where: { projectId },
             select: { id: true, subcontractorName: true, signedAuthFile: true },
           });
           for (const sc of scs) {

@@ -354,13 +354,26 @@ export const repaymentApi = {
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
 };
 
-/** 劳务管理 · 分包授权台账（附件需求 2026-10-17 新增模块） */
+/** 劳务管理 · 分包授权台账（附件需求 2026-10-17 新增模块；原「分包商库」并入，含委托书全流程） */
 export const laborApi = {
   list: (params?: any) => http.get<any, any>('/labor/auth-ledger', { params }),
+  options: (keyword?: string) => http.get<any, any>('/labor/auth-ledger/options', { params: { keyword } }),
   detail: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}`),
   create: (data: any) => http.post<any, any>('/labor/auth-ledger', data),
   update: (id: string, data: any) => http.put<any, any>(`/labor/auth-ledger/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/labor/auth-ledger/${id}`),
+  /** 授权委托书打印就绪 HTML（iframe 预览） */
+  letterHtml: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter`),
+  /** 委托书文件名（分包材料员授权委托书_{分包商}_{日期}.pdf） */
+  letterFileName: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter-filename`),
+  /** 未落库前的实时预览（按表单值渲染 HTML） */
+  previewHtml: (values: any) => http.post<any, any>('/labor/auth-ledger/preview', values),
+  /** 导出 PDF 版委托书 → 落库（状态：编辑中） */
+  exportMark: (data: any) => http.post<any, any>('/labor/auth-ledger/export-mark', data),
+  /** 上传签字盖章版委托书 + 签字截图 → 状态：已完成 */
+  complete: (id: string, data: any) => http.post<any, any>(`/labor/auth-ledger/${id}/complete`, data),
+  /** 分包材料员授权信息表.xlsx（图片内嵌；归档「11.分包授权台账」的 Excel 源） */
+  exportWorkbookUrl: () => `${http.defaults.baseURL}/labor/auth-ledger/export`,
 };
 
 /** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 盈亏分析 */

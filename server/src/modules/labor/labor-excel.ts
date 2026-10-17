@@ -7,11 +7,9 @@ import { StorageService } from '../../common/services/storage.service';
  * **签字截图 / 身份证照片直接嵌进单元格**（exceljs `addImage`），不把照片单独导出成文件。
  * 表样（用户提供截图）：序号 | 施工单位 | 法人代表 | 授权委托人 | (授权材料员签字 + 身份证) × 4 组。
  *
- * ⚠️ 现有 `Subcontractor` 档案一行只有 1 名材料员（idCardFront/Back/signatureScreenshot），
+ * 数据源 = `LaborAuthLedger` 自身（原分包商库已并入本表，2026-10-17；不再 join 旧档案表）。
+ * ⚠️ 现有字段一行只有 1 名材料员（signatureScreenshot + idCardFront），
  * 表样的"材料员 2/3/4"列在数据不足时留空；是否扩成多材料员子表由业务确认后再改。
- *
- * 图片来源：`Subcontractor` 档案的键（StorageService），**台账行没有**——导出以台账行
- * 关联的档案为准（有档案行才嵌图）。
  */
 
 const storage = new StorageService();
@@ -24,11 +22,6 @@ export async function exportLaborAuthWorkbook(prisma: PrismaClient, projectId: s
   const rows = await prisma.laborAuthLedger.findMany({
     where: { projectId },
     orderBy: { createdAt: 'asc' },
-    include: {
-      subcontractor: {
-        select: { signedAuthFile: true, idCardFront: true, idCardBack: true, signatureScreenshot: true },
-      },
-    },
   });
 
   const wb = new ExcelJS.Workbook();
@@ -62,11 +55,9 @@ export async function exportLaborAuthWorkbook(prisma: PrismaClient, projectId: s
     ];
     ws.getRow(r).height = CELL_H + 8;
     r += 1;
-    // 嵌图：材料员 1（现有档案只有一名材料员），签字截图 + 身份证正面
-    const sc = row.subcontractor;
-    if (!sc) continue;
+    // 嵌图：材料员 1（现有字段只有一名材料员），签字截图 + 身份证正面
     let col = 5;
-    for (const key of [sc.signatureScreenshot, sc.idCardFront].filter(Boolean) as string[]) {
+    for (const key of [row.signatureScreenshot, row.idCardFront].filter(Boolean) as string[]) {
       try {
         const buf = await storage.read(normalizeKey(key));
         const ext = guessExt(key);

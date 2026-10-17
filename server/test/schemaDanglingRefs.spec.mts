@@ -22,10 +22,10 @@ const ALLOWED_DANGLING: Record<string, string[]> = {
   AssetLedger: ['receiptDetailId'],
   // 操作人弱关联（用户删除不追溯历史记录）
   ContractChangeLog: ['operatorId'],
-  // null = 全局共享模板/供应商/分包商（受 supplier.share.scope 等系统参数控制）
+  // null = 全局共享模板/供应商（受 supplier.share.scope 等系统参数控制）
+  // （Subcontractor 已删除：2026-10-17 并入 LaborAuthLedger，原白名单条目随之移除）
   ContractTemplate: ['projectId'],
   Supplier: ['projectId'],
-  Subcontractor: ['projectId'],
   // 通用异步任务表：按业务类型弱关联，不绑定单一业务表
   ImportTask: ['projectId', 'userId'],
   // 通用通知 / 操作日志：按 bizType + bizId 弱关联
@@ -137,7 +137,8 @@ describe('schema 悬空引用漂移锁', () => {
       ['Contract', 'acceptanceClauseId'],
       ['ContractTemplate', 'parentId'],
       ['ProcurementTotalItem', 'materialBaseId'],
-      ['Subcontractor', 'subcontractId'],
+      // （Subcontractor 已删除：并入 LaborAuthLedger；subcontractId 外键移至台账表）
+      ['LaborAuthLedger', 'subcontractId'],
       ['AssetLedger', 'receiptOrderId'],
       ['ReceiptOrderDetail', 'materialId'],
       ['ReceiptOrder', 'subcontractorId'],

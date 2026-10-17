@@ -347,7 +347,7 @@ export class ReceiptOrderService {
         { authorizedPerson: { contains: keyword } },
       ];
     }
-    const rows = await this.prisma.subcontractor.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
+    const rows = await this.prisma.laborAuthLedger.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
     return rows.map((r: any) => ({
       id: r.id,
       name: r.subcontractorName,
@@ -404,7 +404,7 @@ export class ReceiptOrderService {
    * 保证仍可下拉选择，不阻塞业务。
    */
   async subcontractorContracts(subcontractorId: string, projectId: string) {
-    const sub = await this.prisma.subcontractor.findUnique({ where: { id: subcontractorId } });
+    const sub = await this.prisma.laborAuthLedger.findUnique({ where: { id: subcontractorId } });
     if (!sub) throw new NotFoundException('分包商不存在');
     const ids: string[] = [];
     if (sub.subcontractId) ids.push(sub.subcontractId);

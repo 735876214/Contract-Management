@@ -115,8 +115,7 @@ export const MENU_TREE: MenuNode[] = [
     children: [
       { key: 'base-project', label: '项目管理', icon: 'ProjectOutlined', path: '/base/project', permission: 'project:view' },
       { key: 'base-supplier', label: '供应商库', icon: 'TeamOutlined', path: '/base/supplier', permission: 'supplier:view' },
-      // 需求 2.1：新增「分包商库」，通过分包材料员授权委托书同步信息
-      { key: 'base-subcontractor', label: '分包商库', icon: 'SolutionOutlined', path: '/base/subcontractor', permission: 'subcontractor:view' },
+      // 「分包商库」已并入「劳务管理 → 分包授权台账」（附件需求 2026-10-17；菜单删除，/base/subcontractor 保号重定向）
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
       // 单据模板（业务口径 2026-10-16）：结算单/总结算单/保理单/逾期利息/付款单五类 Word 模板
