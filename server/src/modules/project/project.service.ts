@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, toDate } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -76,7 +76,13 @@ export class ProjectService {
     await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr);
-    return db.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
+    // 日期字段经 toDate 归一化：前端/导入传 'YYYY-MM-DD' 时 Prisma 会报
+    // 「Invalid value ... Expected ISO-8601 DateTime」，服务端统一转换而不是要求调用方拼时间
+    const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
+    for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
+      if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
+    }
+    return db.project.create({ data: payload });
   }
 
   async update(id: string, data: any) {
@@ -86,6 +92,9 @@ export class ProjectService {
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr, id);
     const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
+    for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
+      if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
+    }
     delete payload.version;
     return this.prisma.project.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
