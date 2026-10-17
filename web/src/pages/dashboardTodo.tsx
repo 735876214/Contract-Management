@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, List, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
-import { DeleteOutlined, EyeOutlined, RightOutlined } from '@ant-design/icons';
+import { DeleteOutlined, RightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { dashboardApi } from '@/api/modules';
 import { useAuthStore } from '@/store/auth';
@@ -53,11 +53,25 @@ const noticeToday = () => dayjs().format('YYYY-MM-DD');
 const LEVEL_TONE: Record<string, string> = { RED: 'error', AMBER: 'warning', INFO: 'default' };
 
 /**
- * 我的待办卡片（需求 2 / 3）：
+ * 我的待办卡片：
  * - 分类 Tab **常驻**（0 条的分类也在，= "为每个模块都预留一个待办卡片的位置"）；
- * - 点待办按 `target` 跳转：能定位编辑器页签的跳 `<path>?editor=<id>`，否则落到模块列表；
- * - 「消除提醒」当天生效、隔天恢复。
+ * - **点击分类 Tab 直接跳转**对应模块（用户 2026-10-17：不要「前往处理」按钮——
+ *   Tab 本身就是入口；有 count > 0 时点击先跳转，Tab 切换交给默认行为即可，
+ *   跳转后回来标签仍在）；行内保留「消除提醒」。
  */
+
+/** 分类 key → 模块落地路径（Tab 点击跳转；与后端 target.path 的"模块列表"一致） */
+const TODO_TAB_TARGET: Record<string, string> = {
+  CONTRACT_DRAFT: '/contract/draft',
+  CONTRACT_SIGN: '/contract/query',
+  SETTLEMENT_DRAFT: '/settlement/order',
+  FINAL_SETTLEMENT: '/settlement/final-settlement',
+  PAYMENT_PROCEDURE: '/settlement/payment-procedure',
+  INVOICE_VERIFY: '/invoice',
+  OVERDUE_INTEREST: '/settlement/overdue',
+  PROCUREMENT_TODO: '/procurement/initiate',
+};
+
 export function TodoCard() {
   const navigate = useNavigate();
   const userId = useAuthStore((s) => s.user?.id || '');
@@ -102,14 +116,6 @@ export function TodoCard() {
     writeKeys(dismissedStoreKey, userId, { date: noticeToday(), seenKeys: next });
   };
 
-  const goTarget = (item: any) => {
-    const t = item.target ?? {};
-    const qs = new URLSearchParams();
-    if (t.editor) qs.set('editor', t.editor);
-    else if (t.query) Object.entries(t.query).forEach(([k, v]) => qs.set(k, String(v)));
-    navigate(qs.toString() ? `${t.path}?${qs.toString()}` : t.path);
-  };
-
   const tabItems = groups.map((g) => ({
     key: g.key,
     label: (
@@ -122,19 +128,11 @@ export function TodoCard() {
         loading={loading}
         dataSource={g.visibleItems}
         locale={{
-          emptyText: <EmptyState compact description="暂无待办——这个模块当前没有需要处理的事项" />,
+          emptyText: <EmptyState compact description="暂无待办——点击上方分类标签前往对应模块处理" />,
         }}
         renderItem={(item: any) => (
           <List.Item
             actions={[
-              <Tooltip
-                key="go"
-                title={item.target?.editor ? '前往处理（打开编辑页签）' : '前往处理'}
-              >
-                <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => goTarget(item)}>
-                  前往处理
-                </Button>
-              </Tooltip>,
               <Tooltip key="dismiss" title="今天不再提醒（隔天恢复）">
                 <Button
                   type="link"
@@ -161,9 +159,23 @@ export function TodoCard() {
     ),
   }));
 
+  /** 点分类 Tab：先切 Tab（看明细），再跳对应模块——两个动作都要，跳转后回来 Tab 还停在原位 */
+  const handleTabClick = (key: string, e: MouseEvent) => {
+    setActiveTab(key);
+    const target = TODO_TAB_TARGET[key];
+    if (target) {
+      e.preventDefault?.();
+      navigate(target);
+    }
+  };
+
   return (
     <Card title="我的待办" extra={<span className="cms-hint">共 {data?.total ?? 0} 条</span>}>
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+      <Tabs
+        activeKey={activeTab}
+        onTabClick={handleTabClick}
+        items={tabItems}
+      />
       {groups.map((g) => {
         const shown = g.items?.length ?? 0;
         return g.count > shown ? (
@@ -195,24 +207,27 @@ export function DashboardNoticeModal({ data, loading }: { data: any; loading: bo
 
   const check = useCallback(() => {
     if (loading || !userId || !groups.length) return;
-    const allKeys = groups.flatMap((g) => (g.items ?? []).map((i: any) => i.key));
+    // ⚠️ 只看**分类级**信号（是否有 count>0 的分类没提示过），不看单条 key——
+    // 否则用户「消除提醒」/处理掉一条后，"新 key"判定会让浮窗再次弹出（实测踩到）。
+    const allKeys = groups.filter((g) => (g.items ?? []).length > 0).map((g) => `group:${g.key}`);
     const prev = readKeys(seenStoreKey, userId);
     const isNewDay = !prev || prev.date !== noticeToday();
     const hasNew = allKeys.some((k) => !prev?.seenKeys.includes(k));
     if (isNewDay || hasNew) {
-      // 弹出即视为"已看过"：当天不再弹，除非又出现新 key
+      // 弹出即视为"已看过"：当天不再弹，除非又出现新的**有待办的分类**
       const base = prev?.date === noticeToday() ? prev!.seenKeys : [];
       writeKeys(seenStoreKey, userId, { date: noticeToday(), seenKeys: Array.from(new Set([...base, ...allKeys])) });
       setOpen(true);
     }
   }, [groups, loading, userId]);
 
-  // 挂载后首检 + 标签重新激活时复检（缓存页不会重新挂载）
+  // 挂载后首检 + 标签重新激活时复检（缓存页不会重新挂载）。
+  // ⚠️ 浮窗只在**首次挂载**时判定一次：切回来不算"再次进入"（当天首弹后写 seen，
+  // 复检会因"无新分类"而不再弹；但 StrictMode 下 effect 双跑 + 激活信号会反复 setOpen(true)）。
   useEffect(() => {
     const id = window.setTimeout(check, 0);
     return () => window.clearTimeout(id);
   }, [check]);
-  useTabActivate('/dashboard', check);
 
   const goTarget = (item: any) => {
     setOpen(false);
