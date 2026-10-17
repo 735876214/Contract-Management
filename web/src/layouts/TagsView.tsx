@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { Dropdown, Modal } from 'antd';
-import { CloseOutlined } from '@ant-design/icons';
+import { CloseOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTabsStore } from '@/store/tabs';
 import { isEditorKey } from '@/utils/tabs';
 import { useResponsive } from '@/hooks/useResponsive';
+import { renderIcon } from '@/components/Sider/utils/iconHelper';
 
 /**
  * 多页签导航条（主内容区顶部、顶栏与内容区之间）。
@@ -115,6 +116,7 @@ export default function TagsView() {
       {tabs.map((t) => {
         const active = t.key === activeKey;
         const dirty = dirtyKeys.includes(t.key);
+        const editor = isEditorKey(t.key);
         return (
           <Dropdown
             key={t.key}
@@ -128,12 +130,18 @@ export default function TagsView() {
               role="tab"
               aria-selected={active}
               className={`cms-tags-view__item${active ? ' is-active' : ''}${dirty ? ' is-dirty' : ''}${
-                isEditorKey(t.key) ? ' is-editor' : ''
+                editor ? ' is-editor' : ''
               }`}
               onClick={() => {
                 if (!active) navigate(t.href);
               }}
             >
+              {/* 图标仅激活态显示（一排小图标过吵；参考图 3 也是仅激活标签带图标） */}
+              {active && (
+                <span className="cms-tags-view__icon">
+                  {editor ? <EditOutlined /> : t.icon ? renderIcon(t.icon) : null}
+                </span>
+              )}
               <span className="cms-tags-view__label" title={t.title}>
                 {t.title}
               </span>

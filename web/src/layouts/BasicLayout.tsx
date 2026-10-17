@@ -81,10 +81,10 @@ export default function BasicLayout() {
   const tabKey = tabKeyOf(location.pathname, location.search);
   const editorId = editorIdOf(tabKey);
   /** 菜单里能找到的才建标签 —— 旧扁平路径的 `<Navigate>` 与未知路径自然被排除 */
-  const menuLabel = useMemo(
-    () => findMenuChain(menu, location.pathname)?.slice(-1)[0]?.label ?? '',
-    [menu, location.pathname],
-  );
+  const menuChain = useMemo(() => findMenuChain(menu, location.pathname), [menu, location.pathname]);
+  const menuLabel = menuChain?.slice(-1)[0]?.label ?? '';
+  /** 标签图标 = 菜单项的 icon 名（TagsView 仅激活态渲染） */
+  const menuIcon = menuChain?.slice(-1)[0]?.icon as string | undefined;
 
   useEffect(() => {
     if (!menuLabel) return; // 菜单尚未加载完；加载完会再跑一次
@@ -93,9 +93,10 @@ export default function BasicLayout() {
       path: location.pathname,
       href: tabKey,
       title: editorId ? `${menuLabel} · ${editorId === 'new' ? '新增' : '编辑'}` : menuLabel,
+      icon: editorId ? undefined : menuIcon,
       closable: tabKey !== HOME_TAB_KEY,
     });
-  }, [tabKey, menuLabel, editorId, location.pathname, syncRoute]);
+  }, [tabKey, menuLabel, menuIcon, editorId, location.pathname, syncRoute]);
 
   const outlet = useOutlet();
   /** 标签键 → 该标签对应的路由元素。渲染期写入是幂等的（同一路由永远是同一元素） */
@@ -214,8 +215,10 @@ export default function BasicLayout() {
             </Dropdown>
           </Space>
         </Header>
+        {/* 多页签通栏工具条（对标 XHan Admin：顶栏正下方、面包屑之上、全宽）——
+            位置与样式口径见 DESIGN.md §10.1；sticky 使滚动时钉在顶栏下 */}
+        <TagsView />
         <Content style={{ margin: isMobile ? 8 : 16 }}>
-          <TagsView />
           <BreadcrumbNav />
           {tabs.map((t) => {
             const element = cacheRef.current.get(t.key);

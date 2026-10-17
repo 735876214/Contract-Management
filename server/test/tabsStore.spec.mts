@@ -254,4 +254,20 @@ describe('多页签：持久化', () => {
     assert.deepEqual(round.tabs.map((t) => t.version), [0, 0, 0]);
     assert.deepEqual(round.lastActive, {});
   });
+
+  it('icon 字段：打开时写入、往返保留、脏数据缺省不报错', () => {
+    // 首页标签带工作台图标
+    assert.equal(emptyTabs().tabs[0].icon, 'DashboardOutlined');
+    let s = openTab(emptyTabs(), { ...tab('/a'), icon: 'BookOutlined' }, 1000);
+    assert.equal(s.tabs.find((t) => t.key === '/a')?.icon, 'BookOutlined');
+    // 重复打开不丢 icon（BasicLayout 每次路由变化都会 syncRoute 同一 icon）
+    s = openTab(s, { ...tab('/a'), icon: 'BookOutlined' }, 2000);
+    assert.equal(s.tabs.find((t) => t.key === '/a')?.icon, 'BookOutlined');
+    // 往返保留
+    const round = deserializeTabs(serializeTabs(s));
+    assert.equal(round.tabs.find((t) => t.key === '/a')?.icon, 'BookOutlined');
+    // 脏数据：无 icon 字段的旧缓存照常恢复
+    const legacy = deserializeTabs({ tabs: [{ key: '/x', path: '/x', href: '/x', title: 'X' }] });
+    assert.equal(legacy.tabs.find((t) => t.key === '/x')?.icon, undefined);
+  });
 });

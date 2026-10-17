@@ -31,6 +31,8 @@ export interface TabRecord {
   /** 完整地址（含 query）—— 标签点击时用它 `navigate()`，否则编辑器会退回列表 */
   href: string;
   title: string;
+  /** 菜单图标名（`iconHelper.tsx` 的 ICON_MAP 键；仅激活态显示）。编辑器标签不存 */
+  icon?: string;
   /** 是否可关闭：首页固定标签为 false */
   closable: boolean;
   /** 刷新版本：递增 → 缓存键变化 → 重挂载 */
@@ -53,6 +55,7 @@ export function emptyTabs(): TabsState {
         path: HOME_TAB_KEY,
         href: HOME_TAB_KEY,
         title: HOME_TAB_TITLE,
+        icon: 'DashboardOutlined',
         closable: false,
         version: 0,
       },
@@ -134,10 +137,13 @@ export function openTab(
   const lastActive = { ...state.lastActive, [incoming.key]: now };
   const existing = state.tabs.find((t) => t.key === incoming.key);
   if (existing) {
-    // 标题允许被覆盖（编辑器加载完记录后会把「编辑」改成「编辑 · 编号」）
-    const tabs = incoming.title && incoming.title !== existing.title
-      ? state.tabs.map((t) => (t.key === incoming.key ? { ...t, title: incoming.title } : t))
-      : state.tabs;
+    // 标题/图标允许被覆盖（编辑器加载完记录后会把「编辑」改成「编辑 · 编号」）
+    const tabs =
+      (incoming.title && incoming.title !== existing.title) || incoming.icon !== existing.icon
+        ? state.tabs.map((t) =>
+            t.key === incoming.key ? { ...t, title: incoming.title || t.title, icon: incoming.icon ?? t.icon } : t,
+          )
+        : state.tabs;
     return { tabs, lastActive };
   }
   let tabs = [...state.tabs, { ...incoming, version: 0 }];
@@ -237,7 +243,7 @@ export function retitleTab(state: TabsState, key: string, title: string): TabsSt
 /* ---------------- 持久化 ---------------- */
 
 export interface PersistedTabs {
-  tabs: Array<Pick<TabRecord, 'key' | 'path' | 'href' | 'title' | 'closable'>>;
+  tabs: Array<Pick<TabRecord, 'key' | 'path' | 'href' | 'title' | 'closable' | 'icon'>>;
 }
 
 /**
@@ -250,7 +256,7 @@ export function serializeTabs(state: TabsState): PersistedTabs {
   return {
     tabs: state.tabs
       .filter((t) => !isEditorKey(t.key))
-      .map(({ key, path, href, title, closable }) => ({ key, path, href, title, closable })),
+      .map(({ key, path, href, title, icon, closable }) => ({ key, path, href, title, icon, closable })),
   };
 }
 
@@ -275,6 +281,7 @@ export function deserializeTabs(raw: unknown): TabsState {
       path,
       href,
       title: typeof title === 'string' && title ? title : path,
+      icon: typeof item.icon === 'string' && item.icon ? item.icon : undefined,
       closable: true,
       version: 0,
     });

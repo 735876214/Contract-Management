@@ -165,11 +165,12 @@ body {
 }
 
 /* ============================================================================
- * 多页签导航条（`layouts/TagsView.tsx`）
+ * 多页签导航条（`layouts/TagsView.tsx`）—— 通栏工具条形态（对标 XHan Admin）
  *
- * 归属**页面外壳层**：它的宽度就是内容区宽度（受视口决定），故尺寸随视口收敛的规则
- * 走 `.is-compact`（由 JS 的 useResponsive 挂上），**不使用 Container Queries**。
- * 标签顺序稳定、激活态靠主色描边区分；编辑器标签用虚线边，与列表标签一眼可分。
+ * 归属**页面外壳层**：宽度=视口（顶栏正下方、面包屑之上、内容边距之外），
+ * 尺寸随视口收敛的规则走 `.is-compact`（由 JS 的 useResponsive 挂上），不使用 Container Queries。
+ * 形态（2026-10-17 用户确认的样式）：小圆角矩形卡片（非 pill）、默认透明底灰字、
+ * 激活 = canvas 底 + 珊瑚深档文字；**编辑器激活标签 = 品牌色实底白字**（图 3 形态）。
  * ============================================================================ */
 
 .cms-tags-view {
@@ -178,12 +179,11 @@ body {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-  padding: 6px 0;
+  gap: 4px;
+  padding: 6px 16px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  background: var(--cms-canvas);
+  background: var(--cms-surface-soft);
   border-bottom: 1px solid var(--cms-hairline);
 }
 
@@ -191,35 +191,49 @@ body {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 4px 10px;
-  border: 1px solid var(--cms-hairline);
-  border-radius: var(--cms-radius-pill);
-  background: var(--cms-surface-soft);
+  gap: 4px;
+  max-width: 200px;
+  padding: 3px 10px;
+  border-radius: var(--cms-radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--cms-muted);
   font-size: 13px;
-  line-height: 20px;
+  line-height: 22px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .cms-tags-view__item:hover {
+  background: var(--cms-surface-card);
   color: var(--cms-body-strong);
-  border-color: var(--cms-surface-cream-strong);
 }
 .cms-tags-view__item.is-active {
   background: var(--cms-canvas);
-  border-color: var(--cms-primary);
-  color: var(--cms-ink);
+  border-color: var(--cms-hairline);
+  color: var(--cms-primary-active);
 }
-/* 编辑器标签：虚线边区分（它是"正在编辑的一条记录"，不是菜单页） */
-.cms-tags-view__item.is-editor {
-  border-style: dashed;
+/* 编辑器激活标签：品牌色实底白字（"正在编辑的一条记录"最该被看见；图 3 形态的映射） */
+.cms-tags-view__item.is-editor.is-active {
+  background: var(--cms-primary);
+  border-color: var(--cms-primary);
+  color: var(--cms-on-primary);
+}
+.cms-tags-view__item.is-editor.is-active:hover {
+  background: var(--cms-primary-active);
+  border-color: var(--cms-primary-active);
 }
 /* 未保存：标签后加一个琥珀色圆点（关闭时会先确认） */
 .cms-tags-view__item.is-dirty .cms-tags-view__label::after {
   content: ' •';
   color: var(--cms-warning);
+}
+
+/* 标签图标（仅激活态显示，避免一排小图标过吵——参考图 3 也是仅激活标签带图标） */
+.cms-tags-view__icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .cms-tags-view__label {
@@ -230,8 +244,8 @@ body {
 
 .cms-tags-view__close {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -240,7 +254,7 @@ body {
   border-radius: 50%;
   background: transparent;
   color: var(--cms-muted-soft);
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
   cursor: pointer;
 }
@@ -248,15 +262,27 @@ body {
   background: var(--cms-surface-cream-strong);
   color: var(--cms-ink);
 }
+/* 品牌色实底（激活的编辑器标签）上的关闭按钮：半透明白 → hover 纯白 */
+.cms-tags-view__item.is-editor.is-active .cms-tags-view__close {
+  color: rgba(255, 255, 255, 0.85);
+}
+.cms-tags-view__item.is-editor.is-active .cms-tags-view__close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+/* 激活实底上的脏点与图标也用白系 */
+.cms-tags-view__item.is-editor.is-active.is-dirty .cms-tags-view__label::after {
+  color: var(--cms-accent-amber);
+}
 
-/* 手机/平板：标签更窄、无衬线变化，靠横向滚动容纳 */
+/* 手机/平板：标签更窄，靠横向滚动容纳 */
 .cms-tags-view.is-compact {
-  gap: 4px;
-  padding: 4px 0;
+  gap: 3px;
+  padding: 4px 8px;
 }
 .cms-tags-view.is-compact .cms-tags-view__item {
   max-width: 140px;
-  padding: 3px 8px;
+  padding: 2px 8px;
   font-size: 12px;
 }
 

@@ -227,8 +227,11 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 - **标签栏属页面外壳层**（宽度=内容区=视口），响应式按 §10.1 走 `useResponsive()`
   （≤md 紧凑形态 `.is-compact`）；`layouts/TagsView.tsx` 已登记进 `containerQuery.spec.mts`
   的视口层白名单。
-- 标签样式（`index.css` 的 `.cms-tags-view*`）：pill 形、顺序稳定不因激活重排、激活态主色描边、
-  **编辑器标签用虚线边**与菜单标签区分、有未保存内容的标签打琥珀点（关闭前会确认）。
+- **通栏位置与卡片形态**（2026-10-17 用户确认，对标 XHan Admin）：标签条在**顶栏正下方、
+  面包屑之上**、侧栏右侧内容区全宽（不在内容边距里），浅带底 `surface-soft` + hairline 分隔；
+  标签为 **6px 圆角矩形卡片**（非 pill）、默认透明底灰字、激活 = canvas 底 + 珊瑚深档文字、
+  **编辑器激活标签 = 品牌色实底白字**（虚线边已废弃——数量多太碎）；**仅激活标签带菜单图标**。
+  标签顺序稳定不因激活重排；有未保存内容的标签打琥珀点（关闭前会确认）。
 - 标签栏在顶栏与内容区之间 `position: sticky`；≤md 横向滚动、不撑破页面。
 - **编辑器页签壳**（`components/editor/EditorTabPage.tsx`）：页头（衬线标题 + 状态 Tag 槽位）+
   正文 + **sticky 底栏**（hairline 顶边 + canvas 底）——"长表单的底部按钮被滚出视口"由它兜住。
