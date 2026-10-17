@@ -32,7 +32,7 @@ export class FinalSettlementController {
   @Get(':id/export')
   async export(@Param('id') id: string, @Query('templateId') templateId: string, @Res() res: Response) {
     const { buffer, filename } = await this.service.export(id, templateId || undefined);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);
   }

@@ -10,7 +10,6 @@ import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import {
   buildFinalSettlementDocValues,
-  buildItemsTable,
 } from './final-settlement-vars';
 
 const FIELDS = ['remark'];
@@ -218,14 +217,15 @@ export class FinalSettlementService {
       : null;
 
     const values = buildFinalSettlementDocValues({ doc, contract, supplier, project });
-    return this.docTemplate.renderDocx({
-      categoryCode: 'FINAL_SETTLEMENT',
-      categoryLabel: '总结算单',
-      projectId: doc.projectId,
+    // 业务 2026-10-17：总结算单生成路径 Word → Excel（模板为上传的 xlsx，明细占位符整格多行）
+    return this.docTemplate.renderFinalSettlement({
+      doc,
+      contract,
+      project,
+      supplier,
       values,
-      tables: { 结算明细表: buildItemsTable(doc.items || []) },
       templateId,
-      filename: `${doc.code || '总结算单'}.docx`,
+      filename: `${doc.code || '总结算单'}.xlsx`,
     });
   }
 }

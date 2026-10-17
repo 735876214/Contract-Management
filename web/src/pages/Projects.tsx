@@ -83,6 +83,8 @@ function ProjectList() {
           { title: '简称（文字）', dataIndex: 'nameAbbr', width: 150 },
           { title: '简称（字母）', dataIndex: 'codeAbbr', width: 120, render: (v) => <Tag color="geekblue">{v || '-'}</Tag> },
           { title: '承接单位', dataIndex: 'undertaker', width: 150 },
+          { title: '包保领导', dataIndex: 'packageLeader', width: 110, render: (v) => v || '-' },
+          { title: '项目经理', dataIndex: 'projectManager', width: 110, render: (v) => v || '-' },
           { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })) },
           { title: '项目业态', dataIndex: 'industryType', width: 110, render: (v) => <DictTag typeCode="industry_type" value={v} /> },
           { title: '项目所在省市', dataIndex: 'provinceCity', width: 130, render: (v) => v || '-' },
@@ -243,6 +245,8 @@ function ProjectEditor({ seed }: { seed: unknown }) {
           </Col>
           <Col xs={24} md={12}>
             <Form.Item name="undertaker" label="承接单位" rules={[{ required: true }]}><Input maxLength={100} /></Form.Item>
+            <Form.Item name="packageLeader" label="项目包保领导"><Input maxLength={50} placeholder="用于合同模板变量 {{项目包保领导}}" /></Form.Item>
+            <Form.Item name="projectManager" label="项目经理"><Input maxLength={50} placeholder="用于合同模板变量 {{项目经理}}" /></Form.Item>
           </Col>
           <Col xs={24} md={12}>
             <Form.Item name="selfContractAmount" label="项目自施合同额（万元）" rules={[{ required: true }]}>

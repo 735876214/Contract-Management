@@ -6,9 +6,14 @@ import { assertVersion } from '../../common/utils/helpers';
 import { DictService } from '../dict/dict.service';
 import { renderTemplate, pendingPlaceholders } from '../template/template-render';
 import { buildPaymentDocValues } from './doc-template-vars';
+import { buildItemsTable } from '../final-settlement/final-settlement-vars';
+import { renderTemplateExcel } from './doc-excel';
+import { StorageService } from '../../common/services/storage.service';
 
 /** 可写字段（与合同模板同表，故字段名一致；该表没有 remark，别往里加） */
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'createdBy'];
+/** Excel 单据模板的可写字段（fileUrl/fileName 由上传接口写入） */
+const DOC_EXCEL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'fileUrl', 'fileName', 'createdBy'];
 
 /**
  * **单据模板**（业务口径 2026-10-16）：基础信息管理下管理**五类**单据的 Word 模板
@@ -26,6 +31,7 @@ export class DocTemplateService {
   constructor(
     private prisma: PrismaClient,
     private dict: DictService,
+    private storageService: StorageService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -65,10 +71,11 @@ export class DocTemplateService {
   async create(data: any, projectId: string, user: any) {
     await this.assertCategory(data?.categoryCode);
     if (!data?.name) throw new BadRequestException('模板名称不能为空');
+    // 业务 2026-10-17：单据模板**全项目通用** → 一律落全局（projectId=null）；
+    // 模板内容为**上传的 Excel 文件**（fileUrl/fileName；历史富文本 content 字段保留但不再使用）
     return this.prisma.contractTemplate.create({
       data: {
-        ...pickFields(data, TPL_FIELDS, { label: '单据模板' }),
-        // 业务 2026-10-17：单据模板全项目通用 → 一律落全局（projectId=null）
+        ...pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' }),
         projectId: null,
         createdBy: user?.userId || user?.id || null,
       },
@@ -79,7 +86,7 @@ export class DocTemplateService {
     const before: any = await this.findOne(id);
     assertVersion(before, data);
     if (data.categoryCode !== undefined) await this.assertCategory(data.categoryCode);
-    const payload: any = pickFields(data, TPL_FIELDS, { label: '单据模板' });
+    const payload: any = pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' });
     delete payload.version;
     delete payload.projectId;
     return this.prisma.contractTemplate.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
@@ -92,16 +99,126 @@ export class DocTemplateService {
   }
 
   /**
-   * **通用渲染入口**：按分类取模板 → 用给定取值表渲染 → 出 docx。
-   * 各单据模块（付款单、总结算单…）都走这里，别各写一份"找模板 + 渲染 + 转 docx"。
+   * **通用 Excel 渲染入口**（业务 2026-10-17：单据模板改 Excel，五类单据都走这里）：
+   * 按分类取模板（上传的 xlsx）→ 读模板扫单元格替换 `{{变量}}` → 出 xlsx。
    *
-   * - 未指定 `templateId` 时取该项目的**启用中**该分类模板；一张也没配就报错并说清去哪儿配
-   *   （不内置兜底模板：打印出来的单据格式是业务资产，不该由代码偷偷决定）。
-   * - 未取到值的占位符**原样保留**（`renderTemplate` 的行为）并记一条 warn：打印件上留着
-   *   `{{xxx}}` 一眼就能看出缺什么，比静默留空好。
-   * - `tables` 用于表格类占位符（如总结算单的月度明细表）。
+   * - 未指定 `templateId` 时取**启用中**该分类模板（全局）；
+   * - 模板未上传 Excel（fileUrl 空）→ 报错并说清去哪儿配；
+   * - 未取到值的占位符原样保留并记 warn（打印件上留着 `{{xxx}}` 一眼能看出缺什么）。
    */
-  async renderDocx(opts: {
+  async renderExcel(opts: {
+    categoryCode: string;
+    categoryLabel: string;
+    values: Record<string, string>;
+    tables?: Record<string, string[][]>;
+    templateId?: string;
+    filename: string;
+  }): Promise<{ buffer: Buffer; filename: string; pending: string[] }> {
+    const template = opts.templateId
+      ? await this.findOne(opts.templateId)
+      : await this.prisma.contractTemplate.findFirst({
+          where: { categoryCode: opts.categoryCode, status: 1 },
+          orderBy: { createdAt: 'desc' },
+        });
+    if (!template) {
+      throw new BadRequestException(
+        `未找到启用中的「${opts.categoryLabel}」模板：请到「基础信息管理 → 单据模板」上传一张` +
+          `（分类选「${opts.categoryLabel}」，Excel 文件）并启用。`,
+      );
+    }
+    if (!(template as any).fileUrl) {
+      throw new BadRequestException(
+        `单据模板「${(template as any).name}」未上传 Excel 文件：请到「基础信息管理 → 单据模板」编辑并上传 .xlsx。`,
+      );
+    }
+
+    const tplBuffer = await this.storageService.read((template as any).fileUrl);
+    const buffer = await renderTemplateExcel({
+      template: tplBuffer,
+      values: opts.values,
+      tables: opts.tables,
+    });
+
+    // 替换后扫描残留占位符（读回来扫一遍代价可接受；单据都是小文件）
+    const wb = await import('exceljs');
+    const check = new wb.Workbook();
+    await check.xlsx.load(buffer as any);
+    const pending = new Set<string>();
+    for (const ws of check.worksheets) {
+      ws.eachRow((row) => {
+        row.eachCell((cell) => {
+          const v = cell.value;
+          const text = typeof v === 'string' ? v : Array.isArray((v as any)?.richText) ? (v as any).richText.map((t: any) => t.text).join('') : '';
+          for (const m of String(text).matchAll(/\{\{\s*([^{}]{1,60}?)\s*\}\}/g)) pending.add(m[1]);
+        });
+      });
+    }
+    if (pending.size) {
+      console.warn(`[doc-template] ${opts.categoryLabel}Excel 模板「${(template as any).name}」生成后仍有未替换占位符：${[...pending].join('、')}`);
+    }
+    return { buffer, filename: opts.filename, pending: [...pending] };
+  }
+
+  /**
+   * **渲染付款单**（付款手续 → Excel）：取单据上的快照值 + 合同/供应商/项目，套模板生成 xlsx。
+   * 业务 2026-10-17：生成路径 Word → Excel（单据数据来自表格、导出也是 Excel）。
+   */
+  async renderPaymentProcedure(procedureId: string, templateId?: string) {
+    const procedure: any = await this.prisma.paymentProcedure.findUnique({
+      where: { id: procedureId },
+      include: {
+        contract: { select: { id: true, code: true, name: true, supplierId: true } },
+      },
+    });
+    if (!procedure) throw new NotFoundException('付款手续不存在');
+    const supplier = procedure.supplierId
+      ? await this.prisma.supplier.findUnique({ where: { id: procedure.supplierId }, select: { name: true } })
+      : procedure.contract?.supplierId
+        ? await this.prisma.supplier.findUnique({ where: { id: procedure.contract.supplierId }, select: { name: true } })
+        : null;
+    const project = await this.prisma.project.findUnique({
+      where: { id: procedure.projectId },
+      select: { name: true, nameAbbr: true, code: true },
+    });
+
+    const values = buildPaymentDocValues({ procedure, contract: procedure.contract, supplier, project });
+    return this.renderExcel({
+      categoryCode: 'PAYMENT',
+      categoryLabel: '付款单',
+      values,
+      templateId,
+      filename: `${procedure.code || '付款单'}.xlsx`,
+    });
+  }
+
+  /**
+   * **渲染总结算单**（总结算单 → Excel；明细表占位符整格多行文本）。
+   * 业务 2026-10-17：生成路径 Word → Excel。
+   */
+  async renderFinalSettlement(opts: {
+    doc: any;
+    contract: any;
+    project: any;
+    supplier: any;
+    values: Record<string, string>;
+    templateId?: string;
+    filename: string;
+  }) {
+    return this.renderExcel({
+      categoryCode: 'FINAL_SETTLEMENT',
+      categoryLabel: '总结算单',
+      values: opts.values,
+      tables: { 结算明细表: itemsToRows(opts.doc?.items || []) },
+      templateId: opts.templateId,
+      filename: opts.filename,
+    });
+  }
+
+  /**
+   * **旧 Word 渲染路径**（历史保留；五类单据已改 Excel，不再有调用方）。
+   * 保留原因：历史合同正文导出（template.service）另有路径，与此无关；本函数留作回退。
+   */
+  async renderDocxLegacy(opts: {
     categoryCode: string;
     categoryLabel: string;
     projectId: string;
@@ -137,35 +254,17 @@ export class DocTemplateService {
     return { buffer, filename: opts.filename, pending };
   }
 
-  /**
-   * **渲染付款单**（付款手续 → Word）：取单据上的快照值 + 合同/供应商/项目，套模板生成 docx。
-   */
-  async renderPaymentProcedure(procedureId: string, templateId?: string) {
-    const procedure: any = await this.prisma.paymentProcedure.findUnique({
-      where: { id: procedureId },
-      include: {
-        contract: { select: { id: true, code: true, name: true, supplierId: true } },
-      },
-    });
-    if (!procedure) throw new NotFoundException('付款手续不存在');
-    const supplier = procedure.supplierId
-      ? await this.prisma.supplier.findUnique({ where: { id: procedure.supplierId }, select: { name: true } })
-      : procedure.contract?.supplierId
-        ? await this.prisma.supplier.findUnique({ where: { id: procedure.contract.supplierId }, select: { name: true } })
-        : null;
-    const project = await this.prisma.project.findUnique({
-      where: { id: procedure.projectId },
-      select: { name: true, nameAbbr: true, code: true },
-    });
+}
 
-    const values = buildPaymentDocValues({ procedure, contract: procedure.contract, supplier, project });
-    return this.renderDocx({
-      categoryCode: 'PAYMENT',
-      categoryLabel: '付款单',
-      projectId: procedure.projectId,
-      values,
-      templateId,
-      filename: `${procedure.code || '付款单'}.docx`,
-    });
-  }
+/** 总结算单明细行 → Excel 表格占位符的行数组（每行 = 列文本数组；首行为表头） */
+function itemsToRows(items: any[]): string[][] {
+  const head = ['结算月份', '结算金额(元)'];
+  const rows = (items || []).map((i: any) => [String(i.settleMonth || ''), formatMoneyCell(i.amount)]);
+  return [head, ...rows];
+}
+
+function formatMoneyCell(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
 }

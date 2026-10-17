@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Button, Form, Input, Select, Space, Modal, message, Table, Popconfirm, Tag, Switch } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Select, Space, Modal, message, Table, Popconfirm, Tag, Switch, Upload } from 'antd';
+import { DeleteOutlined, FileExcelOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { docTemplateApi } from '@/api/modules';
+import { fileApi } from '@/api/auth';
 import { dictApi, type DictOption } from '@/api/dict';
 import DictSelect, { DictTag } from '@/components/DictSelect';
-import RichTextEditor from '@/components/RichTextEditor';
 import { PAYMENT_DOC_VAR_GROUPS, FINAL_SETTLEMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
 
 /**
- * **分类 → 变量面板**：只给**已接 Word 生成路径**的分类提供变量
+ * **分类 → 变量面板**：只给**已接生成路径**的分类提供变量清单
  * （当前：付款单、总结算单；其余三类插了也不会被替换，故面板层就不给）。
  * 新增生成路径时在这里加一行即可。
  */
@@ -18,15 +18,12 @@ const VAR_GROUPS_BY_CATEGORY: Record<string, typeof PAYMENT_DOC_VAR_GROUPS | und
 };
 
 /**
- * 单据模板（基础信息管理，业务口径 2026-10-16）：管理**五类**单据的 Word 模板
- * —— 结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单。
+ * 单据模板（基础信息管理，业务 2026-10-17）：五类单据的 **Excel 模板**。
  *
- * 分类取自字典 `doc_template_category`（**不复用**合同模板分类：混在一起会让合同模板的分类下拉里
- * 冒出"付款单"）。存储复用 `ContractTemplate` 表。
- *
- * ⚠️ **变量面板只在「付款单」分类下提供**：本期只有付款单接了 Word 生成路径，
- * 其余四类插了变量也**不会被替换**（渲染器会原样留着占位符）。与其让人插了不生效，
- * 不如在面板层就不给 —— 等各自模块接上生成路径后再放开。
+ * 业务口径：单据数据来自总日报等表格、导出也是 Excel —— 模板即**上传的 .xlsx 文件**
+ * （占位符 `{{变量名}}` 写在单元格里，语法与合同/采购模板一致），生成时服务端
+ * 读模板扫单元格替换（`doc-excel.ts`）。历史富文本模板的 content 字段保留但不再使用。
+ * 变量面板在本页只作**占位符名清单**展示（复制名称到 Excel 单元格用），不再插富文本。
  */
 export default function DocTemplates() {
   const [form] = Form.useForm();
@@ -36,6 +33,9 @@ export default function DocTemplates() {
   const [editing, setEditing] = useState<any>(null);
   const [categories, setCategories] = useState<DictOption[]>([]);
   const [filterCategory, setFilterCategory] = useState<string | undefined>(undefined);
+  // 上传的 Excel 模板（fileUrl 为 StorageService 相对键；展示用 /api/files/ 前缀）
+  const [file, setFile] = useState<{ fileUrl: string; fileName: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const load = async (category: string | undefined = filterCategory) => {
     setLoading(true);
@@ -55,11 +55,13 @@ export default function DocTemplates() {
 
   const submit = async () => {
     const v = await form.validateFields();
+    if (!file?.fileUrl) return message.warning('请上传 Excel 模板文件（.xlsx）');
     const payload = {
       name: v.name,
       categoryCode: v.categoryCode,
-      content: v.content,
       status: v.status === false ? 0 : 1,
+      fileUrl: file.fileUrl,
+      fileName: file.fileName,
     };
     if (editing) await docTemplateApi.update(editing.id, { ...payload, version: editing.version });
     else await docTemplateApi.create(payload);
@@ -67,17 +69,14 @@ export default function DocTemplates() {
     setModal(false);
     form.resetFields();
     setEditing(null);
+    setFile(null);
     load();
   };
 
   const openEdit = (row: any) => {
     setEditing(row);
-    form.setFieldsValue({
-      name: row.name,
-      categoryCode: row.categoryCode,
-      content: row.content,
-      status: row.status !== 0,
-    });
+    form.setFieldsValue({ name: row.name, categoryCode: row.categoryCode, status: row.status !== 0 });
+    setFile(row.fileUrl ? { fileUrl: row.fileUrl, fileName: row.fileName || '模板.xlsx' } : null);
     setModal(true);
   };
 
@@ -86,6 +85,9 @@ export default function DocTemplates() {
     message.success('已删除');
     load();
   };
+
+  const watchCategory = Form.useWatch('categoryCode', form);
+  const varGroups = VAR_GROUPS_BY_CATEGORY[watchCategory as string];
 
   return (
     <>
@@ -108,6 +110,7 @@ export default function DocTemplates() {
             setEditing(null);
             form.resetFields();
             form.setFieldsValue({ status: true });
+            setFile(null);
             setModal(true);
           }}
         >
@@ -127,6 +130,19 @@ export default function DocTemplates() {
             dataIndex: 'categoryCode',
             width: 140,
             render: (v: any) => <DictTag typeCode="doc_template_category" value={v} />,
+          },
+          {
+            title: 'Excel 模板',
+            dataIndex: 'fileName',
+            width: 200,
+            render: (v: any, row: any) =>
+              row.fileUrl ? (
+                <a href={`/api/files/${row.fileUrl}`} target="_blank" rel="noreferrer">
+                  <FileExcelOutlined /> {v || '模板.xlsx'}
+                </a>
+              ) : (
+                <Tag color="red">未上传</Tag>
+              ),
           },
           {
             title: '状态',
@@ -161,12 +177,12 @@ export default function DocTemplates() {
         open={modal}
         onOk={submit}
         onCancel={() => setModal(false)}
-        width={1000}
+        width={860}
         destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Space size={16} style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <Form.Item name="name" label="模板名称" rules={[{ required: true }]} style={{ minWidth: 280 }}>
+            <Form.Item name="name" label="模板名称" rules={[{ required: true }]} style={{ minWidth: 260 }}>
               <Input maxLength={100} placeholder="如 付款单（标准版）" />
             </Form.Item>
             <Form.Item name="categoryCode" label="分类" rules={[{ required: true }]} style={{ minWidth: 200 }}>
@@ -176,27 +192,56 @@ export default function DocTemplates() {
               <Switch />
             </Form.Item>
           </Space>
-          {/* 变量面板只对**已接生成路径**的分类开放（当前是付款单与总结算单）。
-              这里必须用 Form.Item 的 shouldUpdate 读值，不能用 Form.useWatch：弹窗是 destroyOnHidden，
-              关闭时 form 未连接，useWatch 会**停在初始值**（真渲染实测：编辑付款单模板时面板不出现） */}
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.categoryCode !== cur.categoryCode}>
-            {({ getFieldValue }: any) => {
-              const groups = VAR_GROUPS_BY_CATEGORY[getFieldValue('categoryCode') as string];
-              return (
-                <Form.Item name="content" label="模板内容" rules={[{ required: true, message: '请编辑模板内容' }]}>
-                  <RichTextEditor
-                    variableGroups={groups}
-                    variableScope={groups ? 'doc' : undefined}
-                    minHeight={360}
-                    placeholder={
-                      groups
-                        ? '在此编辑模板，可点击「插入变量」把占位符插到光标处（语法 {{变量名}}，单花括号不生效）'
-                        : '先在「分类」里选「付款单」或「总结算单」才会出现该类的变量面板；其余三类待各自模块接上生成路径后再放开'
-                    }
-                  />
-                </Form.Item>
-              );
-            }}
+
+          <Form.Item label="Excel 模板文件（.xlsx；占位符写在单元格，如 {{单据编号}}）" required>
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <Upload
+                accept=".xlsx,.xlsm"
+                maxCount={1}
+                showUploadList={false}
+                customRequest={async (options: any) => {
+                  setUploading(true);
+                  try {
+                    const arr = await fileApi.upload([options.file as File]);
+                    setFile({ fileUrl: arr?.[0]?.url, fileName: arr?.[0]?.fileName });
+                    message.success(`「${arr?.[0]?.fileName}」上传成功`);
+                    options.onSuccess?.(arr?.[0]);
+                  } catch (e) {
+                    options.onError?.(e);
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+              >
+                <Button icon={<UploadOutlined />} loading={uploading}>
+                  {file ? '重新上传' : '上传 Excel 模板'}
+                </Button>
+              </Upload>
+              {file ? (
+                <a href={`/api/files/${file.fileUrl}`} target="_blank" rel="noreferrer">
+                  <FileExcelOutlined /> {file.fileName}
+                </a>
+              ) : (
+                <span style={{ color: 'var(--cms-muted-soft)' }}>
+                  未上传。占位符写在单元格文本里（语法与合同模板一致），生成单据时服务端自动替换。
+                </span>
+              )}
+            </Space>
+          </Form.Item>
+
+          {/* 变量清单（按分类展示）：Excel 模板时代变量面板只作**占位符名参考**（复制到单元格用） */}
+          <Form.Item label="该分类可用的占位符（复制到 Excel 单元格）">
+            {varGroups ? (
+              <Space wrap size={4}>
+                {varGroups.flatMap((g: any) => (g?.items || []).map((v: any) => (
+                  <Tag key={v.key} color="geekblue" style={{ fontFamily: 'monospace' }}>{`{{${v.key}}}`}</Tag>
+                )))}
+              </Space>
+            ) : (
+              <span style={{ color: 'var(--cms-muted-soft)' }}>
+                先选分类；「付款单」「总结算单」已接生成路径，其余三类待各自模块接入
+              </span>
+            )}
           </Form.Item>
         </Form>
       </Modal>

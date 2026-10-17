@@ -1,15 +1,20 @@
 import http from './http';
 
-/** 采购模板（批次一 · 任务 1.2）：每个业务类型仅一个模板，新增覆盖同类型旧模板 */
+/** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
   list: () => http.get<any, any>('/procurement-templates'),
   detail: (id: string) => http.get<any, any>(`/procurement-templates/${id}`),
   // 同业务类型已有模板时后端执行覆盖（upsert），前端负责覆盖前确认
-  create: (data: { moduleType: string; templateName: string; content: string; variables?: string[] }) =>
+  create: (data: { moduleType: string; templateName: string; content: string; variables?: string[]; tags?: string | null; status?: number }) =>
     http.post<any, any>('/procurement-templates', data),
-  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] }) =>
+  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string | null; status?: number }) =>
     http.put<any, any>(`/procurement-templates/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
+  /** 版本历史（新→旧） */
+  versions: (id: string) => http.get<any, any>(`/procurement-templates/${id}/versions`),
+  /** 回滚：基于旧版本内容创建新版本 */
+  rollback: (id: string, data: { versionId: string }) =>
+    http.post<any, any>(`/procurement-templates/${id}/rollback`, data),
 };
 
 /**

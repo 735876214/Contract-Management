@@ -22,7 +22,7 @@ export class DocTemplateController {
   }
 
   /**
-   * 渲染**付款单**（付款手续 → Word）。路径放在 `doc-templates` 下是因为它属于模板的生成路径。
+   * 渲染**付款单**（付款手续 → Excel，业务 2026-10-17：生成路径 Word → Excel）。
    * `?templateId=` 可指定模板；不传则用启用中的「付款单」模板。
    */
   @RequirePermissions('template:view')
@@ -33,7 +33,7 @@ export class DocTemplateController {
     @Res() res: Response,
   ) {
     const { buffer, filename } = await this.service.renderPaymentProcedure(procedureId, templateId || undefined);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);
   }

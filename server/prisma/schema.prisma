@@ -85,6 +85,8 @@ model Project {
   nameAbbr           String? // 项目简称（文字版）
   codeAbbr           String?   @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
   undertaker         String? // 承接单位
+  packageLeader      String? // 项目包保领导
+  projectManager     String? // 项目经理
   selfContractAmount Decimal?  @db.Decimal(18, 2) // 项目自施合同额（万元）
   industryType       String? // dict: industry_type 项目业态
   provinceCity       String? // 项目所在省市
@@ -489,6 +491,10 @@ model ContractTemplate {
   status       Int      @default(1)
   version      Int      @default(1)
   content      String?  @db.Text
+  /// Excel 单据模板文件（业务 2026-10-17：五类单据模板改为上传 xlsx，占位符写在单元格；
+  /// 付款单/总结算单生成路径由 Word 改为 Excel）。StorageService 相对键；仅单据模板使用。
+  fileUrl      String?
+  fileName     String?
   pageSetup    String? // 页面设置（JSON：页边距/页眉/页脚页码等），生成 Word 时生效
   projectId    String? // 空表示全局共享
   parentId     String? // 上一版本
@@ -1369,14 +1375,34 @@ model ProcurementTemplate {
   templateName String
   content      String // 富文本内容（HTML）
   variables    String? // 使用的变量列表（JSON 数组字符串）
+  tags         String? // 标签（逗号分隔；对齐合同模板 2026-10-17）
+  status       Int      @default(1) // 1 启用 0 停用（对齐合同模板）
   createdAt    DateTime @default(now())
-  version      Int      @default(0) // 乐观锁版本号，更新时校验
+  version      Int      @default(1) // 版本号；update 时旧版本快照入版本表
   updatedAt    DateTime @updatedAt
 
-  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project?                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions  ProcurementTemplateVersion[]
 
   @@unique([moduleType]) // 全项目通用：每个业务类型仅一个模板
   @@index([projectId])
+}
+
+// 采购模板版本历史（对齐合同模板的版本/回滚能力，2026-10-17）
+model ProcurementTemplateVersion {
+  id           String   @id @default(cuid())
+  templateId   String
+  templateName String
+  content      String   @db.Text
+  variables    String?
+  tags         String?
+  version      Int // 快照时的主行版本号
+  operator     String? // 修改人（userId 或用户名）
+  createdAt    DateTime @default(now())
+
+  template ProcurementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
 }
 
 // ---------------- 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态） ----------------

@@ -9,6 +9,7 @@ import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import RichTextEditor from '@/components/RichTextEditor';
 import { exportWord, printHtml, highlightPlaceholders } from '@/utils/docExport';
+import { checkPlaceholders } from '@/utils/placeholderCheck';
 import { VARIABLE_GROUPS } from './Clauses';
 
 export default function Templates() {
@@ -57,19 +58,9 @@ export default function Templates() {
   };
 
   /**
-   * 占位符防呆（2026-10-17）：保存前扫出三类**会导致变量/清单表格静默不替换**的写法，
-   * 弹窗警告（可继续保存）。渲染端只归一全角与带空格两种形态，被标签拆散的救不回来。
+   * 占位符防呆：抽为共享 `utils/placeholderCheck.ts`（采购模板保存前同样检查）。
    */
-  const checkPlaceholders = (html?: string): string[] => {
-    const problems: string[] = [];
-    const text = html || '';
-    if (/｛｛[^｛｝]{1,40}｝｝/.test(text)) problems.push('存在全角花括号 ｛｛…｝｝ 占位符（渲染时会自动归一，但建议改为半角 {{…}}）');
-    if (/\{\{\s{1,10}\S[\s\S]{0,38}?\s{1,10}\}\}/.test(text)) problems.push('存在花括号内带空格的 {{ … }} 占位符（渲染时会自动归一，但建议写成 {{变量名}}）');
-    if (/(?<!\{)\{[^{}]{1,20}\}(?!\})/.test(text.replace(/<[^>]+>/g, ''))) {
-      problems.push('存在单花括号 {…} 写法——单花括号已废弃、永远不会被替换，请用变量面板插入 {{…}}');
-    }
-    return problems;
-  };
+  const checkPlaceholdersLocal = (html?: string): string[] => checkPlaceholders(html);
 
   const submit = async () => {
     const values = await form.validateFields();
@@ -181,10 +172,11 @@ export default function Templates() {
         open={modal}
         onOk={submit}
         onCancel={() => setModal(false)}
-        width={760}
+        width={960}
         destroyOnHidden
       >
         <Form form={form} layout="vertical">
+          {/* 弹窗布局对齐采购模板（业务 2026-10-17）：名称+分类 / 标签+状态 两列并排；能力不删 */}
           <Row gutter={16}>
             <Col xs={24} md={12}>
               <Form.Item name="name" label="模板名称" rules={[{ required: true }]}><Input placeholder="如 采购合同模板" /></Form.Item>
