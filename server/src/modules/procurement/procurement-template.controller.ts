@@ -3,8 +3,11 @@ import { ProcurementTemplateService } from './procurement-template.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { ProjectId } from '../../common/decorators/user.decorator';
 
+/**
+ * 采购模板接口。业务 2026-10-17：模板**全项目通用**，不再按项目隔离
+ * （controller 不注入 @ProjectId；历史 projectId 列已弃用）。
+ */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('procurement-templates')
 export class ProcurementTemplateController {
@@ -12,31 +15,31 @@ export class ProcurementTemplateController {
 
   @RequirePermissions('template:view')
   @Get()
-  findAll(@ProjectId() projectId: string) {
-    return this.service.findAll(projectId);
+  findAll() {
+    return this.service.findAll();
   }
 
   @RequirePermissions('template:edit')
   @Post()
-  create(@Body() body: any, @ProjectId() projectId: string) {
-    return this.service.create(body, projectId);
+  create(@Body() body: any) {
+    return this.service.create(body);
   }
 
   @RequirePermissions('template:view')
   @Get(':id')
-  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
-    return this.service.findOne(id, projectId);
+  findOne(@Param('id') id: string) {
+    return this.service.findOne(id);
   }
 
   @RequirePermissions('template:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
-    return this.service.update(id, body, projectId);
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.service.update(id, body);
   }
 
   @RequirePermissions('template:edit')
   @Delete(':id')
-  remove(@Param('id') id: string, @ProjectId() projectId: string) {
-    return this.service.remove(id, projectId);
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }

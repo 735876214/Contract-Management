@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderTemplate, pendingPlaceholders } from '../src/modules/template/template-render.ts';
-
 /**
  * 合同模板占位符渲染的「语法契约」单测。
  *
@@ -100,5 +99,37 @@ describe('renderTemplate：只认双花括号', () => {
     assert.deepEqual(pendingPlaceholders('{{甲}}{{乙}}{{甲}}'), ['甲', '乙']);
     assert.deepEqual(pendingPlaceholders('<p>已全部替换</p>'), []);
     assert.deepEqual(pendingPlaceholders('单花括号 {甲} 不算未替换'), []);
+  });
+});
+
+describe('renderTemplate：占位符形态归一（2026-10-17 防呆批次）', () => {
+  it('全角花括号 ｛｛X｝｝ 归一后正常替换（此前残留且 pending 认不出）', () => {
+    const out = renderTemplate({ html: '<p>｛｛合同清单｝｝</p>', tables: { 合同清单: '<table>T</table>' } });
+    assert.equal(out, '<p><table>T</table></p>');
+  });
+
+  it('全角形态的残留能被 pendingPlaceholders 识别', () => {
+    assert.deepEqual(pendingPlaceholders('｛｛未知变量｝｝'), ['未知变量']);
+  });
+
+  it('花括号内两侧空格 {{ X }} 归一后替换', () => {
+    const out = renderTemplate({ html: '<p>{{ 合同清单 }}</p>', tables: { 合同清单: 'T' } });
+    assert.equal(out, '<p>T</p>');
+  });
+
+  it('归一只作用于占位符形态：正文里的全角字符与空白不受影响', () => {
+    const out = renderTemplate({ html: '<p>｛注意｝  空白保留{{合同编号}}</p>', values: { 合同编号: 'HT-1' } });
+    assert.equal(out, '<p>｛注意｝  空白保留HT-1</p>');
+  });
+
+  it('**回归锁**：单花括号 {X} 仍不被归一、不被替换', () => {
+    const out = renderTemplate({ html: '<p>{合同清单}</p>', tables: { 合同清单: 'T' } });
+    assert.equal(out, '<p>{合同清单}</p>');
+  });
+
+  it('**回归锁**：被富文本标签拆散的占位符不归一、不替换（结构破坏，由前端防呆兜住）', () => {
+    const out = renderTemplate({ html: '<p>{{合同<span></span>清单}}</p>', tables: { 合同清单: 'T' } });
+    assert.equal(out, '<p>{{合同<span></span>清单}}</p>');
+    assert.deepEqual(pendingPlaceholders(out), ['合同<span></span>清单']);
   });
 });

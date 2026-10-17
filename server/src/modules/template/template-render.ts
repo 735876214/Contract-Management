@@ -29,13 +29,29 @@ export interface RenderTemplateInput {
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
 
+/**
+ * 占位符形态规范化（2026-10-17 防呆批次）：
+ * - 全角花括号 `｛｛X｝｝` → `{{X}}`——输入法切中/英文时极易敲出全角括号，
+ *   且全角形态**连 `pendingPlaceholders` 都认不出**（残留无任何提示），最隐蔽；
+ * - `{{ X }}`（花括号内两侧空白）→ `{{X}}`——手敲时多打了空格。
+ * 只归一这两种形态；**单花括号仍不支持**（见上方语法契约与 spec 回归锁）。
+ * 被富文本标签拆散的占位符（`{{合同<span></span>清单}}`）不归一——那是结构性破坏，
+ * 由前端保存前防呆提示兜住。
+ */
+export function normalizePlaceholderSyntax(html: string): string {
+  let out = str(html);
+  out = out.replace(/｛｛([^｛｝]{1,60}?)｝｝/g, (_m, name: string) => `{{${name.trim()}}}`);
+  out = out.replace(/\{\{\s+([^{}]{1,60}?)\s+\}\}/g, (_m, name: string) => `{{${name}}}`);
+  return out;
+}
+
 /** 把 `{{key}}` 全部替换为 value（不做转义） */
 const replaceKey = (html: string, key: string, value: unknown): string =>
   html.split(`{{${key}}}`).join(str(value));
 
-/** 渲染合同正文：表格 → 变量 → 补充协议 */
+/** 渲染合同正文：规范化 → 表格 → 变量 → 补充协议 */
 export function renderTemplate(input: RenderTemplateInput): string {
-  let html = str(input.html);
+  let html = normalizePlaceholderSyntax(str(input.html));
   for (const [key, value] of Object.entries(input.tables || {})) {
     html = replaceKey(html, key, value);
   }
@@ -53,7 +69,7 @@ export function renderTemplate(input: RenderTemplateInput): string {
  * 生成后若有残留，说明模板里有取值表未覆盖的占位符——值得记日志提醒维护者。
  */
 export function pendingPlaceholders(html: string): string[] {
-  const found = str(html).match(/\{\{([^{}]{1,60})\}\}/g) || [];
-  const names = found.map((m) => m.slice(2, -2));
+  const found = normalizePlaceholderSyntax(html).match(/\{\{([^{}]{1,60})\}\}/g) || [];
+  const names = found.map((m) => m.slice(2, -2).trim());
   return Array.from(new Set(names));
 }

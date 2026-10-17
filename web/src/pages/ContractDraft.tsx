@@ -33,6 +33,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import MaterialPoolTab from '@/components/contract/MaterialPoolTab';
 import ContractItemTab from '@/components/contract/ContractItemTab';
+import { highlightPlaceholders } from '@/utils/docExport';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 
@@ -242,7 +243,7 @@ export default function ContractDraft() {
     setPreviewLoading(true);
     try {
       const res: any = await templateApi.generate({ templateId, contractId: editing.id });
-      setPreview({ templateName: res?.templateName || '合同预览', html: res?.html || '' });
+      setPreview({ templateName: res?.templateName || '合同预览', html: highlightPlaceholders(res?.html || '') });
       setPreviewOpen(true);
     } finally {
       setPreviewLoading(false);

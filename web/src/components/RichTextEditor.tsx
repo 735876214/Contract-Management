@@ -261,6 +261,159 @@ export default function RichTextEditor({
     emit();
   };
 
+  // ==================== 表格编辑（2026-10-17：行列增删 / 合并单元格） ====================
+  // execCommand 不支持表格结构操作，直接对 DOM 做 insertRow/insertCell 等，完成后 emit()。
+  const [activeCell, setActiveCell] = useState<{ cell: HTMLTableCellElement; table: HTMLTableElement } | null>(null);
+
+  /** 从选区向上找光标所在单元格与其表格 */
+  const trackCell = () => {
+    const el = ref.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0) return setActiveCell(null);
+    let node: Node | null = sel.getRangeAt(0).startContainer;
+    while (node && node !== el) {
+      if (node instanceof HTMLTableCellElement && node.parentElement instanceof HTMLTableElement && el.contains(node)) {
+        setActiveCell({ cell: node, table: node.parentElement });
+        return;
+      }
+      node = node.parentNode;
+    }
+    setActiveCell(null);
+  };
+
+  /** 表格编辑统一入口：mutate 后必须 emit 同步表单值；占位符在文本节点里不受结构操作影响 */
+  const mutateTable = (fn: (table: HTMLTableElement, cell: HTMLTableCellElement) => void) => {
+    if (disabled || !activeCell) return;
+    try {
+      fn(activeCell.table, activeCell.cell);
+      emit();
+    } catch {
+      /* 结构异常（如合并后的边缘 case）时静默失败，避免把编辑区搞崩 */
+    }
+  };
+
+  const findCellIndex = (row: HTMLTableRowElement, cell: HTMLTableCellElement) =>
+    Array.from(row.cells).indexOf(cell);
+
+  const insertRowAbove = () =>
+    mutateTable((table, cell) => {
+      const row = cell.parentElement as HTMLTableRowElement;
+      const newRow = table.insertRow(row.rowIndex);
+      for (let i = 0; i < row.cells.length; i++) newRow.insertCell(i).innerHTML = '&nbsp;';
+    });
+
+  const insertRowBelow = () =>
+    mutateTable((table, cell) => {
+      const row = cell.parentElement as HTMLTableRowElement;
+      const newRow = table.insertRow(row.rowIndex + 1);
+      for (let i = 0; i < row.cells.length; i++) newRow.insertCell(i).innerHTML = '&nbsp;';
+    });
+
+  /** 在目标行参照列插一列（保持同列 index，容忍 colSpan 造成的列数不齐） */
+  const insertColumnAt = (after: boolean) =>
+    mutateTable((_table, cell) => {
+      const row = cell.parentElement as HTMLTableRowElement;
+      const idx = findCellIndex(row, cell) + (after ? 1 : 0);
+      const tbody = row.parentElement as HTMLTableSectionElement;
+      Array.from(tbody.rows).forEach((r) => {
+        const refCell = r.cells[Math.min(idx, r.cells.length - 1)];
+        const newCell = r.insertCell(Math.min(idx, r.cells.length));
+        if (refCell) newCell.style.cssText = refCell.style.cssText;
+        newCell.innerHTML = '&nbsp;';
+      });
+    });
+
+  const deleteRow = () =>
+    mutateTable((table, cell) => {
+      const row = cell.parentElement as HTMLTableRowElement;
+      if (table.rows.length <= 1) return; // 防呆：只剩一行不删
+      table.deleteRow(row.rowIndex);
+    });
+
+  const deleteColumn = () =>
+    mutateTable((_table, cell) => {
+      const row = cell.parentElement as HTMLTableRowElement;
+      const tbody = row.parentElement as HTMLTableSectionElement;
+      if (row.cells.length <= 1) return; // 防呆：只剩一列不删
+      const idx = findCellIndex(row, cell);
+      Array.from(tbody.rows).forEach((r) => {
+        if (r.cells.length > 1) r.deleteCell(Math.min(idx, r.cells.length - 1));
+      });
+    });
+
+  /**
+   * 合并单元格：选区跨多个单元格时支持（同行相邻 → colSpan；同列 → rowSpan）；
+   * 无多选时把光标所在格与其右侧/下方格合并。被并格内容**追加**进目标格（保留 {{占位符}}）。
+   */
+  const mergeCells = () =>
+    mutateTable((table, cell) => {
+      const sel = window.getSelection();
+      let targets: HTMLTableCellElement[] = [];
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (!range.collapsed) {
+          const nodes: HTMLTableCellElement[] = [];
+          const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_ELEMENT);
+          while (walker.nextNode()) {
+            const n = walker.currentNode;
+            if (n instanceof HTMLTableCellElement && range.intersectsNode(n) && table.contains(n)) nodes.push(n);
+          }
+          targets = nodes;
+        }
+      }
+      if (targets.length < 2) {
+        const row = cell.parentElement as HTMLTableRowElement;
+        const next = row.cells[findCellIndex(row, cell) + 1];
+        targets = next ? [cell, next] : [];
+      }
+      if (targets.length < 2) return;
+      const first = targets[0];
+      const last = targets[targets.length - 1];
+      const rowSpan = last.parentElement === first.parentElement
+        ? 1
+        : last.rowIndex - first.rowIndex + 1;
+      const colSpan = first.parentElement === last.parentElement
+        ? findCellIndex(last.parentElement as HTMLTableRowElement, last) - findCellIndex(first.parentElement as HTMLTableRowElement, first) + 1
+        : first.parentElement.rowIndex === last.parentElement.rowIndex ? last.cellIndex + 1 : 1;
+      // 追加内容后移除被并格
+      for (let i = 1; i < targets.length; i++) {
+        first.innerHTML += targets[i].innerHTML;
+        targets[i].remove();
+      }
+      if (rowSpan > 1) first.rowSpan = rowSpan;
+      if (colSpan > 1) first.colSpan = colSpan;
+    });
+
+  const deleteTable = () =>
+    mutateTable((table) => {
+      table.remove();
+      setActiveCell(null);
+    });
+
+  const tableToolbar = activeCell ? (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 2,
+        padding: '2px 8px',
+        borderBottom: '1px solid var(--cms-hairline-soft)',
+        background: 'var(--cms-surface-soft)',
+      }}
+    >
+      <span style={{ fontSize: 12, color: 'var(--cms-muted)', marginRight: 4 }}>表格：</span>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={insertRowAbove}>上方插行</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={insertRowBelow}>下方插行</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => insertColumnAt(false)}>左插列</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => insertColumnAt(true)}>右插列</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={deleteRow}>删行</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={deleteColumn}>删列</Button>
+      <Button size="small" type="text" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={mergeCells}>合并单元格</Button>
+      <Button size="small" type="text" danger disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={deleteTable}>删除表格</Button>
+    </div>
+  ) : null;
+
   const insertPageBreak = () => {
     if (disabled) return;
     ref.current?.focus();
@@ -583,11 +736,14 @@ export default function RichTextEditor({
   const frame = (
     <div ref={cqRef} style={containerStyle}>
       {toolbar}
+      {tableToolbar}
       <div
         ref={ref}
         contentEditable={!disabled}
         suppressContentEditableWarning
         onInput={emit}
+        onKeyUp={trackCell}
+        onMouseUp={trackCell}
         onBlur={() => {
           setFocused(false);
           emit();

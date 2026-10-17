@@ -12,38 +12,34 @@ type ModuleType = (typeof MODULE_TYPES)[number];
 const isModuleType = (v: unknown): v is ModuleType =>
   typeof v === 'string' && (MODULE_TYPES as readonly string[]).includes(v);
 
+/**
+ * 采购模板服务。
+ * 业务 2026-10-17：采购模板**全项目通用**——不再按项目隔离（`projectId` 列已弃用，恒 null），
+ * 每个业务类型全局仅一个模板。历史上按项目建的模板已随迁移清理/归并。
+ */
 @Injectable()
 export class ProcurementTemplateService {
   constructor(private prisma: PrismaClient) {}
 
-  /** 模板列表（当前项目，按模块类型排序） */
-  async findAll(projectId: string) {
+  /** 模板列表（全局，按模块类型排序） */
+  async findAll() {
     const rows = await this.prisma.procurementTemplate.findMany({
-      where: { projectId },
       orderBy: [{ moduleType: 'asc' }, { updatedAt: 'desc' }],
     });
     return rows.map((r) => this.serialize(r));
   }
 
-  /** 按项目归属取单条（跨项目 id 直接 404——项目隔离铁律 3） */
-  private async findOwned(id: string, projectId: string) {
+  async findOne(id: string) {
     const r = await this.prisma.procurementTemplate.findUnique({ where: { id } });
-    if (!r || r.projectId !== projectId) throw new NotFoundException('采购模板不存在');
-    return r;
-  }
-
-  async findOne(id: string, projectId: string) {
-    return this.serialize(await this.findOwned(id, projectId));
+    if (!r) throw new NotFoundException('采购模板不存在');
+    return this.serialize(r);
   }
 
   /**
-   * 创建模板。同一项目同一业务类型仅保留一个模板：
+   * 创建模板。全局同一业务类型仅保留一个模板：
    * 已存在同类型模板时执行覆盖（前端已做覆盖前确认）。
    */
-  async create(
-    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] },
-    projectId: string,
-  ) {
+  async create(data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] }) {
     const moduleType = data?.moduleType;
     if (!isModuleType(moduleType)) throw new BadRequestException('无效的采购模块类型');
     const templateName = String(data?.templateName ?? '').trim();
@@ -53,7 +49,7 @@ export class ProcurementTemplateService {
 
     const vars = Array.isArray(data?.variables) ? data.variables.filter((v) => typeof v === 'string') : [];
     const existing = await this.prisma.procurementTemplate.findUnique({
-      where: { projectId_moduleType: { projectId, moduleType } },
+      where: { moduleType },
     });
     if (existing) {
       const updated = await this.prisma.procurementTemplate.update({
@@ -63,18 +59,18 @@ export class ProcurementTemplateService {
       return { ...this.serialize(updated), overwritten: true };
     }
     const created = await this.prisma.procurementTemplate.create({
-      data: { projectId, moduleType, templateName, content, variables: JSON.stringify(vars) },
+      data: { projectId: null, moduleType, templateName, content, variables: JSON.stringify(vars) },
     });
     return this.serialize(created);
   }
 
-  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖）；仅限本项目的模板 */
+  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖） */
   async update(
     id: string,
     data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] },
-    projectId: string,
   ) {
-    const current = await this.findOwned(id, projectId);
+    const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('采购模板不存在');
 
     const patch: { moduleType?: string; templateName?: string; content?: string; variables?: string } = {};
     if (data?.moduleType != null) {
@@ -94,7 +90,7 @@ export class ProcurementTemplateService {
     const nextModuleType = patch.moduleType ?? current.moduleType;
     if (nextModuleType !== current.moduleType) {
       const conflict = await this.prisma.procurementTemplate.findUnique({
-        where: { projectId_moduleType: { projectId, moduleType: nextModuleType } },
+        where: { moduleType: nextModuleType },
       });
       if (conflict && conflict.id !== id) {
         // 覆盖同类型旧模板：删除旧记录后更新本记录
@@ -106,8 +102,9 @@ export class ProcurementTemplateService {
     return this.serialize(updated);
   }
 
-  async remove(id: string, projectId: string) {
-    await this.findOwned(id, projectId);
+  async remove(id: string) {
+    const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('采购模板不存在');
     await this.prisma.procurementTemplate.delete({ where: { id } });
     return { id };
   }

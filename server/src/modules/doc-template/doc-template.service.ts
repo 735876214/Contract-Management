@@ -29,8 +29,10 @@ export class DocTemplateService {
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
+    // 业务 2026-10-17：单据模板**全项目通用**——只看全局模板（projectId=null）；
+    // 历史项目级模板（projectId 非空）仍可见（旧行不丢），但新建一律全局。
     const where: any = {
-      OR: [{ projectId }, { projectId: null }],
+      OR: [{ projectId: null }, ...(projectId ? [{ projectId }] : [])],
       categoryCode: query.categoryCode ? String(query.categoryCode) : { in: await this.categoryCodes() },
     };
     if (query.keyword) where.name = { contains: query.keyword };
@@ -66,7 +68,8 @@ export class DocTemplateService {
     return this.prisma.contractTemplate.create({
       data: {
         ...pickFields(data, TPL_FIELDS, { label: '单据模板' }),
-        projectId,
+        // 业务 2026-10-17：单据模板全项目通用 → 一律落全局（projectId=null）
+        projectId: null,
         createdBy: user?.userId || user?.id || null,
       },
     });
