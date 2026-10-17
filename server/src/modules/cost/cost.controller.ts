@@ -22,38 +22,6 @@ export class CostController {
     private monthlyProfitLoss: MonthlyProfitLossService,
   ) {}
 
-  // ---- 分包领用汇总 ----
-
-  @RequirePermissions('cost:view')
-  @Get('receiving')
-  listReceiving(@Query() query: any, @ProjectId() projectId: string) {
-    return this.service.listReceiving(query, projectId);
-  }
-
-  @RequirePermissions('cost:view')
-  @Get('receiving/:id')
-  getReceiving(@Param('id') id: string) {
-    return this.service.getReceiving(id);
-  }
-
-  @RequirePermissions('cost:edit')
-  @Post('receiving')
-  createReceiving(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    return this.service.createReceiving(body, projectId, user);
-  }
-
-  @RequirePermissions('cost:edit')
-  @Put('receiving/:id')
-  updateReceiving(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateReceiving(id, body);
-  }
-
-  @RequirePermissions('cost:edit')
-  @Delete('receiving/:id')
-  removeReceiving(@Param('id') id: string) {
-    return this.service.removeReceiving(id);
-  }
-
   // ---- 劳务队领用月度汇总（附件需求 2026-10-17 第二批） ----
 
   /** 分包商下拉 + 已有期间列表 */

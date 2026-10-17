@@ -117,7 +117,6 @@ model Project {
   receiptOrders            ReceiptOrder[]
   laborAuthLedgers         LaborAuthLedger[]
   laborReceivingSummaries  LaborReceivingSummary[]
-  subcontractReceiving     SubcontractReceiving[]
   monthlyProfitLosses      MonthlyProfitLoss[]
   procurementTemplates     ProcurementTemplate[]
   procurementTasks         ProcurementTask[]
@@ -212,8 +211,6 @@ model LaborAuthLedger {
   project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   subcontract  Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
   receiptOrders ReceiptOrder[]
-  // 成本管理 · 分包领用汇总的反引用（分包商下拉的关联；SetNull：删台账行保留领用行，名称已是快照）
-  subcontractReceiving SubcontractReceiving[]
   // 成本管理 · 分包单位领用月度汇总的反引用（同上：删台账行连带删汇总行——行按台账 ID 定位）
   laborReceivingSummaries LaborReceivingSummary[]
   // 成本管理 · 月度盈亏分析明细行的反引用（SetNull：删台账行保留盈亏明细快照）
@@ -225,32 +222,6 @@ model LaborAuthLedger {
 }
 
 // ---------------- 成本管理（分包领用汇总 / 盈亏分析；附件需求 2026-10-17） ----------------
-
-// 分包领用汇总（结构化台账；归档目录第二段 = 分包商名称快照；分包商下拉数据源 = 分包授权台账）
-model SubcontractReceiving {
-  id                String    @id @default(cuid())
-  projectId         String
-  subcontractorId   String? // 关联分包授权台账（LaborAuthLedger；合并后台账即分包商档案）
-  subcontractorName String // 分包商名称（快照）
-  period            String? // 账期（如 2026.10）
-  materialName      String? // 物资名称
-  spec              String? // 规格型号
-  unit              String? // 计量单位（dict measurement_unit）
-  qty               Decimal?  @db.Decimal(18, 3) // 领用数量
-  unitPrice         Decimal?  @db.Decimal(18, 2) // 单价
-  amount            Decimal?  @db.Decimal(18, 2) // 金额 = qty × unitPrice（服务端算）
-  useLocation       String? // 使用部位
-  remark            String?
-  createdBy         String?
-  createdAt         DateTime  @default(now())
-  version           Int       @default(0)
-  updatedAt         DateTime  @updatedAt
-
-  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  laborAuthLedger   LaborAuthLedger?  @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
-
-  @@index([projectId])
-}
 
 // 分包单位领用月度汇总（附件需求 2026-10-17 第二批；图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
 // 一行 = 分包单位 × 结算期 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
@@ -1252,6 +1223,7 @@ model ReceiptOrder {
   supplySubcontractId   String? // 供应分包合同 ID（供应单位选分包商时）
   supplySubcontractName String? // 供应分包合同名称（快照）
   subcontractorId       String? // 关联分包商 ID（供应单位/领用单位选分包商时，用于领料人下拉与合同互锁）
+  isAssetFlag           String? // 表头「是否为资产」（dict yes_no Y/N）：N=整单不入资产台账；null=旧数据按物资基础库判断
   orderDate             DateTime? // 日期
   receiver              String? // 领料人（最长 50 字符）
   materialContractId    String? // 物资合同 ID
@@ -1308,6 +1280,7 @@ model ReceiptOrderDetail {
   priceWithTax    Decimal? @db.Decimal(18, 4) // 综合单价 = 税前单价 × (1 + 税率/100)
   totalPrice      Decimal? @db.Decimal(18, 2) // 综合总价 = 实收数量 × 综合单价
   usagePart       String? // 使用部位
+  custodian       String? // 保管单位及保管人（合并文本；表头「是否为资产」=Y 时填写）
   brand           String? // 厂家/品牌
   remark          String? // 备注
   isAgentPurchase String? // 是否代购（dict: yes_no）

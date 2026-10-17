@@ -42,8 +42,8 @@ export const ARCHIVE_CATEGORIES: ArchiveCategory[] = [
   {
     key: 'sub-receiving',
     dir: '6.分包领用汇总表',
-    label: '分包领用汇总表（按分包商分组，Excel）',
-    sourceModule: '成本管理/分包领用汇总',
+    label: '分包单位领用汇总（盘点/月度汇总/节超三表，按分包商分组）',
+    sourceModule: '成本管理/分包单位领用汇总',
   },
   { key: 'payment', dir: '7.付款台账', label: '付款台账', sourceModule: '付款管理' },
   { key: 'invoice', dir: '8.发票台账', label: '发票台账', sourceModule: '发票管理' },

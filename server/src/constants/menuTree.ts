@@ -100,7 +100,6 @@ export const MENU_TREE: MenuNode[] = [
     label: '成本管理',
     icon: 'FundProjectionScreenOutlined',
     children: [
-      { key: 'cost-receiving', label: '分包领用汇总', icon: 'ShoppingOutlined', path: '/cost/receiving', permission: 'cost:view' },
       { key: 'cost-labor-receiving', label: '分包单位领用汇总', icon: 'CalculatorOutlined', path: '/cost/labor-receiving', permission: 'cost:view' },
       { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' },
     ],

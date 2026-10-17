@@ -14,6 +14,7 @@ import { RepaymentService } from '../repayment/repayment.service';
 import { FinanceService } from '../finance/finance.service';
 import { CostService } from '../cost/cost.service';
 import { MonthlyProfitLossService } from '../cost/monthly-profit-loss.service';
+import { LaborReceivingService } from '../cost/labor-receiving.service';
 import { periodKeyOf } from '../../common/utils/settlement-period';
 import {
   type ArchiveFile,
@@ -55,6 +56,7 @@ export class ArchiveService {
     private financeService: FinanceService,
     private costService: CostService,
     private monthlyProfitLossService: MonthlyProfitLossService,
+    private laborReceivingService: LaborReceivingService,
   ) {}
 
   /** 目录树（前端归档页）：每目录的文件数与明细 */
@@ -222,27 +224,24 @@ export class ArchiveService {
           break;
         }
         case 'sub-receiving': {
-          const rows = await this.prisma.subcontractReceiving.findMany({ where: { projectId } });
-          // 优先按分包单位 ID 分组（改名不失联）；无 ID 的历史行回退按名称快照
-          const bySupplier = new Map<string, { id: string | null; name: string; rows: typeof rows }>();
-          for (const r of rows) {
-            const key = r.subcontractorId ?? `name:${r.subcontractorName || '未分组'}`;
-            if (!bySupplier.has(key)) {
-              bySupplier.set(key, {
-                id: r.subcontractorId,
-                name: r.subcontractorName || '未分组',
-                rows: [],
-              });
-            }
-            bySupplier.get(key)!.rows.push(r);
-          }
-          for (const group of bySupplier.values()) {
-            const periods = Array.from(new Set(group.rows.map((r) => periodDirOf(r.period))));
-            for (const p of periods) {
-              push(`${cat.dir}/${sanitizeSegment(group.name)}`, `盘点领用表-${p}.xlsx`, {
-                buffer: await this.costService.exportReceivingSheet(projectId, group.id, group.name, p),
-              });
-            }
+          // 分包单位领用月度汇总（2026-10-17 第三批替换旧手工台账）：
+          // 按 分包单位×结算期 分组，导出三表工作簿（盘点/月度汇总/节超分析）
+          const auths = await this.prisma.laborAuthLedger.findMany({
+            where: { projectId },
+            select: { id: true, subcontractorName: true },
+          });
+          const authPeriods = await this.prisma.laborReceivingSummary.findMany({
+            where: { projectId },
+            distinct: ['laborAuthId', 'period'],
+            select: { laborAuthId: true, period: true },
+          });
+          const authNameById = new Map(auths.map((a) => [a.id, a.subcontractorName]));
+          for (const { laborAuthId, period } of authPeriods.sort((a, b) => a.period.localeCompare(b.period))) {
+            const name = authNameById.get(laborAuthId);
+            if (!name) continue;
+            push(`${cat.dir}/${sanitizeSegment(name)}`, `盘点领用表-${this.periodLabelOfPeriod(period)}.xlsx`, {
+              buffer: await this.laborReceivingService.exportWorkbook(laborAuthId, period, projectId),
+            });
           }
           break;
         }
@@ -359,6 +358,12 @@ export class ArchiveService {
   }
 
   /** Date → `YYYY.M`（账期标签；periodDirOf 再转成 `YYYY年M月` 目录） */
+  /** 'YYYY-MM' → 'YYYY年M月'（分包单位领用汇总导出文件名用；认不出原样返回） */
+  private periodLabelOfPeriod(period: string): string {
+    const m = String(period).match(/^(\d{4})-(\d{2})$/);
+    return m ? `${m[1]}年${Number(m[2])}月` : period;
+  }
+
   private periodLabelOf(date: Date | null): string {
     if (!date) return '';
     const d = new Date(date);

@@ -42,6 +42,7 @@ const DETAIL_ALLOWED_FIELDS = [
   'priceBeforeTax',
   'taxRate',
   'usagePart',
+  'custodian',
   'brand',
   'remark',
   'isAgentPurchase',
@@ -513,6 +514,8 @@ export class ReceiptOrderService {
     p.supplySubcontractId = data.supplySubcontractId || null;
     p.supplySubcontractName = data.supplySubcontractName ?? null;
     p.subcontractorId = data.subcontractorId || null;
+    // 表头「是否为资产」（dict yes_no Y/N）：N = 整单不入资产台账
+    p.isAssetFlag = data.isAssetFlag || null;
     p.receiver = data.receiver ?? null;
     p.materialContractId = data.materialContractId || null;
     p.materialContractNo = data.materialContractNo ?? null;

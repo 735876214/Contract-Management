@@ -378,13 +378,6 @@ export const laborApi = {
 
 /** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 月度盈亏分析 + 分包单位领用月度汇总 */
 export const costApi = {
-  receiving: {
-    list: (params?: any) => http.get<any, any>('/cost/receiving', { params }),
-    detail: (id: string) => http.get<any, any>(`/cost/receiving/${id}`),
-    create: (data: any) => http.post<any, any>('/cost/receiving', data),
-    update: (id: string, data: any) => http.put<any, any>(`/cost/receiving/${id}`, data),
-    remove: (id: string) => http.delete<any, any>(`/cost/receiving/${id}`),
-  },
   /** 月度盈亏分析（附件需求 2026-10-17 第三批；一个月一条，明细=当期节超快照） */
   monthlyProfitLoss: {
     list: (params?: any) => http.get<any, any>('/cost/monthly-profit-loss', { params }),
