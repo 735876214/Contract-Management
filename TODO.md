@@ -51,15 +51,8 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **解除 `.mts` 单测的「相对导入」限制**（低优先，**已评估完，按需再做**）：2026-10-15 专项调查后
-  更正了本条原先的措辞——**TS 版本不是障碍**：锁文件里 typescript 已是 5.9.3，
-  `allowImportingTsExtensions` 与 `rewriteRelativeImportExtensions` 都可用
-  （原先写的「现 ^5.3.3」只看了声明下限）。
-  真正的限制是 **Node 类型擦除不支持装饰器与 JSX**：服务与 `.tsx` 组件**永远**进不了 `.mts`，
-  解除扩展名限制的收益**仅限纯逻辑模块**（如让 `procurementFlow.ts` 直接 import `./statuses` 而不是写裸字面量）。
-  **代价**：改 `tsconfig`（影响 `nest build` 与 ts-node 侧的 `.ts` spec/seed/`test:int`，需逐个验证），
-  并在相关相对 import 上补 `.ts` 扩展名。已落地的兜底：`test/mtsConstraints.spec.mts` 把「被 `.mts`
-  引用的模块不得新增无扩展名相对 import」钉死，所以**不做也不会踩雷**。
+> 当前为空。已完成的工程项按「完成即删除」惯例移除（最近一批：清单项级结算明细、
+> 响应式收尾、`.mts` 相对导入限制解除——见 `git log`）。
 
 ## 四域扩展（评估已定，待实施）
 

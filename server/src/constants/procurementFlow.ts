@@ -1,10 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+// 合同状态 code 的事实源在 ./statuses.ts（2026-10-17 解除 .mts 零依赖限制后，
+// 本文件可直接 import——nest build / ts-node 会在 emit 时把 .ts 后缀改写为 .js）
+import { CONTRACT_STATUS } from './statuses.ts';
 
-// ⚠️ 本文件被 `server/test/*.spec.mts` 直接 import（Node 原生擦除类型加载），
-// 因此**不能有相对路径的运行时 import**（Node ESM 不做扩展名推断）。
-// 合同状态 code 的事实源在 `./statuses.ts`，此处按字面量书写，由
-// `server/test/statusCodes.spec.mts` 断言 `Object.keys(CONTRACT_STATUS_TO_TASK_STATUS)`
-// 与 `Object.values(CONTRACT_STATUS)` 相等来防漂移。
+// 合同状态 → 采购任务状态的映射用 CONTRACT_STATUS 常量（不再裸写状态码字面量）；
+// 两侧漂移由 `server/test/statusCodes.spec.mts` 与 `frontendChainParity.spec.mts` 锁定。
 
 /**
  * 采购工作流单一事实源（后端 gating 与前端展示均以本文件为准，杜绝双端漂移）。
@@ -172,14 +172,17 @@ export function contractStageState(
  * 两侧漂移由 `frontendChainParity.spec.mts` 锁定。
  */
 export const CONTRACT_STATUS_TO_TASK_STATUS: Record<string, string> = {
-  DRAFT: TASK_STATUS.CONTRACT_EDITING,
-  APPROVING: TASK_STATUS.CONTRACT_APPROVING,
-  SIGNED: TASK_STATUS.COMPLETED,
+  [CONTRACT_STATUS.DRAFT]: TASK_STATUS.CONTRACT_EDITING,
+  [CONTRACT_STATUS.APPROVING]: TASK_STATUS.CONTRACT_APPROVING,
+  [CONTRACT_STATUS.SIGNED]: TASK_STATUS.COMPLETED,
 };
 
 /** 由关联合同状态推导合同阶段的任务状态；未知/空值按「合同编制中」处理 */
 export function contractStageTaskStatus(contractStatus?: string | null): string {
-  return CONTRACT_STATUS_TO_TASK_STATUS[String(contractStatus ?? 'DRAFT')] ?? TASK_STATUS.CONTRACT_EDITING;
+  return (
+    CONTRACT_STATUS_TO_TASK_STATUS[String(contractStatus ?? CONTRACT_STATUS.DRAFT)] ??
+    TASK_STATUS.CONTRACT_EDITING
+  );
 }
 
 /**

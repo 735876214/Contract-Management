@@ -1,5 +1,5 @@
 /**
- * **单据模板变量**（付款单）—— 零依赖纯函数，前后端镜像的一份在
+ * **单据模板变量**（付款单）—— 纯函数，前后端镜像的一份在
  * `web/src/constants/docVariables.ts`，由 `docVariables.spec.mts` 锁住两边**变量名逐条一致**。
  *
  * 与另外两套变量体系（采购模板 / 合同模板）**互不相通**：那两套由各自的 service 替换，
@@ -8,15 +8,13 @@
  * ⚠️ **金额类变量名必须带单位后缀**（`(元)`）：同名不同单位视为缺陷（仓库既有约定）。
  * ⚠️ 未取到值时**保留占位符原文**（由 `renderTemplate()` 决定），不替换成空串 ——
  *    静默清空会让打印出来的单据看不出哪里没取到数。
- * ⚠️ 必须保持零依赖（不得有任何 `import`）：由 `.mts` spec 直接引用。
+ * 共享的 `DocVarDef` / 格式化函数在 `./doc-var-shared.ts`（2026-10-17 与总结算单变量收敛）。
  */
 
-export interface DocVarDef {
-  /** 占位符名（模板里写 `{{名}}`） */
-  name: string;
-  /** 面板里的说明 */
-  desc: string;
-}
+import { type DocVarDef, formatDocMoney, formatDocDate } from './doc-var-shared.ts';
+
+export { formatDocMoney, formatDocDate };
+export type { DocVarDef };
 
 /** 付款单变量（本期唯一接了生成路径的一类） */
 export const PAYMENT_DOC_VARIABLES: DocVarDef[] = [
@@ -34,23 +32,6 @@ export const PAYMENT_DOC_VARIABLES: DocVarDef[] = [
   { name: '备注', desc: '' },
   { name: '打印日期', desc: '生成单据的当天日期' },
 ];
-
-/** 金额 → `1,234.56`（两位小数；空值 → 空串，让调用方决定是否保留占位符） */
-export function formatDocMoney(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '';
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '';
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-/** 日期 → `YYYY-MM-DD`（本地口径；空值 → 空串） */
-export function formatDocDate(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '';
-  const d = v instanceof Date ? v : new Date(v as any);
-  if (isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 export interface PaymentDocValuesInput {
   procedure: {

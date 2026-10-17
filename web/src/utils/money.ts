@@ -1,6 +1,10 @@
 /**
  * 金额转中文大写（财务规范，移植自服务端 common/utils/money.ts）
  * - 四舍五入到分；整数：X元整；零金额：零元整
+ *
+ * ⚠️ 与服务端 `server/src/common/utils/money.ts` 的 `amountToChineseCapital` **行为一致**
+ * （2026-10-17 取样比对过 6 组值）。因 web 构建不宜跨包 import server 源码，两份副本并存；
+ * 改动任何一侧必须同步另一侧并复核取值。
  */
 const DIGIT = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
 const UNIT: [string[], string[]] = [['', '万', '亿', '兆'], ['', '拾', '佰', '仟']];

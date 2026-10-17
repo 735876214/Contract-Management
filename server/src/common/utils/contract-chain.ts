@@ -15,7 +15,7 @@
  * 与 `amount-guard` 的既有口径一致——"未填"是"不可校验/未知"，不是 0。
  * 这条口径的由来（同类缺陷修过一次）见 .claude/rules/backend-conventions.md 的「金额上限」与「台账」两节。
  *
- * ⚠️ 必须保持零依赖（不得有任何 `import`）：由 `.mts` spec 直接引用。
+ * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
 
 /** 链计算所需的合同行（`db.contract.findMany` 的 select 结果形状） */

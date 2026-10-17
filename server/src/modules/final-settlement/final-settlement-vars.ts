@@ -1,17 +1,18 @@
 /**
  * **总结算单模板变量**（单据模板的「总结算单」类，业务口径 2026-10-16）。
  *
- * 与付款单变量同一套路（见 `doc-template-vars.ts`）：零依赖纯函数、前后端镜像
+ * 与付款单变量同一套路（见 `doc-template-vars.ts`）：纯函数、前后端镜像
  * （前端在 `web/src/constants/docVariables.ts`），由 `docVariables.spec.mts` 锁「变量名逐条一致」。
  *
  * ⚠️ 金额类变量名必须带单位后缀 `(元)`。
  * ⚠️ 明细表是**生成时的快照**（月度结算事后被改，不回头改已出的总结算单）。
+ * 共享的 `DocVarDef` / 格式化函数在 `../doc-template/doc-var-shared.ts`（2026-10-17 收敛）。
  */
 
-export interface DocVarDef {
-  name: string;
-  desc: string;
-}
+import { type DocVarDef, formatDocMoney, formatDocDate } from '../doc-template/doc-var-shared.ts';
+
+export { formatDocMoney as formatMoney, formatDocDate as formatDate };
+export type { DocVarDef };
 
 export const FINAL_SETTLEMENT_DOC_VARIABLES: DocVarDef[] = [
   { name: '单据编号', desc: '总结算单编号' },
@@ -29,22 +30,6 @@ export const FINAL_SETTLEMENT_DOC_VARIABLES: DocVarDef[] = [
   { name: '打印日期', desc: '生成单据的当天' },
 ];
 
-/** 与 doc-template-vars 同款格式化（两处各留一份是为了保持各自零依赖、可被 .mts 单独加载） */
-export function formatMoney(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '';
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '';
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-export function formatDate(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '';
-  const d = v instanceof Date ? v : new Date(v as any);
-  if (isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
 /** 明细行（生成时抓到的月度结算快照） */
 export interface FinalSettlementItemLike {
   settleMonth: string;
@@ -58,7 +43,7 @@ export function buildItemsTable(items: FinalSettlementItemLike[]): string {
     .map(
       (i) =>
         `<tr><td style="border:1px solid #999;padding:4px">${i.settleMonth || ''}</td>` +
-        `<td style="border:1px solid #999;padding:4px">${formatMoney(i.amount)}</td></tr>`,
+        `<td style="border:1px solid #999;padding:4px">${formatDocMoney(i.amount)}</td></tr>`,
     )
     .join('');
   return `<table style="width:100%;border-collapse:collapse">${head}${body}</table>`;
@@ -86,13 +71,13 @@ export function buildFinalSettlementDocValues(input: FinalSettlementDocValuesInp
     供应商名称: String(input.supplier?.name ?? ''),
     合同编号: String(input.contract?.code ?? ''),
     合同名称: String(input.contract?.name ?? ''),
-    '总结算金额(元)': formatMoney(d.totalAmount),
+    '总结算金额(元)': formatDocMoney(d.totalAmount),
     结算月数: String(items.length),
     附件名称: String(d.attachmentName ?? ''),
     项目名称: String(input.project?.name ?? ''),
     项目简称: String(input.project?.nameAbbr ?? ''),
     项目编码: String(input.project?.code ?? ''),
     备注: String(d.remark ?? ''),
-    打印日期: formatDate(input.now ?? new Date()),
+    打印日期: formatDocDate(input.now ?? new Date()),
   };
 }

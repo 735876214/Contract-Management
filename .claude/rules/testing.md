@@ -9,21 +9,24 @@
   `test`/`int` 的库）。
 - **改金额判定 / 状态流转 / 导入相关代码必须另跑 `test:int`**——纯函数单测证明不了"闸门是否真的接上了"。
 
-## `.mts` spec 的三条硬约束（结构性，非配置）
+## `.mts` spec 的约束（2026-10-17 第 1 条已解除）
 
 `.mts` 由 **Node 原生类型擦除**加载（不经 ts-node）：
 
-1. **相对运行时 `import` 必须带扩展名**（Node ESM 不做推断）。本仓构建侧没开扩展名选项，故对 `server/src`
-   模块而言**实际等于"不得新增相对 import"**——要么把依赖抽成零依赖叶子（现状做法），要么先开
-   `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（TS ≥5.7；本仓已是 5.9，不是版本障碍）
-   并把相关 import 补成 `./x.ts`（注意 ts-node 侧需同步验证）。由 `mtsConstraints.spec.mts` 兜底，
-   报错会直接给出这两条出路。
+1. **相对运行时 `import` 必须带显式扩展名**（Node ESM 不做推断）。
+   **2026-10-17 起已解除「零依赖叶子」限制**：tsconfig 开了 `allowImportingTsExtensions` +
+   `rewriteRelativeImportExtensions`（配 `ts-node.experimentalResolver`），src 模块可以写
+   `from './x.ts'`——nest build / ts-node 在 emit 时自动改写为 `.js`（产物无 `.ts` 残留），
+   `.mts` 原生 loader 也直接认识 `.ts` 后缀。**仍禁止的是无扩展名相对 import**（`from './x'`），
+   由 `mtsConstraints.spec.mts` 兜底，报错直接给出修法。范例接线：
+   `procurementFlow.ts` import `./statuses.ts`、两份单据变量共享 `doc-var-shared.ts`。
 2. **装饰器与 JSX 不被擦除**：`@Injectable()` 的服务、`.tsx` 组件**永远**进不了 `.mts`——想覆盖它们只能用
    `test-integration/`（ts-node）；引入打包器型测试框架（jest/vitest）已被本仓库明确否决。
 3. 内联 enum / 带运行时的 namespace 同样不支持。
 
 另：`node:20` 会直接报无法识别 `.mts`，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）。
-前端纯逻辑单测就放在 `server/test/*.spec.mts`（直接 import `web/src/**` 中**无 `@/` 别名、无相对 import** 的模块）。
+前端纯逻辑单测就放在 `server/test/*.spec.mts`（直接 import `web/src/**` 中**无 `@/` 别名**的模块；
+web 模块内部相对 import 同样须带扩展名——若 vite 侧不支持 `.ts` 后缀，保持 web 侧零相对 import 纪律）。
 
 ## 活文档计数锁（新增 spec 必做）
 

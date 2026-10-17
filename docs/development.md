@@ -159,21 +159,19 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。
   要求：① `.mts` 由 Node 原生擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）；
-  ② 被测文件不得有**相对**运行时 `import`（`import type` 可，会被擦除；裸包与内置模块可以）。
-  前端质量门另有 `npm run build` 中的 `tsc --noEmit`。
+  ② 被测文件若有**相对**运行时 `import`，**必须带扩展名**（`from './x.ts'`；`import type` 可被擦除，
+  裸包与内置模块可以）。前端质量门另有 `npm run build` 中的 `tsc --noEmit`。
 
-  > **`.mts` 的三条硬约束**（2026-10-15 专项调查结论，`server/test/mtsConstraints.spec.mts` 锁第 ① 条）：
-  > ① **相对 import 必须带扩展名**（Node ESM 不做推断）——**本仓构建侧未开扩展名选项，故对
-  > `server/src` 模块而言实际等于"不得新增相对 import"**（要么抽成零依赖叶子，要么先开下面两个选项）。
-  > 这条会随别人改动突然出现（给零依赖叶子加一行 `from './x'`），故由测试锁住，且**覆盖多行 import 形态**；
+  > **`.mts` 的约束**（2026-10-15 专项调查；**2026-10-17 解除第 ① 条**，`server/test/mtsConstraints.spec.mts` 继续锁）：
+  > ① 相对 import 必须带扩展名——**已解除「零依赖叶子」限制**：tsconfig 开了
+  > `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（配 `ts-node.experimentalResolver`），
+  > src 模块可写 `from './x.ts'`：nest build / ts-node 在 emit 时自动改写为 `.js`（产物无 `.ts` 残留），
+  > `.mts` 原生 loader 也直接认识 `.ts` 后缀。**无扩展名相对 import 仍禁止**（`from './x'` 会运行时炸）。
+  > 已接线范例：`procurementFlow.ts` import `./statuses.ts`；两份单据变量共享 `doc-var-shared.ts`。
   > ② **装饰器与 JSX 不被擦除**：NestJS 服务（`@Injectable()`）
   > 与 `.tsx` 组件**永远**进不了 `.mts`——这是结构性限制，**不是编译选项问题**，想覆盖它们只能用
   > `test-integration/`（ts-node），引入打包器型测试框架已被本仓库否决；③ 内联 enum / 带运行时的
   > namespace 同样不支持。
-  > 真要解除 ①（让被测模块复用兄弟模块）：`tsconfig` 开 `allowImportingTsExtensions` +
-  > `rewriteRelativeImportExtensions`（TS ≥5.7；本仓锁文件的 typescript 已是 5.9.3，**不是版本障碍**），
-  > 并把相关相对 import 补成 `./x.ts`；注意 ts-node（`.ts` spec / seed / `test:int`）需同步验证，
-  > 且收益**仅限纯逻辑模块**；放宽范围到全仓 371 处相对 import 不值得。
 - 联调/验收脚本（**非单测**，需要先起本地栈，会写数据）：
 
   ```bash

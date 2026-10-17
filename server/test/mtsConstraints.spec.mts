@@ -6,17 +6,19 @@ import { fileURLToPath } from 'node:url';
 /**
  * **`.mts` 加载约束锁**——把「跑测试时才炸的隐蔽地雷」变成 CI 可捕获的约定。
  *
- * 背景（2026-10-15 专项调查结论，原文见 docs/development.md §5）：
- * `server/test/*.spec.mts` 由 **Node 原生类型擦除**加载（不经过 ts-node），因此有三条硬约束：
+ * 背景（2026-10-15 专项调查；**2026-10-17 解除限制**，原文见 docs/development.md §5）：
+ * `server/test/*.spec.mts` 由 **Node 原生类型擦除**加载（不经过 ts-node），有三条约束：
  * 1. **相对 import 必须带显式扩展名**（Node ESM 不做扩展名推断）——`from './statuses'` 直接炸；
+ *    **2026-10-17 起 tsconfig 已开 `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`**，
+ *    src 模块可以写 `from './x.ts'`（nest build / ts-node 在 emit 时自动把 `.ts` 改写为 `.js`），
+ *    「零依赖叶子」不再是硬约束——但**无扩展名**的相对 import 仍然禁止（本测试继续锁这条）；
  * 2. **不支持装饰器与 JSX**——`@Injectable()` 的 NestJS 服务、`.tsx` 组件**永远**进不了 `.mts`
  *    （所以后端服务/前端组件只能靠 `test-integration/*.int.spec.ts`（ts-node）覆盖，这是有意的分工）；
  * 3. 不支持内联 enum / 带运行时的 namespace。
  *
  * 本测试只锁**第 1 条**——它是**唯一会随别人改动而突然出现**的那条：
- * 现在某个被测模块是零依赖叶子，别人给它加一行 `import { X } from './helper'`（哪怕只是顺手重构），
- * `.mts` spec 就会在运行时报 `ERR_MODULE_NOT_FOUND`，且报错信息离原因很远。
- * 第 2、3 条是结构性限制，靠「新模块想进 `.mts` 必须保持零依赖」的组织纪律，测试锁不了。
+ * 别人给被测模块加一行 `from './helper'`（无扩展名），`.mts` spec 就会运行时报
+ * `ERR_MODULE_NOT_FOUND`。修法：把该 import 写成 `from './helper.ts'` 即可。
  *
  * ⚠️ 与 docs/development.md §5 的 spec 清单联动：新增本文件必须登记（`docStats` 会校验）。
  */
@@ -96,11 +98,9 @@ describe('.mts 加载约束锁（相对 import 必须带扩展名）', () => {
         if (!HAS_EXT.test(spec)) {
           bad.push(
             `${rel} 里的 \`from '${spec}'\` 没有扩展名 —— .mts spec（${specs.join('、')}）会加载失败。` +
-              `两条出路：①（本仓现状，推荐）把依赖抽成**零依赖叶子**，别让该模块 import 兄弟模块；` +
-              `② 若要复用兄弟模块，先在 server/tsconfig.json 开 allowImportingTsExtensions + ` +
-              `rewriteRelativeImportExtensions（TS ≥5.7，本仓已是 5.9）并把该行写成 '${spec}.ts'——` +
-              `注意这会影响 nest build 与 ts-node（seed/.ts spec/test:int），需整体回归。` +
-              `（依据：CLAUDE.md §5 / docs/development.md §5）`,
+              `修法：写成 \`from '${spec}.ts'\`（tsconfig 已开 allowImportingTsExtensions + ` +
+              `rewriteRelativeImportExtensions，nest build / ts-node 会在 emit 时自动改写为 .js）。` +
+              `（依据：docs/development.md §5）`,
           );
         }
       }
