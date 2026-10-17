@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Select } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 
 const FIELDS = [
@@ -20,24 +22,28 @@ const FIELDS = [
   ['address', '公司地址'],
 ] as const;
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 useEditorTab 注释 */
+const LIST_PATH = '/base/supplier';
+
 export default function Suppliers() {
-  const { loading, list, total, params, search, reload, pagination } = useTable<any>((p) => supplierApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <SupplierEditor seed={editorTab.seed} />;
+  }
+  return <SupplierList />;
+}
+
+function SupplierList() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const { loading, list, search, reload, pagination } = useTable<any>((p) => supplierApi.list(p));
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
+
   const [detail, setDetail] = useState<any>(null);
-
-  const submit = async () => {
-    const values = await form.validateFields();
-    if (editing) await supplierApi.update(editing.id, values);
-    else await supplierApi.create(values);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    reload();
-  };
-
 
   return (
     <Card
@@ -46,7 +52,7 @@ export default function Suppliers() {
         <Space>
           <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(supplierApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
             新增供应商
           </Button>
         </Space>
@@ -94,8 +100,7 @@ export default function Suppliers() {
             fixed: 'right',
             render: (_, row) => (
               <Space size={4}>
-                <Button type="link" size="small" onClick={() => setDetail(row)}>详情</Button>
-                <Button type="link" size="small" onClick={() => { setEditing(row); form.setFieldsValue(row); setModal(true); }}>编辑</Button>
+                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
                 <Button type="link" size="small" onClick={async () => { await supplierApi.toggle(row.id); reload(); }}>
                   {row.status === 1 ? '停用' : '启用'}
                 </Button>
@@ -108,25 +113,7 @@ export default function Suppliers() {
         ]}
       />
 
-      <Modal
-        title={editing ? '编辑供应商' : '新增供应商'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={720}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="供应商名称（系统内唯一）" rules={[{ required: true }]}><Input /></Form.Item>
-          {FIELDS.map(([key, label]) => (
-            <Form.Item key={key} name={key} label={label}>
-              <Input />
-            </Form.Item>
-          ))}
-          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-        </Form>
-      </Modal>
-
+      {/* 详情弹窗（查看，不是编辑） */}
       <Modal title="供应商详情" width={520} centered open={!!detail} onCancel={() => setDetail(null)} footer={null}>
         <Descriptions column={1} size="small" bordered>
           <Descriptions.Item label="供应商名称">{detail?.name}</Descriptions.Item>
@@ -137,5 +124,51 @@ export default function Suppliers() {
         </Descriptions>
       </Modal>
     </Card>
+  );
+}
+
+function SupplierEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) form.setFieldsValue(editing);
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      if (editing) await supplierApi.update(editing.id, values);
+      else await supplierApi.create(values);
+      message.success('保存成功');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑供应商' : '新增供应商'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Form.Item name="name" label="供应商名称（系统内唯一）" rules={[{ required: true }]}><Input /></Form.Item>
+        {FIELDS.map(([key, label]) => (
+          <Form.Item key={key} name={key} label={label}><Input /></Form.Item>
+        ))}
+        <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+      </Form>
+    </EditorTabPage>
   );
 }

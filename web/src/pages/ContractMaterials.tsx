@@ -8,6 +8,11 @@ import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
 import ImportButton from '@/components/ImportButton';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+
+/** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
+const LIST_PATH = '/contract/materials';
 
 /** 前端实时计算（与服务端同口径：4 位小数） */
 const round4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
@@ -22,6 +27,15 @@ const fmtNum = (v: any, digits = 4) =>
  * - 行操作：更多 → 上移/下移/编辑/删除（单合同视图可用）
  */
 export default function ContractMaterials() {
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <MaterialRowEditor seed={editorTab.seed} />;
+  }
+  return <ContractMaterialsList />;
+}
+
+function ContractMaterialsList() {
+  const editorTab = useEditorTab(LIST_PATH);
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [contractId, setContractId] = useState<string>();
@@ -33,22 +47,21 @@ export default function ContractMaterials() {
   /** 当前列表数据副本（用于上移/下移定位行序） */
   const listRef = useRef<any[]>([]);
 
-  // 行编辑弹窗
-  const [modal, setModal] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<any>(null); // 行对象（编辑时）
-  const [picked, setPicked] = useState<any>(null); // 选中基础物资
-  const [form] = Form.useForm();
-
-  // 选料弹窗（单个添加）
+  // 选料弹窗（单个，选择器非表单，保留弹窗形态）
   const [pickerOpen, setPickerOpen] = useState(false);
   const [baseList, setBaseList] = useState<any[]>([]);
   const [baseLoading, setBaseLoading] = useState(false);
 
-  // 派生弹窗（多选派生）
+  // 派生弹窗（多选，动作类，保留弹窗形态）
   const [deriveOpen, setDeriveOpen] = useState(false);
   const [deriveIds, setDeriveIds] = useState<string[]>([]);
   const [deriveSubmitting, setDeriveSubmitting] = useState(false);
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  useEffect(() => {
+    if (tabRefresh) refreshList();
+  }, [tabRefresh, refreshList]);
 
   const contractMap = useMemo(
     () => Object.fromEntries((contracts || []).map((c: any) => [c.id, c])),
@@ -106,49 +119,19 @@ export default function ContractMaterials() {
       .finally(() => setBaseLoading(false));
   };
 
-  // ---------- 行编辑 ----------
+  // ---------- 行新增/编辑（编辑器页签） ----------
   const openEdit = (row?: any) => {
     if (!contractId) return message.warning('请先在工具栏选择合同，再维护该合同的物资清单');
-    setEditing(row || null);
-    setPicked(row?.materialBase || null);
-    form.resetFields();
-    if (row) {
-      form.setFieldsValue({
-        unit: row.unit, qty: row.qty, priceBeforeTax: row.priceBeforeTax,
-        taxRatePct: row.taxRatePct, remark: row.remark, sortOrder: row.sortOrder,
-      });
-    }
-    setModal(true);
+    editorTab.openEdit(row?.id ?? 'new', { contractId, editing: row || null, picked: row?.materialBase || null });
   };
 
+  // 选料弹窗的选择回调（重复校验按当前列表副本）；pickMaterial 已随行编辑迁入编辑器页签
   const pickMaterial = (m: any) => {
-    // 同合同内重复校验（添加时）
-    if (!editing && listRef.current.some((r) => r.materialBaseId === m.id)) {
+    if (listRef.current.some((r) => r.materialBaseId === m.id)) {
       message.warning(`「${m.name} / ${m.spec}」已在当前合同清单中，同一物资只能出现一次`);
       return;
     }
-    setPicked(m);
-    setPickerOpen(false);
-  };
-
-  const submit = async () => {
-    const values = await form.validateFields();
-    setSaving(true);
-    try {
-      if (editing) {
-        await contractMaterialApi.update(editing.id, values);
-      } else {
-        if (!picked) return message.warning('请先从物资基础库中选择物资');
-        await contractMaterialApi.create({ ...values, contractId, materialBaseId: picked.id });
-      }
-      message.success('保存成功');
-      setModal(false);
-      setEditing(null);
-      setPicked(null);
-      refreshList();
-    } finally {
-      setSaving(false);
-    }
+    editorTab.openEdit('new', { contractId, editing: null, picked: m });
   };
 
   const removeRow = (row: ModuleListRow) => {
@@ -193,17 +176,6 @@ export default function ContractMaterials() {
       setDeriveSubmitting(false);
     }
   };
-
-  // 编辑弹窗中的实时计算预览（Form.useWatch 跟随输入实时更新）
-  const watched: any = Form.useWatch((values: any) => values, form) || {};
-  const preview = useMemo(() => {
-    const qty = watched.qty;
-    const p = watched.priceBeforeTax;
-    const pct = watched.taxRatePct;
-    const withTax = p != null ? round4(Number(p) * (1 + (Number(pct) || 0) / 100)) : null;
-    const total = withTax != null && qty != null ? round4(Number(qty) * withTax) : null;
-    return { withTax, total };
-  }, [watched]);
 
   /** 筛选项（问题四：标准筛选区） */
   const extraFilters: ModuleListFilterField[] = [
@@ -346,59 +318,7 @@ export default function ContractMaterials() {
         }
       />
 
-      {/* 行编辑弹窗 */}
-      <Modal
-        title={editing ? '编辑清单行' : '添加清单行'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => { setModal(false); setEditing(null); setPicked(null); }}
-        confirmLoading={saving}
-        width={680}
-        destroyOnHidden
-        forceRender
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item label="物资（来自基础库，只读）" required>
-            {picked ? (
-              <Space wrap>
-                <Tag color="blue">{picked.name}</Tag>
-                <span>规格：{picked.spec}</span>
-                {!editing && <Button size="small" onClick={() => { loadBases(''); setPickerOpen(true); }}>重新选择</Button>}
-              </Space>
-            ) : (
-              <Button type="primary" ghost onClick={() => { loadBases(''); setPickerOpen(true); }}>从物资基础库选择</Button>
-            )}
-          </Form.Item>
-          <Space size={16} wrap>
-            <Form.Item name="unit" label="计量单位" rules={[{ required: true, message: '如 吨/台/米' }]} style={{ width: 140 }}>
-              <Input placeholder="吨/台/米" />
-            </Form.Item>
-            <Form.Item name="qty" label="暂定数量" style={{ width: 160 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={4} />
-            </Form.Item>
-            <Form.Item name="priceBeforeTax" label="税前单价" style={{ width: 160 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={4} />
-            </Form.Item>
-            <Form.Item name="taxRatePct" label="税率 (%，留空继承合同税率)" style={{ width: 200 }}>
-              <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} placeholder="留空自动继承" />
-            </Form.Item>
-            <Form.Item name="sortOrder" label="序号" style={{ width: 120 }}>
-              <InputNumber style={{ width: '100%' }} precision={0} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-          <Alert
-            type="info"
-            showIcon={false}
-            message={
-              <span>
-                实时计算预览：含税单价 <b>{fmtNum(preview.withTax, 2)}</b>，
-                暂定含税合价 <b>{fmtNum(preview.total, 2)}</b>（保存时以服务端计算为准）
-              </span>
-            }
-          />
-        </Form>
-      </Modal>
+      {/* 行新增/编辑已改为编辑器页签（MaterialRowEditor）；选料弹窗为选择器、派生弹窗为动作类，保留弹窗 */}
 
       {/* 选料弹窗（单个） */}
       <Modal
@@ -474,5 +394,147 @@ function TableInline({ baseList, baseLoading, onPick }: { baseList: any[]; baseL
         { title: 'DSC编码', dataIndex: 'dscCode', width: 140, render: (v: any) => v || '-' },
       ]}
     />
+  );
+}
+
+/**
+ * 编辑器页签：添加/编辑合同清单行（原「行编辑弹窗」迁入；业务 2026-10-17 新增必须进编辑界面）。
+ * seed = { contractId, editing: 行对象|null, picked: 基础物资|null }；保存后 closeEditor 刷新列表。
+ */
+function MaterialRowEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const s = (seed ?? {}) as { contractId?: string; editing?: any; picked?: any };
+  const editing = s.editing ?? null;
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [picked, setPicked] = useState<any>(s.picked ?? null);
+  const [form] = Form.useForm();
+
+  // 选料弹窗（选择器，非表单，保留弹窗）
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [baseList, setBaseList] = useState<any[]>([]);
+  const [baseLoading, setBaseLoading] = useState(false);
+  const loadBases = (keyword: string) => {
+    setBaseLoading(true);
+    materialApi.options(keyword)
+      .then((res: any) => setBaseList(res || []))
+      .finally(() => setBaseLoading(false));
+  };
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) {
+      form.setFieldsValue({
+        unit: editing.unit, qty: editing.qty, priceBeforeTax: editing.priceBeforeTax,
+        taxRatePct: editing.taxRatePct, remark: editing.remark, sortOrder: editing.sortOrder,
+      });
+    }
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  // 实时计算预览（与服务端同口径：4 位小数）
+  const watched: any = Form.useWatch((values: any) => values, form) || {};
+  const preview = useMemo(() => {
+    const qty = watched.qty;
+    const p = watched.priceBeforeTax;
+    const pct = watched.taxRatePct;
+    const withTax = p != null ? round4(Number(p) * (1 + (Number(pct) || 0) / 100)) : null;
+    const total = withTax != null && qty != null ? round4(Number(qty) * withTax) : null;
+    return { withTax, total };
+  }, [watched]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      if (editing) {
+        await contractMaterialApi.update(editing.id, values);
+      } else {
+        if (!picked) return message.warning('请先从物资基础库中选择物资');
+        await contractMaterialApi.create({ ...values, contractId: s.contractId, materialBaseId: picked.id });
+      }
+      message.success('保存成功');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑清单行' : '添加清单行'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Form.Item label="物资（来自基础库，只读）" required>
+          {picked ? (
+            <Space wrap>
+              <Tag color="blue">{picked.name}</Tag>
+              <span>规格：{picked.spec}</span>
+              {!editing && <Button size="small" onClick={() => { loadBases(''); setPickerOpen(true); }}>重新选择</Button>}
+            </Space>
+          ) : (
+            <Button type="primary" ghost onClick={() => { loadBases(''); setPickerOpen(true); }}>从物资基础库选择</Button>
+          )}
+        </Form.Item>
+        <Space size={16} wrap>
+          <Form.Item name="unit" label="计量单位" rules={[{ required: true, message: '如 吨/台/米' }]} style={{ width: 140 }}>
+            <Input placeholder="吨/台/米" />
+          </Form.Item>
+          <Form.Item name="qty" label="暂定数量" style={{ width: 160 }}>
+            <InputNumber style={{ width: '100%' }} min={0} precision={4} />
+          </Form.Item>
+          <Form.Item name="priceBeforeTax" label="税前单价" style={{ width: 160 }}>
+            <InputNumber style={{ width: '100%' }} min={0} precision={4} />
+          </Form.Item>
+          <Form.Item name="taxRatePct" label="税率 (%，留空继承合同税率)" style={{ width: 200 }}>
+            <InputNumber style={{ width: '100%' }} min={0} max={100} precision={2} placeholder="留空自动继承" />
+          </Form.Item>
+          <Form.Item name="sortOrder" label="序号" style={{ width: 120 }}>
+            <InputNumber style={{ width: '100%' }} precision={0} />
+          </Form.Item>
+        </Space>
+        <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+        <Alert
+          type="info"
+          showIcon={false}
+          message={
+            <span>
+              实时计算预览：含税单价 <b>{fmtNum(preview.withTax, 2)}</b>，
+              暂定含税合价 <b>{fmtNum(preview.total, 2)}</b>（保存时以服务端计算为准）
+            </span>
+          }
+        />
+      </Form>
+
+      {/* 选料弹窗（单个） */}
+      <Modal
+        title="从物资基础库选择物资"
+        open={pickerOpen}
+        onCancel={() => setPickerOpen(false)}
+        footer={null}
+        width={760}
+        destroyOnHidden
+      >
+        <Input.Search
+          placeholder="搜索物资名称/规格/MDM/DSC编码"
+          allowClear
+          enterButton
+          onSearch={(v) => loadBases(v)}
+          onChange={(e) => { if (e.target.value) return; loadBases(''); }}
+          style={{ marginBottom: 12 }}
+        />
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <TableInline baseList={baseList} baseLoading={baseLoading} onPick={(m) => { setPicked(m); setPickerOpen(false); }} />
+          {baseList.length === 0 && !baseLoading && (
+            <Alert type="warning" showIcon message="基础库中未找到匹配物资，请先到「物资基础库」页面维护。" />
+          )}
+        </Space>
+      </Modal>
+    </EditorTabPage>
   );
 }

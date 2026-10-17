@@ -5,6 +5,8 @@ import { PlusOutlined, SearchOutlined, ExportOutlined, StopOutlined, CheckCircle
 import { materialApi } from '@/api/modules';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 
 const YES_NO = [
@@ -12,56 +14,34 @@ const YES_NO = [
   { label: '否', value: false },
 ];
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
+const LIST_PATH = '/base/material';
+
 export default function Materials() {
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <MaterialEditor seed={editorTab.seed} />;
+  }
+  return <MaterialList />;
+}
+
+function MaterialList() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
   const { loading, list, params, search, reload, pagination } = useTable<any>((p) => materialApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
   // 物资一二级分类（需求 2.2）：一级 material_category、二级 material_type（extField1 关联一级 code）
   const [catL1, setCatL1] = useState<any[]>([]);
   const [catL2, setCatL2] = useState<any[]>([]);
-  // 需求 2.3.1：计量单位只能取自字典「measurement_unit」
-  const [units, setUnits] = useState<any[]>([]);
-  const watchCatL1 = Form.useWatch('categoryLevel1', form);
-  // 需求 2.3.1：计量单位创建后不可修改
-  const unitLocked = !!editing?.unit;
 
   useEffect(() => {
     dictApi.options('material_category').then((r) => setCatL1(r || [])).catch(() => undefined);
     dictApi.options('material_type').then((r) => setCatL2(r || [])).catch(() => undefined);
-    dictApi.options('measurement_unit').then((r) => setUnits(r || [])).catch(() => undefined);
   }, []);
 
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
   useEffect(() => {
-    if (modal) {
-      form.resetFields();
-      // 需求 2.1.1：两个属性必填，默认「否」
-      if (editing) form.setFieldsValue(editing);
-      else form.setFieldsValue({ isAsset: false, isSafetyMaterial: false });
-    }
-  }, [modal, editing]);
-
-  // 二级分类按所选一级过滤（extField1 === 一级 value）；未选一级时展示全部
-  const l2Options = catL2
-    .filter((i: any) => !watchCatL1 || !i.extField1 || i.extField1 === catL1.find((x: any) => x.label === watchCatL1)?.value)
-    .map((i: any) => ({ value: i.label ?? i.name, label: i.label ?? i.name }));
-
-  const submit = async () => {
-    const values = await form.validateFields();
-    setSaving(true);
-    try {
-      if (editing) await materialApi.update(editing.id, values);
-      else await materialApi.create(values);
-      message.success('保存成功');
-      setModal(false);
-      setEditing(null);
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  };
-
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   return (
     <Card
@@ -70,7 +50,7 @@ export default function Materials() {
         <Space>
           <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(materialApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModal(true); }}>新增物资</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增物资</Button>
         </Space>
       }
     >
@@ -133,7 +113,7 @@ export default function Materials() {
             fixed: 'right',
             render: (_, row) => (
               <Space size={4}>
-                <Button type="link" size="small" onClick={() => { setEditing(row); setModal(true); }}>编辑</Button>
+                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
                 <Popconfirm
                   title={row.refCount > 0 ? `该物资已被 ${row.refCount} 条合同清单引用，删除会破坏历史合同数据，建议改为停用。仍要删除吗？` : '确认删除该物资？'}
                   okButtonProps={{ danger: row.refCount > 0 }}
@@ -164,66 +144,116 @@ export default function Materials() {
           },
         ]}
       />
-
-      <Modal
-        title={editing ? '编辑物资' : '新增物资'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => { setModal(false); setEditing(null); }}
-        confirmLoading={saving}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="物资名称" rules={[{ required: true, message: '请输入物资名称' }]}>
-            <Input placeholder="如：螺纹钢" />
-          </Form.Item>
-          <Form.Item name="spec" label="规格型号" rules={[{ required: true, message: '请输入规格型号' }]}>
-            <Input placeholder="如：HRB400E Φ12" />
-          </Form.Item>
-          <Form.Item name="categoryLevel1" label="一级分类">
-            <Select
-              allowClear
-              placeholder="请选择一级分类"
-              options={catL1.map((i: any) => ({ value: i.label ?? i.name, label: i.label ?? i.name }))}
-              onChange={() => form.setFieldValue('categoryLevel2', undefined)}
-            />
-          </Form.Item>
-          <Form.Item name="categoryLevel2" label="二级分类">
-            <Select allowClear placeholder="请选择二级分类" options={l2Options} />
-          </Form.Item>
-          {/* 需求 2.3.1：计量单位只能从字典选择；创建后不可修改 */}
-          <Form.Item
-            name="unit"
-            label="计量单位"
-            rules={[{ required: true, message: '请选择计量单位' }]}
-            extra={unitLocked ? '计量单位创建后不可修改；如需新单位请先在【系统管理 → 字典管理】中添加' : '只能从字典「计量单位」中选择'}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              disabled={unitLocked}
-              placeholder="请选择计量单位"
-              options={units.map((u) => ({ value: u.label, label: u.label }))}
-              notFoundContent="字典中暂无计量单位，请先在【系统管理 → 字典管理】中添加"
-              suffixIcon={unitLocked ? <LockOutlined /> : undefined}
-            />
-          </Form.Item>
-          {/* 需求 2.1.1：是否资产 / 是否安全物资 由物资基础库统一维护（必填） */}
-          <Form.Item name="isAsset" label="是否资产" rules={[{ required: true, message: '请选择是否资产' }]}>
-            <Radio.Group options={YES_NO} optionType="button" buttonStyle="solid" />
-          </Form.Item>
-          <Form.Item
-            name="isSafetyMaterial"
-            label="是否安全物资"
-            rules={[{ required: true, message: '请选择是否安全物资' }]}
-          >
-            <Radio.Group options={YES_NO} optionType="button" buttonStyle="solid" />
-          </Form.Item>
-          <Form.Item name="mdmCode" label="MDM编码（可空）"><Input /></Form.Item>
-          <Form.Item name="dscCode" label="DSC编码（可空）"><Input /></Form.Item>
-          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-        </Form>
-      </Modal>
     </Card>
+  );
+}
+
+function MaterialEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+  // 物资一二级分类（需求 2.2）
+  const [catL1, setCatL1] = useState<any[]>([]);
+  const [catL2, setCatL2] = useState<any[]>([]);
+  // 需求 2.3.1：计量单位只能取自字典「measurement_unit」
+  const [units, setUnits] = useState<any[]>([]);
+  const watchCatL1 = Form.useWatch('categoryLevel1', form);
+  // 需求 2.3.1：计量单位创建后不可修改
+  const unitLocked = !!editing?.unit;
+
+  useEffect(() => {
+    dictApi.options('material_category').then((r) => setCatL1(r || [])).catch(() => undefined);
+    dictApi.options('material_type').then((r) => setCatL2(r || [])).catch(() => undefined);
+    dictApi.options('measurement_unit').then((r) => setUnits(r || [])).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    form.resetFields();
+    // 需求 2.1.1：两个属性必填，默认「否」
+    if (editing) form.setFieldsValue(editing);
+    else form.setFieldsValue({ isAsset: false, isSafetyMaterial: false });
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  // 二级分类按所选一级过滤（extField1 === 一级 value）；未选一级时展示全部
+  const l2Options = catL2
+    .filter((i: any) => !watchCatL1 || !i.extField1 || i.extField1 === catL1.find((x: any) => x.label === watchCatL1)?.value)
+    .map((i: any) => ({ value: i.label ?? i.name, label: i.label ?? i.name }));
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      if (editing) await materialApi.update(editing.id, values);
+      else await materialApi.create(values);
+      message.success('保存成功');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑物资' : '新增物资'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Form.Item name="name" label="物资名称" rules={[{ required: true, message: '请输入物资名称' }]}>
+          <Input placeholder="如：螺纹钢" />
+        </Form.Item>
+        <Form.Item name="spec" label="规格型号" rules={[{ required: true, message: '请输入规格型号' }]}>
+          <Input placeholder="如：HRB400E Φ12" />
+        </Form.Item>
+        <Form.Item name="categoryLevel1" label="一级分类">
+          <Select
+            allowClear
+            placeholder="请选择一级分类"
+            options={catL1.map((i: any) => ({ value: i.label ?? i.name, label: i.label ?? i.name }))}
+            onChange={() => form.setFieldValue('categoryLevel2', undefined)}
+          />
+        </Form.Item>
+        <Form.Item name="categoryLevel2" label="二级分类">
+          <Select allowClear placeholder="请选择二级分类" options={l2Options} />
+        </Form.Item>
+        {/* 需求 2.3.1：计量单位只能从字典选择；创建后不可修改 */}
+        <Form.Item
+          name="unit"
+          label="计量单位"
+          rules={[{ required: true, message: '请选择计量单位' }]}
+          extra={unitLocked ? '计量单位创建后不可修改；如需新单位请先在【系统管理 → 字典管理】中添加' : '只能从字典「计量单位」中选择'}
+        >
+          <Select
+            showSearch
+            optionFilterProp="label"
+            disabled={unitLocked}
+            placeholder="请选择计量单位"
+            options={units.map((u) => ({ value: u.label, label: u.label }))}
+            notFoundContent="字典中暂无计量单位，请先在【系统管理 → 字典管理】中添加"
+            suffixIcon={unitLocked ? <LockOutlined /> : undefined}
+          />
+        </Form.Item>
+        {/* 需求 2.1.1：是否资产 / 是否安全物资 由物资基础库统一维护（必填） */}
+        <Form.Item name="isAsset" label="是否资产" rules={[{ required: true, message: '请选择是否资产' }]}>
+          <Radio.Group options={YES_NO} optionType="button" buttonStyle="solid" />
+        </Form.Item>
+        <Form.Item
+          name="isSafetyMaterial"
+          label="是否安全物资"
+          rules={[{ required: true, message: '请选择是否安全物资' }]}
+        >
+          <Radio.Group options={YES_NO} optionType="button" buttonStyle="solid" />
+        </Form.Item>
+        <Form.Item name="mdmCode" label="MDM编码（可空）"><Input /></Form.Item>
+        <Form.Item name="dscCode" label="DSC编码（可空）"><Input /></Form.Item>
+        <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+      </Form>
+    </EditorTabPage>
   );
 }

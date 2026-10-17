@@ -13,6 +13,11 @@ import { withToken } from '../utils/download';
 import { contractApi, laborApi } from '@/api/business';
 import { fileApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
+const LIST_PATH = '/labor/auth';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   EDITING: { label: '编辑中', color: 'orange' },
@@ -72,180 +77,45 @@ function LetterPreviewModal({
 }
 
 export default function LaborAuth() {
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <LaborAuthEditor seed={editorTab.seed} />;
+  }
+  return <LaborAuthList />;
+}
+
+function LaborAuthList() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
   const { loading, list, search, reload, pagination } = useTable<any>((p) => laborApi.list(p));
   const [filterForm] = Form.useForm();
 
-  // -------- 编辑态 --------
-  const [mode, setMode] = useState<'list' | 'edit'>('list');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form] = Form.useForm();
-  const [pendingValues, setPendingValues] = useState<Record<string, any> | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // 上传类字段（走独立上传，不进 Form）
-  const [idCardFront, setIdCardFront] = useState<string | null>(null);
-  const [idCardBack, setIdCardBack] = useState<string | null>(null);
-  const [signedAuthFile, setSignedAuthFile] = useState<string | null>(null);
-  const [signatureScreenshot, setSignatureScreenshot] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<string | null>(null);
-
-  // 分包合同下拉（互锁数据源）
-  const [contracts, setContracts] = useState<any[]>([]);
-
-  // -------- 预览 / 详情 --------
-  const [preview, setPreview] = useState<{ open: boolean; html: string; title: string }>({
-    open: false, html: '', title: '',
-  });
-  const [detail, setDetail] = useState<any>(null);
-  const previewRef = useRef<{ values: any; id: string | null }>({ values: null, id: null });
-
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
   useEffect(() => {
-    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
-  }, []);
-
-  // -------- 上传 --------
-  const upload = useCallback(async (file: File, setter: (url: string) => void, key: string) => {
-    setUploading(key);
-    try {
-      const files = await fileApi.upload([file]);
-      const url = files?.[0]?.url;
-      if (!url) throw new Error('上传失败');
-      setter(url);
-      message.success('上传成功');
-    } catch {
-      /* 错误已由拦截器提示 */
-    } finally {
-      setUploading(null);
-    }
-  }, []);
-
-  // -------- 新增 / 编辑 --------
-  const resetUploads = () => {
-    setIdCardFront(null);
-    setIdCardBack(null);
-    setSignedAuthFile(null);
-    setSignatureScreenshot(null);
-  };
-
-  const startCreate = () => {
-    setEditingId(null);
-    resetUploads();
-    setPendingValues({ subcontractorName: '', projectName: '' });
-    setMode('edit');
-  };
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   const startEdit = async (row: any) => {
-    setEditingId(row.id);
+    // 编辑取全量（含四类图片 URL），seed 递给编辑器页签
     try {
       const d: any = await laborApi.detail(row.id);
-      setIdCardFront(d.idCardFront || null);
-      setIdCardBack(d.idCardBack || null);
-      setSignedAuthFile(d.signedAuthFile || null);
-      setSignatureScreenshot(d.signatureScreenshot || null);
-      setPendingValues(d);
-      setMode('edit');
+      editorTab.openEdit(row.id, d);
     } catch {
       /* 错误已由拦截器提示 */
     }
   };
 
-  // 编辑视图挂载后再赋值（<Form> 连接后），避免赋值丢失
-  useEffect(() => {
-    if (mode === 'edit' && pendingValues) {
-      form.resetFields();
-      form.setFieldsValue({ ...pendingValues, subcontractId: pendingValues.subcontractId || undefined });
-      setPendingValues(null);
-    }
-  }, [mode, pendingValues, form]);
-
-  const currentValues = () => ({ ...form.getFieldsValue() });
-
-  // -------- 预览 --------
-  const openPreview = async (id: string | null) => {
-    const values = currentValues();
-    if (!values.subcontractorName) return message.warning('请先填写分包商名称');
-    const html = id
-      ? await laborApi.letterHtml(id)
-      : await laborApi.previewHtml(values);
-    previewRef.current = { values, id };
-    setPreview({ open: true, html, title: `授权委托书预览 - ${values.subcontractorName}` });
-  };
-
-  /** 导出 PDF：打开新窗口 → 浏览器打印另存；同时落库为「编辑中」 */
-  const doExportPdf = async () => {
-    const { values } = previewRef.current;
-    if (!values?.subcontractorName) return message.warning('请先填写分包商名称');
-    // 1) 落库（新增或更新），状态置为编辑中
-    let savedId = editingId;
-    try {
-      const saved: any = await laborApi.exportMark({
-        ...values,
-        id: editingId || undefined, // 编辑态按 id 更新，避免重复新增
-        idCardFront,
-        idCardBack,
-        signatureScreenshot,
-        signedAuthFile,
-      });
-      savedId = saved?.id || editingId;
-      if (!editingId && savedId) setEditingId(savedId);
-    } catch {
-      return; // 拦截器已提示
-    }
-    // 2) 打开打印窗口（用户可在打印对话框中选择「另存为 PDF」）
-    const html = savedId ? await laborApi.letterHtml(savedId) : preview.html;
-    const w = window.open('', '_blank');
-    if (!w) return message.warning('浏览器阻止了新窗口，请允许弹窗后重试');
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => w.print(), 500);
-    message.success(
-      `已生成委托书：分包材料员授权委托书_${values.subcontractorName}_${dayjs().format('YYYYMMDD')}.pdf（状态：编辑中）`,
-    );
-    setPreview({ open: false, html: '', title: '' });
-    reload();
-  };
-
-  /** 上传签字盖章版 + 签字截图 → 已完成 */
-  const completeFlow = async () => {
-    if (!editingId) return message.warning('请先导出 PDF 并保存到分包授权台账');
-    if (!signedAuthFile) return message.warning('请上传签字盖章版委托书');
-    if (!signatureScreenshot) return message.warning('请上传委托书签字部分截图');
-    await laborApi.complete(editingId, { signedAuthFile, signatureScreenshot });
-    message.success('已完成，分包授权台账已更新');
-    setMode('list');
-    resetUploads();
-    reload();
-  };
-
-  const saveOnly = async () => {
-    const values = await form.validateFields();
-    const payload = { ...values, idCardFront, idCardBack, signatureScreenshot, signedAuthFile };
-    setSaving(true);
-    try {
-      if (editingId) await laborApi.update(editingId, payload);
-      else {
-        const saved: any = await laborApi.create(payload);
-        setEditingId(saved?.id || null);
-      }
-      message.success('保存成功');
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  };
-
+  // -------- 详情 --------
+  const [detail, setDetail] = useState<any>(null);
   const total = useMemo(() => list.length, [list]);
 
-  // ==================== 列表视图 ====================
-  if (mode === 'list') {
-    return (
+  return (
       <Card
         title="分包授权台账"
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增授权委托书</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增授权委托书</Button>
             <Button icon={<DownloadOutlined />} onClick={() => window.open(withToken(laborApi.exportWorkbookUrl()))}>导出 Excel</Button>
           </Space>
         }
@@ -347,27 +217,144 @@ export default function LaborAuth() {
           </Descriptions>
         </Modal>
       </Card>
-    );
-  }
+  );
+}
 
-  // ==================== 编辑视图 ====================
+/** 编辑器页签：新增/编辑分包材料员授权委托书（原「mode=edit」内联视图迁入） */function LaborAuthEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const [editingId, setEditingId] = useState<string | null>((seed as any)?.id ?? null);
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  // 上传类字段（走独立上传，不进 Form）
+  const [idCardFront, setIdCardFront] = useState<string | null>((seed as any)?.idCardFront || null);
+  const [idCardBack, setIdCardBack] = useState<string | null>((seed as any)?.idCardBack || null);
+  const [signedAuthFile, setSignedAuthFile] = useState<string | null>((seed as any)?.signedAuthFile || null);
+  const [signatureScreenshot, setSignatureScreenshot] = useState<string | null>((seed as any)?.signatureScreenshot || null);
+  const [uploading, setUploading] = useState<string | null>(null);
+
+  // 分包合同下拉（互锁数据源）
+  const [contracts, setContracts] = useState<any[]>([]);
+
+  // -------- 预览 --------
+  const [preview, setPreview] = useState<{ open: boolean; html: string; title: string }>({
+    open: false, html: '', title: '',
+  });
+  const previewRef = useRef<{ values: any; id: string | null }>({ values: null, id: null });
+
+  useEffect(() => {
+    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
+  }, []);
+
+  // 编辑视图挂载后再赋值（<Form> 连接后），避免赋值丢失
+  useEffect(() => {
+    form.resetFields();
+    if (seed) {
+      form.setFieldsValue({ ...(seed as any), subcontractId: (seed as any).subcontractId || undefined });
+    }
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed]);
+
+  // -------- 上传 --------
+  const upload = useCallback(async (file: File, setter: (url: string) => void, key: string) => {
+    setUploading(key);
+    try {
+      const files = await fileApi.upload([file]);
+      const url = files?.[0]?.url;
+      if (!url) throw new Error('上传失败');
+      setter(url);
+      message.success('上传成功');
+    } catch {
+      /* 错误已由拦截器提示 */
+    } finally {
+      setUploading(null);
+    }
+  }, []);
+
+  const currentValues = () => ({ ...form.getFieldsValue() });
+
+  // -------- 预览 --------
+  const openPreview = async (id: string | null) => {
+    const values = currentValues();
+    if (!values.subcontractorName) return message.warning('请先填写分包商名称');
+    const html = id
+      ? await laborApi.letterHtml(id)
+      : await laborApi.previewHtml(values);
+    previewRef.current = { values, id };
+    setPreview({ open: true, html, title: `授权委托书预览 - ${values.subcontractorName}` });
+  };
+
+  /** 导出 PDF：打开新窗口 → 浏览器打印另存；同时落库为「编辑中」 */
+  const doExportPdf = async () => {
+    const { values } = previewRef.current;
+    if (!values?.subcontractorName) return message.warning('请先填写分包商名称');
+    // 1) 落库（新增或更新），状态置为编辑中
+    let savedId = editingId;
+    try {
+      const saved: any = await laborApi.exportMark({
+        ...values,
+        id: editingId || undefined, // 编辑态按 id 更新，避免重复新增
+        idCardFront,
+        idCardBack,
+        signatureScreenshot,
+        signedAuthFile,
+      });
+      savedId = saved?.id || editingId;
+      if (!editingId && savedId) setEditingId(savedId);
+    } catch {
+      return; // 拦截器已提示
+    }
+    // 2) 打开打印窗口（用户可在打印对话框中选择「另存为 PDF」）
+    const html = savedId ? await laborApi.letterHtml(savedId) : preview.html;
+    const w = window.open('', '_blank');
+    if (!w) return message.warning('浏览器阻止了新窗口，请允许弹窗后重试');
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 500);
+    message.success(
+      `已生成委托书：分包材料员授权委托书_${values.subcontractorName}_${dayjs().format('YYYYMMDD')}.pdf（状态：编辑中）`,
+    );
+    setPreview({ open: false, html: '', title: '' });
+  };
+
+  /** 上传签字盖章版 + 签字截图 → 已完成（关页签，列表经 useTabRefresh 自动刷新） */
+  const completeFlow = async () => {
+    if (!editingId) return message.warning('请先导出 PDF 并保存到分包授权台账');
+    if (!signedAuthFile) return message.warning('请上传签字盖章版委托书');
+    if (!signatureScreenshot) return message.warning('请上传委托书签字部分截图');
+    await laborApi.complete(editingId, { signedAuthFile, signatureScreenshot });
+    message.success('已完成，分包授权台账已更新');
+    editorTab.closeEditor();
+  };
+
+  const saveOnly = async () => {
+    const values = await form.validateFields();
+    const payload = { ...values, idCardFront, idCardBack, signatureScreenshot, signedAuthFile };
+    setSaving(true);
+    try {
+      if (editingId) await laborApi.update(editingId, payload);
+      else {
+        const saved: any = await laborApi.create(payload);
+        setEditingId(saved?.id || null);
+      }
+      message.success('保存成功');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Card
-      title={
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => { setMode('list'); setEditingId(null); }}>返回列表</Button>
-          <span>{editingId ? '编辑授权委托书' : '新增分包材料员授权委托书'}</span>
-        </Space>
-      }
-      extra={
-        <Space>
-          <Button icon={<SaveOutlined />} loading={saving} onClick={saveOnly}>保存</Button>
-          <Button type="primary" icon={<FilePdfOutlined />} onClick={() => openPreview(editingId)}>
-            预览并导出 PDF
-          </Button>
-          <Button onClick={completeFlow}>上传盖章件并完成</Button>
-        </Space>
-      }
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editingId ? '编辑授权委托书' : '新增分包材料员授权委托书'}
+      saving={saving}
+      dirty={dirty}
+      onSave={saveOnly}
+      saveText="保存"
     >
       <Alert
         type="warning"
@@ -472,9 +459,18 @@ export default function LaborAuth() {
           type="info"
           showIcon
           style={{ marginTop: 12 }}
-          message="上传签字盖章版委托书与签字截图后，点击右上角「上传盖章件并完成」即可将状态流转为「已完成」。"
+          message="上传签字盖章版委托书与签字截图后，点击「上传盖章件并完成」即可将状态流转为「已完成」。"
         />
       </Card>
+
+      {/* 操作区：保存 / 预览并导出 PDF / 上传盖章件并完成 */}
+      <Space wrap style={{ marginTop: 12 }}>
+        <Button icon={<SaveOutlined />} loading={saving} onClick={saveOnly}>保存</Button>
+        <Button type="primary" icon={<FilePdfOutlined />} onClick={() => openPreview(editingId)}>
+          预览并导出 PDF
+        </Button>
+        <Button onClick={completeFlow}>上传盖章件并完成</Button>
+      </Space>
 
       <LetterPreviewModal
         open={preview.open}
@@ -483,6 +479,6 @@ export default function LaborAuth() {
         onClose={() => setPreview({ open: false, html: '', title: '' })}
         onExport={doExportPdf}
       />
-    </Card>
+    </EditorTabPage>
   );
 }

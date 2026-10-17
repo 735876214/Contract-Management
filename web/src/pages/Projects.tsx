@@ -5,14 +5,26 @@ import dayjs from 'dayjs';
 import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
+const LIST_PATH = '/base/project';
+
 export default function Projects() {
-  const { loading, list, total, params, search, reload, pagination } = useTable<any>((p) => projectApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <ProjectEditor seed={editorTab.seed} />;
+  }
+  return <ProjectList />;
+}
+
+function ProjectList() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const { loading, list, search, reload, pagination } = useTable<any>((p) => projectApi.list(p));
   const [memberDrawer, setMemberDrawer] = useState(false);
   const [current, setCurrent] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
@@ -22,23 +34,10 @@ export default function Projects() {
     systemApi.users({ pageSize: 500 }).then((res: any) => setUsers(res.list || []));
   }, []);
 
-  const submit = async () => {
-    const values = await form.validateFields();
-    const payload = {
-      ...values,
-      // 月度结算起始日期只取「日」（每期 = 起始日 → 下月同日的前一日）
-      settlementStartDate: values.settlementStartDate
-        ? dayjs(values.settlementStartDate).format('YYYY-MM-DD')
-        : null,
-    };
-    if (editing) await projectApi.update(editing.id, payload);
-    else await projectApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setEditing(null);
-    reload();
-  };
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   const openMembers = async (row: any) => {
     setCurrent(row);
@@ -60,7 +59,7 @@ export default function Projects() {
       extra={
         <Space>
           <ImportButton moduleName="项目信息" templateUrl={projectApi.templateUrl()} onUpload={(f) => projectApi.import(f)} onDone={reload} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModal(true); }}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
             新建项目
           </Button>
         </Space>
@@ -105,14 +104,7 @@ export default function Projects() {
             render: (_, row) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
-                <Button type="link" size="small" onClick={() => {
-                  setEditing(row);
-                  form.setFieldsValue({
-                    ...row,
-                    settlementStartDate: row.settlementStartDate ? dayjs(row.settlementStartDate) : null,
-                  });
-                  setModal(true);
-                }}>编辑</Button>
+                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
                 <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); reload(); }}>
                   <Button type="link" size="small" danger>删除</Button>
                 </Popconfirm>
@@ -121,74 +113,6 @@ export default function Projects() {
           },
         ]}
       />
-
-      <Modal title={editing ? '编辑项目' : '新建项目'} open={modal} onOk={submit} onCancel={() => setModal(false)} destroyOnHidden>
-        <Form form={form} layout="vertical">
-          <Row gutter={12}>
-            <Col xs={24} md={12}>
-              <Form.Item name="code" label="项目编码" rules={[{ required: true }]}><Input disabled={!!editing} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="name" label="项目全称" rules={[{ required: true }]}><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="nameAbbr" label="项目简称（文字版）" rules={[{ required: true }]}><Input maxLength={50} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="codeAbbr"
-                label="项目简称（字母版，用于合同编号）"
-                rules={[
-                  { required: true, message: '字母简称用于合同编号，必填' },
-                  { pattern: /^[A-Z0-9]+$/, message: '仅允许大写字母和数字' },
-                ]}
-              >
-                <Input maxLength={20} placeholder="如 ZJJXM" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="undertaker" label="承接单位" rules={[{ required: true }]}><Input maxLength={100} /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="selfContractAmount" label="项目自施合同额（万元）" rules={[{ required: true }]}>
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="industryType" label="项目业态" rules={[{ required: true }]}>
-                <DictSelect typeCode="industry_type" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="provinceCity" label="项目所在省市"><Input maxLength={50} placeholder="如 广东省深圳市" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="siteLocation" label="工程地点"><Input maxLength={100} placeholder="如 深圳市南山区科技园南区" /></Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item name="projectAddress" label="项目地址"><Input maxLength={150} placeholder="如 深圳市南山区科苑南路 3099 号" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="materialOrigin" label="物资产地"><Input maxLength={100} placeholder="如 河北唐山" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="settlementStartDate"
-                label="月度结算起始日期"
-                extra="每期 = 起始日 → 下月同日的前一日；只取日期里的「日」，其余部分不参与计算。留空则按自然月（每月 1 日）"
-              >
-                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="如 2026-01-01（即每月 1 日）" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item name="description" label="项目描述"><Input.TextArea rows={3} /></Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
 
       <Modal title={`项目成员 · ${current?.name || ''}`} width={520} centered open={memberDrawer} onCancel={() => setMemberDrawer(false)} footer={null} styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
         <Row gutter={8} style={{ marginBottom: 16 }}>
@@ -244,5 +168,121 @@ export default function Projects() {
         />
       </Modal>
     </Card>
+  );
+}
+
+function ProjectEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    form.resetFields();
+    if (editing) {
+      form.setFieldsValue({
+        ...editing,
+        settlementStartDate: editing.settlementStartDate ? dayjs(editing.settlementStartDate) : null,
+      });
+    }
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    const payload = {
+      ...values,
+      // 月度结算起始日期只取「日」（每期 = 起始日 → 下月同日的前一日）
+      settlementStartDate: values.settlementStartDate
+        ? dayjs(values.settlementStartDate).format('YYYY-MM-DD')
+        : null,
+    };
+    setSaving(true);
+    try {
+      if (editing) await projectApi.update(editing.id, payload);
+      else await projectApi.create(payload);
+      message.success('保存成功');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑项目' : '新建项目'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
+        <Row gutter={12}>
+          <Col xs={24} md={12}>
+            <Form.Item name="code" label="项目编码" rules={[{ required: true }]}><Input disabled={!!editing} /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="name" label="项目全称" rules={[{ required: true }]}><Input /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="nameAbbr" label="项目简称（文字版）" rules={[{ required: true }]}><Input maxLength={50} /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="codeAbbr"
+              label="项目简称（字母版，用于合同编号）"
+              rules={[
+                { required: true, message: '字母简称用于合同编号，必填' },
+                { pattern: /^[A-Z0-9]+$/, message: '仅允许大写字母和数字' },
+              ]}
+            >
+              <Input maxLength={20} placeholder="如 ZJJXM" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="undertaker" label="承接单位" rules={[{ required: true }]}><Input maxLength={100} /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="selfContractAmount" label="项目自施合同额（万元）" rules={[{ required: true }]}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="industryType" label="项目业态" rules={[{ required: true }]}>
+              <DictSelect typeCode="industry_type" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="provinceCity" label="项目所在省市"><Input maxLength={50} placeholder="如 广东省深圳市" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="siteLocation" label="工程地点"><Input maxLength={100} placeholder="如 深圳市南山区科技园南区" /></Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="projectAddress" label="项目地址"><Input maxLength={150} placeholder="如 深圳市南山区科苑南路 3099 号" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="materialOrigin" label="物资产地"><Input maxLength={100} placeholder="如 河北唐山" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="settlementStartDate"
+              label="月度结算起始日期"
+              extra="每期 = 起始日 → 下月同日的前一日；只取日期里的「日」，其余部分不参与计算。留空则按自然月（每月 1 日）"
+            >
+              <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="如 2026-01-01（即每月 1 日）" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="status" label="项目状态"><DictSelect typeCode="project_status" /></Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="description" label="项目描述"><Input.TextArea rows={3} /></Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
