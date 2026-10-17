@@ -75,7 +75,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（36 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（37 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（6 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -137,6 +137,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/listColumns.spec.mts` | 列表列显隐偏好（localStorage 键与降级、至少保留一列、受保护列、列过滤） |
   | `test/tabsStore.spec.mts` | **多页签导航纯逻辑**（`web/src/utils/tabs.ts`）：编辑器标签键与列表键**必须不同**（两者是独立页面实例）· `tabKeyOf` 只认 `editor` 参数并把噪声参数归一（否则会开出重复标签）· 重复打开**不得重置 version**（重置会让页面反复重挂载、页面状态缓存静默失效）· 关闭当前标签的落点顺序（右邻 → 左邻 → 首页）· 超出上限时**只淘汰非编辑器标签**（编辑到一半的页面被淘汰 = 无声的数据丢失）· 持久化**跳过编辑器标签**且能容忍各种脏数据 |
   | `test/clauseSelection.spec.mts` | **条款选择规则锁**（业务口径 2026-10-16：条款只在「合同条款」维护，采购发起第三步/合同起草只做选择）：四个槽位 ↔ 四种条款类型**一一对应**，且与前端条款库页的类型下拉（`web/src/constants/clauseTypes.ts`）逐条一致 · 快照规则：`techQuality` = 技术条款正文 +（选了质量条款时）质量条款正文（换行拼接），`acceptanceMethod`/`paymentMethod` 各取自己的条款正文 · 槽位显式传 `null` = 清除 → 快照**一并清空**（否则界面看着没选、模板变量却还有值）· 全清空归 `null` 不归空串（保持"未填"语义）· 条款不存在 / 类型放错槽位 → 走调用方的 400 |
+  | `test/dashboardTodo.spec.mts` | **「我的待办」分类的前后端镜像锁**（业务口径 2026-10-16：为每个模块都预留一个待办位置，0 条的分类 Tab 也常驻）：`server/src/constants/todoCategories.ts` ↔ `web/src/constants/dashboardTodoTabs.ts` 的 key/label **逐条一致且顺序相同** · 每分类必须声明权限码（决定对哪些用户可见）· 下发上限合理 · key 不重复 |
   | `test/storageKeys.spec.mts` | 存储键纯逻辑（相对键规范化 / 越权路径 `..`·绝对路径拦截 / 绝对路径与对外 URL） |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |

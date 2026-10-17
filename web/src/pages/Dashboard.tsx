@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
-import { FileTextOutlined, AccountBookOutlined, WalletOutlined, ReconciliationOutlined } from '@ant-design/icons';
+import { FileTextOutlined, AccountBookOutlined, WalletOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import { dashboardApi } from '@/api/modules';
@@ -10,6 +10,7 @@ import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EmptyState from '@/components/EmptyState';
+import { TodoCard, DashboardNoticeModal } from './dashboardTodo';
 
 const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
@@ -83,6 +84,8 @@ export default function Dashboard() {
   const [trend, setTrend] = useState<any[]>([]);
   const [typeStat, setTypeStat] = useState<any[]>([]);
   const [reminders, setReminders] = useState<any>({});
+  /** 我的待办聚合数据（TodoCard 与"当天首次浮窗"共用，避免两份请求） */
+  const [todoData, setTodoData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const label = useDictStore((s) => s.label);
   const ensure = useDictStore((s) => s.ensure);
@@ -94,12 +97,14 @@ export default function Dashboard() {
       dashboardApi.trend(),
       dashboardApi.contractType(),
       dashboardApi.reminders(),
+      dashboardApi.todos(),
     ])
-      .then(([o, t, c, r]) => {
+      .then(([o, t, c, r, td]) => {
         setOverview(o || {});
         setTrend((t as any[]) || []);
         setTypeStat((c as any[]) || []);
         setReminders((r as any) || {});
+        setTodoData(td || { groups: [], total: 0 });
       })
       .finally(() => setLoading(false));
   }, []);
@@ -162,6 +167,8 @@ export default function Dashboard() {
   return (
     <>
       <OverdueDraftReminder />
+      <TodoCard />
+      <DashboardNoticeModal data={todoData} loading={loading} />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           {/* 每张统计卡自己声明容器：卡只有 1/4 宽，字号要按**卡**宽收敛（见 containers.css §4）；
@@ -189,6 +196,12 @@ export default function Dashboard() {
           <Card className="cq" ref={pieRef} title="合同类型金额分布">
             <ReactECharts option={typeOption} style={{ height: 300 }} />
           </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <TodoCard />
         </Col>
       </Row>
 

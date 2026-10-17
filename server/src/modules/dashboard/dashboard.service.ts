@@ -4,6 +4,16 @@ import { num } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { CONTRACT_STATUS } from '../../constants/statuses';
+import {
+  TODO_CATEGORIES,
+  type TodoGroup,
+  type TodoItem,
+  type TodoLevel,
+} from '../../constants/todoCategories';
+
+/** 草稿超时阈值（与前端 OverdueDraftReminder / 合同起草页同一口径：新增后 2 小时内未完成） */
+const OVERDUE_HOURS = 2;
 
 @Injectable()
 export class DashboardService {
@@ -92,6 +102,247 @@ export class DashboardService {
       this.paymentRatioAlerts(projectId),
     ]);
     return { pendingInvoices, ...amountAlerts, ...paymentRatioAlerts };
+  }
+
+  /**
+   * 我的待办（业务口径 2026-10-16：为每个模块都预留一个待办位置 —— 0 条的分类也返回，
+   * 前端的分类 Tab 常驻；需求 3：能给编辑器页签就给 `target.editor`，否则落到模块列表）。
+   *
+   * 分类注册表在 `constants/todoCategories.ts`（前后端镜像，由 dashboardTodo.spec.mts 锁死）；
+   * 无权限的分类**整体不下发**（前端也不渲染其 Tab）。
+   */
+  async todos(projectId: string, user: any) {
+    const permissions = new Set<string>(user?.permissions || []);
+    const isSuperAdmin = !!user?.isSuperAdmin;
+    const allowed = (p: string) => isSuperAdmin || permissions.has(p);
+
+    const builders: Record<string, () => Promise<TodoGroup>> = {
+      CONTRACT_DRAFT: () => this.todoContractDraft(projectId),
+      CONTRACT_SIGN: () => this.todoContractSign(projectId),
+      SETTLEMENT_DRAFT: () => this.todoSettlementDraft(projectId),
+      FINAL_SETTLEMENT: () => this.todoFinalSettlement(projectId),
+      PAYMENT_PROCEDURE: () => this.todoPaymentProcedure(projectId),
+      INVOICE_VERIFY: () => this.todoInvoiceVerify(projectId),
+      OVERDUE_INTEREST: () => this.todoOverdueInterest(projectId),
+      PROCUREMENT_TODO: () => this.todoProcurement(projectId),
+    };
+
+    const groups = await Promise.all(
+      TODO_CATEGORIES.filter((c) => allowed(c.permission)).map(async (c) => {
+        const group = await builders[c.key]();
+        return { ...group, key: c.key, label: c.label };
+      }),
+    );
+    return {
+      generatedAt: new Date().toISOString(),
+      total: groups.reduce((s, g) => s + g.count, 0),
+      groups,
+    };
+  }
+
+  /** 合同起草：草稿中且超时的合同（需求 2.1.3：新增后 2 小时内未完成） */
+  private async todoContractDraft(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('CONTRACT_DRAFT');
+    const since = new Date(Date.now() - OVERDUE_HOURS * 3600_000);
+    const [rows, count] = await Promise.all([
+      this.prisma.contract.findMany({
+        where: { projectId, status: CONTRACT_STATUS.DRAFT, createdAt: { lt: since } },
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+        select: { id: true, code: true, name: true, createdAt: true },
+      }),
+      this.prisma.contract.count({ where: { projectId, status: CONTRACT_STATUS.DRAFT, createdAt: { lt: since } } }),
+    ]);
+    return {
+      key: 'CONTRACT_DRAFT',
+      label: '',
+      count,
+      items: rows.map((c) => ({
+        key: `contract:${c.id}:overdue`,
+        title: c.name || '未命名合同',
+        code: c.code || '',
+        level: 'RED' as TodoLevel,
+        hint: `创建于 ${c.createdAt.toISOString().slice(0, 16).replace('T', ' ')}，已超时`,
+        target: { path: '/contract/draft', editor: c.id },
+      })),
+    };
+  }
+
+  /** 合同待签章 */
+  private async todoContractSign(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('CONTRACT_SIGN');
+    const where = { projectId, status: CONTRACT_STATUS.APPROVING };
+    const [rows, count] = await Promise.all([
+      this.prisma.contract.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, code: true, name: true },
+      }),
+      this.prisma.contract.count({ where }),
+    ]);
+    return {
+      key: 'CONTRACT_SIGN', label: '', count,
+      items: rows.map((c) => ({
+        key: `contract:${c.id}:sign`,
+        title: c.name || '未命名合同',
+        code: c.code || '',
+        level: 'AMBER' as TodoLevel,
+        target: { path: '/contract/query', editor: c.id },
+      })),
+    };
+  }
+
+  /** 结算单待提交（草稿） */
+  private async todoSettlementDraft(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('SETTLEMENT_DRAFT');
+    const where = { projectId, statusCode: 'DRAFT' };
+    const [rows, count] = await Promise.all([
+      this.prisma.settlement.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, code: true, amount: true, contract: { select: { name: true } } },
+      }),
+      this.prisma.settlement.count({ where }),
+    ]);
+    return {
+      key: 'SETTLEMENT_DRAFT', label: '', count,
+      items: rows.map((s) => ({
+        key: `settlement:${s.id}:draft`,
+        title: s.contract?.name || '结算单',
+        code: s.code || '',
+        level: 'AMBER' as TodoLevel,
+        target: { path: '/settlement/order', editor: s.id },
+      })),
+    };
+  }
+
+  /** 总结算单待办理（未「已结算」） */
+  private async todoFinalSettlement(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('FINAL_SETTLEMENT');
+    const where = { projectId, statusCode: { not: 'DONE_SETTLED' } };
+    const [rows, count] = await Promise.all([
+      this.prisma.finalSettlement.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, code: true, statusCode: true, contract: { select: { name: true } } },
+      }),
+      this.prisma.finalSettlement.count({ where }),
+    ]);
+    return {
+      key: 'FINAL_SETTLEMENT', label: '', count,
+      items: rows.map((f) => ({
+        key: `final-settlement:${f.id}`,
+        title: f.contract?.name || '总结算单',
+        code: f.code || '',
+        level: 'AMBER' as TodoLevel,
+        target: { path: '/settlement/final-settlement', editor: f.id },
+      })),
+    };
+  }
+
+  /** 付款手续待编制：口径 = 已有付款手续单据但尚未付款（payDate 为空）的，提示去处理 */
+  private async todoPaymentProcedure(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('PAYMENT_PROCEDURE');
+    const where = { projectId, payDate: null };
+    const [rows, count] = await Promise.all([
+      this.prisma.paymentProcedure.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, code: true, contract: { select: { name: true } } },
+      }),
+      this.prisma.paymentProcedure.count({ where }),
+    ]);
+    return {
+      key: 'PAYMENT_PROCEDURE', label: '', count,
+      items: rows.map((p) => ({
+        key: `payment-procedure:${p.id}`,
+        title: p.contract?.name || '付款手续',
+        code: p.code || '',
+        level: 'INFO' as TodoLevel,
+        target: { path: '/settlement/payment-procedure', editor: p.id },
+      })),
+    };
+  }
+
+  /** 待查验发票 */
+  private async todoInvoiceVerify(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('INVOICE_VERIFY');
+    const where = { projectId, statusCode: 'WAIT_VERIFY' };
+    const [rows, count] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, invoiceNo: true, issuer: true, amountWithTax: true },
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+    return {
+      key: 'INVOICE_VERIFY', label: '', count,
+      items: rows.map((i) => ({
+        key: `invoice:${i.id}:verify`,
+        title: i.issuer || '发票',
+        code: i.invoiceNo || '',
+        level: 'AMBER' as TodoLevel,
+        target: { path: '/invoice', editor: i.id },
+      })),
+    };
+  }
+
+  /** 逾期利息待对账（有应付款金额但未付款的行） */
+  private async todoOverdueInterest(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('OVERDUE_INTEREST');
+    // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行
+    const contracts = await this.prisma.contract.findMany({
+      where: { projectId }, select: { id: true }, take: 500,
+    });
+    const contractIds = contracts.map((c) => c.id);
+    if (!contractIds.length) return { key: 'OVERDUE_INTEREST', label: '', count: 0, items: [] };
+    const where = {
+      contractId: { in: contractIds },
+      payableAmount: { gt: 0 },
+      OR: [{ paymentAmount: null }, { paymentAmount: { lte: 0 } }],
+    };
+    const [rows, count] = await Promise.all([
+      this.prisma.overdueInterest.findMany({
+        where, orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }], take: limit,
+        select: { id: true, contractId: true, settlementMonth: true, payableAmount: true },
+      }),
+      this.prisma.overdueInterest.count({ where }),
+    ]);
+    const nameById = new Map(contracts.map((c) => [c.id, '']));
+    return {
+      key: 'OVERDUE_INTEREST', label: '', count,
+      items: rows.map((r) => ({
+        key: `overdue:${r.id}`,
+        title: `${r.settlementMonth || ''} 逾期利息待对账`.trim(),
+        code: '',
+        level: 'AMBER' as TodoLevel,
+        hint: `应付款 ${Number(r.payableAmount)}`,
+        target: { path: '/settlement/overdue' },
+      })),
+    };
+  }
+
+  /** 采购待编制（各阶段未填写/编辑中的采购任务） */
+  private async todoProcurement(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('PROCUREMENT_TODO');
+    const where = { projectId, status: { in: ['NOT_STARTED', 'LIST_EDITING'] } };
+    const [rows, count] = await Promise.all([
+      this.prisma.procurementTask.findMany({
+        where, orderBy: { createdAt: 'asc' }, take: limit,
+        select: { id: true, taskNo: true, content: true, status: true },
+      }),
+      this.prisma.procurementTask.count({ where }),
+    ]);
+    return {
+      key: 'PROCUREMENT_TODO', label: '', count,
+      items: rows.map((t) => ({
+        key: `procurement:${t.id}`,
+        title: t.content || '采购任务',
+        code: t.taskNo,
+        level: 'INFO' as TodoLevel,
+        target: { path: '/procurement/initiate', editor: t.id },
+      })),
+    };
+  }
+
+  private todoLimit(key: string): number {
+    return TODO_CATEGORIES.find((c) => c.key === key)?.limit ?? 8;
   }
 
   /**

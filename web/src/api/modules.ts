@@ -389,6 +389,8 @@ export const dashboardApi = {
   contractType: () => http.get<any, any>('/dashboard/contract-type'),
   invoiceStats: () => http.get<any, any>('/dashboard/invoice-stats'),
   reminders: () => http.get<any, any>('/dashboard/reminders'),
+  /** 我的待办（业务口径 2026-10-16）：按模块分类聚合，0 条的分类也返回（Tab 常驻） */
+  todos: () => http.get<any, any>('/dashboard/todos'),
 };
 
 /**
