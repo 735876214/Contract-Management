@@ -22,7 +22,7 @@
 └───────────────┬────────────────────────────────────────────────┘
                 │ Prisma Client
         ┌───────▼────────┐
-        │  PostgreSQL 16 │   命名卷 pgdata
+        │  PostgreSQL 16 │   卷 = NAS 数据目录（bind mount）
         └────────────────┘
 ```
 
@@ -276,12 +276,12 @@ web/src/
 **生产（`docker-compose.yml`）**
 
 ```
-postgres:16-alpine (容器 cms-postgres, 卷 pgdata, healthcheck pg_isready)
+postgres:16-alpine (容器 cms-postgres, 卷 = NAS 数据目录 bind mount, healthcheck pg_isready)
         ▲ depends_on service_healthy
 cms 单容器 (ghcr.io/735876214/cms-single):
   node:20-slim 内 nginx(8080) ── 静态前端 + /api 反代 127.0.0.1:3000
   后端 Node(3000)，start.sh(tini/PID1; bash wait -n) 任一进程退出即整体退出 → restart 自愈
-  对外 ${CMS_HTTP_PORT:-9080} → 容器 8080；上传落 ${CMS_DATA:-./data}
+  对外 9080 → 容器 8080；上传落 NAS 附件目录（bind mount）
 ```
 
 启动流程 `start.sh`：`prisma generate` → `prisma migrate deploy` → 建上传目录 →

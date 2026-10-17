@@ -116,16 +116,33 @@ server/src/
 `127.0.0.1:3000`），对外只暴露一个端口，减少资源占用与容器数量，降低长时间运行被自动终止的概率。
 
 ```bash
-cp .env.example .env        # 必填 JWT_SECRET（openssl rand -base64 48），可选改端口 / 数据目录 / 初始管理员
-docker compose up -d        # 直接拉公开镜像启动，每次启动都会拉最新镜像
+# 部署前先编辑 docker-compose.yml（配置直接写在 compose 里，不用 .env）：
+#   ① postgres / cms 两个服务的 volumes：改成 NAS 实际路径（「← NAS 路径」标注处，
+#      如 /volume1/docker/cms/pgdata 与 /volume1/docker/cms/data）
+#   ② JWT_SECRET：openssl rand -base64 48 生成随机值替换占位串
+docker compose up -d
 ```
 
-对外端口 `${CMS_HTTP_PORT:-9080}`；上传文件落在 `${CMS_DATA:-./data}`（NAS 建议改成绝对路径），数据库由 compose 内的 postgres 服务独立持久化（命名卷 pgdata），
-bind mount 到容器 `/data`，容器重建不丢数据。
+对外端口 `9080`（被占用就改 compose 里 ports 左侧）；PostgreSQL 数据与上传附件分别落在
+compose 里指定的两个 NAS 绝对路径（bind mount，NAS 文件管理器直接可见、可纳入 NAS 备份计划），
+容器重建不丢数据。
 容器设置 `restart: unless-stopped`、`healthcheck`、`init: true`，被平台回收后会自动重启并正确回收僵尸进程。
 
-首次启动（空库）会自动创建默认管理员（`DEFAULT_ADMIN_USERNAME/PASSWORD`，默认 `admin`/`admin123`）、默认项目
+首次启动（空库）会自动创建默认管理员（compose 里 `DEFAULT_ADMIN_USERNAME/PASSWORD`，默认 `admin`/`admin123`）、默认项目
 以及字典 / 系统参数，装好后请立即修改密码；已有数据则跳过，重复启动安全。
+
+### 手动更新
+
+更新是**手动触发**的（有意不做 Watchtower / NAS 计划任务自动更新——升级前可以看一眼变更、先备份）：
+
+```bash
+docker compose pull && docker compose up -d     # 升级前建议先跑一次备份（见下节）
+```
+
+数据库结构由新镜像内的 `prisma migrate deploy` 在启动时自动叠加，无需手工迁移。
+
+备份与恢复见下文「[备份与恢复](#备份与恢复2026-10-17-起已演练验证)」（`scripts/backup.sh` 每日 cron +
+硬链接增量；恢复 `scripts/restore.sh <日期>`）——**升级前建议先跑一次备份**。
 
 数据库结构由 `server/prisma/migrations` 管理：`20260901000000_init` 是「空库 → 当前 schema」的**折叠基线**，
 空库首次启动 `prisma migrate deploy` 一次建全表；之后的新迁移按时间戳顺序叠加。
@@ -150,7 +167,7 @@ docker compose up -d --build    # 构建并启动，产出同一个 ghcr.io/7358
 ## 备份与恢复（2026-10-17 起，已演练验证）
 
 **每天一次**：首次全量、之后**硬链接增量**（rsync `--link-dest`，未变文件是到前一日的硬链接，不占额外空间），
-**保留 7 天**滚动清理。范围 = **PostgreSQL 数据库**（`pg_dump -Fc` 自定义格式）+ **上传附件**（`${CMS_DATA:-./data}`）。
+**保留 7 天**滚动清理。范围 = **PostgreSQL 数据库**（`pg_dump -Fc` 自定义格式）+ **上传附件**（docker-compose.yml 里 cms 服务挂载的 NAS 路径，默认 `${CMS_DIR}/data`，可用环境变量 `DATA_DIR` 覆盖）。
 
 ### 产物结构
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CMS 每日备份（业务 2026-10-17：每天一次；首次全量，后续硬链接增量；保留 7 天）
 #
-# 备份范围 = PostgreSQL 数据库（pg_dump 自定义格式）+ 上传附件目录（${CMS_DATA:-./data}，容器 /data）。
+# 备份范围 = PostgreSQL 数据库（pg_dump 自定义格式）+ 上传附件目录（docker-compose.yml 里 cms 服务挂的 NAS 路径，容器 /data）。
 #
 # 用法（宿主机 cron / NAS 计划任务）：
 #   30 2 * * * /path/to/CMS/scripts/backup.sh >> /path/to/CMS/backups/backup.log 2>&1
@@ -24,7 +24,7 @@ RETAIN_DAYS="${RETAIN_DAYS:-7}"
 PG_CONTAINER="${PG_CONTAINER:-cms-postgres}"
 PG_USER="${PG_USER:-cms}"
 PG_DB="${PG_DB:-cms}"
-# 附件目录：与 docker-compose.yml 的 ${CMS_DATA:-./data} 同口径
+# 附件目录：与 docker-compose.yml 里 cms 服务挂载的 NAS 路径同口径（NAS 上改为实际路径）
 DATA_DIR="${DATA_DIR:-${CMS_DIR}/data}"
 
 DATE="$(date +%F)"

@@ -14,10 +14,10 @@
 # 用法（在放有 docker-compose.yml 的目录里运行）：
 #   bash scripts/nas-deploy.sh
 #
-# 一次性准备（可省，不准备 .env 也能跑）：
-#   cp .env.example .env
-#   按需编辑 JWT_SECRET / CMS_DATA（不填则用 compose 内联默认值）。
-#
+# 首次部署前（必做，直接改 docker-compose.yml，不用 .env）：
+#   ① postgres 与 cms 两个服务的 NAS 数据路径（volumes 里「← NAS 路径」标注处）
+#   ② JWT_SECRET（openssl rand -base64 48）
+
 set -euo pipefail
 
 echo "==> 当前目录: $(pwd)"

@@ -1,8 +1,10 @@
 # CMS 部署：前后端合并为「一个」容器（内部 nginx 托管前端并把 /api 反代到同容器 127.0.0.1:3000）
 # 数据库：PostgreSQL（单一数据库，已移除 SQLite 演示变体）
 #
-# 前置：cp .env.example .env，并务必修改 JWT_SECRET（生成：openssl rand -base64 48）
-#      不设 JWT_SECRET 时 compose 会直接报错，而不是退回弱默认值。
+# 部署前必改三处（直接改本文件，不用 .env）：
+#   ① postgres 服务的 NAS 数据路径（pgdata）
+#   ② cms 服务的 NAS 附件路径（data）          ← 两处路径都在下方 volumes 里，有「← NAS 路径」标注
+#   ③ JWT_SECRET（生成：openssl rand -base64 48）——不等于默认占位值才能安全对外
 #
 # 用法：
 #   1. 直接拉预构建镜像（需先登录 ghcr.io，见下方说明）：
@@ -25,7 +27,9 @@
 #
 # 首次启动（空库）后端会自动 seed：默认管理员（DEFAULT_ADMIN_USERNAME/PASSWORD）、
 # 默认项目、字典类型/字典项/系统参数；已有数据则跳过，重复启动安全。
-# 数据持久化：PostgreSQL 数据落在命名卷 pgdata；上传文件落在容器 /data，映射到 ${CMS_DATA}（默认 ./data）。
+# 数据持久化：PostgreSQL 数据与上传附件都落在下方 compose 里指定的两个 NAS 绝对路径
+#（bind mount，NAS 文件管理器直接可见、可纳入 NAS 的备份计划）。
+# 更新：手动执行 `docker compose pull && docker compose up -d`（有意不做 Watchtower / 计划任务自动更新）。
 
 services:
   postgres:
@@ -38,7 +42,7 @@ services:
       POSTGRES_DB: cms
       TZ: Asia/Shanghai
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - /volume1/docker/cms/pgdata:/var/lib/postgresql/data   # ← NAS 路径：改成你的实际目录（群晖示例）
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
       interval: 10s
@@ -65,24 +69,24 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${CMS_HTTP_PORT:-9080}:8080"
+      - "9080:8080"              # 对外端口：宿主机 9080 → 容器 8080；被占用就改左边
     environment:
       NODE_ENV: production
       PORT: "3000"               # 容器内后端端口，nginx /api 固定反代到这里
       TZ: Asia/Shanghai          # 合同到期日 / 时间戳按本地时区计算，避免差 8 小时
-      # PostgreSQL 连接（与下方 postgres 服务一致；生产请改用强密码）
+      # PostgreSQL 连接（与上方 postgres 服务一致；生产请改用强密码）
       DATABASE_URL: "postgresql://cms:cms123456@postgres:5432/cms?schema=public"
-      # JWT 签名密钥：必填且必须换成随机值。不设置直接启动会报错，而不是退回弱默认值。
-      # 生成：openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?请在 .env 里设置 JWT_SECRET（生成命令：openssl rand -base64 48）}"
+      # JWT 签名密钥：必须换成随机值（openssl rand -base64 48）。
+      # 不改就上外网 = 任何拿到这串占位值的人都能伪造登录态，等于裸奔。
+      JWT_SECRET: "change-me-openssl-rand-base64-48"
       JWT_EXPIRES_IN: "7d"
       UPLOAD_DIR: "/data/uploads"
       # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
-      DEFAULT_ADMIN_USERNAME: "${DEFAULT_ADMIN_USERNAME:-admin}"
-      DEFAULT_ADMIN_PASSWORD: "${DEFAULT_ADMIN_PASSWORD:-admin123}"
-    # 上传文件目录：默认 ./data，可在 .env 里改成 NAS 绝对路径
+      DEFAULT_ADMIN_USERNAME: admin
+      DEFAULT_ADMIN_PASSWORD: admin123
+    # 上传文件目录：改成你的 NAS 实际目录（与 postgres 的数据路径放同一父目录便于备份）
     volumes:
-      - "${CMS_DATA:-./data}:/data"
+      - /volume1/docker/cms/data:/data   # ← NAS 路径：改成你的实际目录
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
     logging:
       options:
@@ -95,6 +99,3 @@ services:
       timeout: 5s
       start_period: 120s
       retries: 3
-
-volumes:
-  pgdata:

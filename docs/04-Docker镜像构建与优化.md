@@ -14,15 +14,15 @@
 因此把**前端静态托管（nginx）+ 后端（NestJS）+ /api 反代**合并进**一个**镜像：
 对外只暴露一个端口，nginx 把 `/api` 反代到同容器 `127.0.0.1:3000`。
 
-但 **PostgreSQL 仍是独立服务**（`docker-compose.yml` 的 `postgres` 服务 + 命名卷 `pgdata`），
+但 **PostgreSQL 仍是独立服务**（`docker-compose.yml` 的 `postgres` 服务 + bind mount 到 NAS 数据目录），
 不放进应用镜像——数据库需要独立持久化与生命周期。
 
 ```
 docker-compose.yml
-├── postgres:16-alpine     卷 pgdata，healthcheck pg_isready
+├── postgres:16-alpine     卷 = NAS 路径（如 /volume1/docker/cms/pgdata），healthcheck pg_isready
 └── cms (ghcr.io/735876214/cms-single)
       node:20-slim 内：nginx :8080（静态 + /api 反代） + Node :3000
-      对外 ${CMS_HTTP_PORT:-9080} → 8080；上传落 ${CMS_DATA:-./data}
+      对外 9080 → 8080；上传落 NAS 路径（如 /volume1/docker/cms/data）
 ```
 
 ## 2. Dockerfile 五个阶段

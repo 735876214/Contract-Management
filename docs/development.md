@@ -63,8 +63,9 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | `UPLOAD_DIR` | `./uploads` | 上传目录（静态映射 `/api/files`） |
 | `DEFAULT_ADMIN_USERNAME/PASSWORD` | `admin`/`admin123` | 空库启动自动建管理员 |
 
-根 `.env`（生产 compose，参考 `.env.example`）：`CMS_HTTP_PORT`(9080) · `CMS_DATA`(./data) ·
-`JWT_SECRET`(必填) · `DEFAULT_ADMIN_USERNAME/PASSWORD`。
+生产部署配置直接写在 `docker-compose.yml`（不用 .env，2026-10-17 起）：NAS 数据路径
+（postgres 的 pgdata + cms 的附件目录，两个 bind mount）· `JWT_SECRET`（必改）·
+端口 / 初始管理员也都在 compose 字面值里。
 前端仅用 `VITE_API_BASE`（部署时由镜像设 `/api`）与 `VITE_PROXY_TARGET`（dev 代理）。
 
 ## 3. 命令速查
@@ -301,8 +302,7 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 # 本地构建单容器镜像（仓库根执行）
 docker build -f deploy/single/Dockerfile.single -t cms-single:local .
 
-# 生产（拉最新镜像）
-cp .env.example .env        # 必填 JWT_SECRET
+# 生产（拉最新镜像）：先编辑 docker-compose.yml——两条 NAS 数据路径 + JWT_SECRET（不用 .env）
 docker compose up -d
 
 # NAS 一键部署/更新
