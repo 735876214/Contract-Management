@@ -8,12 +8,11 @@ import {
   SearchOutlined, SelectOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { contractApi, receiptOrderApi } from '@/api/business';
+import { receiptOrderApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { DictTag } from '@/components/DictSelect';
-import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
@@ -198,6 +197,7 @@ function TabPickerModal({
 
 const DETAIL_COLUMNS = (
   patchDetail: (key: React.Key, field: string, value: any) => void,
+  showCustodian: boolean,
 ) => [
   { title: '序号', width: 60, fixed: 'left' as const, render: (_: any, __: any, i: number) => i + 1 },
   { title: '一级分类', dataIndex: 'categoryLevel1', width: 110, render: (v: any) => v || '-' },
@@ -235,6 +235,17 @@ const DETAIL_COLUMNS = (
       <Input value={v} placeholder="填写" onChange={(e) => patchDetail(row.key, 'usagePart', e.target.value)} />
     ),
   },
+  // 「是否为资产」= 是 → 明细增加保管栏（业务 2026-10-17）；= 否 或未选 → 不显示
+  ...(showCustodian
+    ? [
+        {
+          title: '保管单位及保管人', dataIndex: 'custodian', width: 170,
+          render: (v: any, row: any) => (
+            <Input value={v} placeholder="保管单位及保管人" onChange={(e) => patchDetail(row.key, 'custodian', e.target.value)} />
+          ),
+        },
+      ]
+    : []),
   {
     title: '厂家/品牌', dataIndex: 'brand', width: 140,
     render: (v: any, row: any) => (
@@ -287,6 +298,8 @@ export default function ReceiptOrders() {
   const watchReceivingUnitId = Form.useWatch('receivingUnitId', headerForm);
   const watchReceivingUnitName = Form.useWatch('receivingUnitName', headerForm);
   const watchMaterialContractId = Form.useWatch('materialContractId', headerForm);
+  // 「是否为资产」= 是 → 明细显示「保管单位及保管人」列（业务 2026-10-17）
+  const watchIsAssetFlag = Form.useWatch('isAssetFlag', headerForm);
 
   const [details, setDetails] = useState<any[]>(() => seed?.details ?? []);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -294,8 +307,8 @@ export default function ReceiptOrders() {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // 下拉数据源
-  const [contracts, setContracts] = useState<any[]>([]);          // 物资合同（供应商场景）
-  const [supplySubContracts, setSupplySubContracts] = useState<any[]>(() => (seed as any)?.supplySubContracts ?? []); // 供应分包合同（分包商场景）
+  const [contracts, setContracts] = useState<any[]>(() => (seed as any)?.supplierContracts ?? []); // 物资合同（= 该供应商在本项目的合同，由选中供应商带出）
+  const [supplySubContracts, setSupplySubContracts] = useState<any[]>(() => (seed as any)?.supplySubContracts ?? []); // 分包合同（供应分包商场景）
   const [receiveSubContracts, setReceiveSubContracts] = useState<any[]>(() => (seed as any)?.receiveSubContracts ?? []); // 分包合同（领用分包商场景）
 
   // 弹窗
@@ -308,9 +321,7 @@ export default function ReceiptOrders() {
   // 领料人候选（领用单位为分包商时，取其材料授权人）
   const [receiverOptions, setReceiverOptions] = useState<string[]>(() => (seed as any)?.receiverOptions ?? []);
 
-  useEffect(() => {
-    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
-  }, []);
+  // 合同下拉一律由所选供应/领用单位带出（业务 2026-10-17），不再预取全量合同
 
   // ==================== 条件可见性（需求 2.4.3 动态表单） ====================
   // 供应单位 = 供应商 → 显示物资合同；= 分包商 → 显示供应分包合同；本项目/其他项目 → 都隐藏
@@ -355,14 +366,14 @@ export default function ReceiptOrders() {
 
   // ==================== 选择回调（含互锁） ====================
 
-  /** 供应单位选中：记录类型 + 名称；供应商/分包商各自联动合同字段 */
+  /** 供应单位选中：记录类型 + 名称；供应商/分包商各自联动合同下拉（只带该单位自己的合同） */
   const onPickSupplier = async (row: any, tab: string) => {
     setSupplierPickerOpen(false);
     headerForm.setFieldsValue({
       supplierId: row.id,
       supplierName: row.name,
       supplierType: tab,
-      // 切换类型时清空另一侧的合同，避免脏数据互串
+      // 切换类型/单位时清空合同与明细，避免脏数据互串
       materialContractId: undefined,
       materialContractNo: undefined,
       supplySubcontractId: undefined,
@@ -370,11 +381,18 @@ export default function ReceiptOrders() {
       subcontractorId: undefined,
     });
     setSupplySubContracts([]);
-    if (tab !== 'SUPPLIER') {
-      setDetails([]); // 非供应商场景没有物资合同，清空合同带出的明细
-    }
-    if (tab === 'SUBCONTRACTOR') {
-      // 互锁（需求 2.5）：分包商 → 自动带出其分包合同，且分包商库里的材料授权人可作为领料人
+    setContracts([]); // 合同下拉一律由所选单位带出，不再用全量
+    setDetails([]); // 换供应单位 → 明细必须重新带出
+    if (tab === 'SUPPLIER') {
+      // 业务 2026-10-17：物资合同下拉 = 该供应商在本项目的合同，由用户自选
+      try {
+        const list: any = await receiptOrderApi.supplierContracts(row.id);
+        setContracts(list || []);
+      } catch {
+        /* 拦截器已提示 */
+      }
+    } else if (tab === 'SUBCONTRACTOR') {
+      // 互锁（需求 2.5）：分包商 → 带出其分包合同；材料授权人可作为领料人
       headerForm.setFieldsValue({ subcontractorId: row.id });
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
@@ -397,7 +415,7 @@ export default function ReceiptOrders() {
     message.success(`已选择供应单位（${SUPPLIER_TABS.find((t) => t.key === tab)?.label}）：${row.name}`);
   };
 
-  /** 领用单位选中：分包商场景联动分包合同 + 领料人下拉 */
+  /** 领用单位选中：分包商场景带出其领用过的材料 + 分包合同/领料人联动 */
   const onPickReceiving = async (row: any, tab: string) => {
     setUnitPickerOpen(false);
     headerForm.setFieldsValue({
@@ -409,7 +427,9 @@ export default function ReceiptOrders() {
     });
     setReceiveSubContracts([]);
     if (tab === 'SUBCONTRACTOR') {
-      // 互锁（需求 2.5）：领用分包商 → 必填分包合同，材料授权人作为领料人可选
+      // 业务 2026-10-17：带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
+      await loadDetailsFor(() => receiptOrderApi.subcontractorMaterials(row.id), `已带出分包商「${row.name}」领用过的材料`);
+      // 互锁：领用分包商 → 必填分包合同，材料授权人作为领料人可选
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
         setReceiveSubContracts(list || []);
@@ -428,6 +448,7 @@ export default function ReceiptOrders() {
       }
     } else {
       setReceiverOptions([]);
+      setDetails([]); // 本项目/其他项目 → 合同与清单都隐藏/清空
     }
     message.success(`已选择领用单位（${RECEIVING_TABS.find((t) => t.key === tab)?.label}）：${row.name}`);
   };
@@ -439,6 +460,7 @@ export default function ReceiptOrders() {
     let init: Record<string, any> = {
       orderDate: dayjs(),
       supplierType: 'SUPPLIER', receivingUnitType: 'SUBCONTRACTOR',
+      isAssetFlag: 'N',
     };
     try {
       const res: any = await receiptOrderApi.nextNo();
@@ -454,6 +476,7 @@ export default function ReceiptOrders() {
     const receiverOptions = row.receiver ? [row.receiver] : [];
     let supplySubContracts: any[] = [];
     let receiveSubContracts: any[] = [];
+    let supplierContracts: any[] = [];
     let header: Record<string, any> = {};
     let editDetails: any[] = [];
     try {
@@ -474,12 +497,16 @@ export default function ReceiptOrders() {
         orderDate: detail.orderDate ? dayjs(detail.orderDate) : null,
         receiver: detail.receiver,
         materialContractId: detail.materialContractId,
-        materialContractNo: detail.materialContractNo,
-        // 结算单关联：留空时服务端按「物资合同 + 日期月份」自动匹配（业务口径 2026-10-16）
-        settlementId: detail.settlementId || undefined,
+        materialContractNo: detail.materialContractNo, // 快照落库，不在界面显示
+        isAssetFlag: detail.isAssetFlag || undefined,
         remark: detail.remark,
       };
       // 回填互锁数据源（这些数据由**编辑器实例**持有，故随 seed 一起递过去）
+      if (detail.supplierType === 'SUPPLIER' && detail.supplierId) {
+        supplierContracts = await receiptOrderApi
+          .supplierContracts(detail.supplierId)
+          .catch(() => []);
+      }
       if (detail.supplierType === 'SUBCONTRACTOR' && detail.subcontractorId) {
         supplySubContracts = await receiptOrderApi
           .subcontractorContracts(detail.subcontractorId)
@@ -510,24 +537,18 @@ export default function ReceiptOrders() {
       details: editDetails,
       supplySubContracts,
       receiveSubContracts,
+      supplierContracts,
       receiverOptions,
     });
   };
 
-  /** 选择物资合同 → 自动带出合同编号 + 加载合同物资清单（需求 2.4.3 供应商场景） */
-  const onContractChange = async (contractId: string) => {
-    const hit = contracts.find((c) => c.id === contractId);
-    // 换合同 → 原结算单不属于新合同（后端会报「不属于本合同」），故先解绑，由服务端按新合同重新自动匹配
-    headerForm.setFieldsValue({ materialContractNo: hit?.code || '', settlementId: undefined });
-    if (!contractId) {
-      setDetails([]);
-      return;
-    }
+  /** 通用：带出明细清单（已有手填数据时先确认覆盖） */
+  const loadDetailsFor = async (fetcher: () => Promise<any>, okMessage: string) => {
     if (details.length) {
       const ok = await new Promise((resolve) => {
         Modal.confirm({
-          title: '重新加载合同物资清单？',
-          content: '将按新合同重新带出物料清单，当前已填写的手动数据会被覆盖。',
+          title: '重新加载明细清单？',
+          content: '将重新带出清单，当前已填写的手动数据会被覆盖。',
           okText: '重新加载',
           cancelText: '取消',
           onOk: () => resolve(true),
@@ -538,14 +559,33 @@ export default function ReceiptOrders() {
     }
     setLoadingDetails(true);
     try {
-      const res: any = await receiptOrderApi.contractMaterials(contractId);
+      const res: any = await fetcher();
       const list: any[] = (res?.list || []).map((r: any) => ({ ...r, key: r.key || nextKey() }));
       setDetails(list);
       setSelectedRowKeys([]);
-      message.success(`已带出 ${list.length} 条合同物资清单`);
+      if (list.length) message.success(`${okMessage}，共 ${list.length} 条`);
     } finally {
       setLoadingDetails(false);
     }
+  };
+
+  /**
+   * 选择合同 → 自动带出编号 + 明细清单。
+   * 供应/领用两侧的合同（物资合同、分包合同）统一走这里：
+   * 供应商合同走 contractMaterials（合同清单）；分包商领用清单已在选中分包商时带出，
+   * 此处分包合同仅落名称快照，不重复加载明细。
+   */
+  const onContractChange = async (contractId: string) => {
+    const hit = contracts.find((c) => c.id === contractId) || supplySubContracts.find((c) => c.id === contractId);
+    headerForm.setFieldsValue({ materialContractNo: hit?.code || '', settlementId: undefined });
+    if (!contractId) {
+      setDetails([]);
+      return;
+    }
+    await loadDetailsFor(
+      () => receiptOrderApi.contractMaterials(contractId),
+      '已带出合同物资清单',
+    );
   };
 
   /** 明细单元格改动：重算综合单价与综合总价（前端实时预览，服务端保存时二次计算） */
@@ -591,6 +631,7 @@ export default function ReceiptOrders() {
         priceBeforeTax: d.priceBeforeTax,
         taxRate: d.taxRate,
         usagePart: d.usagePart,
+        custodian: d.custodian,
         brand: d.brand,
         remark: d.remark,
         isAgentPurchase: d.isAgentPurchase,
@@ -746,7 +787,7 @@ export default function ReceiptOrders() {
                 </Space>
               ),
             },
-            { title: '物资合同编号', dataIndex: 'materialContractNo', width: 190, render: (v: any) => v || '-' },
+            // 物资合同编号快照已不在列表展示（业务 2026-10-17）
             {
               title: '结算单', dataIndex: 'settlementId', width: 150,
               // 未挂结算单的收领单：仍会被「生成本期结算」抓到（按物资合同 + 期间归集），故显示为「未关联」
@@ -836,7 +877,7 @@ export default function ReceiptOrders() {
                     showSearch
                     allowClear
                     optionFilterProp="label"
-                    placeholder="请选择物资合同（选择后自动带出编号与物料清单）"
+                    placeholder="请选择物资合同（该供应商在本项目的合同；选择后带出物料清单）"
                     options={contracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
                     onChange={onContractChange}
                   />
@@ -844,30 +885,21 @@ export default function ReceiptOrders() {
               </Col>
             )}
 
-            {showMaterialContract && (
-              <Col xs={24} md={12}>
-                <Form.Item
-                  name="settlementId"
-                  label="关联结算单"
-                  extra="留空则自动匹配「物资合同 + 日期所在月」的结算单"
-                >
-                  <SettlementLinkSelect contractId={watchMaterialContractId} />
-                </Form.Item>
-              </Col>
-            )}
+            {/* 关联结算单不在收领单维护（业务 2026-10-17）：由「生成本期结算」在结算单页面抓取关联；
+                服务端仍按「物资合同 + 日期所在月」自动匹配落库 */}
 
             {showSupplySubcontract && (
               <Col xs={24} md={12}>
                 <Form.Item
                   name="supplySubcontractId"
-                  label="供应分包合同"
-                  rules={[{ required: true, message: '供应单位为分包商时，请选择供应分包合同' }]}
+                  label="分包合同"
+                  rules={[{ required: true, message: '供应单位为分包商时，请选择分包合同' }]}
                 >
                   <Select
                     showSearch
                     allowClear
                     optionFilterProp="label"
-                    placeholder={supplySubContracts.length ? '请选择分包合同（由分包商自动带出）' : '请先选择分包商'}
+                    placeholder={supplySubContracts.length ? '请选择分包合同（该分包商在本项目的合同）' : '请先选择分包商'}
                     options={supplySubContracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
                     onChange={(v) => {
                       const hit = supplySubContracts.find((c: any) => c.id === v);
@@ -927,13 +959,13 @@ export default function ReceiptOrders() {
               </Form.Item>
             </Col>
 
-            {showMaterialContract && (
-              <Col xs={24} md={12}>
-                <Form.Item name="materialContractNo" label="物资合同编号" rules={[{ required: true, message: '请先选择物资合同' }]}>
-                  <Input readOnly placeholder="选择物资合同后自动带出" />
-                </Form.Item>
-              </Col>
-            )}
+            {/* 表头「是否为资产」（业务 2026-10-17）：N=整单不入资产台账；
+                Y=推送总日报+资产台账，且明细显示「保管单位及保管人」列 */}
+            <Col xs={24} md={12}>
+              <Form.Item name="isAssetFlag" label="是否为资产" rules={[{ required: true, message: '请选择是否为资产' }]}>
+                <Select allowClear placeholder="请选择是否为资产" options={YES_NO} />
+              </Form.Item>
+            </Col>
 
             <Col xs={24} md={12}>
               <Form.Item name="orderDate" label="日期" rules={[{ required: true, message: '请选择日期' }]}>
@@ -964,21 +996,6 @@ export default function ReceiptOrders() {
               <Form.Item name="remark" label="备注">
                 <Input maxLength={200} allowClear placeholder="选填" />
               </Form.Item>
-            </Col>
-
-            <Col xs={24}>
-              <Alert
-                type="info"
-                showIcon
-                message="字段显示规则（互锁）"
-                description={
-                  <span>
-                    供应单位：<b>供应商</b> → 显示物资合同；<b>分包商</b> → 显示供应分包合同；
-                    <b>本项目 / 其他项目</b> → 合同字段全部隐藏。
-                    领用单位：<b>分包商</b> → 显示分包合同且领料人可选；<b>本项目 / 其他项目</b> → 隐藏分包合同。
-                  </span>
-                }
-              />
             </Col>
           </Row>
         </Form>
@@ -1018,7 +1035,7 @@ export default function ReceiptOrders() {
           scroll={{ x: 2700 }}
           locale={{ emptyText: '暂无数据...' }}
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-          columns={DETAIL_COLUMNS(patchDetail)}
+          columns={DETAIL_COLUMNS(patchDetail, watchIsAssetFlag === 'Y')}
         />
 
         {details.length > 0 && visibleDetails.length === 0 && (

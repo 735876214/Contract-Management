@@ -467,6 +467,12 @@ export const receiptOrderApi = {
   // 需求 2.5 互锁：按分包商带出其关联分包合同
   subcontractorContracts: (subcontractorId: string) =>
     http.get<any, any>('/receipt-orders/subcontractor-contracts', { params: { subcontractorId } }),
+  // 供应单位=供应商时，物资合同下拉 = 该供应商在本项目的合同（2026-10-17 业务口径）
+  supplierContracts: (supplierId: string) =>
+    http.get<any, any>('/receipt-orders/supplier-contracts', { params: { supplierId } }),
+  // 领用单位=分包商时，带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
+  subcontractorMaterials: (subcontractorId: string) =>
+    http.get<any, any>('/receipt-orders/subcontractor-materials', { params: { subcontractorId } }),
   create: (data: any) => http.post<any, any>('/receipt-orders', data),
   update: (id: string, data: any) => http.put<any, any>(`/receipt-orders/${id}`, data),
   push: (id: string) => http.post<any, any>(`/receipt-orders/${id}/push`),

@@ -70,6 +70,20 @@ export class ReceiptOrderController {
     return this.service.subcontractorContracts(subcontractorId, projectId);
   }
 
+  /** 供应单位=供应商时，物资合同下拉 = 该供应商在本项目的合同 */
+  @RequirePermissions('receipt:view')
+  @Get('supplier-contracts')
+  supplierContracts(@Query('supplierId') supplierId: string, @ProjectId() projectId: string) {
+    return this.service.supplierContracts(supplierId, projectId);
+  }
+
+  /** 领用单位=分包商时，带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径） */
+  @RequirePermissions('receipt:view')
+  @Get('subcontractor-materials')
+  subcontractorMaterials(@Query('subcontractorId') subcontractorId: string, @ProjectId() projectId: string) {
+    return this.service.subcontractorMaterials(subcontractorId, projectId);
+  }
+
   @RequirePermissions('receipt:view')
   @Get(':id')
   findOne(@Param('id') id: string) {

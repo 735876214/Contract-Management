@@ -420,6 +420,100 @@ export class ReceiptOrderService {
     return list;
   }
 
+  /**
+   * 供应商在本项目的合同（供应单位=供应商时，物资合同下拉的数据源）：
+   * 业务口径 2026-10-17——物资合同下拉只带出**该供应商自己的合同**，由用户自选。
+   */
+  async supplierContracts(supplierId: string, projectId: string) {
+    if (!supplierId) throw new BadRequestException('缺少供应商 ID');
+    return this.prisma.contract.findMany({
+      where: { projectId, supplierId },
+      select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 分包商在本项目**领用过的所有材料**（领用单位=分包商时，明细清单的数据源）。
+   * ⚠️ 口径与「分包单位领用月度汇总 / 月度盈亏分析」**同源**（业务 2026-10-17：三处是同一组数）
+   * ——即 `labor-receiving.service.aggregateReceipts()` 的同一查询：
+   * 收领单 `receivingUnitType='SUBCONTRACTOR'` 且分包商出现在供应侧（subcontractorId）
+   * 或领用侧（receivingUnitId）。按「材料名+规格」去重（与汇总行键同口径），
+   * 骨架字段取最近一条明细，数量列留空手填。
+   */
+  async subcontractorMaterials(subcontractorId: string, projectId: string) {
+    if (!subcontractorId) throw new BadRequestException('缺少分包商 ID');
+    const orders = await this.prisma.receiptOrder.findMany({
+      where: {
+        projectId,
+        receivingUnitType: 'SUBCONTRACTOR',
+        OR: [{ subcontractorId }, { receivingUnitId: subcontractorId }],
+      },
+      orderBy: { orderDate: 'desc' },
+      select: {
+        id: true, orderDate: true,
+        details: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            materialId: true, categoryLevel1: true, categoryLevel2: true,
+            materialName: true, specModel: true, unit: true,
+            priceBeforeTax: true, taxRate: true,
+          },
+        },
+      },
+    });
+
+    // 按「材料名+规格」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    const byKey = new Map<string, any>();
+    outer: for (const o of orders) {
+      for (const d of o.details) {
+        const name = String(d.materialName || '').trim();
+        if (!name) continue;
+        const key = `${name}\u0002${d.specModel || ''}`;
+        if (byKey.has(key)) continue outer; // 订单已按日期倒序 → 首见即最近
+        byKey.set(key, d);
+      }
+    }
+
+    const baseMap = await this.loadMaterialBaseMap(
+      Array.from(byKey.values()).map((d) => ({ materialId: d.materialId })),
+      this.prisma,
+    );
+
+    let sort = 0;
+    const list = Array.from(byKey.values()).map((d: any) => {
+      const base: any = d.materialId ? baseMap.get(d.materialId) : null;
+      const priceBeforeTax = num(d.priceBeforeTax);
+      const taxRate = num(d.taxRate);
+      return {
+        key: d.materialId || `m-${sort}`,
+        materialId: d.materialId || null,
+        categoryLevel1: d.categoryLevel1 || base?.categoryLevel1 || null,
+        categoryLevel2: d.categoryLevel2 || base?.categoryLevel2 || null,
+        materialName: d.materialName || base?.name || '',
+        specModel: d.specModel || base?.spec || '',
+        unit: d.unit || base?.unit || '',
+        contractQty: null as number | null,
+        deliveryQty: null as number | null,
+        receivedQty: null as number | null, // 手填
+        priceBeforeTax,
+        taxRate,
+        priceWithTax:
+          priceBeforeTax != null && taxRate != null
+            ? round4(priceBeforeTax * (1 + taxRate / 100))
+            : null,
+        totalPrice: null as number | null,
+        usagePart: null as string | null,
+        custodian: null as string | null,
+        brand: null as string | null,
+        remark: null as string | null,
+        isAgentPurchase: null as string | null,
+        sortOrder: sort++,
+      };
+    });
+    return { list };
+  }
+
   // ==================== 写入 ====================
 
   /**
@@ -666,6 +760,14 @@ export class ReceiptOrderService {
     });
     if (!order) return { created: 0, updated: 0, removed: 0 };
 
+    // 表头「是否为资产」= N → 一票否决：不入账，并清理该单已有台账行
+    if (order.isAssetFlag === 'N') {
+      const removed = (
+        await db.assetLedger.deleteMany({ where: { receiptOrderId: orderId } })
+      ).count;
+      return { created: 0, updated: 0, removed };
+    }
+
     const baseMap = await this.loadMaterialBaseMap(order.details || [], db);
 
     const keep: string[] = [];
@@ -704,7 +806,8 @@ export class ReceiptOrderService {
         lostQty: null,
         originalPrice: price,
         originalTotal: total,
-        remark: order.remark || d.remark || null,
+        remark:
+          [order.remark || null, d.custodian ? `保管：${d.custodian}` : null].filter(Boolean).join('；') || null,
         receiptOrderId: order.id,
         receiptDetailId: d.id,
       };
