@@ -24,8 +24,8 @@ export class ProcurementTemplateController {
 
   @RequirePermissions('template:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('template:edit')
@@ -36,7 +36,7 @@ export class ProcurementTemplateController {
 
   @RequirePermissions('template:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

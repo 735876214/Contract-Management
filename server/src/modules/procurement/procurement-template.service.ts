@@ -25,10 +25,15 @@ export class ProcurementTemplateService {
     return rows.map((r) => this.serialize(r));
   }
 
-  async findOne(id: string) {
+  /** 按项目归属取单条（跨项目 id 直接 404——项目隔离铁律 3） */
+  private async findOwned(id: string, projectId: string) {
     const r = await this.prisma.procurementTemplate.findUnique({ where: { id } });
-    if (!r) throw new NotFoundException('采购模板不存在');
-    return this.serialize(r);
+    if (!r || r.projectId !== projectId) throw new NotFoundException('采购模板不存在');
+    return r;
+  }
+
+  async findOne(id: string, projectId: string) {
+    return this.serialize(await this.findOwned(id, projectId));
   }
 
   /**
@@ -63,14 +68,13 @@ export class ProcurementTemplateService {
     return this.serialize(created);
   }
 
-  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖） */
+  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖）；仅限本项目的模板 */
   async update(
     id: string,
     data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] },
     projectId: string,
   ) {
-    const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('采购模板不存在');
+    const current = await this.findOwned(id, projectId);
 
     const patch: { moduleType?: string; templateName?: string; content?: string; variables?: string } = {};
     if (data?.moduleType != null) {
@@ -102,9 +106,8 @@ export class ProcurementTemplateService {
     return this.serialize(updated);
   }
 
-  async remove(id: string) {
-    const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('采购模板不存在');
+  async remove(id: string, projectId: string) {
+    await this.findOwned(id, projectId);
     await this.prisma.procurementTemplate.delete({ where: { id } });
     return { id };
   }
