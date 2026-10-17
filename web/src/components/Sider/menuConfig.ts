@@ -60,7 +60,7 @@ export const MENU_CONFIG: MenuItem[] = [
   { key: 'invoice', label: '发票管理', icon: 'FileInvoiceOutlined', path: '/invoice', permission: 'invoice:view' },
     // 劳务管理 / 成本管理 / 项目资料归档（附件需求 2026-10-17 新增）
   { key: 'labor', label: '劳务管理', icon: 'TeamOutlined', children: [{ key: 'labor-auth', label: '分包授权台账', icon: 'SolutionOutlined', path: '/labor/auth', permission: 'labor:view' }] },
-  { key: 'cost', label: '成本管理', icon: 'FundProjectionScreenOutlined', children: [{ key: 'cost-receiving', label: '分包领用汇总', icon: 'ShoppingOutlined', path: '/cost/receiving', permission: 'cost:view' }, { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' }] },
+  { key: 'cost', label: '成本管理', icon: 'FundProjectionScreenOutlined', children: [{ key: 'cost-receiving', label: '分包领用汇总', icon: 'ShoppingOutlined', path: '/cost/receiving', permission: 'cost:view' }, { key: 'cost-labor-receiving', label: '劳务队领用汇总', icon: 'CalculatorOutlined', path: '/cost/labor-receiving', permission: 'cost:view' }, { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' }] },
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },
 { key: 'repayment', label: '还款协议', icon: 'FileProtectOutlined', path: '/repayment', permission: 'repayment:view' },
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },

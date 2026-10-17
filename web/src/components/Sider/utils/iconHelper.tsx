@@ -32,6 +32,7 @@ import {
   ContainerOutlined,
   SolutionOutlined,
   SearchOutlined,
+  CalculatorOutlined,
   // 采购管理模块（批次一 · 任务 1.1 / 1.2）
   ShoppingCartOutlined,
   ShoppingOutlined,
@@ -91,6 +92,7 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   EyeOutlined,
   FundProjectionScreenOutlined,
   PieChartOutlined,
+  CalculatorOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */

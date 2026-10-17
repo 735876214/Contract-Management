@@ -35,6 +35,7 @@ const FinanceOverdue = lazy(() => import('@/pages/FinanceOverdue'));
 const LaborAuth = lazy(() => import('@/pages/LaborAuth'));
 const CostReceiving = lazy(() => import('@/pages/CostReceiving'));
 const CostProfitLoss = lazy(() => import('@/pages/CostProfitLoss'));
+const CostLaborReceiving = lazy(() => import('@/pages/CostLaborReceiving'));
 const Archive = lazy(() => import('@/pages/Archive'));
 const Assets = lazy(() => import('@/pages/Assets'));
 const Messages = lazy(() => import('@/pages/Messages'));
@@ -153,6 +154,7 @@ export const routes: RouteObject[] = [
       // —— 劳务管理 / 成本管理 / 项目资料归档（附件需求 2026-10-17）——
       { path: 'labor/auth', element: perm('/labor/auth', <LaborAuth />) },
       { path: 'cost/receiving', element: perm('/cost/receiving', <CostReceiving />) },
+      { path: 'cost/labor-receiving', element: perm('/cost/labor-receiving', <CostLaborReceiving />) },
       { path: 'cost/profit-loss', element: perm('/cost/profit-loss', <CostProfitLoss />) },
       { path: 'archive', element: perm('/archive', <Archive />) },
 

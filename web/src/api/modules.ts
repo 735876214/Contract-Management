@@ -392,6 +392,16 @@ export const costApi = {
     update: (id: string, data: any) => http.put<any, any>(`/cost/profit-loss/${id}`, data),
     remove: (id: string) => http.delete<any, any>(`/cost/profit-loss/${id}`),
   },
+  /** 劳务队领用月度汇总（附件需求 2026-10-17 第二批）：领用自动聚合 + 退库/盘点手填 + 三表导出 */
+  laborReceiving: {
+    options: () => http.get<any, any>('/cost/labor-receiving/options'),
+    summary: (subcontractorId: string, period: string) =>
+      http.get<any, any>('/cost/labor-receiving/summary', { params: { subcontractorId, period } }),
+    upsert: (data: any) => http.post<any, any>('/cost/labor-receiving', data),
+    saveBatch: (rows: any[]) => http.post<any, any>('/cost/labor-receiving/batch', { rows }),
+    exportUrl: (subcontractorId: string, period: string) =>
+      `${http.defaults.baseURL}/cost/labor-receiving/export?subcontractorId=${encodeURIComponent(subcontractorId)}&period=${encodeURIComponent(period)}`,
+  },
 };
 
 /** 项目资料归档（附件需求 2026-10-17）：目录树 + 一键/按目录打包 ZIP */

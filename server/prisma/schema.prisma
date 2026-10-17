@@ -116,6 +116,7 @@ model Project {
   assets                   AssetLedger[]
   receiptOrders            ReceiptOrder[]
   laborAuthLedgers         LaborAuthLedger[]
+  laborReceivingSummaries  LaborReceivingSummary[]
   subcontractReceiving     SubcontractReceiving[]
   profitLossAnalyses       ProfitLossAnalysis[]
   procurementTemplates     ProcurementTemplate[]
@@ -213,6 +214,8 @@ model LaborAuthLedger {
   receiptOrders ReceiptOrder[]
   // 成本管理 · 分包领用汇总的反引用（分包商下拉的关联；SetNull：删台账行保留领用行，名称已是快照）
   subcontractReceiving SubcontractReceiving[]
+  // 成本管理 · 劳务队领用月度汇总的反引用（同上：SetNull 保留快照行）
+  laborReceivingSummaries LaborReceivingSummary[]
 
   @@index([projectId])
   @@index([subcontractorName])
@@ -245,6 +248,38 @@ model SubcontractReceiving {
   laborAuthLedger   LaborAuthLedger?  @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
+}
+
+// 劳务队领用月度汇总（附件需求 2026-10-17 第二批；图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
+// 一行 = 分包商 × 结算期 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
+// （领用单位=分包商、orderDate 落在该结算期），不落库、每次读取实时算；
+// 落库的只有**手填字段**（退库/盘点/设计量开累/损耗率/手改单价）。
+model LaborReceivingSummary {
+  id                String    @id @default(cuid())
+  projectId         String
+  laborAuthId       String? // 关联分包授权台账（LaborAuthLedger）
+  subcontractorName String // 分包商名称（快照）
+  period            String // 结算期标签 'YYYY-MM'（periodKeyOf 派生，取期末所在月）
+  materialName      String
+  spec              String?
+  unit              String?
+  unitPrice         Decimal?  @db.Decimal(18, 4) // 平均单价（服务端按 Σ税前总价÷Σ数量 带出；手改后不再回写）
+  priceOverridden   Boolean   @default(false) // true = 手改过单价，刷新领用时保留手填值
+  designQtyCum      Decimal?  @db.Decimal(18, 3) // 设计量 · 至本期末开累（手填）
+  lossRate          Decimal?  @db.Decimal(9, 4) // 损耗率 %（手填）
+  returnQty         Decimal?  @db.Decimal(18, 3) // 本期退库数量（手填）
+  stockTakeQty      Decimal?  @db.Decimal(18, 3) // 本月库存盘点数量（手填）
+  remark            String?
+  createdBy         String?
+  createdAt         DateTime  @default(now())
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  laborAuth    LaborAuthLedger? @relation(fields: [laborAuthId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, subcontractorName, period, materialName, spec])
+  @@index([projectId, period])
 }
 
 // 降本创效主材盈亏分析（结构化台账；profitLoss/profitRate 服务端派生，防两套口径）
