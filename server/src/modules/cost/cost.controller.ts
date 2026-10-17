@@ -22,51 +22,59 @@ export class CostController {
     private monthlyProfitLoss: MonthlyProfitLossService,
   ) {}
 
-  // ---- 劳务队领用月度汇总（附件需求 2026-10-17 第二批） ----
+  // ---- 分包单位领用单据（附件需求 2026-10-17 第二批单据化） ----
 
-  /** 分包商下拉 + 已有期间列表 */
+  /** 分包单位下拉 */
   @RequirePermissions('cost:view')
   @Get('labor-receiving/options')
   laborReceivingOptions(@ProjectId() projectId: string) {
     return this.laborReceiving.options(projectId);
   }
 
-  /** 合并读取：自动领用/单价 + 手填行 + 派生列 */
+  /** 单据列表 */
   @RequirePermissions('cost:view')
-  @Get('labor-receiving/summary')
-  laborReceivingSummary(@Query('subcontractorId') subcontractorId: string, @Query('period') period: string, @ProjectId() projectId: string) {
-    return this.laborReceiving.summary(subcontractorId, period, projectId);
+  @Get('labor-receiving/docs')
+  laborReceivingDocs(@Query() query: any, @ProjectId() projectId: string) {
+    return this.laborReceiving.listDocs(query, projectId);
   }
 
-  /** upsert 单行手填字段 */
+  /** 新建单据（选分包单位 + 结算期） */
   @RequirePermissions('cost:edit')
-  @Post('labor-receiving')
-  laborReceivingUpsert(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    return this.laborReceiving.upsert(body, projectId, user);
+  @Post('labor-receiving/docs')
+  laborReceivingCreateDoc(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    return this.laborReceiving.createDoc(body, projectId, user);
   }
 
-  /** 批量保存（导入/整批提交） */
-  @RequirePermissions('cost:edit')
-  @Post('labor-receiving/batch')
-  laborReceivingBatch(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    return this.laborReceiving.saveBatch(body?.rows ?? [], projectId, user);
-  }
-
-  /** 导出三 sheet 工作簿（图一盘点 / 图二月度汇总 / 图三节超分析） */
+  /** 单据详情（头 + 明细，含自动聚合列） */
   @RequirePermissions('cost:view')
-  @Get('labor-receiving/export')
-  async laborReceivingExport(
-    @Query('subcontractorId') subcontractorId: string,
-    @Query('period') period: string,
-    @ProjectId() projectId: string,
-    @Res() res: Response,
-  ) {
-    const buf = await this.laborReceiving.exportWorkbook(subcontractorId, period, projectId);
-    const auth = await this.laborReceiving['prisma'].laborAuthLedger.findUnique({
-      where: { id: subcontractorId },
-      select: { subcontractorName: true },
+  @Get('labor-receiving/docs/:id')
+  laborReceivingDocDetail(@Param('id') id: string) {
+    return this.laborReceiving.docDetail(id);
+  }
+
+  /** 更新单据（头字段 + 明细批量） */
+  @RequirePermissions('cost:edit')
+  @Put('labor-receiving/docs/:id')
+  laborReceivingUpdateDoc(@Param('id') id: string, @Body() body: any) {
+    return this.laborReceiving.updateDoc(id, body);
+  }
+
+  @RequirePermissions('cost:edit')
+  @Delete('labor-receiving/docs/:id')
+  laborReceivingRemoveDoc(@Param('id') id: string) {
+    return this.laborReceiving.removeDoc(id);
+  }
+
+  /** 导出三 sheet 工作簿（盘点 / 月度汇总 / 节超分析，按表样） */
+  @RequirePermissions('cost:view')
+  @Get('labor-receiving/docs/:id/export')
+  async laborReceivingExport(@Param('id') id: string, @Res() res: Response) {
+    const buf = await this.laborReceiving.exportWorkbook(id);
+    const doc = await this.laborReceiving['prisma'].laborReceivingDoc.findUnique({
+      where: { id },
+      select: { docNo: true, subcontractorName: true, period: true },
     });
-    const name = `${auth?.subcontractorName ?? '分包单位'}-${period}-盘点领用表.xlsx`;
+    const name = `${doc?.subcontractorName ?? '分包单位'}-${doc?.period ?? ''}-盘点领用表.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.end(buf);

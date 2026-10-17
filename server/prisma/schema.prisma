@@ -116,6 +116,7 @@ model Project {
   assets                   AssetLedger[]
   receiptOrders            ReceiptOrder[]
   laborAuthLedgers         LaborAuthLedger[]
+  laborReceivingDocs       LaborReceivingDoc[]
   laborReceivingSummaries  LaborReceivingSummary[]
   monthlyProfitLosses      MonthlyProfitLoss[]
   procurementTemplates     ProcurementTemplate[]
@@ -211,10 +212,10 @@ model LaborAuthLedger {
   project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   subcontract  Contract? @relation("SubcontractContract", fields: [subcontractId], references: [id], onDelete: SetNull)
   receiptOrders ReceiptOrder[]
-  // 成本管理 · 分包单位领用月度汇总的反引用（同上：删台账行连带删汇总行——行按台账 ID 定位）
-  laborReceivingSummaries LaborReceivingSummary[]
   // 成本管理 · 月度盈亏分析明细行的反引用（SetNull：删台账行保留盈亏明细快照）
   monthlyProfitLossDetails MonthlyProfitLossDetail[]
+  // 成本管理 · 分包单位领用单据头（Cascade：删台账行连带删单据与明细——单据按台账 ID 定位）
+  laborReceivingDocs LaborReceivingDoc[]
 
   @@index([projectId])
   @@index([subcontractorName])
@@ -223,19 +224,45 @@ model LaborAuthLedger {
 
 // ---------------- 成本管理（分包领用汇总 / 盈亏分析；附件需求 2026-10-17） ----------------
 
-// 分包单位领用月度汇总（附件需求 2026-10-17 第二批；图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
-// 一行 = 分包单位 × 结算期 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
-// （领用单位=分包单位、orderDate 落在该结算期；按 laborAuthId 关联聚合，分包商改名不断档），
-// 不落库、每次读取实时算；
+// 分包单位领用**单据头**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位 × 结算期）。
+// 明细行在 LaborReceivingSummary（docId 关联）；收领单自动领用/平均单价仍按 laborAuthId+期
+// 实时聚合，不落库。表格编号/审签栏不落库——导出时按表样生成。
+model LaborReceivingDoc {
+  id                 String    @id @default(cuid())
+  projectId          String
+  docNo              String // 单据编号（自动生成：LRD + YYYYMM + 4 位流水）
+  laborAuthId        String // 分包授权台账（一单一个分包单位；台账删除 Cascade 连带删单据与明细）
+  subcontractorName  String // 分包商名称（快照）
+  period             String // 结算期标签 'YYYY-MM'
+  contractName       String? // 劳务合同名称（图2 表头；单据级）
+  status             String    @default("DRAFT") // dict subcontractor_status：DRAFT / COMPLETED
+  remark             String?
+  createdBy          String?
+  createdAt          DateTime  @default(now())
+  version            Int       @default(0)
+  updatedAt          DateTime  @updatedAt
+
+  project   Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  laborAuth LaborAuthLedger         @relation(fields: [laborAuthId], references: [id], onDelete: Cascade)
+  details   LaborReceivingSummary[]
+
+  @@unique([projectId, laborAuthId, period])
+  @@index([projectId])
+}
+
+// 分包单位领用月度汇总明细行（图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
+// 一行 = 单据 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
+// （按 laborAuthId 关联聚合，分包商改名不断档），不落库、每次读取实时算；
 // 落库的只有**手填字段**（退库/盘点/设计量开累/损耗率/手改单价）。
 model LaborReceivingSummary {
   id                String    @id @default(cuid())
   projectId         String
-  laborAuthId       String // 关联分包授权台账（LaborAuthLedger；定位与聚合都按 ID，改名不断档）
-  subcontractorName String // 分包商名称（快照；展示/归档目录用，不参与唯一键与聚合）
-  period            String // 结算期标签 'YYYY-MM'（periodKeyOf 派生，取期末所在月）
+  docId             String // 归属单据（LaborReceivingDoc；单据删除 Cascade）
+  laborAuthId       String // 冗余（= doc.laborAuthId；收领单聚合查询用，不参与定位）
+  subcontractorName String // 分包商名称（快照；展示/归档目录用）
+  period            String // 冗余（= doc.period；聚合/台账分组用）
   materialName      String
-  spec              String?
+  spec              String
   unit              String?
   unitPrice         Decimal?  @db.Decimal(18, 4) // 平均单价（服务端按 Σ税前总价÷Σ数量 带出；手改后不再回写）
   priceOverridden   Boolean   @default(false) // true = 手改过单价，刷新领用时保留手填值
@@ -249,10 +276,10 @@ model LaborReceivingSummary {
   version           Int       @default(0)
   updatedAt         DateTime  @updatedAt
 
-  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  laborAuth    LaborAuthLedger  @relation(fields: [laborAuthId], references: [id], onDelete: Cascade)
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  doc     LaborReceivingDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, laborAuthId, period, materialName, spec])
+  @@unique([docId, materialName, spec])
   @@index([projectId, period])
 }
 

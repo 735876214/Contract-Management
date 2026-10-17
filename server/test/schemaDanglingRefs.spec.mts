@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url';
 const ALLOWED_DANGLING: Record<string, string[]> = {
   // 防重唯一键：收领单「修改」会整体重建明细，建 Cascade 会与资产台账 upsert 逻辑冲突（见 schema 注释）
   AssetLedger: ['receiptDetailId'],
+  // 单据化冗余列（= doc.laborAuthId）：收领单聚合查询用；真 FK 是 docId（Cascade），冗余列不再重复建关联
+  LaborReceivingSummary: ['laborAuthId'],
   // 操作人弱关联（用户删除不追溯历史记录）
   ContractChangeLog: ['operatorId'],
   // null = 全局共享模板/供应商（受 supplier.share.scope 等系统参数控制）

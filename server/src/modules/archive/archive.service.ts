@@ -225,22 +225,14 @@ export class ArchiveService {
         }
         case 'sub-receiving': {
           // 分包单位领用月度汇总（2026-10-17 第三批替换旧手工台账）：
-          // 按 分包单位×结算期 分组，导出三表工作簿（盘点/月度汇总/节超分析）
-          const auths = await this.prisma.laborAuthLedger.findMany({
+          // 分包单位领用**单据**（一单 = 分包单位×结算期）：按单导出三表工作簿
+          const docs = await this.prisma.laborReceivingDoc.findMany({
             where: { projectId },
-            select: { id: true, subcontractorName: true },
+            orderBy: [{ period: 'asc' }, { subcontractorName: 'asc' }],
           });
-          const authPeriods = await this.prisma.laborReceivingSummary.findMany({
-            where: { projectId },
-            distinct: ['laborAuthId', 'period'],
-            select: { laborAuthId: true, period: true },
-          });
-          const authNameById = new Map(auths.map((a) => [a.id, a.subcontractorName]));
-          for (const { laborAuthId, period } of authPeriods.sort((a, b) => a.period.localeCompare(b.period))) {
-            const name = authNameById.get(laborAuthId);
-            if (!name) continue;
-            push(`${cat.dir}/${sanitizeSegment(name)}`, `盘点领用表-${this.periodLabelOfPeriod(period)}.xlsx`, {
-              buffer: await this.laborReceivingService.exportWorkbook(laborAuthId, period, projectId),
+          for (const d of docs) {
+            push(`${cat.dir}/${sanitizeSegment(d.subcontractorName)}`, `盘点领用表-${this.periodLabelOfPeriod(d.period)}.xlsx`, {
+              buffer: await this.laborReceivingService.exportWorkbook(d.id),
             });
           }
           break;

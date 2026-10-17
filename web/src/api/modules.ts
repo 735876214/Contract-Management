@@ -389,15 +389,15 @@ export const costApi = {
     reSnapshot: (id: string) => http.post<any, any>(`/cost/monthly-profit-loss/${id}/re-snapshot`),
     exportUrl: (id: string) => `${http.defaults.baseURL}/cost/monthly-profit-loss/${id}/export`,
   },
-  /** 分包单位领用月度汇总（附件需求 2026-10-17 第二批）：领用自动聚合 + 退库/盘点手填 + 三表导出 */
+  /** 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位×结算期） */
   laborReceiving: {
     options: () => http.get<any, any>('/cost/labor-receiving/options'),
-    summary: (subcontractorId: string, period: string) =>
-      http.get<any, any>('/cost/labor-receiving/summary', { params: { subcontractorId, period } }),
-    upsert: (data: any) => http.post<any, any>('/cost/labor-receiving', data),
-    saveBatch: (rows: any[]) => http.post<any, any>('/cost/labor-receiving/batch', { rows }),
-    exportUrl: (subcontractorId: string, period: string) =>
-      `${http.defaults.baseURL}/cost/labor-receiving/export?subcontractorId=${encodeURIComponent(subcontractorId)}&period=${encodeURIComponent(period)}`,
+    listDocs: (params?: any) => http.get<any, any>('/cost/labor-receiving/docs', { params }),
+    createDoc: (data: any) => http.post<any, any>('/cost/labor-receiving/docs', data),
+    docDetail: (id: string) => http.get<any, any>(`/cost/labor-receiving/docs/${id}`),
+    updateDoc: (id: string, data: any) => http.put<any, any>(`/cost/labor-receiving/docs/${id}`, data),
+    removeDoc: (id: string) => http.delete<any, any>(`/cost/labor-receiving/docs/${id}`),
+    docExportUrl: (id: string) => `${http.defaults.baseURL}/cost/labor-receiving/docs/${id}/export`,
   },
 };
 
