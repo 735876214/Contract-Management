@@ -272,9 +272,13 @@ export default function RichTextEditor({
     if (!el || !sel || sel.rangeCount === 0) return setActiveCell(null);
     let node: Node | null = sel.getRangeAt(0).startContainer;
     while (node && node !== el) {
-      if (node instanceof HTMLTableCellElement && node.parentElement instanceof HTMLTableElement && el.contains(node)) {
-        setActiveCell({ cell: node, table: node.parentElement });
-        return;
+      if (node instanceof HTMLTableCellElement) {
+        // td 的直接父元素是 tr，表格要用 closest 向上找
+        const table = node.closest('table');
+        if (table && el.contains(table)) {
+          setActiveCell({ cell: node, table });
+          return;
+        }
       }
       node = node.parentNode;
     }
