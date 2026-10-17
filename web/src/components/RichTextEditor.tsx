@@ -369,12 +369,12 @@ export default function RichTextEditor({
       if (targets.length < 2) return;
       const first = targets[0];
       const last = targets[targets.length - 1];
-      const rowSpan = last.parentElement === first.parentElement
-        ? 1
-        : last.rowIndex - first.rowIndex + 1;
-      const colSpan = first.parentElement === last.parentElement
-        ? findCellIndex(last.parentElement as HTMLTableRowElement, last) - findCellIndex(first.parentElement as HTMLTableRowElement, first) + 1
-        : first.parentElement.rowIndex === last.parentElement.rowIndex ? last.cellIndex + 1 : 1;
+      const firstRow = first.parentElement as HTMLTableRowElement;
+      const lastRow = last.parentElement as HTMLTableRowElement;
+      const rowSpan = firstRow === lastRow ? 1 : lastRow.rowIndex - firstRow.rowIndex + 1;
+      const colSpan = firstRow === lastRow
+        ? findCellIndex(lastRow, last) - findCellIndex(firstRow, first) + 1
+        : 1;
       // 追加内容后移除被并格
       for (let i = 1; i < targets.length; i++) {
         first.innerHTML += targets[i].innerHTML;
