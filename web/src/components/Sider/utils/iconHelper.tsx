@@ -44,6 +44,7 @@ import {
   EyeOutlined,
   FundProjectionScreenOutlined,
   PieChartOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -93,6 +94,7 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   FundProjectionScreenOutlined,
   PieChartOutlined,
   CalculatorOutlined,
+  EditOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */

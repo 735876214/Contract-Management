@@ -51,6 +51,8 @@ export const MENU_TREE: MenuNode[] = [
       // 需求 2.2：新增「合同查询」二级菜单（已发布/正式合同，含导出 Word）
       { key: 'contract-query', label: '合同查询', icon: 'SearchOutlined', path: '/contract/query', permission: 'contract:view' },
       { key: 'contract-list', label: '合同台账', icon: 'UnorderedListOutlined', path: '/contract/list', permission: 'contract:view' },
+      // 合同台账维护（业务 2026-10-17 补回菜单入口）：/contracts 的列表+编辑器页签，承接起草页「继续编辑」
+      { key: 'contract-edit', label: '合同台账维护', icon: 'EditOutlined', path: '/contracts', permission: 'contract:view' },
       { key: 'contract-material', label: '合同物资清单', icon: 'AppstoreOutlined', path: '/contract/material', permission: 'material:view' },
     ],
   },

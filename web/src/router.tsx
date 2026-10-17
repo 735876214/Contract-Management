@@ -177,7 +177,7 @@ export const routes: RouteObject[] = [
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：
       // URL 仍然可用（书签不失效），但不再重复维护两套路由映射，也不再重复打包同一页面。
-      // 例外：`contracts`（合同编辑页）在新菜单中没有对应入口，保留为真实路由，去留待确认（见 TODO.md）。
+      // `/contracts` 为真实路由（菜单「合同管理 → 合同台账维护」，业务 2026-10-17 补回入口）。
       { path: 'dict', element: <Navigate to="/system/dict" replace /> },
       { path: 'projects', element: <Navigate to="/base/project" replace /> },
       { path: 'suppliers', element: <Navigate to="/base/supplier" replace /> },

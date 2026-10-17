@@ -25,6 +25,8 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/contract/query': ['contract:view'],
   '/contract/list': ['contract:view'],
   '/contract/material': ['material:view'],
+  // 合同台账维护（/contracts，业务 2026-10-17 补回菜单入口）
+  '/contracts': ['contract:view'],
   // 日报管理
   '/daily/report': ['daily:view'],
   '/daily/receipt': ['receipt:view'],
