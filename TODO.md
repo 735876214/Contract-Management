@@ -56,17 +56,13 @@
 > （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4–§7）；
 > 下面为剩余按需项。
 
-### 待实施 · 先设计后开发
-
-- **合同增强**：履约派生进度（零表）与**归档锁定**均已实施（2026-10-18：
-  `GET /contracts/:id/fulfillment`、`POST /contracts/:id/archive` + 详情卡片/归档入口）；
-  仅剩按需项 `ContractFulfillment`（节点/里程碑表）。
-
 > 已定边界（不再立项）：**采购订单与对账由外部系统承接**；合同签订后直接发生收领单及后续流程，
 > 本项目不造订单/对账中间单据。「采购清单 → 合同清单衔接」已做（无新表），与上述链路不冲突。
 
 ### 待实施 · 按需
 
+- **合同履约节点/里程碑表** `ContractFulfillment`：履约派生进度与归档锁定已实施（2026-10-18），
+  仅当业务需要「计划节点 + 逾期 + 违约」时再建表；不重复结算/付款/收货单据。
 - 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层均已完成，规则见 [DESIGN.md](DESIGN.md) §10）。
 - 可选：半结构化字段改 PG `jsonb`、招标立项前置状态、`DailyReport.exitDate`。
 
