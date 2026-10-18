@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -637,7 +639,7 @@ export default function ContractDraft() {
         />
         <div
           style={{ maxHeight: 520, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }}
-          dangerouslySetInnerHTML={{ __html: preview?.html || '' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(preview?.html) }}
         />
       </Modal>
     </>

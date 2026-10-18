@@ -54,7 +54,7 @@ export function collectArchiveBlockers(input: ArchiveCheckInput): ArchiveCheckRe
     blockers.push(`存在 ${input.unsettledReceiptCount} 张未挂结算单的收领单`);
   }
   if (input.dailyRowsWithoutSettlement > 0) {
-    blockers.push(`存在 ${input.dailyRowsWithoutSettlement} 条未纳入结算的总日报行`);
+    blockers.push(`存在未纳入结算的总日报行（涉及 ${input.dailyRowsWithoutSettlement} 个进场日期）`);
   }
   // 没有任何下游的已签章合同（如未使用的框架协议）允许归档；
   // 有下游就必须先走完「已完已结」，避免归档锁死未收尾的链路。

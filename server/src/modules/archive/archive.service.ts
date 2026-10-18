@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import JSZip from 'jszip';
+// archiver v8 是纯 ESM 包（无 default 导出）；编译产物是 CJS，经 interop 后命名导出仍可用
+import { ZipArchive as Archiver } from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { StorageService } from '../../common/services/storage.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
@@ -93,13 +94,21 @@ export class ArchiveService {
       scopeLabel = cat.label;
     }
 
-    const zip = new JSZip();
+    // 流式打包：逐个文件读入并 append，内存只保留当前文件 + 压缩缓冲，
+    // 不再把全部附件 Buffer 留在 JSZip 里（大项目会 OOM）。
+    const archive = new Archiver({ zlib: { level: 9 } });
+    const filename = `${root}-归档-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
+    archive.on('error', (err) => res.destroy(err));
+    archive.pipe(res);
+
     const presentDirs = new Set<string>();
     for (const f of files) {
-      if (f.buffer) zip.file(f.zipPath, f.buffer);
+      if (f.buffer) archive.append(f.buffer, { name: f.zipPath });
       else if (f.storageKey) {
-        if (f.isImage) zip.file(f.zipPath, await this.imageToPdf(f.storageKey));
-        else zip.file(f.zipPath, await this.storage.read(f.storageKey));
+        const content = f.isImage ? await this.imageToPdf(f.storageKey) : await this.storage.read(f.storageKey);
+        archive.append(content, { name: f.zipPath });
       }
       presentDirs.add(f.zipPath.split('/').slice(0, -1).join('/'));
     }
@@ -110,15 +119,11 @@ export class ArchiveService {
       const fullDir = `${root}/${dir}`;
       if (!presentDirs.has(fullDir)) {
         const cat = ARCHIVE_CATEGORIES.find((c) => `${c.dir}` === dir);
-        zip.file(`${fullDir}/${PLACEHOLDER_NAME}`, placeholderText(dir, cat?.label ?? dir));
+        archive.append(placeholderText(dir, cat?.label ?? dir), { name: `${fullDir}/${PLACEHOLDER_NAME}` });
       }
     }
 
-    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const filename = `${root}-归档-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    await archive.finalize();
   }
 
   /** 收集全部（Excel 动态生成 + 真实附件收集），注册表顺序即目录顺序 */

@@ -855,6 +855,7 @@ export class SettlementService {
     let skippedNoItems = 0;
     let skippedRowCount = 0;
     let skippedNoQtyRows = 0;
+    let skippedInvalidPriceRows = 0;
     const warnings: string[] = [];
     const createdItems: any[] = [];
     for (const [contractId, list] of rowsByContract) {
@@ -887,6 +888,7 @@ export class SettlementService {
       const built = buildSettlementItemsFromDailyRows(list);
       skippedRowCount += built.skippedRowCount;
       skippedNoQtyRows += built.skippedNoQtyRowCount;
+      skippedInvalidPriceRows += built.skippedInvalidPriceRowCount;
       if (built.skippedRowCount > 0) {
         warnings.push(
           `${codeOf.get(contractId) || contractId}：${built.skippedRowCount} 条总日报行缺少物资主数据，未带出明细${
@@ -897,6 +899,11 @@ export class SettlementService {
       if (built.skippedNoQtyRowCount > 0) {
         warnings.push(
           `${codeOf.get(contractId) || contractId}：${built.skippedNoQtyRowCount} 条总日报行缺少结算数量，未带入结算金额，请补数量后手工调整`,
+        );
+      }
+      if (built.skippedInvalidPriceRowCount > 0) {
+        warnings.push(
+          `${codeOf.get(contractId) || contractId}：${built.skippedInvalidPriceRowCount} 条总日报行单价/税率异常（超出可存范围），未带入明细，请核对原始数据`,
         );
       }
       if (!built.items.length) {
@@ -922,7 +929,9 @@ export class SettlementService {
               items: built.items,
               remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 条总日报行${
                 built.skippedRowCount ? `；${built.skippedRowCount} 条无物资主数据已跳过` : ''
-              }${built.skippedNoQtyRowCount ? `；${built.skippedNoQtyRowCount} 条缺少结算数量已跳过` : ''}）`,
+              }${built.skippedNoQtyRowCount ? `；${built.skippedNoQtyRowCount} 条缺少结算数量已跳过` : ''}${
+                built.skippedInvalidPriceRowCount ? `；${built.skippedInvalidPriceRowCount} 条单价/税率异常已跳过` : ''
+              }）`,
             },
             projectId,
             tx as any,
@@ -974,11 +983,13 @@ export class SettlementService {
       /** 有日报行但全部缺少物资主数据/结算数量、未能生成结算单的合同数 */
       skippedNoItems,
       /** 因缺少物资主数据或结算数量而未能带出的日报行总数 */
-      skippedRows: skippedRowCount + skippedNoQtyRows,
+      skippedRows: skippedRowCount + skippedNoQtyRows + skippedInvalidPriceRows,
       /** 其中：缺少物资主数据的行数 */
       skippedMaterialRows: skippedRowCount,
       /** 其中：缺少结算数量的行数 */
       skippedNoQtyRows,
+      /** 其中：单价/税率异常的行数 */
+      skippedInvalidPriceRows,
       warnings,
       /**
        * 金额为 0 的生成张数：日报行**没有单价/金额**时（数据没录全）就会算出 0 元。

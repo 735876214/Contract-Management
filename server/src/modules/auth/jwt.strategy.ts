@@ -8,10 +8,16 @@ import { AuthService } from './auth.service';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaClient, private authService: AuthService) {
     super({
-      // 支持 Bearer 头与 URL ?token= 两种方式（后者用于文件下载链接，window.open 无法携带请求头）
+      // 支持 Bearer 头；文件/下载等 GET 请求额外接受 httpOnly Cookie（由 /auth/login 与
+      // /auth/file-session 下发）。**不再接受 URL ?token=**：JWT 会落在访问日志/浏览器历史里。
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (req: any) => req?.query?.token || null,
+        (req: any) => {
+          if (req?.method !== 'GET') return null;
+          const raw = String(req?.headers?.cookie || '');
+          const m = raw.match(/(?:^|;\s*)cms_token=([^;]+)/);
+          return m ? decodeURIComponent(m[1]) : null;
+        },
       ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'cms-super-secret-key',

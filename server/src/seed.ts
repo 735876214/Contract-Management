@@ -217,17 +217,15 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
     select: { value: true },
   });
   const applied = marker?.value === MATERIAL_CATEGORY_SYNC_VERSION;
-  /** 首次同步时覆盖规范项；之后只补缺失（create-only） */
-  const upd = <T>(v: T): T | Record<string, never> => (applied ? {} : v);
 
   await prisma.dictType.upsert({
     where: { code: 'material_category' },
-    update: upd({ name: '材料类别（物资一级分类）', status: 1 }),
+    update: { name: '材料类别（物资一级分类）', status: 1 },
     create: { code: 'material_category', name: '材料类别（物资一级分类）', sort: 7, status: 1, isSystem: true, scope: 'GLOBAL' },
   });
   await prisma.dictType.upsert({
     where: { code: 'material_type' },
-    update: upd({ name: '物资种类（二级分类，关联材料类别）', status: 1 }),
+    update: { name: '物资种类（二级分类，关联材料类别）', status: 1 },
     create: {
       code: 'material_type',
       name: '物资种类（二级分类，关联材料类别）',
@@ -239,11 +237,50 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
     },
   });
 
+  /**
+   * 已同步过：只补齐**缺失**的规范项（两次查询 + 最多两次批量插入），
+   * 不覆盖手工维护的名称/颜色/排序/启停，避免每次启动 77 次串行 upsert。
+   */
+  if (applied) {
+    const existingL1 = new Set(
+      (await prisma.dictItem.findMany({ where: { typeCode: 'material_category' }, select: { itemCode: true } })).map(
+        (i) => i.itemCode,
+      ),
+    );
+    const missingL1 = MATERIAL_CATEGORY_L1.filter((i) => !existingL1.has(i.code)).map((i) => ({
+      typeCode: 'material_category',
+      itemCode: i.code,
+      itemName: i.name,
+      sortOrder: i.sortOrder,
+      status: 1,
+      color: i.color,
+    }));
+    if (missingL1.length) await prisma.dictItem.createMany({ data: missingL1, skipDuplicates: true });
+
+    const existingL2 = new Set(
+      (await prisma.dictItem.findMany({ where: { typeCode: 'material_type' }, select: { itemCode: true } })).map(
+        (i) => i.itemCode,
+      ),
+    );
+    const colorOf = new Map(MATERIAL_CATEGORY_L1.map((i) => [i.code, i.color]));
+    const missingL2 = MATERIAL_CATEGORY_L2.filter((i) => !existingL2.has(i.code)).map((i) => ({
+      typeCode: 'material_type',
+      itemCode: i.code,
+      itemName: i.name,
+      sortOrder: i.sortOrder,
+      status: 1,
+      color: colorOf.get(i.parent) ?? 'default',
+      extField1: i.parent,
+    }));
+    if (missingL2.length) await prisma.dictItem.createMany({ data: missingL2, skipDuplicates: true });
+    return;
+  }
+
   const colorOf = new Map(MATERIAL_CATEGORY_L1.map((i) => [i.code, i.color]));
   for (const it of MATERIAL_CATEGORY_L1) {
     await prisma.dictItem.upsert({
       where: { typeCode_itemCode: { typeCode: 'material_category', itemCode: it.code } },
-      update: upd({ itemName: it.name, sortOrder: it.sortOrder, status: 1, color: it.color, extField1: null }),
+      update: { itemName: it.name, sortOrder: it.sortOrder, status: 1, color: it.color, extField1: null },
       create: {
         typeCode: 'material_category',
         itemCode: it.code,
@@ -258,7 +295,7 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
     const color = colorOf.get(it.parent) ?? 'default';
     await prisma.dictItem.upsert({
       where: { typeCode_itemCode: { typeCode: 'material_type', itemCode: it.code } },
-      update: upd({ itemName: it.name, sortOrder: it.sortOrder, status: 1, color, extField1: it.parent }),
+      update: { itemName: it.name, sortOrder: it.sortOrder, status: 1, color, extField1: it.parent },
       create: {
         typeCode: 'material_type',
         itemCode: it.code,

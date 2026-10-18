@@ -9,8 +9,8 @@ import { ProjectId } from '../../common/decorators/user.decorator';
 /**
  * 项目资料归档（附件需求 2026-10-17）：目录树查询 + 一键/按目录打包 ZIP 下载。
  *
- * ⚠️ ZIP 需要带鉴权的动态响应（`/api/files/<键>` 静态服务不带权限判断），
- * 故走 `@Res()` 流式输出——与各 Excel 导出同一写法；前端用 `withToken()` 携带 token。
+ * ⚠️ ZIP 需要带鉴权的动态响应（`/api/files/<键>` 现由 FileServeController 鉴权代理），
+ * 故走 `@Res()` 流式输出——与各 Excel 导出同一写法；浏览器请求自动携带 httpOnly 文件 Cookie。
  */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('archive')

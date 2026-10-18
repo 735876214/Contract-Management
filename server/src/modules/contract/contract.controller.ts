@@ -92,8 +92,9 @@ export class ContractController {
     @Param('id') id: string,
     @UploadedFile() file: any,
     @Body() body: { signDate?: string; remark?: string },
+    @ProjectId() projectId: string,
   ) {
-    return this.contractService.sign(id, file, body?.signDate, body?.remark);
+    return this.contractService.sign(id, file, body?.signDate, body?.remark, projectId);
   }
 
   /** 合同签章：下载签章合同文件 */
@@ -162,15 +163,15 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Put(':id/status')
-  setStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.contractService.setStatus(id, body?.status);
+  setStatus(@Param('id') id: string, @Body() body: { status: string }, @ProjectId() projectId: string) {
+    return this.contractService.setStatus(id, body?.status, projectId);
   }
 
   /** 任务 7：合同签章驳回 → 回退到「合同起草」 */
   @RequirePermissions('contract:edit')
   @Post(':id/reject')
-  rejectToDraft(@Param('id') id: string) {
-    return this.contractService.rejectToDraft(id);
+  rejectToDraft(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.rejectToDraft(id, projectId);
   }
 
   /** 删除草稿（仅本人创建且未提交，服务端二次校验） */
@@ -237,8 +238,13 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: JwtUser) {
-    return this.contractService.update(id, body, user);
+  update(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUser() user: JwtUser,
+    @ProjectId() projectId: string,
+  ) {
+    return this.contractService.update(id, body, user, projectId);
   }
 
   @RequirePermissions('contract:edit')

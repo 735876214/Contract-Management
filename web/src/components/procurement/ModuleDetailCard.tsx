@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card, Descriptions, Space, Spin, Tag } from 'antd';
 import dayjs from 'dayjs';
@@ -82,7 +84,7 @@ export default function ModuleDetailCard({
             // 文档预览是「纸张」，恒为白、不随主题（DESIGN.md §6）
             background: 'var(--cms-paper)',
           }}
-          dangerouslySetInnerHTML={{ __html: docHtml || '<p style="color:var(--cms-muted-soft)">暂无内容</p>' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(docHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>' }}
         />
       </Spin>
     </Card>

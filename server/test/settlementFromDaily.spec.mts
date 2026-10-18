@@ -83,6 +83,17 @@ describe('结算明细 · 从总日报带出', () => {
     assert.equal(res.amount, 20);
   });
 
+  it('异常金额推导出超范围税率：跳过并计数，不拖垮整期生成', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'm10', settleQty: 1, priceBeforeTax: 0.01, taxRate: 0, amountAfterTax: 1000 },
+      { materialBaseId: 'm11', settleQty: 1, priceBeforeTax: 10, taxRate: 13 },
+    ]);
+    assert.equal(res.skippedInvalidPriceRowCount, 1);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].materialBaseId, 'm11');
+    assert.equal(res.amount, 11.3);
+  });
+
   it('空行返回空明细与 0 金额', () => {
     const res = buildSettlementItemsFromDailyRows([]);
     assert.deepEqual(res.items, []);

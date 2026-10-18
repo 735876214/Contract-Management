@@ -47,7 +47,7 @@ function renderError(e: ImportRowError | string): string {
 interface Props {
   /** 模块名称，如「合同物资清单」，用于弹窗标题 */
   moduleName: string;
-  /** 填写模板下载地址（自动附加 ?token= 以支持浏览器直接下载） */
+  /** 填写模板下载地址（鉴权走 httpOnly Cookie；withToken 只补项目上下文） */
   templateUrl?: string | (() => string);
   /** 上传导入地址（POST multipart/form-data，字段名 file）；函数形式可动态构造（如携带 contractId） */
   uploadUrl?: string | ((file: File) => string);

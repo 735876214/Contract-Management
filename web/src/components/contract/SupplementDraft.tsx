@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useEffect, useState } from 'react';
 import {
   Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
@@ -570,7 +572,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       )}
 
       <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnHidden>
-        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml) }} />
       </Modal>
     </Modal>
   );

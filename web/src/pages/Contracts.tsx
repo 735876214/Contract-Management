@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -703,7 +705,7 @@ function ContractEditor({ seed }: { seed: unknown }) {
       >
         <div
           style={{ maxHeight: 480, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 16, background: 'var(--cms-paper)' }}
-          dangerouslySetInnerHTML={{ __html: clauseView?.content || '' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(clauseView?.content) }}
         />
       </Modal>
 
@@ -725,7 +727,7 @@ function ContractEditor({ seed }: { seed: unknown }) {
               {clause ? (
                 <div
                   style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 12, background: 'var(--cms-paper)' }}
-                  dangerouslySetInnerHTML={{ __html: clause.content }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(clause.content) }}
                 />
               ) : (
                 <Typography.Text type="secondary">未选择</Typography.Text>

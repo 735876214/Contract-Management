@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useEffect, useState } from 'react';
 import { Col, Empty, Form, Row, Select, Space, Spin, Tag, Button } from 'antd';
 import { Link } from 'react-router-dom';
@@ -90,7 +92,7 @@ export default function ClauseSelectRow({ form, onAfterChange }: { form: any; on
             {previewClause.type && <Tag>{CLAUSE_TYPE_OPTIONS.find((o) => o.value === previewClause.type)?.label}</Tag>}
           </Space>
           {/* 条款正文是富文本 HTML，与导出/预览所见即所得 */}
-          <div dangerouslySetInnerHTML={{ __html: previewClause.content || '' }} />
+          <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewClause.content) }} />
         </div>
       )}
     </>

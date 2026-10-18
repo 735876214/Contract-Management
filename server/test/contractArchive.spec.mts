@@ -47,7 +47,7 @@ describe('合同归档检查', () => {
     });
     assert.equal(r.canArchive, false);
     assert.ok(r.blockers.some((b) => b.includes('2 张未挂结算单的收领单')));
-    assert.ok(r.blockers.some((b) => b.includes('3 条未纳入结算的总日报行')));
+    assert.ok(r.blockers.some((b) => b.includes('涉及 3 个进场日期')));
   });
 
   it('有下游但未「已完已结」→ 阻断；无任何下游的已签章合同 → 允许', () => {

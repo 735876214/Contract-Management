@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 /**
  * 采购模块预览与发布统一流程（批次四 · 任务 4.2）
  *
@@ -183,7 +185,7 @@ export default function PreviewPublishModal({
               // padding 交由 .doc-preview 做容器级收敛（DESIGN.md §10.2）
             }}
             dangerouslySetInnerHTML={{
-              __html: highlightPlaceholders(html) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
+              __html: sanitizeHtml(highlightPlaceholders(html)) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
             }}
           />
         </Spin>

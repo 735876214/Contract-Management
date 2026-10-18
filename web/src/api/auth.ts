@@ -9,6 +9,8 @@ export interface LoginResult {
 export const authApi = {
   login: (username: string, password: string) => http.post<any, LoginResult>('/auth/login', { username, password }),
   profile: () => http.get<any, any>('/auth/profile'),
+  /** 为已有本地 token 的会话补发文件 httpOnly Cookie（启动时调用） */
+  fileSession: () => http.get<any, any>('/auth/file-session'),
   logout: () => http.post('/auth/logout'),
   changePassword: (oldPassword: string, newPassword: string) =>
     http.post('/auth/password', { oldPassword, newPassword }),

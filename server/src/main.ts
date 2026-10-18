@@ -28,11 +28,9 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // 静态文件服务：把存储根目录整体暴露为 `/api/files/**`（本地磁盘实现的对外读取口）。
-  // 目录的创建/解析**统一走 StorageService**（服务端唯一的文件 I/O 入口，见该服务文件头）；
-  // ⚠️ 将来换 MinIO/S3 时，要改为代理或 302 重定向（本轮不做：无对象存储基础设施时无法验收）。
-  const absUploadDir = app.get(StorageService).ensureRoot();
-  app.useStaticAssets(absUploadDir, { prefix: '/api/files' });
+  // 本地存储根目录的创建仍走 StorageService；读取不再用 useStaticAssets（那是公开的），
+  // 改由 FileServeController（JwtAuthGuard）代理 /api/files/**，URL 形态保持不变。
+  app.get(StorageService).ensureRoot();
 
   const port = process.env.PORT || 3000;
   await app.listen(port);

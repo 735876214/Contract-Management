@@ -215,7 +215,9 @@ export class ContractService {
             contractId: { in: chainIds },
             ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
           },
+          // 只需要“哪些进场日期”，按日期去重避免把整份日报行加载进内存
           select: { entryDate: true },
+          distinct: ['entryDate'],
         }),
         this.prisma.paymentRecord.aggregate({
           where: {
@@ -274,23 +276,25 @@ export class ContractService {
     const operator = user?.realName || user?.username || '系统';
     // 归档以**合同链**为单位：主合同与其补充协议一起锁定（否则归档后可继续新增/修改补充协议）
     const chainIds = await contractChainIds(this.prisma, id);
-    await this.prisma.contract.updateMany({
-      where: { id: { in: chainIds } },
-      data: { archivedAt: new Date(), archivedBy: operator, version: { increment: 1 } },
-    });
-    if (chainIds.length) {
-      await this.prisma.contractChangeLog.createMany({
-        data: chainIds.map((contractId) => ({
-          contractId,
-          field: 'archivedAt',
-          fieldLabel: '归档',
-          beforeValue: null,
-          afterValue: operator,
-          operatorId: user?.userId || null,
-          operator,
-        })),
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contract.updateMany({
+        where: { id: { in: chainIds } },
+        data: { archivedAt: new Date(), archivedBy: operator, version: { increment: 1 } },
       });
-    }
+      if (chainIds.length) {
+        await tx.contractChangeLog.createMany({
+          data: chainIds.map((contractId) => ({
+            contractId,
+            field: 'archivedAt',
+            fieldLabel: '归档',
+            beforeValue: null,
+            afterValue: operator,
+            operatorId: user?.userId || null,
+            operator,
+          })),
+        });
+      }
+    });
     return this.findOne(id);
   }
 
@@ -869,7 +873,15 @@ export class ContractService {
     return delta;
   }
 
-  async setStatus(contractId: string, status: string) {
+  /** 校验合同归属当前项目（写接口必须带项目上下文，防跨项目按 ID 操作） */
+  private async assertContractInProject(id: string, projectId?: string) {
+    if (!projectId) return;
+    const c = await this.prisma.contract.findFirst({ where: { id, projectId }, select: { id: true } });
+    if (!c) throw new NotFoundException('合同不存在');
+  }
+
+  async setStatus(contractId: string, status: string, projectId?: string) {
+    await this.assertContractInProject(contractId, projectId);
     await this.assertNotArchived(contractId, '变更合同状态');
     if (!CONTRACT_STATUSES.includes(status)) {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
@@ -887,7 +899,8 @@ export class ContractService {
    * 任务 7：合同签章驳回 → 回退到「合同起草」（DRAFT），纯状态回退。
    * 仅「待签章 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。
    */
-  async rejectToDraft(contractId: string) {
+  async rejectToDraft(contractId: string, projectId?: string) {
+    await this.assertContractInProject(contractId, projectId);
     await this.assertNotArchived(contractId, '驳回合同');
     const c = await this.findOne(contractId);
     // 状态机守卫（单一事实源）：仅「待签章 / 已签章」可驳回回合同起草
@@ -1096,7 +1109,8 @@ export class ContractService {
     return this.findOne(contract.id);
   }
 
-  async update(id: string, data: any, user: any) {
+  async update(id: string, data: any, user: any, projectId?: string) {
+    await this.assertContractInProject(id, projectId);
     await this.assertNotArchived(id, '修改合同');
     const before = await this.findOne(id);
     assertVersion(before, data); // 乐观锁：版本号不一致说明已被他人修改
@@ -1382,7 +1396,8 @@ export class ContractService {
    * - signedDate 保留同一日期以兼容历史逻辑，signedAt 记录本次签章操作时间
    * - 支持重复上传覆盖旧文件，并允许修改签订日期
    */
-  async sign(id: string, file: any, signDate?: string, remark?: string) {
+  async sign(id: string, file: any, signDate?: string, remark?: string, projectId?: string) {
+    await this.assertContractInProject(id, projectId);
     await this.assertNotArchived(id, '签章');
     if (!file) throw new BadRequestException('请上传签章合同文件');
     await this.assertContractExists(id);

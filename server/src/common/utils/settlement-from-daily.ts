@@ -48,6 +48,8 @@ export interface DailyToItemsResult {
   skippedNames: string[];
   /** 有物资主数据但结算数量为空/≤0 的行数（金额无法按数量口径结算，需人工补数量） */
   skippedNoQtyRowCount: number;
+  /** 单价/税率推导异常（税率超出 Decimal(5,2) 可存范围等）的行数 */
+  skippedInvalidPriceRowCount: number;
 }
 
 const num = (v: unknown): number | null => {
@@ -146,6 +148,7 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
   }
 
   const items: SettlementItemDraft[] = [];
+  let skippedInvalidPriceRowCount = 0;
   for (const g of groups.values()) {
     // 分组阶段已排除无数量行；这里保留防御性判断
     if (g.qty <= 0) continue;
@@ -170,6 +173,15 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     }
 
     const priceWithTax = normalizePrice(priceBeforeTax, taxRatePct);
+    // 税率列是 Decimal(5,2)（|值| < 1000）；由错误金额反推的异常税率会让 insert 直接 500。
+    // 这类行跳过并计数，由调用方提示核对原始日报，不能拖垮整期结算生成。
+    if (
+      (priceBeforeTax != null && (!Number.isFinite(priceBeforeTax) || priceBeforeTax < 0)) ||
+      (taxRatePct != null && (!Number.isFinite(taxRatePct) || Math.abs(taxRatePct) > 999.99))
+    ) {
+      skippedInvalidPriceRowCount += g.count;
+      continue;
+    }
     const totalWithTax = priceWithTax != null ? round2(priceWithTax * g.qty) : null;
     const source = g.receiptNos.length
       ? `来自总日报（收领单 ${g.receiptNos.join('、')}）`
@@ -188,5 +200,5 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
   }
 
   const amount = round2(items.reduce((s, it) => s + (it.totalWithTax ?? 0), 0));
-  return { items, amount, skippedRowCount, skippedNames, skippedNoQtyRowCount };
+  return { items, amount, skippedRowCount, skippedNames, skippedNoQtyRowCount, skippedInvalidPriceRowCount };
 }

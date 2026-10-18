@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
@@ -767,7 +769,7 @@ export default function Document() {
               // padding 交由 .doc-preview 做容器级收敛（DESIGN.md §10.2）
             }}
             dangerouslySetInnerHTML={{
-              __html: highlightPlaceholders(contractHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
+              __html: sanitizeHtml(highlightPlaceholders(contractHtml)) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
             }}
           />
         </div>
