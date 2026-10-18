@@ -20,6 +20,8 @@ interface AuthState {
   params: Record<string, string>;
   login: (username: string, password: string) => Promise<any>;
   loadProfile: () => Promise<void>;
+  /** 只刷新项目列表并重新校验当前项目 id（新建/删除项目后调用，无需整页刷新） */
+  refreshProjects: () => Promise<void>;
   logout: () => void;
   setCurrentProject: (id: string) => void;
   hasPermission: (code: string) => boolean;
@@ -62,6 +64,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentProjectId,
       params: profile.params || {},
     });
+  },
+
+  refreshProjects: async () => {
+    // 与 loadProfile 同口径，但只刷项目相关状态：新建/删除项目后让顶部下拉立即生效，
+    // 并把失效的 cms_project_id 归位到第一个可用项目（避免带着已删除的项目 id 到处报错）。
+    const profile = await authApi.profile();
+    const projects = profile.projects || [];
+    const stored = localStorage.getItem('cms_project_id');
+    const currentProjectId =
+      stored && projects.some((p: any) => p.id === stored) ? stored : projects[0]?.id || '';
+    if (stored !== currentProjectId) localStorage.setItem('cms_project_id', currentProjectId);
+    set({ projects, currentProjectId });
   },
 
   logout: () => {

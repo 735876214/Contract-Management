@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuthStore } from '@/store/auth';
 import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col, DatePicker } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -107,7 +108,7 @@ function ProjectList() {
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
                 <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
-                <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); reload(); }}>
+                <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); useAuthStore.getState().refreshProjects().catch(() => undefined); reload(); }}>
                   <Button type="link" size="small" danger>删除</Button>
                 </Popconfirm>
               </Space>
@@ -160,6 +161,8 @@ function ProjectList() {
               render: (_, row: any) => (
                 <Popconfirm title="移除该成员？" onConfirm={async () => {
                   await projectApi.removeMember(current.id, row.userId);
+                  // 移除的可能是自己：刷新项目列表并归位失效的当前项目 id
+                  useAuthStore.getState().refreshProjects().catch(() => undefined);
                   setMembers((await projectApi.members(current.id)) as any);
                 }}>
                   <Button type="link" size="small" danger>移除</Button>
@@ -206,6 +209,8 @@ function ProjectEditor({ seed }: { seed: unknown }) {
       if (editing) await projectApi.update(editing.id, payload);
       else await projectApi.create(payload);
       message.success('保存成功');
+      // 新建/改名后刷新顶部项目下拉（store.projects 是登录快照，不刷则新项目选不到）
+      useAuthStore.getState().refreshProjects().catch(() => undefined);
       editorTab.closeEditor();
     } finally {
       setSaving(false);

@@ -31,8 +31,25 @@ http.interceptors.response.use(
     }
     return body;
   },
-  (error) => {
+  async (error) => {
     const msg = error?.response?.data?.message || error.message || '网络异常';
+    // 当前项目已被删除 / 重建 / 无权访问：自动刷新项目列表并归位到第一个可用项目，
+    // 替代过去「手动退出重新登录」才能恢复的体验；刷新失败仍按普通错误提示。
+    const stale =
+      typeof msg === 'string' &&
+      (msg.includes('项目不存在') || msg.includes('无权访问该项目') || msg.includes('缺少项目上下文'));
+    if (stale) {
+      try {
+        await useAuthStore.getState().refreshProjects();
+        const retryId = useAuthStore.getState().currentProjectId;
+        if (retryId && retryId !== error?.config?.headers?.['x-project-id']) {
+          message.info('当前项目已失效，已切换到可用项目，请重试操作');
+          return http(error.config); // 用新项目 id 重放一次原请求
+        }
+      } catch {
+        // 刷新失败（如 token 也过期）→ 走普通错误提示
+      }
+    }
     message.error(msg);
     return Promise.reject(error);
   },
