@@ -76,7 +76,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（50 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（51 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -148,6 +148,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/storageUrl.spec.mts` | **文件引用归一化**：相对键 / `/api/files/...` / 完整 URL / 双前缀 → 相对键；绝对路径与 `..` 保留以交给安全校验 |
   | `test/storageAudit.spec.mts` | **本地文件审计（只读）**：missing / orphans / duplicates / invalid 分类与计数；空引用跳过；文件键归一 |
   | `test/uploadRules.spec.mts` | **上传类型规则**：拦截 html/svg/js/exe 等可执行/可脚本类型；pdf/office/图片/压缩包/dwg 等业务格式放行 |
+  | `test/importTemplateCascade.spec.ts` | **导入模板级联下拉**（2026-10-18）：命名区域名合法化（非法字符→`_`、中文保留）· `INDIRECT` 区域名 = 前缀_父级 · 同名子选项跨父级各自成组不去重 · 真实 xlsx 序列化读回逐项断言 |
   | `test/milestone.spec.mts` | **履约节点逾期派生**（四域扩展按需项 2026-10-18）：到期日当天不逾期、过期未完成=逾期 · DONE/SKIPPED 不逾期 · 无/非法 planDate 不逾期 |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |

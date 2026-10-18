@@ -274,12 +274,21 @@ export class MaterialService {
   /** 物资基础库填写模板（需求 3.3，实际字段口径） */
   async templateBases() {
     const units = await this.dict.options('measurement_unit');
-    // 一/二级分类：模板里预制下拉（2026-10-18 分类表；来源与页面同一份字典）
+    // 一/二级分类：一级普通下拉，二级**级联**下拉（随一级联动；2026-10-18 分类表，来源与页面同一份字典）
     const l1s = await this.dict.options('material_category');
     const l2s = await this.dict.options('material_type');
     const l1Names = l1s.map((i: any) => i.itemName).filter(Boolean);
-    // 二级分类允许同名（如「型钢」分属工程材料/周转材料）：模板下拉去重，导入时按一级归位
-    const l2Names = [...new Set(l2s.map((i: any) => i.itemName).filter(Boolean))];
+    // 字典的 extField1 = 一级分类 itemCode；同名二级（如「型钢」分属工程材料/周转材料）各自成组、按父级取值
+    // ⚠️ `dict.options()` 返回的是**原始字典行**（itemCode/itemName/extField1），不是 controller 包装后的 value
+    const l1NameByCode = new Map(l1s.map((i: any) => [i.itemCode, i.itemName as string]));
+    const cascade: Record<string, string[]> = {};
+    for (const l1 of l1Names) cascade[l1] = [];
+    for (const l2 of l2s) {
+      const parentName = l1NameByCode.get((l2 as any).extField1);
+      if (parentName && cascade[parentName] && !cascade[parentName].includes(l2.itemName)) {
+        cascade[parentName].push(l2.itemName);
+      }
+    }
     const columns: TemplateColumn[] = [
       { label: '物资名称', key: 'name', required: true, width: 26, example: '螺纹钢 HRB400E' },
       { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20' },
@@ -289,9 +298,11 @@ export class MaterialService {
         desc: '下拉选择，来自字典「材料类别」（物资一级分类）',
       },
       {
-        label: '二级分类', key: 'categoryLevel2', type: 'select', width: 14, example: '钢筋',
-        options: l2Names,
-        desc: '下拉选择；必须属于所选一级分类（导入时校验；同名「型钢」按一级归位）',
+        label: '二级分类', key: 'categoryLevel2', type: 'cascader', width: 14, example: '钢筋',
+        cascade,
+        cascadeFrom: 'categoryLevel1',
+        cascadePrefix: '二级分类',
+        desc: '级联下拉：先选一级分类，本列选项随一级联动（同名二级如「型钢」按所选一级给出）',
       },
       {
         label: '计量单位', key: 'unit', required: true, type: 'select', width: 12, example: '吨(t)',

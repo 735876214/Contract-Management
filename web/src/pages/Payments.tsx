@@ -199,6 +199,10 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
+            {/* hidden 注册字段：validateFields 只返回已注册字段，漏掉它回单 URL 永远不入库 */}
+            <Form.Item name="receiptUrl" hidden>
+              <Input />
+            </Form.Item>
             <Form.Item label="银行回单" extra="支持 pdf/jpg/png；上传后保存即关联到本条付款记录">
               <Input
                 value={receiptName || undefined}

@@ -766,6 +766,15 @@ export class ReceiptOrderService {
     } catch (e) {
       console.error('[收领单] 推送总日报失败（保存已生效，可手动补推）:', e);
     }
+    // 关联可能被重算（改了合同/日期后旧结算单解除、新期重挂）→ 台账的收领单
+    // 关联计数随之变化，需重刷（与 settlement 侧改动后的收尾同一套）。
+    if (settlementId !== before.settlementId && (settlementId || before.settlementId)) {
+      try {
+        await this.settlement.syncLedgerByContract(settlementId || before.settlementId);
+      } catch (e) {
+        console.error('[收领单] 关联变更后台账刷新失败:', e);
+      }
+    }
     return this.findOne(id);
   }
 

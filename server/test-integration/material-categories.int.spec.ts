@@ -90,22 +90,21 @@ describe('集成 · 物资分类字典与基础库引用', () => {
     assert.ok(ws && opt, '模板应包含「数据」与隐藏「选项」表');
     assert.equal(opt.state, 'hidden');
 
-    // C = 一级分类，D = 二级分类（表头顺序见 templateBases）
+    // C = 一级分类（普通下拉），D = 二级分类（级联：INDIRECT 随 C 列联动）
     assert.equal(ws.getCell(3, 3).dataValidation?.type, 'list');
     assert.equal(ws.getCell(3, 4).dataValidation?.type, 'list');
     assert.match(String(ws.getCell(3, 3).dataValidation?.formulae?.[0] || ''), /选项!/);
-    assert.match(String(ws.getCell(3, 4).dataValidation?.formulae?.[0] || ''), /选项!/);
+    assert.match(String(ws.getCell(3, 4).dataValidation?.formulae?.[0] || ''), /INDIRECT\("二级分类_/);
 
-    const optionValues = new Set<string>();
-    for (let c = 1; c <= opt.columnCount; c++) {
-      opt.getColumn(c).eachCell((cell) => {
-        if (cell.value) optionValues.add(String(cell.value));
-      });
-    }
-    assert.ok(optionValues.has('工程材料'));
-    assert.ok(optionValues.has('智慧工地'));
-    assert.ok(optionValues.has('钢模板'));
-    assert.ok(optionValues.has('绿色施工'));
+    // 级联后「选项」表按命名区域分组：父级列（一级）+ 每个父级一列子选项。
+    // 用定义名称断言（真实序列化路径），而不是扫列。
+    // DefinedNamesModel = [{ name, ranges }]；读回后 model 可能需要先 getAll
+    const names = new Set<string>();
+    const dnModel = (wb as any).definedNames.model || [];
+    for (const dn of dnModel) names.add(dn.name);
+    assert.ok(names.has('二级分类_工程材料'), '应有工程材料子级命名区域');
+    assert.ok(names.has('二级分类_周转材料'), '应有周转材料子级命名区域');
+    assert.ok(names.has('二级分类_智慧工地'), '应有智慧工地子级命名区域');
   });
 
   it('再次启动同步不覆盖字典管理里手工维护的分类', async () => {

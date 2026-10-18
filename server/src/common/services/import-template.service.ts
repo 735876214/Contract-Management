@@ -12,7 +12,7 @@ import * as ExcelJS from 'exceljs';
  * - 「填写说明」表：字段格式与业务规则说明
  */
 
-export type TplColType = 'text' | 'int' | 'number' | 'money' | 'qty' | 'pct' | 'date' | 'select';
+export type TplColType = 'text' | 'int' | 'number' | 'money' | 'qty' | 'pct' | 'date' | 'select' | 'cascader';
 
 export interface TemplateColumn {
   /** 中文列名（不带 *，必填列服务端自动添加 * 前缀） */
@@ -25,6 +25,16 @@ export interface TemplateColumn {
   example?: any;
   /** type=select 时的下拉选项（调用方从字典表读取后传入） */
   options?: string[];
+  /**
+   * type=cascader 时的级联数据源：键 = 父级选项文本，值 = 该父级下的子选项列表。
+   * 生成「选项」表时按父级列建命名区域，子级列数据验证用 `INDIRECT("前缀_" & 父级单元格)` 联动。
+   * ⚠️ 父级选项文本会经 `sanitizeDefinedName()` 处理（空白/特殊字符转 `_`），Excel 命名区域只允许合法字符。
+   */
+  cascade?: Record<string, string[]>;
+  /** 级联的父级列 key（type=cascader 时必填） */
+  cascadeFrom?: string;
+  /** 级联下拉的前缀（命名区域前缀；缺省取本列 key） */
+  cascadePrefix?: string;
   /** 填写说明（展示在「填写说明」表） */
   desc?: string;
 }
@@ -66,6 +76,17 @@ export const colLetter = (n: number): string => {
 /** 数据填写区行数（含第 3 行起） */
 export const TEMPLATE_MAX_ROWS = 5000;
 
+/**
+ * 把选项文本转成合法的 Excel 定义名称片段：非法字符（空格、`-`、`.` 等）替换为 `_`。
+ * 父子两列用同一函数处理，保证 `INDIRECT("前缀_" & 父级单元格)` 能命中命名区域。
+ */
+export const sanitizeDefinedName = (s: string): string =>
+  String(s ?? '').replace(/[^\p{L}\p{N}_]/gu, '_');
+
+/** 级联下拉的命名区域名：`<前缀>_<父级选项的合法化文本>` */
+export const cascadeRangeName = (prefix: string, parentValue: string): string =>
+  `${sanitizeDefinedName(prefix)}_${sanitizeDefinedName(parentValue)}`;
+
 @Injectable()
 export class ImportTemplateService {
   /** 生成空白填写模板，返回 xlsx Buffer 与文件名 */
@@ -104,8 +125,11 @@ export class ImportTemplateService {
     const dataStart = 3;
     const dataEnd = dataStart + TEMPLATE_MAX_ROWS - 1;
     const selects = spec.columns.filter((c) => c.type === 'select' && c.options?.length);
-    if (selects.length) {
+    const cascaders = spec.columns.filter((c) => c.type === 'cascader' && c.cascade && c.cascadeFrom);
+    if (selects.length || cascaders.length) {
       const optWs = wb.addWorksheet('选项', { state: 'hidden' });
+
+      // 普通下拉：每列一段
       selects.forEach((c, ki) => {
         optWs.getColumn(ki + 1).values = [c.label, ...c.options!];
       });
@@ -124,6 +148,38 @@ export class ImportTemplateService {
           };
         }
       });
+
+      // 级联下拉：子级选项按父级分组排在选项表后续列，每组注册命名区域；
+      // 子级列数据验证 = INDIRECT("<前缀>_" & 父级单元格文本)，随父级联动（2026-10-18 物资一二级分类）。
+      let cascadeCol = selects.length;
+      const parentColIndex = new Map<string, number>();
+      spec.columns.forEach((c, i) => parentColIndex.set(c.key, i));
+      for (const c of cascaders) {
+        const prefix = c.cascadePrefix || c.key;
+        const parentCi = parentColIndex.get(c.cascadeFrom!);
+        if (parentCi === undefined) continue;
+        const parentLetter = colLetter(parentCi + 1);
+        for (const [parent, children] of Object.entries(c.cascade!)) {
+          if (!children?.length) continue;
+          cascadeCol += 1;
+          const L = colLetter(cascadeCol);
+          optWs.getColumn(cascadeCol).values = [`${c.label}（${parent}）`, ...children];
+          // 命名区域含中文是合法的（Excel 允许），写入与读回都经 ExcelJS 处理
+          wb.definedNames.add(`选项!$${L}$2:$${L}$${children.length + 1}`, cascadeRangeName(prefix, parent));
+        }
+        const selfCi = spec.columns.indexOf(c);
+        for (let r = dataStart; r <= dataEnd; r++) {
+          ws.getCell(r, selfCi + 1).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            // 父级空白时 INDIRECT 解析到不存在的名称 → Excel 显示空下拉（allowBlank 放行留空）
+            formulae: [`INDIRECT("${cascadeRangeName(prefix, '')}"&SUBSTITUTE(${parentLetter}${r}," ","_"))`],
+            showErrorMessage: true,
+            errorTitle: '输入无效',
+            error: `请先选择「${spec.columns[parentCi].label}」，再从下拉列表中选择「${c.label}」`,
+          };
+        }
+      }
     }
     for (const c of spec.columns) {
       const ci = spec.columns.indexOf(c);
@@ -174,6 +230,7 @@ export class ImportTemplateService {
       const parts = [`${c.required ? '*' : ''}${c.label}`];
       if (c.desc) parts.push(c.desc);
       else if (c.type === 'select') parts.push(`下拉选择：${(c.options || []).slice(0, 8).join(' / ')}${(c.options || []).length > 8 ? ' 等' : ''}`);
+      else if (c.type === 'cascader') parts.push(`级联下拉：先选「${spec.columns.find((x) => x.key === c.cascadeFrom)?.label || c.cascadeFrom}」，本列选项随父级联动`);
       else if (c.type === 'date') parts.push('日期，格式 YYYY-MM-DD');
       notes.push(`    ${parts.join(' —— ')}`);
     });

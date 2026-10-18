@@ -729,7 +729,12 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
   };
   const submitEdit = async () => {
     if (!editingId) return;
-    const values = await editForm.validateFields();
+    let values: any;
+    try {
+      values = await editForm.validateFields();
+    } catch {
+      return; // 行内校验错误已由表单展示
+    }
     const m = (rows || []).find((x) => x.id === editingId);
     try {
       await contractApi.updateMilestone(contractId, editingId, {
