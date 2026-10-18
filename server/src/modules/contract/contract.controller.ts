@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ContractService } from './contract.service';
+import { ContractFulfillmentService } from './contract-fulfillment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -23,7 +24,10 @@ import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.de
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('contracts')
 export class ContractController {
-  constructor(private contractService: ContractService) {}
+  constructor(
+    private contractService: ContractService,
+    private fulfillmentService: ContractFulfillmentService,
+  ) {}
 
   @RequirePermissions('contract:view')
   @Get()
@@ -190,6 +194,13 @@ export class ContractController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);
+  }
+
+  /** 合同履约派生进度（零表）：总日报/结算/付款/发票的汇总视角（业务 2026-10-18） */
+  @RequirePermissions('contract:view')
+  @Get(':id/fulfillment')
+  fulfillment(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.fulfillmentService.get(id, projectId);
   }
 
   @RequirePermissions('contract:view')

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Button,
+  Card,
   DatePicker,
   Descriptions,
   Form,
   Input,
   Modal,
+  Progress,
   Select,
   Space,
   Tag,
@@ -421,8 +424,69 @@ export default function ContractQuery() {
 /** 详情弹窗正文：列数按弹窗容器宽度降级（DESIGN.md §10.2；窄容器单列） */
 function ContractQueryDetailBody({ detail }: { detail: any }) {
   const { ref, size } = useContainerWidth<HTMLDivElement>();
+  /** 履约进度（零表派生；取数失败不阻断详情展示） */
+  const [fulfillment, setFulfillment] = useState<any>(null);
+  useEffect(() => {
+    let alive = true;
+    contractApi
+      .fulfillment(detail.id)
+      .then((d: any) => alive && setFulfillment(d))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [detail.id]);
+
+  const pct = (v: number | null | undefined) =>
+    v == null ? '-' : `${(v * 100).toFixed(1)}%`;
+  const qty = (v: number | null | undefined) =>
+    v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+
   return (
     <div ref={ref} className="cq" style={{ width: '100%' }}>
+      <Card size="small" title="履约进度（派生）" style={{ marginBottom: 12 }}>
+        {fulfillment ? (
+          <>
+            <Descriptions column={size.isNarrow ? 1 : 2} size="small">
+              <Descriptions.Item label="合同当前金额">
+                {money(fulfillment.currentAmount)}
+              </Descriptions.Item>
+              <Descriptions.Item label="已收数量">
+                {qty(fulfillment.receivedQty)} / {qty(fulfillment.orderedQty)}
+              </Descriptions.Item>
+              <Descriptions.Item label="已结金额">
+                {money(fulfillment.settledAmount)}（{pct(fulfillment.settledRatio)}）
+              </Descriptions.Item>
+              <Descriptions.Item label="已付金额">
+                {money(fulfillment.paidAmount)}（占已结 {pct(fulfillment.paidVsSettledRatio)} / 占合同{' '}
+                {pct(fulfillment.paidVsContractRatio)}）
+              </Descriptions.Item>
+              <Descriptions.Item label="已开票金额">
+                {money(fulfillment.invoicedAmount)}（{pct(fulfillment.invoiceRatio)}）
+              </Descriptions.Item>
+              <Descriptions.Item label="未收数量 / 待结 / 未付">
+                {qty(fulfillment.remainingToReceiveQty)} / {money(fulfillment.remainingToSettleAmount)} /{' '}
+                {money(fulfillment.unpaidAmount)}
+              </Descriptions.Item>
+            </Descriptions>
+            {fulfillment.receivedRatio != null && (
+              <Progress
+                style={{ marginTop: 8 }}
+                percent={Math.min(100, Number((fulfillment.receivedRatio * 100).toFixed(1)))}
+                format={() => `收货 ${pct(fulfillment.receivedRatio)}`}
+              />
+            )}
+            {fulfillment.hasReceiptNoSettlement && (
+              <Alert type="warning" showIcon style={{ marginTop: 8 }} message="已有收货但尚无结算，请检查是否漏生成结算单" />
+            )}
+            {fulfillment.hasSettlementNoPayment && (
+              <Alert type="warning" showIcon style={{ marginTop: 8 }} message="已有结算但尚无付款" />
+            )}
+          </>
+        ) : (
+          <span>加载中…</span>
+        )}
+      </Card>
       <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
         <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
         <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>

@@ -59,6 +59,8 @@ export const contractApi = {
   nextSupplementCode: (id: string) => http.get<any, any>(`/contracts/${id}/next-supplement-code`),
   templateUrl: () => `${http.defaults.baseURL}/contracts/template`,
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
+  /** 履约派生进度（零表）：合同链 + 总日报/结算/付款/发票汇总（业务 2026-10-18） */
+  fulfillment: (id: string) => http.get<any, any>(`/contracts/${id}/fulfillment`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,

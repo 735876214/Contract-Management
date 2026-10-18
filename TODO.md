@@ -57,8 +57,9 @@
 
 ### 待实施 · 先设计后开发
 
-- **合同增强**：履约派生进度（零表）→ 归档锁定（单向；锁合同/收领单/结算/总结算写操作，
-  不锁发票/付款/读取导出）→（按需）`ContractFulfillment`。
+- **合同增强**：归档锁定（单向；锁合同/收领单/结算/总结算写操作，不锁发票/付款/读取导出）
+  →（按需）`ContractFulfillment`。履约派生进度（零表）已实施（2026-10-18：
+  `GET /contracts/:id/fulfillment` + 合同详情卡片）。
 - **进出场**：只做物资，复用 `ReceiptOrder` / `DailyReport` / `AssetLedger`，不建新表；
   按需补 `DailyReport.exitDate` 或进出场汇总视图。
 
