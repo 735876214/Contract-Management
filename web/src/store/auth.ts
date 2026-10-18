@@ -84,6 +84,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // 清除侧边栏菜单缓存，避免同标签页切换账号后读到上一账号的菜单树
     // （必须走 clearMenuCache：缓存键带版本后缀，原先写死无版本的键名导致从未真正清掉）
     clearMenuCache();
+    // 标签同样属于上一个会话（含失效的项目上下文），一并重置——
+    // 否则「登录已失效 → 重登」后恢复的旧标签会带着失效的项目 id 连环报错。
+    import('@/store/tabs').then(({ useTabsStore }) => useTabsStore.getState().reset());
     set({ token: '', user: null, permissions: [], projects: [], currentProjectId: '' });
   },
 

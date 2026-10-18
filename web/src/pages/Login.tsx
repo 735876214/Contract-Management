@@ -3,6 +3,7 @@ import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
+import { useTabsStore } from '@/store/tabs';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
@@ -13,6 +14,9 @@ export default function Login() {
   const onFinish = async (values: any) => {
     setLoading(true);
     try {
+      // 上一会话可能残留旧标签/失效项目上下文（如未手动退出就关机重启）；
+      // 登录前先清一次，保证进入工作台时是干净的初始状态。
+      useTabsStore.getState().reset();
       await login(values.username, values.password);
       await loadProfile();
       message.success('登录成功');

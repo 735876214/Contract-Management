@@ -61,7 +61,10 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout() {
+  logout(@Res({ passthrough: true }) res: Response) {
+    // 同步清掉文件 Cookie：否则浏览器端 localStorage 已清但 Cookie 还带着旧 token，
+    // 「登录已失效 → 重登」后若新 token 未及时覆盖，GET 请求可能带旧 Cookie 互串。
+    res.clearCookie('cms_token', { path: '/' });
     return true;
   }
 

@@ -24,7 +24,9 @@ http.interceptors.response.use(
       if (body.code === 0) return body.data;
       message.error(body.message || '请求失败');
       if (body.code === 1401) {
-        localStorage.removeItem('cms_token');
+        // 走完整的登出清理（菜单缓存/标签属于上一个会话），而不是只删 token——
+        // 否则「登录已失效 → 重新登录」后残留的标签/菜单与失效项目 id 会引发一连串报错。
+        useAuthStore.getState().logout();
         setTimeout(() => (window.location.href = '/login'), 500);
       }
       return Promise.reject(new Error(body.message || '请求失败'));
