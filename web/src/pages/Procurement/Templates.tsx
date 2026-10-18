@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tag, Switch } from 'antd';
+import { useMemo, useRef, useState } from 'react';
+import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined,
+  ReloadOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  HistoryOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { procurementApi } from '@/api/modules';
 import RichTextEditor from '@/components/RichTextEditor';
+import EmptyState from '@/components/EmptyState';
+import VersionHistoryModal from '@/components/templates/VersionHistoryModal';
+import { useTable } from '@/hooks/useTable';
 import { checkPlaceholders } from '@/utils/placeholderCheck';
 import {
   PROCUREMENT_MODULES,
@@ -32,33 +42,22 @@ const moduleColor = (code: string): string => {
 };
 
 export default function ProcurementTemplates() {
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<ProcurementTemplateRow[]>([]);
+  // 能力对齐合同模板（2026-10-18）：服务端筛选 + 分页
+  const { loading, list, search, reload, pagination } = useTable<ProcurementTemplateRow>((p) =>
+    procurementApi.list(p),
+  );
 
   const [editing, setEditing] = useState<ProcurementTemplateRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const contentRef = useRef('');
+  const [filterForm] = Form.useForm();
 
   // 版本历史
   const [versionRow, setVersionRow] = useState<ProcurementTemplateRow | null>(null);
   const [versions, setVersions] = useState<any[]>([]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = (await procurementApi.list()) as { rows?: ProcurementTemplateRow[] } | ProcurementTemplateRow[] | undefined;
-      const list = Array.isArray(res) ? res : (res?.rows ?? []);
-      setRows(list);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [versionLoading, setVersionLoading] = useState(false);
 
   const openCreate = () => {
     setEditing(null);
@@ -80,6 +79,13 @@ export default function ProcurementTemplates() {
     setModalOpen(true);
   };
 
+  /** 按模块类型查现有模板（不能依赖当前筛选后的列表——筛选后可能看不到冲突行） */
+  const findConflict = async (moduleType: string, excludeId?: string) => {
+    const res: any = await procurementApi.list({ moduleType, page: 1, pageSize: 1 });
+    const rows: any[] = res?.list ?? res?.rows ?? (Array.isArray(res) ? res : []);
+    return rows.find((r) => r.moduleType === moduleType && r.id !== excludeId);
+  };
+
   /** 校验并提交；占位符防呆（对齐合同模板）+ 同类型覆盖前确认 */
   const handleSubmit = async () => {
     const values = await form.validateFields();
@@ -97,7 +103,24 @@ export default function ProcurementTemplates() {
       tags: values.tags || null,
       status: values.status === 0 ? 0 : 1,
     };
-    const doSave = () => doSaveInner(payload, editing?.id);
+    const doSave = async () => {
+      const conflict = await findConflict(payload.moduleType, editing?.id);
+      if (conflict) {
+        Modal.confirm({
+          title: '覆盖确认',
+          content: `「${procurementModuleLabel(payload.moduleType)}」已有模板《${conflict.templateName}》，保存后将覆盖旧模板（旧版本会进入版本历史），是否继续？`,
+          okText: '覆盖旧模板',
+          cancelText: '取消',
+          // 新建：把新内容写到冲突模板上；编辑（换了模块类型）：后端 update 会快照并删除冲突行
+          onOk: () =>
+            editing
+              ? doSaveInner(payload, editing.id, editing.version)
+              : doSaveInner(payload, conflict.id, conflict.version),
+        });
+        return;
+      }
+      await doSaveInner(payload, editing?.id, editing?.version);
+    };
     if (problems.length) {
       Modal.confirm({
         title: '占位符写法警告',
@@ -117,36 +140,25 @@ export default function ProcurementTemplates() {
       });
       return;
     }
-    // 新增（或切换了模块类型）且该类型已有模板 → 覆盖确认
-    const conflict = rows.find((r) => r.moduleType === payload.moduleType && r.id !== editing?.id);
-    if (conflict) {
-      Modal.confirm({
-        title: '覆盖确认',
-        content: `「${procurementModuleLabel(payload.moduleType)}」已有模板《${conflict.templateName}》，保存后将覆盖旧模板（旧版本会进入版本历史），是否继续？`,
-        okText: '覆盖旧模板',
-        cancelText: '取消',
-        onOk: () => doSaveInner(payload, conflict.id),
-      });
-      return;
-    }
     await doSave();
   };
 
   const doSaveInner = async (
     payload: { moduleType: string; templateName: string; content: string; variables: string[]; tags: string | null; status: number },
     editId?: string,
+    editVersion?: number,
   ): Promise<void> => {
     setSaving(true);
     try {
       if (editId) {
-        await procurementApi.update(editId, payload);
+        await procurementApi.update(editId, { ...payload, version: editVersion });
         message.success('采购模板已更新');
       } else {
         await procurementApi.create(payload);
         message.success('采购模板已保存');
       }
       setModalOpen(false);
-      load();
+      reload();
     } finally {
       setSaving(false);
     }
@@ -155,13 +167,19 @@ export default function ProcurementTemplates() {
   const handleRemove = async (id: string): Promise<void> => {
     await procurementApi.remove(id);
     message.success('已删除');
-    load();
+    reload();
   };
 
   const openVersions = async (row: ProcurementTemplateRow) => {
     setVersionRow(row);
-    const res: any = await procurementApi.versions(row.id);
-    setVersions(Array.isArray(res) ? res : res?.list || []);
+    setVersions([]);
+    setVersionLoading(true);
+    try {
+      const res: any = await procurementApi.versions(row.id);
+      setVersions(Array.isArray(res) ? res : res?.list || []);
+    } finally {
+      setVersionLoading(false);
+    }
   };
 
   const rollback = async (versionId: string) => {
@@ -169,7 +187,7 @@ export default function ProcurementTemplates() {
     await procurementApi.rollback(versionRow.id, { versionId });
     message.success('已回滚到该版本');
     setVersionRow(null);
-    load();
+    reload();
   };
 
   const columns: ColumnsType<ProcurementTemplateRow> = [
@@ -201,7 +219,8 @@ export default function ProcurementTemplates() {
     },
     {
       title: '操作',
-      width: 200,
+      width: 220,
+      fixed: 'right',
       render: (_, row) => (
         <Space size={4}>
           <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => openVersions(row)}>版本</Button>
@@ -229,7 +248,7 @@ export default function ProcurementTemplates() {
       title="采购模板"
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>
+          <Button icon={<ReloadOutlined />} onClick={reload}>
             刷新
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -238,14 +257,48 @@ export default function ProcurementTemplates() {
         </Space>
       }
     >
+      <Form
+        form={filterForm}
+        layout="inline"
+        style={{ marginBottom: 16, rowGap: 8 }}
+        onFinish={(v) => search({ keyword: v.keyword || undefined, moduleType: v.moduleType || undefined })}
+      >
+        <Form.Item name="keyword">
+          <Input placeholder="模板名称 / 标签关键词" allowClear prefix={<SearchOutlined />} />
+        </Form.Item>
+        <Form.Item name="moduleType">
+          <Select
+            allowClear
+            style={{ minWidth: 180 }}
+            placeholder="模块类型"
+            options={PROCUREMENT_MODULES.map((m) => ({ value: m.value, label: m.label }))}
+          />
+        </Form.Item>
+        <Form.Item>
+          <Space>
+            <Button type="primary" htmlType="submit">查询</Button>
+            <Button
+              onClick={() => {
+                filterForm.resetFields();
+                search({ keyword: undefined, moduleType: undefined });
+              }}
+            >
+              重置
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
+
       <Table<ProcurementTemplateRow>
-      scroll={{ x: 'max-content' }}
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         loading={loading}
-        dataSource={rows}
+        dataSource={list}
         columns={columns}
-        pagination={false}
-        locale={{ emptyText: '暂无采购模板，点击右上角「新增模板」创建' }}
+        pagination={pagination}
+        locale={{
+          emptyText: <EmptyState compact description="暂无采购模板，点击右上角「新增模板」创建" />,
+        }}
       />
 
       <Modal
@@ -311,31 +364,14 @@ export default function ProcurementTemplates() {
         </Form>
       </Modal>
 
-      {/* 版本历史（对齐合同模板） */}
-      <Modal title="版本历史" width={560} centered open={!!versionRow} onCancel={() => setVersionRow(null)} footer={null}>
-        <Table
-          scroll={{ x: 'max-content' }}
-          rowKey="id"
-          size="small"
-          dataSource={versions}
-          pagination={false}
-          locale={{ emptyText: '该模板还没有历史版本（每次编辑/覆盖前会自动保存一份）' }}
-          columns={[
-            { title: '版本号', dataIndex: 'version', width: 90, render: (v: number) => <Tag color="blue">v{v}</Tag> },
-            { title: '修改人', dataIndex: 'operator', width: 120, className: 'col-secondary' },
-            { title: '时间', dataIndex: 'createdAt', render: (v: string) => (v ? String(v).slice(0, 19).replace('T', ' ') : '-') },
-            {
-              title: '操作',
-              width: 100,
-              render: (_, row: any) => (
-                <Popconfirm title="回滚后将基于该版本创建新版本" onConfirm={() => rollback(row.id)}>
-                  <Button type="link" size="small">回滚</Button>
-                </Popconfirm>
-              ),
-            },
-          ]}
-        />
-      </Modal>
+      <VersionHistoryModal
+        open={!!versionRow}
+        versions={versions}
+        loading={versionLoading}
+        emptyText="该模板还没有历史版本（每次编辑/覆盖前会自动保存一份）"
+        onClose={() => setVersionRow(null)}
+        onRollback={rollback}
+      />
     </Card>
   );
 }

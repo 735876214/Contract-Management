@@ -120,7 +120,7 @@ export const MENU_TREE: MenuNode[] = [
       // 「分包商库」已并入「劳务管理 → 分包授权台账」（附件需求 2026-10-17；菜单删除，/base/subcontractor 保号重定向）
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
-      // 单据模板（业务口径 2026-10-16）：结算单/总结算单/保理单/逾期利息/付款单五类 Word 模板
+      // 单据模板（业务口径 2026-10-17）：结算单/总结算单/保理单/逾期利息/付款单五类 Excel 模板
       { key: 'base-doc-template', label: '单据模板', icon: 'FileDoneOutlined', path: '/base/doc-template', permission: 'template:view' },
       // 批次一 · 任务 1.2：采购模板（各采购模块 Word 模板管理）
       { key: 'base-procurement-template', label: '采购模板', icon: 'ShoppingOutlined', path: '/base/procurement-template', permission: 'template:view' },

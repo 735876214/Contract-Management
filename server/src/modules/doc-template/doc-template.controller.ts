@@ -7,7 +7,7 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 
 /**
- * 单据模板（基础信息管理 → 单据模板，业务口径 2026-10-16）：五类单据的 Word 模板。
+ * 单据模板（基础信息管理 → 单据模板，业务口径 2026-10-17）：五类单据的 Excel 模板。
  * 权限复用合同模板的 `template:view` / `template:edit` —— 同一批人维护模板。
  */
 @UseGuards(JwtAuthGuard, PermissionsGuard)

@@ -15,6 +15,11 @@ export interface DocVarItem {
    */
   raw?: string;
   tip?: string;
+  /**
+   * 表格占位符：Excel 模板里必须**独占单元格**才会按行展开；与文字混排时退化为整格多行文本。
+   * 与后端 `DocVarDef.table` 逐条一致（`docVariables.spec.mts` 锁定）。
+   */
+  table?: boolean;
 }
 
 export interface DocVarGroup {
@@ -60,7 +65,12 @@ export const FINAL_SETTLEMENT_DOC_VAR_GROUPS: DocVarGroup[] = [
       v('合同名称'),
       v('总结算金额(元)', '全部月度结算金额合计'),
       v('结算月数', '纳入总结算的月度结算期数'),
-      v('结算明细表', '月度结算明细表格（按月份列金额，自动生成）'),
+      {
+        key: '结算明细表',
+        raw: '{{结算明细表}}',
+        tip: '表格占位符：独占单元格时按行展开（首行自动写「结算月份 / 结算金额(元)」）；与文字混排时退化为多行文本',
+        table: true,
+      },
       v('附件名称', '上传的总结算附件文件名；未上传时保留占位符原文'),
       v('备注'),
       v('打印日期', '生成单据的当天'),

@@ -318,7 +318,7 @@ async function seedDocTemplateCategoryDict(prisma: PrismaClient): Promise<void> 
     { itemCode: 'FINAL_SETTLEMENT', itemName: '总结算单', sortOrder: 2, color: 'cyan', remark: null },
     { itemCode: 'FACTORING', itemName: '保理单', sortOrder: 3, color: 'purple', remark: null },
     { itemCode: 'OVERDUE', itemName: '逾期利息', sortOrder: 4, color: 'orange', remark: null },
-    { itemCode: 'PAYMENT', itemName: '付款单', sortOrder: 5, color: 'green', remark: '本期唯一接了 Word 生成路径的一类' },
+    { itemCode: 'PAYMENT', itemName: '付款单', sortOrder: 5, color: 'green', remark: '付款单与总结算单已接 Excel 生成路径' },
   ];
   for (const it of items) {
     await prisma.dictItem.upsert({

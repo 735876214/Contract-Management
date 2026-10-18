@@ -28,3 +28,15 @@
 - 改语法或改模板后，重跑 `npx ts-node prisma/templates/upsert-purchase-exec.ts`（已是真 upsert，会刷新内容）。
 - 采购/合同的**变量体系**（三套，互不相通）与其约定见同目录的
   [procurement-and-tender.md](procurement-and-tender.md)「三套变量体系」一节。
+
+## 单据 Excel 模板（业务 2026-10-17，口径 2026-10-18 补齐）
+
+- 五类单据模板是**上传的 `.xlsx`**（存 `ContractTemplate.fileUrl`，分类走字典 `doc_template_category`），
+  **只接受 `.xlsx`**——`.xlsm` 的宏在 ExcelJS 写出时会丢失，静默丢宏不可接受。
+- **`fileUrl` 落库的是 `StorageService` 相对键**（如 `2026-10/a.xlsx`），不是 `/api/files/...` 公开 URL。
+  上传接口同时返回 `{ url, key, fileName, size }`，落库用 `key`；展示时前端用
+  `toFileUrl()` 补一次前缀（`web/src/utils/templateFile.ts`）。后端读盘前用
+  `normalizeDocTemplateFileKey()` 再归一一次，兼容历史 URL 与已写坏的双前缀——
+  **别把公开 URL 直接存库**（`assertSafeStorageKey` 会当绝对路径拒绝，表现为「上传成功、生成 400」）。
+- 占位符语法与合同/采购模板一致（`{{变量名}}`）；表格占位符（如 `{{结算明细表}}`）必须**整格独占**
+  才会按行展开（插行、复制样式与行高、下方合并区域下移）；与文字混排时退化为单元格内多行文本。

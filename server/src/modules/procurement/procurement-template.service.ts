@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
 
 /** 允许的采购模块类型（批次一 · 任务 1.2） */
 const MODULE_TYPES = [
@@ -12,6 +13,14 @@ type ModuleType = (typeof MODULE_TYPES)[number];
 const isModuleType = (v: unknown): v is ModuleType =>
   typeof v === 'string' && (MODULE_TYPES as readonly string[]).includes(v);
 
+/** 状态只接受 0/1（Boolean 也兼容：true→1、false→0） */
+function normalizeStatus(v: unknown, fallback: number): number {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (n !== 0 && n !== 1) throw new BadRequestException('状态只能为 0（停用）或 1（启用）');
+  return n;
+}
+
 /**
  * 采购模板服务。
  * 业务 2026-10-17：采购模板**全项目通用**（projectId 列已弃用，恒 null），
@@ -21,12 +30,36 @@ const isModuleType = (v: unknown): v is ModuleType =>
 export class ProcurementTemplateService {
   constructor(private prisma: PrismaClient) {}
 
-  /** 模板列表（全局，按模块类型排序） */
-  async findAll() {
-    const rows = await this.prisma.procurementTemplate.findMany({
-      orderBy: [{ moduleType: 'asc' }, { updatedAt: 'desc' }],
-    });
-    return rows.map((r) => this.serialize(r));
+  /**
+   * 模板列表（全局；支持关键词/模块类型/状态筛选与分页——能力对齐合同模板 2026-10-18）。
+   * 返回 `{ list, total, page, pageSize }`；采购模块最多 7 类，分页默认一页全展示但仍走统一形态。
+   */
+  async findAll(query: any = {}) {
+    const { skip, take } = paginate(query);
+    const where: any = {};
+    if (query.keyword) {
+      where.OR = [
+        { templateName: { contains: String(query.keyword) } },
+        { tags: { contains: String(query.keyword) } },
+      ];
+    }
+    if (query.moduleType) {
+      if (!isModuleType(query.moduleType)) throw new BadRequestException('无效的采购模块类型');
+      where.moduleType = query.moduleType;
+    }
+    if (query.status !== undefined && query.status !== '') {
+      where.status = normalizeStatus(query.status, 1);
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.procurementTemplate.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ moduleType: 'asc' }, { updatedAt: 'desc' }],
+      }),
+      this.prisma.procurementTemplate.count({ where }),
+    ]);
+    return buildResult(rows.map((r) => this.serialize(r)), total, query);
   }
 
   async findOne(id: string) {
@@ -66,6 +99,8 @@ export class ProcurementTemplateService {
     if (!templateName) throw new BadRequestException('请填写模板名称');
     const content = String(data?.content ?? '');
     if (!content.trim()) throw new BadRequestException('请填写模板内容');
+    // 提前校验状态：覆盖分支会先写版本快照，非法状态不能在校验前留下副作用
+    if (data?.status !== undefined) normalizeStatus(data.status, 1);
 
     const vars = Array.isArray(data?.variables) ? data.variables.filter((v) => typeof v === 'string') : [];
     const existing = await this.prisma.procurementTemplate.findUnique({
@@ -81,7 +116,7 @@ export class ProcurementTemplateService {
           content,
           variables: JSON.stringify(vars),
           tags: data?.tags ?? existing.tags,
-          status: data?.status ?? existing.status,
+          status: normalizeStatus(data?.status, existing.status),
           version: { increment: 1 },
         },
       });
@@ -95,7 +130,7 @@ export class ProcurementTemplateService {
         content,
         variables: JSON.stringify(vars),
         tags: data?.tags ?? null,
-        status: data?.status ?? 1,
+        status: normalizeStatus(data?.status, 1),
       },
     });
     return this.serialize(created);
@@ -104,11 +139,12 @@ export class ProcurementTemplateService {
   /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖；旧版本入版本表） */
   async update(
     id: string,
-    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string; status?: number },
+    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string; status?: number; version?: number },
     operator?: string,
   ) {
     const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购模板不存在');
+    assertVersion(current, data);
 
     const patch: {
       moduleType?: string; templateName?: string; content?: string; variables?: string; tags?: string; status?: number;
@@ -124,7 +160,7 @@ export class ProcurementTemplateService {
     }
     if (data?.content != null) patch.content = String(data.content);
     if (data?.tags !== undefined) patch.tags = data.tags;
-    if (data?.status !== undefined) patch.status = Number(data.status) === 0 ? 0 : 1;
+    if (data?.status !== undefined) patch.status = normalizeStatus(data.status, current.status);
     if (Array.isArray(data?.variables)) {
       patch.variables = JSON.stringify(data.variables.filter((v) => typeof v === 'string'));
     }

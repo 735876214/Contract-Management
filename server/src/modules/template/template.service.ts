@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers';
+import { paginate, buildResult, fmtDate, num, assertVersion } from '../../common/utils/helpers';
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
@@ -14,6 +14,20 @@ import { renderTemplate, pendingPlaceholders } from './template-render';
 
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
 const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
+
+/**
+ * 模板状态归一：数据库是 `Int`（1 启用 / 0 停用），而前端历史上用 `yes_no` 字典（Y/N）——
+ * 直接写库会报「Invalid value for Int」，这里统一兼容 1/0、Y/N 与布尔值。
+ */
+function statusOf(v: unknown, fallback: number): number {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (n === 0 || n === 1) return n;
+  const s = String(v).trim().toUpperCase();
+  if (s === 'Y' || s === 'TRUE') return 1;
+  if (s === 'N' || s === 'FALSE') return 0;
+  throw new BadRequestException('状态只能为 0（停用）或 1（启用）');
+}
 
 /** 需求 2.3：合同条款固定四种类型 */
 export const CLAUSE_TYPES = [
@@ -35,6 +49,15 @@ export class TemplateService {
     const { skip, take } = paginate(query);
     const where: any = {};
     const and: any[] = [];
+    /**
+     * 单据模板与合同模板**共用 `ContractTemplate` 表**（分类走不同的字典）。
+     * 这里必须排除单据分类，否则合同模板列表会冒出「付款单 / 结算单」等单据模板
+     * （2026-10-18 真渲染验收时发现：测试用的 SETTLEMENT 行出现在合同模板列表里）。
+     */
+    const docCategories = (await this.dict.options('doc_template_category')).map((i: any) => i.itemCode);
+    if (docCategories.length) {
+      and.push({ OR: [{ categoryCode: null }, { categoryCode: { notIn: docCategories } }] });
+    }
     if (query.keyword) and.push({ OR: [{ name: { contains: query.keyword } }, { tags: { contains: query.keyword } }] });
     if (query.categoryCode) and.push({ categoryCode: query.categoryCode });
     if (projectId) and.push({ OR: [{ projectId: null }, { projectId }] });
@@ -63,6 +86,7 @@ export class TemplateService {
     return this.prisma.contractTemplate.create({
       data: {
         ...payload,
+        status: statusOf(payload.status, 1),
         version: 1,
         parentId: null,
         createdBy: user?.userId,
@@ -72,9 +96,10 @@ export class TemplateService {
     });
   }
 
-  /** 修改后生成新版本：旧版本停用，新版本启用 */
+  /** 修改后生成新版本：旧版本停用，新版本沿用提交的状态（默认保持原状态） */
   async update(id: string, data: any, user: any) {
     const old = await this.findOne(id);
+    assertVersion(old, data);
     await this.dict.validate('contract_template_category', data.categoryCode);
     const rootId = old.parentId || old.id;
     const max = await this.prisma.contractTemplate.aggregate({
@@ -90,7 +115,7 @@ export class TemplateService {
         categoryCode: data.categoryCode || old.categoryCode,
         version: (max._max.version || 1) + 1,
         parentId: rootId,
-        status: 1,
+        status: statusOf(data.status, old.status),
         createdBy: user?.userId,
         variables: variables?.length
           ? { create: variables.map((v: any) => ({ varKey: v.varKey, varLabel: v.varLabel, sourceType: v.sourceType, defaultValue: v.defaultValue })) }
@@ -102,9 +127,13 @@ export class TemplateService {
     return created;
   }
 
+  /** 删除整条版本链（与界面「删除后该模板所有版本将被移除」一致；合同引用为 SetNull，不会误删） */
   async remove(id: string) {
-    await this.findOne(id);
-    await this.prisma.contractTemplate.delete({ where: { id } });
+    const t = await this.findOne(id);
+    const rootId = t.parentId || t.id;
+    await this.prisma.contractTemplate.deleteMany({
+      where: { OR: [{ id: rootId }, { parentId: rootId }] },
+    });
     return true;
   }
 

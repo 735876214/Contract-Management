@@ -102,7 +102,21 @@ describe('总结算单变量：前后端镜像', () => {
     assert.deepEqual(front, backend, 'docVariables.ts 的总结算单变量与 final-settlement-vars.ts 必须一致');
   });
 
-  it('金额类变量名带单位后缀，且**必须有明细表占位符**（总结算单的核心内容）', () => {
+  it('表格占位符标记前后端一致，且必须有说明（Excel 行展开的前提）', () => {
+    const backend = FINAL_SETTLEMENT_DOC_VARIABLES.filter((v) => v.table).map((v) => v.name).sort();
+    const frontItems = FINAL_SETTLEMENT_DOC_VAR_GROUPS.flatMap((g) => g.items);
+    const front = frontItems.filter((i) => i.table).map((i) => i.key).sort();
+    assert.deepEqual(front, backend, 'docVariables.ts 与 final-settlement-vars.ts 的 table 标记必须一致');
+    assert.ok(backend.includes('结算明细表'), '结算明细表是总结算单唯一的表格占位符');
+    const item = frontItems.find((i) => i.key === '结算明细表');
+    assert.ok(item?.tip && item.tip.length > 10, '表格占位符必须有「独占单元格 / 混排退化」的说明');
+    assert.ok(
+      FINAL_SETTLEMENT_DOC_VARIABLES.find((v) => v.name === '结算明细表')?.desc?.includes('独占单元格'),
+      '后端变量说明也要写清独占单元格规则',
+    );
+  });
+
+  it('金额类变量名带单位后缀，且必须有明细表占位符（总结算单的核心内容）', () => {
     const money = FINAL_SETTLEMENT_DOC_VARIABLES.filter((v) => /金额/.test(v.name));
     assert.ok(money.length >= 1);
     for (const v of money) assert.match(v.name, /\(元\)$/, `金额变量「${v.name}」必须带单位后缀 (元)`);

@@ -16,7 +16,7 @@ import { type DocVarDef, formatDocMoney, formatDocDate } from './doc-var-shared.
 export { formatDocMoney, formatDocDate };
 export type { DocVarDef };
 
-/** 付款单变量（本期唯一接了生成路径的一类） */
+/** 付款单变量（付款单与总结算单已接生成路径） */
 export const PAYMENT_DOC_VARIABLES: DocVarDef[] = [
   { name: '单据编号', desc: '付款手续编号' },
   { name: '供应商名称', desc: '取自合同关联的供应商' },

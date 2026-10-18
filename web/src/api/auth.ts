@@ -18,7 +18,7 @@ export const fileApi = {
   upload: (files: File[]) => {
     const fd = new FormData();
     files.forEach((f) => fd.append('files', f));
-    return http.post<any, { fileName: string; url: string; size: number }[]>('/files/upload', fd, {
+    return http.post<any, { fileName: string; url: string; key: string; size: number }[]>('/files/upload', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },

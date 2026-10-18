@@ -46,7 +46,7 @@ export interface RichTextEditorProps {
    * **静默不替换**（正文里留着占位符，预览才高亮）。凡传了 `variables`/`variableGroups` 的调用点
    * 都应传本属性，由 `server/test/procurementVariables.spec.mts` 的源码扫描锁定。
    */
-  variableScope?: 'contract' | 'procurement' | 'doc';
+  variableScope?: 'contract' | 'procurement';
   placeholder?: string;
   minHeight?: number;
   disabled?: boolean;
@@ -496,9 +496,7 @@ export default function RichTextEditor({
         >
           {variableScope === 'procurement'
             ? '采购模板变量 · 只在采购文档里生效；合同正文请改用合同模板变量'
-            : variableScope === 'doc'
-              ? '单据模板变量 · 只在结算单/总结算单/保理单/逾期利息/付款单里生效；合同正文与采购文档请改用各自体系的变量'
-              : '合同模板变量 · 只在合同正文/条款里生效；采购文档请改用采购模板变量'}
+            : '合同模板变量 · 只在合同正文/条款里生效；采购文档请改用采购模板变量'}
         </div>
       ) : null}
       <Input

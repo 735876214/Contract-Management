@@ -2,12 +2,13 @@ import http from './http';
 
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
-  list: () => http.get<any, any>('/procurement-templates'),
+  /** 列表：支持 keyword / moduleType / status / page / pageSize（返回 { list, total, page, pageSize }） */
+  list: (params?: any) => http.get<any, any>('/procurement-templates', { params }),
   detail: (id: string) => http.get<any, any>(`/procurement-templates/${id}`),
   // 同业务类型已有模板时后端执行覆盖（upsert），前端负责覆盖前确认
   create: (data: { moduleType: string; templateName: string; content: string; variables?: string[]; tags?: string | null; status?: number }) =>
     http.post<any, any>('/procurement-templates', data),
-  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string | null; status?: number }) =>
+  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string | null; status?: number; version?: number }) =>
     http.put<any, any>(`/procurement-templates/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
   /** 版本历史（新→旧） */
@@ -298,14 +299,14 @@ export const finalSettlementApi = {
     `${http.defaults.baseURL}/final-settlements/${id}/export${templateId ? `?templateId=${templateId}` : ''}`,
 };
 
-/** 单据模板（基础信息管理，业务口径 2026-10-16）：五类单据的 Word 模板 */
+/** 单据模板（基础信息管理，业务口径 2026-10-17）：五类单据的 Excel 模板 */
 export const docTemplateApi = {
   list: (params?: any) => http.get<any, any>('/doc-templates', { params }),
   detail: (id: string) => http.get<any, any>(`/doc-templates/${id}`),
   create: (data: any) => http.post<any, any>('/doc-templates', data),
   update: (id: string, data: any) => http.put<any, any>(`/doc-templates/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/doc-templates/${id}`),
-  /** 渲染付款单（付款手续 → Word）；`templateId` 可指定模板，不传则用启用中的「付款单」模板 */
+  /** 渲染付款单（付款手续 → Excel）；`templateId` 可指定模板，不传则用启用中的「付款单」模板 */
   renderPaymentUrl: (procedureId: string, templateId?: string) =>
     `${http.defaults.baseURL}/doc-templates/render/payment-procedure/${procedureId}${templateId ? `?templateId=${templateId}` : ''}`,
 };

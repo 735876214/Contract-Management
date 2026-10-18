@@ -34,7 +34,7 @@
 |---|---|---|---|
 | 1 | **采购模板变量** | 前端 `constants/procurementVariables.ts` | 各 `utils/procurement*.ts` 的 `build*VariableValues()` |
 | 2 | **合同模板变量** | `ContractTemplate.variables`（`varKey`/`varLabel`/`sourceType`）+ 前端 `pages/Clauses.tsx` 的 `VARIABLE_GROUPS` | 后端 `template.service.generate()` 的 `values` → `template-render.ts` |
-| 3 | **单据模板变量** | `modules/doc-template/doc-template-vars.ts`（付款单）、`modules/final-settlement/final-settlement-vars.ts`（总结算单） | 同模块 service 的 `renderDocx()`；前端面板在 `web/src/constants/docVariables.ts` |
+| 3 | **单据模板变量** | `modules/doc-template/doc-template-vars.ts`（付款单）、`modules/final-settlement/final-settlement-vars.ts`（总结算单） | 同模块 service 的 `renderExcel()`（Excel 单元格替换 + 表格占位符行展开）；前端面板在 `web/src/constants/docVariables.ts` |
 
 **通用约定**：
 
@@ -65,10 +65,11 @@
 - ⚠️ **跨模块同名即"同源共享"，必须显式登记**：`server/test/procurementVariables.spec.mts` 的
   `SHARED_ACROSS_MODULES` 白名单强制列出（防新增"同名异义"）。其中 `采购编号` 以公告为源、文件侧继承；
   `采购时间` 见下一条。
-- **单据模板特有**：变量面板**只对已接 Word 生成路径的分类开放**（当前付款单 / 总结算单），
+- **单据模板特有**：变量面板**只对已接 Excel 生成路径的分类开放**（当前付款单 / 总结算单），
   其余三类（结算单 / 保理单 / 逾期利息）本期只做模板存放——插了变量也不会被替换，故面板层就不给。
   前后端变量名由 `docVariables.spec.mts` 锁「逐条一致 + 金额名带单位」；`{{结算明细表}}` 是**表格占位符**
-  （与合同模板的 `{{物料编码清单}}` 同类，值由服务端生成 HTML 表格）。
+  （与合同模板的 `{{物料编码清单}}` 同类）：**整格独占**时按行展开（插行、复制样式与行高、合并区域下移），
+  与文字混排时退化为单元格内多行文本（列用制表符分隔）。
 
 **「采购时间」的口径（业务已确认，别再提议合并）**：公告的 `ProcurementNotice.procurementTime` 与采购文件的
 `ProcurementDocument.procurementTime` 是**各自文件的编辑时间，不是同一个"采购时间"** ——

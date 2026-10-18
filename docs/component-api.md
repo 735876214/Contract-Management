@@ -137,7 +137,7 @@
 - `api/http.ts`：axios 实例（`baseURL=VITE_API_BASE||'/api'`，timeout 30s）。
   请求拦截注入 `Authorization: Bearer <cms_token>` 与 `x-project-id`；
   响应拦截 `code===0` 时**直接返回 `data`**，否则 `message.error`（1401 清 token 跳登录）。
-- `api/auth.ts`：`authApi`（login/profile/logout/changePassword）· `fileApi.upload` · `systemApi`（用户/角色/权限/参数/日志）。
+- `api/auth.ts`：`authApi`（login/profile/logout/changePassword）· `fileApi.upload`（返回 `{ url, key, fileName, size }`——**落库用相对键 `key`**，展示用 `url`，二者不要混用）· `systemApi`（用户/角色/权限/参数/日志）。
 - `api/dict.ts`：`dictApi`（types/items CRUD、`options(typeCode,extValue)`、`optionsBatch`、toggle、sortItems、usage、refreshCache、exportUrl/importUrl）。
 - `api/business.ts`：`projectApi`、`supplierApi`、`contractApi`、`templateApi`，并再导出 `modules.ts` 的各业务 api。
 - `api/modules.ts`：`procurementApi`、`procurementTaskApi`、`dailyApi`、`materialApi`、`contractMaterialApi`、`settlementApi`、`paymentApi`、`invoiceApi`、`assetApi`、`ledgerApi`、`repaymentApi`、`financeApi`、`notificationApi`、`dashboardApi`、`receiptOrderApi`、`subcontractorApi`。

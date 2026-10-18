@@ -21,7 +21,7 @@ export const FINAL_SETTLEMENT_DOC_VARIABLES: DocVarDef[] = [
   { name: '合同名称', desc: '' },
   { name: '总结算金额(元)', desc: '全部月度结算金额合计（生成时快照）' },
   { name: '结算月数', desc: '纳入总结算的月度结算期数' },
-  { name: '结算明细表', desc: '月度结算明细表格（按月份列出金额）' },
+  { name: '结算明细表', desc: '表格占位符：独占单元格时按行展开（首行自动写「结算月份 / 结算金额(元)」）；与文字混排时退化为多行文本', table: true },
   { name: '附件名称', desc: '上传的总结算附件文件名；未上传时保留占位符' },
   { name: '项目名称', desc: '' },
   { name: '项目简称', desc: '' },

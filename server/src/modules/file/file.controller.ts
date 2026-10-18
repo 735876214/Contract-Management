@@ -44,7 +44,10 @@ export class FileController {
       const key = path.relative(diskStorageService.root, f.path).split(path.sep).join('/');
       return {
         fileName: f.originalname,
+        // 公开 URL（展示用）与相对存储键（落库用）同时返回：
+        // 前端曾把 url 原样存进 fileUrl，后端按相对键读盘时被安全校验拒绝（2026-10-18 修）。
         url: diskStorageService.publicUrl(key),
+        key,
         size: f.size,
       };
     });

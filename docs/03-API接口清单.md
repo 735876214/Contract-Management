@@ -162,11 +162,11 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/templates` | 模板列表 | `template:view` |
+| GET | `/templates` | 模板列表（`keyword` / `categoryCode` / `includeHistory` / 分页） | `template:view` |
 | GET | `/templates/:id` | 详情（含变量 `variables`） | `template:view` |
-| POST | `/templates` | 新增（生成 v1） | `template:edit` |
-| PUT | `/templates/:id` | 修改并生成新版本 | `template:edit` |
-| DELETE | `/templates/:id` | 删除 | `template:edit` |
+| POST | `/templates` | 新增（生成 v1；`status` 接受 0/1 与历史 Y/N，服务端归一） | `template:edit` |
+| PUT | `/templates/:id` | 修改并生成新版本（**沿用提交的状态**；旧版本停用；乐观锁 `version`） | `template:edit` |
+| DELETE | `/templates/:id` | 删除**整条版本链**（与界面文案一致） | `template:edit` |
 | POST | `/templates/:id/toggle` | 启用/停用 | `template:edit` |
 | GET | `/templates/:id/versions` | 版本列表 | `template:view` |
 | POST | `/templates/:id/rollback` | 回滚到指定版本 | `template:edit` |
@@ -177,6 +177,8 @@
 | PUT | `/templates/clauses/:id` · DELETE `/templates/clauses/:id` | 修改 / 删除条款 | `template:edit` |
 
 > **占位符语法规范**：模板**只支持双花括号 `{{变量名}}`**（表格占位符 `{{物料编码清单}}` / `{{合同清单}}` 同类）。
+> 合同模板与单据模板**共用 `ContractTemplate` 表**：`GET /templates` 会排除 `doc_template_category`
+> 里的分类（否则「付款单/结算单」会出现在合同模板列表里）。
 > 单花括号 `{变量名}` 与英文遗留 key（`MATERIAL_CODE_TABLE`、`CONTRACT_ITEM_TABLE`）的支持**已移除**
 > （2026-10-14，本项目无存量业务数据；存量模板内容已由迁移 `20261018000000_canonicalize_template_placeholders` 规范化），
 > 原「一键迁移」接口 `POST /templates/migrate` 一并下线。
@@ -185,22 +187,25 @@
 
 ## 8.1 单据模板 `/doc-templates`
 
-基础信息管理 →「单据模板」（业务口径 2026-10-16）：五类单据的 Word 模板
-—— **结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单**。
+基础信息管理 →「单据模板」（业务口径 2026-10-17）：五类单据的 **Excel 模板**
+—— **结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单**（模板文件为上传的 `.xlsx`）。
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/doc-templates` | 列表（`?categoryCode=` 按分类筛；默认只列五类单据） | `template:view` |
-| GET | `/doc-templates/:id` | 详情 | `template:view` |
-| POST | `/doc-templates` | 新增（**分类走字典 `doc_template_category`**，用合同模板的分类会 400） | `template:edit` |
-| PUT | `/doc-templates/:id` | 修改 | `template:edit` |
+| GET | `/doc-templates` | 列表（`?keyword=` 名称关键词、`?categoryCode=` 按分类筛、`?status=` 0/1；默认只列五类单据） | `template:view` |
+| GET | `/doc-templates/:id` | 详情（`fileUrl` 返回**相对存储键**，前端展示时补一次 `/api/files/` 前缀） | `template:view` |
+| POST | `/doc-templates` | 新增（**分类走字典 `doc_template_category`**；必须上传 `.xlsx`，服务端校验存在性与可解析性） | `template:edit` |
+| PUT | `/doc-templates/:id` | 修改（沿用乐观锁 `version`；换文件时重新校验） | `template:edit` |
 | DELETE | `/doc-templates/:id` | 删除 | `template:edit` |
-| GET | `/doc-templates/render/payment-procedure/:procedureId` | **渲染付款单 Word**（`?templateId=` 可指定模板，不传则取启用中的「付款单」模板） | `template:view` |
+| GET | `/doc-templates/render/payment-procedure/:procedureId` | **渲染付款单 Excel**（`?templateId=` 可指定模板，不传则取启用中的「付款单」模板） | `template:view` |
 
 > 存储**复用 `ContractTemplate` 表**，但分类走独立字典 `doc_template_category`（混用会让合同模板的
-> 分类下拉里冒出"付款单"）。**本期只有付款单接了生成路径**，其余四类先做模板存放与编辑。
-> 变量体系（付款单）见 `server/src/modules/doc-template/doc-template-vars.ts` 与
-> `web/src/constants/docVariables.ts`（互为镜像，由 `docVariables.spec.mts` 锁定）。
+> 分类下拉里冒出"付款单"）。**付款单与总结算单已接生成路径**，其余三类先做模板存放与编辑。
+> 模板文件**只接受 `.xlsx`**（`.xlsm` 的宏在 ExcelJS 写出时会丢失）；`fileUrl` 落库为
+> `StorageService` 相对键（上传接口同时返回 `key` 与 `url`，前端落库用 `key`）。
+> 变量体系见 `server/src/modules/doc-template/doc-template-vars.ts` 与
+> `web/src/constants/docVariables.ts`（互为镜像，由 `docVariables.spec.mts` 锁定）；
+> `{{结算明细表}}` 是**表格占位符**：整格独占时按行展开，与文字混排时退化为多行文本。
 
 ## 9. 采购任务 `/procurement-tasks`
 
@@ -240,14 +245,17 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/procurement-templates` | 列表 | `template:view` |
+| GET | `/procurement-templates` | 列表（`keyword` 匹配名称/标签、`moduleType`、`status` 0/1、`page`/`pageSize`；返回 `{ list, total, page, pageSize }`） | `template:view` |
 | GET | `/procurement-templates/:id` | 详情（含变量） | `template:view` |
-| POST | `/procurement-templates` | 新增（同 `moduleType` 覆盖旧模板，每项目每类型一条） | `template:edit` |
-| PUT | `/procurement-templates/:id` | 修改 | `template:edit` |
-| DELETE | `/procurement-templates/:id` | 删除 | `template:edit` |
+| POST | `/procurement-templates` | 新增（**全项目通用**；同 `moduleType` 覆盖旧模板并写版本快照；`status` 只接受 0/1） | `template:edit` |
+| PUT | `/procurement-templates/:id` | 修改（乐观锁 `version`；换 `moduleType` 时快照并删除冲突模板） | `template:edit` |
+| DELETE | `/procurement-templates/:id` | 删除（版本快照级联删除） | `template:edit` |
+| GET | `/procurement-templates/:id/versions` | 版本历史（新→旧） | `template:view` |
+| POST | `/procurement-templates/:id/rollback` | 回滚（body `{ versionId }`，基于快照创建新版本） | `template:edit` |
 
-> `moduleType`：`INITIATE` / `PRE_MEETING` / `NOTICE` / `DOCUMENT` / `RESULT_REPORT` / `PRICE_COMPARE` / `FRAMEWORK`
-> / `INSPECTION`。其中 `INITIATE`（采购发起）不产出 Word 文档，无可用变量。
+> `moduleType`：`INITIATE` / `PRE_MEETING` / `NOTICE` / `DOCUMENT` / `RESULT_REPORT` / `PRICE_COMPARE` / `FRAMEWORK`。
+> 其中 `INITIATE`（采购发起）不产出 Word 文档，无可用变量。
+> 导出只使用**启用中**（`status = 1`）的模板；显式指定的模板已停用时降级为模块内置文档。
 
 ## 11. 物资 `/materials` · `/contract-materials`
 

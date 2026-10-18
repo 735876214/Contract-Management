@@ -1,30 +1,35 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import HTMLtoDOCX from 'html-to-docx';
+import ExcelJS from 'exceljs';
 import { pickFields } from '../../common/pick-fields';
 import { assertVersion } from '../../common/utils/helpers';
 import { DictService } from '../dict/dict.service';
-import { renderTemplate, pendingPlaceholders } from '../template/template-render';
 import { buildPaymentDocValues } from './doc-template-vars';
-import { buildItemsTable } from '../final-settlement/final-settlement-vars';
 import { renderTemplateExcel } from './doc-excel';
+import { isExcelTemplateFileName, normalizeDocTemplateFileKey } from './doc-template-file';
 import { StorageService } from '../../common/services/storage.service';
 
-/** 可写字段（与合同模板同表，故字段名一致；该表没有 remark，别往里加） */
-const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'createdBy'];
-/** Excel 单据模板的可写字段（fileUrl/fileName 由上传接口写入） */
+/** Excel 单据模板的可写字段（fileUrl/fileName 经校验与归一后写入） */
 const DOC_EXCEL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'fileUrl', 'fileName', 'createdBy'];
 
+/** 状态只接受 0/1（Boolean 也兼容：true→1、false→0） */
+function normalizeStatus(v: unknown, fallback: number): number {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (n !== 0 && n !== 1) throw new BadRequestException('状态只能为 0（停用）或 1（启用）');
+  return n;
+}
+
 /**
- * **单据模板**（业务口径 2026-10-16）：基础信息管理下管理**五类**单据的 Word 模板
+ * **单据模板**（业务口径 2026-10-16）：基础信息管理下管理**五类**单据的 **Excel 模板**
  * —— 结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单。
  *
- * 存储**复用 `ContractTemplate` 表**（结构完全够用：名称/分类/内容/页面设置/启用状态/版本历史），
- * 但分类走**独立字典** `doc_template_category`：混用 `contract_template_category` 会让
- * "合同模板"的分类下拉里冒出"付款单"（两类东西的编辑与生成路径都不同）。
+ * 存储**复用 `ContractTemplate` 表**，但分类走**独立字典** `doc_template_category`：混用
+ * `contract_template_category` 会让"合同模板"的分类下拉里冒出"付款单"。
  *
- * 生成路径：本期只接**付款单**（其余四类随各自的单据模块接，避免一次性铺开五个渲染路径）；
- * 渲染复用零依赖的 `template-render.ts`（只认 `{{变量名}}`），变量取值见 `doc-template-vars.ts`。
+ * 生成路径（业务 2026-10-17：Word → Excel）：**付款单**与**总结算单**已接；
+ * 其余三类本期只做模板存放。模板文件只接受 **.xlsx**（`.xlsm` 的宏在 ExcelJS 写出时会丢失，
+ * 静默丢宏不可接受），落库的是 `StorageService` **相对键**（不是 `/api/files/...` 公开 URL）。
  */
 @Injectable()
 export class DocTemplateService {
@@ -42,11 +47,13 @@ export class DocTemplateService {
       categoryCode: query.categoryCode ? String(query.categoryCode) : { in: await this.categoryCodes() },
     };
     if (query.keyword) where.name = { contains: query.keyword };
-    if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
-    return this.prisma.contractTemplate.findMany({
+    if (query.status !== undefined && query.status !== '') where.status = normalizeStatus(query.status, 1);
+    const rows = await this.prisma.contractTemplate.findMany({
       where,
       orderBy: [{ categoryCode: 'asc' }, { createdAt: 'desc' }],
     });
+    // 历史数据可能把公开 URL 存进了 fileUrl：读取时统一归一成相对键（对前端透明）
+    return rows.map((r) => this.serialize(r));
   }
 
   /** 单据模板的五类分类编码（取自字典，避免在这里再抄一份） */
@@ -58,7 +65,12 @@ export class DocTemplateService {
   async findOne(id: string) {
     const tpl = await this.prisma.contractTemplate.findUnique({ where: { id } });
     if (!tpl) throw new NotFoundException('单据模板不存在');
-    return tpl;
+    return this.serialize(tpl);
+  }
+
+  /** 输出前把 fileUrl 归一成相对键（兼容历史 `/api/files/...` 与双前缀数据） */
+  private serialize<T extends { fileUrl?: string | null }>(row: T): T {
+    return row.fileUrl ? { ...row, fileUrl: normalizeDocTemplateFileKey(row.fileUrl) } : row;
   }
 
   private async assertCategory(code: unknown) {
@@ -68,14 +80,48 @@ export class DocTemplateService {
     }
   }
 
+  /**
+   * 校验并返回模板文件的**相对键**：
+   * 必须存在、扩展名是 `.xlsx`、且能被 ExcelJS 解析（拒绝空工作簿/损坏文件）。
+   * 兼容调用方传裸键、`/api/files/...`、完整 URL（历史前端存的是 URL）。
+   */
+  private async assertExcelTemplate(
+    input: { fileUrl?: unknown; fileName?: unknown },
+    existing?: { fileUrl?: string | null; fileName?: string | null },
+  ): Promise<string> {
+    const key = normalizeDocTemplateFileKey(input.fileUrl !== undefined ? input.fileUrl : existing?.fileUrl);
+    if (!key) throw new BadRequestException('请上传 Excel 模板文件（.xlsx）');
+    const name = String(input.fileName ?? existing?.fileName ?? key);
+    if (!isExcelTemplateFileName(name)) {
+      throw new BadRequestException('单据模板必须上传 Excel 工作簿（.xlsx）；.xlsm 的宏会在生成时丢失');
+    }
+    if (!(await this.storageService.exists(key))) {
+      throw new BadRequestException('模板文件不存在或已被清理，请重新上传');
+    }
+    const buffer = await this.storageService.read(key);
+    try {
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as any);
+      if (!wb.worksheets.length) throw new Error('empty workbook');
+    } catch {
+      throw new BadRequestException('模板文件无法解析，请确认是有效的 Excel 工作簿（.xlsx）后重新上传');
+    }
+    return key;
+  }
+
   async create(data: any, projectId: string, user: any) {
     await this.assertCategory(data?.categoryCode);
     if (!data?.name) throw new BadRequestException('模板名称不能为空');
+    const fileUrl = await this.assertExcelTemplate({ fileUrl: data?.fileUrl, fileName: data?.fileName });
+    const payload: any = pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' });
     // 业务 2026-10-17：单据模板**全项目通用** → 一律落全局（projectId=null）；
-    // 模板内容为**上传的 Excel 文件**（fileUrl/fileName；历史富文本 content 字段保留但不再使用）
+    // 模板内容为**上传的 Excel 文件**（fileUrl 只存相对键；历史富文本 content 字段保留但不再使用）
     return this.prisma.contractTemplate.create({
       data: {
-        ...pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' }),
+        ...payload,
+        fileUrl,
+        fileName: data?.fileName ? String(data.fileName) : fileUrl.split('/').pop() || null,
+        status: normalizeStatus(data?.status, 1),
         projectId: null,
         createdBy: user?.userId || user?.id || null,
       },
@@ -89,6 +135,17 @@ export class DocTemplateService {
     const payload: any = pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' });
     delete payload.version;
     delete payload.projectId;
+    if (data.fileUrl !== undefined || data.fileName !== undefined) {
+      payload.fileUrl = await this.assertExcelTemplate(
+        { fileUrl: data.fileUrl, fileName: data.fileName },
+        before,
+      );
+      if (data.fileName !== undefined) payload.fileName = data.fileName ? String(data.fileName) : null;
+    } else if (before.fileUrl) {
+      // 未换文件：把历史 URL 形态顺手归一，避免继续留在库里
+      payload.fileUrl = normalizeDocTemplateFileKey(before.fileUrl);
+    }
+    if (data.status !== undefined) payload.status = normalizeStatus(data.status, before.status);
     return this.prisma.contractTemplate.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
@@ -132,16 +189,31 @@ export class DocTemplateService {
       );
     }
 
-    const tplBuffer = await this.storageService.read((template as any).fileUrl);
-    const buffer = await renderTemplateExcel({
-      template: tplBuffer,
-      values: opts.values,
-      tables: opts.tables,
-    });
+    // 历史数据可能存的是公开 URL；统一取相对键再读盘
+    const fileKey = normalizeDocTemplateFileKey((template as any).fileUrl);
+    if (!fileKey) {
+      throw new BadRequestException(
+        `单据模板「${(template as any).name}」未上传 Excel 文件：请到「基础信息管理 → 单据模板」编辑并上传 .xlsx。`,
+      );
+    }
+
+    const tplBuffer = await this.storageService.read(fileKey);
+    let buffer: Buffer;
+    try {
+      buffer = await renderTemplateExcel({
+        template: tplBuffer,
+        values: opts.values,
+        tables: opts.tables,
+      });
+    } catch {
+      throw new BadRequestException(
+        `模板文件无法解析，请确认是有效的 Excel 工作簿（.xlsx）后重新上传：` +
+          `「${(template as any).name}」`,
+      );
+    }
 
     // 替换后扫描残留占位符（读回来扫一遍代价可接受；单据都是小文件）
-    const wb = await import('exceljs');
-    const check = new wb.Workbook();
+    const check = new ExcelJS.Workbook();
     await check.xlsx.load(buffer as any);
     const pending = new Set<string>();
     for (const ws of check.worksheets) {
@@ -212,46 +284,6 @@ export class DocTemplateService {
       templateId: opts.templateId,
       filename: opts.filename,
     });
-  }
-
-  /**
-   * **旧 Word 渲染路径**（历史保留；五类单据已改 Excel，不再有调用方）。
-   * 保留原因：历史合同正文导出（template.service）另有路径，与此无关；本函数留作回退。
-   */
-  async renderDocxLegacy(opts: {
-    categoryCode: string;
-    categoryLabel: string;
-    projectId: string;
-    values: Record<string, string>;
-    tables?: Record<string, string>;
-    templateId?: string;
-    filename: string;
-  }): Promise<{ buffer: Buffer; filename: string; pending: string[] }> {
-    const template = opts.templateId
-      ? await this.findOne(opts.templateId)
-      : await this.prisma.contractTemplate.findFirst({
-          where: {
-            OR: [{ projectId: opts.projectId }, { projectId: null }],
-            categoryCode: opts.categoryCode,
-            status: 1,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-    if (!template) {
-      throw new BadRequestException(
-        `未找到启用中的「${opts.categoryLabel}」模板：请到「基础信息管理 → 单据模板」新增一张` +
-          `（分类选「${opts.categoryLabel}」）并启用。`,
-      );
-    }
-
-    const html = renderTemplate({ html: (template as any).content || '', values: opts.values, tables: opts.tables });
-    const pending = pendingPlaceholders(html);
-    if (pending.length) {
-      console.warn(`[doc-template] ${opts.categoryLabel}模板「${template.name}」生成后仍有未替换占位符：${pending.join('、')}`);
-    }
-    // 与合同正文导出同一套 HTML → docx（表格整行不跨页）
-    const buffer = (await HTMLtoDOCX(html, null, { table: { row: { cantSplit: true } } })) as Buffer;
-    return { buffer, filename: opts.filename, pending };
   }
 
 }
