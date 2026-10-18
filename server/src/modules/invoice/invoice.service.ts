@@ -130,6 +130,13 @@ export class InvoiceService {
     await this.settlement.syncLedgerByContract(contractId);
   }
 
+  /** 负金额是录入错误（与导入路径同一口径，2026-10-18 审计）；create/update 共用 */
+  private assertNoNegativeAmounts(payload: Record<string, any>) {
+    for (const f of ['amountBeforeTax', 'amountWithTax'] as const) {
+      if (payload[f] != null && payload[f] < 0) throw new BadRequestException(`${INVOICE_FIELD_LABEL[f]}不能为负数`);
+    }
+  }
+
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.validate(data);
@@ -142,9 +149,7 @@ export class InvoiceService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     // 负金额是录入错误（与导入路径同一口径，2026-10-18 审计）
-    for (const f of ['amountBeforeTax', 'amountWithTax'] as const) {
-      if (payload[f] != null && payload[f] < 0) throw new BadRequestException(`${INVOICE_FIELD_LABEL[f]}不能为负数`);
-    }
+    this.assertNoNegativeAmounts(payload);
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     // 开票单位可通过合同关联供应商库自动带出
@@ -171,9 +176,7 @@ export class InvoiceService {
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
-    for (const f of ['amountBeforeTax', 'amountWithTax'] as const) {
-      if (payload[f] != null && payload[f] < 0) throw new BadRequestException(`${INVOICE_FIELD_LABEL[f]}不能为负数`);
-    }
+    this.assertNoNegativeAmounts(payload);
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     delete payload.version;

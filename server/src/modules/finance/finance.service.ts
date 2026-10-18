@@ -6,6 +6,8 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement/settlement.service';
+import { ContractService } from '../contract/contract.service';
+import { PAYMENT_MODES, CUSTOM_PAYMENT_MODE } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculate,
@@ -67,6 +69,7 @@ export class FinanceService {
     private sysParam: SysParamService,
     private styled: StyledExcelService,
     private settlement: SettlementService,
+    private contractService: ContractService,
   ) {}
 
   // ==================== 合同资金参数 ====================
@@ -109,16 +112,32 @@ export class FinanceService {
   async updateContractParams(contractId: string, data: any) {
     const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
     if (!contract) throw new NotFoundException('合同不存在');
+    // 与合同主流程同一校验（contract.service.assertPaymentMode 的口径）：写错取值会让
+    // 派生比例/逾期引擎拿不到分期定义，且从界面看不出来，必须在这里拦住。
+    if (data.paymentMode !== undefined && data.paymentMode !== null && data.paymentMode !== '') {
+      const known = Object.keys(PAYMENT_MODES);
+      if (!known.includes(String(data.paymentMode)) && String(data.paymentMode) !== CUSTOM_PAYMENT_MODE) {
+        throw new BadRequestException(
+          `付款安排「${data.paymentMode}」不在可选范围内，请选择：${known.map((k) => `${k}（${PAYMENT_MODES[k].label}）`).join('、')}` +
+            `、${CUSTOM_PAYMENT_MODE}（自定义，需另填月度结算办理比例）`,
+        );
+      }
+    }
     const payload: any = {};
     if (data.paymentMode !== undefined) payload.paymentMode = data.paymentMode || null;
     if (data.monthlyRate !== undefined) payload.monthlyRate = data.monthlyRate === null || data.monthlyRate === '' ? null : Number(data.monthlyRate);
     if (data.graceDays !== undefined) payload.graceDays = data.graceDays === null || data.graceDays === '' ? null : Number(data.graceDays);
     if (data.interestCapRatio !== undefined) payload.interestCapRatio = data.interestCapRatio === null || data.interestCapRatio === '' ? null : Number(data.interestCapRatio);
     await this.prisma.contract.update({ where: { id: contractId }, data: payload });
-    // 月利率/宽限期影响台账「逾期利息」派生列的重算口径，改后必须重刷
-    // （2026-10-18 审计：此前只改合同参数，台账停留旧值）。
-    if (data.monthlyRate !== undefined || data.graceDays !== undefined) {
+    // 月利率/宽限期变了 → 先按新参数重算 OverdueInterest 的派生列（interestAmount/overdueInterest
+    // 是持久化列，只有 recalcOverdue 会重算），再刷台账；付款模式变了 → 应付款日与利息起算都变，同样重算，
+    // 且「当前生效付款比例」派生列（syncPayRatio 唯一实现）必须跟着切——台账列/逾期引擎/工作台预警都读它。
+    if (data.monthlyRate !== undefined || data.graceDays !== undefined || data.paymentMode !== undefined) {
+      await this.recalcOverdue(contractId);
       await this.settlement.syncLedgerByContract(contractId);
+    }
+    if (data.paymentMode !== undefined) {
+      await this.contractService.syncPayRatio(contractId);
     }
     return this.contractParams(contractId);
   }
