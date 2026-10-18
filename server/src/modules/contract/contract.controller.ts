@@ -243,8 +243,8 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.contractService.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.remove(id, projectId);
   }
 
   @RequirePermissions('contract:edit')

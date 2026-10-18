@@ -10,9 +10,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict/dict.service';
 import {
-  ASSET_FEE_SOURCES,
-  ASSET_IN_SOURCES,
-  ASSET_OUT_SOURCES,
+  resolveAssetSourceFilter,
   summarizeAssetFlow,
 } from '../../common/utils/asset-flow';
 
@@ -57,11 +55,8 @@ export class AssetService {
     if (query.keyword) {
       where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
     }
-    if (query.sourceCode) where.sourceCode = query.sourceCode;
-    // 进出场方向筛选（业务口径 2026-10-18：只做物资；费用行不混入进出场）
-    if (query.direction === 'IN') where.sourceCode = { in: [...ASSET_IN_SOURCES] };
-    else if (query.direction === 'OUT') where.sourceCode = { in: [...ASSET_OUT_SOURCES] };
-    else if (query.direction === 'FEE') where.sourceCode = { in: [...ASSET_FEE_SOURCES] };
+    const sourceFilter = resolveAssetSourceFilter(query.sourceCode, query.direction);
+    if (sourceFilter) where.sourceCode = sourceFilter;
     if (query.categoryL1Code) where.categoryL1Code = query.categoryL1Code;
     if (query.categoryFocusCode) where.categoryFocusCode = query.categoryFocusCode;
     const [list, total] = await Promise.all([

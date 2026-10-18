@@ -5,7 +5,7 @@ import { isDangerousUploadName } from '../src/common/utils/upload-rules.ts';
 /** 通用上传的危险类型拦截（静态服务公开，避免存储型 XSS） */
 describe('上传文件类型规则', () => {
   it('拦截可执行/可脚本类型（大小写不敏感）', () => {
-    for (const name of ['a.html', 'a.SVG', 'x.js', 'run.EXE', 'shell.sh', 'p.ps1', 'x.jsp', 'a.jar']) {
+    for (const name of ['a.html', 'a.SVG', 'x.js', 'run.EXE', 'shell.sh', 'p.ps1', 'x.jsp', 'a.jar', 'a.xhtml', 'a.XHT', 'a.shtml', 'a.svgz', 'a.mht', 'a.mhtml']) {
       assert.equal(isDangerousUploadName(name), true, name);
     }
   });

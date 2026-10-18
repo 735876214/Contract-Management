@@ -39,42 +39,7 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-> 2026-10-18 代码审查待修（7 项，按严重度排序）；修完即删条目。
-
-### 安全 / 权限
-
-- **上传危险类型黑名单补全**：`server/src/common/utils/upload-rules.ts` 的
-  `DANGEROUS_UPLOAD_EXTS` 漏了 `.xhtml` / `.xht` / `.shtml` / `.svgz` / `.mht` / `.mhtml`；
-  公开静态服务会按 `application/xhtml+xml`、`image/svg+xml` 返回，可在应用源下执行脚本。
-  **验收**：补全名单 + `uploadRules.spec.mts` 用例；真打上传 `.xhtml` 返回 400。
-- **合同删除按项目隔离**：`contract.service.remove(id)` 与新增的下游计数查询都没有 `projectId`，
-  控制器 `DELETE /contracts/:id` 也不传项目上下文 → 可按 ID 删除其他项目的合同
-  （违反 CLAUDE.md §3 铁律 3）。**验收**：`remove(id, projectId)` + `@ProjectId()`；
-  所有 where 带 `projectId`；跨项目删除返回 400/404，新增集成用例。
-
-### 数据完整性
-
-- **结算：有金额但 `settleQty` 为空的日报行不能静默丢**
-  （`common/utils/settlement-from-daily.ts:162`：`qty>0` 才计算合价）。当前会少算金额且无 warning。
-  **验收**：明确口径后实现——若金额可独立结算则保留金额；否则至少写入 `warnings` 并提示补数量；
-  补纯函数用例。
-- **归档覆盖补充协议链**（`contract.service.archive()` / `create()`）：
-  归档主合同后仍可 `POST /contracts` 新建补充协议（只校验父合同存在/非补充/同项目，不查 `archivedAt`），
-  合同链金额与履约口径可在归档后继续变化；归档补充协议也不锁主合同/收领单。
-  **验收**：`create()` 校验父合同 `archivedAt`；`update()/draft*/publish/sign` 对补充协议查链根归档状态；
-  归档主合同时锁定整条链；补集成用例。
-- **归档检查遵循 `settlement.require_confirmed`**（`contract.service.ts:211` 固定查 `CONFIRMED`）：
-  开关关闭时未确认日报也参与结算，但归档检查忽略它们 → 可在有未结算数据时归档。
-  **验收**：`archiveCheck` 复用 `SysParamService` 的条件过滤；开关开/关各一条集成用例。
-
-### 字典 / 筛选
-
-- **物资分类启动同步不得覆盖手工维护**（`seed.ts:263` 的 `updateMany(notIn)` + 规范项 upsert）：
-  重启会停用字典管理里新增的分类、回滚改名/颜色/排序/启停。
-  **验收**：改为一次性同步（sysParam 标记）或只补缺失项、不覆盖既有字段、不按 notIn 批量停用；
-  仅定向清理明确的旧编码。
-- **资产台账筛选取交集**（`asset.service.ts:62`）：同时传 `sourceCode` 与 `direction` 时后者覆盖前者，
-  返回与来源筛选不符的结果。**验收**：两者取交集（来源不在方向集合时返回空），补一条查询用例。
+> 当前为空。
 
 ## 四域扩展（主体已实施，剩余按需）
 

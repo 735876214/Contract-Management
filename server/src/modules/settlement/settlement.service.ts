@@ -854,6 +854,7 @@ export class SettlementService {
     let skippedArchived = 0;
     let skippedNoItems = 0;
     let skippedRowCount = 0;
+    let skippedNoQtyRows = 0;
     const warnings: string[] = [];
     const createdItems: any[] = [];
     for (const [contractId, list] of rowsByContract) {
@@ -885,11 +886,17 @@ export class SettlementService {
       // 总日报行 → 清单项级结算明细（按 materialBaseId 聚合；带不出的行计入 skipped）
       const built = buildSettlementItemsFromDailyRows(list);
       skippedRowCount += built.skippedRowCount;
+      skippedNoQtyRows += built.skippedNoQtyRowCount;
       if (built.skippedRowCount > 0) {
         warnings.push(
           `${codeOf.get(contractId) || contractId}：${built.skippedRowCount} 条总日报行缺少物资主数据，未带出明细${
             built.skippedNames.length ? `（${built.skippedNames.join('、')}…）` : ''
           }`,
+        );
+      }
+      if (built.skippedNoQtyRowCount > 0) {
+        warnings.push(
+          `${codeOf.get(contractId) || contractId}：${built.skippedNoQtyRowCount} 条总日报行缺少结算数量，未带入结算金额，请补数量后手工调整`,
         );
       }
       if (!built.items.length) {
@@ -899,29 +906,36 @@ export class SettlementService {
       }
 
       try {
-        const settlement: any = await this.create(
-          {
-            contractId,
-            code: `JS${period.month.replace('-', '')}-${codeOf.get(contractId) || ''}`,
-            typeCode: 'PROGRESS', // 月度结算按「进度款」记；如有异议可在结算单上改
-            statusCode: SETTLEMENT_STATUS.DRAFT,
-            amount: built.amount,
-            actualAmount: built.amount,
-            settleDate: period.end,
-            items: built.items,
-            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 条总日报行${
-              built.skippedRowCount ? `；${built.skippedRowCount} 条无物资主数据已跳过` : ''
-            }）`,
-          },
-          projectId,
-        );
-        if (contractReceipts.length) {
-          await this.prisma.receiptOrder.updateMany({
-            where: { id: { in: contractReceipts.map((o: any) => o.id) } },
-            data: { settlementId: settlement.id },
-          });
-        }
-        // 回挂收领单后重刷台账（本期结算额/开票额都以结算单为准）
+        // 结算单头 + 明细 + 收领单回挂放在同一事务：任一步失败（如异常数据导致
+        // Decimal 溢出）都不会留下「有单头、无明细」的孤儿结算单，重跑也不会因
+        // 同期已有结算单而被跳过。
+        const settlement: any = await this.prisma.$transaction(async (tx) => {
+          const created = await this.create(
+            {
+              contractId,
+              code: `JS${period.month.replace('-', '')}-${codeOf.get(contractId) || ''}`,
+              typeCode: 'PROGRESS', // 月度结算按「进度款」记；如有异议可在结算单上改
+              statusCode: SETTLEMENT_STATUS.DRAFT,
+              amount: built.amount,
+              actualAmount: built.amount,
+              settleDate: period.end,
+              items: built.items,
+              remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 条总日报行${
+                built.skippedRowCount ? `；${built.skippedRowCount} 条无物资主数据已跳过` : ''
+              }${built.skippedNoQtyRowCount ? `；${built.skippedNoQtyRowCount} 条缺少结算数量已跳过` : ''}）`,
+            },
+            projectId,
+            tx as any,
+          );
+          if (contractReceipts.length) {
+            await tx.receiptOrder.updateMany({
+              where: { id: { in: contractReceipts.map((o: any) => o.id) } },
+              data: { settlementId: created.id },
+            });
+          }
+          return created;
+        });
+        // 事务提交后重刷台账（本期结算额/开票额都以结算单为准）
         await this.syncLedgerByContract(contractId);
         created++;
         createdItems.push({
@@ -957,10 +971,14 @@ export class SettlementService {
       skipped,
       /** 因合同已归档而跳过的合同数 */
       skippedArchived,
-      /** 有日报行但全部缺少物资主数据、未能生成结算单的合同数 */
+      /** 有日报行但全部缺少物资主数据/结算数量、未能生成结算单的合同数 */
       skippedNoItems,
-      /** 因缺少物资主数据而未能带出的日报行总数 */
-      skippedRows: skippedRowCount,
+      /** 因缺少物资主数据或结算数量而未能带出的日报行总数 */
+      skippedRows: skippedRowCount + skippedNoQtyRows,
+      /** 其中：缺少物资主数据的行数 */
+      skippedMaterialRows: skippedRowCount,
+      /** 其中：缺少结算数量的行数 */
+      skippedNoQtyRows,
       warnings,
       /**
        * 金额为 0 的生成张数：日报行**没有单价/金额**时（数据没录全）就会算出 0 元。

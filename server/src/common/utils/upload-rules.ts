@@ -8,12 +8,14 @@
 
 /** 拒绝上传的危险扩展名（小写，含点） */
 export const DANGEROUS_UPLOAD_EXTS: readonly string[] = [
-  '.html', '.htm', '.svg',
+  '.html', '.htm', '.xhtml', '.xht', '.shtml',
+  '.svg', '.svgz',
   '.js', '.mjs', '.cjs',
   '.exe', '.bat', '.cmd', '.com', '.scr', '.msi', '.dll',
   '.sh', '.ps1', '.vbs', '.vbe', '.wsf', '.wsh', '.hta',
   '.php', '.jsp', '.asp', '.aspx', '.cgi', '.pl', '.py',
   '.jar', '.war',
+  '.mht', '.mhtml',
 ];
 
 /** 文件名是否属于危险类型（按最后一个点取扩展名，大小写不敏感；无扩展名 → 放行） */

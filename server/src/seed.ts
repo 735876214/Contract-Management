@@ -203,20 +203,31 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
  * 物资一/二级分类字典同步（业务 2026-10-18 提供的分类表）。
  *
  * - 一级 → `material_category`；二级 → `material_type`（`extField1` = 一级编码）；
- * - **upsert 规范项 + 表外项置停用**（不删除，历史引用仍可追溯）；
- * - 历史日报编码按 `LEGACY_CATEGORY_CODE_MAP` 幂等迁移，物资基础库的旧名称按
- *   `LEGACY_CATEGORY_NAME_MAP` 幂等改名；
- * - 旧的重复字典 `material_category_l1/l2`（代码从未引用）一并停用。
+ * - **只在首次（或分类表版本升级）做全量同步**：upsert 规范项 + 表外旧项置停用 +
+ *   历史编码/名称迁移；之后每次启动只补齐缺失的规范项，**不覆盖字典管理里手工维护的**
+ *   名称/颜色/排序/启停，也不停用业务新增的分类（字典驱动必须可维护）。
+ * - 同步版本记录在系统参数 `material.category.sync.version`。
  */
+const MATERIAL_CATEGORY_SYNC_KEY = 'material.category.sync.version';
+const MATERIAL_CATEGORY_SYNC_VERSION = '2026-10-18';
+
 async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
+  const marker = await prisma.sysParam.findUnique({
+    where: { key: MATERIAL_CATEGORY_SYNC_KEY },
+    select: { value: true },
+  });
+  const applied = marker?.value === MATERIAL_CATEGORY_SYNC_VERSION;
+  /** 首次同步时覆盖规范项；之后只补缺失（create-only） */
+  const upd = <T>(v: T): T | Record<string, never> => (applied ? {} : v);
+
   await prisma.dictType.upsert({
     where: { code: 'material_category' },
-    update: { name: '材料类别（物资一级分类）', status: 1 },
+    update: upd({ name: '材料类别（物资一级分类）', status: 1 }),
     create: { code: 'material_category', name: '材料类别（物资一级分类）', sort: 7, status: 1, isSystem: true, scope: 'GLOBAL' },
   });
   await prisma.dictType.upsert({
     where: { code: 'material_type' },
-    update: { name: '物资种类（二级分类，关联材料类别）', status: 1 },
+    update: upd({ name: '物资种类（二级分类，关联材料类别）', status: 1 }),
     create: {
       code: 'material_type',
       name: '物资种类（二级分类，关联材料类别）',
@@ -232,7 +243,7 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
   for (const it of MATERIAL_CATEGORY_L1) {
     await prisma.dictItem.upsert({
       where: { typeCode_itemCode: { typeCode: 'material_category', itemCode: it.code } },
-      update: { itemName: it.name, sortOrder: it.sortOrder, status: 1, color: it.color, extField1: null },
+      update: upd({ itemName: it.name, sortOrder: it.sortOrder, status: 1, color: it.color, extField1: null }),
       create: {
         typeCode: 'material_category',
         itemCode: it.code,
@@ -247,7 +258,7 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
     const color = colorOf.get(it.parent) ?? 'default';
     await prisma.dictItem.upsert({
       where: { typeCode_itemCode: { typeCode: 'material_type', itemCode: it.code } },
-      update: { itemName: it.name, sortOrder: it.sortOrder, status: 1, color, extField1: it.parent },
+      update: upd({ itemName: it.name, sortOrder: it.sortOrder, status: 1, color, extField1: it.parent }),
       create: {
         typeCode: 'material_type',
         itemCode: it.code,
@@ -260,38 +271,50 @@ async function seedMaterialCategoryDicts(prisma: PrismaClient): Promise<void> {
     });
   }
 
-  // 表外旧项停用（不删除）：下拉只展示 status=1 的规范项
-  await prisma.dictItem.updateMany({
-    where: { typeCode: 'material_category', itemCode: { notIn: MATERIAL_CATEGORY_L1.map((i) => i.code) } },
-    data: { status: 0 },
-  });
-  await prisma.dictItem.updateMany({
-    where: { typeCode: 'material_type', itemCode: { notIn: MATERIAL_CATEGORY_L2.map((i) => i.code) } },
-    data: { status: 0 },
-  });
+  if (!applied) {
+    // 表外旧项停用（不删除）：仅首次同步时清理旧种子数据
+    await prisma.dictItem.updateMany({
+      where: { typeCode: 'material_category', itemCode: { notIn: MATERIAL_CATEGORY_L1.map((i) => i.code) } },
+      data: { status: 0 },
+    });
+    await prisma.dictItem.updateMany({
+      where: { typeCode: 'material_type', itemCode: { notIn: MATERIAL_CATEGORY_L2.map((i) => i.code) } },
+      data: { status: 0 },
+    });
 
-  // 历史日报编码 → 新编码（幂等）
-  for (const m of LEGACY_CATEGORY_CODE_MAP) {
-    if (m.typeCode === 'material_category') {
-      await prisma.dailyReport.updateMany({ where: { materialCategory: m.from }, data: { materialCategory: m.to } });
-    } else {
-      await prisma.dailyReport.updateMany({ where: { materialType: m.from }, data: { materialType: m.to } });
+    // 历史日报编码 → 新编码（幂等）
+    for (const m of LEGACY_CATEGORY_CODE_MAP) {
+      if (m.typeCode === 'material_category') {
+        await prisma.dailyReport.updateMany({ where: { materialCategory: m.from }, data: { materialCategory: m.to } });
+      } else {
+        await prisma.dailyReport.updateMany({ where: { materialType: m.from }, data: { materialType: m.to } });
+      }
     }
-  }
-  // 物资基础库存的是名称：旧名称 → 新名称（幂等）
-  for (const m of LEGACY_CATEGORY_NAME_MAP) {
-    await prisma.materialBase.updateMany({ where: { [m.field]: m.from }, data: { [m.field]: m.to } });
-  }
+    // 物资基础库存的是名称：旧名称 → 新名称（幂等）
+    for (const m of LEGACY_CATEGORY_NAME_MAP) {
+      await prisma.materialBase.updateMany({ where: { [m.field]: m.from }, data: { [m.field]: m.to } });
+    }
 
-  // 停用历史遗留的重复字典（代码从未引用；保留数据以便追溯）
-  await prisma.dictType.updateMany({
-    where: { code: { in: ['material_category_l1', 'material_category_l2'] } },
-    data: { status: 0 },
-  });
-  await prisma.dictItem.updateMany({
-    where: { typeCode: { in: ['material_category_l1', 'material_category_l2'] } },
-    data: { status: 0 },
-  });
+    // 停用历史遗留的重复字典（代码从未引用；保留数据以便追溯）
+    await prisma.dictType.updateMany({
+      where: { code: { in: ['material_category_l1', 'material_category_l2'] } },
+      data: { status: 0 },
+    });
+    await prisma.dictItem.updateMany({
+      where: { typeCode: { in: ['material_category_l1', 'material_category_l2'] } },
+      data: { status: 0 },
+    });
+
+    await prisma.sysParam.upsert({
+      where: { key: MATERIAL_CATEGORY_SYNC_KEY },
+      update: { value: MATERIAL_CATEGORY_SYNC_VERSION },
+      create: {
+        key: MATERIAL_CATEGORY_SYNC_KEY,
+        value: MATERIAL_CATEGORY_SYNC_VERSION,
+        remark: '物资分类全量同步版本（升级分类表时递增；之后启动不覆盖手工维护项）',
+      },
+    });
+  }
 }
 
 /**

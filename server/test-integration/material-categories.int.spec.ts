@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { bootIntApp, uniq, type IntContext } from './helpers';
 import { MaterialService } from '../src/modules/material/material.service';
 import { DictService } from '../src/modules/dict/dict.service';
+import { fixLegacyData } from '../src/seed';
 
 /**
  * 集成测试 · 物资一/二级分类字典（业务 2026-10-18 分类表）。
@@ -105,5 +106,34 @@ describe('集成 · 物资分类字典与基础库引用', () => {
     assert.ok(optionValues.has('智慧工地'));
     assert.ok(optionValues.has('钢模板'));
     assert.ok(optionValues.has('绿色施工'));
+  });
+
+  it('再次启动同步不覆盖字典管理里手工维护的分类', async () => {
+    const custom = await ctx.prisma.dictItem.create({
+      data: {
+        typeCode: 'material_type',
+        itemCode: `CUSTOM_${uniq('X').toUpperCase()}`,
+        itemName: '自定义分类',
+        status: 1,
+        extField1: 'ENG',
+      },
+    });
+    const canonical = await ctx.prisma.dictItem.findUnique({
+      where: { typeCode_itemCode: { typeCode: 'material_category', itemCode: 'ENG' } },
+    });
+    assert.ok(canonical);
+    await ctx.prisma.dictItem.update({ where: { id: canonical!.id }, data: { itemName: '工程材料（自定义）' } });
+
+    await fixLegacyData(ctx.prisma);
+
+    const customAfter = await ctx.prisma.dictItem.findUnique({ where: { id: custom.id } });
+    assert.equal(customAfter?.status, 1, '业务新增分类不得被启动同步停用');
+    assert.equal(customAfter?.itemName, '自定义分类');
+    const canonicalAfter = await ctx.prisma.dictItem.findUnique({ where: { id: canonical!.id } });
+    assert.equal(canonicalAfter?.itemName, '工程材料（自定义）', '手工改名不得被启动同步回滚');
+
+    // 还原，避免影响同文件后续/重复运行
+    await ctx.prisma.dictItem.update({ where: { id: canonical!.id }, data: { itemName: '工程材料' } });
+    await ctx.prisma.dictItem.delete({ where: { id: custom.id } });
   });
 });

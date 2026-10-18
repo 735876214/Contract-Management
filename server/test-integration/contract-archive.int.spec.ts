@@ -4,6 +4,7 @@ import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntCont
 import { ContractService } from '../src/modules/contract/contract.service';
 import { SettlementService } from '../src/modules/settlement/settlement.service';
 import { ReceiptOrderService } from '../src/modules/receipt-order/receipt-order.service';
+import { SysParamService } from '../src/common/services/sys-param.service';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, SETTLEMENT_STATUS } from '../src/constants/statuses';
 
 /**
@@ -15,12 +16,14 @@ describe('集成 · 合同归档锁定', () => {
   let contracts: ContractService;
   let settle: SettlementService;
   let receipts: ReceiptOrderService;
+  let sysParam: SysParamService;
 
   before(async () => {
     ctx = await bootIntApp();
     contracts = ctx.get<ContractService>(ContractService);
     settle = ctx.get<SettlementService>(SettlementService);
     receipts = ctx.get<ReceiptOrderService>(ReceiptOrderService);
+    sysParam = ctx.get<SysParamService>(SysParamService);
   });
   after(async () => {
     await ctx.app.close();
@@ -124,5 +127,93 @@ describe('集成 · 合同归档锁定', () => {
     await ctx.prisma.settlement.delete({ where: { id: draft.id } });
     const ok: any = await contracts.archiveCheck(contract.id, project.id);
     assert.equal(ok.canArchive, true, JSON.stringify(ok.blockers));
+  });
+
+  it('归档检查遵循 require_confirmed 开关：关闭时未确认日报也阻断', async () => {
+    const project = await makeProject(ctx.prisma, 'ARC-4');
+    const contract = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      amount: 1000,
+      status: CONTRACT_STATUS.SIGNED,
+    });
+    await ctx.prisma.contract.update({
+      where: { id: contract.id },
+      data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_SETTLED },
+    });
+    await ctx.prisma.dailyReport.create({
+      data: {
+        projectId: project.id,
+        contractId: contract.id,
+        entryDate: new Date(2026, 8, 10),
+        settleQty: 5,
+        confirmStatusCode: 'PENDING',
+      },
+    });
+    await sysParam.set('settlement.require_confirmed', 'false');
+    try {
+      const check: any = await contracts.archiveCheck(contract.id, project.id);
+      assert.equal(check.canArchive, false);
+      assert.ok(check.blockers.some((b: string) => b.includes('未纳入结算的总日报行')));
+    } finally {
+      await sysParam.set('settlement.require_confirmed', 'true');
+    }
+  });
+
+  it('归档覆盖补充协议链：链成员一起锁定，且不能新增补充协议', async () => {
+    const project = await makeProject(ctx.prisma, 'ARC-5');
+    const main = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      amount: 1000,
+      status: CONTRACT_STATUS.SIGNED,
+    });
+    const supplement = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      code: uniq('ARC-SUP').toUpperCase(),
+      name: uniq('归档补充协议'),
+      status: CONTRACT_STATUS.SIGNED,
+      isSupplement: 'Y',
+      parentContractId: main.id,
+      changeAmount: 100,
+    });
+    await ctx.prisma.contract.updateMany({
+      where: { id: { in: [main.id, supplement.id] } },
+      data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_SETTLED },
+    });
+
+    await contracts.archive(main.id, project.id, { username: 'tester' });
+    const [m, s] = await Promise.all([
+      ctx.prisma.contract.findUnique({ where: { id: main.id } }),
+      ctx.prisma.contract.findUnique({ where: { id: supplement.id } }),
+    ]);
+    assert.ok(m?.archivedAt, '主合同应归档');
+    assert.ok(s?.archivedAt, '补充协议应随链一起归档');
+
+    await assert.rejects(
+      () => contracts.update(supplement.id, { remark: 'x', version: s!.version }, null),
+      /合同已归档/,
+    );
+    await assert.rejects(
+      () =>
+        contracts.create(
+          {
+            code: uniq('ARC-SUP2').toUpperCase(),
+            name: uniq('归档后新增补充协议'),
+            isSupplement: 'Y',
+            parentContractId: main.id,
+            supplementTypeCode: 'PRICE_UP',
+          },
+          project.id,
+          { userId: 'u1', username: 'tester' },
+        ),
+      /父合同已归档/,
+    );
+  });
+
+  it('合同删除按 projectId 隔离：不能删除其他项目的合同', async () => {
+    const p1 = await makeProject(ctx.prisma, 'ARC-6A');
+    const p2 = await makeProject(ctx.prisma, 'ARC-6B');
+    const contract = await makeContract(ctx.prisma, { projectId: p1.id, amount: 100 });
+    await assert.rejects(() => contracts.remove(contract.id, p2.id), /合同不存在/);
+    assert.equal(await contracts.remove(contract.id, p1.id), true);
   });
 });

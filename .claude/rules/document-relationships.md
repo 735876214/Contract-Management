@@ -59,8 +59,12 @@
   保证「表头金额 = Σ 明细合价」；生成后**允许在结算单上修改**。
 - **缺 `materialBaseId` 的日报行**无法形成清单项级明细：计入 `skippedRows` 并返回 `warnings`
   （前端提示物资名称），**不静默吞掉**；全部行都带不出明细的合同不生成空壳结算单。
+- **有金额但 `settleQty` 为空/≤0 的日报行**同样不参与聚合（也不混入同物资的加权平均，避免异常税率），
+  计入 `skippedNoQtyRows` 并返回 `warnings`，提示补数量后手工调整。
 - **收领单只回挂 `settlementId`**（发票/台账按关联归集需要），**不再参与明细金额计算**。
 - **幂等**：同合同同期已有结算单 → 跳过；本期迟到的收领单补挂到已有结算单、**不改金额**。
+- `generateForPeriod()` 的「结算单头 + 明细 + 收领单回挂」在**同一事务**内完成；
+  失败不会留下「有单头、无明细」的孤儿结算单（否则重跑会因同期已有单而永远跳过）。
 - 实现：纯函数 `server/src/common/utils/settlement-from-daily.ts` +
   `settlement.service.generateForPeriod()` / `previewPreviousPeriod()`。
   锁定：`server/test/settlementFromDaily.spec.mts` +
@@ -84,6 +88,8 @@
 ### 5.2 归档锁定（单向，已实施 2026-10-18）
 
 - `Contract.archivedAt` / `archivedBy`（迁移 `20261107000000_contract_archive`）；**单向归档，不提供解除归档**。
+- **归档以合同链为单位**：主合同与其直接补充协议一起写 `archivedAt` 并锁定；
+  已归档父合同**不允许新增补充协议**（`create()` 400）。
 - 归档前检查下游完整性（完整项见 §5.2 下方），未通过则 400 并逐条列出原因；
   检查实现：纯函数 `server/src/common/utils/contract-archive.ts` +
   `contract.service.archiveCheck()`；端点 `GET /contracts/:id/archive-check`、
@@ -91,8 +97,8 @@
   - 合同未签章；
   - 存在草稿结算单；
   - 存在未完成总结算单；
-  - 存在未纳入结算的总日报行 / 收领单（总日报无 `settlementId`，按“该合同存在已确认日报行、
-    但无对应结算单/结算明细”判断）；
+  - 存在未纳入结算的总日报行 / 收领单（是否只算「已确认」日报按 `settlement.require_confirmed` 开关，
+    与结算生成同一口径）；
   - 有下游单据但合同未「已完已结」（`execStatus = DONE_SETTLED`）。
 - 归档后锁定范围：
 

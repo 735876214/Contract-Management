@@ -31,6 +31,33 @@ export function assetDirectionOf(sourceCode: string | null | undefined): AssetFl
   return ASSET_FLOW_DIRECTION.UNKNOWN;
 }
 
+/**
+ * 资产台账列表的 `sourceCode` 过滤条件（来源与方向**取交集**，不是后者覆盖前者）。
+ * - 只传来源 → 该来源；
+ * - 只传方向 → 方向对应的来源集合；
+ * - 两者都传且来源属于该方向 → 该来源；来源不属于该方向 → `{ in: [] }`（空结果）；
+ * - 都没传 → `null`（不加条件）。
+ */
+export function resolveAssetSourceFilter(
+  sourceCode?: string | null,
+  direction?: string | null,
+): string | { in: string[] } | null {
+  const d = String(direction ?? '').toUpperCase();
+  const inList =
+    d === ASSET_FLOW_DIRECTION.IN
+      ? [...ASSET_IN_SOURCES]
+      : d === ASSET_FLOW_DIRECTION.OUT
+        ? [...ASSET_OUT_SOURCES]
+        : d === ASSET_FLOW_DIRECTION.FEE
+          ? [...ASSET_FEE_SOURCES]
+          : null;
+  const code = String(sourceCode ?? '').trim().toUpperCase();
+  if (code && inList) return (inList as string[]).includes(code) ? code : { in: [] };
+  if (code) return code;
+  if (inList) return { in: inList };
+  return null;
+}
+
 export interface AssetFlowRow {
   sourceCode?: string | null;
   qty?: unknown;

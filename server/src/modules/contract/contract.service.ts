@@ -187,6 +187,8 @@ export class ContractService {
       select: { settlementStartDate: true },
     });
     const startDay = startDayOf(project?.settlementStartDate);
+    // 结算口径开关：关闭时未确认日报也参与结算，归档检查必须同样统计它们
+    const gated = String(await this.sysParam.get('settlement.require_confirmed', 'true')).toLowerCase() !== 'false';
 
     const [settlements, receiptsTotal, unsettledReceipts, finals, invoiceCount, pendingInvoices, paymentCount, dailyRows, paidSum, settledAmount] =
       await Promise.all([
@@ -208,7 +210,11 @@ export class ContractService {
         }),
         this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
         this.prisma.dailyReport.findMany({
-          where: { projectId, contractId: { in: chainIds }, confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED },
+          where: {
+            projectId,
+            contractId: { in: chainIds },
+            ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
+          },
           select: { entryDate: true },
         }),
         this.prisma.paymentRecord.aggregate({
@@ -266,21 +272,25 @@ export class ContractService {
       throw new BadRequestException(`合同归档前需先完成以下事项：${check.blockers.join('；')}`);
     }
     const operator = user?.realName || user?.username || '系统';
-    await this.prisma.contract.update({
-      where: { id },
+    // 归档以**合同链**为单位：主合同与其补充协议一起锁定（否则归档后可继续新增/修改补充协议）
+    const chainIds = await contractChainIds(this.prisma, id);
+    await this.prisma.contract.updateMany({
+      where: { id: { in: chainIds } },
       data: { archivedAt: new Date(), archivedBy: operator, version: { increment: 1 } },
     });
-    await this.prisma.contractChangeLog.create({
-      data: {
-        contractId: id,
-        field: 'archivedAt',
-        fieldLabel: '归档',
-        beforeValue: null,
-        afterValue: operator,
-        operatorId: user?.userId || null,
-        operator,
-      },
-    });
+    if (chainIds.length) {
+      await this.prisma.contractChangeLog.createMany({
+        data: chainIds.map((contractId) => ({
+          contractId,
+          field: 'archivedAt',
+          fieldLabel: '归档',
+          beforeValue: null,
+          afterValue: operator,
+          operatorId: user?.userId || null,
+          operator,
+        })),
+      });
+    }
     return this.findOne(id);
   }
 
@@ -1048,6 +1058,7 @@ export class ContractService {
       if (!parent) throw new BadRequestException('父合同不存在');
       if (parent.isSupplement === 'Y') throw new BadRequestException('补充协议不能再派生补充协议，请选择主合同');
       if (parent.projectId !== projectId) throw new BadRequestException('父合同与当前项目不一致');
+      if (parent.archivedAt) throw new BadRequestException('父合同已归档，不能新增补充协议');
       if (!data.supplementSeq) {
         const count = await db.contract.count({ where: { parentContractId: data.parentContractId } });
         data.supplementSeq = count + 1;
@@ -1185,21 +1196,22 @@ export class ContractService {
     return this.prisma.contractChangeLog.findMany({ where: { contractId: id }, orderBy: { createdAt: 'desc' } });
   }
 
-  async remove(id: string) {
+  async remove(id: string, projectId: string) {
+    const exists = await this.prisma.contract.findFirst({ where: { id, projectId }, select: { id: true } });
+    if (!exists) throw new NotFoundException('合同不存在');
     await this.assertNotArchived(id, '删除合同');
-    await this.findOne(id);
     /**
      * 有下游单据的合同不允许物理删除（改为归档）：新表外键为 Restrict，
      * 不先拦会由数据库抛 500；这里给出可操作的 400 提示。
      */
     const chainIds = await contractChainIds(this.prisma, id);
     const [receipts, settlements, daily, finals, invoices, payments] = await Promise.all([
-      this.prisma.receiptOrder.count({ where: { materialContractId: { in: chainIds } } }),
-      this.prisma.settlement.count({ where: { contractId: { in: chainIds } } }),
-      this.prisma.dailyReport.count({ where: { contractId: { in: chainIds } } }),
-      this.prisma.finalSettlement.count({ where: { contractId: { in: chainIds } } }),
-      this.prisma.invoice.count({ where: { contractId: { in: chainIds } } }),
-      this.prisma.paymentRecord.count({ where: { contractId: { in: chainIds } } }),
+      this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
+      this.prisma.settlement.count({ where: { projectId, contractId: { in: chainIds } } }),
+      this.prisma.dailyReport.count({ where: { projectId, contractId: { in: chainIds } } }),
+      this.prisma.finalSettlement.count({ where: { projectId, contractId: { in: chainIds } } }),
+      this.prisma.invoice.count({ where: { projectId, contractId: { in: chainIds } } }),
+      this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
     ]);
     if (receipts + settlements + daily + finals + invoices + payments > 0) {
       throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款），不能删除合同，请改为归档');

@@ -46,6 +46,8 @@ export interface DailyToItemsResult {
   skippedRowCount: number;
   /** 被跳过的行用到的物资名称（去重，最多 5 个） */
   skippedNames: string[];
+  /** 有物资主数据但结算数量为空/≤0 的行数（金额无法按数量口径结算，需人工补数量） */
+  skippedNoQtyRowCount: number;
 }
 
 const num = (v: unknown): number | null => {
@@ -90,6 +92,7 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
   const groups = new Map<string, Group>();
   const skippedNames: string[] = [];
   let skippedRowCount = 0;
+  let skippedNoQtyRowCount = 0;
 
   for (const r of rows) {
     const materialBaseId = (r.materialBaseId || '').trim();
@@ -100,7 +103,13 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
       continue;
     }
 
-    const qty = num(r.settleQty) ?? 0;
+    const qty = num(r.settleQty);
+    // 结算明细是**数量口径**：没有结算数量（空/0/负数）的行不能形成合价，
+    // 也不能把它的金额混进同物资的加权平均（否则会算出异常税率/单价）。
+    if (qty == null || qty <= 0) {
+      skippedNoQtyRowCount++;
+      continue;
+    }
     const before = num(r.priceBeforeTax);
     const after = num(r.priceAfterTax);
     const tax = num(r.taxRate);
@@ -136,12 +145,14 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     groups.set(materialBaseId, g);
   }
 
-  const items: SettlementItemDraft[] = [...groups.values()].map((g, i) => {
+  const items: SettlementItemDraft[] = [];
+  for (const g of groups.values()) {
+    // 分组阶段已排除无数量行；这里保留防御性判断
+    if (g.qty <= 0) continue;
     // 税前单价：优先加权平均，缺金额时退回最近一条非空单价
     let priceBeforeTax =
-      g.qty > 0 && g.sumBefore != null ? round4(g.sumBefore / g.qty) : g.lastBefore;
-    const targetAfter =
-      g.qty > 0 && g.sumAfter != null ? round4(g.sumAfter / g.qty) : g.lastAfter;
+      g.sumBefore != null ? round4(g.sumBefore / g.qty) : g.lastBefore;
+    const targetAfter = g.sumAfter != null ? round4(g.sumAfter / g.qty) : g.lastAfter;
 
     // 税率：优先由「含税 / 税前」反推（保证合价与总金额一致），否则用数量加权税率，再否则最近一条
     let taxRatePct: number | null = null;
@@ -159,12 +170,12 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     }
 
     const priceWithTax = normalizePrice(priceBeforeTax, taxRatePct);
-    const totalWithTax = priceWithTax != null && g.qty > 0 ? round2(priceWithTax * g.qty) : null;
+    const totalWithTax = priceWithTax != null ? round2(priceWithTax * g.qty) : null;
     const source = g.receiptNos.length
       ? `来自总日报（收领单 ${g.receiptNos.join('、')}）`
       : '来自总日报';
 
-    return {
+    items.push({
       materialBaseId: g.materialBaseId,
       qty: round4(g.qty),
       priceBeforeTax,
@@ -172,10 +183,10 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
       priceWithTax,
       totalWithTax,
       remark: source,
-      sortOrder: i + 1,
-    };
-  });
+      sortOrder: items.length + 1,
+    });
+  }
 
   const amount = round2(items.reduce((s, it) => s + (it.totalWithTax ?? 0), 0));
-  return { items, amount, skippedRowCount, skippedNames };
+  return { items, amount, skippedRowCount, skippedNames, skippedNoQtyRowCount };
 }

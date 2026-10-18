@@ -71,10 +71,23 @@ describe('结算明细 · 从总日报带出', () => {
     assert.equal(res.amount, 0);
   });
 
+  it('有金额但结算数量为空/0 的行不静默丢：计入 skippedNoQtyRowCount', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'm7', settleQty: null, priceBeforeTax: 100, taxRate: 13, amountAfterTax: 500 },
+      { materialBaseId: 'm8', settleQty: 0, priceBeforeTax: 50, taxRate: 0, amountAfterTax: 80 },
+      { materialBaseId: 'm9', settleQty: 2, priceBeforeTax: 10, taxRate: 0 },
+    ]);
+    assert.equal(res.skippedNoQtyRowCount, 2);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].materialBaseId, 'm9');
+    assert.equal(res.amount, 20);
+  });
+
   it('空行返回空明细与 0 金额', () => {
     const res = buildSettlementItemsFromDailyRows([]);
     assert.deepEqual(res.items, []);
     assert.equal(res.amount, 0);
     assert.equal(res.skippedRowCount, 0);
+    assert.equal(res.skippedNoQtyRowCount, 0);
   });
 });

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assetDirectionOf,
+  resolveAssetSourceFilter,
   summarizeAssetFlow,
   ASSET_FLOW_DIRECTION,
 } from '../src/common/utils/asset-flow.ts';
@@ -46,5 +47,16 @@ describe('物资进出场方向与汇总', () => {
     assert.equal(s.outAmount, null);
     assert.equal(s.feeAmount, null);
     assert.deepEqual(s.bySource, []);
+  });
+
+  it('来源与方向筛选取交集（不静默覆盖）', () => {
+    assert.equal(resolveAssetSourceFilter('PURCHASE', null), 'PURCHASE');
+    assert.deepEqual(resolveAssetSourceFilter(null, 'IN'), { in: ['PURCHASE', 'TRANSFER_IN'] });
+    // 来源属于方向 → 该来源
+    assert.equal(resolveAssetSourceFilter('PURCHASE', 'IN'), 'PURCHASE');
+    // 来源不属于方向 → 空结果
+    assert.deepEqual(resolveAssetSourceFilter('PURCHASE', 'OUT'), { in: [] });
+    // 都没传 → 不加条件
+    assert.equal(resolveAssetSourceFilter(null, null), null);
   });
 });
