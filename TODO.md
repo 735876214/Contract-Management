@@ -9,16 +9,13 @@
 
 > 分组依据是**阻塞条件**（而不是"优先级"）：标着"可直接开工"却全是阻塞项，会让人排错期。
 > **例外**：「四域扩展」的评估与主链路口径已定（决策留痕见 `git log` 与
-> [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md)），仅「需业务澄清」区有 2 条
-> **默认口径待复核**（不阻塞文档与设计）；故其内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
+> [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md)），仅「需业务澄清」区有 1 条
+> **默认口径待复核**（不阻塞已实施的结算口径与后续设计）；故其内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
 > 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
 > 故此项已按业务澄清从待办中移除。
 
 ## 需业务澄清（澄清前不要动手）
 
-- **手工录入的总日报行是否全部参与结算自动带出**：默认**参与**（与收领单推送的行同属来源），
-  并按现场确认状态过滤（`settlement.require_confirmed`，默认开）；若业务要求仅收领单推送的行参与，
-  需在「结算生成口径对齐」时明确。
 - **归档后是否允许补录发票/付款**：默认**允许**（归档只锁合同/收领单/结算/总结算的写操作，
   发票/付款在归档检查中给 warning）；若要求全锁，另立决策。
 
@@ -54,14 +51,12 @@
 > **采购订单/对账由外部系统承接**（本项目不建 `PurchaseOrder`/`Reconciliation`），主链路为
 > `采购任务/招标定标 → 合同 → 收领单 → 总日报 → 结算单 → 付款/发票`。
 > **招标域已实施**（迁移 `20261019000000_tender_bidder_and_evaluation`，约定见
-> [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；下面按依赖顺序排列，尚未实施。
+> [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
+> **结算生成口径已按总日报落地**（2026-10-18：明细从总日报带出、可改，见
+> [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4）；下面为剩余任务，按依赖顺序排列。
 
 ### 待实施 · 先设计后开发
 
-- **结算生成口径对齐（先做）**：结算单必须在**总日报之后**生成；结算明细**从总日报带出（按物资聚合），
-  允许人工修改**。现状 `settlement.service.generateForPeriod()` 按「期内未挂结算单的收领单」聚合
-  （收领单会推送总日报，但手工日报行不参与），需按总日报口径对齐；保留现场确认过滤
-  （`settlement.require_confirmed`）、同合同同期唯一、重跑幂等与台账刷新。
 - **合同增强**：履约派生进度（零表）→ 归档锁定（单向；锁合同/收领单/结算/总结算写操作，
   不锁发票/付款/读取导出）→（按需）`ContractFulfillment`。
 - **进出场**：只做物资，复用 `ReceiptOrder` / `DailyReport` / `AssetLedger`，不建新表；

@@ -114,13 +114,13 @@ function SettlementsTab({
       .catch(() => setPending(null));
   }, [listRefresh]);
 
-  /** 生成本期结算：抓取上一期未挂结算单的收领单，按合同各生成一张草稿结算单（服务端幂等） */
+  /** 生成本期结算：从上一期总日报带出明细，按合同各生成一张草稿结算单（服务端幂等） */
   const doGenerate = (refDate?: string) => {
     Modal.confirm({
       title: `生成本期结算${pending?.month ? `（${pending.month}）` : ''}`,
       content: pending
-        ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内「未挂结算单」的收领单，按物资合同各生成一张草稿结算单；已有结算单的合同会自动跳过。`
-        : '将抓取上一期内未挂结算单的收领单，按物资合同各生成一张草稿结算单。',
+        ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内的总日报行（含收领单推送与手工录入），按物资合同各生成一张草稿结算单；结算明细从总日报带出后可修改，已有结算单的合同会自动跳过。`
+        : '将从上一期总日报带出结算明细，按物资合同各生成一张草稿结算单。',
       okText: '生成',
       cancelText: '取消',
       onOk: async () => {
@@ -128,7 +128,20 @@ function SettlementsTab({
         message.success(`已生成 ${res?.created ?? 0} 张，跳过 ${res?.skipped ?? 0} 张`);
         // 0 元结算单照常生成（数据没录全时金额算不出来），但必须提醒，否则会被直接提交
         if (res?.zeroAmount) {
-          message.warning(`其中 ${res.zeroAmount} 张金额为 0：收领单明细没有含税单价，请核对后补金额`);
+          message.warning(`其中 ${res.zeroAmount} 张金额为 0：日报行没有含税单价，请核对后补金额`);
+        }
+        // 缺物资主数据的日报行无法形成清单项级明细，服务端已跳过并返回明细原因
+        if (res?.warnings?.length) {
+          Modal.warning({
+            title: `有 ${res.skippedRows ?? 0} 条总日报行未带出明细`,
+            content: (
+              <div>
+                {res.warnings.map((w: string, i: number) => (
+                  <div key={i}>{w}</div>
+                ))}
+              </div>
+            ),
+          });
         }
         refreshList();
       },
@@ -199,7 +212,7 @@ function SettlementsTab({
           showIcon
           style={{ marginBottom: 12 }}
           message={`上一期（${pending.month}）还有 ${pending.pendingContracts} 个合同的结算单未生成`}
-          description={`结算期 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)}，期间有 ${pending.orderCount} 张尚未结转的收领单。`}
+          description={`结算期 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)}，期间有 ${pending.dailyRowCount ?? pending.orderCount} 条尚未纳入结算的总日报行。`}
           action={
             <Button size="small" type="primary" onClick={() => doGenerate()}>
               立即生成

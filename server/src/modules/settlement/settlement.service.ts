@@ -9,7 +9,8 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
-import { assertSettlementRejectable, SETTLEMENT_STATUS } from '../../constants/workflowGuards';
+import { assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
+import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
@@ -539,6 +540,16 @@ export class SettlementService {
   }
 
   /**
+   * 结算口径是否只认「已确认」的现场记录（系统参数 `settlement.require_confirmed`，默认 true）。
+   * 与 `daily-report.service.requireConfirmed()` 同一口径——结算生成从总日报带出明细后，
+   * 这里也必须在查询日报行时套同一层过滤，否则开关会只对部分入口生效。
+   */
+  private async requireConfirmed(): Promise<boolean> {
+    const v = await this.sysParam.get('settlement.require_confirmed', 'true');
+    return String(v).toLowerCase() !== 'false';
+  }
+
+  /**
    * 同合同 + **同一结算期**的那张结算单 id（没有 → `null`）—— 发票/收领单**自动匹配**的口径。
    *
    * 「同一结算期」而不是「同一自然月」：起始日不是 1 日时两者会错开
@@ -707,16 +718,21 @@ export class SettlementService {
   async previewPreviousPeriod(projectId: string, refDate?: string) {
     const startDay = await this.startDayOf(projectId);
     const period = previousSettlementPeriod(startDay, refDate ? new Date(refDate) : new Date());
-    const orders = await this.prisma.receiptOrder.findMany({
+    const gated = await this.requireConfirmed();
+    /**
+     * 结算来源 = **总日报行**（业务口径 2026-10-18：有总日报之后才有结算单）。
+     * 收领单推送的日报行与手工录入的日报行同属来源；`require_confirmed` 开启时只算「已确认」行。
+     */
+    const rows = await this.prisma.dailyReport.findMany({
       where: {
         projectId,
-        settlementId: null,
-        materialContractId: { not: null },
-        orderDate: { gte: period.start, lt: period.endExclusive },
+        contractId: { not: null },
+        entryDate: { gte: period.start, lt: period.endExclusive },
+        ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
       },
-      select: { id: true, materialContractId: true },
+      select: { id: true, contractId: true },
     });
-    const contractIds = [...new Set(orders.map((o: any) => o.materialContractId))];
+    const contractIds = [...new Set(rows.map((r: any) => r.contractId as string))];
     // 已有结算单的合同不算"待生成"（同合同同期唯一，重跑会跳过）
     const existing = await this.prisma.settlement.findMany({
       where: { projectId, contractId: { in: contractIds }, settleDate: { gte: period.start, lt: period.endExclusive } },
@@ -729,24 +745,29 @@ export class SettlementService {
       startDate: formatDay(period.start),
       endDate: formatDay(period.end),
       startDay,
-      /** 期间内未挂结算单的收领单张数 */
-      orderCount: orders.length,
+      /** 期间内参与结算口径的总日报行数 */
+      dailyRowCount: rows.length,
+      /** 兼容旧前端字段：语义已改为"总日报行数" */
+      orderCount: rows.length,
       /** 还需要生成结算单的合同数 */
       pendingContracts: pending.length,
-      /** 期间内完全没有收领单（前端据此提示"本期无可结算数据"而不是"去生成"） */
-      empty: orders.length === 0,
+      /** 期间内完全没有可结算的日报行（前端据此提示"本期无可结算数据"而不是"去生成"） */
+      empty: rows.length === 0,
     };
   }
 
   /**
-   * **生成本期（默认上一期）结算单**（业务口径 2026-10-16）。
+   * **生成本期（默认上一期）结算单**（业务口径 2026-10-18）。
    *
-   * 抓取来源 = 该期间内**未挂结算单**的收领单（`orderDate` 在期内、`settlementId` 为空），
-   * 按**物资合同**（`ReceiptOrder.materialContractId`）分组：每个合同生成**一张草稿**结算单，
-   * 金额 = Σ(实收数量 × 含税单价)，`settleDate` = **期末**（台账的 `settleMonth` 由它派生，
-   * 两边必须同口径），并把参与的收领单回挂到这张结算单上。
+   * 来源 = 该期间内的**总日报行**（`DailyReport`，按 `contractId` 归合同、`entryDate` 分期；
+   * `settlement.require_confirmed` 开启时只算「已确认」行）。每个合同生成**一张草稿**结算单，
+   * 明细按物资（`materialBaseId`）聚合并从日报行带出——**数量/单价/税率可由人在结算单上修改**；
+   * `settleDate` = **期末**（台账 `settleMonth` 由它派生，两边必须同口径）。
    *
-   * **幂等**：同一合同同一期已有结算单 → 跳过（`skipped` 计数），并把该合同本期**尚未挂单**的
+   * 收领单仍按 id **回挂**到本期结算单上（发票/台账按关联归集需要）；但明细金额**不再从收领单明细算**，
+   * 这是“总日报是结算量唯一来源”的落点。
+   *
+   * **幂等**：同一合同同一期已有结算单 → 跳过（`skipped` 计数），并把该合同本期尚未挂单的
    * 收领单补挂到那张已有结算单上（补关联、**不改金额**；金额定稿后不由服务端擅自改动）。
    * 重跑不会重复生成结算单；并发下即使两个请求同时通过预检，`create()` 的同期唯一校验也会拦下后一个，
    * 这里把它算作"跳过"。
@@ -760,7 +781,31 @@ export class SettlementService {
   ) {
     const startDay = await this.startDayOf(projectId);
     const period = previousSettlementPeriod(startDay, opts.refDate ? new Date(opts.refDate) : new Date());
-    const orders = await this.prisma.receiptOrder.findMany({
+    const gated = await this.requireConfirmed();
+    // 结算明细来源：期内总日报行（业务口径 2026-10-18）
+    const dailyRows = await this.prisma.dailyReport.findMany({
+      where: {
+        projectId,
+        contractId: { not: null },
+        entryDate: { gte: period.start, lt: period.endExclusive },
+        ...(opts.contractId ? { contractId: opts.contractId } : {}),
+        ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
+      },
+      select: {
+        contractId: true,
+        materialBaseId: true,
+        materialName: true,
+        receiptNo: true,
+        settleQty: true,
+        priceBeforeTax: true,
+        taxRate: true,
+        priceAfterTax: true,
+        amountBeforeTax: true,
+        amountAfterTax: true,
+      },
+    });
+    // 收领单只用于回挂（发票/台账按关联归集），不再参与明细金额计算
+    const receipts = await this.prisma.receiptOrder.findMany({
       where: {
         projectId,
         settlementId: null,
@@ -768,26 +813,28 @@ export class SettlementService {
         ...(opts.contractId ? { materialContractId: opts.contractId } : {}),
         orderDate: { gte: period.start, lt: period.endExclusive },
       },
-      include: {
-        details: {
-          select: {
-            materialId: true, receivedQty: true, priceBeforeTax: true, taxRate: true, priceWithTax: true, unit: true,
-          },
-        },
-      },
+      select: { id: true, materialContractId: true },
     });
 
-    const byContract = new Map<string, any[]>();
-    for (const o of orders) {
+    const rowsByContract = new Map<string, any[]>();
+    for (const r of dailyRows) {
+      const cid = r.contractId as string;
+      const list = rowsByContract.get(cid) ?? [];
+      list.push(r);
+      rowsByContract.set(cid, list);
+    }
+    const receiptsByContract = new Map<string, any[]>();
+    for (const o of receipts) {
       const cid = o.materialContractId as string;
-      const list = byContract.get(cid) ?? [];
+      const list = receiptsByContract.get(cid) ?? [];
       list.push(o);
-      byContract.set(cid, list);
+      receiptsByContract.set(cid, list);
     }
 
-    const contracts: any[] = byContract.size
+    const contractIds = [...rowsByContract.keys()];
+    const contracts: any[] = contractIds.length
       ? await this.prisma.contract.findMany({
-          where: { id: { in: [...byContract.keys()] } },
+          where: { id: { in: contractIds } },
           select: { id: true, code: true },
         })
       : [];
@@ -795,64 +842,47 @@ export class SettlementService {
 
     let created = 0;
     let skipped = 0;
+    let skippedNoItems = 0;
+    let skippedRowCount = 0;
+    const warnings: string[] = [];
     const createdItems: any[] = [];
-    for (const [contractId, list] of byContract) {
+    for (const [contractId, list] of rowsByContract) {
       const existing = await this.findSettlementIdFor(contractId, period.end);
+      const contractReceipts = receiptsByContract.get(contractId) ?? [];
       if (existing) {
         /**
          * 该合同本期**已有结算单** → 不重复生成，但把这些尚未挂单的收领单**补挂**上去
          * （否则它们会一直悬空：本期再也不会被"抓取"到了）。
-         * ⚠️ 只补关联、**不动结算单金额** —— 金额可能已按当时的收领单定稿甚至已提交，
+         * ⚠️ 只补关联、**不动结算单金额** —— 金额可能已定稿甚至已提交，
          * 服务端不该悄悄改它；要改由人在结算单上改。
+         * `skipped` 只在确有新收领单需要补挂时 +1（与改造前语义一致：没有新数据不算“跳过一张”）。
          */
-        await this.prisma.receiptOrder.updateMany({
-          where: { id: { in: list.map((o: any) => o.id) } },
-          data: { settlementId: existing },
-        });
-        skipped++;
+        if (contractReceipts.length) {
+          await this.prisma.receiptOrder.updateMany({
+            where: { id: { in: contractReceipts.map((o: any) => o.id) } },
+            data: { settlementId: existing },
+          });
+          skipped++;
+        }
         continue;
       }
-      // 明细按 materialBaseId 聚合（清单项级结算明细，业务 2026-10-17）：
-      // qty = 当期实收合计；单价取该物资最近一条明细的税前价/税率（服务端重算综合单价与合价）
-      const byMaterial = new Map<string, { qty: number; priceBeforeTax: number | null; taxRatePct: number | null; remark: string }>();
-      let orderCount = 0;
-      for (const o of list) {
-        orderCount++;
-        for (const d of o.details || []) {
-          if (!d.materialId) continue;
-          const qty = num(d.receivedQty) || 0;
-          const hit = byMaterial.get(d.materialId);
-          if (hit) {
-            hit.qty += qty;
-          } else {
-            byMaterial.set(d.materialId, {
-              qty,
-              priceBeforeTax: num(d.priceBeforeTax),
-              taxRatePct: num(d.taxRate),
-              remark: `来自收领单明细（单位 ${d.unit || '-'}）`,
-            });
-          }
-        }
+
+      // 总日报行 → 清单项级结算明细（按 materialBaseId 聚合；带不出的行计入 skipped）
+      const built = buildSettlementItemsFromDailyRows(list);
+      skippedRowCount += built.skippedRowCount;
+      if (built.skippedRowCount > 0) {
+        warnings.push(
+          `${codeOf.get(contractId) || contractId}：${built.skippedRowCount} 条总日报行缺少物资主数据，未带出明细${
+            built.skippedNames.length ? `（${built.skippedNames.join('、')}…）` : ''
+          }`,
+        );
       }
-      const items = [...byMaterial.entries()].map(([materialBaseId, m], i) => ({
-        materialBaseId,
-        qty: m.qty,
-        priceBeforeTax: m.priceBeforeTax,
-        taxRatePct: m.taxRatePct,
-        remark: m.remark,
-        sortOrder: i + 1,
-      }));
-      const amount = round2(
-        list.reduce(
-          (s, o) =>
-            s +
-            (o.details || []).reduce(
-              (t: number, d: any) => t + (num(d.receivedQty) || 0) * (num(d.priceWithTax) || 0),
-              0,
-            ),
-          0,
-        ),
-      );
+      if (!built.items.length) {
+        // 全是无法带出的行（或来源行没有可结算数据）→ 不生成空壳结算单
+        skippedNoItems++;
+        continue;
+      }
+
       try {
         const settlement: any = await this.create(
           {
@@ -860,18 +890,22 @@ export class SettlementService {
             code: `JS${period.month.replace('-', '')}-${codeOf.get(contractId) || ''}`,
             typeCode: 'PROGRESS', // 月度结算按「进度款」记；如有异议可在结算单上改
             statusCode: SETTLEMENT_STATUS.DRAFT,
-            amount,
-            actualAmount: amount,
+            amount: built.amount,
+            actualAmount: built.amount,
             settleDate: period.end,
-            items,
-            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${orderCount} 张收领单）`,
+            items: built.items,
+            remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 条总日报行${
+              built.skippedRowCount ? `；${built.skippedRowCount} 条无物资主数据已跳过` : ''
+            }）`,
           },
           projectId,
         );
-        await this.prisma.receiptOrder.updateMany({
-          where: { id: { in: list.map((o: any) => o.id) } },
-          data: { settlementId: settlement.id },
-        });
+        if (contractReceipts.length) {
+          await this.prisma.receiptOrder.updateMany({
+            where: { id: { in: contractReceipts.map((o: any) => o.id) } },
+            data: { settlementId: settlement.id },
+          });
+        }
         // 回挂收领单后重刷台账（本期结算额/开票额都以结算单为准）
         await this.syncLedgerByContract(contractId);
         created++;
@@ -879,9 +913,10 @@ export class SettlementService {
           id: settlement.id,
           code: settlement.code,
           contractId,
-          amount,
-          items: items.length,
-          receiptOrders: list.length,
+          amount: built.amount,
+          items: built.items.length,
+          dailyRows: list.length,
+          receiptOrders: contractReceipts.length,
         });
       } catch (e: any) {
         // 并发下撞上"同合同同期唯一"：这与"已有结算单"是同一类结果，算跳过而不是报错
@@ -899,11 +934,19 @@ export class SettlementService {
       startDate: formatDay(period.start),
       endDate: formatDay(period.end),
       startDay,
-      receiptOrders: orders.length,
+      /** 期内参与结算口径的总日报行数 */
+      dailyRows: dailyRows.length,
+      /** 期内回挂到结算单的收领单数（明细金额不再取自收领单） */
+      receiptOrders: receipts.length,
       created,
       skipped,
+      /** 有日报行但全部缺少物资主数据、未能生成结算单的合同数 */
+      skippedNoItems,
+      /** 因缺少物资主数据而未能带出的日报行总数 */
+      skippedRows: skippedRowCount,
+      warnings,
       /**
-       * 金额为 0 的生成张数：收领单**明细没有含税单价**时（数据没录全）就会算出 0 元。
+       * 金额为 0 的生成张数：日报行**没有单价/金额**时（数据没录全）就会算出 0 元。
        * 这不是错误（照常生成草稿，由人补金额），但**必须提示**——否则 0 元结算单会被直接提交。
        */
       zeroAmount: createdItems.filter((i) => !i.amount).length,

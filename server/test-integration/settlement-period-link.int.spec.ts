@@ -5,7 +5,7 @@ import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntCont
 import { SettlementService } from '../src/modules/settlement/settlement.service';
 import { InvoiceService } from '../src/modules/invoice/invoice.service';
 import { ReceiptOrderService } from '../src/modules/receipt-order/receipt-order.service';
-import { SETTLEMENT_STATUS, INVOICE_STATUS } from '../src/constants/statuses';
+import { SETTLEMENT_STATUS, INVOICE_STATUS, SITE_CONFIRM_STATUS } from '../src/constants/statuses';
 
 /**
  * 集成测试 · **发票/收领单 ↔ 结算单关联** 与 **月度结算自动生成**（业务口径 2026-10-16）。
@@ -15,8 +15,9 @@ import { SETTLEMENT_STATUS, INVOICE_STATUS } from '../src/constants/statuses';
  *    （发票的实际开票日期在别的月份、只有账期落在本期时，也必须计入）；
  * ② 人工跨期关联 → 400（台账按「合同 + 结算期」汇总，跨期会让金额落到不属于它的行上）；
  * ③ 收领单保存 → 同样自动匹配；显式传 `null` 可解绑；
- * ④ **生成本期结算**：抓上一期未挂结算单的收领单，按物资合同分组各生成一张草稿结算单、
- *    金额 = Σ(实收数量 × 含税单价)、收领单回挂，且**重跑幂等**（跳过已有结算单的合同）；
+ * ④ **生成本期结算**：从上一期总日报带出明细（2026-10-18 口径），按物资合同分组各生成一张
+ *    草稿结算单、金额 = Σ 日报金额、收领单仅回挂关联，且**重跑幂等**（跳过已有结算单的合同）；
+ *    手工日报行同样参与；`require_confirmed` 开启时未确认行不计入。
  * ⑤ 项目的「月度结算起始日期」不是 1 日时，期跨自然月（起始日 26 → 期 9/26–10/25），
  *    9/28 的收领单仍与期末 10/25 的结算单**同期**、可关联（用自然月判会把它们判成不同月而拒绝）。
  */
@@ -49,9 +50,14 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     await ctx.app.close();
   });
 
-  /** 建一条收领单（直接落库：本文件验的是结算侧口径，收领单自身的校验另有覆盖） */
-  const makeReceipt = (projectId: string, contractId: string, orderDate: Date, qty: number, price: number) =>
-    ctx.prisma.receiptOrder.create({
+  /**
+   * 建一条收领单 + 对应的总日报行（本文件验的是结算侧口径）。
+   *
+   * 业务口径 2026-10-18：结算明细从**总日报**带出，因此夹具必须同时落 `DailyReport`；
+   * 直接落库（不经 ReceiptOrderService.pushToDailyReport）是为了聚焦结算侧断言。
+   */
+  const makeReceipt = async (projectId: string, contractId: string, orderDate: Date, qty: number, price: number) => {
+    const order = await ctx.prisma.receiptOrder.create({
       data: {
         projectId,
         orderNo: uniq('INT-SO').toUpperCase(),
@@ -62,6 +68,45 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
       } as any,
       include: { details: true },
     });
+    await makeDailyRow(projectId, contractId, orderDate, qty, price, order.orderNo, order.id);
+    return order;
+  };
+
+  /** 总日报行（materialBaseId 必填，结算明细按它聚合） */
+  const makeDailyRow = async (
+    projectId: string,
+    contractId: string | null,
+    entryDate: Date,
+    qty: number,
+    price: number,
+    receiptNo?: string,
+    receiptOrderId?: string,
+    confirmStatusCode: string | null = SITE_CONFIRM_STATUS.CONFIRMED,
+  ) => {
+    const material = await ctx.prisma.materialBase.create({
+      data: { name: `集成测试物资 ${uniq('MAT')}`, spec: uniq('SPEC'), unit: '吨' },
+    });
+    return ctx.prisma.dailyReport.create({
+      data: {
+        projectId,
+        contractId,
+        materialBaseId: material.id,
+        materialName: material.name,
+        spec: material.spec,
+        unit: '吨',
+        entryDate,
+        settleQty: qty,
+        priceBeforeTax: price,
+        taxRate: 0,
+        priceAfterTax: price,
+        amountBeforeTax: qty * price,
+        amountAfterTax: qty * price,
+        receiptNo: receiptNo ?? null,
+        receiptOrderId: receiptOrderId ?? null,
+        confirmStatusCode,
+      } as any,
+    });
+  };
 
   const makeInvoice = (projectId: string, contractId: string, data: any) =>
     invoices.create({ contractId, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, ...data }, projectId);
@@ -249,5 +294,48 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     const res: any = await settle.generateForPeriod(project.id, { refDate: '2026-10-02' });
     assert.equal(res.created, 0);
     assert.equal(res.receiptOrders, 0);
+  });
+
+  it('⑦ 手工录入的总日报行（无收领单）也参与结算生成', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-7');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+
+    // 没有任何收领单，只有手工日报行
+    await makeDailyRow(project.id, contract.id, day(2026, 9, 10), 2, 300);
+
+    const preview: any = await settle.previewPreviousPeriod(project.id, '2026-10-02');
+    assert.equal(preview.dailyRowCount, 1, '预览按总日报行统计');
+    assert.equal(preview.pendingContracts, 1);
+
+    const res: any = await settle.generateForPeriod(project.id, { refDate: '2026-10-02' });
+    assert.equal(res.created, 1);
+    assert.equal(res.receiptOrders, 0, '没有收领单也能生成');
+    const s: any = await ctx.prisma.settlement.findFirst({ where: { contractId: contract.id } });
+    assert.equal(Number(s.amount), 600);
+    const items = await ctx.prisma.settlementItem.findMany({ where: { settlementId: s.id } });
+    assert.equal(items.length, 1);
+    assert.equal(Number(items[0].qty), 2);
+    assert.equal(Number(items[0].totalWithTax), 600);
+  });
+
+  it('⑧ require_confirmed 开启时，未确认的总日报行不计入结算', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-8');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    await ctx.prisma.sysParam.upsert({
+      where: { key: 'settlement.require_confirmed' },
+      update: { value: 'true' },
+      create: { key: 'settlement.require_confirmed', value: 'true' },
+    });
+
+    await makeDailyRow(project.id, contract.id, day(2026, 9, 10), 1, 100, undefined, undefined, SITE_CONFIRM_STATUS.CONFIRMED);
+    await makeDailyRow(project.id, contract.id, day(2026, 9, 11), 9, 100, undefined, undefined, SITE_CONFIRM_STATUS.PENDING);
+
+    const res: any = await settle.generateForPeriod(project.id, { refDate: '2026-10-02' });
+    assert.equal(res.created, 1);
+    assert.equal(res.dailyRows, 1, '未确认行不参与结算口径');
+    const s: any = await ctx.prisma.settlement.findFirst({ where: { contractId: contract.id } });
+    assert.equal(Number(s.amount), 100, '只算已确认的 1×100，不含未确认的 9×100');
   });
 });

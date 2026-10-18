@@ -131,11 +131,16 @@
   先过 `assertLinkable()`（同项目/同合同/同期，违反 **400**）。发票的「日期」= `结算账期` 解析出的月份 **1 日**，
   认不出才退回开票日期。⚠️ 关联变化会影响台账「本月开票额」，调用方随后**必须** `syncLedgerByContract()`；
   `linkOrphansForContract()` 是"先解绑再补挂"，**只动未关联的行**（不覆盖人工选择，除非它与期矛盾）。
-- **生成结算单必须幂等**（`generateForPeriod()`）：抓**上一期**未挂结算单的收领单，按**物资合同**各生成一张
-  **草稿**（`settleDate` = **期末** → 台账月份由它派生，两边必须同口径；金额 = Σ(实收数量 × 含税单价)），
-  期内收领单回挂；该合同本期**已有结算单 → 跳过并补挂**迟到的收领单（**只补关联、不改金额**：金额可能已定稿甚至已提交）。
+- **生成结算单必须幂等**（`generateForPeriod()`，业务口径 2026-10-18）：**来源是上一期的总日报行**
+  （含手工录入行；`settlement.require_confirmed` 开启时只取「已确认」行），按**物资合同**各生成一张
+  **草稿**（`settleDate` = **期末** → 台账月份由它派生，两边必须同口径），明细按 `materialBaseId` 从日报带出、
+  **允许人工修改**；期内收领单回挂 `settlementId`（发票/台账按关联归集），但**不参与明细金额计算**。
+  该合同本期**已有结算单 → 跳过并补挂**迟到的收领单（**只补关联、不改金额**：金额可能已定稿甚至已提交）。
+  ⚠️ 明细金额 = Σ 日报金额；缺 `materialBaseId` 的行无法形成清单项级明细，计入 `skippedRows` 并返回
+  `warnings`（不静默丢）。纯函数在 `common/utils/settlement-from-daily.ts`（价格公式与
+  `SettlementService.normalizeItem()` 同一份，保证表头金额 = Σ 明细合价）。
   ⚠️ 它是**手动按钮**触发的（仓库不引入调度器），前端另有「上一期未生成」提示。
-  锁定：`settlementPeriod.spec.mts` + `test-integration/settlement-period-link.int.spec.ts`。
+  锁定：`settlementPeriod.spec.mts` + `settlementFromDaily.spec.mts` + `test-integration/settlement-period-link.int.spec.ts`。
 - **导入的收尾动作走 `RunOptions.afterCommit`**：发票导入后要挂结算单并刷台账，而这件事必须**读得到刚提交的数据**
   （事务内读不到未提交行）→ 写在 runner 的 `afterCommit`（同步与异步两条导入路径都覆盖），
   且失败**只记日志、不改变导入结果**（数据已提交，"少刷一次台账"比把导入标成失败轻得多）。
