@@ -68,6 +68,24 @@ export const PAYMENT_MODES: Record<string, PaymentModeDef> = {
 /** 自定义安排：应付节点由人手工录入（`CUSTOM` 不给出 tranches） */
 export const CUSTOM_PAYMENT_MODE = 'CUSTOM';
 
+/**
+ * 付款安排取值校验（单一事实源）：合同主流程（contract.service）与资金参数
+ * （finance.service.updateContractParams）共用——文案改一处，两处同步。
+ * 取值非法 → 返回错误文案（调用方抛 400）；空值/合法值 → 返回 null
+ * （空 = 未设置，由调用方决定落 null 还是保留原值）。
+ */
+export function paymentModeViolation(mode: unknown): string | null {
+  if (mode === undefined || mode === null || mode === '') return null;
+  const known = Object.keys(PAYMENT_MODES);
+  if (!known.includes(String(mode)) && String(mode) !== CUSTOM_PAYMENT_MODE) {
+    return (
+      `付款安排「${mode}」不在可选范围内，请选择：${known.map((k) => `${k}（${PAYMENT_MODES[k].label}）`).join('、')}` +
+      `、${CUSTOM_PAYMENT_MODE}（自定义，需另填月度结算办理比例）`
+    );
+  }
+  return null;
+}
+
 /** 某付款安排的分期（未定义 / 自定义 → `null`；`CUSTOM` 走手工录入，故也没有默认分期） */
 export function modeTranchesOf(mode: string | null | undefined): PayTranche[] | null {
   if (!mode) return null;

@@ -7,7 +7,8 @@ import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { ContractService } from '../contract/contract.service';
-import { PAYMENT_MODES, CUSTOM_PAYMENT_MODE } from '../../common/utils/pay-ratio';
+import { ContractLockService } from '../../common/services/contract-lock.service';
+import { paymentModeViolation } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculate,
@@ -70,6 +71,7 @@ export class FinanceService {
     private styled: StyledExcelService,
     private settlement: SettlementService,
     private contractService: ContractService,
+    private lock: ContractLockService,
   ) {}
 
   // ==================== 合同资金参数 ====================
@@ -112,22 +114,34 @@ export class FinanceService {
   async updateContractParams(contractId: string, data: any) {
     const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
     if (!contract) throw new NotFoundException('合同不存在');
-    // 与合同主流程同一校验（contract.service.assertPaymentMode 的口径）：写错取值会让
-    // 派生比例/逾期引擎拿不到分期定义，且从界面看不出来，必须在这里拦住。
-    if (data.paymentMode !== undefined && data.paymentMode !== null && data.paymentMode !== '') {
-      const known = Object.keys(PAYMENT_MODES);
-      if (!known.includes(String(data.paymentMode)) && String(data.paymentMode) !== CUSTOM_PAYMENT_MODE) {
-        throw new BadRequestException(
-          `付款安排「${data.paymentMode}」不在可选范围内，请选择：${known.map((k) => `${k}（${PAYMENT_MODES[k].label}）`).join('、')}` +
-            `、${CUSTOM_PAYMENT_MODE}（自定义，需另填月度结算办理比例）`,
-        );
-      }
+    // 归档锁（document-relationships.md §5.2：归档后合同本体禁止写——这里改的正是合同行上的
+    // 利率/付款模式等字段）。注意归档锁只拦本次**合同行写入**；下方的 recalcOverdue 属费用行
+    // 补录口径（与归档后允许补录发票/付款同一决策），不受归档限制。
+    if (contract.archivedAt) {
+      throw new BadRequestException('合同已归档，禁止修改资金参数');
     }
+    // 付款安排取值校验（与合同主流程同一份实现）：写错取值会让派生比例/逾期引擎
+    // 拿不到分期定义，且从界面看不出来，必须在这里拦住。
+    const modeMsg = paymentModeViolation(data.paymentMode);
+    if (modeMsg) throw new BadRequestException(modeMsg);
     const payload: any = {};
     if (data.paymentMode !== undefined) payload.paymentMode = data.paymentMode || null;
-    if (data.monthlyRate !== undefined) payload.monthlyRate = data.monthlyRate === null || data.monthlyRate === '' ? null : Number(data.monthlyRate);
-    if (data.graceDays !== undefined) payload.graceDays = data.graceDays === null || data.graceDays === '' ? null : Number(data.graceDays);
-    if (data.interestCapRatio !== undefined) payload.interestCapRatio = data.interestCapRatio === null || data.interestCapRatio === '' ? null : Number(data.interestCapRatio);
+    // 数值参数：NaN 会直接把 Prisma update 打成 500，负数会算出负利息，都必须在这里拦
+    if (data.monthlyRate !== undefined) {
+      const v = data.monthlyRate === null || data.monthlyRate === '' ? null : Number(data.monthlyRate);
+      if (v !== null && (!Number.isFinite(v) || v <= 0)) throw new BadRequestException('月利率必须为正数');
+      payload.monthlyRate = v;
+    }
+    if (data.graceDays !== undefined) {
+      const v = data.graceDays === null || data.graceDays === '' ? null : Number(data.graceDays);
+      if (v !== null && (!Number.isInteger(v) || v < 0)) throw new BadRequestException('宽限期必须为非负整数');
+      payload.graceDays = v;
+    }
+    if (data.interestCapRatio !== undefined) {
+      const v = data.interestCapRatio === null || data.interestCapRatio === '' ? null : Number(data.interestCapRatio);
+      if (v !== null && (!Number.isFinite(v) || v < 0)) throw new BadRequestException('利息上限比例必须为非负数');
+      payload.interestCapRatio = v;
+    }
     await this.prisma.contract.update({ where: { id: contractId }, data: payload });
     // 月利率/宽限期变了 → 先按新参数重算 OverdueInterest 的派生列（interestAmount/overdueInterest
     // 是持久化列，只有 recalcOverdue 会重算），再刷台账；付款模式变了 → 应付款日与利息起算都变，同样重算，

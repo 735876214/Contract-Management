@@ -21,8 +21,7 @@ import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
 // 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
 import {
-  PAYMENT_MODES,
-  CUSTOM_PAYMENT_MODE,
+  paymentModeViolation,
   resolveEffectivePayRatio,
 } from '../../common/utils/pay-ratio';
 import {
@@ -999,20 +998,11 @@ export class ContractService {
 
   /**
    * 付款安排取值校验（业务口径 2026-10-16：创建合同时**二选一**）。
-   *
-   * 取值不在 `PAYMENT_MODES` 里且不是 `CUSTOM` → 400。**不要放宽成任意字符串**：
-   * 付款安排决定「月度比例」，写错了 `currentPayRatio` 派生值就错，台账列与付款预警都会跟着错，
-   * 而且很难从界面上看出来。
+   * 判定与文案在 `pay-ratio.paymentModeViolation()`（finance 侧共用同一份）。
    */
   private assertPaymentMode(mode: unknown) {
-    if (mode === undefined || mode === null || mode === '') return;
-    const known = Object.keys(PAYMENT_MODES);
-    if (!known.includes(String(mode)) && String(mode) !== CUSTOM_PAYMENT_MODE) {
-      throw new BadRequestException(
-        `付款安排「${mode}」不在可选范围内，请选择：${known.map((k) => `${k}（${PAYMENT_MODES[k].label}）`).join('、')}` +
-          `、${CUSTOM_PAYMENT_MODE}（自定义，需另填月度结算办理比例）`,
-      );
-    }
+    const msg = paymentModeViolation(mode);
+    if (msg) throw new BadRequestException(msg);
   }
 
   /**
