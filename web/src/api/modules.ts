@@ -329,6 +329,8 @@ export const invoiceApi = {
 
 export const assetApi = {
   list: (params?: any) => http.get<any, any>('/assets', { params }),
+  /** 物资进出场汇总（零新表，2026-10-18） */
+  flowSummary: (params?: any) => http.get<any, any>('/assets/flow-summary', { params }),
   templateUrl: () => `${http.defaults.baseURL}/assets/template`,
   import: (file: File) => {
     const fd = new FormData();

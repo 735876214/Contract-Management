@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert,
+  Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert, Statistic,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -17,6 +17,8 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 const money = (v: any) =>
   v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qty = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }));
+/** 金额（未知 → `-`，不把「未填」显示成 0） */
+const yuan = (v: any) => (v == null ? '-' : `¥${money(v)}`);
 
 /** 调入费/维保费行只填金额，不填数量 */
 const isFeeSource = (code?: string) => code === 'TRANSFER_IN_FEE' || code === 'MAINTENANCE';
@@ -56,6 +58,15 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
   useEffect(() => {
     if (tabRefresh) reload();
   }, [tabRefresh, reload]);
+
+  /** 物资进出场汇总（只做物资；费用行单独统计，2026-10-18） */
+  const [flow, setFlow] = useState<any>(null);
+  useEffect(() => {
+    assetApi
+      .flowSummary()
+      .then((res: any) => setFlow(res))
+      .catch(() => {});
+  }, [tabRefresh]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any[] = [
@@ -106,8 +117,47 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
         style={{ marginBottom: 16 }}
         message="进/出场总额 = 数量 × 单价 自动计算；在用/闲置/报废/丢失数量之和应等于进/出场数量；「调入费/维保费」行只填单价（金额），不填数量。"
       />
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic
+              title="进场（采购 / 调入）"
+              value={(flow?.inQty ?? undefined) as any}
+              formatter={(v) => qty(v)}
+              suffix={<span style={{ fontSize: 12 }}>数量 · 金额 {yuan(flow?.inAmount)}</span>}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic
+              title="出场（调出 / 处置）"
+              value={(flow?.outQty ?? undefined) as any}
+              formatter={(v) => qty(v)}
+              suffix={<span style={{ fontSize: 12 }}>数量 · 金额 {yuan(flow?.outAmount)}</span>}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic title="费用（调入费 / 维保费）" value={yuan(flow?.feeAmount)} />
+          </Card>
+        </Col>
+      </Row>
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
         <Form.Item name="keyword"><Input placeholder="名称/规格/领用单位" allowClear /></Form.Item>
+        <Form.Item name="direction">
+          <Select
+            placeholder="进出场方向"
+            allowClear
+            style={{ width: 140 }}
+            options={[
+              { value: 'IN', label: '进场（采购/调入）' },
+              { value: 'OUT', label: '出场（调出/处置）' },
+              { value: 'FEE', label: '费用行' },
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="sourceCode"><DictSelect typeCode="asset_ledger_source" placeholder="来源" /></Form.Item>
         <Form.Item name="categoryL1Code"><DictSelect typeCode="asset_category_l1" placeholder="资产类别（一级）" /></Form.Item>
         <Form.Item name="categoryFocusCode"><DictSelect typeCode="asset_category_focus" placeholder="重点关注类别" /></Form.Item>

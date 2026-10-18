@@ -317,7 +317,8 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/assets` | 列表（进/出场记录 + 在用/闲置/报废/丢失四态） | `asset:view` |
+| GET | `/assets` | 列表（进/出场记录 + 在用/闲置/报废/丢失四态；`direction=IN/OUT/FEE` 方向筛选） | `asset:view` |
+| GET | `/assets/flow-summary` | 物资进出场汇总（进场/出场/费用，零新表，2026-10-18） | `asset:view` |
 | GET | `/assets/export` · GET `/assets/template` | 导出 / 模板 | `asset:view` |
 | POST | `/assets` | 新增 | `asset:edit` |
 | PUT | `/assets/:id` | 修改（金额由服务端计算） | `asset:edit` |

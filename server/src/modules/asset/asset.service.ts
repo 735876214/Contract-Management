@@ -9,6 +9,12 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict/dict.service';
+import {
+  ASSET_FEE_SOURCES,
+  ASSET_IN_SOURCES,
+  ASSET_OUT_SOURCES,
+  summarizeAssetFlow,
+} from '../../common/utils/asset-flow';
 
 const ASSET_FIELDS = [
   'date', 'sourceCode', 'categoryL1Code', 'categoryFocusCode', 'name', 'spec', 'unit',
@@ -52,6 +58,10 @@ export class AssetService {
       where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
     }
     if (query.sourceCode) where.sourceCode = query.sourceCode;
+    // 进出场方向筛选（业务口径 2026-10-18：只做物资；费用行不混入进出场）
+    if (query.direction === 'IN') where.sourceCode = { in: [...ASSET_IN_SOURCES] };
+    else if (query.direction === 'OUT') where.sourceCode = { in: [...ASSET_OUT_SOURCES] };
+    else if (query.direction === 'FEE') where.sourceCode = { in: [...ASSET_FEE_SOURCES] };
     if (query.categoryL1Code) where.categoryL1Code = query.categoryL1Code;
     if (query.categoryFocusCode) where.categoryFocusCode = query.categoryFocusCode;
     const [list, total] = await Promise.all([
@@ -63,6 +73,32 @@ export class AssetService {
       this.prisma.assetLedger.count({ where }),
     ]);
     return buildResult(list, total, query);
+  }
+
+  /**
+   * 物资进出场汇总（业务口径 2026-10-18：只做物资、零新表）。
+   * 按来源聚合数量/金额：采购/调入 = 进场，调出/处置 = 出场，调入费/维保费只计金额。
+   */
+  async flowSummary(projectId: string, query: any = {}) {
+    const where: any = { projectId };
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(`${query.endDate}T23:59:59`);
+    }
+    const grouped = await this.prisma.assetLedger.groupBy({
+      by: ['sourceCode'],
+      where,
+      _sum: { qty: true, totalAmount: true },
+    });
+    const summary = summarizeAssetFlow(
+      grouped.map((g: any) => ({
+        sourceCode: g.sourceCode,
+        qty: g._sum?.qty,
+        totalAmount: g._sum?.totalAmount,
+      })),
+    );
+    return { ...summary, startDate: query.startDate ?? null, endDate: query.endDate ?? null };
   }
 
   private validate(data: any) {

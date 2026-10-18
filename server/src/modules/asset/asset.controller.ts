@@ -18,6 +18,13 @@ export class AssetController {
     return this.service.findAll(query, projectId);
   }
 
+  /** 物资进出场汇总（零新表：按来源聚合数量/金额，2026-10-18） */
+  @RequirePermissions('asset:view')
+  @Get('flow-summary')
+  flowSummary(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.flowSummary(projectId, query);
+  }
+
   @RequirePermissions('asset:view')
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {

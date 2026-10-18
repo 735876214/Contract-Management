@@ -76,7 +76,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（44 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（45 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（10 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -128,6 +128,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/contractChain.spec.mts` | **合同当前金额口径锁**（= 主合同 + Σ 补充协议 `changeAmount`，**不采信手填 amount**）· 主合同未填 → 当前金额未知（`null`，不是"只算补充协议"）· 只算直接补充协议、防环 · 链上累计结算（排除草稿/自身）与累计付款（排除失败/退款） |
   | `test/contractFulfillment.spec.mts` | **合同履约派生进度（零表，2026-10-18）**：已收/已结/已付/开票比例 · 分母未知或为 0 → `null`（显式 0 照常参与）· 超收/超结/超付用负数暴露 · 「有收货未结算」「有结算未付款」标记 |
   | `test/contractArchive.spec.mts` | **合同归档完整性检查**（业务口径 2026-10-18，单向归档）：未签章 / 草稿结算 / 未完成总结算 / 未挂结算收领单 / 未纳入结算日报行 / 有下游但未「已完已结」→ 阻断 · 无下游的已签章合同可归档 · 待查验发票 / 未付款只提示不阻断 |
+  | `test/assetFlow.spec.mts` | **物资进出场方向与汇总**（业务口径 2026-10-18：只做物资、零新表）：采购/调入 = 进场，调出/处置 = 出场，调入费/维保费只计金额 · 未知来源单列、不混入进出场 · 数量/金额按方向汇总 |
   | `test/supplementDelta.spec.mts` | **补充协议带符号增量算法**：涨价/降价只计**差额**（防止把"剩余数量的全值"重复计入）· 增数量按原单价 · 新增物资全额 · 未知类型一律 0 · 主合同查不到的物资按全额并计数 |
   | `test/supplierSnapshot.spec.mts` | **签订时快照口径**（业务口径：合同正文导出取签订时快照）：`KEEP`（默认）快照优先逐字段回退实时 · `SYNC` 强制实时 · 快照缺失（存量合同）行为不变 · 空串视为未提供 · **扫源码核对快照字段清单覆盖 `generate()` 用的全部 `sup.*`**（漏一项就会静默回退实时） |
   | `test/payRatio.spec.mts` | **付款安排与「当前生效比例」**（业务口径 2026-10-16）：两种月度安排的分期与比例（`M65_1` 次月 30 日 65%；`M65_3` 次月/次次月/次次次月 20/20/25，浮点求和须回到 0.65）· 存量 `100`/`3382` **不得改** · 生效比例四条规则（已完已结 = 100% 压过月度安排 · 按安排 · 自定义取手填 · **推不出 → `null` 不覆盖**，手填 0 也算推不出）· **前后端镜像**（`web/src/constants/paymentModes.ts` 的取值集合与 label 逐条相等——下拉里显示的就是它） |

@@ -52,17 +52,15 @@
 > `采购任务/招标定标 → 合同 → 收领单 → 总日报 → 结算单 → 付款/发票`。
 > **招标域已实施**（迁移 `20261019000000_tender_bidder_and_evaluation`，约定见
 > [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
-> **结算生成口径已按总日报落地**（2026-10-18）且**合同履约进度/归档锁定已实施**
-> （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4/§5）；
-> 下面为剩余任务，按依赖顺序排列。
+> **结算生成口径已按总日报落地**（2026-10-18），**合同履约进度/归档锁定/进出场汇总均已实施**
+> （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4–§7）；
+> 下面为剩余按需项。
 
 ### 待实施 · 先设计后开发
 
 - **合同增强**：履约派生进度（零表）与**归档锁定**均已实施（2026-10-18：
   `GET /contracts/:id/fulfillment`、`POST /contracts/:id/archive` + 详情卡片/归档入口）；
   仅剩按需项 `ContractFulfillment`（节点/里程碑表）。
-- **进出场**：只做物资，复用 `ReceiptOrder` / `DailyReport` / `AssetLedger`，不建新表；
-  按需补 `DailyReport.exitDate` 或进出场汇总视图。
 
 > 已定边界（不再立项）：**采购订单与对账由外部系统承接**；合同签订后直接发生收领单及后续流程，
 > 本项目不造订单/对账中间单据。「采购清单 → 合同清单衔接」已做（无新表），与上述链路不冲突。
