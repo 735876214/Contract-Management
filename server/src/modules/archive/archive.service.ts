@@ -115,6 +115,8 @@ export class ArchiveService {
         } catch (e: any) {
           // 单个附件读取失败（文件被清理/格式不支持）→ 放入说明占位，不中断整个归档导出
           failedFiles.push(f.zipPath);
+          // 占位说明：文件名 = 原路径 + `.说明.txt`。同一路径至多失败一次
+          // （files 由 collectAll 的 dedupePath 去重），故不会产生重名条目。
           archive.append(
             `原文件未能打包：${f.fileName || f.zipPath}
 原因：${e?.message || '读取失败'}

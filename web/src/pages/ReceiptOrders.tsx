@@ -487,6 +487,8 @@ export default function ReceiptOrders() {
     try {
       const detail: any = await receiptOrderApi.detail(row.id);
       header = {
+        // 乐观锁：update 必须回传 version（缺失会被后端 409 拒绝）
+        version: detail.version,
         orderNo: detail.orderNo,
         supplierId: detail.supplierId,
         supplierName: detail.supplierName,

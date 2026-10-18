@@ -221,7 +221,13 @@ export class MaterialService {
       });
       if (dup) throw new BadRequestException('该材料已创建');
     }
-    return this.prisma.materialBase.update({ where: { id }, data: payload });
+    // 乐观锁（2026-10-18 审计）：此前 updateBase 既不校验也不递增 version，
+    // 物资基础信息的并发保护是空转。前端已回传 version。
+    assertVersion(old, data);
+    return this.prisma.materialBase.update({
+      where: { id },
+      data: { ...payload, version: { increment: 1 } },
+    });
   }
 
   /** 删除：被合同物资清单引用时阻止（提示改为停用，保留历史合同数据） */

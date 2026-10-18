@@ -1447,6 +1447,10 @@ export class ContractService {
         signedAt: new Date(), // 签章操作时间
         signedRemark: remark || null,
         status: CONTRACT_STATUS.SIGNED,
+        // 驳回回起草时 execStatus 被重置为 DRAFT（2026-10-18 业务流审计）；
+        // 重新签章 → 合同进入执行，执行情况恢复为「执行中」（已完成/已完已结
+        // 只能由总结算驱动或用户显式设置，不在这里臆断）。
+        execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING,
         version: { increment: 1 },
       },
     });
