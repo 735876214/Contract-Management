@@ -658,6 +658,7 @@ model DailyReport {
   @@index([receiptOrderId])
   @@index([projectId, confirmStatusCode])
   @@index([entryDate])
+  @@index([exitDate])
   @@index([projectId, createdAt])
 }
 
