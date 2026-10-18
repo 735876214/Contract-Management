@@ -192,7 +192,7 @@ export class DocTemplateService {
   }
 
   /**
-   * **渲染总结算单**（总结算单 → Excel；明细表占位符整格多行文本）。
+   * **渲染总结算单**（总结算单 → Excel；明细表占位符按行展开）。
    * 业务 2026-10-17：生成路径 Word → Excel。
    */
   async renderFinalSettlement(opts: {
