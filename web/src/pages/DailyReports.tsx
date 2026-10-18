@@ -30,6 +30,8 @@ const FIELDS: F[] = [
   { key: 'periodYear', label: '账期/年', kind: 'number', noGroup: true, width: 90 },
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
+  // 出场日期（四域扩展按需项 2026-10-18）：退场/退库登记用，只填不参与自动计算
+  { key: 'exitDate', label: '出场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
   // 现场确认状态（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：决定该行是否计入结算口径。
   // 总日报页只读展示；确认/驳回在收领单推送侧完成（receipt-order.service 直接置已确认）

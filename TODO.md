@@ -48,7 +48,8 @@
 > `采购任务/招标定标 → 合同 → 收领单 → 总日报 → 结算单 → 付款/发票`。
 > **招标域已实施**（迁移 `20261019000000_tender_bidder_and_evaluation`，约定见
 > [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
-> **结算生成口径已按总日报落地**（2026-10-18），**合同履约进度/归档锁定/进出场汇总均已实施**
+> **结算生成口径已按总日报落地**（2026-10-18），**合同履约进度/归档锁定/进出场汇总均已实施**，
+> **日报出场日期与半结构化字段 jsonb 已实施**
 > （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4–§7）；
 > 下面为剩余按需项。
 
@@ -60,7 +61,11 @@
 - **合同履约节点/里程碑表** `ContractFulfillment`：履约派生进度与归档锁定已实施（2026-10-18），
   仅当业务需要「计划节点 + 逾期 + 违约」时再建表；不重复结算/付款/收货单据。
 - 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层均已完成，规则见 [DESIGN.md](DESIGN.md) §10）。
-- 可选：半结构化字段改 PG `jsonb`、招标立项前置状态、`DailyReport.exitDate`。
+
+> 已实施（2026-10-18）：`DailyReport.exitDate`（迁移 `20261108000000_daily_report_exit_date`，
+> 日报表单/列/导入导出同步，只填不参与自动计算）；半结构化字段改 PG `jsonb`
+> （迁移 `20261109000000_semi_structured_jsonb`，覆盖事前说明/采前会/成交报告/采购公告/考察照片
+> 共 13 列；服务端 `parseJsonArray` 兼容 jsonb 数组与历史 JSON 字符串两种形态）。
 
 ## 本文件的维护方式
 

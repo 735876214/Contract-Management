@@ -233,6 +233,7 @@ export class DailyReportService {
       else if (payload[f] === '') payload[f] = null;
     });
     if (data.entryDate) payload.entryDate = toDate(data.entryDate);
+    if (data.exitDate !== undefined) payload.exitDate = data.exitDate ? toDate(data.exitDate) : null;
     return payload;
   }
 
@@ -272,6 +273,7 @@ export class DailyReportService {
       { header: '账期/年', key: 'periodYear', width: 10 },
       { header: '账期/月', key: 'periodMonth', width: 10 },
       { header: '进场日期', key: 'entryDate', width: 14 },
+      { header: '出场日期', key: 'exitDate', width: 14 },
       { header: '合同编号', key: 'contractCode', width: 20 },
       { header: '是否资产', key: 'isAssetName', width: 10 },
       { header: '是否安全物资', key: 'isSafetyMaterialName', width: 14 },
@@ -331,6 +333,7 @@ export class DailyReportService {
         periodYear: r.periodYear ? String(r.periodYear) : '',
         periodMonth: r.periodMonth ? `${r.periodYear}年${r.periodMonth}月` : '',
         entryDate: fmt(r.entryDate),
+        exitDate: fmt(r.exitDate),
         isAssetName: yesNo[r.isAsset]?.name || '',
         isSafetyMaterialName: yesNo[r.isSafetyMaterial]?.name || '',
         assetSupervision: [r.department, r.personnel].filter(Boolean).join('，'),
@@ -366,6 +369,7 @@ export class DailyReportService {
         { header: '账期/年', key: 'periodYear', width: 80, type: 'center' },
         { header: '账期/月', key: 'periodMonth', width: 100, type: 'center' },
         { header: '进场日期', key: 'entryDate', width: 110, type: 'center' },
+        { header: '出场日期', key: 'exitDate', width: 110, type: 'center' },
         { header: '是否资产', key: 'isAssetName', width: 80, type: 'center' },
         { header: '是否安全物资', key: 'isSafetyMaterialName', width: 100, type: 'center' },
         { header: '资产监管部门，人员', key: 'assetSupervision', width: 130, type: 'center' },
@@ -451,6 +455,7 @@ export class DailyReportService {
           periodYear: Number(r['账期/年']) || null,
           periodMonth: Number(r['账期/月']) || null,
           entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
+          exitDate: r['出场日期'] ? new Date(r['出场日期']) : null,
           contractId: contract?.id,
           isAsset: codeOf(yesNo, r['是否资产']),
           isSafetyMaterial: codeOf(yesNo, r['是否安全物资']),

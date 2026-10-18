@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
+type JsonValue = Prisma.JsonValue;
 import { paginate, buildResult, num } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
@@ -1269,8 +1270,8 @@ export class ProcurementTaskService {
     }));
     const saved = await this.prisma.frameworkExplanation.upsert({
       where: { taskId },
-      create: { projectId: task.projectId, taskId, priceCompareRows: JSON.stringify(priceCompareRows) },
-      update: { priceCompareRows: JSON.stringify(priceCompareRows) },
+      create: { projectId: task.projectId, taskId, priceCompareRows },
+      update: { priceCompareRows },
     });
     return this.serializeExplanation(saved);
   }
@@ -1280,23 +1281,15 @@ export class ProcurementTaskService {
     taskId: string;
     frameworkIntro: string | null;
     negotiation: string | null;
-    inquiryRows: string | null;
-    priceCompareRows: string | null;
+    inquiryRows: JsonValue | null;
+    priceCompareRows: JsonValue | null;
     execution: string | null;
-    costRows: string | null;
-    attachments: string | null;
+    costRows: JsonValue | null;
+    attachments: JsonValue | null;
     publishedAt: Date | null;
     updatedAt: Date;
   }) {
-    const parse = (s: string | null): any[] => {
-      if (!s) return [];
-      try {
-        const arr = JSON.parse(s);
-        return Array.isArray(arr) ? arr : [];
-      } catch {
-        return [];
-      }
-    };
+    const parse = (v: any): any[] => this.parseJsonArray(v);
     return {
       id: r.id,
       taskId: r.taskId,
@@ -1426,24 +1419,16 @@ export class ProcurementTaskService {
     attendees: string | null;
     writer: string | null;
     reviewer: string | null;
-    purchaseItems: string | null;
+    purchaseItems: JsonValue | null;
     techQuality: string | null;
     acceptance: string | null;
     paymentTerms: string | null;
-    costRows: string | null;
-    inquirySheets: string | null;
+    costRows: JsonValue | null;
+    inquirySheets: JsonValue | null;
     publishedAt: Date | null;
     updatedAt: Date;
   }) {
-    const parse = (s: string | null): any[] => {
-      if (!s) return [];
-      try {
-        const arr = JSON.parse(s);
-        return Array.isArray(arr) ? arr : [];
-      } catch {
-        return [];
-      }
-    };
+    const parse = (v: any): any[] => this.parseJsonArray(v);
     return {
       id: r.id,
       taskId: r.taskId,
@@ -1552,20 +1537,13 @@ export class ProcurementTaskService {
     techQuality: string | null;
     acceptanceMethod: string | null;
     paymentMethod: string | null;
-    contacts: string | null;
-    contactPhones: string | null;
+    contacts: JsonValue | null;
+    contactPhones: JsonValue | null;
     publishedAt: Date | null;
     updatedAt: Date;
   }) {
-    const parseList = (s: string | null): string[] => {
-      if (!s) return [];
-      try {
-        const arr = JSON.parse(s);
-        return Array.isArray(arr) ? arr.map((x) => String(x ?? '')) : [];
-      } catch {
-        return [];
-      }
-    };
+    // 列已改 jsonb：Prisma 返回已解析数组；兼容历史调用传入的 JSON 字符串
+    const parseList = (v: any): string[] => this.parseJsonArray<string>(v).map((x) => String(x ?? ''));
     return {
       id: r.id,
       taskId: r.taskId,
@@ -1767,8 +1745,8 @@ export class ProcurementTaskService {
       participantCount: int(body?.participantCount, '参与响应单位数量'),
       abstainCount: int(body?.abstainCount, '弃权响应单位数量'),
       validFileCount: int(body?.validFileCount, '有效响应文件数量'),
-      ...(suppliers !== undefined ? { suppliers: JSON.stringify(suppliers) } : {}),
-      ...(candidates !== undefined ? { candidates: JSON.stringify(candidates) } : {}),
+      ...(suppliers !== undefined ? { suppliers } : {}),
+      ...(candidates !== undefined ? { candidates } : {}),
     };
 
     const saved = await this.prisma.procurementResultReport.upsert({
@@ -1878,8 +1856,8 @@ export class ProcurementTaskService {
     const saved = await this.prisma.$transaction(async (tx) => {
       const rec = await tx.procurementResultReport.upsert({
         where: { taskId },
-        create: { projectId: task.projectId, taskId, suppliers: JSON.stringify(suppliers) },
-        update: { suppliers: JSON.stringify(suppliers) },
+        create: { projectId: task.projectId, taskId, suppliers },
+        update: { suppliers },
       });
       // 招标域结构化（下一期）：同一事务内双写结构化投标单位——
       // JSON 快照照旧（发布文档与既有数据口径不变），结构化行成为查询/评标/定标衔接的事实源。
@@ -2361,8 +2339,8 @@ export class ProcurementTaskService {
     participantCount: number | null;
     abstainCount: number | null;
     validFileCount: number | null;
-    suppliers: string | null;
-    candidates: string | null;
+    suppliers: JsonValue | null;
+    candidates: JsonValue | null;
     publishedAt: Date | null;
     updatedAt: Date;
   }) {
@@ -2384,9 +2362,15 @@ export class ProcurementTaskService {
     };
   }
 
-  /** JSON 数组字符串 → 数组（解析失败或非数组返回空数组） */
-  private parseJsonArray<T = any>(raw: string | null | undefined): T[] {
-    if (!raw) return [];
+  /**
+   * 半结构化 JSON 字段 → 数组（四域扩展按需项 2026-10-18：列已改 PG `jsonb`）。
+   * Prisma 对 `Json` 列返回**已解析的值**（数组/对象/null），但历史调用方/导入路径
+   * 仍可能传 JSON 字符串，因此两种形态都兼容：字符串 → 解析；数组 → 原样；其余 → 空数组。
+   */
+  private parseJsonArray<T = any>(raw: JsonValue | string | any[] | null | undefined): T[] {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw as T[];
+    if (typeof raw !== 'string') return [];
     try {
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? (parsed as T[]) : [];

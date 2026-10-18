@@ -22,7 +22,7 @@ Contract-Management/
 ├── .claude/rules/      # 规则与产品口径（按需加载，先读 rules-index.md）
 ├── server/             # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（61 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 27 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 29 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -34,7 +34,8 @@ Contract-Management/
 │   │                               #    / labor_summary_by_id / monthly_profit_loss
 │   │                               #    / receipt_is_asset / drop_subcontract_receiving
 │   │                               #    / labor_receiving_doc / settlement_item / template_global / template_align
-│   │                               #    / project_leader_manager / contract_archive）
+│   │                               #    / project_leader_manager / contract_archive
+│   │                               #    / daily_report_exit_date / semi_structured_jsonb）
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 27 个业务模块

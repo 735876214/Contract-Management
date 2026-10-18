@@ -563,6 +563,9 @@ model DailyReport {
   periodYear        Int?
   periodMonth       Int?
   entryDate         DateTime? // 进场日期
+  /// 出场日期（四域扩展按需项 2026-10-18）：物资退场/退库登记用；
+  /// 只填不参与自动计算，进出场汇总仍以 `AssetLedger` 的来源行计数。
+  exitDate          DateTime?
   contractId        String?
   isAsset           String? // dict: yes_no（来自物资基础库，禁止手工维护）
   isSafetyMaterial  String? // dict: yes_no（来自物资基础库，禁止手工维护）
@@ -1500,12 +1503,12 @@ model FrameworkExplanation {
   taskId             String    @unique // 一个采购任务仅一份事前说明
   frameworkIntro     String? // 一、框架简介（富文本 HTML）
   negotiation        String? // 二、谈判情况（富文本 HTML）
-  inquiryRows        String? // 三、询价情况表 JSON: [{rank, unit, totalPrice, taxIncluded, type}]
-  priceCompareRows   String? // 四、同城/相邻城市局其他单位执行合同价 JSON: [{unit, content, execPrice, note}]
+  inquiryRows        Json? // 三、询价情况表 [{rank, unit, totalPrice, taxIncluded, type}]
+  priceCompareRows   Json? // 四、同城/相邻城市局其他单位执行合同价 [{unit, content, execPrice, note}]
   execution          String? // 五、执行情况（富文本 HTML）
-  costRows           String? // 六、成本分析表 JSON: [{item, amount, ratio, note}]
-  attachments        String? // 七、附表 JSON: [{fileName, url, size}]
-  referenceSuppliers String? // 引用供应商及金额 JSON: [{supplier, amount}]（可自动填充询价最低价单位）
+  costRows           Json? // 六、成本分析表 [{item, amount, ratio, note}]
+  attachments        Json? // 七、附表 [{fileName, url, size}]
+  referenceSuppliers Json? // 引用供应商及金额 [{supplier, amount}]（可自动填充询价最低价单位）
   publishedAt        DateTime? // 发布时间（任务事前说明阶段发布后回填）
   createdAt          DateTime  @default(now())
   version            Int       @default(0)
@@ -1529,12 +1532,12 @@ model PreMeetingMinutes {
   attendees     String? // 参会人员
   writer        String? // 会议纪要编写人
   reviewer      String? // 审核人
-  purchaseItems String? // 采购清单 JSON: [{materialName, spec, unit, qty}]
+  purchaseItems Json? // 采购清单 [{materialName, spec, unit, qty}]
   techQuality   String? // 技术质量要求（富文本 HTML）
   acceptance    String? // 验收标准（富文本 HTML）
   paymentTerms  String? // 付款条件（富文本 HTML）
-  costRows      String? // 采购成本分析表 JSON: [{materialName, spec, income, cost}]，income/cost 单位为万元
-  inquirySheets String? // 询价单图片 JSON: [{fileName, url, size}]
+  costRows      Json? // 采购成本分析表 [{materialName, spec, income, cost}]，income/cost 单位为万元
+  inquirySheets Json? // 询价单图片 [{fileName, url, size}]
   publishedAt   DateTime? // 发布时间（采前会阶段发布后回填）
   createdAt     DateTime  @default(now())
   version       Int       @default(0)
@@ -1558,8 +1561,8 @@ model ProcurementNotice {
   techQuality      String? // 技术质量标准（富文本 HTML）
   acceptanceMethod String? // 验收方式（富文本 HTML）
   paymentMethod    String? // 付款方式（富文本 HTML）
-  contacts         String? // 联系人 JSON: ["张三","李四"]，多个时按位置自动编号「联系人1/联系人2」
-  contactPhones    String? // 联系电话 JSON: ["138…","139…"]，多个时按位置自动编号「联系电话1/联系电话2」
+  contacts         Json? // 联系人 ["张三","李四"]，多个时按位置自动编号「联系人1/联系人2」
+  contactPhones    Json? // 联系电话 ["138…","139…"]，多个时按位置自动编号「联系电话1/联系电话2」
   publishedAt      DateTime? // 发布时间（公告阶段发布后回填）
   createdAt        DateTime  @default(now())
   version          Int       @default(0)
@@ -1587,8 +1590,8 @@ model ProcurementResultReport {
   participantCount Int? // 参与响应单位数量
   abstainCount     Int? // 弃权响应单位数量
   validFileCount   Int? // 有效响应文件数量
-  suppliers        String? // 响应单位明细（导入「响应单位情况汇总表」，JSON 数组字符串）
-  candidates       String? // 拟推荐成交候选人（第二轮报价表勾选生成，JSON 数组字符串）
+  suppliers        Json? // 响应单位明细（导入「响应单位情况汇总表」，JSON 数组）
+  candidates       Json? // 拟推荐成交候选人（第二轮报价表勾选生成，JSON 数组）
   publishedAt      DateTime? // 发布时间（成交报告阶段发布后回填）
   createdAt        DateTime  @default(now())
   version          Int       @default(0)
@@ -1648,7 +1651,7 @@ model InspectionReport {
   inspectors      String? // 考察人员
   content         String? // 考察内容（富文本 HTML）
   conclusion      String? // 考察结论（富文本 HTML）
-  photos          String? // 考察照片 JSON：[{ fileName, url, size }]
+  photos          Json? // 考察照片 [{ fileName, url, size }]
   publishedAt     DateTime? // 发布时间（发布后状态「已完成」）
   createdAt       DateTime  @default(now())
   version         Int       @default(0)

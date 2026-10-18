@@ -105,7 +105,7 @@ describe('集成 · 招标域结构化（投标单位 / 评标 / 定标 → 合�
 
     // JSON 快照仍在（发布文档口径不变）
     const report = await ctx.prisma.procurementResultReport.findUnique({ where: { taskId: task.id } });
-    assert.equal(JSON.parse(String(report?.suppliers)).length, 3, 'JSON 快照应保留');
+    assert.equal((report?.suppliers as any[])?.length, 3, 'JSON 快照应保留');
 
     // 结构化行已建立，且字段来自导入表
     const bidders = await ctx.prisma.procurementBidder.findMany({ where: { taskId: task.id }, orderBy: { seq: 'asc' } });
