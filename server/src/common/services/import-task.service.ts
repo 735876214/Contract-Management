@@ -100,8 +100,11 @@ export class ImportTaskService implements OnModuleInit {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
-    const t = await this.prisma.importTask.findUnique({ where: { id } });
+  /** 详情按提交人隔离（list 同口径）：错误报告 Excel 含业务行数据，不能跨用户拉取 */
+  async findOne(id: string, userId?: string) {
+    const t = await this.prisma.importTask.findFirst({
+      where: { id, ...(userId ? { userId } : {}) },
+    });
     if (!t) throw new NotFoundException('导入任务不存在');
     return t;
   }
@@ -119,7 +122,7 @@ export class ImportTaskService implements OnModuleInit {
     // ⚠️ 「先查后建」存在竞态（两个并发提交都查不到、都建行）——而双击恰恰就是并发，
     //    故用一个 PG **事务级咨询锁**（键 = dedupeKey 的哈希）把相同文件的提交串行化：
     //    后到的请求会等前者提交后再查，从而必然看见新行。
-    const dedupeKey = importDedupeKey({ module: ctx.module, fileName: ctx.fileName, rows });
+    const dedupeKey = importDedupeKey({ module: ctx.module, projectId: ctx.projectId, fileName: ctx.fileName, rows });
     const picked = await this.prisma.$transaction(async (tx) => {
       // 用 $executeRaw 而非 $queryRaw：pg_advisory_xact_lock 返回 void，
       // Prisma 的 $queryRaw 会尝试反序列化该列并报 'Failed to deserialize column of type void'

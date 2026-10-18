@@ -392,13 +392,18 @@ export class ContractService {
     // 第5段：年份 + 顺序码（取已用最大顺序码 +1）
     const year = new Date().getFullYear();
     const yearPrefix = String(year);
-    const sameYear = await this.prisma.contract.findMany({
-      where: cfg.yearReset ? { yearSeq: { startsWith: yearPrefix } } : { yearSeq: { not: null } },
+    // 取「当前已用最大顺序码」：yearSeq 形如 `YYYY+定长序号`，直接倒序取第一行即可，
+    // 不再全表 findMany 后在 JS 里算 max（合同表增长后每次取号都拖全量数据）。
+    const lastRow = await this.prisma.contract.findFirst({
+      where: cfg.yearReset
+        ? { yearSeq: { startsWith: yearPrefix } }
+        : { yearSeq: { not: null } },
       select: { yearSeq: true },
+      orderBy: { yearSeq: 'desc' },
     });
     let maxSeq = 0;
-    for (const c of sameYear) {
-      const digits = cfg.yearReset ? (c.yearSeq || '').slice(yearPrefix.length) : (c.yearSeq || '');
+    if (lastRow?.yearSeq) {
+      const digits = cfg.yearReset ? lastRow.yearSeq.slice(yearPrefix.length) : lastRow.yearSeq;
       const n = parseInt(digits, 10);
       if (!isNaN(n) && n > maxSeq) maxSeq = n;
     }

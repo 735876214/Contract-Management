@@ -78,7 +78,12 @@ export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
 export function assertVersion(oldRow: any, data: any) {
   if (!oldRow || oldRow.version === undefined || oldRow.version === null) return;
   const v = data?.version;
-  if (v === undefined || v === null || v === '') return; // 未提供版本号时不阻断（兼容旧客户端）
+  // 2026-10-18 审计：省略 version = 无条件最后写入者胜，乐观锁形同虚设。
+  // 所有前端写入路径都会回传 version（表单种子来自 GET），故此处改为强制要求；
+  // 确有「不需要并发保护」的内部调用，应显式传 data.version = oldRow.version。
+  if (v === undefined || v === null || v === '') {
+    throw new ConflictException('缺少 version 字段（乐观锁），请刷新后重试');
+  }
   if (Number(v) !== Number(oldRow.version)) {
     throw new ConflictException('数据已被其他用户修改，请刷新后重试');
   }

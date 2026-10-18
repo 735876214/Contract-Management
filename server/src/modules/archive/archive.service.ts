@@ -104,13 +104,29 @@ export class ArchiveService {
     archive.pipe(res);
 
     const presentDirs = new Set<string>();
+    const failedFiles: string[] = [];
     for (const f of files) {
-      if (f.buffer) archive.append(f.buffer, { name: f.zipPath });
-      else if (f.storageKey) {
-        const content = f.isImage ? await this.imageToPdf(f.storageKey) : await this.storage.read(f.storageKey);
-        archive.append(content, { name: f.zipPath });
+      if (f.buffer) {
+        archive.append(f.buffer, { name: f.zipPath });
+      } else if (f.storageKey) {
+        try {
+          const content = f.isImage ? await this.imageToPdf(f.storageKey) : await this.storage.read(f.storageKey);
+          archive.append(content, { name: f.zipPath });
+        } catch (e: any) {
+          // 单个附件读取失败（文件被清理/格式不支持）→ 放入说明占位，不中断整个归档导出
+          failedFiles.push(f.zipPath);
+          archive.append(
+            `原文件未能打包：${f.fileName || f.zipPath}
+原因：${e?.message || '读取失败'}
+请到系统内重新下载该附件。`,
+            { name: `${f.zipPath}.说明.txt` },
+          );
+        }
       }
       presentDirs.add(f.zipPath.split('/').slice(0, -1).join('/'));
+    }
+    if (failedFiles.length) {
+      console.warn('[归档] 有 ' + failedFiles.length + ' 个附件未能打包（已放入说明占位）:', failedFiles.join(', '));
     }
     // 空目录占位：保证包内目录结构与需求一致（用户要"目录看得见"）
     const scopeDirs =
@@ -197,12 +213,21 @@ export class ArchiveService {
           });
           // 账期目录：`2026.1` → `2026年1月`（需求原例；`sanitizeSegment` 清掉 Date.toString 的非法字符之外，
           // 这里必须在收集期就转成中文月——Date.toString 含 `:` 等字符，靠清洗会出现 "Sat_Feb_28_2026" 这种目录）
-          const periods = Array.from(
-            new Set(settlements.map((s) => periodDirOf(this.periodLabelOf(s.settleDate as any)))),
-          );
-          for (const p of periods) {
-            push(`${cat.dir}/${p}`, '结算单.xlsx', {
-              buffer: await this.settlementService.exportLedger(projectId),
+          // 每期目录只导**该期**的台账行（settleMonth = 期末所在月，与台账月份派生同口径）；
+          // 此前每期都塞同一份全项目台账，归档内容张冠李戴。
+          const byPeriod = new Map<string, string>(); // 目录名 → settleMonth
+          for (const s of settlements) {
+            if (!s.settleDate) continue;
+            const label = this.periodLabelOf(s.settleDate as any);
+            const dir = periodDirOf(label);
+            if (!byPeriod.has(dir)) {
+              const d = new Date(s.settleDate as any);
+              byPeriod.set(dir, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+            }
+          }
+          for (const [dir, settleMonth] of byPeriod) {
+            push(`${cat.dir}/${dir}`, '结算单.xlsx', {
+              buffer: await this.settlementService.exportLedger(projectId, settleMonth),
             });
           }
           break;
@@ -212,14 +237,14 @@ export class ArchiveService {
             where: { projectId },
             select: {
               id: true, code: true, attachmentUrl: true, attachmentName: true,
-              contract: { select: { name: true, supplier: { select: { name: true } } } },
+              contract: { select: { id: true, name: true, supplier: { select: { name: true } } } },
             },
           });
           for (const f of finals) {
             const supplier = f.contract?.supplier?.name || '-';
             const contractName = f.contract?.name || f.code || '-';
             push(cat.dir, `${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}-总结算书.xlsx`, {
-              buffer: await this.settlementService.exportLedger(projectId),
+              buffer: await this.settlementService.exportComplianceSheet(f.contract.id, projectId),
             });
             if (f.attachmentUrl) {
               push(cat.dir, prefixedFileName(`${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}`, f.attachmentName || '总结算书附件'), {
@@ -252,7 +277,7 @@ export class ArchiveService {
             where: { projectId, imageUrl: { not: null } },
             select: {
               id: true, imageUrl: true, issuer: true, settlePeriod: true,
-              contract: { select: { name: true, supplier: { select: { name: true } } } },
+              contract: { select: { id: true, name: true, supplier: { select: { name: true } } } },
             },
           });
           for (const i of invoices) {
@@ -366,7 +391,9 @@ export class ArchiveService {
     return `${d.getFullYear()}.${d.getMonth() + 1}`;
   }
 
-  /** 图片 → 单页 PDF（修正 5：归档包不接受裸 jpg/png） */
+  /** 图片 → 单页 PDF（修正 5：归档包不接受裸 jpg/png）。
+   * ⚠️ pdf-lib 只能嵌 jpg/png；gif/webp/bmp 等虽被 isImageKey 归为图片，
+   *    嵌入必然失败 → 回退为原样打包（裸图片），不再让一张图毁掉整个归档导出。 */
   private async imageToPdf(storageKey: string): Promise<Buffer> {
     const raw = await this.storage.read(storageKey);
     const pdf = await PDFDocument.create();
@@ -374,7 +401,11 @@ export class ArchiveService {
     try {
       embedded = await pdf.embedJpg(raw);
     } catch {
-      embedded = await pdf.embedPng(raw);
+      try {
+        embedded = await pdf.embedPng(raw);
+      } catch {
+        return raw; // 非 jpg/png：原样打包，保留文件本身
+      }
     }
     // 页面尺寸 = 图片尺寸（1pt = 1px，扫描件足够）
     const page = pdf.addPage([embedded.width, embedded.height]);

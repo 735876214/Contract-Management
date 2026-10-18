@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Modal, message, Alert, Typography, Progress } from 'antd';
 import { ImportOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import http from '@/api/http';
@@ -95,14 +95,22 @@ export default function ImportButton({
     fileRef.current?.click();
   };
 
-  /** 轮询异步导入任务进度（需求 2.7） */
+  /** 轮询异步导入任务进度（需求 2.7）。组件卸载（关标签/登出）时必须停表，
+   *  否则对已卸载组件 setState 并永久轮询 /import-tasks/:id（卡住的任务尤其明显）。 */
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
   const pollTask = (taskId: string) => {
-    const timer = setInterval(async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(async () => {
       try {
         const t: any = await http.get(`/import-tasks/${taskId}`);
         setResult((r) => ({ ...(r || {}), ...t }));
         if (t?.status === 'SUCCESS' || t?.status === 'FAILED') {
-          clearInterval(timer);
+          if (timerRef.current) clearInterval(timerRef.current);
           setStage('result');
           if (t.status === 'SUCCESS') {
             message.success(`后台导入完成：成功写入 ${t.successCount ?? 0} 行`);
@@ -112,7 +120,7 @@ export default function ImportButton({
           }
         }
       } catch {
-        clearInterval(timer);
+        if (timerRef.current) clearInterval(timerRef.current);
         setStage('result');
       }
     }, 1500);

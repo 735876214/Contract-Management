@@ -34,7 +34,19 @@ http.interceptors.response.use(
     return body;
   },
   async (error) => {
-    const msg = error?.response?.data?.message || error.message || '网络异常';
+    const status = error?.response?.status;
+    const body = error?.response?.data;
+    const msg =
+      (body && typeof body === 'object' && 'message' in body ? body.message : null) ||
+      error?.message || '网络异常';
+    // 登录失效：后端以 HTTP 401 + code 1401 返回（走的是这里，不是成功拦截器）。
+    // 走完整的 store.logout()：清 token/项目 id/菜单缓存/标签，再跳登录页。
+    if (status === 401 || (body && typeof body === 'object' && body.code === 1401)) {
+      useAuthStore.getState().logout();
+      message.error(typeof msg === 'string' ? msg : '登录已失效，请重新登录');
+      setTimeout(() => (window.location.href = '/login'), 500);
+      return Promise.reject(new Error('登录已失效'));
+    }
     // 当前项目已被删除 / 重建 / 无权访问：自动刷新项目列表并归位到第一个可用项目，
     // 替代过去「手动退出重新登录」才能恢复的体验；刷新失败仍按普通错误提示。
     const stale =

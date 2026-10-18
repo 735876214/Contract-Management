@@ -68,8 +68,12 @@ export class DailyReportService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
-    const r = await this.prisma.dailyReport.findUnique({ where: { id }, include: { contract: true, supplier: true } });
+  /** 按 id + 项目取单条（防止跨项目按 id 读/改/删，CLAUDE.md 铁律 3）；`projectId` 缺省时退化为仅按 id（内部调用） */
+  async findOne(id: string, projectId?: string) {
+    const r = await this.prisma.dailyReport.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
+      include: { contract: true, supplier: true },
+    });
     if (!r) throw new NotFoundException('日报不存在');
     return r;
   }
@@ -253,17 +257,20 @@ export class DailyReportService {
     });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.validate(data);
     const payload: any = this.normalize(data);
     delete payload.version;
+    const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
+    if (!row) throw new NotFoundException('日报不存在');
     return this.prisma.dailyReport.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
+    if (!row) throw new NotFoundException('日报不存在');
     await this.prisma.dailyReport.delete({ where: { id } });
     return true;
   }

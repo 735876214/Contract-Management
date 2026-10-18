@@ -71,11 +71,15 @@ export function isImportTaskStale(
  */
 export function importDedupeKey(parts: {
   module: string;
+  /** 项目上下文（2026-10-18 审计修复）：不同项目导入同名同内容文件不得互相「去重」 */
+  projectId?: string | null;
   fileName?: string | null;
   rows?: unknown[];
 }): string {
   const h = createHash('sha1');
   h.update(String(parts?.module ?? ''));
+  h.update('|');
+  h.update(String(parts?.projectId ?? ''));
   h.update('|');
   h.update(String(parts?.fileName ?? ''));
   h.update('|');

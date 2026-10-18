@@ -711,7 +711,7 @@ export class ReceiptOrderService {
     // 同理：结算单关联也在事务外解析（改了物资合同/日期会重新匹配月份）
     const settlementId = await this.resolveSettlementId(data, before.projectId, before.settlementId, before);
 
-    return this.prisma.$transaction(async (tx) => {
+    const saved = await this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
       await tx.receiptOrderDetail.deleteMany({ where: { orderId: id } });
       await tx.receiptOrder.update({
@@ -732,8 +732,14 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
     });
-    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）
-    await this.pushToDailyReport(id);
+    // 任务 5：保存即把明细导入总日报（幂等：按 receiptOrderId 先清后推）。
+    // ⚠️ 必须在事务提交后执行（此前写在 return 后面永远不可达——修改收领单后
+    // 总日报（结算量唯一来源）会一直停留在旧数据）。失败不阻断保存本身。
+    try {
+      await this.pushToDailyReport(id);
+    } catch (e) {
+      console.error('[收领单] 推送总日报失败（保存已生效，可手动补推）:', e);
+    }
     return this.findOne(id);
   }
 
@@ -744,9 +750,14 @@ export class ReceiptOrderService {
     // - 明细（ReceiptOrderDetail）与自动入账的资产台账（AssetLedger.receiptOrderId）均为
     //   DB 级 onDelete: Cascade，随主表删除一并清理，无需手工 deleteMany
     //   （加锁顺序因此天然与「修改」一致：ReceiptOrder → 级联 AssetLedger，不会形成 ABBA 环路）。
-    // - 总日报（DailyReport.receiptOrderId）为 onDelete: SetNull——日报是结算数量的来源，
-    //   删除收领单不应连带改动结算口径，故保留日报行、仅解除关联。
-    await this.prisma.receiptOrder.delete({ where: { id } });
+    // - 总日报（DailyReport.receiptOrderId）为 onDelete: SetNull——但**推送生成的行**
+    //   必须一并删除：它们是本收领单的镜像（推送时直接置「已确认」），SetNull 后会变成
+    //   「无来源但已确认」的孤儿行，继续计入结算口径 → 结算量永久虚高且无法再被清理。
+    //   手工录入的日报行（receiptOrderId 为空）不受影响。
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dailyReport.deleteMany({ where: { receiptOrderId: id } });
+      await tx.receiptOrder.delete({ where: { id } });
+    });
     return true;
   }
 

@@ -293,23 +293,30 @@ export default function ModuleListPage({
     [isModuleMode, moduleKey, page, pageSize, stableBaseParams],
   );
 
+  /** 请求序号：丢弃过期响应（快速改筛选连续查询时，慢的旧响应不得覆盖新结果） */
+  const fetchSeqRef = useRef(0);
   const fetchRows = useCallback(
     (values: Record<string, any>) => {
+      const seq = ++fetchSeqRef.current;
       setLoading(true);
       const req = fetcherRef.current
         ? Promise.resolve(fetcherRef.current(buildParams(values)))
         : procurementTaskApi.list(buildParams(values));
       req
         .then((res: any) => {
+          if (seq !== fetchSeqRef.current) return; // 过期响应丢弃
           setRows(res?.list ?? res?.data?.list ?? []);
           setTotal(res?.total ?? res?.data?.total ?? 0);
           onFetchedRef.current?.(res);
         })
         .catch(() => {
+          if (seq !== fetchSeqRef.current) return;
           setRows([]);
           setTotal(0);
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === fetchSeqRef.current) setLoading(false);
+        });
     },
     [buildParams],
   );

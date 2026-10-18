@@ -113,6 +113,8 @@ jobs:
 
       - name: Backend integration tests（真库：先 migrate deploy）
         working-directory: server
+        env:
+          JWT_SECRET: cms-int-test-secret
         run: npm run test:int
 
       - name: Backend build（nest build）

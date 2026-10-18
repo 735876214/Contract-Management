@@ -1233,8 +1233,9 @@ export class SettlementService {
     });
   }
 
-  async exportLedger(projectId: string) {
-    const res = await this.findLedger({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+  /** 导出台账 Excel；`settleMonth` 传入时只导该月（归档按期目录用，避免每期都塞全项目台账） */
+  async exportLedger(projectId: string, settleMonth?: string) {
+    const res = await this.findLedger({ pageSize: 2000, ...(settleMonth ? { settleMonth } : {}) }, projectId, IMPORT_MAX_ROWS);
     const yesNo = await this.dict.nameMap('yes_no');
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({
@@ -1251,7 +1252,7 @@ export class SettlementService {
     return this.styled.exportTable({
       sheetName: '结算台账',
       logoColumn: true,
-      title: `结算台账（${project?.name || ''}）`,
+      title: `结算台账（${project?.name || ''}${settleMonth ? ' · ' + settleMonth : ''}）`,
       columns: [
         { header: '项目', key: 'projectName', width: 140, type: 'center' },
         { header: '供应商名称', key: 'supplierName', width: 180 },

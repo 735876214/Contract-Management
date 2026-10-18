@@ -51,6 +51,10 @@ export async function bootIntApp(): Promise<IntContext> {
   if (!process.env.UPLOAD_DIR) {
     process.env.UPLOAD_DIR = mkdtempSync(path.join(tmpdir(), 'cms-int-uploads-'));
   }
+  // 集成测试无生产凭据：JWT_SECRET 未设置时给一个固定测试值（jwt.strategy 会拒绝缺省/占位值）
+  if (!process.env.JWT_SECRET) {
+    process.env.JWT_SECRET = 'cms-int-test-secret';
+  }
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const prisma = app.get(PrismaClient) as PrismaClient;
   if (!dictsReady) {

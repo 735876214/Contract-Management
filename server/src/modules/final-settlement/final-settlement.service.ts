@@ -128,18 +128,24 @@ export class FinalSettlementService {
     }));
     const totalAmount = round2(items.reduce((t, i) => t + (Number(i.amount) || 0), 0));
 
-    return this.prisma.finalSettlement.create({
-      data: {
-        projectId,
-        contractId,
-        code: await this.nextCode(projectId, contract.code),
-        statusCode: FINAL_SETTLEMENT_STATUS.PENDING_ATTACHMENT,
-        totalAmount,
-        createdBy: user?.userId || user?.id || null,
-        items: { create: items },
-      },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
-    });
+    try {
+      return await this.prisma.finalSettlement.create({
+        data: {
+          projectId,
+          contractId,
+          code: await this.nextCode(projectId, contract.code),
+          statusCode: FINAL_SETTLEMENT_STATUS.PENDING_ATTACHMENT,
+          totalAmount,
+          createdBy: user?.userId || user?.id || null,
+          items: { create: items },
+        },
+        include: { items: { orderBy: { sortOrder: 'asc' } } },
+      });
+    } catch (e: any) {
+      // 双击/并发下可能同时通过「不存在」预检再撞唯一约束：转 400 提示重试，而非 500。
+      if (e?.code === 'P2002') throw new BadRequestException('总结算单已生成（可能并发生成），请刷新后查看');
+      throw e;
+    }
   }
 
   async update(id: string, data: any) {

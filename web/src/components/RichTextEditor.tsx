@@ -29,6 +29,7 @@ import {
 import { Button, Select, Space, Tooltip, Modal, Input, Tag, Divider, Collapse, Popover } from 'antd';
 import type { VarGroup } from '@/pages/Clauses';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
 
 export interface RichTextEditorProps {
   /** 编辑器内容（HTML 字符串） */
@@ -160,7 +161,10 @@ export default function RichTextEditor({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const next = value || '';
+    // 回填前净化（2026-10-18 审计）：渲染侧都过了 sanitizeHtml，但编辑入口曾漏——
+    // 经 API/导入写入的恶意 HTML 会在打开编辑时执行。净化只清脚本/事件属性，
+    // 富文本结构（表格/加粗/列表等）不受影响。
+    const next = sanitizeHtml(value || '');
     if (next !== el.innerHTML) el.innerHTML = next;
   }, [value, fullscreen]);
 

@@ -61,8 +61,8 @@ export class DailyReportController {
 
   @RequirePermissions('daily:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('daily:edit')
@@ -73,8 +73,8 @@ export class DailyReportController {
 
   @RequirePermissions('daily:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   /**
@@ -95,8 +95,8 @@ export class DailyReportController {
 
   @RequirePermissions('daily:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 
   @RequirePermissions('daily:edit')

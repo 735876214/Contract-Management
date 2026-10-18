@@ -118,7 +118,8 @@ export class PaymentProcedureService {
     const amounts = await this.resolveContractAmounts(data.contractId);
     const payDate = data.payDate ? toDate(data.payDate) : null;
     const code = data.code || (await this.nextCode(projectId, data.contractId, payDate));
-    return db.paymentProcedure.create({
+    try {
+      return await db.paymentProcedure.create({
       data: {
         ...pickFields(data, FIELDS, { label: '付款手续' }),
         projectId,
@@ -130,8 +131,14 @@ export class PaymentProcedureService {
         paidCumAmount: amounts.paidCumAmount,
         unpaidAmount: amounts.unpaidAmount,
         createdBy: user?.userId || user?.id || null,
-      },
-    });
+        },
+      });
+    } catch (e: any) {
+      // 编号生成是「先查后插」，并发下可能撞 @@unique([projectId, code])：
+      // 转成 400 提示重试，而不是 500。
+      if (e?.code === 'P2002') throw new BadRequestException('编号已被占用（可能并发生成），请重试');
+      throw e;
+    }
   }
 
   async update(id: string, data: any) {
