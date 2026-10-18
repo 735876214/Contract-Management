@@ -43,6 +43,52 @@ export class MaterialService {
     return hit.itemName;
   }
 
+  /**
+   * 一/二级分类校验与归一化（业务 2026-10-18 分类表）。
+   *
+   * - 一级必须存在于字典 `material_category`，二级必须存在于 `material_type`；
+   * - 二级的 `extField1` 必须指向所选一级（同名二级如「型钢」分属工程材料/周转材料，
+   *   未选一级且命中多个父级时要求先选一级）；
+   * - 只传二级时自动带出所属一级；返回**名称**（`MaterialBase` 存名称，与前端下拉一致）。
+   */
+  private async resolveCategories(l1Raw: any, l2Raw: any) {
+    const l1s = await this.dict.options('material_category');
+    const l2s = await this.dict.options('material_type');
+    const l1Text = String(l1Raw ?? '').trim();
+    const l2Text = String(l2Raw ?? '').trim();
+
+    let l1: any = null;
+    let l2: any = null;
+    if (l1Text) {
+      l1 = l1s.find((i: any) => i.itemName === l1Text || i.itemCode === l1Text);
+      if (!l1) throw new BadRequestException(`一级分类不在字典范围内（当前值：「${l1Text}」），请先在字典管理中选择规范分类`);
+    }
+    if (l2Text) {
+      const candidates = l2s.filter((i: any) => i.itemName === l2Text || i.itemCode === l2Text);
+      if (!candidates.length) {
+        throw new BadRequestException(`二级分类不在字典范围内（当前值：「${l2Text}」），请先在字典管理中选择规范分类`);
+      }
+      if (l1) {
+        l2 = candidates.find((i: any) => i.extField1 === l1.itemCode);
+        if (!l2) {
+          throw new BadRequestException(`二级分类「${l2Text}」不属于一级分类「${l1.itemName}」`);
+        }
+      } else {
+        const parents = [...new Set(candidates.map((i: any) => i.extField1).filter(Boolean))];
+        if (parents.length > 1) {
+          throw new BadRequestException(`二级分类「${l2Text}」存在多个一级分类，请先选择一级分类`);
+        }
+        l2 = candidates[0];
+      }
+      const parent = l1s.find((i: any) => i.itemCode === l2.extField1);
+      if (!parent) {
+        throw new BadRequestException(`二级分类「${l2.itemName}」未绑定一级分类，请在字典管理中维护关联`);
+      }
+      l1 = parent;
+    }
+    return { categoryLevel1: l1?.itemName ?? null, categoryLevel2: l2?.itemName ?? null };
+  }
+
   /** 布尔属性归一化（需求 2.1.1：是否资产 / 是否安全物资 必填） */
   private toBool(v: any, label: string): boolean {
     if (v === true || v === false) return v;
@@ -127,6 +173,10 @@ export class MaterialService {
   async createBase(data: any) {
     await this.validateBase(data);
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 一/二级分类必须引用字典中的规范项（2026-10-18 分类表）
+    const cat = await this.resolveCategories(data.categoryLevel1, data.categoryLevel2);
+    payload.categoryLevel1 = cat.categoryLevel1;
+    payload.categoryLevel2 = cat.categoryLevel2;
     // 需求 2.3.1：计量单位必填，且只能取自字典「measurement_unit」
     payload.unit = await this.resolveUnit(data.unit);
     // 需求 2.1.1：是否资产 / 是否安全物资 为必填布尔属性（由物资基础库统一维护）
@@ -142,6 +192,15 @@ export class MaterialService {
     if (!old) throw new NotFoundException('物资基础信息不存在');
     await this.validateBase({ ...old, ...data });
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 一/二级分类：任一变化都整对校验（二级必须属于所选一级；只传二级时自动带出一级）
+    if (data.categoryLevel1 !== undefined || data.categoryLevel2 !== undefined) {
+      const cat = await this.resolveCategories(
+        data.categoryLevel1 !== undefined ? data.categoryLevel1 : old.categoryLevel1,
+        data.categoryLevel2 !== undefined ? data.categoryLevel2 : old.categoryLevel2,
+      );
+      payload.categoryLevel1 = cat.categoryLevel1;
+      payload.categoryLevel2 = cat.categoryLevel2;
+    }
     // 需求 2.3.1：计量单位创建后不可修改（历史空值允许一次性补齐）
     if (data.unit !== undefined && data.unit !== null && String(data.unit).trim() !== '') {
       const unit = await this.resolveUnit(data.unit);
@@ -272,10 +331,16 @@ export class MaterialService {
         };
         const isAsset = boolOf(r['是否资产'], '是否资产');
         const isSafetyMaterial = boolOf(r['是否安全物资'], '是否安全物资');
+        let cat;
+        try {
+          cat = await this.resolveCategories(r['一级分类'], r['二级分类']);
+        } catch (e: any) {
+          throw new RowError(e?.message || '一/二级分类不在字典范围内', '一级分类');
+        }
         const payload = {
           name, spec, unit, isAsset, isSafetyMaterial,
-          categoryLevel1: String(r['一级分类'] ?? '').trim() || null,
-          categoryLevel2: String(r['二级分类'] ?? '').trim() || null,
+          categoryLevel1: cat.categoryLevel1,
+          categoryLevel2: cat.categoryLevel2,
           mdmCode: String(r['MDM编码'] ?? '').trim() || null,
           dscCode: String(r['DSC编码'] ?? '').trim() || null,
           remark: String(r['备注'] ?? '').trim() || null,

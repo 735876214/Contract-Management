@@ -76,8 +76,8 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（45 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（10 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（46 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（11 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -129,6 +129,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/contractFulfillment.spec.mts` | **合同履约派生进度（零表，2026-10-18）**：已收/已结/已付/开票比例 · 分母未知或为 0 → `null`（显式 0 照常参与）· 超收/超结/超付用负数暴露 · 「有收货未结算」「有结算未付款」标记 |
   | `test/contractArchive.spec.mts` | **合同归档完整性检查**（业务口径 2026-10-18，单向归档）：未签章 / 草稿结算 / 未完成总结算 / 未挂结算收领单 / 未纳入结算日报行 / 有下游但未「已完已结」→ 阻断 · 无下游的已签章合同可归档 · 待查验发票 / 未付款只提示不阻断 |
   | `test/assetFlow.spec.mts` | **物资进出场方向与汇总**（业务口径 2026-10-18：只做物资、零新表）：采购/调入 = 进场，调出/处置 = 出场，调入费/维保费只计金额 · 未知来源单列、不混入进出场 · 数量/金额按方向汇总 |
+  | `test/materialCategories.spec.mts` | **物资一/二级分类表锁**（业务 2026-10-18）：一级 10 项、二级 67 项、编码唯一 · 二级父级必须存在且 (父级, 名称) 不重复 · 每个一级至少一个二级 · 旧编码/旧名称映射目标都存在 |
   | `test/supplementDelta.spec.mts` | **补充协议带符号增量算法**：涨价/降价只计**差额**（防止把"剩余数量的全值"重复计入）· 增数量按原单价 · 新增物资全额 · 未知类型一律 0 · 主合同查不到的物资按全额并计数 |
   | `test/supplierSnapshot.spec.mts` | **签订时快照口径**（业务口径：合同正文导出取签订时快照）：`KEEP`（默认）快照优先逐字段回退实时 · `SYNC` 强制实时 · 快照缺失（存量合同）行为不变 · 空串视为未提供 · **扫源码核对快照字段清单覆盖 `generate()` 用的全部 `sup.*`**（漏一项就会静默回退实时） |
   | `test/payRatio.spec.mts` | **付款安排与「当前生效比例」**（业务口径 2026-10-16）：两种月度安排的分期与比例（`M65_1` 次月 30 日 65%；`M65_3` 次月/次次月/次次次月 20/20/25，浮点求和须回到 0.65）· 存量 `100`/`3382` **不得改** · 生效比例四条规则（已完已结 = 100% 压过月度安排 · 按安排 · 自定义取手填 · **推不出 → `null` 不覆盖**，手填 0 也算推不出）· **前后端镜像**（`web/src/constants/paymentModes.ts` 的取值集合与 label 逐条相等——下拉里显示的就是它） |
@@ -204,6 +205,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |
 | `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计 · 跨项目 404 |
 | `contract-archive.int.spec.ts` | **合同归档锁定**（业务口径 2026-10-18，单向）：未签章/草稿结算阻断 · 下游收口后可归档 · 归档后合同/结算/收领单写入口 400、读取仍可用 · 不可重复归档 |
+| `material-categories.int.spec.ts` | **物资分类字典与基础库引用**（2026-10-18 分类表）：启动同步后一级 10/二级 67 项且二级挂一级 · 创建物资存名称、同名二级按一级归位 · 二级不属于所选一级/旧分类名 → 400 · 只传二级自动带出一级 |
 | `amount-guard.int.spec.ts` | 金额上限闸门：`BLOCK` 真的拦住超结/超付、`WARN` 放行、草稿豁免、**合同未填金额=无上限**、失败/退款不计入累计、**补充协议带符号增量进上限**（降价→上限下降拦住原本合法的单；增项→回升放行；求和用 `changeAmount` 而非手填 `amount`） |
 | `contract-flow.int.spec.ts` | 合同 草稿→审批中→签章→驳回 全链 + 采购任务状态联动 + 签章件落盘/下载 + 两条防误改规则（非主合同、阶段链未走完） |
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
