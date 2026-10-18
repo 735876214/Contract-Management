@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
 import { bootIntApp, uniq, type IntContext } from './helpers';
 import { MaterialService } from '../src/modules/material/material.service';
 import { DictService } from '../src/modules/dict/dict.service';
@@ -77,5 +78,32 @@ describe('集成 · 物资分类字典与基础库引用', () => {
     assert.equal(created.categoryLevel1, '工程材料');
     assert.equal(created.categoryLevel2, '混凝土');
     await ctx.prisma.materialBase.delete({ where: { id: created.id } });
+  });
+
+  it('导入模板预置一/二级分类下拉（数据验证 + 隐藏选项表）', async () => {
+    const { buffer } = await material.templateBases();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer as any);
+    const ws = wb.getWorksheet('数据')!;
+    const opt = wb.getWorksheet('选项')!;
+    assert.ok(ws && opt, '模板应包含「数据」与隐藏「选项」表');
+    assert.equal(opt.state, 'hidden');
+
+    // C = 一级分类，D = 二级分类（表头顺序见 templateBases）
+    assert.equal(ws.getCell(3, 3).dataValidation?.type, 'list');
+    assert.equal(ws.getCell(3, 4).dataValidation?.type, 'list');
+    assert.match(String(ws.getCell(3, 3).dataValidation?.formulae?.[0] || ''), /选项!/);
+    assert.match(String(ws.getCell(3, 4).dataValidation?.formulae?.[0] || ''), /选项!/);
+
+    const optionValues = new Set<string>();
+    for (let c = 1; c <= opt.columnCount; c++) {
+      opt.getColumn(c).eachCell((cell) => {
+        if (cell.value) optionValues.add(String(cell.value));
+      });
+    }
+    assert.ok(optionValues.has('工程材料'));
+    assert.ok(optionValues.has('智慧工地'));
+    assert.ok(optionValues.has('钢模板'));
+    assert.ok(optionValues.has('绿色施工'));
   });
 });
