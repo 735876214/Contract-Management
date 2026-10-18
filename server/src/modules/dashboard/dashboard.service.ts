@@ -179,6 +179,9 @@ export class DashboardService {
       projectId,
       planDate: { lt: today },
       statusCode: { notIn: [MILESTONE_STATUS.DONE, MILESTONE_STATUS.SKIPPED] },
+      // 归档合同不出现在待办：过滤放进 where，保证 count 与 items 口径一致
+      // （此前只对 items 后置过滤，count 会把已归档合同的节点也算进去）。
+      contract: { archivedAt: null },
     };
     const [rows, count] = await Promise.all([
       this.prisma.contractFulfillment.findMany({
@@ -199,8 +202,6 @@ export class DashboardService {
       label: '',
       count,
       items: rows
-        // 已归档合同不再出现在待办（与工作台其他合同待办同一口径）
-        .filter((m) => !m.contract.archivedAt)
         .map((m) => ({
           key: `milestone:${m.id}:overdue`,
           title: `${m.contract.name || m.contract.code} · ${m.name}`,

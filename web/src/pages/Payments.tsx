@@ -131,6 +131,8 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
 function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
   const [form] = Form.useForm();
   const [receiptName, setReceiptName] = useState<string>('');
+  /** 回单 URL 用 state 跟踪（而非 render 期读 form.getFieldValue），保证上传后链接立即出现 */
+  const [receiptUrl, setReceiptUrl] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   /** 列表页打开编辑器时递过来的整行；`undefined` = 新增 */
@@ -146,6 +148,7 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
       // 回单展示名：从 URL 提取文件名
       const url = editing.receiptUrl || '';
       setReceiptName(url ? decodeURIComponent(url.split('/').pop() || '') : '');
+      setReceiptUrl(url);
     }
     setDirty(false);
     // 仅在换记录时回填（form 实例稳定，不需要进依赖）
@@ -231,6 +234,7 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
                         try {
                           const files = await fileApi.upload([f]);
                           form.setFieldsValue({ receiptUrl: files[0].url });
+                          setReceiptUrl(files[0].url);
                           setReceiptName(files[0].fileName);
                           setDirty(true);
                           message.success('回单已上传，保存后生效');
@@ -243,8 +247,8 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
                 }
               />
             </Form.Item>
-            {form.getFieldValue('receiptUrl') && (
-              <a style={{ display: 'block', marginBottom: 12 }} onClick={() => window.open(withToken(form.getFieldValue('receiptUrl')))}>
+            {receiptUrl && (
+              <a style={{ display: 'block', marginBottom: 12 }} onClick={() => window.open(withToken(receiptUrl))}>
                 下载银行回单
               </a>
             )}

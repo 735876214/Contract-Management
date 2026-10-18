@@ -1448,9 +1448,14 @@ export class ContractService {
         signedRemark: remark || null,
         status: CONTRACT_STATUS.SIGNED,
         // 驳回回起草时 execStatus 被重置为 DRAFT（2026-10-18 业务流审计）；
-        // 重新签章 → 合同进入执行，执行情况恢复为「执行中」（已完成/已完已结
-        // 只能由总结算驱动或用户显式设置，不在这里臆断）。
-        execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING,
+        // 重新签章 → 恢复为「执行中」。⚠️ 仅在当前为 DRAFT/空时推进：
+        // 「重新签章」对已完已结（DONE_SETTLED）/已完未结的合同是合法操作
+        // （换扫描件/改签章日期），不得把它们降级回 EXECUTING——否则总结算
+        // 仍 SETTLED 而合同执行情况丢失，工作台口径立刻矛盾。
+        ...(forSnapshot.execStatus &&
+        forSnapshot.execStatus !== CONTRACT_EXECUTION_STATUS.DRAFT
+          ? {}
+          : { execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING }),
         version: { increment: 1 },
       },
     });
