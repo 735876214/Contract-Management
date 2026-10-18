@@ -26,16 +26,10 @@
 
 ## 需外部条件（基础设施 / 凭据 / 他人配合就绪即可做）
 
-- **通知通道适配器**（企微/钉钉机器人 Webhook）：现状只有站内信
-  （`notification.service.ts` 注释即写「邮件/短信/企微/钉钉接口预留」），`send()` 只做 DB insert。
-  **阻塞原因**：需要机器人凭据与出网策略，且要业务定「哪些事件发到群里」。
-  **同一份应用凭据下的姊妹项**：企微/钉钉**免登 SSO**（OAuth → 映射现有 `User` → 签发现有 JWT，
-  **不新建平行账号体系**）——凭据就绪即可一并做，故不单列。
-- **多副本部署前的三项必办**：① **共享文件存储**——附件只存本地盘（业务 2026-10-18 明确不引入对象存储），
-  多副本前需另行确定共享方案（当前未定）② **进程内缓存不一致**——`DictService.cache` 24h TTL、
-  `refreshCache()` 只清本实例，A 改字典 B 最长 24h 才可见（`SysParamService` 同理）
-  ③ **编号竞态**——`contract.service.nextCode()` 读 `max(yearSeq)` 再 +1，两副本会取到同号（被唯一约束挡住报错）。
-  **阻塞原因**：单实例下这三条都无影响，**只在确定要上多副本时才值得做**；届时前置还有共享 PG。
+> 当前无。原两项已由业务 2026-10-18 确认**不再推进**（决策登记见
+> [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)「系统能力边界」）：
+> ① 企微/钉钉通知通道与免登 SSO（无凭据与出网条件，站内信满足现状）；② 多副本部署及其三项前置
+> （共享文件存储 / 缓存一致性 / 编号竞态）——单实例部署是最终形态。
 
 ## 可直接开工（工程项，按性价比排序）
 
@@ -49,7 +43,7 @@
 > **招标域已实施**（迁移 `20261019000000_tender_bidder_and_evaluation`，约定见
 > [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
 > **结算生成口径已按总日报落地**（2026-10-18），**合同履约进度/归档锁定/进出场汇总均已实施**，
-> **日报出场日期与半结构化字段 jsonb 已实施**
+> **日报出场日期、半结构化字段 jsonb、合同履约节点表均已实施**
 > （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4–§7）；
 > 下面为剩余按需项。
 
@@ -58,14 +52,14 @@
 
 ### 剩余 · 按需
 
-- **合同履约节点/里程碑表** `ContractFulfillment`：履约派生进度与归档锁定已实施（2026-10-18），
-  仅当业务需要「计划节点 + 逾期 + 违约」时再建表；不重复结算/付款/收货单据。
 - 移动刚需页 H5 精简版（响应式 V1 视口层 + V2 容器层均已完成，规则见 [DESIGN.md](DESIGN.md) §10）。
 
 > 已实施（2026-10-18）：`DailyReport.exitDate`（迁移 `20261108000000_daily_report_exit_date`，
 > 日报表单/列/导入导出同步，只填不参与自动计算）；半结构化字段改 PG `jsonb`
 > （迁移 `20261109000000_semi_structured_jsonb`，覆盖事前说明/采前会/成交报告/采购公告/考察照片
-> 共 13 列；服务端 `parseJsonArray` 兼容 jsonb 数组与历史 JSON 字符串两种形态）。
+> 共 13 列；服务端 `parseJsonArray` 兼容 jsonb 数组与历史 JSON 字符串两种形态）；
+> **合同履约节点表 `ContractFulfillment`**（迁移 `20261110000000_contract_fulfillment`：
+> CRUD + 合同详情时间线 + 工作台 OVERDUE_MILESTONE 逾期待办；归档合同禁写）。
 
 ## 本文件的维护方式
 

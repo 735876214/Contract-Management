@@ -133,6 +133,7 @@ model Project {
   procurementBidders       ProcurementBidder[]
   procurementEvaluations   ProcurementEvaluation[]
   inspectionReports        InspectionReport[]
+  contractFulfillments     ContractFulfillment[]
 
   @@index([createdAt])
 }
@@ -418,6 +419,7 @@ model Contract {
   supplements                Contract[]              @relation("SupplementChain")
   ext                        ContractExt?
   attachments                ContractAttachment[]
+  fulfillments               ContractFulfillment[]
   changeLogs                 ContractChangeLog[]
   reports                    DailyReport[]
   settlements                Settlement[]
@@ -472,6 +474,30 @@ model ContractAttachment {
   createdAt  DateTime @default(now())
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+/// 合同履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际的里程碑，
+/// 逾期 = 派生（未完成且 planDate 已过），不落库；不重复结算/付款/收货单据。
+model ContractFulfillment {
+  id         String    @id @default(cuid())
+  projectId  String
+  contractId String
+  name       String // 节点名（如「进场」「主体完工」「结算完成」）
+  planDate   DateTime? // 计划日期
+  actualDate DateTime? // 实际日期
+  owner      String? // 责任人（姓名快照）
+  statusCode String? // MILESTONE_STATUS：PENDING / DONE / SKIPPED（常量，非字典驱动）
+  remark     String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  version    Int       @default(0) // 乐观锁版本号
+  updatedAt  DateTime  @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, contractId])
+  @@index([planDate])
 }
 
 model ContractChangeLog {

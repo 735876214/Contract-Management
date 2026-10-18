@@ -144,6 +144,8 @@
 | GET | `/contracts/:id/changes` | 变更记录 | `contract:view` |
 | GET | `/contracts/:id/fulfillment` | 履约派生进度（零表：已收/已结/已付/开票，2026-10-18） | `contract:view` |
 | GET | `/contracts/:id/archive-check` | 归档前下游完整性检查（阻断项/提示项） | `contract:view` |
+| GET/POST | `/contracts/:id/milestones` | 履约节点列表（含 overdue 派生）/ 新增（四域扩展按需项 2026-10-18） | view / `contract:edit` |
+| PUT/DELETE | `/contracts/:id/milestones/:milestoneId` | 修改（乐观锁）/ 删除履约节点 | `contract:edit` |
 | POST | `/contracts/:id/archive` | 合同归档（**单向**；归档后锁合同/收领单/结算/总结算写操作） | `contract:edit` |
 | GET | `/contracts/:id/ext` · PUT `/contracts/:id/ext` | 台账补充字段（双向） | view / `contract:edit` |
 | POST | `/contracts` | 新增（编号查重 + 字典校验） | `contract:edit` |

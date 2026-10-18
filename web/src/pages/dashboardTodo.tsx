@@ -70,6 +70,7 @@ const TODO_TAB_TARGET: Record<string, string> = {
   INVOICE_VERIFY: '/invoice',
   OVERDUE_INTEREST: '/settlement/overdue',
   PROCUREMENT_TODO: '/procurement/initiate',
+  OVERDUE_MILESTONE: '/contract/query',
 };
 
 export function TodoCard() {

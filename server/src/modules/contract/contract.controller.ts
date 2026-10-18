@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ContractService } from './contract.service';
+import { MilestoneService } from './milestone.service';
 import { ContractFulfillmentService } from './contract-fulfillment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -27,6 +28,7 @@ export class ContractController {
   constructor(
     private contractService: ContractService,
     private fulfillmentService: ContractFulfillmentService,
+    private milestoneService: MilestoneService,
   ) {}
 
   @RequirePermissions('contract:view')
@@ -216,6 +218,45 @@ export class ContractController {
   @Get(':id/fulfillment')
   fulfillment(@Param('id') id: string, @ProjectId() projectId: string) {
     return this.fulfillmentService.get(id, projectId);
+  }
+
+  /** 履约节点列表（四域扩展按需项 2026-10-18；逾期为派生字段 overdue） */
+  @RequirePermissions('contract:view')
+  @Get(':id/milestones')
+  milestones(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.milestoneService.list(id, projectId);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post(':id/milestones')
+  createMilestone(
+    @Param('id') id: string,
+    @Body() body: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.milestoneService.create(id, body, projectId, user);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Put(':id/milestones/:milestoneId')
+  updateMilestone(
+    @Param('id') id: string,
+    @Param('milestoneId') milestoneId: string,
+    @Body() body: any,
+    @ProjectId() projectId: string,
+  ) {
+    return this.milestoneService.update(id, milestoneId, body, projectId);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Delete(':id/milestones/:milestoneId')
+  removeMilestone(
+    @Param('id') id: string,
+    @Param('milestoneId') milestoneId: string,
+    @ProjectId() projectId: string,
+  ) {
+    return this.milestoneService.remove(id, milestoneId, projectId);
   }
 
   @RequirePermissions('contract:view')

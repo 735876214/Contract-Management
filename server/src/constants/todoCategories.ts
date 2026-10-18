@@ -32,6 +32,7 @@ export const TODO_CATEGORIES: TodoCategory[] = [
   { key: 'INVOICE_VERIFY', label: '待查验发票', permission: 'invoice:view', limit: 8 },
   { key: 'OVERDUE_INTEREST', label: '逾期利息待对账', permission: 'finance:view', limit: 8 },
   { key: 'PROCUREMENT_TODO', label: '采购待编制', permission: 'contract:view', limit: 8 },
+  { key: 'OVERDUE_MILESTONE', label: '履约节点逾期', permission: 'contract:view', limit: 8 },
 ];
 
 /** key → 分类（聚合查询按它分发） */

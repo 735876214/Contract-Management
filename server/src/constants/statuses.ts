@@ -131,6 +131,18 @@ export const SITE_CONFIRM_STATUS = {
 } as const;
 export type SiteConfirmStatus = (typeof SITE_CONFIRM_STATUS)[keyof typeof SITE_CONFIRM_STATUS];
 
+/**
+ * 合同履约节点状态（`ContractFulfillment.statusCode`，**非字典驱动**，四域扩展按需项 2026-10-18）。
+ * 展示层映射：PENDING=blue / DONE=green / SKIPPED=default；「逾期」是派生值
+ * （未完成且 planDate 已过，见 `common/utils/milestone.ts` 的 `isMilestoneOverdue`），不落库。
+ */
+export const MILESTONE_STATUS = {
+  PENDING: 'PENDING',
+  DONE: 'DONE',
+  SKIPPED: 'SKIPPED',
+} as const;
+export type MilestoneStatus = (typeof MILESTONE_STATUS)[keyof typeof MILESTONE_STATUS];
+
 /** 分包商库状态（**非字典驱动**：由委托书导出/推送流程驱动） */
 export const SUBCONTRACTOR_STATUS = {
   EDITING: 'EDITING',

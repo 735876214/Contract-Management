@@ -4,7 +4,7 @@ import { num } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
-import { CONTRACT_STATUS } from '../../constants/statuses';
+import { CONTRACT_STATUS, MILESTONE_STATUS } from '../../constants/statuses';
 import {
   TODO_CATEGORIES,
   type TodoGroup,
@@ -125,6 +125,7 @@ export class DashboardService {
       INVOICE_VERIFY: () => this.todoInvoiceVerify(projectId),
       OVERDUE_INTEREST: () => this.todoOverdueInterest(projectId),
       PROCUREMENT_TODO: () => this.todoProcurement(projectId),
+      OVERDUE_MILESTONE: () => this.todoOverdueMilestone(projectId),
     };
 
     const groups = await Promise.all(
@@ -165,6 +166,48 @@ export class DashboardService {
         hint: `创建于 ${c.createdAt.toISOString().slice(0, 16).replace('T', ' ')}，已超时`,
         target: { path: '/contract/draft', editor: c.id },
       })),
+    };
+  }
+
+  /** 履约节点逾期（四域扩展按需项 2026-10-18）：未完成且计划日期已过的节点，按合同聚合 */
+  private async todoOverdueMilestone(projectId: string): Promise<TodoGroup> {
+    const limit = this.todoLimit('OVERDUE_MILESTONE');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const where = {
+      projectId,
+      planDate: { lt: today },
+      statusCode: { notIn: [MILESTONE_STATUS.DONE, MILESTONE_STATUS.SKIPPED] },
+    };
+    const [rows, count] = await Promise.all([
+      this.prisma.contractFulfillment.findMany({
+        where,
+        orderBy: { planDate: 'asc' },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          planDate: true,
+          contract: { select: { id: true, code: true, name: true, archivedAt: true } },
+        },
+      }),
+      this.prisma.contractFulfillment.count({ where }),
+    ]);
+    return {
+      key: 'OVERDUE_MILESTONE',
+      label: '',
+      count,
+      items: rows
+        // 已归档合同不再出现在待办（与工作台其他合同待办同一口径）
+        .filter((m) => !m.contract.archivedAt)
+        .map((m) => ({
+          key: `milestone:${m.id}:overdue`,
+          title: `${m.contract.name || m.contract.code} · ${m.name}`,
+          code: m.contract.code || '',
+          level: 'RED' as TodoLevel,
+          hint: `计划日期 ${m.planDate.toISOString().slice(0, 10)}，已逾期`,
+          target: { path: '/contract/query', editor: m.contract.id },
+        })),
     };
   }
 

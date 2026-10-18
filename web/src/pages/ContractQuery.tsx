@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Tag,
+  Timeline,
   Upload,
   message,
 } from 'antd';
@@ -25,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
+import { useAuthStore } from '@/store/auth';
 import { DictTag } from '@/components/DictSelect';
 import SupplementDraft from '@/components/contract/SupplementDraft';
 import { withToken } from '../utils/download';
@@ -601,6 +603,8 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
           <span>加载中…</span>
         )}
       </Card>
+      <MilestoneCard contractId={detail.id} />
+
       <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
         <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
         <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
@@ -641,5 +645,127 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
         <Descriptions.Item label="备注">{detail.remark || '-'}</Descriptions.Item>
       </Descriptions>
     </div>
+  );
+}
+
+
+/** 履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际时间线；逾期派生标红 */
+function MilestoneCard({ contractId }: { contractId: string }) {
+  const canEdit = useAuthStore((s) => s.hasPermission('contract:edit'));
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [form] = Form.useForm();
+
+  const load = useCallback(() => {
+    contractApi
+      .milestones(contractId)
+      .then((d: any) => setRows(d || []))
+      .catch(() => setRows([]));
+  }, [contractId]);
+  useEffect(() => load(), [load]);
+
+  const submit = async () => {
+    const values = await form.validateFields();
+    try {
+      await contractApi.createMilestone(contractId, {
+        ...values,
+        planDate: values.planDate ? values.planDate.format('YYYY-MM-DD') : null,
+        actualDate: values.actualDate ? values.actualDate.format('YYYY-MM-DD') : null,
+      });
+      message.success('已添加履约节点');
+      setEditing(false);
+      form.resetFields();
+      load();
+    } catch (e: any) {
+      message.error(e?.message || '保存失败');
+    }
+  };
+
+  const markDone = async (m: any) => {
+    try {
+      await contractApi.updateMilestone(contractId, m.id, {
+        statusCode: 'DONE',
+        actualDate: dayjs().format('YYYY-MM-DD'),
+        version: m.version,
+      });
+      load();
+    } catch (e: any) {
+      message.error(e?.message || '操作失败');
+    }
+  };
+
+  const remove = (m: any) => {
+    Modal.confirm({
+      title: '删除履约节点',
+      content: `确认删除「${m.name}」吗？`,
+      okType: 'danger',
+      onOk: async () => {
+        await contractApi.removeMilestone(contractId, m.id);
+        message.success('已删除');
+        load();
+      },
+    });
+  };
+
+  const colorOf = (m: any) => (m.overdue ? 'red' : m.statusCode === 'DONE' ? 'green' : 'blue');
+
+  return (
+    <Card
+      size="small"
+      title="履约节点"
+      style={{ marginBottom: 12 }}
+      extra={
+        canEdit && !editing ? (
+          <Button size="small" type="link" onClick={() => setEditing(true)}>
+            添加节点
+          </Button>
+        ) : undefined
+      }
+    >
+      {editing && (
+        <Form form={form} layout="inline" style={{ marginBottom: 12, rowGap: 8 }} onFinish={submit}>
+          <Form.Item name="name" rules={[{ required: true, message: '请输入节点名' }]}>
+            <Input placeholder="节点名" style={{ width: 140 }} />
+          </Form.Item>
+          <Form.Item name="planDate">
+            <DatePicker placeholder="计划日期" style={{ width: 130 }} />
+          </Form.Item>
+          <Form.Item name="owner">
+            <Input placeholder="责任人" style={{ width: 110 }} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" size="small">
+            保存
+          </Button>
+          <Button size="small" onClick={() => setEditing(false)}>
+            取消
+          </Button>
+        </Form>
+      )}
+      {rows === null ? (
+        <span>加载中…</span>
+      ) : rows.length === 0 ? (
+        <span>暂无履约节点</span>
+      ) : (
+        <Timeline
+          items={rows.map((m) => ({
+            color: colorOf(m),
+            children: (
+              <Space size={8} wrap>
+                <span>{m.name}</span>
+                {m.planDate && <span>计划 {String(m.planDate).slice(0, 10)}</span>}
+                {m.actualDate && <span>实际 {String(m.actualDate).slice(0, 10)}</span>}
+                {m.owner && <span>{m.owner}</span>}
+                {m.overdue && <Tag color="red">逾期</Tag>}
+                {m.statusCode === 'SKIPPED' && <Tag>已跳过</Tag>}
+                {canEdit && m.statusCode !== 'DONE' && m.statusCode !== 'SKIPPED' && (
+                  <a onClick={() => markDone(m)}>标记完成</a>
+                )}
+                {canEdit && <a onClick={() => remove(m)}>删除</a>}
+              </Space>
+            ),
+          }))}
+        />
+      )}
+    </Card>
   );
 }

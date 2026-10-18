@@ -61,6 +61,13 @@ export const contractApi = {
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   /** 履约派生进度（零表）：合同链 + 总日报/结算/付款/发票汇总（业务 2026-10-18） */
   fulfillment: (id: string) => http.get<any, any>(`/contracts/${id}/fulfillment`),
+  /** 履约节点 CRUD（四域扩展按需项 2026-10-18；逾期为派生字段 overdue） */
+  milestones: (id: string) => http.get<any, any>(`/contracts/${id}/milestones`),
+  createMilestone: (id: string, data: any) => http.post<any, any>(`/contracts/${id}/milestones`, data),
+  updateMilestone: (id: string, milestoneId: string, data: any) =>
+    http.put<any, any>(`/contracts/${id}/milestones/${milestoneId}`, data),
+  removeMilestone: (id: string, milestoneId: string) =>
+    http.delete<any, any>(`/contracts/${id}/milestones/${milestoneId}`),
   /** 归档前检查与归档（单向，业务 2026-10-18） */
   archiveCheck: (id: string) => http.get<any, any>(`/contracts/${id}/archive-check`),
   archive: (id: string) => http.post<any, any>(`/contracts/${id}/archive`),
