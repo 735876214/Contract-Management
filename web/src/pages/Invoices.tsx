@@ -265,7 +265,7 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
     };
     setSaving(true);
     try {
-      if (editingId) await invoiceApi.update(editingId, payload);
+      if (editingId) await invoiceApi.update(editingId, { ...payload, version: editing?.version });
       else await invoiceApi.create(payload);
       message.success('保存成功');
     } finally {

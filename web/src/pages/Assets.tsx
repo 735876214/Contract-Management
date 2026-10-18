@@ -208,7 +208,7 @@ function AssetEditor({ suppliers, units, seed }: { suppliers: any[]; units: any[
     const payload = { ...v, date: v.date ? dayjs(v.date).format('YYYY-MM-DD') : null };
     setSaving(true);
     try {
-      if (editing) await assetApi.update(editing.id, payload);
+      if (editing) await assetApi.update(editing.id, { ...payload, version: editing.version });
       else await assetApi.create(payload);
       message.success('保存成功');
     } finally {

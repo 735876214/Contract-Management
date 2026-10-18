@@ -187,7 +187,7 @@ function MaterialEditor({ seed }: { seed: unknown }) {
     const values = await form.validateFields();
     setSaving(true);
     try {
-      if (editing) await materialApi.update(editing.id, values);
+      if (editing) await materialApi.update(editing.id, { ...values, version: editing.version });
       else await materialApi.create(values);
       message.success('保存成功');
       editorTab.closeEditor();

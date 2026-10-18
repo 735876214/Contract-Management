@@ -86,6 +86,16 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
     { title: '合同编号', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
     { title: '付款月份', dataIndex: 'payMonth', width: 110 },
     { title: '本月付款额', dataIndex: 'amount', width: 140, align: 'right', render: money },
+    {
+      title: '银行回单',
+      width: 100,
+      render: (_v: any, r: any) =>
+        r.receiptUrl ? (
+          <a onClick={() => window.open(withToken(r.receiptUrl))}>查看回单</a>
+        ) : (
+          <span className="cms-hint">未上传</span>
+        ),
+    },
   ];
 
   return (
@@ -150,7 +160,7 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
     };
     setSaving(true);
     try {
-      if (editing) await paymentApi.updateRecord(editing.id, payload);
+      if (editing) await paymentApi.updateRecord(editing.id, { ...payload, version: editing.version });
       else await paymentApi.createRecord(payload);
       message.success('保存成功');
     } finally {

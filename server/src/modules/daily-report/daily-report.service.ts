@@ -251,8 +251,12 @@ export class DailyReportService {
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     // 日报行是结算量的来源：目标合同已归档时禁止新增（收领单推送路径在推送前已锁；
-    // 这里覆盖手工/接口直连路径。tx 内也执行：锁走独立 prisma 实例，不依赖外层连接）。
-    await this.assertContractWritable(data.contractId, '新增日报');
+    // 手工/接口直连路径在这里锁）。
+    // ⚠️ 归档锁必须在**事务外**执行：ContractLockService 走共享连接池，事务内再取
+    //    外部连接会重演「dict-in-tx 连接池耗尽挂起」的同类问题（导入 write 阶段传 tx）。
+    //    导入路径在 plan 阶段（事务外）已用 RowError 拦截归档合同，事务内这里
+    //    只在非事务（交互式）调用时锁，事务调用依赖 plan 阶段的过滤。
+    if (!tx) await this.assertContractWritable(data.contractId, '新增日报');
     // 事务内不得调用 this.dict（它使用事务外的 PrismaClient 连接，连接池耗尽会挂起）。
     // 导入流程已在事务外的 map 阶段完成 validate，此处仅在无事务的直连写入时校验。
     if (!tx) await this.validate(data);

@@ -650,7 +650,7 @@ export default function ReceiptOrders() {
     setSaving(true);
     try {
       const saved: any = editingId
-        ? await receiptOrderApi.update(editingId, payload)
+        ? await receiptOrderApi.update(editingId, { ...payload, version: seed?.header?.version })
         : await receiptOrderApi.create(payload);
       const targetId = saved?.id || editingId;
       if (targetId) {
