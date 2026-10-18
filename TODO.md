@@ -9,15 +9,17 @@
 
 > 分组依据是**阻塞条件**（而不是"优先级"）：标着"可直接开工"却全是阻塞项，会让人排错期。
 > **例外**：「四域扩展」的评估与主链路口径已定（决策留痕见 `git log` 与
-> [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md)），仅「需业务澄清」区有 1 条
-> **默认口径待复核**（不阻塞已实施的结算口径与后续设计）；故其内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
+> [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md)）；
+> 内部按**先后**标注 —— 「待实施」→「按需」，不做优先级排序。
 > 说明：**发票「查验」仅用于登记核对（把发票信息录入后标记为已查验），不做验真、不接第三方查验服务**，
 > 故此项已按业务澄清从待办中移除。
 
 ## 需业务澄清（澄清前不要动手）
 
-- **归档后是否允许补录发票/付款**：默认**允许**（归档只锁合同/收领单/结算/总结算的写操作，
-  发票/付款在归档检查中给 warning）；若要求全锁，另立决策。
+> 当前无。
+> 「归档后是否允许补录发票/付款」已由业务 2026-10-18 确认：**允许**（归档只锁合同/收领单/
+> 结算/总结算的写操作，发票/付款在归档检查中给 warning），已登记进
+> [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)。
 
 > 「两处新增保留弹窗」已由业务 2026-10-17 确认并登记进
 > [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)「界面形态」一节。
