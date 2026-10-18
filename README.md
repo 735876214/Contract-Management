@@ -121,6 +121,8 @@ server/src/
 #   ① postgres / cms 两个服务的 volumes：改成 NAS 实际路径（「← NAS 路径」标注处，
 #      如 /volume1/docker/cms/pgdata 与 /volume1/docker/cms/data）
 #   ② JWT_SECRET：openssl rand -base64 48 生成随机值替换占位串
+#      ⚠️ 后端会启动校验：占位值（change-me-*）或缺失会使容器启动即退出，
+#      升级已有部署时若从未改过密钥，必须先完成本步再拉新镜像。
 docker compose up -d
 ```
 

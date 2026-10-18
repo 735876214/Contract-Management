@@ -115,6 +115,11 @@ export class FinanceService {
     if (data.graceDays !== undefined) payload.graceDays = data.graceDays === null || data.graceDays === '' ? null : Number(data.graceDays);
     if (data.interestCapRatio !== undefined) payload.interestCapRatio = data.interestCapRatio === null || data.interestCapRatio === '' ? null : Number(data.interestCapRatio);
     await this.prisma.contract.update({ where: { id: contractId }, data: payload });
+    // 月利率/宽限期影响台账「逾期利息」派生列的重算口径，改后必须重刷
+    // （2026-10-18 审计：此前只改合同参数，台账停留旧值）。
+    if (data.monthlyRate !== undefined || data.graceDays !== undefined) {
+      await this.settlement.syncLedgerByContract(contractId);
+    }
     return this.contractParams(contractId);
   }
 
@@ -394,6 +399,8 @@ export class FinanceService {
     delete payload.version;
     await this.prisma.overdueInterest.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
     await this.recalcOverdue(old.contractId);
+    // 改了结算月份时新月份的台账「逾期利息」列也要重算；
+    // syncLedgerByContract 按合同遍历全部月份并清后挂，单次调用已覆盖新旧月份。
     await this.settlement.syncLedgerByContract(old.contractId);
     return this.prisma.overdueInterest.findUnique({ where: { id } });
   }

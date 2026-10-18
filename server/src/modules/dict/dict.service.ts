@@ -220,8 +220,16 @@ export class DictService {
     supplement_agreement_type: [{ model: 'contract', label: '合同', fields: ['supplementTypeCode'] }],
     asset_status: [{ model: 'dailyReport', label: '日报', fields: ['assetStatus'] }],
     material_source: [{ model: 'dailyReport', label: '日报', fields: ['sourceCode'] }],
-    material_category: [{ model: 'dailyReport', label: '日报', fields: ['materialCategory'] }],
-    material_type: [{ model: 'dailyReport', label: '日报', fields: ['materialType'] }],
+    material_category: [
+      { model: 'dailyReport', label: '日报', fields: ['materialCategory'] },
+      // 物资基础库的 categoryLevel1/2 存的是字典**名称**（与 dailyReport 的 code 口径不同），
+      // checkItemUsage 会同时按 itemCode 与 itemName 匹配，故名称口径也能命中。
+      { model: 'materialBase', label: '物资基础库', fields: ['categoryLevel1', 'categoryLevel2'] },
+    ],
+    material_type: [
+      { model: 'dailyReport', label: '日报', fields: ['materialType'] },
+      { model: 'materialBase', label: '物资基础库', fields: ['categoryLevel1', 'categoryLevel2'] },
+    ],
     measurement_unit: [
       { model: 'dailyReport', label: '日报', fields: ['unit'] },
       { model: 'materialBase', label: '物资基础库', fields: ['unit'] },
