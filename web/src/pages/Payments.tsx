@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
   Button,
+  DatePicker,
   Form,
   Input,
   Select,
@@ -13,12 +14,15 @@ import {
   InputNumber,
 } from 'antd';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
+import { fileApi } from '@/api/auth';
 import { paymentApi } from '@/api/modules';
+import DictSelect from '@/components/DictSelect';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import dayjs from 'dayjs';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -116,13 +120,23 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
 
 function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
   const [form] = Form.useForm();
+  const [receiptName, setReceiptName] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   /** 列表页打开编辑器时递过来的整行；`undefined` = 新增 */
   const editing = seed as any | undefined;
 
   useEffect(() => {
-    if (editing) form.setFieldsValue(editing);
+    if (editing) {
+      // payDate 后端返回 ISO 字符串，DatePicker 需要 dayjs 对象
+      form.setFieldsValue({
+        ...editing,
+        payDate: editing.payDate ? dayjs(editing.payDate) : undefined,
+      });
+      // 回单展示名：从 URL 提取文件名
+      const url = editing.receiptUrl || '';
+      setReceiptName(url ? decodeURIComponent(url.split('/').pop() || '') : '');
+    }
     setDirty(false);
     // 仅在换记录时回填（form 实例稳定，不需要进依赖）
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,10 +144,14 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
 
   const submit = async () => {
     const values = await form.validateFields();
+    const payload = {
+      ...values,
+      payDate: values.payDate ? values.payDate.format('YYYY-MM-DD') : null,
+    };
     setSaving(true);
     try {
-      if (editing) await paymentApi.updateRecord(editing.id, values);
-      else await paymentApi.createRecord(values);
+      if (editing) await paymentApi.updateRecord(editing.id, payload);
+      else await paymentApi.createRecord(payload);
       message.success('保存成功');
     } finally {
       setSaving(false);
@@ -163,6 +181,63 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
           <Col xs={24} md={12}>
             <Form.Item name="amount" label="本月付款额" rules={[{ required: true }]}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="methodCode" label="付款方式">
+              <DictSelect typeCode="payment_method" placeholder="请选择付款方式" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="payDate" label="付款日期">
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="statusCode" label="付款状态" initialValue="PAID">
+              <DictSelect typeCode="payment_status" placeholder="请选择付款状态" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="银行回单" extra="支持 pdf/jpg/png；上传后保存即关联到本条付款记录">
+              <Input
+                value={receiptName || undefined}
+                placeholder="未上传"
+                readOnly
+                addonAfter={
+                  <label style={{ cursor: 'pointer' }}>
+                    上传
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        try {
+                          const files = await fileApi.upload([f]);
+                          form.setFieldsValue({ receiptUrl: files[0].url });
+                          setReceiptName(files[0].fileName);
+                          setDirty(true);
+                          message.success('回单已上传，保存后生效');
+                        } catch (err: any) {
+                          message.error(err?.message || '上传失败');
+                        }
+                      }}
+                    />
+                  </label>
+                }
+              />
+            </Form.Item>
+            {form.getFieldValue('receiptUrl') && (
+              <a style={{ display: 'block', marginBottom: 12 }} onClick={() => window.open(withToken(form.getFieldValue('receiptUrl')))}>
+                下载银行回单
+              </a>
+            )}
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="remark" label="备注">
+              <Input.TextArea rows={2} placeholder="备注" />
             </Form.Item>
           </Col>
         </Row>

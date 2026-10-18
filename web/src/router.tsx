@@ -198,8 +198,10 @@ export const routes: RouteObject[] = [
       { path: 'repayments', element: <Navigate to="/repayment" replace /> },
       { path: 'messages', element: <Navigate to="/message" replace /> },
       { path: 'reports', element: <Navigate to="/statistics" replace /> },
-      // `contracts` 为旧合同编辑页，不与任何新路径重复，故保留为真实路由（未登记权限 → 不拦截）
-      { path: 'contracts', element: <Contracts /> },
+      // `contracts` 为旧合同编辑页（合同台账维护，业务 2026-10-17 补回菜单入口）。
+      // routePermissions 已登记 '/contracts' → 必须走 perm()（此前裸渲染，直接输 URL 的
+      // 无权限用户会看到整页 403 报错而非标准无权限页）。
+      { path: 'contracts', element: perm('/contracts', <Contracts />) },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },

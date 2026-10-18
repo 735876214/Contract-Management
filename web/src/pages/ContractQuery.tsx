@@ -706,6 +706,46 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
     }
   };
 
+  /** 节点不再可能发生（计划取消等）→ 标记跳过；SKIPPED 不参与逾期派生 */
+  const markSkipped = async (m: any) => {
+    try {
+      await contractApi.updateMilestone(contractId, m.id, { statusCode: 'SKIPPED', version: m.version });
+      load();
+    } catch (e: any) {
+      message.error(e?.message || '操作失败');
+    }
+  };
+
+  /** 编辑节点名/计划日期/责任人（此前只有「标记完成」，计划日期填错无法修正） */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm] = Form.useForm();
+  const startEdit = (m: any) => {
+    setEditingId(m.id);
+    editForm.setFieldsValue({
+      name: m.name,
+      planDate: m.planDate ? dayjs(m.planDate) : undefined,
+      owner: m.owner,
+    });
+  };
+  const submitEdit = async () => {
+    if (!editingId) return;
+    const values = await editForm.validateFields();
+    const m = (rows || []).find((x) => x.id === editingId);
+    try {
+      await contractApi.updateMilestone(contractId, editingId, {
+        name: values.name,
+        planDate: values.planDate ? values.planDate.format('YYYY-MM-DD') : null,
+        owner: values.owner ?? null,
+        version: m?.version,
+      });
+      message.success('已更新履约节点');
+      setEditingId(null);
+      load();
+    } catch (e: any) {
+      message.error(e?.message || '保存失败');
+    }
+  };
+
   const remove = (m: any) => {
     Modal.confirm({
       title: '删除履约节点',
@@ -761,7 +801,21 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
         <Timeline
           items={rows.map((m) => ({
             color: colorOf(m),
-            children: (
+            children: editingId === m.id ? (
+              <Form form={editForm} layout="inline" style={{ rowGap: 4 }} onFinish={submitEdit}>
+                <Form.Item name="name" rules={[{ required: true, message: '请输入节点名' }]}>
+                  <Input placeholder="节点名" style={{ width: 130 }} size="small" />
+                </Form.Item>
+                <Form.Item name="planDate">
+                  <DatePicker placeholder="计划日期" style={{ width: 130 }} size="small" />
+                </Form.Item>
+                <Form.Item name="owner">
+                  <Input placeholder="责任人" style={{ width: 100 }} size="small" />
+                </Form.Item>
+                <Button type="primary" htmlType="submit" size="small">保存</Button>
+                <Button size="small" onClick={() => setEditingId(null)}>取消</Button>
+              </Form>
+            ) : (
               <Space size={8} wrap>
                 <span>{m.name}</span>
                 {m.planDate && <span>计划 {String(m.planDate).slice(0, 10)}</span>}
@@ -770,8 +824,12 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
                 {m.overdue && <Tag color="red">逾期</Tag>}
                 {m.statusCode === 'SKIPPED' && <Tag>已跳过</Tag>}
                 {canEdit && m.statusCode !== 'DONE' && m.statusCode !== 'SKIPPED' && (
-                  <a onClick={() => markDone(m)}>标记完成</a>
+                  <>
+                    <a onClick={() => markDone(m)}>标记完成</a>
+                    <a onClick={() => markSkipped(m)}>跳过</a>
+                  </>
                 )}
+                {canEdit && editingId !== m.id && <a onClick={() => startEdit(m)}>编辑</a>}
                 {canEdit && <a onClick={() => remove(m)}>删除</a>}
               </Space>
             ),

@@ -31,9 +31,11 @@ export default function Reports() {
     value == null ? '-' : useDictStore.getState().label(typeCode, value);
 
   const trendOption = useMemo(() => {
-    const months = trend?.months || [];
-    const settle = trend?.settle || [];
-    const pay = trend?.pay || [];
+    // 后端 trend() 返回数组：[{ month, settleAmount, paidAmount }]（此前误读为平行数组，图表永远为空）
+    const rows = Array.isArray(trend) ? trend : [];
+    const months = rows.map((r: any) => r.month);
+    const settle = rows.map((r: any) => r.settleAmount);
+    const pay = rows.map((r: any) => r.paidAmount);
     return {
       tooltip: { trigger: 'axis' },
       legend: { data: ['结算', '付款'] },
@@ -66,7 +68,7 @@ export default function Reports() {
           type: 'pie',
           radius: ['40%', '70%'],
           data: contractType.map((i) => ({
-            name: label('contract_type', i.code) || i.code,
+            name: label('contract_type', i.typeCode) || i.typeCode || '-',
             value: i.amount || 0,
           })),
         },
@@ -82,7 +84,7 @@ export default function Reports() {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: byType.map((i: any) => label('invoice_type', i.code) || i.code),
+        data: byType.map((i: any) => label('invoice_type', i.typeCode) || i.typeCode || '-'),
       },
       series: [{ type: 'bar', data: byType.map((i: any) => i.amount || 0), itemStyle: { color: chartPalette[2] } }],
     };
@@ -96,7 +98,7 @@ export default function Reports() {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: byStatus.map((i: any) => label('invoice_status', i.code) || i.code),
+        data: byStatus.map((i: any) => label('invoice_status', i.statusCode) || i.statusCode || '-'),
       },
       series: [{ type: 'bar', data: byStatus.map((i: any) => i.count || 0), itemStyle: { color: chartPalette[3] } }],
     };
