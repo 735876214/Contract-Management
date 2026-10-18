@@ -398,6 +398,12 @@ model Contract {
   updatedAt           DateTime  @updatedAt
   taskId              String? // 关联采购任务（一对多：一个任务可生成多个合同）
 
+  // ---- 归档（业务口径 2026-10-18：单向归档，不提供解除归档）----
+  // 归档前校验下游完整性；归档后锁合同/收领单/结算/总结算的写操作，
+  // 不锁发票/付款/读取导出（允许事后补录）。见 .claude/rules/document-relationships.md §5.2。
+  archivedAt          DateTime?
+  archivedBy          String? // 归档人姓名快照（弱关联 User）
+
   project                    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task                       ProcurementTask?        @relation("TaskContracts", fields: [taskId], references: [id])
   supplier                   Supplier?               @relation(fields: [supplierId], references: [id])
@@ -432,6 +438,7 @@ model Contract {
 
   @@unique([projectId, code])
   @@index([projectId, supplierId])
+  @@index([projectId, archivedAt])
 }
 
 model ContractExt {

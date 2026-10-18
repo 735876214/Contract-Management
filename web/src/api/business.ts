@@ -61,6 +61,9 @@ export const contractApi = {
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
   /** 履约派生进度（零表）：合同链 + 总日报/结算/付款/发票汇总（业务 2026-10-18） */
   fulfillment: (id: string) => http.get<any, any>(`/contracts/${id}/fulfillment`),
+  /** 归档前检查与归档（单向，业务 2026-10-18） */
+  archiveCheck: (id: string) => http.get<any, any>(`/contracts/${id}/archive-check`),
+  archive: (id: string) => http.post<any, any>(`/contracts/${id}/archive`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,

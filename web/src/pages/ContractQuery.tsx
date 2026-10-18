@@ -74,6 +74,12 @@ export default function ContractQuery() {
   const [signing, setSigning] = useState(false);
   const [signForm] = Form.useForm();
 
+  // 合同归档（单向，业务 2026-10-18）：先检查下游完整性，再确认归档
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<any>(null);
+  const [archiveCheckData, setArchiveCheckData] = useState<any>(null);
+  const [archiving, setArchiving] = useState(false);
+
   /** 标准列表数据源：签订日期区间从 ${key}From/${key}To（ISO）映射为后端 signDateStart/signDateEnd */
   const fetcher = useCallback(async (params: Record<string, any>) => {
     const req: any = {
@@ -187,6 +193,35 @@ export default function ContractQuery() {
     });
   };
 
+  /** 归档前检查：拉取阻断项/提示项后再让用户确认（业务口径 2026-10-18，单向归档） */
+  const openArchive = async (row: any) => {
+    try {
+      const check: any = await contractApi.archiveCheck(row.id);
+      setArchiveTarget(row);
+      setArchiveCheckData(check);
+      setArchiveOpen(true);
+    } catch (e: any) {
+      message.error(e?.message || '归档检查失败');
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    try {
+      await contractApi.archive(archiveTarget.id);
+      message.success('合同已归档（单向归档，不提供解除归档）');
+      setArchiveOpen(false);
+      setArchiveTarget(null);
+      setArchiveCheckData(null);
+      refreshList();
+    } catch (e: any) {
+      message.error(e?.message || '归档失败');
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   /** 筛选项（问题四：标准筛选区） */
   const extraFilters: ModuleListFilterField[] = [
     { key: 'keyword', label: '合同编号 / 名称', control: 'input', placeholder: '请输入关键词' },
@@ -232,7 +267,8 @@ export default function ContractQuery() {
       title: '状态',
       dataIndex: 'status',
       width: 100,
-      render: (v: any) => <StatusTag status={v} />,
+      render: (v: any, row: any) =>
+        row.archivedAt ? <Tag color="default">已归档</Tag> : <StatusTag status={v} />,
     },
   ];
 
@@ -302,6 +338,20 @@ export default function ContractQuery() {
                     </span>
                   ),
                   onClick: () => window.open(withToken(contractApi.signedFileUrl(row.id))),
+                },
+              ]
+            : []),
+          // 归档（单向）：已归档合同不再显示入口
+          ...(!r.archivedAt
+            ? [
+                {
+                  key: 'archive',
+                  label: (
+                    <span>
+                      <FileProtectOutlined /> 归档合同
+                    </span>
+                  ),
+                  onClick: () => openArchive(r),
                 },
               ]
             : []),
@@ -378,6 +428,62 @@ export default function ContractQuery() {
         </Form>
       </Modal>
 
+      {/* 合同归档（单向，业务口径 2026-10-18） */}
+      <Modal
+        title={
+          <Space>
+            <FileProtectOutlined />
+            <span>归档合同</span>
+            {archiveTarget?.code && <Tag color="geekblue">{archiveTarget.code}</Tag>}
+          </Space>
+        }
+        open={archiveOpen}
+        onCancel={() => { setArchiveOpen(false); setArchiveTarget(null); setArchiveCheckData(null); }}
+        onOk={handleArchive}
+        confirmLoading={archiving}
+        okText="确认归档"
+        okButtonProps={{ danger: true, disabled: !archiveCheckData?.canArchive }}
+        width={560}
+        destroyOnHidden
+      >
+        {archiveCheckData?.canArchive ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="归档后不可解除"
+            description="归档将锁定合同、收领单、结算与总结算的写操作；发票与付款仍可补录，读取/导出不受影响。"
+          />
+        ) : (
+          <Alert
+            type="error"
+            showIcon
+            message="存在未完成事项，暂不能归档"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {(archiveCheckData?.blockers || []).map((b: string, i: number) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            }
+          />
+        )}
+        {!!archiveCheckData?.warnings?.length && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="提示（不阻断归档）"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {archiveCheckData.warnings.map((w: string, i: number) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            }
+          />
+        )}
+      </Modal>
+
       {/* 合同详情（问题三：居中弹窗） */}
       <Modal
         title={
@@ -444,6 +550,14 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
 
   return (
     <div ref={ref} className="cq" style={{ width: '100%' }}>
+      {detail.archivedAt && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`该合同已归档（${detail.archivedBy || '—'} · ${String(detail.archivedAt).slice(0, 10)}），业务单据已锁定；发票/付款仍可补录`}
+        />
+      )}
       <Card size="small" title="履约进度（派生）" style={{ marginBottom: 12 }}>
         {fulfillment ? (
           <>

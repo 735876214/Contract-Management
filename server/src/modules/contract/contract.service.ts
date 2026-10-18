@@ -10,6 +10,10 @@ import { ImportTaskService } from '../../common/services/import-task.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StorageService } from '../../common/services/storage.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
+import { collectArchiveBlockers } from '../../common/utils/contract-archive';
+import { chainSettledTotal, contractChainIds } from '../../common/utils/contract-chain';
+import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService } from '../material/material.service';
 import { assertContractRejectable } from '../../constants/workflowGuards';
@@ -24,7 +28,12 @@ import {
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
+  FINAL_SETTLEMENT_STATUS,
+  INVOICE_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
+  PAYMENT_EXCLUDED_STATUSES,
+  SETTLEMENT_STATUS,
+  SITE_CONFIRM_STATUS,
 } from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template/template.service';
@@ -88,6 +97,7 @@ export class ContractService {
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
     private storage: StorageService,
+    private lock: ContractLockService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -160,6 +170,123 @@ export class ContractService {
         acceptance: pick(c.acceptanceClauseId),
       },
     };
+  }
+
+  // ---------------- 归档（业务口径 2026-10-18：单向，不提供解除归档） ----------------
+
+  /**
+   * 归档前检查下游完整性：返回阻断项/提示项，前端据此展示；阻断项非空 → 不允许归档。
+   * 口径见 `.claude/rules/document-relationships.md` §5.2。
+   */
+  async archiveCheck(id: string, projectId: string) {
+    const c = await this.prisma.contract.findFirst({ where: { id, projectId } });
+    if (!c) throw new NotFoundException('合同不存在');
+    const chainIds = await contractChainIds(this.prisma, id);
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { settlementStartDate: true },
+    });
+    const startDay = startDayOf(project?.settlementStartDate);
+
+    const [settlements, receiptsTotal, unsettledReceipts, finals, invoiceCount, pendingInvoices, paymentCount, dailyRows, paidSum, settledAmount] =
+      await Promise.all([
+        this.prisma.settlement.findMany({
+          where: { projectId, contractId: { in: chainIds } },
+          select: { id: true, code: true, statusCode: true, settleDate: true },
+        }),
+        this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
+        this.prisma.receiptOrder.count({
+          where: { projectId, materialContractId: { in: chainIds }, settlementId: null },
+        }),
+        this.prisma.finalSettlement.findMany({
+          where: { projectId, contractId: { in: chainIds } },
+          select: { id: true, code: true, statusCode: true },
+        }),
+        this.prisma.invoice.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.invoice.count({
+          where: { projectId, contractId: { in: chainIds }, statusCode: INVOICE_STATUS.WAIT_VERIFY },
+        }),
+        this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.dailyReport.findMany({
+          where: { projectId, contractId: { in: chainIds }, confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED },
+          select: { entryDate: true },
+        }),
+        this.prisma.paymentRecord.aggregate({
+          where: {
+            projectId,
+            contractId: { in: chainIds },
+            NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } },
+          },
+          _sum: { amount: true },
+        }),
+        chainSettledTotal(this.prisma, id),
+      ]);
+
+    // 已纳入结算的结算期（任意状态；草稿结算本身另列为阻断项）
+    const settledPeriods = new Set(
+      settlements.map((s: any) => periodKeyOf(startDay, s.settleDate)).filter(Boolean) as string[],
+    );
+    const dailyRowsWithoutSettlement = dailyRows.filter((r: any) => {
+      const key = periodKeyOf(startDay, r.entryDate);
+      return !key || !settledPeriods.has(key);
+    }).length;
+
+    const hasAnyDownstream =
+      receiptsTotal + settlements.length + finals.length + invoiceCount + paymentCount + dailyRows.length > 0;
+    const unpaidAmount = Math.round(((settledAmount - (num(paidSum._sum.amount) ?? 0)) + Number.EPSILON) * 100) / 100;
+
+    const result = collectArchiveBlockers({
+      signed: c.status === CONTRACT_STATUS.SIGNED,
+      execStatus: c.execStatus ?? null,
+      hasAnyDownstream,
+      draftSettlementCodes: settlements
+        .filter((s: any) => s.statusCode === SETTLEMENT_STATUS.DRAFT)
+        .map((s: any) => s.code || s.id),
+      pendingFinalSettlementCodes: finals
+        .filter((f: any) => f.statusCode !== FINAL_SETTLEMENT_STATUS.SETTLED)
+        .map((f: any) => f.code || f.id),
+      unsettledReceiptCount: unsettledReceipts,
+      dailyRowsWithoutSettlement,
+      pendingInvoiceCount: pendingInvoices,
+      unpaidAmount,
+    });
+    return { ...result, archivedAt: c.archivedAt, archivedBy: c.archivedBy, execStatus: c.execStatus };
+  }
+
+  /** 归档（单向）：检查通过后写入 archivedAt/archivedBy，并记一条变更日志 */
+  async archive(id: string, projectId: string, user: any) {
+    const c = await this.prisma.contract.findFirst({
+      where: { id, projectId },
+      select: { id: true, archivedAt: true },
+    });
+    if (!c) throw new NotFoundException('合同不存在');
+    if (c.archivedAt) throw new BadRequestException('合同已归档（单向归档，不提供解除归档）');
+    const check = await this.archiveCheck(id, projectId);
+    if (!check.canArchive) {
+      throw new BadRequestException(`合同归档前需先完成以下事项：${check.blockers.join('；')}`);
+    }
+    const operator = user?.realName || user?.username || '系统';
+    await this.prisma.contract.update({
+      where: { id },
+      data: { archivedAt: new Date(), archivedBy: operator, version: { increment: 1 } },
+    });
+    await this.prisma.contractChangeLog.create({
+      data: {
+        contractId: id,
+        field: 'archivedAt',
+        fieldLabel: '归档',
+        beforeValue: null,
+        afterValue: operator,
+        operatorId: user?.userId || null,
+        operator,
+      },
+    });
+    return this.findOne(id);
+  }
+
+  /** 归档后禁止写：合同本体、草稿清单、条款/模板关联等写入口统一调用 */
+  private async assertNotArchived(id: string, action = '修改合同') {
+    await this.lock.assertWritable(id, action);
   }
 
   /** 合同编号查重：scope = GLOBAL 全局唯一 / PROJECT 项目内唯一 */
@@ -378,6 +505,7 @@ export class ContractService {
 
   /** 从物资基础库批量导入（追加，已存在则跳过） */
   async poolAdd(contractId: string, materialIds: string[]) {
+    await this.assertNotArchived(contractId, '修改合同物资清单');
     await this.assertContractExists(contractId);
     if (!Array.isArray(materialIds) || !materialIds.length) throw new BadRequestException('请选择要导入的物资');
     const bases = await this.prisma.materialBase.findMany({ where: { id: { in: materialIds }, status: 1 } });
@@ -400,6 +528,7 @@ export class ContractService {
   }
 
   async poolRemove(contractId: string, poolId: string) {
+    await this.assertNotArchived(contractId, '修改合同物资清单');
     const row = await this.prisma.contractMaterialPool.findFirst({ where: { id: poolId, contractId } });
     if (!row) throw new NotFoundException('物料不存在');
     await this.prisma.contractMaterialPool.delete({ where: { id: poolId } });
@@ -487,6 +616,7 @@ export class ContractService {
 
   /** 从物料编码清单（Tab1）勾选派生到合同清单（Tab2），追加不覆盖 */
   async draftDerive(contractId: string, materialBaseIds: string[]) {
+    await this.assertNotArchived(contractId, '修改合同清单');
     const contract = await this.assertContractExists(contractId);
     if (!Array.isArray(materialBaseIds) || !materialBaseIds.length) {
       throw new BadRequestException('请先在「物料编码清单」中勾选物资');
@@ -598,6 +728,7 @@ export class ContractService {
 
   /** 保存草稿清单行（含税单价 / 暂定含税合价 服务端统一计算，4 位精度） */
   async draftSave(contractId: string, rows: any[]) {
+    await this.assertNotArchived(contractId, '修改合同清单');
     await this.assertContractExists(contractId);
     if (!Array.isArray(rows)) throw new BadRequestException('参数格式错误');
     // 需求修正2：物料税率不独立存储，保存时一律以合同主表税率为准（前端传值忽略）
@@ -639,6 +770,7 @@ export class ContractService {
   }
 
   async draftRemove(contractId: string, id: string) {
+    await this.assertNotArchived(contractId, '修改合同清单');
     const row = await this.prisma.contractDraftMaterial.findFirst({ where: { id, contractId } });
     if (!row) throw new NotFoundException('清单行不存在');
     await this.prisma.contractDraftMaterial.delete({ where: { id } });
@@ -652,6 +784,7 @@ export class ContractService {
    * 全量同步：先清除该合同旧清单，再按草稿行写入，保证两处一致
    */
   async publish(contractId: string) {
+    await this.assertNotArchived(contractId, '发布合同');
     const contract = await this.findOne(contractId);
     if (!contract.templateId) throw new BadRequestException('请先在基础信息中选择合同模板');
     const drafts = await this.prisma.contractDraftMaterial.findMany({
@@ -727,6 +860,7 @@ export class ContractService {
   }
 
   async setStatus(contractId: string, status: string) {
+    await this.assertNotArchived(contractId, '变更合同状态');
     if (!CONTRACT_STATUSES.includes(status)) {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
     }
@@ -744,6 +878,7 @@ export class ContractService {
    * 仅「待签章 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。
    */
   async rejectToDraft(contractId: string) {
+    await this.assertNotArchived(contractId, '驳回合同');
     const c = await this.findOne(contractId);
     // 状态机守卫（单一事实源）：仅「待签章 / 已签章」可驳回回合同起草
     assertContractRejectable(c.status);
@@ -951,6 +1086,7 @@ export class ContractService {
   }
 
   async update(id: string, data: any, user: any) {
+    await this.assertNotArchived(id, '修改合同');
     const before = await this.findOne(id);
     assertVersion(before, data); // 乐观锁：版本号不一致说明已被他人修改
     // 合同编号正式生成后不可变更（历史数据固化）
@@ -1050,7 +1186,24 @@ export class ContractService {
   }
 
   async remove(id: string) {
+    await this.assertNotArchived(id, '删除合同');
     await this.findOne(id);
+    /**
+     * 有下游单据的合同不允许物理删除（改为归档）：新表外键为 Restrict，
+     * 不先拦会由数据库抛 500；这里给出可操作的 400 提示。
+     */
+    const chainIds = await contractChainIds(this.prisma, id);
+    const [receipts, settlements, daily, finals, invoices, payments] = await Promise.all([
+      this.prisma.receiptOrder.count({ where: { materialContractId: { in: chainIds } } }),
+      this.prisma.settlement.count({ where: { contractId: { in: chainIds } } }),
+      this.prisma.dailyReport.count({ where: { contractId: { in: chainIds } } }),
+      this.prisma.finalSettlement.count({ where: { contractId: { in: chainIds } } }),
+      this.prisma.invoice.count({ where: { contractId: { in: chainIds } } }),
+      this.prisma.paymentRecord.count({ where: { contractId: { in: chainIds } } }),
+    ]);
+    if (receipts + settlements + daily + finals + invoices + payments > 0) {
+      throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款），不能删除合同，请改为归档');
+    }
     await this.prisma.contract.delete({ where: { id } });
     return true;
   }
@@ -1218,6 +1371,7 @@ export class ContractService {
    * - 支持重复上传覆盖旧文件，并允许修改签订日期
    */
   async sign(id: string, file: any, signDate?: string, remark?: string) {
+    await this.assertNotArchived(id, '签章');
     if (!file) throw new BadRequestException('请上传签章合同文件');
     await this.assertContractExists(id);
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -1268,6 +1422,7 @@ export class ContractService {
   }
 
   async saveExt(contractId: string, data: any, tx?: TxClient) {
+    if (!tx) await this.assertNotArchived(contractId, '修改合同扩展信息');
     const db: any = tx || this.prisma;
     await this.dict.validate('procurement_source', data.procurementSrc);
     await this.dict.validate('is_direct_purchase', data.isDirectPurchase);

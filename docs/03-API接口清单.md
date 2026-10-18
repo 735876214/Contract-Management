@@ -142,6 +142,9 @@
 | GET | `/contracts/template` | 导出用空白模板 | `contract:view` |
 | GET | `/contracts/:id` | 详情（含供应商、扩展信息、附件） | `contract:view` |
 | GET | `/contracts/:id/changes` | 变更记录 | `contract:view` |
+| GET | `/contracts/:id/fulfillment` | 履约派生进度（零表：已收/已结/已付/开票，2026-10-18） | `contract:view` |
+| GET | `/contracts/:id/archive-check` | 归档前下游完整性检查（阻断项/提示项） | `contract:view` |
+| POST | `/contracts/:id/archive` | 合同归档（**单向**；归档后锁合同/收领单/结算/总结算写操作） | `contract:edit` |
 | GET | `/contracts/:id/ext` · PUT `/contracts/:id/ext` | 台账补充字段（双向） | view / `contract:edit` |
 | POST | `/contracts` | 新增（编号查重 + 字典校验） | `contract:edit` |
 | PUT | `/contracts/:id` | 修改（记录变更日志） | `contract:edit` |

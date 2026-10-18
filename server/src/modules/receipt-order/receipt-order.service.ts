@@ -11,6 +11,7 @@ import { round2, round4 } from '../../common/utils/money';
 import { DictService } from '../dict/dict.service';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement/settlement.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
 
 
 /** 明细中需要按 Decimal 落库的数值字段 */
@@ -78,6 +79,7 @@ export class ReceiptOrderService {
     private prisma: PrismaClient,
     private dict: DictService,
     private settlement: SettlementService,
+    private lock: ContractLockService,
   ) {}
 
   // ==================== 结算单关联 ====================
@@ -653,6 +655,7 @@ export class ReceiptOrderService {
     if (!data?.supplierId) throw new BadRequestException('请选择供应单位');
     if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
     if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    await this.lock.assertWritable(data.materialContractId, '新增收领单');
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -692,6 +695,11 @@ export class ReceiptOrderService {
   async update(id: string, data: any) {
     const before = await this.findOne(id);
     assertVersion(before, data);
+    // 归档锁：原合同与新合同都不能是已归档合同
+    await this.lock.assertWritable(before.materialContractId, '修改收领单');
+    if (data.materialContractId && data.materialContractId !== before.materialContractId) {
+      await this.lock.assertWritable(data.materialContractId, '修改收领单');
+    }
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -731,7 +739,8 @@ export class ReceiptOrderService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
+    await this.lock.assertWritable(before.materialContractId, '删除收领单');
     // 单条 DELETE 自带原子性，无需外层事务；级联与加锁说明见下：
     // - 明细（ReceiptOrderDetail）与自动入账的资产台账（AssetLedger.receiptOrderId）均为
     //   DB 级 onDelete: Cascade，随主表删除一并清理，无需手工 deleteMany

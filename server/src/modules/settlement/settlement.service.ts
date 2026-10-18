@@ -12,6 +12,7 @@ import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
 import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
 // 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
@@ -55,6 +56,7 @@ export class SettlementService {
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
     private sysParam: SysParamService,
+    private lock: ContractLockService,
   ) {}
 
   // ---------------- 结算单 ----------------
@@ -215,6 +217,7 @@ export class SettlementService {
 
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
+    await this.lock.assertWritable(data.contractId, '新增结算单');
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     // 同合同同月唯一（业务口径 2026-10-16，见 assertMonthUniqueForContract 的说明）
@@ -254,6 +257,10 @@ export class SettlementService {
   async update(id: string, data: any) {
     const before = await this.findOne(id);
     assertVersion(before, data);
+    await this.lock.assertWritable(before.contractId, '修改结算单');
+    if (data.contractId && data.contractId !== before.contractId) {
+      await this.lock.assertWritable(data.contractId, '修改结算单');
+    }
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     // 同合同同月唯一（改日期/改合同都要校验，排除自身）
@@ -299,6 +306,7 @@ export class SettlementService {
 
   async remove(id: string) {
     const before: any = await this.findOne(id);
+    await this.lock.assertWritable(before.contractId, '删除结算单');
     await this.prisma.settlement.delete({ where: { id } });
     // 台账行上的 settlementId 由 DB 级 `SET NULL` 解除，随后重算该合同的台账
     // （该行会退回"仅费用行"形态：monthSettleAmount=0、settleCount=0）
@@ -312,6 +320,7 @@ export class SettlementService {
    */
   async reject(id: string) {
     const before: any = await this.findOne(id);
+    await this.lock.assertWritable(before.contractId, '驳回结算单');
     // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
     assertSettlementRejectable(before.statusCode);
     await this.dict.validate('settlement_status', SETTLEMENT_STATUS.DRAFT);
@@ -842,11 +851,17 @@ export class SettlementService {
 
     let created = 0;
     let skipped = 0;
+    let skippedArchived = 0;
     let skippedNoItems = 0;
     let skippedRowCount = 0;
     const warnings: string[] = [];
     const createdItems: any[] = [];
     for (const [contractId, list] of rowsByContract) {
+      // 已归档合同不再生成结算单（归档前已要求结算收口；这里只防手工触发）
+      if (await this.lock.isArchived(contractId)) {
+        skippedArchived++;
+        continue;
+      }
       const existing = await this.findSettlementIdFor(contractId, period.end);
       const contractReceipts = receiptsByContract.get(contractId) ?? [];
       if (existing) {
@@ -940,6 +955,8 @@ export class SettlementService {
       receiptOrders: receipts.length,
       created,
       skipped,
+      /** 因合同已归档而跳过的合同数 */
+      skippedArchived,
       /** 有日报行但全部缺少物资主数据、未能生成结算单的合同数 */
       skippedNoItems,
       /** 因缺少物资主数据而未能带出的日报行总数 */

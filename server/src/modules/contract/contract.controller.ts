@@ -196,6 +196,20 @@ export class ContractController {
     res.end(buffer);
   }
 
+  /** 归档前检查（下游完整性）：阻断项/提示项（业务口径 2026-10-18，单向归档） */
+  @RequirePermissions('contract:view')
+  @Get(':id/archive-check')
+  archiveCheck(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.archiveCheck(id, projectId);
+  }
+
+  /** 归档：检查通过后单向锁定（不提供解除归档） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/archive')
+  archive(@Param('id') id: string, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.contractService.archive(id, projectId, user);
+  }
+
   /** 合同履约派生进度（零表）：总日报/结算/付款/发票的汇总视角（业务 2026-10-18） */
   @RequirePermissions('contract:view')
   @Get(':id/fulfillment')

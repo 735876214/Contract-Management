@@ -378,6 +378,10 @@ function ContractEditor({ seed }: { seed: unknown }) {
   };
 
   const submit = async () => {
+    if (editing?.archivedAt) {
+      message.error('合同已归档（单向归档），不能修改');
+      return;
+    }
     const values = await form.validateFields();
     if (codeStatus === 'error') {
       message.error('合同编号已存在，请修改');
@@ -421,6 +425,14 @@ function ContractEditor({ seed }: { seed: unknown }) {
       onSave={submit}
     >
       <Form form={form} component={false} onValuesChange={() => setDirty(true)}>
+        {editing?.archivedAt && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`该合同已归档（${editing.archivedBy || '—'} · ${String(editing.archivedAt).slice(0, 10)}），仅可查看，不能修改`}
+          />
+        )}
         <Tabs
           items={[
             {

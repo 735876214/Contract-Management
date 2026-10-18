@@ -171,7 +171,7 @@ export class DashboardService {
   /** 合同待签章 */
   private async todoContractSign(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('CONTRACT_SIGN');
-    const where = { projectId, status: CONTRACT_STATUS.APPROVING };
+    const where = { projectId, status: CONTRACT_STATUS.APPROVING, archivedAt: null };
     const [rows, count] = await Promise.all([
       this.prisma.contract.findMany({
         where, orderBy: { createdAt: 'asc' }, take: limit,
@@ -288,7 +288,7 @@ export class DashboardService {
     const limit = this.todoLimit('OVERDUE_INTEREST');
     // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行
     const contracts = await this.prisma.contract.findMany({
-      where: { projectId }, select: { id: true }, take: 500,
+      where: { projectId, archivedAt: null }, select: { id: true }, take: 500,
     });
     const contractIds = contracts.map((c) => c.id);
     if (!contractIds.length) return { key: 'OVERDUE_INTEREST', label: '', count: 0, items: [] };
@@ -359,7 +359,7 @@ export class DashboardService {
   private async amountAlerts(projectId: string) {
     const [contracts, settlements] = await Promise.all([
       this.prisma.contract.findMany({
-        where: { projectId },
+        where: { projectId, archivedAt: null },
         select: { id: true, parentContractId: true, amount: true, changeAmount: true, code: true, name: true },
       }),
       this.prisma.settlement.findMany({

@@ -5,6 +5,7 @@ import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ContractService } from '../contract/contract.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
 import { DocTemplateService } from '../doc-template/doc-template.service';
 import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
@@ -34,6 +35,7 @@ export class FinalSettlementService {
     private dict: DictService,
     private contract: ContractService,
     private docTemplate: DocTemplateService,
+    private lock: ContractLockService,
   ) {}
 
   async findAll(query: any = {}, projectId: string) {
@@ -95,6 +97,7 @@ export class FinalSettlementService {
    */
   async generate(contractId: string, projectId: string, user?: any) {
     if (!contractId) throw new BadRequestException('请选择合同');
+    await this.lock.assertWritable(contractId, '生成总结算单');
     const contract = await this.prisma.contract.findUnique({
       where: { id: contractId },
       select: { id: true, code: true, projectId: true },
@@ -142,6 +145,7 @@ export class FinalSettlementService {
   async update(id: string, data: any) {
     const before: any = await this.findOne(id);
     assertVersion(before, data);
+    await this.lock.assertWritable(before.contractId, '修改总结算单');
     const payload: any = pickFields(data, FIELDS, { label: '总结算单' });
     delete payload.version;
     // 状态只经受控动作（上传附件）变更，不从这里直传 —— 否则"已结算"会绕过合同状态联动
@@ -155,6 +159,7 @@ export class FinalSettlementService {
    */
   async attach(id: string, file: { url: string; fileName: string }, user?: any) {
     const before: any = await this.findOne(id);
+    await this.lock.assertWritable(before.contractId, '上传总结算单附件');
     if (!file?.url) throw new BadRequestException('缺少附件');
     await this.dict.validate('contract_execution_status', CONTRACT_EXECUTION_STATUS.DONE_SETTLED);
 
@@ -181,6 +186,7 @@ export class FinalSettlementService {
 
   async remove(id: string) {
     const before: any = await this.findOne(id);
+    await this.lock.assertWritable(before.contractId, '删除总结算单');
     await this.prisma.finalSettlement.delete({ where: { id } });
     // 已结算的单据被删 → 合同不再处于"已完已结"（否则会留下没有单据支撑的假状态）
     if (before.statusCode === FINAL_SETTLEMENT_STATUS.SETTLED) {
