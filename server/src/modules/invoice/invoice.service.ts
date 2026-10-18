@@ -339,6 +339,10 @@ export class InvoiceService {
           const ct = Number((contract as any).taxRate);
           taxRate = ct > 1 ? ct / 100 : ct;
         }
+        const amtBefore = num(r['税前金额']);
+        const amtWith = num(r['含税金额']);
+        if (amtBefore !== null && amtBefore < 0) throw new RowError('税前金额不能为负数', '税前金额');
+        if (amtWith !== null && amtWith < 0) throw new RowError('含税金额不能为负数', '含税金额');
         return {
           data: {
             contractId: contract.id,
@@ -348,9 +352,9 @@ export class InvoiceService {
             invoiceDate: r['开票日期'] ? new Date(r['开票日期']) : null,
             invoiceCode: r['发票代码'] || null,
             invoiceNo: r['发票号码'] || null,
-            amountBeforeTax: num(r['税前金额']),
+            amountBeforeTax: amtBefore,
             taxRate,
-            amountWithTax: num(r['含税金额']),
+            amountWithTax: amtWith,
             receiveDate: r['发票收取时间'] ? new Date(r['发票收取时间']) : null,
             reviewStatus: codeOf(review, r['发票信息审核']),
             responsiblePerson: r['责任人'] || null,

@@ -603,6 +603,10 @@ export class MaterialService {
         let tax = num(r['税率']);
         if (qty === null) throw new RowError('暂定数量为必填数字', '暂定数量');
         if (price === null) throw new RowError('税前单价为必填数字', '税前单价');
+        // 负数/0 数量与负单价是录入错误（Excel 里的误敲负号会静默污染台账与防超结口径）
+        if (qty < 0) throw new RowError('暂定数量不能为负数', '暂定数量');
+        if (price < 0) throw new RowError('税前单价不能为负数', '税前单价');
+        if (tax !== null && (tax < 0 || tax > 100)) throw new RowError('税率应在 0–100 之间（百分比数字）', '税率');
         // 税率未填时按合同主表税率自动带出
         tax = tax === null ? await this.resolveTaxRate(contract, null) : tax;
         if (tax === null) throw new RowError('税率为必填数字（如 13 表示 13%），或先在合同台账中维护税率', '税率');

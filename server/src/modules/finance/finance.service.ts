@@ -5,6 +5,7 @@ import { num, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SettlementService } from '../settlement/settlement.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculate,
@@ -65,6 +66,7 @@ export class FinanceService {
     private excel: ExcelService,
     private sysParam: SysParamService,
     private styled: StyledExcelService,
+    private settlement: SettlementService,
   ) {}
 
   // ==================== 合同资金参数 ====================
@@ -191,8 +193,12 @@ export class FinanceService {
   }
 
   private factoringPayload(data: any, keep?: any) {
+    // contractId 由 create() 显式注入（路径参数/表单），不从表单白名单里取——
+    // 此前在白名单里过滤掉它又立刻校验 payload.contractId，create 永远 400。
     const payload = pickFields(data, FACTORING_FIELDS.filter((f) => f !== 'contractId'), { label: '保理费用' });
-    if (!keep && !payload.contractId) throw new BadRequestException('缺少合同ID');
+    const contractId = keep?.contractId ?? data.contractId;
+    if (!keep && !contractId) throw new BadRequestException('缺少合同ID');
+    if (contractId) payload.contractId = contractId;
     // 费用合计（含税）= 融资利息 + 手续费，服务端自动计算
     const interest = num(payload.financingInterest ?? keep?.financingInterest) || 0;
     const fee = num(payload.handlingFee ?? keep?.handlingFee) || 0;
@@ -214,7 +220,11 @@ export class FinanceService {
     const payload = this.factoringPayload(data);
     const max = await this.prisma.factoringCost.aggregate({ where: { contractId: payload.contractId }, _max: { seqNo: true } });
     if (payload.seqNo === undefined) payload.seqNo = (max._max.seqNo || 0) + 1;
-    return this.prisma.factoringCost.create({ data: payload });
+    const created = await this.prisma.factoringCost.create({ data: payload });
+    // 保理贴息是台账的只读派生列（computeLedgerAutoFields 按合同+月抓取），
+    // 写后必须重刷台账，否则台账停留在旧值直到无关事件触发同步。
+    await this.settlement.syncLedgerByContract(payload.contractId);
+    return created;
   }
 
   async updateFactoring(id: string, data: any) {
@@ -223,13 +233,16 @@ export class FinanceService {
     assertVersion(old, data);
     const payload: any = this.factoringPayload(data, old);
     delete payload.version;
-    return this.prisma.factoringCost.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const updated = await this.prisma.factoringCost.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    await this.settlement.syncLedgerByContract(updated.contractId);
+    return updated;
   }
 
   async removeFactoring(id: string) {
     const old = await this.prisma.factoringCost.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('保理费用记录不存在');
     await this.prisma.factoringCost.delete({ where: { id } });
+    await this.settlement.syncLedgerByContract(old.contractId);
     return true;
   }
 
@@ -358,6 +371,7 @@ export class FinanceService {
     }
     const created = await this.prisma.overdueInterest.create({ data: payload });
     await this.recalcOverdue(contractId);
+    await this.settlement.syncLedgerByContract(contractId);
     return created;
   }
 
@@ -380,6 +394,7 @@ export class FinanceService {
     delete payload.version;
     await this.prisma.overdueInterest.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
     await this.recalcOverdue(old.contractId);
+    await this.settlement.syncLedgerByContract(old.contractId);
     return this.prisma.overdueInterest.findUnique({ where: { id } });
   }
 
@@ -388,6 +403,7 @@ export class FinanceService {
     if (!old) throw new NotFoundException('逾期利息记录不存在');
     await this.prisma.overdueInterest.delete({ where: { id } });
     await this.recalcOverdue(old.contractId);
+    await this.settlement.syncLedgerByContract(old.contractId);
     return true;
   }
 

@@ -180,6 +180,15 @@ export class DictService {
   async toggleItem(id: string) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
+    // 停用（而非启用）时同样做引用检查：停用后 options()/nameMap 都不再返回该项，
+    // 历史行的标签会变空白，且 validate() 只认启用项 → 携带该 code 的行后续保存会被 400 拒绝。
+    // （删除已有同款守卫；停用是同一种破坏，只是可逆。）
+    if (item.status === 1) {
+      const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
+      if (usage.count > 0) {
+        throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），停用后历史数据将无法编辑；请先确认或改用新选项后再停用`);
+      }
+    }
     const updated = await this.prisma.dictItem.update({ where: { id }, data: { status: item.status === 1 ? 0 : 1 } });
     await this.refreshCache(item.typeCode);
     return updated;

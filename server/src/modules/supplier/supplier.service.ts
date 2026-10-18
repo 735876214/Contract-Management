@@ -95,8 +95,16 @@ export class SupplierService {
   }
 
   async remove(id: string) {
-    const count = await this.prisma.contract.count({ where: { supplierId: id } });
-    if (count > 0) throw new BadRequestException(`该供应商已被 ${count} 份合同引用，不可删除，仅可停用`);
+    // 引用检查覆盖所有非 SetNull 外键：合同之外，还款协议/收领单/资产台账的
+    // supplierId 无 onDelete 级联，漏查会让 Prisma 抛裸 P2003（500）。
+    const [contracts, repayments, receipts, assets] = await Promise.all([
+      this.prisma.contract.count({ where: { supplierId: id } }),
+      this.prisma.repaymentAgreement.count({ where: { supplierId: id } }),
+      this.prisma.receiptOrder.count({ where: { supplierId: id } }),
+      this.prisma.assetLedger.count({ where: { supplierId: id } }),
+    ]);
+    const total = contracts + repayments + receipts + assets;
+    if (total > 0) throw new BadRequestException(`该供应商已被 ${total} 处业务数据引用（合同/还款协议/收领单/资产台账），不可删除，仅可停用`);
     return this.prisma.supplier.delete({ where: { id } });
   }
 
