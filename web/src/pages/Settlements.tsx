@@ -119,13 +119,15 @@ function SettlementsTab({
     Modal.confirm({
       title: `生成本期结算${pending?.month ? `（${pending.month}）` : ''}`,
       content: pending
-        ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内的总日报行（含收领单推送与手工录入），按物资合同各生成一张草稿结算单；结算明细从总日报带出后可修改，已有结算单的合同会自动跳过。`
+        ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内的总日报行（含收领单推送与手工录入），按物资合同各生成一张草稿结算单；结算明细从总日报带出后可修改。已有结算单或已归档的合同会自动跳过。`
         : '将从上一期总日报带出结算明细，按物资合同各生成一张草稿结算单。',
       okText: '生成',
       cancelText: '取消',
       onOk: async () => {
         const res: any = await settlementApi.generate(refDate ? { refDate } : undefined);
-        message.success(`已生成 ${res?.created ?? 0} 张，跳过 ${res?.skipped ?? 0} 张`);
+        message.success(`已生成 ${res?.created ?? 0} 张，跳过 ${res?.skipped ?? 0} 张${
+          res?.skippedArchived ? `（含 ${res.skippedArchived} 张因合同已归档）` : ''
+        }`);
         // 0 元结算单照常生成（数据没录全时金额算不出来），但必须提醒，否则会被直接提交
         if (res?.zeroAmount) {
           message.warning(`其中 ${res.zeroAmount} 张金额为 0：日报行没有含税单价，请核对后补金额`);

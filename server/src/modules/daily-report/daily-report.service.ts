@@ -8,6 +8,7 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
 import {
   assertSiteConfirmable,
   SITE_CONFIRM_STATUS,
@@ -29,7 +30,13 @@ export class DailyReportService {
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
     private sysParam: SysParamService,
+    private lock: ContractLockService,
   ) {}
+
+  /** 日报行是结算量的来源：目标合同已归档时禁止写（2026-10-18 业务流审计）。 */
+  private async assertContractWritable(contractId: string | null | undefined, action: string) {
+    await this.lock.assertWritable(contractId, action);
+  }
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
@@ -259,6 +266,11 @@ export class DailyReportService {
 
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
+    // 结算来源可被绕过归档锁修改 → 归档不变量被打破（原/新合同都要检查）
+    await this.assertContractWritable(before.contractId, '修改日报');
+    if (data.contractId !== undefined && data.contractId !== before.contractId) {
+      await this.assertContractWritable(data.contractId, '修改日报');
+    }
     assertVersion(before, data);
     await this.validate(data);
     const payload: any = this.normalize(data);
@@ -269,8 +281,12 @@ export class DailyReportService {
   }
 
   async remove(id: string, projectId?: string) {
-    const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
+    const row: any = await this.prisma.dailyReport.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
+      select: { id: true, contractId: true },
+    });
     if (!row) throw new NotFoundException('日报不存在');
+    await this.assertContractWritable(row.contractId, '删除日报');
     await this.prisma.dailyReport.delete({ where: { id } });
     return true;
   }
@@ -445,6 +461,9 @@ export class DailyReportService {
           ? await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } })
           : null;
         if (contractCode && !contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
+        // 归档合同禁止通过导入追加日报（2026-10-18 业务流审计）：归档检查确认下游收口后，
+        // 不能再产生新的已确认日报行。
+        if (contract?.archivedAt) throw new RowError('该合同已归档，不能导入日报行', '合同编号');
         const supplier = supplierName
           ? await this.prisma.supplier.findFirst({ where: { name: supplierName } })
           : null;

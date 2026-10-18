@@ -287,18 +287,24 @@ export default function ContractQuery() {
         onView={(row) => openDetail(row.id)}
         rowMenuItems={(row: ModuleListRow) => {
           const r = row as any;
+          // 归档合同是单向终态：签章/驳回/补充协议/归档入口全部隐藏（读取/导出仍可用）
+          const locked = !!r.archivedAt;
           return [
-          {
-            key: 'sign',
-            label: (
-              <span>
-                <FileProtectOutlined /> {row.status === 'SIGNED' ? '重新签章' : '合同签章'}
-              </span>
-            ),
-            onClick: () => openSign(row),
-          },
+          ...(!locked
+            ? [
+                {
+                  key: 'sign',
+                  label: (
+                    <span>
+                      <FileProtectOutlined /> {row.status === 'SIGNED' ? '重新签章' : '合同签章'}
+                    </span>
+                  ),
+                  onClick: () => openSign(row),
+                },
+              ]
+            : []),
           // 任务 7：仅「待签章 / 已签章」可驳回回合同起草
-          ...(r.status === 'APPROVING' || r.status === 'SIGNED'
+          ...(!locked && (r.status === 'APPROVING' || r.status === 'SIGNED')
             ? [
                 {
                   key: 'reject',
@@ -311,15 +317,19 @@ export default function ContractQuery() {
                 },
               ]
             : []),
-          {
-            key: 'supplement',
-            label: (
-              <span>
-                <PlusSquareOutlined /> 新增补充协议
-              </span>
-            ),
-            onClick: () => { setSuppParent(row); setSuppOpen(true); },
-          },
+          ...(!locked
+            ? [
+                {
+                  key: 'supplement',
+                  label: (
+                    <span>
+                      <PlusSquareOutlined /> 新增补充协议
+                    </span>
+                  ),
+                  onClick: () => { setSuppParent(row); setSuppOpen(true); },
+                },
+              ]
+            : []),
           {
             key: 'exportWord',
             label: (
@@ -505,9 +515,11 @@ export default function ContractQuery() {
         {detail && (
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Space>
-              <Button icon={<FileProtectOutlined />} size="small" onClick={() => { setDetailOpen(false); openSign(detail); }}>
-                合同签章
-              </Button>
+              {!detail.archivedAt && (
+                <Button icon={<FileProtectOutlined />} size="small" onClick={() => { setDetailOpen(false); openSign(detail); }}>
+                  合同签章
+                </Button>
+              )}
               {detail && canExportWord(detail) && (
                 <Button icon={<ExportOutlined />} size="small" onClick={() => handleExport(detail)}>
                   导出Word
@@ -603,7 +615,7 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
           <span>加载中…</span>
         )}
       </Card>
-      <MilestoneCard contractId={detail.id} />
+      <MilestoneCard contractId={detail.id} archived={!!detail.archivedAt} />
 
       <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
         <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
@@ -650,8 +662,8 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
 
 
 /** 履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际时间线；逾期派生标红 */
-function MilestoneCard({ contractId }: { contractId: string }) {
-  const canEdit = useAuthStore((s) => s.hasPermission('contract:edit'));
+function MilestoneCard({ contractId, archived }: { contractId: string; archived: boolean }) {
+  const canEdit = useAuthStore((s) => s.hasPermission('contract:edit')) && !archived;
   const [rows, setRows] = useState<any[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [form] = Form.useForm();

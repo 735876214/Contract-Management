@@ -171,7 +171,14 @@ export function TodoCard() {
   };
 
   return (
-    <Card title="我的待办" extra={<span className="cms-hint">共 {data?.total ?? 0} 条</span>}>
+    <Card
+      title="我的待办"
+      extra={
+        <span className="cms-hint">
+          共 {data?.total ?? 0} 条{activeTab === 'OVERDUE_MILESTONE' ? ' · 点击具体条目可打开对应合同' : ''}
+        </span>
+      }
+    >
       <Tabs
         activeKey={activeTab}
         onTabClick={handleTabClick}

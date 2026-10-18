@@ -110,7 +110,12 @@ export class ReceiptOrderService {
       await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
       return data.settlementId;
     }
-    if (current) return current;
+    // 2026-10-18 业务流审计：改了物资合同或日期时，旧的自动匹配可能已违反「同合同同期」——
+    // 必须按新合同/新日期重算（显式传 settlementId 的人工指定仍优先）。current 只在
+    // 合同与日期都未变时才保留。
+    const contractChanged = data.materialContractId !== undefined && data.materialContractId !== fallback?.materialContractId;
+    const dateChanged = data.orderDate !== undefined && new Date(data.orderDate ?? 0).getTime() !== new Date(fallback?.orderDate ?? 0).getTime();
+    if (current && !contractChanged && !dateChanged) return current;
     return this.settlement.findSettlementIdFor(contractId, date);
   }
 
@@ -303,6 +308,25 @@ export class ReceiptOrderService {
       SELF_PROJECT: selfProject,
       OTHER_PROJECT: otherProjects,
     };
+  }
+
+  /**
+   * 收领单必须挂在**已签章**合同上（业务流：合同签订 → 收领单；2026-10-18 审计）。
+   * 与 contractSupplierOptions 同一「已签章」口径：APPROVING/SIGNED/COMPLETED 或已有签章文件。
+   */
+  private async assertContractSigned(contractId: string | null | undefined) {
+    if (!contractId) return;
+    const c = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { status: true, signedFilePath: true, code: true },
+    });
+    if (!c) return; // 归属/存在性由调用方校验
+    const signed =
+      [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED, LEGACY_CONTRACT_STATUS_COMPLETED].includes(c.status as any) ||
+      !!c.signedFilePath;
+    if (!signed) {
+      throw new BadRequestException(`合同「${c.code}」尚未签章，收领单必须挂在已签订的合同上`);
+    }
   }
 
   /** 供应商：合同已签章的供应商（status 为 APPROVING / SIGNED / COMPLETED 视为已签章） */
@@ -654,6 +678,7 @@ export class ReceiptOrderService {
     if (!data?.supplierId) throw new BadRequestException('请选择供应单位');
     if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
     if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    await this.assertContractSigned(data.materialContractId);
     await this.lock.assertWritable(data.materialContractId, '新增收领单');
     this.validateDynamic(data);
     await this.validate(data);
@@ -698,6 +723,7 @@ export class ReceiptOrderService {
     await this.lock.assertWritable(before.materialContractId, '修改收领单');
     if (data.materialContractId && data.materialContractId !== before.materialContractId) {
       await this.lock.assertWritable(data.materialContractId, '修改收领单');
+      await this.assertContractSigned(data.materialContractId);
     }
     this.validateDynamic(data);
     await this.validate(data);
@@ -938,8 +964,11 @@ export class ReceiptOrderService {
     return { pushed: rows.length };
   }
 
-  /** 重新推送：用于保存后补推 / 修复历史数据 */
+  /** 重新推送：用于保存后补推 / 修复历史数据。⚠️ 归档合同禁止（否则归档后复活已确认日报行，
+   *  结算创建又被锁 → 永久「未纳入结算」，打破归档不变量）。 */
   async repush(id: string) {
+    const order: any = await this.findOne(id);
+    await this.lock.assertWritable(order.materialContractId, '重新推送总日报');
     return this.pushToDailyReport(id);
   }
 }

@@ -114,7 +114,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('① 发票自动挂同期结算单，台账「本月开票额」按关联归集（账期与开票日期可不同月）', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-1');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
 
     const s: any = await settle.create(
       { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 10000, settleDate: day(2026, 9) },
@@ -145,7 +145,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('② 人工把发票挂到**别的结算期**的结算单上 → 400', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-2');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
 
     const sep: any = await settle.create(
       { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 1000, settleDate: day(2026, 9) },
@@ -181,7 +181,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('③ 收领单保存时自动匹配同期结算单；显式传 null 可解绑', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-3');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
     await settle.create(
       { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 1000, settleDate: day(2026, 9) },
       project.id,
@@ -209,8 +209,8 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('④ 生成本期结算：按合同分组、金额=Σ(实收×含税单价)、收领单回挂、重跑幂等', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-4');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const c1 = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000, code: uniq('INT-C1').toUpperCase() });
-    const c2 = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000, code: uniq('INT-C2').toUpperCase() });
+    const c1 = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000, code: uniq('INT-C1').toUpperCase() });
+    const c2 = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000, code: uniq('INT-C2').toUpperCase() });
 
     const r1 = await makeReceipt(project.id, c1.id, day(2026, 9, 5), 10, 100); // 1000
     const r2 = await makeReceipt(project.id, c1.id, day(2026, 9, 28), 5, 200); // 1000
@@ -265,7 +265,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     const project = await makeProject(ctx.prisma, 'LNK-5');
     await ctx.prisma.project.update({ where: { id: project.id }, data: { settlementStartDate: day(2026, 1, 26) } });
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
 
     // 10/26 运行 → 上一期 = 9/26–10/25，期末 10/25
     const preview: any = await settle.previewPreviousPeriod(project.id, '2026-10-26');
@@ -299,7 +299,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('⑦ 手工录入的总日报行（无收领单）也参与结算生成', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-7');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
 
     // 没有任何收领单，只有手工日报行
     await makeDailyRow(project.id, contract.id, day(2026, 9, 10), 2, 300);
@@ -322,7 +322,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   it('⑧ require_confirmed 开启时，未确认的总日报行不计入结算', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-8');
     const supplier = await makeSupplier(ctx.prisma, project.id);
-    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
     await ctx.prisma.sysParam.upsert({
       where: { key: 'settlement.require_confirmed' },
       update: { value: 'true' },

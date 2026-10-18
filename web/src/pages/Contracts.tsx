@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Tabs,
-  Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select, Typography,
+  Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select, Typography, Tooltip,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -131,10 +131,18 @@ function ContractList() {
             render: (_, row) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openDetail(row)}>详情</Button>
-                <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                <Popconfirm title="确认删除该合同？关联的清单、结算、付款等数据将一并删除。" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
+                {row.archivedAt ? (
+                  <Tooltip title="合同已归档（单向），不能修改或删除">
+                    <Button type="link" size="small" disabled>编辑</Button>
+                  </Tooltip>
+                ) : (
+                  <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
+                )}
+                {!row.archivedAt && (
+                  <Popconfirm title="确认删除该合同？关联的清单、结算、付款等数据将一并删除。" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
+                    <Button type="link" size="small" danger>删除</Button>
+                  </Popconfirm>
+                )}
               </Space>
             ),
           },

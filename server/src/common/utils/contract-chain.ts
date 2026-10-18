@@ -114,7 +114,8 @@ export function resolveChainAmounts(rows: ContractChainRow[], contractId: string
  * ==================================================================== */
 
 /** 排除草稿的 where 片段：`statusCode != 'DRAFT'` 在 SQL 里会连带排除 NULL（三值逻辑） */
-const notDraft = { OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }] };
+/** 排除草稿的 where 片段（含 NULL 状态）：导出给工作台预警等处共用，避免三值逻辑漏掉无状态行 */
+export const notDraft = { OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }] };
 
 /** 沿 `parentContractId` 上溯取链根（主合同）ID；防环（最多 8 层） */
 export async function contractChainRootId(db: any, contractId: string): Promise<string | null> {

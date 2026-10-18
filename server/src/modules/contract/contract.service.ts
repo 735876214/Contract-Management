@@ -914,6 +914,15 @@ export class ContractService {
       where: { id: contractId },
       data: { status: CONTRACT_STATUS.DRAFT, signedFilePath: null, version: { increment: 1 } },
     });
+    // 驳回后派生状态一并回退（2026-10-18 业务流审计）：此前只清 signedFilePath，
+    // DONE_SETTLED 与 100% 付款比例残留 → 工作台/台账读到假的「已完已结」。
+    // 付款比例会按新状态重算（非 DONE_SETTLED → 回月度安排/自定义）；履约节点与
+    // 总结算单记录保留（历史登记），但其「已结算」口径随 execStatus 回退自动失效。
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { execStatus: CONTRACT_EXECUTION_STATUS.DRAFT },
+    });
+    await this.syncPayRatio(contractId);
     // 关联采购任务（且为本任务主合同）时，同步任务状态（合同编制中 / 合同待签章 / 已完成）
     await this.syncLinkedTaskStatus(contractId);
     return this.findOne(contractId);
@@ -1224,16 +1233,18 @@ export class ContractService {
      * 不先拦会由数据库抛 500；这里给出可操作的 400 提示。
      */
     const chainIds = await contractChainIds(this.prisma, id);
-    const [receipts, settlements, daily, finals, invoices, payments] = await Promise.all([
+    const [receipts, settlements, daily, finals, invoices, payments, milestones] = await Promise.all([
       this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
       this.prisma.settlement.count({ where: { projectId, contractId: { in: chainIds } } }),
       this.prisma.dailyReport.count({ where: { projectId, contractId: { in: chainIds } } }),
       this.prisma.finalSettlement.count({ where: { projectId, contractId: { in: chainIds } } }),
       this.prisma.invoice.count({ where: { projectId, contractId: { in: chainIds } } }),
       this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
+      // 履约节点也是登记数据：删除合同会级联清掉，须与其他下游一样先提示
+      this.prisma.contractFulfillment.count({ where: { projectId, contractId: { in: chainIds } } }),
     ]);
-    if (receipts + settlements + daily + finals + invoices + payments > 0) {
-      throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款），不能删除合同，请改为归档');
+    if (receipts + settlements + daily + finals + invoices + payments + milestones > 0) {
+      throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点），不能删除合同，请改为归档');
     }
     await this.prisma.contract.delete({ where: { id } });
     return true;

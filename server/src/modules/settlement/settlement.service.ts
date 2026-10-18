@@ -283,15 +283,40 @@ export class SettlementService {
         : payload.amount !== undefined || payload.deductAmount !== undefined
           ? (num(payload.amount ?? before.amount) || 0) - (num(payload.deductAmount ?? before.deductAmount) || 0)
           : num(before.actualAmount);
+    const effectiveContractId = payload.contractId ?? before.contractId;
     const warn = this.isDraft(resultingStatus)
       ? {}
-      : await this.checkOverSettlement(payload.contractId ?? before.contractId, resultingActual, id);
-    // 清单项级量级闸门：items 传入时按「更新后」校验（排除自身历史明细）
+      : await this.checkOverSettlement(effectiveContractId, resultingActual, id);
+    // 草稿 → 提交的转换：合同已「已完已结」时禁止（月度结算是总结算明细快照的来源）
+    if (!this.isDraft(resultingStatus) && this.isDraft(before.statusCode)) {
+      const settled = await this.prisma.finalSettlement.findFirst({
+        where: { contractId: effectiveContractId, statusCode: 'SETTLED' },
+        select: { id: true },
+      });
+      if (settled) {
+        throw new BadRequestException('合同已完成总结算，月度结算不可再提交；如需调整请先作废总结算单');
+      }
+    }
+    // 清单项级量级闸门：items 传入时按「更新后」校验（排除自身历史明细）。
+    // ⚠️ 提交（非草稿）时**必须**校验，即使 body 不带 items——否则草稿期录入的超量明细
+    //    可以靠「只传状态」的部分更新提交，绕过 BLOCK 策略（驳回-重提路径同理）。
     const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
-    const qtyWarn =
-      this.isDraft(resultingStatus) || !data.items
-        ? {}
-        : await this.checkOverSettlementQty(payload.contractId ?? before.contractId, items, id);
+    if (this.isDraft(resultingStatus)) {
+      // 草稿豁免（设计如此：草稿是暂存，不构成已发生结算）
+    } else if (data.items) {
+      await this.checkOverSettlementQty(effectiveContractId, items, id);
+    } else {
+      // 未带 items 的提交：按库中现存明细校验
+      const existing = await this.prisma.settlementItem.findMany({
+        where: { settlementId: id },
+        select: { materialBaseId: true, qty: true },
+      });
+      await this.checkOverSettlementQty(
+        effectiveContractId,
+        existing.map((d) => ({ materialBaseId: d.materialBaseId, qty: d.qty })),
+        id,
+      );
+    }
     const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
     if (data.items) await this.syncItems(id, items, this.prisma);
     // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷。
@@ -301,7 +326,7 @@ export class SettlementService {
       await this.linkOrphansForContract(cid);
       await this.syncLedgerByContract(cid);
     }
-    return { ...updated, ...warn, ...qtyWarn };
+    return { ...updated, ...warn };
   }
 
   async remove(id: string) {
@@ -323,11 +348,29 @@ export class SettlementService {
     await this.lock.assertWritable(before.contractId, '驳回结算单');
     // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
     assertSettlementRejectable(before.statusCode);
+    // 合同已「已完已结」（总结算附件已上传）时，月度结算是总结算明细的来源，
+    // 驳回/修改会让 DONE_SETTLED 断言与底层链脱钩 → 必须先作废总结算单。
+    const settled = await this.prisma.finalSettlement.findFirst({
+      where: { contractId: before.contractId, statusCode: 'SETTLED' },
+      select: { id: true, code: true },
+    });
+    if (settled) {
+      throw new BadRequestException(
+        `合同已完成总结算（${settled.code || settled.id}），月度结算不可驳回；请先在总结算单上作废并回退已结算状态`,
+      );
+    }
     await this.dict.validate('settlement_status', SETTLEMENT_STATUS.DRAFT);
     await this.prisma.settlement.update({
       where: { id },
       data: { statusCode: SETTLEMENT_STATUS.DRAFT, version: { increment: 1 } },
     });
+    // 驳回后状态回到草稿 → 不再构成已发生结算：台账必须重刷（此前漏掉，
+    // 台账「本月结算额/开票额」与结算单状态无限期矛盾），关联的发票/收领单
+    // 也要按新月份重算归属（与 remove() 同一套收尾）。
+    if (before.contractId) {
+      await this.linkOrphansForContract(before.contractId);
+      await this.syncLedgerByContract(before.contractId);
+    }
     return this.findOne(id);
   }
 
@@ -348,9 +391,16 @@ export class SettlementService {
       start = new Date(y, m - 1, 1);
       end = new Date(y, m, 1);
     }
+    // 台账「本月结算额」**包含草稿**（有意与 contract-chain 的 notDraft 不同——
+    // 见 backend-conventions.md「累计结算有两个口径」：台账回答“这条链的账现在是多少”，
+    // 自动生成的草稿也是账面数据；防超结/履约才排除草稿）。
+    // 按 settleDate 倒序取单：同月多张（历史数据）时稳定取最近一张作为关联目标。
     const settlements =
       start && end
-        ? await this.prisma.settlement.findMany({ where: { contractId, settleDate: { gte: start, lt: end } } })
+        ? await this.prisma.settlement.findMany({
+            where: { contractId, settleDate: { gte: start, lt: end } },
+            orderBy: { settleDate: 'desc' },
+          })
         : [];
     /** 该行对应的结算单（同合同同月唯一 → 至多一张）；无则 null = 「仅费用行」 */
     const settlementId = (settlements[0] as any)?.id ?? null;

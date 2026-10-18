@@ -5,6 +5,7 @@ import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 import { CONTRACT_STATUS, MILESTONE_STATUS } from '../../constants/statuses';
+import { notDraft } from '../../common/utils/contract-chain';
 import {
   TODO_CATEGORIES,
   type TodoGroup,
@@ -406,7 +407,7 @@ export class DashboardService {
         select: { id: true, parentContractId: true, amount: true, changeAmount: true, code: true, name: true },
       }),
       this.prisma.settlement.findMany({
-        where: { projectId, NOT: { statusCode: 'DRAFT' } },
+        where: { projectId, ...notDraft },
         select: { contractId: true, actualAmount: true, amount: true },
       }),
     ]);
@@ -488,7 +489,7 @@ export class DashboardService {
         select: { id: true, parentContractId: true, code: true, name: true },
       }),
       this.prisma.settlement.findMany({
-        where: { projectId, NOT: { statusCode: 'DRAFT' } },
+        where: { projectId, ...notDraft },
         select: { contractId: true, actualAmount: true, amount: true },
       }),
       this.prisma.paymentRecord.findMany({
