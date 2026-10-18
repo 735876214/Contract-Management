@@ -26,9 +26,13 @@
   三个写入点都走它）——**不要在 service/controller 里自己拼 `UPLOAD_DIR` 与文件名**；键是**相对 POSIX 路径**
   （`signed/x.pdf`，用 `/` 不用 `path.join`，否则 Windows 下落库成 `signed\x.pdf`），对外 URL = `/api/files/<键>`，
   越权键（`..`/绝对路径）一律 400。纯逻辑在 `common/utils/storage-keys.ts`。
-  ⚠️ multer 的 `destination/filename` 回调在**类定义期**求值，`this` 不是控制器实例——别在那里注入式取服务。
-  换对象存储只需实现同一个 `StorageLike` 并改 `common.module.ts` 的 provider 绑定 + `main.ts` 静态服务。
-  细节见 [docs/component-api.md](../../docs/component-api.md)。
+- **文件引用统一归一**：数据库里可能是相对键、`/api/files/...` URL 或 JSON 内 URL，
+  读取/归档/导出前一律走 `common/utils/storage-url.ts` 的 `storageKeyFromUrl()`，**不要各写一份解析**。
+- **上传入口**：通用上传已改 `memoryStorage()` + `save()`（单文件 ≤50MB、单请求 ≤10 个），
+  并由 `common/utils/upload-rules.ts` 拦截 html/svg/js/exe 等危险类型。
+- **附件只存本地**（业务 2026-10-18）：不引入对象存储；文件清理采用“只读审计 + 人工确认”，
+  不自动删除。审计脚本 `server/scripts/storage-audit.mjs`，结构说明见
+  [docs/local-storage-structure.md](../../docs/local-storage-structure.md)。
 
 ## 采购工作流与合同联动
 

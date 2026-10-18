@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { LaborService } from './labor.service';
+import { StorageService } from '../../common/services/storage.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -16,7 +17,10 @@ import { renderSubcontractorLetter, letterFileName } from './labor-letter';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('labor/auth-ledger')
 export class LaborController {
-  constructor(private service: LaborService) {}
+  constructor(
+    private service: LaborService,
+    private storage: StorageService,
+  ) {}
 
   @RequirePermissions('labor:view')
   @Get()
@@ -36,7 +40,7 @@ export class LaborController {
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const { exportLaborAuthWorkbook } = await import('./labor-excel');
-    const buffer = await exportLaborAuthWorkbook(this.service['prisma'], projectId);
+    const buffer = await exportLaborAuthWorkbook(this.service['prisma'], projectId, this.storage);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('分包材料员授权信息表.xlsx')}`);
     res.end(buffer);

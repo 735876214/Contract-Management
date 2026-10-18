@@ -100,10 +100,11 @@ server/src/
   `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件。
 - **npm 提示「install scripts not yet covered by allowScripts」**：npm 11 起的告警，
   prisma / esbuild 等确需构建脚本，可忽略（镜像内的 npm 10 不做拦截）。
-- **上传目录与对象存储**：默认落 `server/uploads`，由 `/api/files/**` 静态映射；
-  **落盘统一走 `server/src/common/services/storage.service.ts`（`StorageService`）**——换 MinIO/S3 只需
-  实现同一个 `StorageLike`、改 `common.module.ts` 的 provider 绑定，再把 `main.ts` 的静态服务改成
-  代理/302 重定向即可，调用方不用动。
+- **本地文件存储**：默认落 `server/uploads`，由 `/api/files/**` 静态映射；
+  **落盘统一走 `server/src/common/services/storage.service.ts`（`StorageService`）**。
+  通用上传经 `save()` 落盘（单文件 ≤50MB、单请求 ≤10 个，拒绝 html/svg/js/exe 等危险类型）。
+  **本项目附件只存本地，不引入对象存储**；目录结构、数据库字段映射、生命周期与只读审计脚本
+  见 [docs/local-storage-structure.md](docs/local-storage-structure.md)。
 
 更多说明见 `docs/` 目录。
 

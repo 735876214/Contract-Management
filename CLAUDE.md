@@ -38,7 +38,7 @@ Contract-Management/
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 27 个业务模块
-│   ├── test/           # node:test 纯函数单测（46 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（49 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（11 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
 ├── deploy/single/  docker-compose.yml  docker-compose.dev.yml  scripts/  .github/
@@ -62,7 +62,7 @@ docker compose -f docker-compose.dev.yml up     # 本地开发（前端 :5173 / 
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（46 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（49 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（11 个 spec，改金额/状态/导入必跑）
 ```
 
@@ -89,6 +89,7 @@ cd server && npm run test:int  # DB 集成测试（11 个 spec，改金额/状�
 | [docs/project-overview.md](docs/project-overview.md) / [architecture.md](docs/architecture.md) / [user-guide.md](docs/user-guide.md) | 项目说明 / 架构与数据流 / 使用说明 |
 | [docs/development.md](docs/development.md) | 开发方式、命令、测试清单、回归清单、本机操作要点（§9） |
 | [docs/component-api.md](docs/component-api.md) | 前端组件与后端通用服务的接口 |
+| [docs/local-storage-structure.md](docs/local-storage-structure.md) | **本地文件存储结构**：目录/命名/字段映射/读写路径/生命周期/只读审计脚本 |
 | [docs/02-数据库ER设计.md](docs/02-数据库ER设计.md) / [03-API接口清单.md](docs/03-API接口清单.md) | 数据模型 / REST 接口清单 |
 | [docs/04-Docker镜像构建与优化.md](docs/04-Docker镜像构建与优化.md) | 镜像构建 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |

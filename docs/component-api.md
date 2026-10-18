@@ -159,11 +159,14 @@
 | `ImportRunnerService` | 两阶段执行器；`RowError` · `ImportOutcome{total,created,updated,errors}` · `batchDup()` |
 | `ImportTaskService` | 异步导入（阈值 1000）：`list` / `findOne`（进度轮询）；完成发站内信，失败行出错误报告 |
 | `SysParamService` | `get(key, def)` · `set(key,value,remark)` · `getAll()` · `refresh()`（内存缓存） |
-| `StorageService` | `save(buffer,{sub?,ext?,name?})` · `read` · `exists` · `remove` · `publicUrl(key)` · `absPath(key)` · `resolveDir(sub?)` · `allocateName(ext)` · `ensureRoot()`（**文件落盘唯一入口**；相对键形如 `signed/x.pdf`，对外 URL `/api/files/<键>`；越权路径 400） |
+| `StorageService` | `save(buffer,{sub?,ext?,name?})` · `read` · `exists` · `remove` · `publicUrl(key)` · `absPath(key)` · `resolveDir(sub?)` · `allocateName(ext)` · `ensureRoot()`（**文件落盘唯一入口**；相对键形如 `signed/x.pdf`，对外 URL `/api/files/<键>`；越权路径 400；上传入口已收敛到 `save()`，限制 50MB/10 个并拦截危险类型；审计脚本见 `docs/local-storage-structure.md`） |
 | `LogService` | `operation(...)` · `login(...)`（失败不阻断） |
 | `pickFields(data, allowed, opts?)` | 白名单过滤（默认 warn，`strict` 抛 400） |
 | `utils/money` | `amountToChineseCapital` · `round` / `round2` / `round4` |
 | `utils/storage-keys` | `resolveUploadRoot` `defaultSubDir` `storageFileName` `normalizeStorageKey` `assertSafeStorageKey`(越权抛 `StorageKeyError`) `absPathOf` `publicUrlOf`（存储键的纯逻辑，`server/test/storageKeys.spec.mts` 覆盖） |
+| `utils/storage-url` | `storageKeyFromUrl(raw)`（键 / `/api/files/...` / 完整 URL / 双前缀 → 相对键，读取/归档/导出共用） |
+| `utils/storage-audit` | `buildStorageAudit(refs, fileKeys)`（missing / orphans / duplicates / invalid；只读审计，脚本 `server/scripts/storage-audit.mjs`） |
+| `utils/upload-rules` | `isDangerousUploadName(name)`（拦截 html/svg/js/exe 等可执行/可脚本类型） |
 | `utils/helpers` | `num` `sum` `toDate` `monthKey` `yearOf` · `paginate`(上限 500) · `buildResult` · `ratio` · `fmtDate` · `assertImportRows` · `assertVersion`(409) |
 | `utils/docx-patch` | `patchDocx(buffer, setup)` 注入页眉/页脚/页码 |
 

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { StorageService } from '../../common/services/storage.service';
+import { storageKeyFromUrl } from '../../common/utils/storage-url';
 
 /**
  * 「分包材料员授权信息表」导出（附件需求 2026-10-17 修正 6）：
@@ -12,13 +13,15 @@ import { StorageService } from '../../common/services/storage.service';
  * 表样的"材料员 2/3/4"列在数据不足时留空；是否扩成多材料员子表由业务确认后再改。
  */
 
-const storage = new StorageService();
-
 /** 单行要嵌的图片（StorageService 键 → 缩放到单元格宽高） */
 const CELL_W = 110;
 const CELL_H = 64;
 
-export async function exportLaborAuthWorkbook(prisma: PrismaClient, projectId: string): Promise<Buffer> {
+export async function exportLaborAuthWorkbook(
+  prisma: PrismaClient,
+  projectId: string,
+  storage: StorageService,
+): Promise<Buffer> {
   const rows = await prisma.laborAuthLedger.findMany({
     where: { projectId },
     orderBy: { createdAt: 'asc' },
@@ -59,7 +62,7 @@ export async function exportLaborAuthWorkbook(prisma: PrismaClient, projectId: s
     let col = 5;
     for (const key of [row.signatureScreenshot, row.idCardFront].filter(Boolean) as string[]) {
       try {
-        const buf = await storage.read(normalizeKey(key));
+        const buf = await storage.read(storageKeyFromUrl(key));
         const ext = guessExt(key);
         const imageId = wb.addImage({ buffer: buf as unknown as ExcelJS.Buffer, extension: ext });
         ws.addImage(imageId, {
@@ -76,14 +79,7 @@ export async function exportLaborAuthWorkbook(prisma: PrismaClient, projectId: s
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** 档案里存的可能是完整 URL（/api/files/<键>），归一成相对键 */
-function normalizeKey(urlOrKey: string): string {
-  const s = String(urlOrKey || '');
-  const i = s.indexOf('/api/files/');
-  return i >= 0 ? s.slice(i + '/api/files/'.length) : s.replace(/^\//, '');
-}
-
-function guessExt(keyOrName: string): 'jpeg' | 'png' | 'gif' {
+/** 档案里存的可能是完整 URL（/api/files/<键>），归一成相对键 */function guessExt(keyOrName: string): 'jpeg' | 'png' | 'gif' {
   const name = String(keyOrName || '').toLowerCase();
   if (name.endsWith('.png')) return 'png';
   if (name.endsWith('.gif')) return 'gif';

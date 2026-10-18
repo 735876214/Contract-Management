@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import JSZip from 'jszip';
 import { PDFDocument } from 'pdf-lib';
 import { StorageService } from '../../common/services/storage.service';
+import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { ARCHIVE_CATEGORIES, ARCHIVE_CATEGORY_BY_KEY } from '../../constants/archiveCategories';
 import { LedgerService } from '../ledger/ledger.service';
 import { SettlementService } from '../settlement/settlement.service';
@@ -330,11 +331,9 @@ export class ArchiveService {
     return Buffer.from(r.buffer as unknown as ArrayBuffer);
   }
 
-  /** 从 URL/键提取 StorageService 相对键（附件 URL 形如 /api/files/<键>） */
+  /** 从 URL/键提取 StorageService 相对键（统一实现见 common/utils/storage-url.ts） */
   private keyOf(urlOrKey: string): string {
-    const s = String(urlOrKey || '');
-    const i = s.indexOf('/api/files/');
-    return i >= 0 ? s.slice(i + '/api/files/'.length) : s.replace(/^\//, '');
+    return storageKeyFromUrl(urlOrKey);
   }
 
   private isImageKey(keyOrName: string): boolean {
@@ -381,6 +380,6 @@ export class ArchiveService {
   /** 劳务台账 Excel（占位：批次 B 末尾由 labor.service.export 实现，见下） */
   private async laborAuthExport(projectId: string): Promise<Buffer> {
     const { exportLaborAuthWorkbook } = await import('../labor/labor-excel');
-    return exportLaborAuthWorkbook(this.prisma, projectId);
+    return exportLaborAuthWorkbook(this.prisma, projectId, this.storage);
   }
 }

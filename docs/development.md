@@ -76,7 +76,7 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（46 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（49 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（11 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -145,6 +145,9 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
   | `test/dashboardTodo.spec.mts` | **「我的待办」分类的前后端镜像锁**（业务口径 2026-10-16：为每个模块都预留一个待办位置，0 条的分类 Tab 也常驻）：`server/src/constants/todoCategories.ts` ↔ `web/src/constants/dashboardTodoTabs.ts` 的 key/label **逐条一致且顺序相同** · 每分类必须声明权限码（决定对哪些用户可见）· 下发上限合理 · key 不重复 |
   | `test/archiveNaming.spec.mts` | **项目资料归档命名规则锁**（附件需求 2026-10-17）：目录清单 = 业务确认的 13 类（key/dir 不重复；**无** 4.收领单台账、**无** 12.采购文件）· 项目根 = `nameAbbr` 回退 `name`、非法字符清洗 · 收领单/发票 = `供应商-物资-结算账期-单据名.pdf`（**图片统一转单页 PDF**，扩展名固定 .pdf）· 账期目录 `2026.1 → 2026年1月` · 重名追加 (2)(3) 保留扩展名 · 空目录占位 `_说明.txt` 文案 |
   | `test/storageKeys.spec.mts` | 存储键纯逻辑（相对键规范化 / 越权路径 `..`·绝对路径拦截 / 绝对路径与对外 URL） |
+  | `test/storageUrl.spec.mts` | **文件引用归一化**：相对键 / `/api/files/...` / 完整 URL / 双前缀 → 相对键；绝对路径与 `..` 保留以交给安全校验 |
+  | `test/storageAudit.spec.mts` | **本地文件审计（只读）**：missing / orphans / duplicates / invalid 分类与计数；空引用跳过；文件键归一 |
+  | `test/uploadRules.spec.mts` | **上传类型规则**：拦截 html/svg/js/exe 等可执行/可脚本类型；pdf/office/图片/压缩包/dwg 等业务格式放行 |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
