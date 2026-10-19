@@ -225,6 +225,11 @@ export class AiService {
       candidates,
       maxFields: cfg.maxFieldsInPrompt,
       maxCandidates: cfg.maxCandidates,
+      // 没有关联合同时，模型常把「合同金额/合同编号」硬套到不存在的合同字段上，
+      // 那样的建议会被下面的可用字段白名单丢掉，不如提前告诉它用统计口径或留空。
+      note: hasContract
+        ? undefined
+        : '本次未关联任何合同：不要使用 contract.* 字段。表单里的「合同金额/累计金额」类标签可用 stats.* 统计字段；「合同编号/签订日期」这类没有对应统计口径的，请留空不选。',
     });
 
     this.consumeQuota(userId, cfg);
@@ -245,22 +250,37 @@ export class AiService {
       return { ...base, aiMessage: `${msg}（可手工映射继续）` };
     }
 
-    const out: AiFormSuggestion[] = [];
+    /**
+     * 只**填充**匹配结果，不删减槽位：模型可能只挑出部分字段（例如只认得出 3 个），
+     * 用户仍需看到剩下的槽位自己补选。曾经的坑：这里重建数组 → 未匹配的槽位整行消失。
+     */
+    // 只接受**这次请求可用**的字段：模型会凭直觉给出 `contract.code` 这类本次没下发的键
+    // （没关联合同时合同域字段不该出现），若原样回给前端，用户会看到「已选好」却永远填不进去。
+    const allowed = new Set(fields.map((f) => f.key));
+    const byIndex = new Map<number, MappingSuggestion>();
     for (const s of suggestions) {
       const cand = candByIndex.get(s.candidateIndex);
-      if (!cand) continue;
-      const def = aiFieldByKey(s.fieldKey);
-      out.push({
-        ...s,
-        sheet: cand.sheet,
-        cellRef: cand.cellRef,
-        label: cand.label,
-        hasValue: Boolean(cand.currentValue),
-        sensitive: Boolean(def?.sensitive),
-      });
+      if (!cand || !allowed.has(s.fieldKey)) continue;
+      // 同一候选只留置信度最高的一条（normalizeMapping 已去重，这里再兜一次）
+      const prev = byIndex.get(s.candidateIndex);
+      if (!prev || (s.confidence ?? 0) > (prev.confidence ?? 0)) byIndex.set(s.candidateIndex, s);
     }
 
-    return { ...base, candidates: out };
+    const merged = base.candidates.map((c, i) => {
+      const s = byIndex.get(i + 1);
+      if (!s) return c;
+      const def = aiFieldByKey(s.fieldKey);
+      return {
+        ...c,
+        candidateIndex: s.candidateIndex,
+        fieldKey: s.fieldKey,
+        fieldLabel: s.fieldLabel,
+        confidence: s.confidence,
+        sensitive: Boolean(def?.sensitive),
+      };
+    });
+
+    return { ...base, candidates: merged };
   }
 
   /**

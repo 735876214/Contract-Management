@@ -96,6 +96,25 @@ describe('构造消息（安全底线）', () => {
     assert.ok(all.includes('【系统可用字段】'));
     assert.ok(all.includes('【上传表格的待填项】'));
   });
+
+  it('不传 note 时不出现补充口径段', () => {
+    const all = messages.map((m) => m.content).join('\n');
+    assert.equal(all.includes('【补充口径】'), false);
+  });
+
+  it('note 只作规则提示，仍不带任何字段值', () => {
+    const withNote = buildFormMappingMessages({
+      fields: AI_FIELD_CATALOG.slice(0, 10),
+      candidates: [cand('项目名称', '某某产业园一期')],
+      maxFields: 10,
+      maxCandidates: 10,
+      note: '本次未关联任何合同：不要使用 contract.* 字段。',
+    });
+    const all = withNote.map((m) => m.content).join('\n');
+    assert.ok(all.includes('【补充口径】'));
+    assert.ok(all.includes('contract.*'));
+    assert.equal(all.includes('某某产业园一期'), false);
+  });
 });
 
 describe('模型输出规整（不可信输入）', () => {

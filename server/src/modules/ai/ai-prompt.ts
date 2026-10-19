@@ -89,6 +89,8 @@ export function buildFormMappingMessages(input: {
   candidates: readonly FormCandidate[];
   maxFields: number;
   maxCandidates: number;
+  /** 额外口径提示（例如"本次未关联合同，别用合同域字段"）。只放规则，不放任何数据值 */
+  note?: string;
 }): LlmMessage[] {
   const cands = promptCandidates(input.candidates);
   const user = [
@@ -98,6 +100,7 @@ export function buildFormMappingMessages(input: {
     '【上传表格的待填项】',
     candidateListText(cands, input.maxCandidates),
     '',
+    ...(input.note ? ['【补充口径】', input.note, ''] : []),
     '请输出 JSON：{"mapping":[...]}。',
   ].join('\n');
   return [

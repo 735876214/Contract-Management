@@ -373,8 +373,16 @@ bash scripts/nas-deploy.sh
   ```
   再 `npm run prisma:deploy`。⚠️ **影子库会被这条命令重置**——绝不能指向 `cms_int` 或任何真库
   （迁移历史会被清掉，随后 `migrate deploy` 报 P3005）。
-- **本机没有 `server/.env`**：跑 prisma/seed 要内联连接串
-  （dev PG 由 compose 映射到 `15432`：主库 `cms`、集成测试库 `cms_int`、影子库 `cms_shadow`）。
+- **本机 `server/.env` 可有可无**（已 gitignore）：只用 dev 容器时不建也能跑；要**宿主机直跑后端**
+  （`PORT=3100 node dist/src/main.js`）才需要，且连接串指向 compose 映射出来的 `15432`
+  （主库 `cms`、集成测试库 `cms_int`、影子库 `cms_shadow`）。直跑两个坑：① 宿主机 3000 被 dev 容器占着，
+  换 `PORT=3100`；② `JwtModule` 已改 `registerAsync + ConfigService`——装饰器顶层读 `process.env` 时
+  `.env` 还没加载，会造成「登录成功但所有接口 1401」。
+- **AI 助手联调**：模型网关若只有 IPv6（如 `workbuddy.735876214.xyz`），宿主机能连、**Docker 容器没有
+  IPv6 出口**（`ENETUNREACH`），所以 AI 联调要宿主机直跑后端，再把前端容器反代指过去：
+  `VITE_PROXY_TARGET=http://host.docker.internal:3100 docker compose -f docker-compose.dev.yml up -d web`
+  （dev compose 已把该变量做成可覆盖，默认仍是 `http://server:3000`）。这类网关的 API Key
+  **大小写敏感**，遇到 401 `invalid_api_key` 先核对原样大小写。
 - **改后端要重启 dev 容器**：`docker compose -f docker-compose.dev.yml restart server`
   （`nest start --watch` 不感知宿主机新增/修改的文件，见 §6 ③）。
 - **改前端要真渲染核验**：手法见 §5.2（Edge headless + CDP）。两条实践细节：

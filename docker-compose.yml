@@ -84,6 +84,11 @@ services:
       # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
       DEFAULT_ADMIN_USERNAME: admin
       DEFAULT_ADMIN_PASSWORD: admin123
+      # AI 助手（可选）：「模板智能填报」用；三项齐全才启用，缺任一项功能自动降级为「手工映射」。
+      # 兼容 OpenAI Chat Completions 协议；密钥只写在这台机器的 compose 里，不要提交到仓库。
+      # AI_BASE_URL: "https://your-llm-gateway.example/v1"
+      # AI_API_KEY: "sk-..."
+      # AI_MODEL: "cn:deepseek-v4.1-flash"
     # 上传文件目录：改成你的 NAS 实际目录（与 postgres 的数据路径放同一父目录便于备份）
     volumes:
       - /volume1/docker/cms/data:/data   # ← NAS 路径：改成你的实际目录

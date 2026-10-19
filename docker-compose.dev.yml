@@ -119,7 +119,9 @@ services:
       - "5173:5173"             # 前端 vite dev server（HMR）
     environment:
       # vite dev server 的 /api 反代目标：容器内必须指向 server 服务，而不是 localhost
-      VITE_PROXY_TARGET: "http://server:3000"
+      # 默认直连容器内的后端；本机直跑后端（如 AI 联调，容器无 IPv6 出口）时可覆盖：
+      #   VITE_PROXY_TARGET=http://host.docker.internal:3100 docker compose -f docker-compose.dev.yml up -d web
+      VITE_PROXY_TARGET: "${VITE_PROXY_TARGET:-http://server:3000}"
       # Windows 挂载盘的文件事件不稳定，开启轮询保证热更新可靠触发
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "800"
