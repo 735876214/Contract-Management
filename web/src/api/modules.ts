@@ -527,3 +527,58 @@ export const subcontractorApi = {
       transformResponse: [(d: any) => d],
     } as any),
 };
+
+/**
+ * AI 助手（2026-10-19）。
+ *
+ * 两个动作都是「上传文件 → 拿结果」，**不落库**：
+ * - `inspect`：返回「单元格 ↔ 字段」建议（后台调模型），可能耗时十几秒，超时放宽；
+ * - `fill`：按映射回填并回传 xlsx（二进制），统计数放在响应头 `x-ai-filled` / `x-ai-skipped`。
+ */
+export interface AiInspectCandidate {
+  sheet: string;
+  cellRef: string;
+  row: number;
+  col: number;
+  label: string;
+  hasValue: boolean;
+  /** 模型建议匹配到的字段键（未建议为 null） */
+  fieldKey?: string | null;
+  fieldLabel?: string | null;
+  confidence?: number | null;
+}
+
+export interface AiInspectResult {
+  aiEnabled: boolean;
+  aiMessage?: string;
+  sheetNames: string[];
+  candidates: AiInspectCandidate[];
+  /** 超出扫描上限被丢弃的槽位数（>0 时前端提示精简文件） */
+  truncated: number;
+  availableFields: { key: string; label: string; type: string; scope: string; sensitive?: boolean }[];
+}
+
+export const aiApi = {
+  status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
+  /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
+  inspect: (file: File, ctx?: { contractId?: string; supplierId?: string }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (ctx?.contractId) form.append('contractId', ctx.contractId);
+    if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    return http.post<any, AiInspectResult>('/ai/forms/inspect', form, { timeout: 120000 } as any);
+  },
+  /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
+  fill: (file: File, mapping: { sheet: string; cellRef: string; fieldKey: string }[], ctx?: { contractId?: string; supplierId?: string }) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mapping', JSON.stringify(mapping));
+    if (ctx?.contractId) form.append('contractId', ctx.contractId);
+    if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    return http.post<any, any>('/ai/forms/fill', form, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any);
+  },
+};

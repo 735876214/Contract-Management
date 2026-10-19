@@ -19,6 +19,9 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (res) => {
+    // `rawResponse: true`：调用方要读响应头（如 AI 回填返回的 x-ai-filled）或要拿完整 AxiosResponse，
+    // 跳过「解包 body.data」这一步。除 AI 助手外暂无使用者。
+    if ((res.config as any)?.rawResponse) return res as any;
     const body = res.data;
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 0) return body.data;

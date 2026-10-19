@@ -186,6 +186,7 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
     await seedDocTemplateCategoryDict(prisma);
     await seedFinalSettlementStatusDict(prisma);
     await seedMaterialCategoryDicts(prisma);
+    await seedAiPermissions(prisma);
 
     const fixed = await prisma.templateVariable.updateMany({
       where: { varKey: '银行名称', varLabel: '开户银行' },
@@ -196,6 +197,44 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
     }
   } catch (e) {
     console.error('[seed] 历史数据修正失败（不影响启动）:', e);
+  }
+}
+
+/**
+ * AI 助手权限码（2026-10-19 新增能力）。
+ *
+ * 为什么必须在这里播种：`src/seed.ts` 原本**不播种任何权限**（权限只在 `prisma/seed.ts`
+ * 的 `main()` 里创建，只在空库 + `npm run seed` 生效）。新权限码若不进 `fixLegacyData`，
+ * **存量库升级后菜单永远不可见**（角色里没有这条 permission，`GET /api/menu` 直接过滤掉）。
+ *
+ * 分配口径：`ai:view`（看入口/字段目录）与 `ai:use`（真正调模型）一起授给
+ * **项目管理员**与**普通员工** —— AI 助手是录入效率工具，不是管理功能；
+ * 超级管理员走 `isSuperAdmin` 直通，无需授权行。角色不存在时跳过（不造角色）。
+ */
+const AI_PERMISSIONS = [
+  { code: 'ai:view', name: '查看 AI 助手', module: 'AI 助手' },
+  { code: 'ai:use', name: '使用 AI 助手', module: 'AI 助手' },
+];
+const AI_PERMISSION_ROLE_CODES = ['PROJECT_MANAGER', 'STAFF'];
+
+async function seedAiPermissions(prisma: PrismaClient): Promise<void> {
+  const roles = await prisma.role.findMany({
+    where: { code: { in: AI_PERMISSION_ROLE_CODES } },
+    select: { id: true },
+  });
+  for (const p of AI_PERMISSIONS) {
+    const perm = await prisma.permission.upsert({
+      where: { code: p.code },
+      update: { name: p.name, module: p.module },
+      create: p,
+    });
+    for (const role of roles) {
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId: perm.id } },
+        update: {},
+        create: { roleId: role.id, permissionId: perm.id },
+      });
+    }
   }
 }
 

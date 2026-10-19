@@ -66,6 +66,8 @@ export const MENU_CONFIG: MenuItem[] = [
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },
 { key: 'repayment', label: '还款协议', icon: 'FileProtectOutlined', path: '/repayment', permission: 'repayment:view' },
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },
+  // AI 助手（2026-10-19）：fallback 菜单，结构须与后端 MENU_TREE 保持一致
+  { key: 'ai', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   {
     key: 'base',

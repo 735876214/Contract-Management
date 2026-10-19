@@ -499,6 +499,17 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 静态文件访问（`useStaticAssets(UPLOAD_DIR, '/api/files')`） | — |
 
+## 25. AI 助手 `/ai`（一期：模板智能填报）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/ai/status` | 是否启用（`AI_BASE_URL`/`AI_API_KEY`/`AI_MODEL`）+ 可填字段目录 `fieldCatalog` | `ai:view` |
+| POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）与模型建议（`fieldKey/confidence`，未启用时为 `null`） | `ai:use` |
+| POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
+
+口径：只回**是否已有内容**（`hasValue`），**绝不回传字段值**（响应体会进操作日志）；取不到值的项跳过不写空串；
+AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` 用 `@Res()` 直出，避免二进制进日志。
+
 ---
 
 ## 附录 · 核对命令（只读）

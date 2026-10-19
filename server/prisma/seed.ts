@@ -58,6 +58,9 @@ const PERMISSIONS = [
   { code: 'system:role', name: '角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
+  // AI 助手（2026-10-19）：view = 看入口与字段目录；use = 真正消耗配额的扫描与回填
+  { code: 'ai:view', name: '查看 AI 助手', module: 'AI 助手' },
+  { code: 'ai:use', name: '使用 AI 助手', module: 'AI 助手' },
 ];
 
 const SYS_PARAMS = sysParams.map((p) => ({ key: p.key, value: p.value ?? '', remark: p.remark ?? '' }));
@@ -143,7 +146,11 @@ async function main() {
       create: { roleId: roleManager.id, permissionId: p.id },
     });
   }
-  const staffPermCodes = PERMISSIONS.filter((p) => p.code.endsWith(':view')).map((p) => p.code);
+  const staffPermCodes = [
+    ...PERMISSIONS.filter((p) => p.code.endsWith(':view')).map((p) => p.code),
+    // AI 助手是录入效率工具：普通员工既要看到入口，也要真的能用（2026-10-19）
+    'ai:use',
+  ];
   for (const p of allPerms.filter((x) => staffPermCodes.includes(x.code))) {
     await prisma.rolePermission.upsert({
       where: { roleId_permissionId: { roleId: roleStaff.id, permissionId: p.id } },

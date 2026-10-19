@@ -53,6 +53,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/cost/labor-receiving': ['cost:view'],
   '/cost/profit-loss': ['cost:view'],
   '/archive': ['archive:view'],
+  // AI 助手（2026-10-19）：入口与「能不能用」统一按 ai:view 放行，
+  // 真正的 ai:use 由后端 403 兜底（菜单可见、点进去能用，符合「守卫不得比菜单更严」）
+  '/ai/assistant': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

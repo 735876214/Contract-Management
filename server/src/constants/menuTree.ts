@@ -107,6 +107,8 @@ export const MENU_TREE: MenuNode[] = [
     ],
   },
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },
+  // AI 助手（2026-10-19）：上传文件自动登记 / 模版自动填报 / 自动生成汇报材料
+  { key: 'ai', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   // 项目资料归档（附件需求 2026-10-17）：按需求目录树一键打包 ZIP
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },

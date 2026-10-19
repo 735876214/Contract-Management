@@ -38,6 +38,7 @@ const CostLaborReceiving = lazy(() => import('@/pages/CostLaborReceiving'));
 const Archive = lazy(() => import('@/pages/Archive'));
 const Assets = lazy(() => import('@/pages/Assets'));
 const Messages = lazy(() => import('@/pages/Messages'));
+const AiAssistant = lazy(() => import('@/pages/AiAssistant'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
 const ContractDraft = lazy(() => import('@/pages/ContractDraft'));
@@ -155,6 +156,7 @@ export const routes: RouteObject[] = [
       { path: 'cost/labor-receiving', element: perm('/cost/labor-receiving', <CostLaborReceiving />) },
       { path: 'cost/profit-loss', element: perm('/cost/profit-loss', <CostProfitLoss />) },
       { path: 'archive', element: perm('/archive', <Archive />) },
+      { path: 'ai/assistant', element: perm('/ai/assistant', <AiAssistant />) },
 
       // —— 基础信息管理 ——
       { path: 'base/project', element: perm('/base/project', <Projects />) },

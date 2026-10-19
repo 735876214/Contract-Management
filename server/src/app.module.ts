@@ -30,6 +30,7 @@ import { FinalSettlementModule } from './modules/final-settlement/final-settleme
 import { LaborModule } from './modules/labor/labor.module';
 import { CostModule } from './modules/cost/cost.module';
 import { ArchiveModule } from './modules/archive/archive.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { ArchiveModule } from './modules/archive/archive.module';
     LaborModule,
     CostModule,
     ArchiveModule,
+    AiModule,
   ],
 })
 export class AppModule {}
