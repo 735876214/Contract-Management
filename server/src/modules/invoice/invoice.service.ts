@@ -63,8 +63,10 @@ export class InvoiceService {
       include: { contract: true, settlement: { select: { id: true, code: true, settleDate: true } } },
     });
     if (!inv) throw new NotFoundException('发票不存在');
-    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目发票
-    if (projectId && (inv as any).contract?.projectId !== projectId) throw new NotFoundException('发票不存在');
+    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目发票。
+    // 用发票自身的 projectId 判定：contractId 可空（无合同的发票审批/编辑同样要能打开），
+    // 走 contract.projectId 会把合法的无合同发票误判成「不存在」。
+    if (projectId && inv.projectId !== projectId) throw new NotFoundException('发票不存在');
     return inv;
   }
 

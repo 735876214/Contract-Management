@@ -212,8 +212,10 @@ export class SettlementService {
       },
     });
     if (!s) throw new NotFoundException('结算单不存在');
-    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目单据
-    if (projectId && (s as any).contract?.projectId !== projectId) throw new NotFoundException('结算单不存在');
+    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目单据。
+    // 用结算单自身的 projectId 判定：contractId 可空（无合同结算单同样要能打开），
+    // 走 contract.projectId 会把合法的无合同单据误判成「不存在」。
+    if (projectId && s.projectId !== projectId) throw new NotFoundException('结算单不存在');
     return s;
   }
 
