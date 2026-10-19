@@ -12,6 +12,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AiService } from './ai.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
+import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -36,6 +37,7 @@ export class AiController {
   constructor(
     private service: AiService,
     private register: RegisterService,
+    private report: ReportService,
   ) {}
 
   /** 前端据此决定「AI 助手」菜单是否可用（未配置时显示"未启用"而不是报错） */
@@ -89,6 +91,34 @@ export class AiController {
   @Post('register/confirm')
   confirmRegister(@Body() body: RegisterConfirmInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.register.confirm(body, { projectId }, user);
+  }
+
+  /**
+   * 汇报材料（三期）：由**程序**聚合事实、模型只负责组织语言。
+   * 返回 Markdown + 事实清单 + 对账结果（`unknownNumbers` = 材料里出现但系统数据对不上的数字）。
+   */
+  @RequirePermissions('ai:use')
+  @Post('report/generate')
+  generateReport(
+    @Body() body: { kind?: string; from?: string; to?: string; extra?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.report.generate(body || {}, projectId, user?.userId || user?.username || 'anonymous');
+  }
+
+  /** 把页面上的同一份 Markdown 导出为 docx（不重新生成，避免导出与预览不一致） */
+  @RequirePermissions('ai:use')
+  @Post('report/export')
+  async exportReport(@Body() body: { markdown?: string; title?: string }, @Res() res: Response) {
+    const { buffer, fileName } = await this.report.exportDocx(body || {});
+    res.setHeader('Content-Type', this.service.docxMime);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="report.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    );
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.end(buffer);
   }
 
   @RequirePermissions('ai:use')

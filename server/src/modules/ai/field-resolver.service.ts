@@ -177,8 +177,10 @@ export class FieldResolverService {
    * - 累计结算：排除草稿 `DRAFT`，取 `actualAmount ?? amount`；
    * - 累计付款：`paidPaymentWhere()`（排除失败/退款）；
    * - 累计开票：`amountWithTax`（含税，与台账「本月开票额」同口径）。
+   *
+   * 公开给汇报材料（三期）复用：口径只允许有一份实现。
    */
-  private async projectStats(projectId: string): Promise<{
+  async projectStats(projectId: string): Promise<{
     contractCount: number;
     contractAmountTotal: number;
     settlementAmountTotal: number;

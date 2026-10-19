@@ -499,7 +499,7 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 静态文件访问（`useStaticAssets(UPLOAD_DIR, '/api/files')`） | — |
 
-## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记）
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
@@ -520,6 +520,16 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 - 交叉校验：金额三角（含税 = 不含税 + 税额）、明细合计 vs 合同总价、法定代表人是否与联系人同一人。
 - 明细**只做核对参考、不落库**；合同物资清单仍由「物资基础库 → 合同物资清单」派生。
 - 请求体必须是嵌套结构，操作日志的按键名脱敏（`bankAccount`）才能生效。
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| POST | `/ai/report/generate` | body `{kind: monthly\|project\|brief, from?, to?, extra?}` → 返回 Markdown + 事实清单 `facts` + 数字对账 `unknownNumbers`；区间缺省为「本月 1 日 ~ 今天」 | `ai:use` |
+| POST | `/ai/report/export` | body `{markdown, title?}` → 把**同一份** Markdown 转成 docx（不重新生成） | `ai:use` |
+
+口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
+（口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
+`auditReport()` 把每个数量/金额回查事实清单，对不上的列进 `unknownNumbers` 由前端红字提示。
+风险点（付超结算、开票落后于结算、区间无日报等）由**规则**判定，不交给模型。
 
 ---
 

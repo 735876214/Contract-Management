@@ -113,12 +113,12 @@ export class LlmError extends Error {
  * 调一次 chat/completions 并解析 JSON。
  * `fetchImpl` 显式注入：单测与集成测试用本地假上游替换，不打真网。
  */
-export async function chatJson(
+export async function callChat(
   fetchImpl: typeof fetch,
   opts: LlmOptions,
   messages: LlmMessage[],
   jsonMode = true,
-): Promise<LlmCallResult> {
+): Promise<{ raw: string; usage?: { promptTokens?: number; completionTokens?: number } }> {
   const url = chatCompletionsUrl(opts.baseUrl);
   if (!url || !opts.apiKey || !opts.model) {
     throw new LlmError('AI 未配置（缺少 AI_BASE_URL / AI_API_KEY / AI_MODEL）', 'NOT_CONFIGURED');
@@ -157,11 +157,44 @@ export async function chatJson(
   if (!raw) throw new LlmError('AI 上游返回空内容', 'EMPTY');
 
   return {
-    data: extractJsonBlock(raw),
     raw,
     usage: {
       promptTokens: body?.usage?.prompt_tokens,
       completionTokens: body?.usage?.completion_tokens,
     },
   };
+}
+
+/**
+ * 调一次 chat/completions 并解析 JSON。
+ * `fetchImpl` 显式注入：单测与集成测试用本地假上游替换，不打真网。
+ */
+export async function chatJson(
+  fetchImpl: typeof fetch,
+  opts: LlmOptions,
+  messages: LlmMessage[],
+  jsonMode = true,
+): Promise<LlmCallResult> {
+  const { raw, usage } = await callChat(fetchImpl, opts, messages, jsonMode);
+  return { data: extractJsonBlock(raw), raw, usage };
+}
+
+/**
+ * 调一次 chat/completions，**要原文不要 JSON**（汇报材料是 Markdown，不是结构化数据）。
+ * 与 `chatJson` 共用同一份请求构造与错误口径，区别只在 `response_format`。
+ */
+export async function chatText(
+  fetchImpl: typeof fetch,
+  opts: LlmOptions,
+  messages: LlmMessage[],
+): Promise<{ text: string; usage?: { promptTokens?: number; completionTokens?: number } }> {
+  const { raw, usage } = await callChat(fetchImpl, opts, messages, false);
+  return { text: stripFence(raw), usage };
+}
+
+/** 去掉模型偶尔自作主张包的 ```markdown 围栏 */
+export function stripFence(text: string): string {
+  const raw = String(text ?? '').trim();
+  const m = /^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i.exec(raw);
+  return (m ? m[1] : raw).trim();
 }

@@ -19,6 +19,7 @@ import { DownloadOutlined, InboxOutlined, ReloadOutlined, ThunderboltOutlined } 
 import { aiApi, type AiInspectCandidate, type AiInspectResult } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
 import AiRegisterPanel from './AiRegisterPanel';
+import AiReportPanel from './AiReportPanel';
 
 const { Dragger } = Upload;
 const { Text, Paragraph } = Typography;
@@ -342,6 +343,7 @@ export default function AiAssistant() {
       items={[
         { key: 'fill', label: '模板智能填报', children: <FillPanel /> },
         { key: 'register', label: '文件登记', children: <AiRegisterPanel /> },
+        { key: 'report', label: '汇报材料', children: <AiReportPanel /> },
       ]}
     />
   );

@@ -612,6 +612,30 @@ export interface AiRegisterConfirmResult {
   name: string;
 }
 
+
+/** 汇报材料（三期）：事实包由后端程序聚合，模型只负责组织语言 */
+export interface AiReportFacts {
+  project: { name: string; code: string; manager?: string | null; startDate?: string | null; endDate?: string | null; selfContractAmount?: number | null };
+  period: { from: string; to: string; label: string };
+  contracts: { total: number; executing: number; signedInPeriod: number; signedAmountInPeriod: number; totalAmount: number };
+  settlement: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
+  payment: { countInPeriod: number; amountInPeriod: number; totalAmount: number; unpaid: number };
+  invoice: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
+  daily: { reportsInPeriod: number };
+  risks: string[];
+}
+
+export interface AiReportResult {
+  kind: 'monthly' | 'project' | 'brief';
+  label: string;
+  period: { from: string; to: string; label: string };
+  markdown: string;
+  facts: AiReportFacts;
+  /** 材料里出现、但事实清单里找不到的数字 */
+  unknownNumbers: string[];
+  warnings: string[];
+}
+
 export const aiApi = {
   status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
   /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
@@ -635,6 +659,12 @@ export const aiApi = {
     supplierId?: string;
     skipSupplier?: boolean;
   }) => http.post<any, AiRegisterConfirmResult>('/ai/register/confirm', body),
+  /** 汇报材料：由程序聚合事实、模型组织语言；返回 Markdown + 事实清单 + 数字对账结果 */
+  reportGenerate: (body: { kind: string; from?: string; to?: string; extra?: string }) =>
+    http.post<any, AiReportResult>('/ai/report/generate', body, { timeout: 180000 } as any),
+  /** 导出 docx：把页面上的同一份 Markdown 转成 Word（不重新生成） */
+  reportExport: (body: { markdown: string; title?: string }) =>
+    http.post<any, any>('/ai/report/export', body, { responseType: 'blob', timeout: 120000, rawResponse: true } as any),
   /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
   fill: (file: File, mapping: { sheet: string; cellRef: string; fieldKey: string }[], ctx?: { contractId?: string; supplierId?: string }) => {
     const form = new FormData();

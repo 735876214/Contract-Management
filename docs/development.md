@@ -87,7 +87,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（54 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（55 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -169,6 +169,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
   | `test/startupSeed.spec.mts` | **启动播种的并发安全锁**：`src/main.ts` 与 `test-integration/helpers.ts` 都必须走 `runStartupSeed()`（不得直接调 `seed*` 函数）· 该入口必须保留**事务级**咨询锁（会话级在连接池下会「加锁/解锁不同连接」）。起因：CI 空库上多进程并发播种撞 P2002 → 字典漏播、用例红，而**本地因库已播种完全看不见** |
   | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断） |
+  | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、日期/百分比/量词不参与对账、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |
   | `test/aiPrompt.spec.mts` | **AI prompt 安全底线 + 模型输出规整**：**prompt 里绝不出现字段值**（`currentValue` 被显式忽略，用例直接断言值串不在消息里）· 字段/候选清单文本与截断 · `normalizeMapping` 丢弃越界序号/非整数/未知键 · 同一候选留最高置信度、同一字段只留一个（防两格填同一值）· confidence 夹 0~1 且 3 位小数 · 垃圾输入不抛错 · 字段目录键唯一、未关联合同时不下发 contract/supplier 域字段 |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |

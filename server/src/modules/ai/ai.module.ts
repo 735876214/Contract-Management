@@ -6,6 +6,7 @@ import { AiQuota } from './ai-quota';
 import { AiService } from './ai.service';
 import { FieldResolverService } from './field-resolver.service';
 import { RegisterService } from './register.service';
+import { ReportService } from './report.service';
 
 /**
  * AI 助手模块（纯增量能力：不引入新依赖、不改任何既有表）。
@@ -17,7 +18,7 @@ import { RegisterService } from './register.service';
 @Module({
   imports: [ContractModule, SupplierModule],
   controllers: [AiController],
-  providers: [AiService, FieldResolverService, RegisterService, AiQuota],
-  exports: [AiService, FieldResolverService, RegisterService],
+  providers: [AiService, FieldResolverService, RegisterService, ReportService, AiQuota],
+  exports: [AiService, FieldResolverService, RegisterService, ReportService],
 })
 export class AiModule {}

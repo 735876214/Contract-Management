@@ -1,0 +1,303 @@
+import { Fragment, useState, type ReactNode } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  Collapse,
+  DatePicker,
+  Empty,
+  Form,
+  Input,
+  Segmented,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  message,
+} from 'antd';
+import { DownloadOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import dayjs, { type Dayjs } from 'dayjs';
+import { aiApi, type AiReportResult } from '@/api/modules';
+
+const { Text, Paragraph, Title } = Typography;
+
+/** 行内 `**加粗**` → <strong>（不引 markdown 依赖：材料只用到这一种行内语法） */
+function inline(text: string, keyPrefix: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((seg, i) => {
+    const m = /^\*\*([^*]+)\*\*$/.exec(seg);
+    return m ? <strong key={`${keyPrefix}-${i}`}>{m[1]}</strong> : <Fragment key={`${keyPrefix}-${i}`}>{seg}</Fragment>;
+  });
+}
+
+/**
+ * 极简 Markdown 渲染：标题 / 无序列表 / 段落 / 行内加粗。
+ * 不引 react-markdown —— 汇报材料只用得到这几种语法，多一个依赖不划算。
+ */
+function MiniMarkdown({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let list: string[] = [];
+  const flush = () => {
+    if (!list.length) return;
+    const items = list;
+    list = [];
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} style={{ margin: '4px 0 12px', paddingLeft: 20 }}>
+        {items.map((t, i) => (
+          <li key={i}>{inline(t, `li-${blocks.length}-${i}`)}</li>
+        ))}
+      </ul>,
+    );
+  };
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trimEnd();
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    const h = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (h) {
+      flush();
+      const level = h[1].length;
+      blocks.push(
+        <Title key={`h-${blocks.length}`} level={level <= 2 ? 4 : 5} style={{ marginTop: 16, marginBottom: 8 }}>
+          {inline(h[2], `h-${blocks.length}`)}
+        </Title>,
+      );
+      continue;
+    }
+    const li = /^[-*]\s+(.*)$/.exec(line);
+    if (li) {
+      list.push(li[1]);
+      continue;
+    }
+    flush();
+    blocks.push(
+      <Paragraph key={`p-${blocks.length}`} style={{ marginBottom: 8 }}>
+        {inline(line, `p-${blocks.length}`)}
+      </Paragraph>,
+    );
+  }
+  flush();
+  return <>{blocks}</>;
+}
+const { RangePicker } = DatePicker;
+const { TextArea } = Input;
+
+type ReportKind = 'monthly' | 'project' | 'brief';
+
+const KIND_OPTIONS: { label: string; value: ReportKind }[] = [
+  { label: '月度经营汇报', value: 'monthly' },
+  { label: '项目履约汇报', value: 'project' },
+  { label: '领导汇报摘要', value: 'brief' },
+];
+
+/**
+ * AI 助手 · 汇报材料（三期）。
+ *
+ * 分工：**程序给事实、模型给文字**。页面上的数字全部来自后端聚合的事实清单，
+ * 生成后会把材料里对不上的数字单独列出来（`unknownNumbers`）——
+ * 汇报材料是给领导看的，编一个数字比写得平淡严重得多，所以宁可把风险摆到明面上。
+ */
+export default function AiReportPanel() {
+  const [kind, setKind] = useState<ReportKind>('monthly');
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [extra, setExtra] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AiReportResult | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      const res = await aiApi.reportGenerate({
+        kind,
+        from: range?.[0]?.format('YYYY-MM-DD'),
+        to: range?.[1]?.format('YYYY-MM-DD'),
+        extra: extra.trim() || undefined,
+      });
+      setResult(res);
+      if (res.unknownNumbers.length) message.warning('材料里有数字未在系统数据中找到，请复核');
+      else message.success('已生成，请核对后导出');
+    } catch {
+      // 拦截器已弹错
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportDocx = async () => {
+    if (!result) return;
+    setExporting(true);
+    try {
+      const res = await aiApi.reportExport({
+        markdown: result.markdown,
+        title: `${result.facts.project.name}${result.label}`,
+      });
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const cd = res.headers?.['content-disposition'] || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+      const fileName = m ? decodeURIComponent(m[1]) : '汇报材料.docx';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // 拦截器已弹错
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <Card
+      title={
+        <Space>
+          <FileTextOutlined />
+          <span>AI 助手 · 汇报材料</span>
+          {result ? <Tag color="green">{result.label}</Tag> : null}
+        </Space>
+      }
+      extra={
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exporting}
+          disabled={!result}
+          onClick={exportDocx}
+        >
+          导出 Word
+        </Button>
+      }
+    >
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="用系统里的真实数据生成汇报材料：数字由程序汇总，AI 只负责组织语言"
+        description="生成后请核对；材料里出现但系统数据对不上的数字会被单独列出来提示你。"
+      />
+
+      <Form layout="vertical">
+        <Space wrap size={16} align="end" style={{ width: '100%' }}>
+          <Form.Item label="材料类型" style={{ marginBottom: 8 }}>
+            <Segmented
+              options={KIND_OPTIONS}
+              value={kind}
+              onChange={(v) => setKind(v as ReportKind)}
+            />
+          </Form.Item>
+          <Form.Item label="统计区间" style={{ marginBottom: 8 }}>
+            <RangePicker
+              value={range}
+              allowClear={false}
+              onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])}
+            />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 8 }}>
+            <Button type="primary" icon={<ThunderboltOutlined />} loading={loading} onClick={generate}>
+              生成材料
+            </Button>
+          </Form.Item>
+        </Space>
+        <Form.Item label="补充要求（可选）" style={{ marginBottom: 8 }}>
+          <TextArea
+            rows={2}
+            value={extra}
+            maxLength={200}
+            placeholder="例如：重点写付款风险；面向集团领导，控制在一页以内"
+            onChange={(e) => setExtra(e.target.value)}
+          />
+        </Form.Item>
+      </Form>
+
+      {loading && (
+        <div style={{ padding: 32, textAlign: 'center' }}>
+          <Spin tip="正在汇总数据并生成材料…" size="large">
+            <div style={{ height: 48 }} />
+          </Spin>
+        </div>
+      )}
+
+      {!loading && result && (
+        <>
+          {result.warnings.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="数据侧提醒"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {result.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              }
+            />
+          )}
+
+          {result.unknownNumbers.length > 0 && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="以下数字未在系统数据中找到，请核对后再使用"
+              description={result.unknownNumbers.join('、')}
+            />
+          )}
+
+          <div
+            style={{
+              border: '1px solid var(--cms-hairline)',
+              borderRadius: 8,
+              padding: 16,
+              background: 'var(--cms-canvas)',
+              maxHeight: 620,
+              overflow: 'auto',
+            }}
+          >
+            <MiniMarkdown text={result.markdown} />
+          </div>
+
+          <Collapse
+            style={{ marginTop: 12 }}
+            items={[
+              {
+                key: 'facts',
+                label: '数据来源（事实清单，材料里的数字都来自这里）',
+                children: (
+                  <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }} type="secondary">
+                    {[
+                      `统计区间：${result.period.label}`,
+                      `合同：总数 ${result.facts.contracts.total} 份（执行中 ${result.facts.contracts.executing}），累计金额 ${result.facts.contracts.totalAmount} 元，区间新签 ${result.facts.contracts.signedInPeriod} 份`,
+                      `结算：累计 ${result.facts.settlement.totalAmount} 元，区间 ${result.facts.settlement.amountInPeriod} 元`,
+                      `付款：累计 ${result.facts.payment.totalAmount} 元，区间 ${result.facts.payment.amountInPeriod} 元，应付未付 ${result.facts.payment.unpaid} 元`,
+                      `开票：累计 ${result.facts.invoice.totalAmount} 元，区间 ${result.facts.invoice.amountInPeriod} 元`,
+                      `日报：区间 ${result.facts.daily.reportsInPeriod} 条`,
+                    ].join('\n')}
+                  </Paragraph>
+                ),
+              },
+            ]}
+          />
+        </>
+      )}
+
+      {!loading && !result && (
+        <Empty description="还没有生成材料：选好类型与区间后点「生成材料」" style={{ marginTop: 32 }} />
+      )}
+
+      <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+        <Text type="secondary">
+          口径：合同金额按合同链（主合同 + 补充协议）累计；结算排除草稿；付款排除失败/退款；
+          应付未付 = 累计结算 − 累计付款（可为负，负值说明付超了）。
+        </Text>
+      </Paragraph>
+    </Card>
+  );
+}

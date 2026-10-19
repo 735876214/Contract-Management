@@ -381,4 +381,5 @@ export class AiService {
 
   /** 供控制器设置下载头 */
   readonly xlsxMime = XLSX_MIME;
+  readonly docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 }
