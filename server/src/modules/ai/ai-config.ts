@@ -27,6 +27,10 @@ export interface AiConfig {
   maxFieldsInPrompt: number;
   /** 每用户每小时的 AI 调用次数上限（进程内计数：单实例是最终形态，不需要 Redis） */
   hourlyLimitPerUser: number;
+  /** 单次返回的最大 token（文件登记要输出明细，不能沿用默认值） */
+  maxTokens: number;
+  /** 送进 prompt 的正文长度上限（字符）：合同正文整段喂给模型，必须有硬上限 */
+  maxTextChars: number;
 }
 
 export const AI_DEFAULTS = {
@@ -37,6 +41,8 @@ export const AI_DEFAULTS = {
   maxCandidates: 300,
   maxFieldsInPrompt: 120,
   hourlyLimitPerUser: 60,
+  maxTokens: 4000,
+  maxTextChars: 40000,
 } as const;
 
 const str = (v: string | undefined): string => String(v ?? '').trim();
@@ -68,6 +74,8 @@ export function readAiConfig(env: Record<string, string | undefined> = {}): AiCo
     maxCandidates: positiveInt(env.AI_MAX_CANDIDATES, AI_DEFAULTS.maxCandidates),
     maxFieldsInPrompt: positiveInt(env.AI_MAX_FIELDS, AI_DEFAULTS.maxFieldsInPrompt),
     hourlyLimitPerUser: positiveInt(env.AI_HOURLY_LIMIT, AI_DEFAULTS.hourlyLimitPerUser),
+    maxTokens: positiveInt(env.AI_MAX_TOKENS, AI_DEFAULTS.maxTokens),
+    maxTextChars: positiveInt(env.AI_MAX_TEXT_CHARS, AI_DEFAULTS.maxTextChars),
   };
 }
 

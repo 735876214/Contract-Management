@@ -1,6 +1,7 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
+import { AiQuota } from './ai-quota';
 import { aiPublicStatus, readAiConfig, type AiConfig } from './ai-config';
 import { buildFormMappingMessages, normalizeMapping, type MappingSuggestion } from './ai-prompt';
 import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, type AiFieldDef } from './field-catalog';
@@ -81,12 +82,11 @@ function cellText(cell: ExcelJS.Cell): string {
 
 @Injectable()
 export class AiService {
-  /** 每用户每小时的调用时间戳（进程内；单实例是最终形态，不需要 Redis） */
-  private readonly hits = new Map<string, number[]>();
-
   constructor(
     private prisma: PrismaClient,
     private resolver: FieldResolverService,
+    /** 与「文件登记」共享同一份每用户配额 */
+    private quota: AiQuota,
   ) {}
 
   private config(): AiConfig {
@@ -114,18 +114,7 @@ export class AiService {
 
   /** 配额：滑动 1 小时窗口。超限抛 429（前端提示"稍后再试"），不做静默降级 */
   private consumeQuota(userId: string, cfg: AiConfig): void {
-    const now = Date.now();
-    const windowStart = now - 3600_000;
-    const list = (this.hits.get(userId) ?? []).filter((t) => t > windowStart);
-    if (list.length >= cfg.hourlyLimitPerUser) {
-      this.hits.set(userId, list);
-      throw new HttpException(
-        `AI 调用过于频繁（每用户每小时 ${cfg.hourlyLimitPerUser} 次），请稍后再试`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-    list.push(now);
-    this.hits.set(userId, list);
+    this.quota.consume(userId, cfg.hourlyLimitPerUser);
   }
 
   /** 只接受 .xlsx：.xlsm 的宏经 ExcelJS 写出会**静默丢失**（与单据模板同一口径） */

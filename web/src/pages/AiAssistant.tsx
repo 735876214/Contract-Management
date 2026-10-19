@@ -8,6 +8,7 @@ import {
   Space,
   Spin,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -17,6 +18,7 @@ import {
 import { DownloadOutlined, InboxOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { aiApi, type AiInspectCandidate, type AiInspectResult } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
+import AiRegisterPanel from './AiRegisterPanel';
 
 const { Dragger } = Upload;
 const { Text, Paragraph } = Typography;
@@ -39,7 +41,7 @@ const keyOf = (c: { sheet: string; cellRef: string }) => `${c.sheet}!${c.cellRef
  * 3. 生成回填文件下载 —— **系统里的数据一个字段都不会写回本页**，
  *    页面上只显示「有值/无值」，避免把合同金额、银行账号等敏感信息直接摊在浏览器与操作日志里。
  */
-export default function AiAssistant() {
+function FillPanel() {
   const [status, setStatus] = useState<{ enabled: boolean; model: string } | null>(null);
   const [contracts, setContracts] = useState<Option[]>([]);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
@@ -326,5 +328,21 @@ export default function AiAssistant() {
         </>
       )}
     </Card>
+  );
+}
+
+/**
+ * 页面外壳：一期「模板智能填报」与二期「文件登记」各占一个页签，菜单仍只有一个入口。
+ * 页签不写进 URL——两个面板都是「上传即用」的临时状态，刷新后重来更符合预期。
+ */
+export default function AiAssistant() {
+  return (
+    <Tabs
+      defaultActiveKey="fill"
+      items={[
+        { key: 'fill', label: '模板智能填报', children: <FillPanel /> },
+        { key: 'register', label: '文件登记', children: <AiRegisterPanel /> },
+      ]}
+    />
   );
 }

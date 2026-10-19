@@ -499,16 +499,27 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 静态文件访问（`useStaticAssets(UPLOAD_DIR, '/api/files')`） | — |
 
-## 25. AI 助手 `/ai`（一期：模板智能填报）
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | GET | `/ai/status` | 是否启用（`AI_BASE_URL`/`AI_API_KEY`/`AI_MODEL`）+ 可填字段目录 `fieldCatalog` | `ai:view` |
 | POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）与模型建议（`fieldKey/confidence`，未启用时为 `null`） | `ai:use` |
 | POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
+| POST | `/ai/register/parse` | multipart `file`（`.docx` / `.xlsx`）→ **只解析不写库**：返回 `draft.fields[]`（`value/verified/warn/note`）、明细 `items[]` 与合计、`warnings[]`、`missing[]`、库内同编号/同名的 `existing` | `ai:use` |
+| POST | `/ai/register/confirm` | 人工确认后的字段（**嵌套结构** `{supplier:{...}, contract:{...}}`，可选 `supplierId` / `skipSupplier`）→ 写库并返回 `{supplierId, supplierCreated, contractId, code, name}` | `contract:edit` **或** `supplier:edit` |
 
-口径：只回**是否已有内容**（`hasValue`），**绝不回传字段值**（响应体会进操作日志）；取不到值的项跳过不写空串；
+口径（填报）：只回**是否已有内容**（`hasValue`），**绝不回传字段值**（响应体会进操作日志）；取不到值的项跳过不写空串；
 AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` 用 `@Res()` 直出，避免二进制进日志。
+
+口径（登记）：
+- **两段式**：`parse` 不写库（与两阶段导入同一口径），`confirm` 才落库；写库复用
+  `ContractService.create` / `SupplierService.create`，编号唯一、名称拼接、字典校验、付款比例派生自动生效。
+- 每个值都**回原文核对**（金额去千分位查、日期按中文写法反查、文本去空白子串匹配），核不到标 `unverified`；
+  合同类型/付款安排在模型没给时按条款推断，判不出就是 `null`，不猜。
+- 交叉校验：金额三角（含税 = 不含税 + 税额）、明细合计 vs 合同总价、法定代表人是否与联系人同一人。
+- 明细**只做核对参考、不落库**；合同物资清单仍由「物资基础库 → 合同物资清单」派生。
+- 请求体必须是嵌套结构，操作日志的按键名脱敏（`bankAccount`）才能生效。
 
 ---
 

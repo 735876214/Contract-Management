@@ -558,6 +558,60 @@ export interface AiInspectResult {
   availableFields: { key: string; label: string; type: string; scope: string; sensitive?: boolean }[];
 }
 
+
+/** 文件登记：一个字段的抽取结果（值已由后端按类型规整） */
+export interface AiRegisterField {
+  key: string;
+  label: string;
+  group: 'supplier' | 'contract';
+  type: 'text' | 'code' | 'date' | 'money' | 'percent' | 'enum';
+  required: boolean;
+  sensitive: boolean;
+  /** null = 没抽到 */
+  value: string | null;
+  /** 该值能否在原文里找到（后端核对，不信模型自评） */
+  verified: boolean;
+  confidence: number | null;
+  warn?: 'unverified' | 'invalid' | 'missing-required' | 'cross-check' | 'duplicate';
+  note?: string;
+}
+
+export interface AiRegisterItem {
+  name: string | null;
+  spec: string | null;
+  unit: string | null;
+  qty: number | null;
+  unitPriceWithTax: number | null;
+  amountWithTax: number | null;
+}
+
+export interface AiRegisterParseResult {
+  aiEnabled: boolean;
+  aiMessage?: string;
+  fileName: string;
+  kind: 'docx' | 'xlsx';
+  chars: number;
+  truncated: boolean;
+  draft: {
+    fields: AiRegisterField[];
+    missing: string[];
+    warnings: string[];
+    items: AiRegisterItem[];
+    itemsTotal: number | null;
+  };
+  existing: { supplierId?: string; supplierName?: string; contractId?: string; contractCode?: string };
+  items: number;
+  model?: string;
+}
+
+export interface AiRegisterConfirmResult {
+  supplierId: string | null;
+  supplierCreated: boolean;
+  contractId: string;
+  code: string;
+  name: string;
+}
+
 export const aiApi = {
   status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
   /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
@@ -568,6 +622,19 @@ export const aiApi = {
     if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
     return http.post<any, AiInspectResult>('/ai/forms/inspect', form, { timeout: 120000 } as any);
   },
+  /** 文件登记：上传合同文件 → 登记草案（**不写库**，只返回抽取结果供人确认） */
+  registerParse: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return http.post<any, AiRegisterParseResult>('/ai/register/parse', form, { timeout: 180000 } as any);
+  },
+  /** 文件登记：确认写库。body 用嵌套结构，操作日志的按键名脱敏才能认出 bankAccount */
+  registerConfirm: (body: {
+    supplier?: Record<string, unknown>;
+    contract?: Record<string, unknown>;
+    supplierId?: string;
+    skipSupplier?: boolean;
+  }) => http.post<any, AiRegisterConfirmResult>('/ai/register/confirm', body),
   /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
   fill: (file: File, mapping: { sheet: string; cellRef: string; fieldKey: string }[], ctx?: { contractId?: string; supplierId?: string }) => {
     const form = new FormData();
