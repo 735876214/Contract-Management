@@ -348,8 +348,12 @@ export class AiService {
     if (type === 'date') {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
       if (m) {
-        // 用本地时间构造：`new Date('2026-01-01')` 是 UTC，跨时区会漂成前一天
-        return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        /**
+         * 用 **UTC 零点**构造：ExcelJS 落盘时取的是 Date 的 UTC 时刻写成 Excel 序列值，
+         * 若用本地零点（如东八区 `2026-08-01 00:00+08`），存进文件就变成 `2026-07-31 16:00`，
+         * 打开后显示成前一天。用 `Date.UTC(y, m-1, d)` 才能落成 2026-08-01 00:00。
+         */
+        return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
       }
       return value;
     }

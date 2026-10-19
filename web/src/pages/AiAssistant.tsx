@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -96,6 +96,22 @@ export default function AiAssistant() {
     },
     [contractId, supplierId],
   );
+
+  /**
+   * 切换「关联合同 / 关联供应商」后可用字段会变，必须重扫一遍：
+   * 否则用户先传文件、后选合同，下拉里还是旧字段集，合同字段根本选不到。
+   * 首次挂载跳过（此时还没上传文件，重扫没有意义）。
+   */
+  const firstCtx = useRef(true);
+  useEffect(() => {
+    if (firstCtx.current) {
+      firstCtx.current = false;
+      return;
+    }
+    if (file) void inspect(file);
+    // 只跟随关联对象变化；file 变化本身由 onPick 触发扫描
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractId, supplierId]);
 
   const onPick = (f: File) => {
     if (!/\.xlsx$/i.test(f.name)) {
