@@ -1136,7 +1136,9 @@ export class ContractService {
     if (materialIds.length) {
       if (!tx) await this.material.derive(contract.id, materialIds); // 导入事务中不派生，避免跨连接锁等待
     }
-    return this.findOne(contract.id);
+    // 事务内不能回查：findOne 走 this.prisma 的池内另一条连接，读不到本事务未提交的行，
+    // 会抛「合同不存在」把整批导入回滚。事务分支直接返回已建记录（调用方只需要 id/数据）。
+    return tx ? contract : this.findOne(contract.id);
   }
 
   async update(id: string, data: any, user: any, projectId?: string) {
