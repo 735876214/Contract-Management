@@ -450,7 +450,8 @@ function MaterialRowEditor({ seed }: { seed: unknown }) {
     setSaving(true);
     try {
       if (editing) {
-        await contractMaterialApi.update(editing.id, values);
+        // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+        await contractMaterialApi.update(editing.id, { ...values, version: (editing as any).version });
       } else {
         if (!picked) return message.warning('请先从物资基础库中选择物资');
         await contractMaterialApi.create({ ...values, contractId: s.contractId, materialBaseId: picked.id });

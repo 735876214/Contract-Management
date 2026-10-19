@@ -137,9 +137,10 @@ export class AssetService {
     return db.assetLedger.create({ data: payload });
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, projectId?: string) {
     const old = await this.prisma.assetLedger.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('资产台账记录不存在');
+    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
     assertVersion(old, data);
     this.validate({ ...old, ...data });
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
@@ -155,9 +156,10 @@ export class AssetService {
     return this.prisma.assetLedger.update({ where: { id }, data: payload });
   }
 
-  async remove(id: string) {
+  async remove(id: string, projectId?: string) {
     const old = await this.prisma.assetLedger.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('资产台账记录不存在');
+    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
     await this.prisma.assetLedger.delete({ where: { id } });
     return true;
   }

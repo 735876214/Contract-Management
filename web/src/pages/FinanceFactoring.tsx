@@ -179,6 +179,8 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
     const data = {
       ...values,
       financingDate: values.financingDate ? values.financingDate.format('YYYY-MM-DD') : null,
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: editing ? (editing as any).version : undefined,
     };
     setSaving(true);
     try {

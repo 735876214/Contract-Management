@@ -64,13 +64,13 @@ export class PaymentController {
 
   @RequirePermissions('payment:edit')
   @Put('records/:id')
-  updateRecord(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateRecord(id, body);
+  updateRecord(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateRecord(id, body, projectId);
   }
 
   @RequirePermissions('payment:edit')
   @Delete('records/:id')
-  removeRecord(@Param('id') id: string) {
-    return this.service.removeRecord(id);
+  removeRecord(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeRecord(id, projectId);
   }
 }

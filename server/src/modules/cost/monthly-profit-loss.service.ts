@@ -46,12 +46,25 @@ export class MonthlyProfitLossService {
     );
   }
 
-  async detail(id: string) {
-    const r = await this.prisma.monthlyProfitLoss.findUnique({
-      where: { id },
-      include: { details: { orderBy: [{ laborTeamName: 'asc' }, { sortOrder: 'asc' }] } },
-    });
-    if (!r) throw new NotFoundException('月度盈亏分析记录不存在');
+  /**
+   * 归属复核（防御纵深）：按 id 直读/改写时必须确认记录属于请求头项目，
+   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据
+   * （见 .claude/rules/rules-index.md「项目隔离」）。
+   */
+  private assertOwnProject<T extends { projectId: string }>(row: T | null, projectId?: string): T {
+    if (!row) throw new NotFoundException('月度盈亏分析记录不存在');
+    if (projectId && row.projectId !== projectId) throw new NotFoundException('月度盈亏分析记录不存在');
+    return row;
+  }
+
+  async detail(id: string, projectId?: string) {
+    const r = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({
+        where: { id },
+        include: { details: { orderBy: [{ laborTeamName: 'asc' }, { sortOrder: 'asc' }] } },
+      }),
+      projectId,
+    );
     return { ...this.serializeHeader(r), details: r.details.map((d) => this.serializeDetail(d)) };
   }
 
@@ -75,9 +88,11 @@ export class MonthlyProfitLossService {
   }
 
   /** 更新：头字段 + 明细行手改（按明细 ID 逐行，乐观锁在头记录上） */
-  async update(id: string, data: any) {
-    const current = await this.prisma.monthlyProfitLoss.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('月度盈亏分析记录不存在');
+  async update(id: string, data: any, projectId?: string) {
+    const current = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
+      projectId,
+    );
     assertVersion(current, data);
     const payload: any = pickFields(data, HEADER_FIELDS.filter((f) => f !== 'period'), { label: '月度盈亏分析' });
     ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
@@ -89,6 +104,12 @@ export class MonthlyProfitLossService {
     if (Array.isArray(data?.details)) {
       for (const d of data.details) {
         if (!d?.id) continue;
+        // 明细行也必须属于本记录（防止借本记录 id 改写其它记录的明细）
+        const owned = await this.prisma.monthlyProfitLossDetail.findFirst({
+          where: { id: d.id, profitLossId: id },
+          select: { id: true },
+        });
+        if (!owned) continue;
         const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
         (['unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty', 'actualUseQty', 'stockQty', 'saveOverQty', 'deductAmount'] as const).forEach((f) => {
           if (row[f] !== undefined) row[f] = num(row[f]);
@@ -97,23 +118,26 @@ export class MonthlyProfitLossService {
         await this.recalcDetailAmount(d.id, row);
       }
     }
-    return this.detail(id);
+    return this.detail(id, projectId);
   }
 
-  async remove(id: string) {
+  async remove(id: string, projectId?: string) {
+    this.assertOwnProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId);
     await this.prisma.monthlyProfitLoss.delete({ where: { id } });
     return true;
   }
 
   /** 重新抓取：删明细重生成快照，按 laborAuthId+材料+规格 回填手填项 */
-  async reSnapshot(id: string) {
-    const current = await this.prisma.monthlyProfitLoss.findUnique({ where: { id } });
-    if (!current) throw new NotFoundException('月度盈亏分析记录不存在');
+  async reSnapshot(id: string, projectId?: string) {
+    const current = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
+      projectId,
+    );
     const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
     const manual = new Map(old.map((d) => [`${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}`, d]));
     await this.prisma.monthlyProfitLossDetail.deleteMany({ where: { profitLossId: id } });
     await this.snapshotDetails(id, current.projectId, current.period, manual);
-    return this.detail(id);
+    return this.detail(id, projectId);
   }
 
   // ==================== 导出（封面 + 明细 + 汇总三 sheet） ====================
@@ -121,7 +145,7 @@ export class MonthlyProfitLossService {
   async exportWorkbook(id: string, projectId: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
     const { CSCEC_LOGO_PNG_BASE64 } = await import('../../common/services/cscec-logo.base64');
-    const full: any = await this.detail(id);
+    const full: any = await this.detail(id, projectId);
     const details: any[] = full.details || [];
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     const periodLabel = periodLabelOf(full.period);

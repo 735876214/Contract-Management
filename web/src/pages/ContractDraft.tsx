@@ -214,6 +214,8 @@ export default function ContractDraft() {
         qualityClauseId: values.qualityClauseId || null,
         acceptanceClauseId: values.acceptanceClauseId || null,
         paymentClauseId: values.paymentClauseId || null,
+        // 乐观锁：后端 assertVersion 强制要求回传（缺失=409）
+        version: (editing as any).version,
       });
       const detail: any = await contractApi.detail(editing.id);
       setEditing(detail);

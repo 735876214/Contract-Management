@@ -96,18 +96,32 @@ export class LaborReceivingService {
     return this.serializeDoc(created);
   }
 
-  /** 单据详情：头 + 明细（含收领单自动聚合列与派生列） */
-  async docDetail(id: string) {
-    const doc = await this.prisma.laborReceivingDoc.findUnique({ where: { id } });
+  /**
+   * 归属复核（防御纵深）：按 id 直读/改写时必须确认单据属于请求头项目，
+   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据。
+   */
+  private assertDocInProject<T extends { projectId: string }>(doc: T | null, projectId?: string): T {
     if (!doc) throw new NotFoundException('领用单据不存在');
+    if (projectId && doc.projectId !== projectId) throw new NotFoundException('领用单据不存在');
+    return doc;
+  }
+
+  /** 单据详情：头 + 明细（含收领单自动聚合列与派生列） */
+  async docDetail(id: string, projectId?: string) {
+    const doc = this.assertDocInProject(
+      await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
+      projectId,
+    );
     const rows = await this.mergeDocRows(doc);
     return { ...this.serializeDoc(doc), details: rows };
   }
 
   /** 更新单据：头字段 + 明细批量 upsert（乐观锁在头记录上） */
-  async updateDoc(id: string, data: any) {
-    const doc = await this.prisma.laborReceivingDoc.findUnique({ where: { id } });
-    if (!doc) throw new NotFoundException('领用单据不存在');
+  async updateDoc(id: string, data: any, projectId?: string) {
+    const doc = this.assertDocInProject(
+      await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
+      projectId,
+    );
     assertVersion(doc, data);
     const payload: any = pickFields(data, ['contractName', 'status', 'remark'], { label: '领用单据' });
     if (payload.contractName !== undefined) {
@@ -121,10 +135,11 @@ export class LaborReceivingService {
         await this.upsertDetail(doc, d);
       }
     }
-    return this.docDetail(id);
+    return this.docDetail(id, projectId);
   }
 
-  async removeDoc(id: string) {
+  async removeDoc(id: string, projectId?: string) {
+    this.assertDocInProject(await this.prisma.laborReceivingDoc.findUnique({ where: { id } }), projectId);
     await this.prisma.laborReceivingDoc.delete({ where: { id } });
     return true;
   }
@@ -248,13 +263,15 @@ export class LaborReceivingService {
 
   // ==================== 导出（三张 sheet：盘点 / 月度汇总 / 节超分析，按表样） ====================
 
-  async exportWorkbook(docId: string): Promise<Buffer> {
+  async exportWorkbook(docId: string, projectId?: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
-    const doc: any = await this.prisma.laborReceivingDoc.findUnique({
-      where: { id: docId },
-      include: { laborAuth: { select: { idCardFront: true, signatureScreenshot: true } } },
-    });
-    if (!doc) throw new NotFoundException('领用单据不存在');
+    const doc: any = this.assertDocInProject(
+      await this.prisma.laborReceivingDoc.findUnique({
+        where: { id: docId },
+        include: { laborAuth: { select: { idCardFront: true, signatureScreenshot: true } } },
+      }),
+      projectId,
+    );
     const rows: any[] = await this.mergeDocRows(doc);
     const project = await this.prisma.project.findUnique({ where: { id: doc.projectId } });
     const periodLabel = periodLabelOf(doc.period);

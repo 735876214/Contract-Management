@@ -414,6 +414,8 @@ function ContractEditor({ seed }: { seed: unknown }) {
       attachments,
       ext: { ...extRest, settlementPayRatio },
       materialIds: editing ? undefined : materialIds, // 仅创建时派生清单
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: editing ? (editing as any).version : undefined,
     };
     setSaving(true);
     try {

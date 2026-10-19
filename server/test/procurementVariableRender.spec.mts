@@ -64,6 +64,18 @@ describe('金额口径与格式化', () => {
     assert.ok(amountToChineseCapital(12345.67).includes('元'));
     assert.ok(amountToChineseCapital(0).length > 0);
   });
+
+  it('合同额大写：跨组补零（万/亿位不足四位、中间整组为 0）', () => {
+    // 2026-10-19 审计：组值不足 4 位时缺「零」，会把 100005 读成「壹拾万伍」
+    assert.equal(amountToChineseCapital(100005), '壹拾万零伍元整');
+    assert.equal(amountToChineseCapital(10005), '壹万零伍元整');
+    assert.equal(amountToChineseCapital(100010), '壹拾万零壹拾元整');
+    assert.equal(amountToChineseCapital(100000001), '壹亿零壹元整');
+    assert.equal(amountToChineseCapital(1001), '壹仟零壹元整');
+    assert.equal(amountToChineseCapital(1001000), '壹佰万壹仟元整');
+    assert.equal(amountToChineseCapital(1000001), '壹佰万零壹元整');
+    assert.equal(amountToChineseCapital(123456789), '壹亿贰仟叁佰肆拾伍万陆仟柒佰捌拾玖元整');
+  });
 });
 
 describe('「预计采购金额」单位口径（回归锁定）', () => {

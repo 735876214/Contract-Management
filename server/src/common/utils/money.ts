@@ -11,26 +11,50 @@ const DIGIT = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '�
 // [组单位(元/万/亿/兆), 组内单位(拾/佰/仟)]
 const UNIT: [string[], string[]] = [['', '万', '亿', '兆'], ['', '拾', '佰', '仟']];
 
-/** 整数部分转中文大写（每 4 位一组，处理 万/亿/兆 与内部的零） */
+/** 单个 4 位组转中文（组内空位合并为一个「零」，不处理跨组补零） */
+function sectionToChinese(section: number): string {
+  const digits = String(section).padStart(4, '0').split('').map(Number);
+  let out = '';
+  let pendingZero = false;
+  for (let j = 0; j < 4; j++) {
+    const d = digits[j];
+    if (d === 0) {
+      pendingZero = true;
+      continue;
+    }
+    if (pendingZero && out) out += '零';
+    out += DIGIT[d] + UNIT[1][3 - j];
+    pendingZero = false;
+  }
+  return out;
+}
+
+/**
+ * 整数部分转中文大写（每 4 位一组，处理 万/亿/兆 与内部的零）。
+ * 跨组补零是财务大写的关键：组值不足 4 位（如 10 万位为 0010）或中间整组为 0 时，
+ * 组间必须出现一个「零」，否则 100005 会被读成「壹拾万伍」而不是「壹拾万零伍」。
+ */
 function convertInteger(num: number): string {
   if (num === 0) return '';
-  let str = '';
   let n = Math.floor(num);
-  let i = 0;
-  do {
-    let p = '';
-    const section = n % 10000;
-    let temp = section;
-    for (let j = 0; j < UNIT[1].length && temp > 0; j++) {
-      p = DIGIT[temp % 10] + UNIT[1][j] + p;
-      temp = Math.floor(temp / 10);
-    }
-    p = p.replace(/(零.)*零$/, '').replace(/^零/, '');
-    str = p + (section !== 0 ? UNIT[0][i] : p ? '零' : '') + str;
+  const sections: number[] = [];
+  while (n > 0) {
+    sections.push(n % 10000);
     n = Math.floor(n / 10000);
-    i++;
-  } while (n > 0);
-  return str.replace(/(零.)+/g, '零').replace(/^零/, '');
+  }
+  let out = '';
+  let needZero = false;
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const section = sections[i];
+    if (section === 0) {
+      if (out) needZero = true;
+      continue;
+    }
+    if (out && (needZero || section < 1000)) out += '零';
+    out += sectionToChinese(section) + UNIT[0][i];
+    needZero = false;
+  }
+  return out;
 }
 
 export function amountToChineseCapital(input: number | string | null | undefined): string {

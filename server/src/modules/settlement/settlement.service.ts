@@ -1115,6 +1115,9 @@ export class SettlementService {
     if (payload.contractId && payload.settleMonth) {
       Object.assign(payload, await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth));
     }
+    // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
+    // P2002 变成 500，这里先给出可读的 400
+    await this.assertLedgerMonthUnique(projectId, payload.contractId ?? null, payload.settleMonth ?? null);
     return db.settlementLedger.create({ data: payload });
   }
 
@@ -1136,7 +1139,19 @@ export class SettlementService {
       Object.assign(payload, await this.computeLedgerAutoFields(contractId, settleMonth));
     }
     delete payload.version;
+    // 唯一键预检：把月份/合同改成已存在的组合时，前端的 update 会撞 P2002 → 500，这里统一转 400
+    await this.assertLedgerMonthUnique(old.projectId, contractId ?? null, settleMonth ?? null, id);
     return this.prisma.settlementLedger.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+  }
+
+  /** 台账「合同 + 结算月」项目内唯一（DB 有 @@unique，这里提前给出可读错误） */
+  private async assertLedgerMonthUnique(projectId: string, contractId: string | null, settleMonth: string | null, excludeId?: string) {
+    if (!contractId || !settleMonth) return;
+    const dup = await this.prisma.settlementLedger.findFirst({
+      where: { projectId, contractId, settleMonth, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true },
+    });
+    if (dup) throw new BadRequestException(`该合同 ${settleMonth} 的结算台账已存在，请勿重复新增`);
   }
 
   async removeLedger(id: string) {

@@ -300,6 +300,8 @@ function OverdueEditor({ contractOptions, seed }: { contractOptions: any[]; seed
       ...values,
       payableDate: values.payableDate ? values.payableDate.format('YYYY-MM-DD') : null,
       paymentDate: values.paymentDate ? values.paymentDate.format('YYYY-MM-DD') : null,
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: editing ? (editing as any).version : undefined,
     };
     setSaving(true);
     try {

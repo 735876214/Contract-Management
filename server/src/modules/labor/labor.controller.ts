@@ -48,16 +48,16 @@ export class LaborController {
 
   @RequirePermissions('labor:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   /** 授权委托书打印就绪 HTML（iframe 预览） */
   @RequirePermissions('labor:view')
   @Get(':id/letter')
   @Header('Content-Type', 'text/html; charset=utf-8')
-  async letter(@Param('id') id: string) {
-    const row: any = await this.service.findOne(id);
+  async letter(@Param('id') id: string, @ProjectId() projectId: string) {
+    const row: any = await this.service.findOne(id, projectId);
     return renderSubcontractorLetter(row);
   }
 
@@ -92,8 +92,8 @@ export class LaborController {
 
   @RequirePermissions('labor:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   /** 上传签字盖章版委托书 + 签字截图 → 状态置为「已完成」 */
@@ -105,7 +105,7 @@ export class LaborController {
 
   @RequirePermissions('labor:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

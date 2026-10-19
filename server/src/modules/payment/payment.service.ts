@@ -97,8 +97,10 @@ export class PaymentService {
     return { ...created, ...warn };
   }
 
-  async updateRecord(id: string, data: any) {
+  async updateRecord(id: string, data: any, projectId?: string) {
     const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('付款记录不存在');
+    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
@@ -116,7 +118,10 @@ export class PaymentService {
     return { ...updated, ...warn };
   }
 
-  async removeRecord(id: string) {
+  async removeRecord(id: string, projectId?: string) {
+    const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('付款记录不存在');
+    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
     await this.prisma.paymentRecord.delete({ where: { id } });
     return true;
   }

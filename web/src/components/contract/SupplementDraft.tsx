@@ -326,7 +326,14 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
 
   const persistFormData = async (id: string): Promise<void> => {
     const supplement = buildSupplementData();
-    await contractApi.update(id, { supplementTypeCode: suppType, formData: { supplement } });
+    // 乐观锁：本组件可能对同一份补充协议连续保存多次（保存→预览→发布），
+    // 每次保存前取一次最新 version，否则第二次必被后端 assertVersion 拦成 409
+    const detail: any = await contractApi.detail(id).catch(() => undefined);
+    await contractApi.update(id, {
+      supplementTypeCode: suppType,
+      formData: { supplement },
+      ...(detail?.version !== undefined ? { version: detail.version } : {}),
+    });
     setSaved(true);
   };
 

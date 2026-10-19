@@ -155,7 +155,8 @@ function SupplierEditor({ seed }: { seed: unknown }) {
     const values = await form.validateFields();
     setSaving(true);
     try {
-      if (editing) await supplierApi.update(editing.id, values);
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      if (editing) await supplierApi.update(editing.id, { ...values, version: (editing as any).version });
       else await supplierApi.create(values);
       message.success('保存成功');
       editorTab.closeEditor();

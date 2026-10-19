@@ -92,9 +92,11 @@ export class LaborService {
     });
   }
 
-  async findOne(id: string) {
+  /** 归属复核：按 id 直读时必须确认记录属于请求头项目（防止跨项目读/改） */
+  async findOne(id: string, projectId?: string) {
     const row = await this.prisma.laborAuthLedger.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('分包授权台账记录不存在');
+    if (projectId && row.projectId !== projectId) throw new NotFoundException('分包授权台账记录不存在');
     return row;
   }
 
@@ -132,8 +134,8 @@ export class LaborService {
     });
   }
 
-  async update(id: string, data: any) {
-    const old = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const old = await this.findOne(id, projectId);
     assertVersion(old, data);
     if (data?.subcontractorName !== undefined) this.validate(data);
     const payload = this.pick(data);
@@ -147,8 +149,8 @@ export class LaborService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    await this.findOne(id, projectId);
     await this.prisma.laborAuthLedger.delete({ where: { id } });
     return true;
   }

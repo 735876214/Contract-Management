@@ -177,15 +177,17 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
     if (target) {
       const days = Math.max(0, days360(e.overdueStart, asOf));
       const interest = round(e.remaining * days * rate / 30, 2) || 0;
+      // 同一结算月可能存在多条应付（多材料款行）而计息行只有一条：必须**累加**而不是覆盖，
+      // 否则后一条把前一条的利息冲掉（老实现用 `paymentAmount = -1` 当复用标记，但该标记
+      // 不参与下面的 filter 判断，等于死标记 → 逾期利息偏小）。
+      const prev = derived.get(target.idx);
       derived.set(target.idx, {
-        payableAmount: e.payableAmount,
-        overdueStartDate: e.overdueStart,
-        interestAmount: e.remaining,
-        overdueDays: days,
-        overdueInterest: interest,
+        payableAmount: round((prev?.payableAmount ?? 0) + e.payableAmount, 2) || 0,
+        overdueStartDate: prev ? new Date(Math.min(prev.overdueStartDate.getTime(), e.overdueStart.getTime())) : e.overdueStart,
+        interestAmount: round((prev?.interestAmount ?? 0) + e.remaining, 2) || 0,
+        overdueDays: Math.max(prev?.overdueDays ?? 0, days),
+        overdueInterest: round((prev?.overdueInterest ?? 0) + interest, 2) || 0,
       });
-      // 已承担，标记防止复用
-      target.r.paymentAmount = -1;
     }
   }
 

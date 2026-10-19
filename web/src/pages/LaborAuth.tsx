@@ -201,6 +201,8 @@ function LaborAuthList() {
 /** 编辑器页签：新增/编辑分包材料员授权委托书（原「mode=edit」内联视图迁入） */function LaborAuthEditor({ seed }: { seed: unknown }) {
   const editorTab = useEditorTab(LIST_PATH);
   const [editingId, setEditingId] = useState<string | null>((seed as any)?.id ?? null);
+  // 乐观锁版本号：seed 带出；导出落库（export-mark 会 bump 版本）后再取一次，避免后续保存 409
+  const [version, setVersion] = useState<number | undefined>((seed as any)?.version);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -281,6 +283,10 @@ function LaborAuthList() {
       });
       savedId = saved?.id || editingId;
       if (!editingId && savedId) setEditingId(savedId);
+      if (savedId) {
+        const full: any = await laborApi.detail(savedId).catch(() => undefined);
+        if (full?.version !== undefined) setVersion(full.version);
+      }
     } catch {
       return; // 拦截器已提示
     }
@@ -310,7 +316,8 @@ function LaborAuthList() {
 
   const saveOnly = async () => {
     const values = await form.validateFields();
-    const payload = { ...values, idCardFront, idCardBack, signatureScreenshot, signedAuthFile };
+    // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+    const payload = { ...values, idCardFront, idCardBack, signatureScreenshot, signedAuthFile, version };
     setSaving(true);
     try {
       if (editingId) await laborApi.update(editingId, payload);

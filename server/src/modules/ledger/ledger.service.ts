@@ -271,10 +271,37 @@ export class LedgerService {
     };
   }
 
+  /**
+   * 导出用的年度列：近三年（保留原有默认视图）+ 行内实际出现过的结算/付款年份 + 合同签订/首次进场年。
+   * 写死 ['2024','2025','2026'] 会让 2027 年及以后的结算/付款在导出里整列丢失，
+   * 而页面列表用的是行内 yearSettle/yearPaid 实时算的，导出必须与页面同口径。
+   */
+  private exportYears(rows: any[]): string[] {
+    const nowYear = new Date().getFullYear();
+    const set = new Set<string>();
+    for (let y = nowYear - 2; y <= nowYear; y += 1) set.add(String(y));
+    const addYear = (v: any) => {
+      if (!v) return;
+      if (v instanceof Date) {
+        if (!Number.isNaN(v.getTime())) set.add(String(v.getFullYear()));
+        return;
+      }
+      const m = String(v).match(/^(\d{4})/);
+      if (m) set.add(m[1]);
+    };
+    for (const r of rows) {
+      for (const y of Object.keys(r.yearSettle || {})) if (/^\d{4}$/.test(y)) set.add(y);
+      for (const y of Object.keys(r.yearPaid || {})) if (/^\d{4}$/.test(y)) set.add(y);
+      addYear(r.signDate);
+      addYear(r.firstEntryDate);
+    }
+    return [...set].sort();
+  }
+
   async export(projectId: string) {
     const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const years = ['2024', '2025', '2026'];
+    const years = this.exportYears(res.list as any[]);
     const rows = (res.list as any[]).map((r) => ({
       ...r,
       settleRatioPct: r.settleRatio !== null && r.settleRatio !== undefined ? r.settleRatio / 100 : null,

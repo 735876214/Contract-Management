@@ -343,6 +343,8 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
         remark: r.remark,
         sortOrder: i + 1,
       })),
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: editing ? (editing as any).version : undefined,
     };
     setSaving(true);
     try {
@@ -648,6 +650,8 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
      * （而不是静默忽略），故这里必须剥掉，否则每次保存台账都会报错。
      */
     const { factoringDiscount: _fd, overdueInterest: _oi, ...payload } = v as any;
+    // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+    if (editing) payload.version = (editing as any).version;
     setSaving(true);
     try {
       if (editing) await settlementApi.updateLedger(editing.id, payload);

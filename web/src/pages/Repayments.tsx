@@ -243,6 +243,8 @@ function RepaymentEditor({
         ...d,
         dueDate: d.dueDate ? dayjs(d.dueDate).format('YYYY-MM-DD') : undefined,
       })),
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: (seed as any)?.version,
     };
     setSaving(true);
     try {
