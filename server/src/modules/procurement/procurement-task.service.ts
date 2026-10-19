@@ -367,15 +367,24 @@ export class ProcurementTaskService {
     const preMeetingRequired = data?.preMeetingRequired === true;
     const procurementCategory = data?.procurementCategory != null ? String(data.procurementCategory).trim() || null : null;
 
-    const taskNo = await this.nextTaskNo(projectId);
-    const created = await this.prisma.procurementTask.create({
-      data: {
-        projectId, taskNo, type: data.type as TaskType,
-        content, purpose: purpose || null,
-        status: TASK_STATUS.NOT_STARTED, stage: 0, preMeetingRequired,
-        procurementCategory,
-      },
-    });
+    // 并发新建（两个人同时点「新建」）仍可能取到同一号：撞 P2002 时重取一次，别让用户看到 500
+    let created: any = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const taskNo = await this.nextTaskNo(projectId);
+      try {
+        created = await this.prisma.procurementTask.create({
+          data: {
+            projectId, taskNo, type: data.type as TaskType,
+            content, purpose: purpose || null,
+            status: TASK_STATUS.NOT_STARTED, stage: 0, preMeetingRequired,
+            procurementCategory,
+          },
+        });
+        break;
+      } catch (err: any) {
+        if (err?.code !== 'P2002' || attempt === 2) throw err;
+      }
+    }
     return this.serialize(created);
   }
 
@@ -630,7 +639,10 @@ export class ProcurementTaskService {
       }
     }
     // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
-    if (current.stage === 1 && current.type === 'FRAMEWORK') {
+    // ⚠️ 阶段下标必须用上面按阶段链算出的 frameworkExplainIdx（框架链里事前说明是 stage 2），
+    // 不能硬写 1——1 是「价格对比表」，会导致刚发布价格对比表就把事前说明标成已发布、
+    // 前端 ModuleListPage 据此提前显示「已完成」。
+    if (frameworkExplainIdx >= 0 && current.stage === frameworkExplainIdx) {
       await this.prisma.frameworkExplanation.updateMany({
         where: { taskId: id, publishedAt: null },
         data: { publishedAt: new Date() },
@@ -1121,14 +1133,23 @@ export class ProcurementTaskService {
     };
   }
 
-  /** 采购编号：PROC-YYYYMMDD-XXX（按当日已有任务数递增） */
+  /**
+   * 采购编号：PROC-YYYYMMDD-XXX（按当日已有任务取**最大序号** +1）。
+   * ⚠️ 不能用 `count() + 1`：删掉当日中间某个任务后 count 变小，就会与已存在的最大号重复，
+   * 撞上 `@@unique([projectId, taskNo])` 抛未捕获的 P2002（前端看到 500）。
+   */
   private async nextTaskNo(projectId: string): Promise<string> {
     const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const prefix = `PROC-${day}-`;
-    const count = await this.prisma.procurementTask.count({
+    const rows = await this.prisma.procurementTask.findMany({
       where: { projectId, taskNo: { startsWith: prefix } },
+      select: { taskNo: true },
     });
-    return `${prefix}${String(count + 1).padStart(3, '0')}`;
+    const max = rows.reduce((m, r) => {
+      const seq = parseInt(String(r.taskNo ?? '').slice(prefix.length), 10);
+      return Number.isFinite(seq) && seq > m ? seq : m;
+    }, 0);
+    return `${prefix}${String(max + 1).padStart(3, '0')}`;
   }
 
   /**

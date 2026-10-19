@@ -180,7 +180,7 @@
 | `@Public()` | 跳过 `JwtAuthGuard`（全项目仅 `POST /auth/login`） |
 | `@RequirePermissions(...codes)` | 声明权限码，OR 语义；superAdmin 直通 |
 | `@CurrentUser(field?)` | 取 `req.user`（`JwtUser`：userId/username/realName/isSuperAdmin/permissions） |
-| `@ProjectId()` | 取项目上下文：`req.projectId → x-project-id → query → body`，缺失抛 400 |
+| `@ProjectId()` | 取项目上下文：`req.projectId → x-project-id → query → body`，缺失抛 400（成员归属由 `JwtAuthGuard` + `ProjectAccessService` 校验） |
 | `@ClientIp()` | 取 ip / x-forwarded-for |
 
 ### 后端共享常量（`server/src/constants/`）

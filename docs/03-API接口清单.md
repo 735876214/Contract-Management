@@ -11,7 +11,7 @@
 | 统一返回 | `{ code, data, message, timestamp }`；`code === 0` 为成功 |
 | 错误码 | `1001` 参数错误 · `1401` 未登录 · `1403` 无权限 · `1404` 不存在 · `1409` 乐观锁冲突 · `1500` 服务端异常 |
 | 鉴权 | `Authorization: Bearer <token>`（`JwtAuthGuard`） |
-| 项目上下文 | `x-project-id: <projectId>`，控制器用 `@ProjectId()` 取值 |
+| 项目上下文 | `x-project-id: <projectId>`，控制器用 `@ProjectId()` 取值；`JwtAuthGuard` 另按 `ProjectMember` 校验成员归属（`/api/auth`、`/api/projects` 豁免），非成员返回 `1403 无权访问该项目`、项目不存在返回 `1404 项目不存在` |
 | 权限 | `@RequirePermissions('module:action')` + `PermissionsGuard`；下表「权限」列为**任一即可**（`superAdmin` 直通） |
 | 公共查询参数 | `page`（默认 1）、`pageSize`（默认 20）、`keyword`，以及各模块的筛选字段 |
 | 乐观锁 | 业务表多有 `version Int`，`PUT` 请求体须带上 `version`，不一致返回 `1409` |

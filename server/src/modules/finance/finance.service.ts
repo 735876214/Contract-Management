@@ -336,16 +336,21 @@ export class FinanceService {
     });
     for (let i = 0; i < ordered.length; i++) {
       const d = derived.get(i);
-      if (!d) continue;
+      /**
+       * 引擎判定该行不再逾期 / 不再有应付（例如付款被撤销、比例改回 0）时 `derived` 没有这一行。
+       * 此时必须**清空**历史派生值：旧实现 `if (!d) continue` + `?? undefined` 会把上次算出的
+       * 逾期天数/利息留在库里，而 `listOverdue()` 的汇总读的是存储列，于是"行已不逾期、利息还在"，
+       * 台账逾期利息虚高。显式写 null 才是"这次没有值"。
+       */
       await this.prisma.overdueInterest.update({
         where: { id: ordered[i].id },
         data: {
           monthlyRate: params.monthlyRate,
-          payableAmount: d.payableAmount ?? undefined,
-          overdueStartDate: d.overdueStartDate || undefined,
-          interestAmount: d.interestAmount ?? undefined,
-          overdueDays: d.overdueDays ?? undefined,
-          overdueInterest: d.overdueInterest ?? undefined,
+          payableAmount: d?.payableAmount ?? null,
+          overdueStartDate: d?.overdueStartDate ?? null,
+          interestAmount: d?.interestAmount ?? null,
+          overdueDays: d?.overdueDays ?? null,
+          overdueInterest: d?.overdueInterest ?? null,
         },
       });
     }

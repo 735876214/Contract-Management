@@ -180,16 +180,18 @@ export class MonthlyProfitLossService {
     let r2 = 4;
     let seq = 1;
     let team = '';
+    // 组尾「劳务计价已扣」小计行：写一行并推进行号
+    const writeTeamDeduct = (name: string) => {
+      const teamDeduct = details
+        .filter((x) => x.laborTeamName === name)
+        .reduce((s, x) => s + (x.deductAmount ?? 0), 0);
+      ws2.getRow(r2).values = [`劳务计价已扣（${name}）`, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', round2(teamDeduct)];
+      ws2.getRow(r2).font = { bold: true };
+      r2 += 1;
+    };
     for (const d of details) {
-      if (team && team !== d.laborTeamName) {
-        // 组尾「劳务计价已扣」小计行
-        const teamDeduct = details
-          .filter((x) => x.laborTeamName === team)
-          .reduce((s, x) => s + (x.deductAmount ?? 0), 0);
-        ws2.getRow(r2).values = [`劳务计价已扣（${team}）`, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', round2(teamDeduct)];
-        ws2.getRow(r2).font = { bold: true };
-        r2 += 1;
-      }
+      // 换队时先给上一队收尾
+      if (team && team !== d.laborTeamName) writeTeamDeduct(team);
       team = d.laborTeamName;
       const price = d.unitPrice;
       ws2.getRow(r2).values = [
@@ -207,6 +209,8 @@ export class MonthlyProfitLossService {
       ];
       r2 += 1;
     }
+    // 循环里只在「换队」时收尾，最后一个劳务队必须在循环结束后补一行，否则末队合计缺失
+    if (team) writeTeamDeduct(team);
     ws2.columns.forEach((c) => (c.width = 13));
 
     // ---- Sheet3 汇总表（图1）：按材料跨队加权汇总 ----

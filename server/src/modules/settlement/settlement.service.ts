@@ -200,7 +200,7 @@ export class SettlementService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, projectId?: string) {
     const s = await this.prisma.settlement.findUnique({
       where: { id },
       include: {
@@ -212,6 +212,8 @@ export class SettlementService {
       },
     });
     if (!s) throw new NotFoundException('结算单不存在');
+    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目单据
+    if (projectId && (s as any).contract?.projectId !== projectId) throw new NotFoundException('结算单不存在');
     return s;
   }
 

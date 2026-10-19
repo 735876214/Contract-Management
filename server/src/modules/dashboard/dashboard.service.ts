@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { paidPaymentWhere } from '../../constants/statuses';
 import { CONTRACT_STATUS, MILESTONE_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import {
@@ -27,7 +27,7 @@ export class DashboardService {
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
       // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
       this.prisma.paymentRecord.findMany({
-        where: { projectId, NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } } },
+        where: { projectId, ...paidPaymentWhere() },
       }),
       this.prisma.invoice.findMany({ where: { projectId } }),
       this.prisma.settlement.findMany({ where: { projectId } }),
@@ -51,7 +51,7 @@ export class DashboardService {
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
       // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
       this.prisma.paymentRecord.findMany({
-        where: { projectId, NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } } },
+        where: { projectId, ...paidPaymentWhere() },
       }),
     ]);
     const months: string[] = [];
@@ -478,7 +478,7 @@ export class DashboardService {
    *
    * 口径与闸门/台账**共用同一实现**，不要就地拼：
    * - 开累结算 `chainSettledTotal` 的分子口径 = 结算单 `actualAmount`、排除草稿（这里批量取后在内存按链聚合）；
-   * - 开累付款排除 `PAYMENT_EXCLUDED_STATUSES`（失败/退款）—— 与防超付闸门、合同台账同一份常量；
+   * - 开累付款排除失败/退款（`paidPaymentWhere()`，空状态算有效付款）—— 与防超付闸门、合同台账同一份口径；
    * - 生效比例取 `ContractExt.currentPayRatio`（**派生列**，见 `contract.service.syncPayRatio`）。
    *
    * 只做**展示**：不拦截任何单据，也不改 `payment.over_amount_policy` 的策略。
@@ -494,7 +494,7 @@ export class DashboardService {
         select: { contractId: true, actualAmount: true, amount: true },
       }),
       this.prisma.paymentRecord.findMany({
-        where: { projectId, NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } } },
+        where: { projectId, ...paidPaymentWhere() },
         select: { contractId: true, amount: true },
       }),
       this.prisma.contractExt.findMany({ select: { contractId: true, currentPayRatio: true } }),

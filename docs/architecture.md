@@ -135,21 +135,28 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 
 ## 5. 项目隔离（关键机制）
 
-**没有全局中间件强制过滤**——这是本项目最需要警惕的设计：
+**守卫只保证「你属于这个项目」，数据过滤仍由各 service 自己带 `projectId`——这是本项目最需要警惕的设计**：
 
 1. **取值**：`@ProjectId()` 装饰器按优先级取
    `request.projectId` → `headers['x-project-id']` → `query.projectId` → `body.projectId`；
    全缺 → `400 缺少项目上下文（x-project-id）`（明确报错，避免 Prisma 空参 500）。
-2. **传递**：controller 显式接收并传给 service。
-3. **过滤**：service 在查询 `where` 与写入数据中带 `projectId`。
+2. **鉴权（2026-10-19 起强制）**：`JwtAuthGuard` 在 JWT 通过后再按 `projectMember` 校验
+   成员归属（实现唯一：`common/services/project-access.service.ts` 的 `ProjectAccessService.assertAccess`，
+   `AuthService.assertProjectAccess()` 亦委托于此）。权限码是**全局** RBAC、不带项目维度，
+   故必须额外校验「这个人是否属于这个项目」，否则换一个 `x-project-id` 就能按 id 读写别的项目。
+   未带项目上下文时不在这里拦（交给 `@ProjectId()` 报 400）。
+   **白名单**：`/api/auth`、`/api/projects` 不校验（找回可用项目的入口，否则被移出项目后会锁死）。
+   前端可见的报错：`404 项目不存在` / `403 无权访问该项目`。
+3. **传递**：controller 显式接收并传给 service。
+4. **过滤**：service 在查询 `where` 与写入数据中带 `projectId`。
    使用密度：contract 38 处、settlement 27、receipt-order 27、procurement-task 23、invoice 20……
-4. **例外**（代码侧也已在对应 service 顶部显式注释，避免后人"顺手"补过滤）：
+5. **例外**（代码侧也已在对应 service 顶部显式注释，避免后人"顺手"补过滤）：
    - `dict` 全局共享，不按项目过滤（`dict.service.ts` 顶部注释）；
    - `finance` 按 `contractId` 归属（`contractScope`），不直接按项目（`finance.service.ts` 顶部注释）；
    - `supplier` 受系统参数 `supplier.share.scope` 控制：`GLOBAL`（默认）不过滤且 `projectId=null`；`PROJECT` 按项目过滤；
    - `Subcontractor` / `ContractTemplate` 的 `projectId = null` 表示全局共享。
    完整口径表另见 [docs/03-API接口清单.md](03-API接口清单.md) §0。
-5. **前端**：登录后把 `projects[0].id` 写入 `localStorage['cms_project_id']`，
+6. **前端**：登录后把 `projects[0].id` 写入 `localStorage['cms_project_id']`，
    axios 请求拦截器注入 `x-project-id`；`ProjectSwitch` 切换后 `reload()`。
 
 ## 6. 数据模型概览

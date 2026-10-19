@@ -196,7 +196,8 @@ export class LaborReceivingService {
       where: { projectId: doc.projectId, laborAuthId: doc.laborAuthId, period: { lt: doc.period } },
       orderBy: [{ period: 'asc' }, { materialName: 'asc' }],
     });
-    const prevCumByKey = this.buildPrevCumMap(history, agg.receivedByPeriod);
+    // 口径：返回「材料键（不含期）→ 本期期初开累」，与行键（两段）同一形状，勿再用含期的键去查
+    const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, doc.period);
     const periodRows = agg.receivedByPeriod.get(doc.period) ?? new Map();
 
     const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec)));
@@ -213,7 +214,7 @@ export class LaborReceivingService {
           ? Number(savedRow.unitPrice)
           : agg.avgPriceByKey.get(key) ?? (savedRow?.unitPrice != null ? Number(savedRow.unitPrice) : null);
       const input: DeriveReceivingInput = {
-        prevCum: prevCumByKey.get(key) ?? 0,
+        prevCum: prevCumByMat.get(key) ?? 0,
         receivedQty,
         returnQty: savedRow?.returnQty != null ? Number(savedRow.returnQty) : null,
         stockTakeQty: savedRow?.stockTakeQty != null ? Number(savedRow.stockTakeQty) : null,
@@ -227,7 +228,7 @@ export class LaborReceivingService {
         sort: sort++,
         id: savedRow?.id ?? null,
         version: savedRow?.version ?? 0,
-        prevCum: prevCumByKey.get(key) ?? 0,
+        prevCum: prevCumByMat.get(key) ?? 0,
         materialName,
         spec,
         unit: auto?.unit ?? savedRow?.unit ?? null,
@@ -380,17 +381,17 @@ export class LaborReceivingService {
       where: { projectId, laborAuthId: subcontractorId },
       orderBy: [{ period: 'asc' }, { materialName: 'asc' }],
     });
-    const prevCumByKey = this.buildPrevCumMap(saved, agg.receivedByPeriod);
+    const prevCumByMat = this.buildPrevCumMap(saved, agg.receivedByPeriod, period);
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
     const savedPeriodRows = saved.filter((r) => r.period === period);
-    const keys = new Set<string>([
-      ...periodRows.keys(),
-      ...savedPeriodRows.map((r) => rowKey(r.period, r.materialName, r.spec)),
-    ]);
+    // 本期的行键统一用**两段键**（材料 + 规格）：自动聚合桶与已存行同形状，
+    // 含期的三段键只用于查「上期末累计」，不能混进 rows/keys（否则 parseRowKey 会把期间当材料名）
+    const savedByMat = new Map(savedPeriodRows.map((r) => [rowKey(r.materialName, r.spec), r] as const));
+    const keys = new Set<string>([...periodRows.keys(), ...savedByMat.keys()]);
     const out: any[] = [];
     for (const key of keys) {
       const { materialName, spec } = parseRowKey(key);
-      const savedRow = savedPeriodRows.find((r) => rowKey(r.period, r.materialName, r.spec) === key);
+      const savedRow = savedByMat.get(key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
       const unitPrice =
@@ -398,7 +399,7 @@ export class LaborReceivingService {
           ? Number(savedRow.unitPrice)
           : agg.avgPriceByKey.get(key) ?? (savedRow?.unitPrice != null ? Number(savedRow.unitPrice) : null);
       const derived = deriveReceivingRow({
-        prevCum: prevCumByKey.get(key) ?? 0,
+        prevCum: prevCumByMat.get(key) ?? 0,
         receivedQty,
         returnQty: savedRow?.returnQty != null ? Number(savedRow.returnQty) : null,
         stockTakeQty: savedRow?.stockTakeQty != null ? Number(savedRow.stockTakeQty) : null,
@@ -486,30 +487,40 @@ export class LaborReceivingService {
   }
 
   /**
-   * 上期末累计链：J(期N) = J(期N−1) + 净领(期N−1)，首期 0。
-   * 净领依赖手填退库，历史期只基于**已存行**推导。
+   * 目标期期初开累：J(目标期) = Σ 历史期（领用 − 退库），首期 0。
+   *
+   * ⚠️ 返回的键是**材料键 rowKey(materialName, spec)**（不含期间），与 `mergeDocRows()` /
+   * `periodSnapshotRows()` 的行键同形状。此前这里用含期的三段键建 map、调用方却用两段键查，
+   * 导致上期开累恒为 0（跨期只累加了上一期退库）；同时 `aggregateReceipts()` 的桶一直是
+   * 两段键，旧代码却按三段键去取自动领用量，也同样取不到。
+   *
+   * 历史期同时遍历「已存行」与「收领单自动聚合」，保证没有手填行的历史期领用也计入开累；
+   * 期间标签为 `YYYY-MM`，字符串序即时间序。
    */
   private buildPrevCumMap(
     saved: any[],
     receivedByPeriod: Map<string, Map<string, { qty: number }>>,
+    targetPeriod: string,
   ): Map<string, number> {
-    const cumByMat = new Map<string, number>(); // 材料 key（不含期）→ 截至上一期的开累
-    const prevCumByKey = new Map<string, number>(); // 材料 key（含期）→ 上期末累计
-    const periods = Array.from(new Set(saved.map((r) => r.period))).sort();
-    for (const period of periods) {
-      const rows = saved.filter((r) => r.period === period);
-      const autoRows = receivedByPeriod.get(period) ?? new Map();
-      for (const r of rows) {
-        const matKey = rowKey(r.materialName, r.spec);
-        const fullKey = rowKey(period, r.materialName, r.spec);
-        const prev = cumByMat.get(matKey) ?? 0;
-        prevCumByKey.set(fullKey, prev);
-        const received = autoRows.get(fullKey)?.qty ?? 0;
-        const ret = r.returnQty != null ? Number(r.returnQty) : 0;
-        cumByMat.set(matKey, prev + received - ret);
+    const cumByMat = new Map<string, number>();
+    const periods = new Set<string>([...saved.map((r) => r.period), ...receivedByPeriod.keys()]);
+    const ordered = Array.from(periods)
+      .filter((p) => p && p < targetPeriod)
+      .sort();
+    for (const period of ordered) {
+      const savedByMat = new Map<string, any>();
+      for (const r of saved) {
+        if (r.period === period) savedByMat.set(rowKey(r.materialName, r.spec), r);
+      }
+      const autoRows = receivedByPeriod.get(period) ?? new Map<string, { qty: number }>();
+      const matKeys = new Set<string>([...savedByMat.keys(), ...autoRows.keys()]);
+      for (const matKey of matKeys) {
+        const received = autoRows.get(matKey)?.qty ?? 0;
+        const ret = savedByMat.get(matKey)?.returnQty != null ? Number(savedByMat.get(matKey).returnQty) : 0;
+        cumByMat.set(matKey, (cumByMat.get(matKey) ?? 0) + received - ret);
       }
     }
-    return prevCumByKey;
+    return cumByMat;
   }
 
   /** 单据期标签为 fullKey（含期）；行内键不含期 */
@@ -531,9 +542,12 @@ export class LaborReceivingService {
   }
 }
 
-/** 行键：rowKey(materialName, spec) 或 rowKey(period, materialName, spec)（期前缀全键） */
-function rowKey(...parts: string[]): string {
-  return parts.join('\u0001');
+/**
+ * 材料行键：`rowKey(materialName, spec)`——**不含期间**，单据内/统计期的行身份一律用它。
+ * 期间只作为查询条件/分组维度，绝不拼进行键（拼进去会让 parseRowKey 把期间当材料名）。
+ */
+function rowKey(materialName: string, spec: string): string {
+  return [materialName, spec].join('\u0001');
 }
 
 function parseRowKey(key: string): { materialName: string; spec: string } {

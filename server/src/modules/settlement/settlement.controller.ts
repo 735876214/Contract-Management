@@ -137,8 +137,8 @@ export class SettlementController {
 
   @RequirePermissions('settlement:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')

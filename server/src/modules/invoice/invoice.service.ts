@@ -57,12 +57,14 @@ export class InvoiceService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, projectId?: string) {
     const inv = await this.prisma.invoice.findUnique({
       where: { id },
       include: { contract: true, settlement: { select: { id: true, code: true, settleDate: true } } },
     });
     if (!inv) throw new NotFoundException('发票不存在');
+    // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目发票
+    if (projectId && (inv as any).contract?.projectId !== projectId) throw new NotFoundException('发票不存在');
     return inv;
   }
 

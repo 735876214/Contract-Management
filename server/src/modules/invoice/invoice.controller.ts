@@ -59,8 +59,8 @@ export class InvoiceController {
 
   @RequirePermissions('invoice:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')

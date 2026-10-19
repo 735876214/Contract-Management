@@ -30,7 +30,7 @@ import {
   FINAL_SETTLEMENT_STATUS,
   INVOICE_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
-  PAYMENT_EXCLUDED_STATUSES,
+  paidPaymentWhere,
   SETTLEMENT_STATUS,
   SITE_CONFIRM_STATUS,
 } from '../../constants/statuses';
@@ -53,6 +53,16 @@ const CONTRACT_FIELDS = [
   // 合同起草（需求重构）：起草流转状态、关联模板、物资名称、模板变量值
   'status', 'templateId', 'materialDescription', 'formData',
 ];
+
+/**
+ * 更新接口的字段白名单：`CONTRACT_FIELDS` 去掉**只能由系统写入**的四个字段。
+ * `projectId`/`createdBy` 是归属与审计，`yearSeq` 是取号结果，`status` 只能走
+ * publish()/setStatus()/sign()/reject() 的状态机——否则 PUT /contracts/:id 的 body
+ * 就能把合同搬去别的项目、或把草稿直接置成 SIGNED 绕过发布流程。
+ */
+const CONTRACT_UPDATE_FIELDS: readonly string[] = CONTRACT_FIELDS.filter(
+  (f) => !['projectId', 'status', 'yearSeq', 'createdBy'].includes(f),
+);
 
 /** 合同起草状态（code 的单一事实源见 constants/statuses.ts，勿在本文件另立一套） */
 const CONTRACT_STATUSES: readonly string[] = [
@@ -222,7 +232,7 @@ export class ContractService {
           where: {
             projectId,
             contractId: { in: chainIds },
-            NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } },
+            ...paidPaymentWhere(),
           },
           _sum: { amount: true },
         }),
@@ -391,20 +401,36 @@ export class ContractService {
     // 第5段：年份 + 顺序码（取已用最大顺序码 +1）
     const year = new Date().getFullYear();
     const yearPrefix = String(year);
-    // 取「当前已用最大顺序码」：yearSeq 形如 `YYYY+定长序号`，直接倒序取第一行即可，
-    // 不再全表 findMany 后在 JS 里算 max（合同表增长后每次取号都拖全量数据）。
-    const lastRow = await this.prisma.contract.findFirst({
-      where: cfg.yearReset
-        ? { yearSeq: { startsWith: yearPrefix } }
-        : { yearSeq: { not: null } },
-      select: { yearSeq: true },
-      orderBy: { yearSeq: 'desc' },
-    });
+    /**
+     * 取「当前已用最大顺序码」：**必须按数值求 max**。
+     * 旧实现 `orderBy: { yearSeq: 'desc' }` 是字符串序——seqDigits=3 时 `20261000` 在字符串上
+     * 排在 `2026999` 之前（'1' < '9'），单年超过 999 份后取号永远卡在 999 并撞 `yearSeq` 唯一键。
+     * 这里用一条聚合 SQL 直接取数值最大值（只回传一个数字，不把合同行拖回内存）；
+     * 异常或数据格式异常时回退到旧的字符串倒序，保底不阻断出号。
+     */
     let maxSeq = 0;
-    if (lastRow?.yearSeq) {
-      const digits = cfg.yearReset ? lastRow.yearSeq.slice(yearPrefix.length) : lastRow.yearSeq;
-      const n = parseInt(digits, 10);
-      if (!isNaN(n) && n > maxSeq) maxSeq = n;
+    try {
+      const rows = cfg.yearReset
+        ? await this.prisma.$queryRaw<Array<{ max: number | null }>>`
+            SELECT MAX(SUBSTRING("yearSeq", 5)::int) AS max FROM "Contract"
+            WHERE "yearSeq" ~ ${`^${yearPrefix}[0-9]+$`}`
+        : await this.prisma.$queryRaw<Array<{ max: number | null }>>`
+            SELECT MAX("yearSeq"::int) AS max FROM "Contract"
+            WHERE "yearSeq" ~ '^[0-9]+$'`;
+      maxSeq = Number(rows[0]?.max ?? 0) || 0;
+    } catch {
+      const lastRow = await this.prisma.contract.findFirst({
+        where: cfg.yearReset
+          ? { yearSeq: { startsWith: yearPrefix } }
+          : { yearSeq: { not: null } },
+        select: { yearSeq: true },
+        orderBy: { yearSeq: 'desc' },
+      });
+      if (lastRow?.yearSeq) {
+        const digits = cfg.yearReset ? lastRow.yearSeq.slice(yearPrefix.length) : lastRow.yearSeq;
+        const n = parseInt(digits, 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
     }
     const seq = String(maxSeq + 1).padStart(cfg.seqDigits, '0');
     const yearSeq = `${yearPrefix}${seq}`;
@@ -1118,6 +1144,14 @@ export class ContractService {
     await this.assertNotArchived(id, '修改合同');
     const before = await this.findOne(id);
     assertVersion(before, data); // 乐观锁：版本号不一致说明已被他人修改
+    // 归属与状态机字段不可经普通编辑修改（与 CONTRACT_UPDATE_FIELDS 白名单互为双保险：
+    // 这里给明确报错，白名单保证即使漏判也不会落库）
+    if (data.projectId !== undefined && data.projectId !== before.projectId) {
+      throw new BadRequestException('合同不允许跨项目迁移');
+    }
+    if (data.status !== undefined && data.status !== before.status) {
+      throw new BadRequestException('合同状态请通过发布/签章/驳回流程变更');
+    }
     // 合同编号正式生成后不可变更（历史数据固化）
     if (data.code && data.code !== before.code) {
       throw new BadRequestException('合同编号生成后不可变更');
@@ -1154,7 +1188,7 @@ export class ContractService {
     const contract = await this.prisma.contract.update({
       where: { id },
       data: {
-        ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
+        ...pickFields(rest, CONTRACT_UPDATE_FIELDS, { label: '合同' }),
         ...signDatePatch,
         /**
          * ⚠️ 必须**按"传了才写"**处理：`num(undefined)` 返回 `null`，无条件赋值会让任何部分更新

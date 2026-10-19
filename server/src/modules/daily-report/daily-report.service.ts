@@ -50,12 +50,24 @@ export class DailyReportService {
     if (query.assetStatus) where.assetStatus = query.assetStatus;
     if (query.sourceCode) where.sourceCode = query.sourceCode;
     // 现场确认状态筛选（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）；'PENDING' 需同时命中历史空值行
+    // ⚠️ 待确认条件与关键词条件都是 OR，必须放进 AND 数组分别成组；
+    // 旧实现两处都写 where.OR，后写的会整体覆盖前者（待确认筛选被关键词悄悄丢掉）
+    const orGroups: any[] = [];
     if (query.confirmStatusCode === SITE_CONFIRM_STATUS.PENDING) {
-      where.OR = [...(where.OR ?? []), { confirmStatusCode: null }, { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING }];
+      orGroups.push({ OR: [{ confirmStatusCode: null }, { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING }] });
     } else if (query.confirmStatusCode) {
       where.confirmStatusCode = query.confirmStatusCode;
     }
-    if (query.keyword) where.OR = [{ materialName: { contains: query.keyword } }, { receiptNo: { contains: query.keyword } }, { plateNo: { contains: query.keyword } }];
+    if (query.keyword) {
+      orGroups.push({
+        OR: [
+          { materialName: { contains: query.keyword } },
+          { receiptNo: { contains: query.keyword } },
+          { plateNo: { contains: query.keyword } },
+        ],
+      });
+    }
+    if (orGroups.length) where.AND = orGroups;
     if (query.startDate || query.endDate) {
       where.entryDate = {};
       if (query.startDate) where.entryDate.gte = new Date(query.startDate);

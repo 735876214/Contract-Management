@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
-import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { paidPaymentWhere } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -40,9 +40,17 @@ export class LedgerService {
     if (query.supplierCategory) where.ext = { supplierCategory: query.supplierCategory };
     if (query.compliance) (query as any)._compliance = query.compliance;
 
-    const [contracts, total] = await Promise.all([
+    /**
+     * 合规性（compliance）是**内存派生列**（由合同类型/进场/中标/签订日期算出来），
+     * 数据库里没有这一列，无法进 SQL 的 where。若先 skip/take 再内存过滤，
+     * 当页可能只剩几行甚至 0 行、而 total 仍是未过滤的总数——分页与"共 N 条"全错。
+     * 故有该筛选时取全量、过滤后再切片；无筛选仍走数据库分页。
+     */
+    const complianceFilter = query.compliance ? String(query.compliance) : '';
+
+    let [contracts, total] = await Promise.all([
       this.prisma.contract.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, ...(complianceFilter ? {} : { skip, take }), orderBy: { createdAt: 'desc' },
         include: { supplier: true, ext: true },
       }),
       this.prisma.contract.count({ where }),
@@ -65,7 +73,7 @@ export class LedgerService {
       this.prisma.paymentRecord.findMany({
         where: {
           contractId: { in: contractIds },
-          NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } },
+          ...paidPaymentWhere(),
         },
         select: { contractId: true, payMonth: true, amount: true },
       }),
@@ -205,8 +213,11 @@ export class LedgerService {
       };
     });
 
-    if ((query as any)._compliance) {
-      rows = rows.filter((r: any) => r.compliance === (query as any)._compliance);
+    if (complianceFilter) {
+      rows = rows.filter((r: any) => r.compliance === complianceFilter);
+      // 过滤后 total 必须是过滤后的条数，否则前端分页器按"未过滤总数"渲染出空页
+      total = rows.length;
+      rows = rows.slice(skip, skip + take).map((r: any, i: number) => ({ ...r, index: skip + i + 1 }));
     }
 
     return { ...buildResult(rows, total, query), columns: await this.columns() };

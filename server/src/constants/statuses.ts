@@ -82,6 +82,18 @@ export type PaymentStatus = (typeof PAYMENT_STATUS)[keyof typeof PAYMENT_STATUS]
  */
 export const PAYMENT_EXCLUDED_STATUSES: string[] = [PAYMENT_STATUS.FAILED, PAYMENT_STATUS.REFUNDED];
 
+/**
+ * Prisma 查询片段：**计入累计付款**的记录（与上面的排除清单同源）。
+ *
+ * ⚠️ 不要写成 `NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } }`：SQL 三值逻辑下
+ * `NULL NOT IN (...)` 结果是 UNKNOWN，空状态行会被**静默排除**。而内存口径
+ * `chainPaidTotal`（common/utils/contract-chain.ts）把空状态算作有效付款（历史导入数据未填状态），
+ * 两处结论相反会让「台账已付金额」与「防超付闸门」互相打架。故这里显式把 NULL 归入有效付款。
+ */
+export function paidPaymentWhere(): { OR: any[] } {
+  return { OR: [{ statusCode: null }, { statusCode: { notIn: PAYMENT_EXCLUDED_STATUSES } }] };
+}
+
 /** 发票状态（dict `invoice_status`）：查验仅用于登记核对，不代表验真 */
 export const INVOICE_STATUS = {
   WAIT_VERIFY: 'WAIT_VERIFY',

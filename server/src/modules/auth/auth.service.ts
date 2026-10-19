@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { LogService } from '../../common/services/log.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { ProjectAccessService } from '../../common/services/project-access.service';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +13,7 @@ export class AuthService {
     private jwt: JwtService,
     private logService: LogService,
     private sysParam: SysParamService,
+    private projectAccess: ProjectAccessService,
   ) {}
 
   async validateUser(username: string, password: string) {
@@ -75,17 +77,9 @@ export class AuthService {
     return list;
   }
 
-  /** 校验当前用户是否可以访问项目 */
+  /** 校验当前用户是否可以访问项目（实现在 ProjectAccessService，guard 与这里共用同一口径） */
   async assertProjectAccess(userId: string, projectId: string, isSuperAdmin: boolean) {
-    if (!projectId) throw new ForbiddenException('缺少项目上下文，请先选择项目');
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) throw new NotFoundException('项目不存在');
-    if (isSuperAdmin) return project;
-    const member = await this.prisma.projectMember.findUnique({
-      where: { projectId_userId: { projectId, userId } },
-    });
-    if (!member) throw new ForbiddenException('无权访问该项目');
-    return project;
+    return this.projectAccess.assertAccess(userId, projectId, isSuperAdmin);
   }
 
   async profile(userId: string, isSuperAdmin: boolean) {
