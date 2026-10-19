@@ -231,7 +231,8 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
            → 完成发站内通知
 ```
 
-前端 [ImportButton.tsx](../web/src/components/ImportButton.tsx) 三阶段 UI（下载模板/上传 → 轮询进度 → 结果汇总）。
+前端 [ImportButton.tsx](../web/src/components/ImportButton.tsx)：菜单 →（可选）预校验 → 确认 → 轮询进度 → 结果汇总；
+传入 `validateUrl` 时先跑一次只校验不写库的 `.../import/validate`（恒定同步），有问题行则列出、禁止导入。
 
 ## 10. 前端架构
 

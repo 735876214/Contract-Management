@@ -75,6 +75,7 @@
 | GET | `/dict/items/usage/:id` | 引用情况（删除前检查） | `dict:edit` `system:config` |
 | GET | `/dict/export?typeCode=` | 导出 Excel | `dict:view` `system:config` |
 | POST | `/dict/import` | 导入 Excel | `dict:edit` `system:config` |
+| POST | `/dict/import/validate` | 导入前预校验（`typeCode` 必填；只校验不写库，返回逐行问题） | `dict:edit` `system:config` |
 | POST | `/dict/cache/refresh` | 手动刷新字典缓存 | `dict:edit` `system:config` |
 
 > 项目隔离：**全局**（无 `projectId`）。
@@ -88,6 +89,7 @@
 | GET | `/projects/:id` | 详情（含成员） | `project:view` |
 | POST | `/projects` | 新建项目 | `project:edit` |
 | POST | `/projects/import` | 导入 Excel | `project:edit` |
+| POST | `/projects/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `project:edit` |
 | PUT | `/projects/:id` | 修改 | `project:edit` |
 | DELETE | `/projects/:id` | 删除（有业务数据时禁止） | `project:edit` |
 | GET | `/projects/:id/members` | 成员列表 | `project:view` |
@@ -107,6 +109,7 @@
 | DELETE | `/suppliers/:id` | 删除（被合同引用只可停用） | `supplier:edit` |
 | POST | `/suppliers/:id/toggle` | 启用/停用 | `supplier:edit` |
 | POST | `/suppliers/import` | 导入 Excel | `supplier:edit` |
+| POST | `/suppliers/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `supplier:edit` |
 
 > 项目隔离：`projectId = null` 为全局共享；`supplier.share.scope = PROJECT` 时按项目过滤。
 
@@ -162,6 +165,7 @@
 | GET | `/contracts/:id/draft-materials` · POST · PUT · DELETE `/:rowId` | 起草期合同物资清单 | view / edit / edit / edit |
 | GET | `/contracts/:id/next-supplement-code` | 下一个补充协议编号 | `contract:view` |
 | POST | `/contracts/import` | 导入 Excel | `contract:edit` |
+| POST | `/contracts/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `contract:edit` |
 
 ## 8. 合同模板与条款 `/templates`
 
@@ -274,6 +278,7 @@
 | POST | `/materials/:id/toggle` | 启用/停用（软删除） | `material:edit` |
 | DELETE | `/materials/:id` | 删除（被合同物资清单引用时禁止，须改用停用） | `material:edit` |
 | POST | `/materials/import` | 导入 Excel | `material:edit` |
+| POST | `/materials/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `material:edit` |
 | GET | `/contract-materials` | 合同物资清单（按 `contractId`） | `material:view` |
 | GET | `/contract-materials/all` | 全部（跨合同） | `material:view` |
 | GET | `/contract-materials/template` · GET `/contract-materials/export` | 模板 / 导出 | `material:view` |
@@ -283,6 +288,7 @@
 | DELETE | `/contract-materials/:id` | 删除 | `material:edit` |
 | POST | `/contract-materials/derive` | 由物资基础库派生清单行 | `material:edit` |
 | POST | `/contract-materials/import` | 导入 Excel | `material:edit` |
+| POST | `/contract-materials/import/validate` | 导入前预校验（`contractId` 必填；只校验不写库，返回逐行问题） | `material:edit` |
 
 ## 12. 日报 `/daily-reports`
 
@@ -295,6 +301,7 @@
 | GET | `/daily-reports/:id` | 详情 | `daily:view` |
 | POST / PUT / DELETE | `/daily-reports[/:id]` | CRUD | `daily:edit` |
 | POST | `/daily-reports/import` | 导入 Excel | `daily:edit` |
+| POST | `/daily-reports/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `daily:edit` |
 
 > 关联：收领单推送产生的日报由 `receiptOrderId`（真实外键，`onDelete: SetNull`）关联；
 > `receiptNo` 仅为编号快照，用于展示与导入导出，**不再用于匹配**。
@@ -326,6 +333,7 @@
 | PUT | `/assets/:id` | 修改（金额由服务端计算） | `asset:edit` |
 | DELETE | `/assets/:id` | 删除 | `asset:edit` |
 | POST | `/assets/import` | 导入 Excel | `asset:edit` |
+| POST | `/assets/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `asset:edit` |
 
 ## 15. 结算 `/settlements`
 
@@ -345,6 +353,7 @@
 | DELETE | `/settlements/ledger/:id` | 删除 | `settlement:edit` |
 | POST | `/settlements/ledger/refresh` | 按合同重派生台账 | `settlement:edit` |
 | POST | `/settlements/ledger/import` | 导入 Excel | `settlement:edit` |
+| POST | `/settlements/ledger/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `settlement:edit` |
 | GET | `/settlements/generate/preview` | 预览「上一期」待生成情况（未挂结算单的收领单张数 / 还差几个合同；`?refDate=` 可指定参照日） | `settlement:view` |
 | POST | `/settlements/generate` | **生成本期（默认上一期）结算单**：抓该期未挂结算单的收领单，按物资合同各出一张**草稿**（幂等，已有结算单的合同跳过并补挂迟到的收领单）；`refDate` / `contractId` 可选 | `settlement:edit` |
 | GET | `/settlements/compliance-sheet` | 合规性问题清单 | `settlement:view` |
@@ -377,6 +386,7 @@
 | PUT | `/payments/records/:id` | 修改 | `payment:edit` |
 | DELETE | `/payments/records/:id` | 删除 | `payment:edit` |
 | POST | `/payments/records/import` | 导入 Excel | `payment:edit` |
+| POST | `/payments/records/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `payment:edit` |
 
 > 付款计划 / 付款申请 / 核销端点**已移除**，统一收敛为单表 `/payments/records`。
 
@@ -406,6 +416,7 @@
 | POST | `/invoices/recognize` | 发票 OCR/二维码识别 | `invoice:edit` |
 | POST | `/invoices/batch` | 批量登记 | `invoice:edit` |
 | POST | `/invoices/import` | 导入 Excel | `invoice:edit` |
+| POST | `/invoices/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `invoice:edit` |
 
 ## 18. 资金费用 `/finance`
 

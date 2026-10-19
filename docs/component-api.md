@@ -23,19 +23,22 @@
 出错渲染 `Result status="error"` + 「重试」/「刷新页面」。挂在 `main.tsx` 最外层。
 
 ### ImportButton
-`web/src/components/ImportButton.tsx` — 通用「导入」二级菜单按钮，三阶段 UI（下载模板/上传 → 进度 → 结果汇总）。
+`web/src/components/ImportButton.tsx` — 通用「导入」二级菜单按钮。菜单 →（可选）预校验中 → 预校验结果确认 → 进度 → 结果汇总，五个阶段
+（`menu / validating / confirm / result / progress`）；传了 `validateUrl` 时上传后先校验并逐行展示问题，全部通过才由用户点「开始导入」。
 
 | Prop | 类型 | 说明 |
 |---|---|---|
 | `moduleName` | `string` | 导入模块名（提示/文件名用） |
 | `templateUrl` | `string \| () => string` | 下载模板地址 |
 | `uploadUrl` | `string \| (file) => string` | 上传地址 |
+| `validateUrl` | `string \| (file) => string` | 预校验地址（只校验不写库）；不传则保持「选文件即导入」的旧行为 |
 | `onUpload` | `(file) => Promise` | 自定义上传（优先于 `uploadUrl`） |
 | `disabled?` | `boolean` | |
 | `onDone?` | `() => void` | 完成回调（刷新列表） |
 | `extraHint?` | `ReactNode` | 附加提示 |
 
-> 超过 1000 行自动轮询 `/import-tasks/:id`（每 1500ms）；单次上限 5000 行；「全成功或全失败」。
+> 超过 1000 行**导入**自动轮询 `/import-tasks/:id`（每 1500ms）；**预校验恒定同步**（最多 5000 行，超时 300s，
+> 与部署代理 `proxy_read_timeout` 对齐）；单次上限 5000 行；「全成功或全失败」。
 > 下载走 `utils/download.withToken()`。
 
 ### PreviewPublishModal
