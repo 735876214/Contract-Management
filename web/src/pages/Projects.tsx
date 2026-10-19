@@ -59,7 +59,7 @@ function ProjectList() {
       title="项目管理"
       extra={
         <Space>
-          <ImportButton moduleName="项目信息" templateUrl={projectApi.templateUrl()} onUpload={(f) => projectApi.import(f)} onDone={reload} />
+          <ImportButton moduleName="项目信息" templateUrl={projectApi.templateUrl()} uploadUrl={projectApi.importUrl()} validateUrl={projectApi.validateUrl()} onDone={reload} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
             新建项目
           </Button>

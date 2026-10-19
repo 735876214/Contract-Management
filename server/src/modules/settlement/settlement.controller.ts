@@ -52,6 +52,15 @@ export class SettlementController {
     return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('settlement:edit')
+  @Post('ledger/import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importLedgerValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
   /** 一键自动生成/刷新结算台账：从结算单、收票登记、资金费用台账自动抓取 */
   @RequirePermissions('settlement:edit')
   @Post('ledger/refresh')

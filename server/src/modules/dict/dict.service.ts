@@ -321,7 +321,7 @@ export class DictService {
   }
 
   /** 字典项导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer);
     const type = await this.prisma.dictType.findUnique({ where: { code: typeCode } });
     if (!type) throw new NotFoundException(`字典类型 ${typeCode} 不存在`);
@@ -360,7 +360,7 @@ export class DictService {
         }
         return { created, updated };
       },
-    });
+    }, meta?.validateOnly ?? false);
     await this.refreshCache(typeCode);
     return outcome;
   }

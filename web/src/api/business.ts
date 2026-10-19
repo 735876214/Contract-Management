@@ -25,6 +25,8 @@ export const projectApi = {
   addMember: (id: string, data: { userId: string; roleCode: string }) => http.post<any, any>(`/projects/${id}/members`, data),
   removeMember: (id: string, userId: string) => http.delete<any, any>(`/projects/${id}/members/${userId}`),
   templateUrl: () => `${http.defaults.baseURL}/projects/template`,
+  importUrl: () => `${http.defaults.baseURL}/projects/import`,
+  validateUrl: () => `${http.defaults.baseURL}/projects/import/validate`,
   import: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -43,6 +45,7 @@ export const supplierApi = {
   exportUrl: () => `${http.defaults.baseURL}/suppliers/export`,
   templateUrl: () => `${http.defaults.baseURL}/suppliers/template`,
   importUrl: () => `${http.defaults.baseURL}/suppliers/import`,
+  validateUrl: () => `${http.defaults.baseURL}/suppliers/import/validate`,
 };
 
 export const contractApi = {
@@ -74,6 +77,7 @@ export const contractApi = {
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,
+  validateUrl: () => `${http.defaults.baseURL}/contracts/import/validate`,
   // 合同起草（需求 2.1）
   drafts: () => http.get<any, any>('/contracts/drafts'),
   removeDraft: (id: string) => http.delete<any, any>(`/contracts/drafts/${id}`),

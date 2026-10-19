@@ -187,6 +187,34 @@ export default function Dict() {
                     const fd = new FormData();
                     fd.append('file', file);
                     const token = localStorage.getItem('cms_token');
+                    // 预校验：不写库，全部通过后再导入
+                    const vRes = await fetch(dictApi.validateUrl(currentType.code), {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        'x-project-id': localStorage.getItem('cms_project_id') || '',
+                      },
+                      body: fd,
+                    });
+                    const vBody = await vRes.json();
+                    if (vBody.code !== 0) { message.error(vBody.message); return; }
+                    const vErrors = vBody.data?.errors || [];
+                    if (vBody.data?.valid === false || vErrors.length) {
+                      Modal.error({
+                        title: `预校验未通过：${vErrors.length} 行存在问题，未写入任何数据`,
+                        width: 560,
+                        content: (
+                          <ul style={{ maxHeight: 300, overflowY: 'auto', paddingLeft: 18 }}>
+                            {vErrors.map((e: any, i: number) => (
+                              <li key={i} style={{ color: '#d4380d' }}>
+                                {e.row ? `第 ${e.row} 行` : ''}{e.field ? `【${e.field}】` : ''}：{e.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ),
+                      });
+                      return;
+                    }
                     const res = await fetch(dictApi.importUrl(currentType.code), {
                       method: 'POST',
                       headers: {

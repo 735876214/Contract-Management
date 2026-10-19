@@ -114,6 +114,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
             moduleName="付款台账"
             templateUrl={paymentApi.recordsTemplateUrl()}
             uploadUrl={paymentApi.recordsImportUrl()}
+            validateUrl={paymentApi.recordsValidateUrl()}
             onDone={refreshList}
           />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(paymentApi.exportRecordsUrl()))}>

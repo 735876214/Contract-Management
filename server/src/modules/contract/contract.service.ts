@@ -1501,7 +1501,7 @@ export class ContractService {
    * 批量导入（需求 2.1）：全成功或全失败
    * 先全量校验（必填 + 合同编号唯一 + 供应商关联），任一失败不写库；全部通过后在事务内写入
    */
-  async import(buffer: Buffer, projectId: string, user: any, fileName?: string) {
+  async import(buffer: Buffer, projectId: string, user: any, fileName?: string, validateOnly?: boolean) {
     const rows = await this.excel.parse(buffer, [2]);
     const resolve = async (type: string, val: any) => {
       if (!val) return null;
@@ -1539,7 +1539,7 @@ export class ContractService {
         for (const p of plans) await this.create(p, projectId, user, tx);
         return { created: plans.length };
       },
-    });
+    }, validateOnly ?? false);
   }
 
   /** 合同台账填写模板（需求 3.3，实际字段口径） */

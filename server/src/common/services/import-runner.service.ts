@@ -24,6 +24,8 @@ export interface ImportOutcome {
   created: number;
   updated: number;
   errors: ImportRowError[];
+  /** validateOnly 模式：校验是否全部通过 */
+  valid?: boolean;
 }
 
 export type TxClient = Prisma.TransactionClient;
@@ -36,6 +38,8 @@ export interface RunOptions<T> {
   /** 数据起始行号（用于错误报告行号对齐 Excel） */
   startRowNo?: number;
   maxRows?: number;
+  /** 仅校验不写库：跑完 plan 阶段后直接返回校验结果（跳过异步任务与事务写入） */
+  validateOnly?: boolean;
   /** 进度回调：每校验完一行触发（异步导入任务用于刷新进度） */
   onProgress?: (processed: number, total: number) => void | Promise<void>;
   /**
@@ -76,6 +80,11 @@ export class ImportRunnerService {
         errors.push({ row: rowNo, field: e?.field, message: e?.message || String(e) });
       }
       if (opts.onProgress) await opts.onProgress(index + 1, rows.length);
+    }
+
+    // 仅校验模式：plan 阶段跑完即返回，不进入事务写入
+    if (opts.validateOnly) {
+      return { total: rows.length, created: 0, updated: 0, errors, valid: !errors.length };
     }
 
     // 任一行校验失败：不写入任何数据

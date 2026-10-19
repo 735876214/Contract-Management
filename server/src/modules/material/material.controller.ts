@@ -67,6 +67,14 @@ export class MaterialController {
   }
 
   @RequirePermissions('material:edit')
+  @Post('materials/import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importBasesValidate(@UploadedFile() file: any, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importBases(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
+  @RequirePermissions('material:edit')
   @Post('materials')
   createBase(@Body() body: any) {
     return this.service.createBase(body);
@@ -140,6 +148,14 @@ export class MaterialController {
   importRows(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
     return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user });
+  }
+
+  @RequirePermissions('material:edit')
+  @Post('contract-materials/import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importRowsValidate(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
   @RequirePermissions('material:edit')

@@ -48,7 +48,7 @@ function MaterialList() {
       title="物资基础库"
       extra={
         <Space>
-          <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} onDone={reload} />
+          <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} validateUrl={materialApi.validateUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(materialApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增物资</Button>
         </Space>

@@ -159,7 +159,7 @@ export class ProjectService {
   }
 
   /** 项目信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importProjects(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importProjects(buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [industry, status] = await Promise.all([
       this.dict.options('industry_type'), this.dict.options('project_status'),
@@ -207,6 +207,6 @@ export class ProjectService {
         for (const p of plans) await this.create(p.data, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

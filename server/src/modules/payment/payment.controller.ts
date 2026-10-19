@@ -47,6 +47,15 @@ export class PaymentController {
     return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('payment:edit')
+  @Post('records/import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importRecordsValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
   @RequirePermissions('payment:edit')
   @Post('records')
   createRecord(@Body() body: any, @ProjectId() projectId: string) {

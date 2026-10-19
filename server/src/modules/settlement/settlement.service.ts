@@ -1352,7 +1352,7 @@ export class SettlementService {
   }
 
   /** 结算台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importLedger(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async importLedger(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'settlement-ledger', moduleName: '结算台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
@@ -1392,6 +1392,6 @@ export class SettlementService {
         for (const p of plans) await this.createLedger(p.data, projectId, tx, { fromImport: true });
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

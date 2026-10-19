@@ -166,7 +166,7 @@ export class PaymentService {
   }
 
   /** 付款台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importRecords(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async importRecords(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const methods = await this.dict.options('payment_method');
     const status = await this.dict.options('payment_status');
@@ -206,6 +206,6 @@ export class PaymentService {
         for (const p of plans) await this.createRecord(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

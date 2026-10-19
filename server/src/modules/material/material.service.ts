@@ -336,7 +336,7 @@ export class MaterialService {
    * - 任一行失败即返回错误报告，不写入任何数据
    * - 全部通过后在同一事务内写入
    */
-  async importBases(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importBases(buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]);
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'material-base', moduleName: '物资基础库', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
@@ -402,7 +402,7 @@ export class MaterialService {
         }
         return { created, updated };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   // ==================== 合同物资清单 ====================
@@ -586,7 +586,7 @@ export class MaterialService {
    * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
    * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
    */
-  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const contract = await this.assertContract(contractId);
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
     const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
@@ -638,7 +638,7 @@ export class MaterialService {
         await this.settlement.syncLedgerByContract(contractId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   /** 填写模板（需求 3.3）：下拉/数字/格式验证 + 示例行 */

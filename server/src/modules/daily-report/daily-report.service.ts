@@ -449,7 +449,7 @@ export class DailyReportService {
   }
 
   /** 物资日报导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.options('yes_no'), this.dict.options('asset_status'), this.dict.options('material_source'),
@@ -538,6 +538,6 @@ export class DailyReportService {
         for (const p of plans) await this.create(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

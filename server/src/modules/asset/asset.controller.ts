@@ -53,6 +53,15 @@ export class AssetController {
     return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('asset:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importAssetsValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
   @RequirePermissions('asset:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {

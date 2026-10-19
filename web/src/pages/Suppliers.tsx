@@ -51,7 +51,7 @@ function SupplierList() {
       title="供应商库"
       extra={
         <Space>
-          <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} onDone={reload} />
+          <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} validateUrl={supplierApi.validateUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(supplierApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
             新增供应商

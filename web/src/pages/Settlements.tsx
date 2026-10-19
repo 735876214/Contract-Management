@@ -607,7 +607,7 @@ function LedgerTab({
             <ImportButton
               moduleName="结算台账"
               templateUrl={settlementApi.ledgerTemplateUrl()}
-              uploadUrl={settlementApi.ledgerImportUrl()}
+              uploadUrl={settlementApi.ledgerImportUrl()} validateUrl={settlementApi.ledgerValidateUrl()}
               onDone={refreshList}
             />
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>

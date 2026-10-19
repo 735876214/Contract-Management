@@ -25,4 +25,5 @@ export const dictApi = {
   refreshCache: (typeCode?: string) => http.post('/dict/cache/refresh', { typeCode }),
   exportUrl: (typeCode: string) => `${http.defaults.baseURL}/dict/export?typeCode=${typeCode}`,
   importUrl: (typeCode: string) => `${http.defaults.baseURL}/dict/import?typeCode=${typeCode}`,
+  validateUrl: (typeCode: string) => `${http.defaults.baseURL}/dict/import/validate?typeCode=${typeCode}`,
 };

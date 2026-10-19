@@ -69,4 +69,17 @@ http.interceptors.response.use(
   },
 );
 
+/**
+ * 剥离 URL 开头的 baseURL（如 /api）：
+ * 部分导入/上传助手返回的地址已含 baseURL 前缀，而调用方又走本 axios 实例（baseURL 再拼一次），
+ * 会产生 /api/api/... 双前缀。此处统一归一化，一处修复覆盖全部调用方。
+ */
+export function stripApiBase(url: string): string {
+  let base = http.defaults.baseURL || '/api';
+  while (base.endsWith('/')) base = base.slice(0, -1);
+  let result = url;
+  while (result.startsWith(base)) result = result.slice(base.length);
+  return result || url;
+}
+
 export default http;

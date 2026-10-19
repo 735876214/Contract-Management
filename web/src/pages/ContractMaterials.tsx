@@ -286,6 +286,7 @@ function ContractMaterialsList() {
               moduleName="合同物资清单"
               templateUrl={contractMaterialApi.templateUrl()}
               uploadUrl={contractId ? contractMaterialApi.importUrl(contractId) : ''}
+              validateUrl={contractId ? contractMaterialApi.validateUrl(contractId) : ''}
               disabled={!contractId}
               onDone={refreshList}
               extraHint="物资名称 + 规格型号须与物资基础库一致。"

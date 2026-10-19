@@ -154,7 +154,7 @@ function InvoiceList({
             <ImportButton
               moduleName="发票台账"
               templateUrl={invoiceApi.templateUrl()}
-              uploadUrl={invoiceApi.importUrl()}
+              uploadUrl={invoiceApi.importUrl()} validateUrl={invoiceApi.validateUrl()}
               onDone={refreshList}
             />
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>

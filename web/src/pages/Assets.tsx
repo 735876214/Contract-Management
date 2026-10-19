@@ -166,7 +166,7 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
-          <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} onUpload={(f) => assetApi.import(f)} onDone={reload} />
+          <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} uploadUrl={assetApi.importUrl()} validateUrl={assetApi.validateUrl()} onDone={reload} />
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(assetApi.exportUrl()))}>导出</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增台账</Button>
         </Space>

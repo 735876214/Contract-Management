@@ -269,7 +269,7 @@ export class AssetService {
   }
 
   /** 资产管理台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importAssets(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async importAssets(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
@@ -324,6 +324,6 @@ export class AssetService {
         for (const p of plans) await this.create(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

@@ -114,8 +114,11 @@ export class ImportTaskService implements OnModuleInit {
     ctx: SubmitContext,
     rows: any[],
     opts: RunOptions<T>,
+    validateOnly = false,
   ): Promise<ImportOutcome & { taskId?: string; async?: boolean; deduped?: boolean }> {
     if (!Array.isArray(rows)) throw new BadRequestException('导入内容为空');
+    // 预校验模式：始终同步执行，不创建导入任务
+    if (validateOnly) return this.runner.run(rows, { ...opts, validateOnly: true });
     if (rows.length <= ASYNC_IMPORT_THRESHOLD) return this.runner.run(rows, opts);
 
     // 幂等：同一份文件仍在处理中 → 直接返回既有任务，避免双击/重试产生重复导入。

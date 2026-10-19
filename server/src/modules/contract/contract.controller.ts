@@ -314,4 +314,12 @@ export class ContractController {
     return this.contractService.import(file.buffer, projectId, user);
   }
 
+  @RequirePermissions('contract:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.contractService.import(file.buffer, projectId, user, file?.originalname, true);
+  }
+
 }

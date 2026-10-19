@@ -94,4 +94,12 @@ export class SupplierController {
     return this.supplierService.import(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
+  @RequirePermissions('supplier:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.supplierService.import(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
 }

@@ -95,7 +95,7 @@ function ContractList() {
       title="合同管理"
       extra={
         <Space>
-          <ImportButton moduleName="合同台账" templateUrl={contractApi.templateUrl()} uploadUrl={contractApi.importUrl()} onDone={reload} />
+          <ImportButton moduleName="合同台账" templateUrl={contractApi.templateUrl()} uploadUrl={contractApi.importUrl()} validateUrl={contractApi.validateUrl()} onDone={reload} />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
             新建合同
           </Button>

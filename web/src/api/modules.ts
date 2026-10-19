@@ -199,6 +199,7 @@ export const dailyApi = {
     http.get<any, any>('/daily-reports/unconfirmed-summary', { params: { contractId } }),
   exportUrl: () => `${http.defaults.baseURL}/daily-reports/export`,
   importUrl: () => `${http.defaults.baseURL}/daily-reports/import`,
+  validateUrl: () => `${http.defaults.baseURL}/daily-reports/import/validate`,
 };
 
 export const materialApi = {
@@ -211,6 +212,7 @@ export const materialApi = {
   exportUrl: () => `${http.defaults.baseURL}/materials/export`,
   templateUrl: () => `${http.defaults.baseURL}/materials/template`,
   importUrl: () => `${http.defaults.baseURL}/materials/import`,
+  validateUrl: () => `${http.defaults.baseURL}/materials/import/validate`,
 };
 
 export const contractMaterialApi = {
@@ -227,6 +229,8 @@ export const contractMaterialApi = {
   exportUrl: (contractId: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     `${http.defaults.baseURL}/contract-materials/export?contractId=${contractId}&format=${format}`,
   importUrl: (contractId: string) => `${http.defaults.baseURL}/contract-materials/import?contractId=${contractId}`,
+  validateUrl: (contractId: string) =>
+    `${http.defaults.baseURL}/contract-materials/import/validate?contractId=${contractId}`,
 };
 
 export const settlementApi = {
@@ -245,6 +249,7 @@ export const settlementApi = {
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
+  ledgerValidateUrl: () => `${http.defaults.baseURL}/settlements/ledger/import/validate`,
   refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
   /** 预览「上一期」待生成的结算（顶部提示用）：未挂结算单的收领单张数、还差几个合同 */
   previewGenerate: (params?: any) => http.get<any, any>('/settlements/generate/preview', { params }),
@@ -268,6 +273,7 @@ export const paymentApi = {
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
   recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
   recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
+  recordsValidateUrl: () => `${http.defaults.baseURL}/payments/records/import/validate`,
   recordsImport: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -325,6 +331,7 @@ export const invoiceApi = {
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
   templateUrl: () => `${http.defaults.baseURL}/invoices/template`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
+  validateUrl: () => `${http.defaults.baseURL}/invoices/import/validate`,
 };
 
 export const assetApi = {
@@ -332,6 +339,8 @@ export const assetApi = {
   /** 物资进出场汇总（零新表，2026-10-18） */
   flowSummary: (params?: any) => http.get<any, any>('/assets/flow-summary', { params }),
   templateUrl: () => `${http.defaults.baseURL}/assets/template`,
+  importUrl: () => `${http.defaults.baseURL}/assets/import`,
+  validateUrl: () => `${http.defaults.baseURL}/assets/import/validate`,
   import: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);

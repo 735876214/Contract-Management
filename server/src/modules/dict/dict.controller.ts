@@ -135,6 +135,14 @@ export class DictController {
   }
 
   @RequirePermissions('dict:edit', 'system:config')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  async importValidate(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
+  @RequirePermissions('dict:edit', 'system:config')
   @Post('cache/refresh')
   async refresh(@Body() body: any) {
     await this.dictService.refreshCache(body?.typeCode);

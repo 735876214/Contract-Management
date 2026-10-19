@@ -49,6 +49,15 @@ export class ProjectController {
     return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user });
   }
 
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('project:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file'))
+  importValidate(@UploadedFile() file: any, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
+  }
+
   @RequirePermissions('project:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {

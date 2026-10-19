@@ -140,7 +140,7 @@ export class SupplierService {
   }
 
   /** 供应商信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId?: string, meta?: { fileName?: string; user?: any }) {
+  async import(buffer: Buffer, projectId?: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
@@ -185,7 +185,7 @@ export class SupplierService {
         }
         return { created, updated };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   /** 供应商信息填写模板（需求 3.3，实际字段口径） */

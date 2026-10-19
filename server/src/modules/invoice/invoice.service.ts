@@ -327,7 +327,7 @@ export class InvoiceService {
   }
 
   /** 发票台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
@@ -391,7 +391,7 @@ export class InvoiceService {
           await this.settlement.syncLedgerByContract(cid);
         }
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   /** 发票台账填写模板（需求 3.3，实际字段口径） */
