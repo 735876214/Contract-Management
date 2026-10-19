@@ -187,9 +187,12 @@ export default function ImportButton({
     setStage('validating');
     try {
       const url = stripApiBase(typeof validateUrl === 'function' ? validateUrl(file) : validateUrl);
+      // 预校验恒定同步执行（最多 5000 行，逐行查库，不走 >1000 行异步任务的分支），
+      // 耗时可能远超实例默认的 30s；60s 会在服务端仍在校验时先超时，用户既看不到问题行也无法继续导入。
+      // 与部署代理（nginx proxy_read_timeout 300s）对齐，避免客户端比代理更早断开。
       const res: ImportResult = await http.post<any, ImportResult>(url, buildForm(file), {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
+        timeout: 300000,
       });
       pendingFileRef.current = file;
       setResult(res || {});

@@ -76,9 +76,11 @@ http.interceptors.response.use(
  */
 export function stripApiBase(url: string): string {
   let base = http.defaults.baseURL || '/api';
-  while (base.endsWith('/')) base = base.slice(0, -1);
+  // baseURL 可能被配置成 '/'（如 VITE_API_BASE=/ 走根路径反向代理）：
+  // 不能把它剥成空串，否则下面 startsWith('') 恒真、slice(0) 又不缩短字符串 → 死循环卡死页面。
+  while (base.length > 1 && base.endsWith('/')) base = base.slice(0, -1);
   let result = url;
-  while (result.startsWith(base)) result = result.slice(base.length);
+  while (base && result.startsWith(base)) result = result.slice(base.length);
   return result || url;
 }
 
