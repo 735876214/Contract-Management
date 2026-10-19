@@ -206,7 +206,7 @@ export default function Dict() {
                         content: (
                           <ul style={{ maxHeight: 300, overflowY: 'auto', paddingLeft: 18 }}>
                             {vErrors.map((e: any, i: number) => (
-                              <li key={i} style={{ color: '#d4380d' }}>
+                              <li key={i} style={{ color: 'var(--cms-error)' }}>
                                 {e.row ? `第 ${e.row} 行` : ''}{e.field ? `【${e.field}】` : ''}：{e.message}
                               </li>
                             ))}
