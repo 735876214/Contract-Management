@@ -36,6 +36,7 @@ import {
 import { assertResultReportRejectable } from '../../constants/workflowGuards';
 import { BIDDER_STATUS, CONTRACT_STATUS, DICT_TYPES, MODULE_RECORD_STATUS } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
+import { requestContext } from '../../common/services/request-context';
 import { resolveClauseSnapshot, CLAUSE_TYPE_LABELS, type ClauseSnapshot } from './clause-snapshot';
 
 /** 文本归一化：trim 后空串转 null（各阶段表单共用，避免重复定义） */
@@ -344,8 +345,27 @@ export class ProcurementTaskService {
     );
   }
 
+  /**
+   * 按 id 取采购任务，并**按请求上下文限定项目**（2026-10-20 第 3 轮审计）。
+   *
+   * 原来 30 处都是 indUnique({ where: { id } })：守卫只校验"你能不能进 x-project-id
+   * 那个项目"，不会校验 URL 里的 id 是否属于它，于是换个 id 就能读写别人项目的采购任务
+   * （含报价、评标、定标、合同生成）。这里统一收口成 findFirst + projectId。
+   *
+   * 上下文没有 projectId 时不追加过滤：启动期任务/脚本/单测没有请求上下文，
+   * 行为与改造前一致（这类调用方自己知道在操作哪个任务）。
+   */
+  private async taskOf(taskId: string) {
+    const projectId = requestContext.projectId;
+    const task = await this.prisma.procurementTask.findFirst({
+      where: { id: taskId, ...(projectId ? { projectId } : {}) },
+    });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    return task;
+  }
+
   async findOne(id: string) {
-    const r = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const r = await this.taskOf(id);
     if (!r) throw new NotFoundException('采购任务不存在');
     const amountYuan = await this.estimatedAmountYuan(id);
     return {
@@ -410,7 +430,7 @@ export class ProcurementTaskService {
       acceptanceClauseId?: string | null;
     },
   ) {
-    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
     const editableStatuses: readonly string[] = [TASK_STATUS.NOT_STARTED, TASK_STATUS.LIST_EDITING];
     if (!editableStatuses.includes(current.status)) {
@@ -513,7 +533,7 @@ export class ProcurementTaskService {
    * 发布后 stage+1，状态流转到下一阶段的「编制中」；若全部阶段发布完毕则进入合同阶段状态。
    */
   async publish(id: string, user?: any) {
-    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
 
     // 任务 3.2：发布总采购清单（阶段 0 → 1）时，按预计采购金额自动判定是否需要采前会会议纪要。
@@ -851,7 +871,7 @@ export class ProcurementTaskService {
    * 供前端注入模板占位符并生成 Word。
    */
   async contractTemplate(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     const resolved = await this.resolveContractTemplate(task.type, task.procurementCategory);
     const tpl = resolved?.templateId
@@ -871,7 +891,7 @@ export class ProcurementTaskService {
 
   /** 总采购清单明细（任务 2.2）。stage≥1 表示已发布 → 冻结 */
   async totalList(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     const items = await this.prisma.procurementTotalItem.findMany({
       where: { taskId },
@@ -894,7 +914,7 @@ export class ProcurementTaskService {
    * - 计量单位与基础库默认值不符的行：提交时同步（物资名称+规格型号+计量单位）到物资基础库
    */
   async saveTotalList(taskId: string, items: any[]) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.stage >= 1) throw new BadRequestException('总采购清单已发布冻结，不可修改');
     if (task.status !== TASK_STATUS.NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
@@ -1052,7 +1072,7 @@ export class ProcurementTaskService {
    * 本端点用于人工兜底校正（如历史数据、外部写入）。
    */
   async syncContractStatus(id: string) {
-    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
     const chain = stageChain(current.type, current.preMeetingRequired);
     if (current.stage < chain.length) return this.serialize(current); // 未到合同阶段
@@ -1072,7 +1092,7 @@ export class ProcurementTaskService {
   }
 
   async remove(id: string) {
-    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
     const chain = stageChain(current.type, current.preMeetingRequired);
     if (current.stage >= chain.length) {
@@ -1102,7 +1122,7 @@ export class ProcurementTaskService {
     const def = ProcurementTaskService.MODULE_DELETE_MODELS[String(moduleKey ?? '')];
     if (!def) throw new BadRequestException('无效的模块标识');
 
-    const current = await this.prisma.procurementTask.findUnique({ where: { id } });
+    const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
     const chain = stageChain(current.type, current.preMeetingRequired);
     if (current.stage >= chain.length) {
@@ -1188,7 +1208,7 @@ export class ProcurementTaskService {
    * 状态由阶段进度推导：stage=1 编辑中（仅保存），stage≥2 已完成（发布后，仍可重新编辑）。
    */
   async frameworkExplanation(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'FRAMEWORK') {
       throw new BadRequestException('仅「引用框架协议」类型的采购任务可使用事前说明模块');
@@ -1207,7 +1227,7 @@ export class ProcurementTaskService {
 
   /** 保存事前说明（编辑中/已完成均可保存；发布后重新编辑允许修改但保留 publishedAt） */
   async saveFrameworkExplanation(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'FRAMEWORK') {
       throw new BadRequestException('仅「引用框架协议」类型的采购任务可使用事前说明模块');
@@ -1273,7 +1293,7 @@ export class ProcurementTaskService {
    * - 单位 / 物资名称（含规格）/ 成交价不含税单价 / 备注。
    */
   async importPriceCompare(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'FRAMEWORK') {
       throw new BadRequestException('仅「引用框架协议」类型的采购任务可导入价格对比表');
@@ -1331,7 +1351,7 @@ export class ProcurementTaskService {
    * 状态由阶段进度推导：stage=1 编辑中（仅保存），stage≥2 已完成（发布后，仍可重新编辑）。
    */
   async preMeetingMinutes(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采前会会议纪要模块');
@@ -1365,7 +1385,7 @@ export class ProcurementTaskService {
 
   /** 保存采前会会议纪要（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
   async savePreMeetingMinutes(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采前会会议纪要模块');
@@ -1476,7 +1496,7 @@ export class ProcurementTaskService {
    * 采购清单不落库，始终从「总采购清单」派生（数据来自总采购清单、不可编辑）。
    */
   async notice(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购公告模块');
@@ -1513,7 +1533,7 @@ export class ProcurementTaskService {
 
   /** 保存采购公告（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
   async saveNotice(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购公告模块');
@@ -1589,7 +1609,7 @@ export class ProcurementTaskService {
    * 税前单价/税率/综合单价/合价恒为空（由投标方填写）。
    */
   async document(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购文件模块');
@@ -1647,7 +1667,7 @@ export class ProcurementTaskService {
 
   /** 保存采购文件（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
   async saveDocument(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用采购文件模块');
@@ -1702,7 +1722,7 @@ export class ProcurementTaskService {
    * 「预计采购金额」来自总采购清单（Σ 控制价 × 暂定数量）。
    */
   async resultReport(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
@@ -1742,7 +1762,7 @@ export class ProcurementTaskService {
 
   /** 保存成交报告（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
   async saveResultReport(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
@@ -1791,7 +1811,7 @@ export class ProcurementTaskService {
    * 若下游合同已签章/待签章，则禁止退回，需先驳回合同，避免产生孤儿合同。
    */
   async rejectResultReport(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     // 下游已生成的合同（关联只由 Contract.taskId 表达）：取主合同用于状态守卫
     const linked = await this.mainContract(taskId);
@@ -1825,7 +1845,7 @@ export class ProcurementTaskService {
    */
   async importResultReport(taskId: string, buffer?: Buffer, user?: any) {
     if (!buffer) throw new BadRequestException('未上传文件');
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE') {
       throw new BadRequestException('仅「单项采购」类型的采购任务可使用成交报告模块');
@@ -2019,7 +2039,7 @@ export class ProcurementTaskService {
 
   /** 结构化投标单位 + 评标记录（成交报告页「结构化面板」的数据源；读取时顺带幂等回填存量） */
   async bidders(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     await this.ensureBiddersFromSnapshot({ id: task.id, projectId: task.projectId });
     const [rows, evaluations] = await Promise.all([
@@ -2044,7 +2064,7 @@ export class ProcurementTaskService {
    * 单位本身（名称、两轮报价）来自导入表，不在这里改，避免与 JSON 快照口径分叉。
    */
   async saveBidders(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     const list: Array<Record<string, any>> = Array.isArray(body?.bidders) ? body.bidders : [];
     const rows = await this.prisma.procurementBidder.findMany({ where: { taskId }, select: { id: true } });
@@ -2075,7 +2095,7 @@ export class ProcurementTaskService {
    * 校验：评委必填、结论走字典、单位必须属于本任务（防跨任务写入）。
    */
   async saveEvaluations(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     const list: Array<Record<string, any>> = Array.isArray(body?.evaluations) ? body.evaluations : [];
     const rows = await this.prisma.procurementBidder.findMany({ where: { taskId }, select: { id: true } });
@@ -2207,7 +2227,7 @@ export class ProcurementTaskService {
    * - 各价格合价与「采购成本降低率 / 采购成交价下浮率 / 信息价下浮率」由前端计算。
    */
   async priceCompare(taskId: string) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE' && task.type !== 'FRAMEWORK') {
       throw new BadRequestException('仅「单项采购 / 引用框架协议」类型的采购任务可使用采购价格对比表模块');
@@ -2271,7 +2291,7 @@ export class ProcurementTaskService {
 
   /** 保存采购价格对比表（编辑中/已完成均可保存；发布后重新编辑保留 publishedAt） */
   async savePriceCompare(taskId: string, body: any) {
-    const task = await this.prisma.procurementTask.findUnique({ where: { id: taskId } });
+    const task = await this.taskOf(taskId);
     if (!task) throw new NotFoundException('采购任务不存在');
     if (task.type !== 'SINGLE' && task.type !== 'FRAMEWORK') {
       throw new BadRequestException('仅「单项采购 / 引用框架协议」类型的采购任务可使用采购价格对比表模块');

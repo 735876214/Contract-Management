@@ -6,6 +6,7 @@ import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ContractService } from '../contract/contract.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
+import { requestContext } from '../../common/services/request-context';
 import { DocTemplateService } from '../doc-template/doc-template.service';
 import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
@@ -66,8 +67,10 @@ export class FinalSettlementService {
   }
 
   async findOne(id: string) {
-    const row = await this.prisma.finalSettlement.findUnique({
-      where: { id },
+    // 项目隔离（第 3 轮审计）：按 id 直达的读/改/删/导出/传附件都走这里，统一带 projectId
+    const projectId = requestContext.projectId;
+    const row = await this.prisma.finalSettlement.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
       include: {
         contract: { select: { id: true, code: true, name: true, execStatus: true } },
         items: { orderBy: { sortOrder: 'asc' } },

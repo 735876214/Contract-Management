@@ -4,6 +4,7 @@ import { paginate, buildResult, fmtDate, num, assertVersion } from '../../common
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+import { requestContext } from '../../common/services/request-context';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   mergeSupplierFields,
@@ -74,8 +75,20 @@ export class TemplateService {
     return buildResult(list, total, query);
   }
 
+  /**
+   * 按 id 取模板 —— **带项目口径**（2026-10-20 第 3 轮审计）。
+   *
+   * 模板分两类：全局模板（`projectId = null`，所有项目可用）与项目私有模板。
+   * 原来 `findUnique({ where: { id } })` 不限项目，换个 id 就能读/改/删/回滚别的项目的私有模板；
+   * update/remove/toggle/versions/rollback 全部复用本方法，改这一处即可收口。
+   */
+  private templateWhere(id: string) {
+    const projectId = requestContext.projectId;
+    return projectId ? { id, OR: [{ projectId: null }, { projectId }] } : { id };
+  }
+
   async findOne(id: string) {
-    const t = await this.prisma.contractTemplate.findUnique({ where: { id }, include: { variables: true } });
+    const t = await this.prisma.contractTemplate.findFirst({ where: this.templateWhere(id), include: { variables: true } });
     if (!t) throw new NotFoundException('模板不存在');
     return t;
   }
@@ -87,6 +100,8 @@ export class TemplateService {
     return this.prisma.contractTemplate.create({
       data: {
         ...payload,
+        // 归属只认请求上下文：否则前端塞一个别人的 projectId 就能把模板投进别的项目
+        projectId: requestContext.projectId ?? null,
         status: statusOf(payload.status, 1),
         version: 1,
         parentId: null,

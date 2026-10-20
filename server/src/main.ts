@@ -8,10 +8,20 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from './common/services/storage.service';
+import { requestContext } from './common/services/request-context';
 import { runStartupSeed } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // 请求上下文（项目 id）→ AsyncLocalStorage：service 里按 id 取行的查询靠它补
+  // `projectId` 过滤，堵住「守卫只管"能不能进这个项目"、不管这条数据属不属于它」的跨项目 IDOR。
+  // 必须在路由之前注册；只认 header 与 query（multipart 的 body 在守卫阶段还读不到）。
+  app.use((req: any, _res: any, next: any) => {
+    const raw = req?.headers?.['x-project-id'] ?? req?.query?.projectId;
+    const projectId = Array.isArray(raw) ? String(raw[0] ?? '').trim() : String(raw ?? '').trim();
+    requestContext.run({ projectId: projectId || undefined }, () => next());
+  });
 
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');

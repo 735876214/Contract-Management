@@ -440,9 +440,10 @@ export class MaterialService {
   }
 
   /** 按合同查询清单行（含基础物资信息 + 合同头信息），按行号排序 */
-  async findRows(contractId: string) {
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
+  async findRows(contractId: string, projectId?: string) {
+    if (!contractId) throw new BadRequestException('缺少合同 ID');
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, ...(projectId ? { projectId } : {}) },
       include: { supplier: { select: { id: true, name: true } }, project: { select: { name: true, industryType: true } } },
     });
     if (!contract) throw new NotFoundException('合同不存在');
@@ -496,8 +497,21 @@ export class MaterialService {
     return buildResult(list, total, query);
   }
 
-  private async assertContract(contractId: string) {    if (!contractId) throw new BadRequestException('缺少合同 ID');
-    const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
+  /**
+   * 取合同并**校验它属于当前项目**（2026-10-20 第 3 轮审计）。
+   *
+   * 原来的 `findUnique({ where: { id } })` 只校验「合同存在」：守卫只核对 `x-project-id`
+   * 与成员关系，不看 URL/body 里的 `contractId` 到底属于谁，于是 A 项目的人只要猜到
+   * B 项目的合同 id，就能读它的物资清单（含单价）、甚至增删改它 —— 与 P1-1 同类。
+   * 现在带上 projectId 查，跨项目一律 404（不区分「不存在」与「无权」，避免被用来探测）。
+   *
+   * `projectId` 可缺省：service 内部调用（已确定过归属）保持原样，路由入口必须传。
+   */
+  private async assertContract(contractId: string, projectId?: string) {
+    if (!contractId) throw new BadRequestException('缺少合同 ID');
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, ...(projectId ? { projectId } : {}) },
+    });
     if (!contract) throw new NotFoundException('合同不存在');
     return contract;
   }
@@ -509,8 +523,8 @@ export class MaterialService {
     if (dup) throw new BadRequestException('同一物资在当前合同内只能出现一次');
   }
 
-  async createRow(data: any) {
-    const contract = await this.assertContract(data.contractId);
+  async createRow(data: any, projectId?: string) {
+    const contract = await this.assertContract(data.contractId, projectId);
     if (!data.materialBaseId) throw new BadRequestException('请从物资基础库中选择物资');
     const base = await this.prisma.materialBase.findUnique({ where: { id: data.materialBaseId } });
     if (!base) throw new NotFoundException('物资基础信息不存在，请先在物资基础库中维护');
@@ -538,11 +552,11 @@ export class MaterialService {
     return row;
   }
 
-  async updateRow(id: string, data: any) {
+  async updateRow(id: string, data: any, projectId?: string) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
     assertVersion(old, data); // 乐观锁：版本号不一致说明已被他人修改
-    const contract = await this.assertContract(old.contractId);
+    const contract = await this.assertContract(old.contractId, projectId);
     if (data.unit !== undefined) data.unit = await this.resolveUnit(data.unit ?? old.unit);
     const taxRate = await this.resolveTaxRate(contract, data.taxRatePct ?? old.taxRatePct);
     if (taxRate !== null) data.taxRatePct = taxRate;
@@ -569,9 +583,11 @@ export class MaterialService {
     return row;
   }
 
-  async removeRow(id: string) {
+  async removeRow(id: string, projectId?: string) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
+    // 先确认这一行所属合同在当前项目内，再删（否则等于给别人项目删行）
+    await this.assertContract(old.contractId, projectId);
     await this.prisma.contractMaterial.delete({ where: { id } });
     // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
     await this.settlement.syncLedgerByContract(old.contractId);
@@ -579,8 +595,19 @@ export class MaterialService {
   }
 
   /** 行号调整：接收 [{ id, sortOrder }] 全量重排 */
-  async sortRows(items: { id: string; sortOrder: number }[]) {
+  async sortRows(items: { id: string; sortOrder: number }[], projectId?: string) {
     if (!Array.isArray(items) || !items.length) throw new BadRequestException('缺少排序数据');
+    if (projectId) {
+      // 排序是「按 id 批量写」，不校验归属就等于可以改别人项目的行号
+      const ids = [...new Set(items.map((it) => String(it?.id || '')).filter(Boolean))];
+      const rows = await this.prisma.contractMaterial.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, contract: { select: { projectId: true } } },
+      });
+      if (rows.length !== ids.length || rows.some((r: any) => r.contract?.projectId !== projectId)) {
+        throw new NotFoundException('合同物资清单行不存在');
+      }
+    }
     for (const it of items) {
       await this.prisma.contractMaterial.update({
         where: { id: it.id },
@@ -598,8 +625,8 @@ export class MaterialService {
    * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
    * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
    */
-  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
-    const contract = await this.assertContract(contractId);
+  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }, projectId?: string) {
+    const contract = await this.assertContract(contractId, projectId);
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
     const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
     const notDup = this.runner.batchDup();
@@ -675,8 +702,8 @@ export class MaterialService {
    * 派生清单（需求 2.3）：从物资基础库（项目物资清单数据源）按选定物资重新生成
    * 重新编号（序号从 1 开始），仅复制统一字段模型中的字段，自动计算含税单价与暂定含税合价。
    */
-  async derive(contractId: string, materialIds: string[]) {
-    await this.assertContract(contractId);
+  async derive(contractId: string, materialIds: string[], projectId?: string) {
+    await this.assertContract(contractId, projectId);
     if (!Array.isArray(materialIds) || !materialIds.length) {
       throw new BadRequestException('请选择要派生的物资（来自物资基础库）');
     }
@@ -710,8 +737,8 @@ export class MaterialService {
    * 排除字段：收入单价/合价、标准成本单价/合价、MDM/DSC 编码不出现在合同清单中
    * format: xlsx | csv
    */
-  async exportRows(contractId: string, format: 'xlsx' | 'csv' = 'xlsx'): Promise<{ buffer: Buffer; filename: string; mime: string }> {
-    const { contract, list } = await this.findRows(contractId);
+  async exportRows(contractId: string, format: 'xlsx' | 'csv' = 'xlsx', projectId?: string): Promise<{ buffer: Buffer; filename: string; mime: string }> {
+    const { contract, list } = await this.findRows(contractId, projectId);
     const headers = [
       '序号', '合同编号', '项目名称', '供应商名称', '物资名称', '规格型号', '计量单位',
       '暂定数量', '税前单价', '税率(%)', '含税单价', '暂定含税合价', '备注',

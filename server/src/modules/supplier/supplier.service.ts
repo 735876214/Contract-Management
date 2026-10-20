@@ -7,6 +7,7 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { requestContext } from '../../common/services/request-context';
 
 const SUPPLIER_FIELDS = [
   'name', 'legalPerson', 'legalPhone', 'contractAuthPerson', 'contractAuthPhone',
@@ -68,7 +69,11 @@ export class SupplierService {
   }
 
   async findOne(id: string) {
-    const s = await this.prisma.supplier.findUnique({ where: { id } });
+    // 项目口径（第 3 轮审计）：与列表/下拉一致。原来按 id 直读不限项目，
+    // 换个 id 就能看到别的项目私有供应商（含开户行/账号/联系人电话）。
+    const s = await this.prisma.supplier.findFirst({
+      where: { id, ...(await this.scopeWhere(requestContext.projectId)) },
+    });
     if (!s) throw new NotFoundException('供应商不存在');
     return s;
   }

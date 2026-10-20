@@ -4,6 +4,7 @@ import { paginate, buildResult, num, toDate, assertVersion } from '../../common/
 import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
+import { requestContext } from '../../common/services/request-context';
 import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 // 开累两值的**同一实现**（与台账、防超付闸门、工作台预警共用）：不要在别处另算一遍
@@ -65,8 +66,11 @@ export class PaymentProcedureService {
   }
 
   async findOne(id: string) {
-    const row = await this.prisma.paymentProcedure.findUnique({
-      where: { id },
+    // 项目隔离（第 3 轮审计）：findUnique 只按 id，换个 id 就能读/改/删别的项目的付款手续。
+    // projectId 取自请求上下文（x-project-id / ?projectId=）；无上下文（启动任务/单测）不追加过滤。
+    const projectId = requestContext.projectId;
+    const row = await this.prisma.paymentProcedure.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
       include: {
         supplier: { select: { id: true, name: true } },
         contract: { select: { id: true, code: true, name: true } },
@@ -81,11 +85,13 @@ export class PaymentProcedureService {
    * 见类注释：合同必填、供应商由合同带出、开累口径与台账/闸门共用同一实现。
    */
   private async resolveContractAmounts(contractId: string) {
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
+    const projectId = requestContext.projectId;
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, ...(projectId ? { projectId } : {}) },
       select: { id: true, supplierId: true },
     });
-    if (!contract) throw new BadRequestException('合同不存在');
+    // 不属于当前项目与"不存在"同样处理，避免用枚举 id 探测别的项目有没有这份合同
+    if (!contract) throw new BadRequestException('合同不存在或不属于当前项目');
     const [settled, paid] = await Promise.all([
       chainSettledTotal(this.prisma, contractId),
       chainPaidTotal(this.prisma, contractId, undefined, PAYMENT_EXCLUDED_STATUSES),
@@ -100,7 +106,7 @@ export class PaymentProcedureService {
 
   /** 单据编号：`FK-<合同编号>-<日期>`，同项目已存在则追加序号（表上有 `@@unique([projectId, code])`） */
   private async nextCode(projectId: string, contractId: string, payDate: Date | null) {
-    const contract = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { code: true } });
+    const contract = await this.prisma.contract.findFirst({ where: { id: contractId, projectId }, select: { code: true } });
     const day = (payDate ?? new Date()).toISOString().slice(0, 10).replace(/-/g, '');
     const base = `FK-${contract?.code || 'HT'}-${day}`;
     for (let i = 0; i < 20; i += 1) {

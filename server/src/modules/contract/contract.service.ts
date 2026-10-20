@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { projectWhere } from '../../common/utils/project-scope';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -1324,7 +1325,8 @@ export class ContractService {
 
   /** 删除草稿：仅本人创建且未提交的合同可删（物理删除，草稿无关联业务数据） */
   async removeDraft(id: string, userId: string) {
-    const c = await this.prisma.contract.findUnique({ where: { id } });
+    // 项目口径：也要确认草稿属于当前项目（同一个人可能同时是多个项目的成员）
+    const c = await this.prisma.contract.findFirst({ where: projectWhere(id) });
     if (!c) throw new NotFoundException('草稿不存在');
     if (c.createdBy !== userId) throw new BadRequestException('只能删除本人创建的草稿');
     if (c.execStatus && c.execStatus !== CONTRACT_EXECUTION_STATUS.DRAFT) throw new BadRequestException('该合同已提交，不能作为草稿删除');
@@ -1514,7 +1516,9 @@ export class ContractService {
 
   /** 下载签章合同文件（按合同 ID 返回文件流） */
   async signedFile(id: string) {
-    const c = await this.prisma.contract.findUnique({ where: { id } });
+    // 项目口径（第 3 轮审计）：签章件是扫描版合同原件，最敏感；
+    // 原来只按 id 取，知道 id 就能跨项目下载别人的签章 PDF。
+    const c = await this.prisma.contract.findFirst({ where: projectWhere(id) });
     if (!c?.signedFilePath) throw new NotFoundException('该合同尚未上传签章文件');
     if (!(await this.storage.exists(c.signedFilePath))) throw new NotFoundException('签章文件已丢失，请重新上传');
     const buffer = await this.storage.read(c.signedFilePath);
