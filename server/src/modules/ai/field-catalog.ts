@@ -104,6 +104,39 @@ export function availableFields(ctx: { hasContract: boolean; hasSupplier: boolea
   });
 }
 
+/**
+ * 域 → 读该域数据所需的权限码。
+ *
+ * AI 填表本质是「替人把库里的值抄到表里」，因此**必须与界面读数据同权限**：
+ * 只有 `ai:use` 而没有 `contract:view` 的岗位，不该靠上传一张表把合同金额、供应商银行账号
+ * 一个个抄出来（2026-10-20 审计 P3：sensitive 原来只是标注，不拦任何东西）。
+ * `stats.*` 是合同/结算/付款的汇总口径，与合同同源。
+ */
+export const SCOPE_READ_PERMISSION: Record<AiFieldScope, string> = {
+  project: 'project:view',
+  contract: 'contract:view',
+  supplier: 'supplier:view',
+  stats: 'contract:view',
+};
+
+/**
+ * 按权限过滤字段。`can(code)` 由调用方注入（超管恒 true）。
+ * 返回被拒的字段，供上层拼一句「有 N 个字段因缺少权限未列出」，避免用户以为系统丢了字段。
+ */
+export function filterFieldsByPermission(
+  fields: readonly AiFieldDef[],
+  can: (code: string) => boolean,
+): { fields: AiFieldDef[]; denied: AiFieldDef[] } {
+  const allowed: AiFieldDef[] = [];
+  const denied: AiFieldDef[] = [];
+  for (const f of fields) {
+    const code = SCOPE_READ_PERMISSION[f.scope];
+    if (code && !can(code)) denied.push(f);
+    else allowed.push(f);
+  }
+  return { fields: allowed, denied };
+}
+
 /** 键是否在目录内（白名单校验入口：任何来自前端的 fieldKey 都要先过这一关） */
 export function isKnownFieldKey(key: unknown): boolean {
   return typeof key === 'string' && FIELD_MAP.has(key);

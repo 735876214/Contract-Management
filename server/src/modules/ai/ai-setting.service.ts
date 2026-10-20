@@ -127,9 +127,8 @@ export class AiSettingService {
 
     if (!writes.length) throw new BadRequestException('没有需要保存的内容');
 
-    for (const [key, value] of writes) {
-      await this.sysParam.set(key, value, 'AI 信息登记（系统管理页面维护）');
-    }
+    // 一次事务写完四项：不能出现「地址已换、密钥还是旧的」这种半截配置
+    await this.sysParam.setMany(writes, 'AI 信息登记（系统管理页面维护）');
     await this.sysParam.refresh();
 
     // 只记"改了哪几项"，不记值：密钥与地址都可能敏感，日志页人人都能看

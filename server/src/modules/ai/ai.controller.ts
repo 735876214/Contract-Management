@@ -101,7 +101,7 @@ export class AiController {
     return this.service.inspectForm(
       file,
       { projectId, contractId: body?.contractId || null, supplierId: body?.supplierId || null },
-      user?.userId || user?.username || 'anonymous',
+      user,
     );
   }
 
@@ -144,7 +144,7 @@ export class AiController {
     @ProjectId() projectId: string,
     @CurrentUser() user: JwtUser,
   ) {
-    return this.report.generate(body || {}, projectId, user?.userId || user?.username || 'anonymous');
+    return this.report.generate(body || {}, projectId, user);
   }
 
   /**
@@ -177,12 +177,14 @@ export class AiController {
     @UploadedFile() file: any,
     @Body() body: { mapping?: string; contractId?: string; supplierId?: string },
     @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
     @Res() res: Response,
   ) {
     const result = await this.service.fillForm(
       file,
       body?.mapping,
       { projectId, contractId: body?.contractId || null, supplierId: body?.supplierId || null },
+      user,
     );
     // 统计放进响应头：附件流的正文是二进制，前端拿不到 JSON
     res.setHeader('Content-Type', this.service.xlsxMime);

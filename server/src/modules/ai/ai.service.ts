@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
 import { aiPublicStatus, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
 import { buildFormMappingMessages, normalizeMapping, type MappingSuggestion } from './ai-prompt';
-import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, type AiFieldDef } from './field-catalog';
+import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, filterFieldsByPermission, SCOPE_READ_PERMISSION, type AiFieldDef } from './field-catalog';
 import { FormCandidate, FormCell, scanWorkbook } from './form-scan';
 import { FieldResolverService, type ResolveContext } from './field-resolver.service';
 import { chatJson, LlmError, type LlmMessage } from './llm-client';
@@ -116,6 +116,17 @@ export class AiService {
   }
 
   /** 配额：滑动 1 小时窗口。超限抛 429（前端提示"稍后再试"），不做静默降级 */
+  /** 当前请求人（额度按用户计，兼容只有 username 的旧 token） */
+  private userIdOf(user: any): string {
+    return user?.userId || user?.username || 'anonymous';
+  }
+
+  /** 超管恒通过，其余按权限码判断（与 PermissionsGuard 同口径，避免两套判定打架） */
+  private canReader(user: any): (code: string) => boolean {
+    const perms: string[] = Array.isArray(user?.permissions) ? user.permissions : [];
+    return (code: string) => Boolean(user?.isSuperAdmin) || perms.includes(code);
+  }
+
   private consumeQuota(userId: string, cfg: AiConfig): void {
     this.quota.consume(userId, cfg.hourlyLimitPerUser);
   }
@@ -173,7 +184,7 @@ export class AiService {
   async inspectForm(
     file: any,
     ctx: ResolveContext,
-    userId: string,
+    user: any,
   ): Promise<AiInspectResult> {
     const cfg = await this.config();
     const { buffer } = this.assertUpload(file, cfg);
@@ -181,7 +192,12 @@ export class AiService {
 
     const { candidates, truncated } = scanWorkbook(cells, cfg.maxCandidates);
     const hasContract = Boolean(ctx.contractId);
-    const fields = availableFields({ hasContract, hasSupplier: hasContract || Boolean(ctx.supplierId) });
+    const allFields = availableFields({ hasContract, hasSupplier: hasContract || Boolean(ctx.supplierId) });
+    // 只能列出「这个人有权读」的字段（见 field-catalog.SCOPE_READ_PERMISSION）
+    const { fields, denied } = filterFieldsByPermission(allFields, this.canReader(user));
+    const deniedNote = denied.length
+      ? `（另有 ${denied.length} 个字段因你没有 ${[...new Set(denied.map((d) => d.scope))].join('/')} 数据的读取权限而没有列出）`
+      : '';
 
     /**
      * 候选先按「原样列出」建好（`fieldKey: null` = 还没匹配），后续只做**填充**不做删减。
@@ -207,7 +223,7 @@ export class AiService {
     };
 
     if (!candidates.length) {
-      return { ...base, aiMessage: '没有识别到可填写的表单项（表格里没有"标签 + 空白格"的结构）' };
+      return { ...base, aiMessage: '没有识别到可填写的表单项（表格里没有"标签 + 空白格"的结构）' + deniedNote };
     }
 
     const candByIndex = new Map<number, FormCandidate>(
@@ -216,7 +232,7 @@ export class AiService {
 
     let suggestions: MappingSuggestion[] = [];
     if (!cfg.enabled) {
-      return { ...base, aiMessage: 'AI 未配置（接口地址 / API Key / 模型名），可用手工映射填报；管理员可在「系统管理 → AI 信息登记」补上' };
+      return { ...base, aiMessage: 'AI 未配置（接口地址 / API Key / 模型名），可用手工映射填报；管理员可在「系统管理 → AI 信息登记」补上' + deniedNote };
     }
 
     const messages: LlmMessage[] = buildFormMappingMessages({
@@ -231,7 +247,8 @@ export class AiService {
         : '本次未关联任何合同：不要使用 contract.* 字段。表单里的「合同金额/累计金额」类标签可用 stats.* 统计字段；「合同编号/签订日期」这类没有对应统计口径的，请留空不选。',
     });
 
-    this.consumeQuota(userId, cfg);
+    const uid = this.userIdOf(user);
+    this.consumeQuota(uid, cfg);
     try {
       const { data } = await chatJson(globalThis.fetch, {
         baseUrl: cfg.baseUrl,
@@ -241,13 +258,13 @@ export class AiService {
         maxTokens: 2000,
       }, messages);
       if (data == null) {
-        return { ...base, aiMessage: 'AI 返回内容无法解析为映射结果，请手工映射' };
+        return { ...base, aiMessage: 'AI 返回内容无法解析为映射结果，请手工映射' + deniedNote };
       }
       suggestions = normalizeMapping(data, candByIndex.size);
     } catch (e) {
       const msg = e instanceof LlmError ? e.message : (e as Error)?.message || 'AI 调用失败';
       // 失败不占额度（2026-10-20 审计 P2）
-      this.quota.refund(userId);
+      this.quota.refund(uid);
       return { ...base, aiMessage: `${msg}（可手工映射继续）` };
     }
 
@@ -292,11 +309,32 @@ export class AiService {
     file: any,
     mappingRaw: unknown,
     ctx: ResolveContext,
+    user: any,
   ): Promise<AiFillResult> {
     const cfg = await this.config();
     const { buffer, fileName } = this.assertUpload(file, cfg);
 
-    const items = this.parseMapping(mappingRaw);
+    /**
+     * 字段白名单之外再加一道**读权限**过滤：`ai:use` 不等于 `contract:view` / `supplier:view`。
+     * 否则一个只有 ai:use 的岗位可以上传一张空表 + 手写 mapping，把项目里的合同金额、
+     * 供应商银行账号逐个抄出来（2026-10-20 审计 P3）。
+     */
+    const can = this.canReader(user);
+    const blocked: string[] = [];
+    const items = this.parseMapping(mappingRaw).filter((it) => {
+      const def = aiFieldByKey(it.fieldKey);
+      const code = def ? SCOPE_READ_PERMISSION[def.scope] : undefined;
+      if (code && !can(code)) {
+        blocked.push(`${it.fieldKey} @ ${it.sheet}!${it.cellRef}（缺少 ${code} 权限）`);
+        return false;
+      }
+      return true;
+    });
+    if (!items.length) {
+      throw new ForbiddenException(
+        `没有可回填的字段：这些字段所属的数据你没有读取权限${blocked.length ? `（${blocked[0]}）` : ''}`,
+      );
+    }
     const { wb } = await this.readCells(buffer);
 
     // 一次取全值：同一字段可能填到多格
@@ -334,7 +372,8 @@ export class AiService {
     return {
       buffer: Buffer.from(out),
       filled,
-      skipped,
+      // 被权限拦下的项也算「跳过」，前端能直接告诉用户为什么少了这些格
+      skipped: [...blocked, ...skipped],
       fileName: fileName.replace(/\.xlsx$/i, '') + '-已填.xlsx',
     };
   }

@@ -4,6 +4,7 @@ import HTMLtoDOCX from 'html-to-docx';
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/utils/money';
+import { assertPermission } from '../../common/utils/assert-permission';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { AiQuota } from './ai-quota';
 import { type AiConfig } from './ai-config';
@@ -95,8 +96,15 @@ export class ReportService {
   async generate(
     input: { kind?: string; from?: string; to?: string; extra?: string },
     projectId: string,
-    userId: string,
+    user: any,
   ): Promise<AiReportResult> {
+    const userId = user?.userId || user?.username || 'anonymous';
+    /**
+     * 汇报材料汇总的是合同/结算/收付款/发票的金额，**不能只凭 `ai:use` 就拿到**：
+     * 只有 ai:use 而没有 `contract:view` 的岗位，原来能靠生成一份月报把项目经营数据全套导出
+     * （2026-10-20 审计 P3）。
+     */
+    assertPermission(user, 'contract:view', '汇报材料汇总了合同、结算、收付款与发票数据，需要「合同-查看」权限');
     const kind = (input?.kind || 'monthly') as ReportKind;
     if (!REPORT_KINDS[kind]) throw new BadRequestException(`不支持的材料类型：${input?.kind}`);
     const cfg = await this.config();

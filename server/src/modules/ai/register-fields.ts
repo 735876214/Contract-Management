@@ -238,6 +238,19 @@ export function foldText(text: string): string {
     .replace(/：/g, ':');
 }
 
+/**
+ * 更松的归一：连标点也抹掉。
+ *
+ * 原文写「浙江省建工集团（第三工程）有限公司」、模型规整成无括号的写法时，`folded.includes()`
+ * 会判成「原文未匹配到该值（可能是推断）」，让人白核对一遍（2026-10-20 审计 P3：核对用裸子串）。
+ * 只在**文本类**字段上做二次尝试；金额/日期/百分比各有专门的核对函数。
+ */
+export function foldLoose(text: string): string {
+  return foldText(text)
+    .replace(/[，,。、；;:()（）「」『』《》"'“”‘’\-—_/\\]/g, '')
+    .toLowerCase();
+}
+
 /** 金额核对：原文里出现 `36476.97` 或 `36,476.97` 或 `36476.97元` 都算命中 */
 export function textHasMoney(foldedText: string, value: string): boolean {
   const v = value.replace(/^-/, '');
@@ -248,6 +261,13 @@ export function textHasMoney(foldedText: string, value: string): boolean {
   const candidates = new Set<string>([v, intComma + (dec ? '.' + dec : '')]);
   if (decShort) candidates.add(`${int}.${decShort}`), candidates.add(`${intComma}.${decShort}`);
   if (!dec) candidates.add(int), candidates.add(intComma);
+  // 原文按「万元」写（326.85 万元）时也要认得，否则会误报「原文未匹配」
+  const wan = Number(v) / 10000;
+  if (Number.isFinite(wan) && wan >= 1) {
+    const wanStr = String(Math.round(wan * 10000) / 10000);
+    candidates.add(`${wanStr}万`);
+    candidates.add(`${wanStr.replace(/\B(?=(\d{3})+(?!\d))/, ',')}万`);
+  }
   return [...candidates].some((c) => c && foldedText.includes(c));
 }
 
@@ -298,6 +318,7 @@ const MONEY_TOLERANCE = 0.02;
  */
 export function normalizeExtraction(raw: unknown, text: string): RegisterDraft {
   const folded = foldText(text);
+  const loose = foldLoose(text);
   const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
   const flat: Record<string, unknown> = {};
   for (const group of ['supplier', 'contract'] as const) {
@@ -344,7 +365,9 @@ export function normalizeExtraction(raw: unknown, text: string): RegisterDraft {
     } else {
       f.value = normalizeText(rawValue);
       // 备注/摘要是模型组织过的文字，不参与原文核对
-      if (f.value) f.verified = def?.composed ? true : folded.includes(f.value);
+      if (f.value) {
+        f.verified = def?.composed ? true : folded.includes(f.value) || loose.includes(foldLoose(f.value));
+      }
     }
 
     // 只有「给了值但规整失败」才算 invalid；模型本来就没给的可选字段不该报错

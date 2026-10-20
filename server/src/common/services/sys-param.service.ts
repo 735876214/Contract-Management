@@ -54,6 +54,28 @@ export class SysParamService {
     this.cache[key] = value;
   }
 
+  /**
+   * 批量写（单事务）。
+   *
+   * 为什么要批量：AI 信息登记页一次提交 4 项（开关 / 地址 / 模型 / 密钥），逐条 `set()`
+   * 若中途失败，库会停在「地址换了、密钥还是旧的」这种半截配置上，页面看起来"保存成功了一部分"，
+   * 排查时极难发现（2026-10-20 审计 P3）。
+   */
+  async setMany(entries: Array<[string, string]>, remark?: string) {
+    const list = entries.filter(([k]) => k) as Array<[string, string]>;
+    if (!list.length) return;
+    await this.prisma.$transaction(
+      list.map(([key, value]) =>
+        this.prisma.sysParam.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value, remark },
+        }),
+      ),
+    );
+    for (const [key, value] of list) this.cache[key] = value;
+  }
+
   async getAll() {
     await this.load();
     return this.cache;

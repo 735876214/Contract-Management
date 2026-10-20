@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { docxXmlToText, looksLikeContract } from '../src/modules/ai/docx-text.ts';
 import {
   REGISTER_FIELDS,
+  foldLoose,
   foldText,
   guessContractType,
   guessPaymentMode,
@@ -291,5 +292,30 @@ describe('isRealDay：签订日期必须是真实存在的日期（2026-10-20 �
     assert.equal(isRealDay('2026/08/01'), false);
     assert.equal(isRealDay(''), false);
     assert.equal(isRealDay(null as unknown as string), false);
+  });
+});
+
+describe('原文核对：不再用裸子串（2026-10-20 审计 P3）', () => {
+  it('foldLoose 抹掉标点，括号写法差异不再判成「原文未匹配」', () => {
+    const text = '供应商：浙江省建工集团（第三工程）有限公司';
+    // foldText 保留括号 → 裸 includes 会失败；foldLoose 抹掉括号后命中
+    assert.equal(foldText(text), '供应商:浙江省建工集团(第三工程)有限公司');
+    assert.equal(foldLoose(text).includes(foldLoose('浙江省建工集团第三工程有限公司')), true);
+  });
+
+  it('normalizeExtraction 用宽松归一核对文本字段（value 无括号也 verified）', () => {
+    const draft = normalizeExtraction(
+      { supplier: { name: '浙江省建工集团第三工程有限公司' } },
+      '供应商名称：浙江省建工集团（第三工程）有限公司',
+    );
+    const name = draft.fields.find((f) => f.key === 'supplier.name')!;
+    assert.equal(name.value, '浙江省建工集团第三工程有限公司');
+    assert.equal(name.verified, true);
+  });
+
+  it('textHasMoney 认得「万元」写法', () => {
+    const folded = foldText('合同金额：326.85万元');
+    assert.equal(textHasMoney(folded, '3268500'), true);
+    assert.equal(textHasMoney(folded, '3268501'), false);
   });
 });
