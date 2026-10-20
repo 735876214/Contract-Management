@@ -2,7 +2,18 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
+
+/** 用户主表可写字段白名单（password 单独处理，roleIds 走关联表） */
+const USER_WRITABLE_FIELDS = ['username', 'realName', 'phone', 'email', 'status', 'isSuperAdmin'];
+
+/** 出参统一剥掉 bcrypt 哈希：新增/修改/重置密码都不许把 `password` 回给前端 */
+function stripPassword<T extends Record<string, any> | null | undefined>(row: T): T {
+  if (!row) return row;
+  const { password, ...rest } = row as any;
+  return rest as T;
+}
 
 @Injectable()
 export class SystemService {
@@ -29,13 +40,14 @@ export class SystemService {
     if (exist) throw new BadRequestException('用户名已存在');
     const password = await bcrypt.hash(data.password || '123456', 10);
     const { roleIds, ...rest } = data;
-    return this.prisma.user.create({
+    const created = await this.prisma.user.create({
       data: {
-        ...rest,
+        ...pickFields(rest, USER_WRITABLE_FIELDS, { label: '用户' }),
         password,
         roles: roleIds?.length ? { create: roleIds.map((roleId: string) => ({ role: { connect: { id: roleId } } })) } : undefined,
       },
     });
+    return stripPassword(created);
   }
 
   async updateUser(id: string, data: any) {
@@ -46,10 +58,12 @@ export class SystemService {
         await this.prisma.userRole.createMany({ data: roleIds.map((roleId: string) => ({ userId: id, roleId })) });
       }
     }
-    return this.prisma.user.update({
+    const payload = pickFields(rest, USER_WRITABLE_FIELDS, { label: '用户' });
+    const updated = await this.prisma.user.update({
       where: { id },
-      data: password ? { ...rest, password: await bcrypt.hash(password, 10) } : rest,
+      data: password ? { ...payload, password: await bcrypt.hash(password, 10) } : payload,
     });
+    return stripPassword(updated);
   }
 
   async removeUser(id: string) {
@@ -58,7 +72,8 @@ export class SystemService {
   }
 
   async resetPassword(id: string, password: string) {
-    return this.prisma.user.update({ where: { id }, data: { password: await bcrypt.hash(password || '123456', 10) } });
+    const updated = await this.prisma.user.update({ where: { id }, data: { password: await bcrypt.hash(password || '123456', 10) } });
+    return stripPassword(updated);
   }
 
   // ---------------- 角色 ----------------

@@ -12,7 +12,8 @@ import {
 } from '../../common/utils/supplier-snapshot';
 import { renderTemplate, pendingPlaceholders } from './template-render';
 
-const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
+// version 只用于乐观锁校验（create/update 里都由服务端显式赋值，不会被请求体覆盖）
+const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy', 'version'];
 const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
 
 /**
@@ -154,7 +155,11 @@ export class TemplateService {
   /** 回滚：以目标版本内容生成新版本 */
   async rollback(id: string, targetId: string, user: any) {
     const target = await this.findOne(targetId);
+    // update() 走乐观锁：省略 version 会被 assertVersion 直接判 409，
+    // 所以这里必须先读当前模板的版本号再带上（前端只发 targetId，拿不到这个值）。
+    const current = await this.findOne(id);
     return this.update(id, {
+      version: current.version,
       name: target.name,
       categoryCode: target.categoryCode,
       tags: target.tags,

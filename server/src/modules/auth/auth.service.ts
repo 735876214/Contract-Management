@@ -26,7 +26,15 @@ export class AuthService {
   }
 
   async login(username: string, password: string, ip: string, userAgent: string) {
-    const user = await this.validateUser(username, password);
+    let user: any;
+    try {
+      user = await this.validateUser(username, password);
+    } catch (e) {
+      // 失败也要留痕：只记成功路径时，撞库/暴力破解在本系统没有任何审计记录，
+      // 登录日志页的「失败」标签成了死代码。用户名记输入值（不存在也照记），不记密码。
+      await this.logService.login({ username, ip, userAgent, result: 'FAIL' });
+      throw e;
+    }
     const permissions = await this.getPermissions(user.id, user.isSuperAdmin);
     const projects = await this.getProjects(user.id, user.isSuperAdmin);
 

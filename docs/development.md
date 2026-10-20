@@ -87,7 +87,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（55 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（56 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -176,6 +176,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |
   | `test/docVariables.spec.mts` | **单据模板变量（第三套体系）**：面板与取值表**逐条一致** · 金额类变量名必须带单位后缀 `(元)` · 面板给 `raw` 一律是 `{{key}}` · 取值表对缺失对象返回空串（不写 `undefined`）· **源码扫描**：`RichTextEditor.insertVariable` 默认插入的是**双花括号**（2026-10-16 修过：默认值曾是 `{key}`，插了不替换） |
+  | `test/excelParse.spec.ts` | **Excel 解析口径与表头行探测**（2026-10-20 审计）：`detectHeaderRow` 在「导出文件（logo 占 1~2 行、表头第 3 行）」与「填写模板（表头第 1 行、必填列带 `*`）」两种布局下都定位正确、列名对不上回退第 1 行 · `parse(buf, [], headerRowNo)` 按指定行取表头且不把表头行当数据 · **导出 → 探测 → 解析闭环**（这正是字典「导出后原样导回」静默 0 行的回归点） |
   | `test/docExcel.spec.mts` | **单据 Excel 渲染引擎**（`doc-excel.ts`）：单值/混排占位符替换（未取到值原样保留）· **表格占位符整格独占时真正的行展开**（向右向下写二维数组、插行、复制占位符行的样式与行高）· **下方合并单元格区域随插行下移**（ExcelJS 的 `spliceRows` 本身不会移动合并区域，不重映射就会「数据下移、合并框留原处」）· 空表清掉占位符且保留样式 · 占位符与文字混排时退回多行文本兜底 |
   | `test/docTemplateFile.spec.mts` | **单据模板文件键与文件名纯逻辑**：`normalizeDocTemplateFileKey` 剥 `/api/files/`（含双前缀）与完整 URL、保留其它绝对路径交给安全校验 · `.xlsx` 大小写通过、`.xlsm/.docx/.xls` 拒绝（宏会丢）· **前端 `toStorageKey/toFileUrl` 与后端逐条一致** |
   | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |

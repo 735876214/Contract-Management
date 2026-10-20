@@ -98,9 +98,16 @@ export class OperationLogInterceptor implements NestInterceptor {
       req.connection?.remoteAddress ||
       null;
 
-    // 业务主键：URL 中的 id 段（PUT /xxx/:id、DELETE /xxx/:id）
-    const idSeg = segs.length > apiIdx + 2 ? segs[segs.length - 1] : null;
-    const bizId = idSeg && !/^(import|export|template|options|logs|params)$/.test(idSeg) ? idSeg : null;
+    // 业务主键：URL 里的 id 段。
+    // ⚠️ 不能取「最后一段」——动作型子路由的最后一段是动作名（submit/reject/toggle/status/
+    //    reset-password…），据此 findUnique 必然查空，变更前快照全丢、也没法按业务 ID 检索。
+    // 主键都是 Prisma cuid（c + 20 位以上小写字母数字），优先按形状取第一段；
+    // 兜底仍用最后一段，但要排掉已知的动作/查询段。
+    const rest = segs.slice(apiIdx + 2);
+    const idSeg = rest.find((s) => /^c[a-z0-9]{20,}$/i.test(s)) || null;
+    const ACTION_SEGMENTS = /^(import|export|template|options|logs|params|validate|submit|reject|publish|sign|status|toggle|reset-password|refresh|detail|sync|close|confirm)$/;
+    const lastSeg = segs[segs.length - 1];
+    const bizId = idSeg || (segs.length > apiIdx + 2 && !ACTION_SEGMENTS.test(lastSeg) ? lastSeg : null);
 
     const snapshotModel = (this.prisma as any)[route.model || ''];
     let beforePromise: Promise<any> = Promise.resolve(null);

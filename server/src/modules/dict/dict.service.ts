@@ -322,12 +322,15 @@ export class DictService {
 
   /** 字典项导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
-    const rows = await this.excel.parse(buffer);
+    // 表头行探测：导出文件（logo 表头）表头在第 3 行、数据从第 4 行起，填写模板在第 1 行。
+    // 固定按第 1 行解析时，「导出 → 原样导回」会把 logo 行当表头，静默解析出 0 行且不报错。
+    const headerRowNo = await this.excel.detectHeaderRow(buffer, ['字典项编码', '字典项名称']);
+    const rows = await this.excel.parse(buffer, [], headerRowNo);
     const type = await this.prisma.dictType.findUnique({ where: { code: typeCode } });
     if (!type) throw new NotFoundException(`字典类型 ${typeCode} 不存在`);
     const notDup = this.runner.batchDup();
     const outcome = await this.tasks.submit<any>({ module: 'dict', moduleName: '数据字典', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
-      startRowNo: 2,
+      startRowNo: headerRowNo + 1,
       plan: async (r) => {
         const itemCode = String(r['字典项编码'] ?? '').trim();
         const itemName = String(r['字典项名称'] ?? '').trim();
@@ -360,8 +363,15 @@ export class DictService {
         }
         return { created, updated };
       },
+      // 缓存必须在数据真正提交之后刷新：超过 1000 行走异步任务，
+      // 刷新若跟在 submit() 后面同步执行，业务页面会读到导入前的旧数据并重新填满缓存（最长 24h 看不到新项）。
+      afterCommit: async () => {
+        await this.refreshCache(typeCode);
+      },
     }, meta?.validateOnly ?? false);
-    await this.refreshCache(typeCode);
+    // 同步路径（含 0 写入、仅校验）在 run 内已提交或本就未写库，这里再刷一次保证口径一致；
+    // 异步路径的 taskId 响应不代表写库完成，刷新交给上面的 afterCommit。
+    if (!(outcome as any).async) await this.refreshCache(typeCode);
     return outcome;
   }
 }
