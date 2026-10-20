@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -760,19 +761,17 @@ export class MaterialService {
     ]);
 
     if (format === 'csv') {
-      const esc = (v: any) => {
-        const s = String(v ?? '');
-        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
+      // 用 csvCell 而不是本地转义：备注/物资名称是用户可填字段，直接拼进 CSV 会被 Excel
+      // 当成公式执行（=cmd|'/c calc'!A1 这类注入），csvCell 负责补单引号防护。
       const lines: string[] = [];
-      lines.push(`合同名称,${esc(contract.name)}`);
-      lines.push(`供应商名称,${esc(contract.supplierName)}`);
-      lines.push(`合同编号,${esc(contract.code)}`);
-      lines.push(`项目名称,${esc(contract.projectName)}`);
-      lines.push(`项目业态,${esc(await this.industryTypeName(contract.industryType))}`);
+      lines.push(`合同名称,${csvCell(contract.name)}`);
+      lines.push(`供应商名称,${csvCell(contract.supplierName)}`);
+      lines.push(`合同编号,${csvCell(contract.code)}`);
+      lines.push(`项目名称,${csvCell(contract.projectName)}`);
+      lines.push(`项目业态,${csvCell(await this.industryTypeName(contract.industryType))}`);
       lines.push('');
-      lines.push(headers.map(esc).join(','));
-      rows.forEach((r) => lines.push(r.map(esc).join(',')));
+      lines.push(toCsv([headers]));
+      rows.forEach((r) => lines.push(toCsv([r])));
       // BOM：保证 Excel 打开中文不乱码
       return {
         buffer: Buffer.from('\ufeff' + lines.join('\r\n'), 'utf-8'),
