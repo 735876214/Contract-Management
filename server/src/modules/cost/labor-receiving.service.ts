@@ -136,13 +136,20 @@ export class LaborReceivingService {
       payload.contractName = String(payload.contractName || '').trim() || null;
     }
     payload.version = doc.version + 1;
-    await this.prisma.laborReceivingDoc.update({ where: { id }, data: payload });
-    if (Array.isArray(data?.details)) {
-      if (data.details.length > 500) throw new BadRequestException('单次最多保存 500 行明细');
-      for (const d of data.details) {
-        await this.upsertDetail(doc, d);
+    /**
+     * 头 + 明细同一事务（第 6 轮审计）：原来是「先更新头（version 已 +1）再逐行 upsert」，
+     * 中途失败会留下「头改了、明细只写一半」，而 version 已经推进 → 用户重试直接 409，
+     * 只能手工修数据。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.laborReceivingDoc.update({ where: { id }, data: payload });
+      if (Array.isArray(data?.details)) {
+        if (data.details.length > 500) throw new BadRequestException('单次最多保存 500 行明细');
+        for (const d of data.details) {
+          await this.upsertDetail(doc, d, tx);
+        }
       }
-    }
+    }, { timeout: 60000 });
     return this.docDetail(id, projectId);
   }
 
@@ -153,7 +160,12 @@ export class LaborReceivingService {
   }
 
   /** 明细行 upsert（按 docId+材料+规格 定位；spec 空串与唯一键同口径） */
-  private async upsertDetail(doc: { id: string; projectId: string; laborAuthId: string; subcontractorName: string; period: string }, d: any) {
+  private async upsertDetail(
+    doc: { id: string; projectId: string; laborAuthId: string; subcontractorName: string; period: string },
+    d: any,
+    /** 事务客户端：与头记录更新同生共死 */
+    db: any = this.prisma,
+  ) {
     if (!String(d?.materialName || '').trim()) throw new BadRequestException('物资名称不能为空');
     const row: any = pickFields(d, DETAIL_FIELDS, { label: '领用明细行' });
     row.spec = String(row.spec ?? '').trim();
@@ -164,17 +176,17 @@ export class LaborReceivingService {
     const where = {
       docId_materialName_spec: { docId: doc.id, materialName: row.materialName, spec: row.spec },
     } as any;
-    const existing = await this.prisma.laborReceivingSummary.findUnique({ where });
+    const existing = await db.laborReceivingSummary.findUnique({ where });
     if (existing) {
       if (d?.version != null) assertVersion(existing, d);
       const { materialName, spec, ...editable } = row;
       void materialName; void spec;
-      await this.prisma.laborReceivingSummary.update({
+      await db.laborReceivingSummary.update({
         where,
         data: { ...editable, version: existing.version + 1 },
       });
     } else {
-      await this.prisma.laborReceivingSummary.create({
+      await db.laborReceivingSummary.create({
         data: {
           ...row,
           docId: doc.id,

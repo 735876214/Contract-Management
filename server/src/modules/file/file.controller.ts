@@ -37,8 +37,21 @@ export class FileController {
     }),
   )
   async upload(@UploadedFiles() files: Express.Multer.File[]) {
+    /**
+     * 单请求总量兜底（第 7 轮审计）：multer 的 `limits` 是**逐文件** 50MB × 10 个，
+     * 也就是一次请求最多能塞 500MB 进内存（memoryStorage），并发几发就能把进程打爆。
+     * 这里按「一次请求合计 50MB」收紧，与 nginx `client_max_body_size 50m` 对齐。
+     */
+    const list = files || [];
+    const totalBytes = list.reduce((s, f) => s + (f?.size || 0), 0);
+    if (totalBytes > 50 * 1024 * 1024) {
+      throw new BadRequestException('单次上传的文件合计不能超过 50MB，请分批上传');
+    }
+    if (list.some((f) => !f?.size)) {
+      throw new BadRequestException('上传的文件不能为空');
+    }
     return Promise.all(
-      (files || []).map(async (f) => {
+      list.map(async (f) => {
         const saved = await this.storage.save(f.buffer, {
           ext: path.extname(f.originalname || ''),
         });

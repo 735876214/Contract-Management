@@ -24,6 +24,13 @@ export class FileServeController {
     res.setHeader('Content-Type', contentTypeOf(key));
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'private, max-age=0');
+    /**
+     * 防存储型 XSS 的最后一道闸（第 7 轮审计）：上传口已拦 .html/.svg/.js 等类型，
+     * 但历史文件可能是在规则生效前存进来的；nosniff 让浏览器不再按内容猜类型，
+     * 加上 default-src 'none' 即使被当页面渲染也执行不了任何脚本。
+     */
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
     const range = parseRange(req.headers.range, total);
     if (range === 'invalid') {

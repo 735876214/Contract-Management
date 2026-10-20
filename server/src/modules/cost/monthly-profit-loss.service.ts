@@ -152,8 +152,14 @@ export class MonthlyProfitLossService {
     );
     const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
     const manual = new Map(old.map((d) => [`${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}`, d]));
-    await this.prisma.monthlyProfitLossDetail.deleteMany({ where: { profitLossId: id } });
-    await this.snapshotDetails(id, current.projectId, current.period, manual);
+    /**
+     * 删旧 + 生成新明细必须在同一事务里（第 6 轮审计）：
+     * 原来是「先删空再插」，中途失败会把这一期的明细整片清空且无法恢复。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.monthlyProfitLossDetail.deleteMany({ where: { profitLossId: id } });
+      await this.snapshotDetails(id, current.projectId, current.period, manual, tx);
+    }, { timeout: 60000 });
     return this.detail(id, projectId);
   }
 
@@ -335,6 +341,8 @@ export class MonthlyProfitLossService {
     projectId: string,
     period: string,
     manual?: Map<string, any>,
+    /** 事务客户端：调用方（重新抓取）要保证「删旧明细 + 生成新明细」同生共死 */
+    db: any = this.prisma,
   ) {
     const auths = await this.prisma.laborAuthLedger.findMany({
       where: { projectId },
@@ -377,7 +385,7 @@ export class MonthlyProfitLossService {
         });
       }
     }
-    if (rows.length) await this.prisma.monthlyProfitLossDetail.createMany({ data: rows });
+    if (rows.length) await db.monthlyProfitLossDetail.createMany({ data: rows });
     return rows.length;
   }
 
