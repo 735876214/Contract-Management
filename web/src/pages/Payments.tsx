@@ -188,7 +188,12 @@ function PaymentEditor({ contractOptions, seed }: { contractOptions: any[]; seed
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item name="payMonth" label="付款月份(YYYY-MM)" rules={[{ required: true }]}>
+            <Form.Item
+              name="payMonth"
+              label="付款月份(YYYY-MM)"
+              // 台账/看板按字符串精确匹配该字段，写成 2026-9 或 2026/09 会让当月付款静默漏算
+              rules={[{ required: true }, { pattern: /^\d{4}-\d{2}$/, message: '格式须为 YYYY-MM，如 2026-09' }]}
+            >
               <Input placeholder="如 2026-09" />
             </Form.Item>
           </Col>

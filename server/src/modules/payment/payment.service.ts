@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -90,6 +90,8 @@ export class PaymentService {
     const db: any = tx || this.prisma;
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
+    // 台账/看板按字符串精确匹配 payMonth，非 YYYY-MM 会让该笔付款在所有月度统计里消失
+    assertYearMonth(data.payMonth, '付款月份');
     const warn = tx
       ? {}
       : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
@@ -106,6 +108,7 @@ export class PaymentService {
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
+    assertYearMonth(data.payMonth, '付款月份');
     const payload: any = pickFields(data, RECORD_UPDATE_FIELDS, { label: '付款记录' });
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);

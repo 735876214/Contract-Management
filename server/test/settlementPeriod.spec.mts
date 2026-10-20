@@ -9,6 +9,7 @@ import {
   periodKeyOf,
   formatDay,
 } from '../src/common/utils/settlement-period.ts';
+import { assertYearMonth } from '../src/common/utils/helpers.ts';
 
 /**
  * **月度结算期**纯函数的锁（业务口径 2026-10-16）。
@@ -177,5 +178,37 @@ describe('formatDay：接口边界上的日期串（防"差一天"）', () => {
     assert.equal(formatDay(undefined), null);
     assert.equal(formatDay(''), null);
     assert.equal(formatDay('不是日期'), null);
+  });
+});
+
+/**
+ * 账期字段格式锁（2026-10-20 前端审查发现的静默漏算）。
+ *
+ * `payMonth` / `settleMonth` 在台账与看板里是**字符串精确匹配**的键，
+ * 写成 `2026-9` / `2026/09` 也能存进库，但任何一个月份统计都命中不到它——
+ * 界面上「保存成功」，当月金额却少一块。校验放在写入口（create/update）。
+ */
+describe('assertYearMonth：账期必须是 YYYY-MM', () => {
+  it('合法年月通过', () => {
+    for (const v of ['2026-09', '2026-01', '2026-12', '1999-10']) {
+      assert.doesNotThrow(() => assertYearMonth(v), `${v} 应通过`);
+    }
+  });
+
+  it('月份不补零 / 越界 / 分隔符错 / 带日 一律拒绝', () => {
+    for (const v of ['2026-9', '2026-00', '2026-13', '2026/09', '2026.09', '2026-9-1', '202609', '二〇二六年九月']) {
+      assert.throws(() => assertYearMonth(v), `${v} 应被拒绝`);
+    }
+  });
+
+  it('空值放行（更新时未改该字段）', () => {
+    for (const v of [undefined, null, '']) assert.doesNotThrow(() => assertYearMonth(v));
+  });
+
+  it('报错里带字段名与原始值，用户能自己改对', () => {
+    assert.throws(
+      () => assertYearMonth('2026-9', '付款月份'),
+      (e: any) => String(e.message).includes('付款月份') && String(e.message).includes('2026-9') && String(e.message).includes('YYYY-MM'),
+    );
   });
 });

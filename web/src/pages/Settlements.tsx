@@ -273,16 +273,53 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
   const editing = seed as any | undefined;
   const watchContractId = Form.useWatch('contractId', form);
 
+  // ---- 清单项级结算明细（业务 2026-10-17）----
+  const [items, setItems] = useState<any[]>([]);
+  /** 详情里的最新乐观锁版本（列表行可能过期，取详情后覆盖） */
+  const [recordVersion, setRecordVersion] = useState<number | undefined>(editing?.version);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   useEffect(() => {
     form.resetFields();
-    if (editing) form.setFieldsValue({ ...editing, settleDate: editing.settleDate ? dayjs(editing.settleDate) : null });
     setDirty(false);
+    setRecordVersion(editing?.version);
+    if (!editing) {
+      setItems([]);
+      return;
+    }
+    form.setFieldsValue({ ...editing, settleDate: editing.settleDate ? dayjs(editing.settleDate) : null });
+    /**
+     * 列表行**不含明细**（`settlement.findAll` 只 include contract），若直接拿它当编辑器数据，
+     * 提交时 `items` 是空数组，后端 `if (data.items)` 仍成立 → syncItems 先 deleteMany 再无行可插，
+     * 该结算单的明细会被静默清空（量级闸门与明细合计一起归零）。故编辑必须拉详情。
+     */
+    if (Array.isArray(editing.items)) {
+      setItems(editing.items.map((it: any) => ({ ...it, key: it.id })));
+      return;
+    }
+    let alive = true;
+    setItems([]);
+    setDetailLoading(true);
+    settlementApi
+      .detail(editing.id)
+      .then((full: any) => {
+        if (!alive) return;
+        setItems((full?.items ?? []).map((it: any) => ({ ...it, key: it.id })));
+        form.setFieldsValue({ ...full, settleDate: full?.settleDate ? dayjs(full.settleDate) : null });
+        if (full?.version !== undefined) setRecordVersion(full.version);
+      })
+      .catch(() => {
+        if (alive) message.error('结算明细加载失败，请刷新列表后重试');
+      })
+      .finally(() => {
+        if (alive) setDetailLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
     // 仅在换记录时回填（form 实例稳定）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
-
-  // ---- 清单项级结算明细（业务 2026-10-17）----
-  const [items, setItems] = useState<any[]>(editing?.items ?? []);
   // 合同清单（可结算的物资范围）+ 链上已结算量（量级提示）
   const [contractMaterials, setContractMaterials] = useState<any[]>([]);
   const [settledQty, setSettledQty] = useState<Record<string, number>>({});
@@ -322,13 +359,21 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
   const patchItem = (key: React.Key, field: string, value: any) =>
     setItems((prev) => prev.map((r: any) => (r.key === key ? { ...r, [field]: value } : r)));
 
-  /** 明细合价合计（前端实时预览；服务端保存时按行重算） */
-  const itemsTotal = items.reduce(
-    (s, r) => s + (Number(r.qty) || 0) * (Number(r.priceWithTax) || 0),
-    0,
-  );
+  /**
+   * 明细合价合计（前端实时预览；服务端保存时按行重算）。
+   * 口径与「合价（自动）」列一致：按税前单价 × (1+税率) 就地算，
+   * **不能**用 `priceWithTax`——那是服务端 normalizeItem 才写的派生列，
+   * 新加行/改过税率的行在前端恒为空，会把合计算成 0 或旧值。
+   */
+  const itemsTotal = items.reduce((sum, r) => {
+    if (r.priceBeforeTax == null || r.qty == null) return sum;
+    const rate = Number(r.taxRatePct) || 0;
+    return sum + Number(r.qty) * Number(r.priceBeforeTax) * (1 + rate / 100);
+  }, 0);
 
   const submit = async () => {
+    // 明细还在拉取时提交会让 items 为空 → 后端按空数组清空明细，必须挡住
+    if (detailLoading) return message.warning('明细正在加载，请稍候再保存');
     const v = await form.validateFields();
     const invalid = items.find((r) => !r.materialBaseId);
     if (invalid) return message.warning('明细行缺少物资，请补全或删除该行');
@@ -343,8 +388,8 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
         remark: r.remark,
         sortOrder: i + 1,
       })),
-      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
-      version: editing ? (editing as any).version : undefined,
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409（以详情里的版本为准）
+      version: editing ? recordVersion : undefined,
     };
     setSaving(true);
     try {
@@ -678,7 +723,14 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item name="settleMonth" label="结算月份(YYYY-MM)" rules={[{ required: true }]}><Input placeholder="如 2026-09" /></Form.Item>
+            <Form.Item
+            name="settleMonth"
+            label="结算月份(YYYY-MM)"
+            // 台账/看板按字符串精确匹配该字段，写成 2026-9 会让当月数字静默漏算
+            rules={[{ required: true }, { pattern: /^\d{4}-\d{2}$/, message: '格式须为 YYYY-MM，如 2026-09' }]}
+          >
+            <Input placeholder="如 2026-09" />
+          </Form.Item>
           </Col>
           <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（自动抓取结算单）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>

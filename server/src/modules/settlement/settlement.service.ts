@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -1123,6 +1123,8 @@ export class SettlementService {
   async createLedger(data: any, projectId: string, tx?: TxClient, opts?: { fromImport?: boolean }) {
     const db: any = tx || this.prisma;
     if (!opts?.fromImport) this.assertLedgerWritable(data);
+    // 结算月份同样按字符串精确匹配（台账按月列、自动抓取结算单/开票额都按它），格式错会静默对不上
+    assertYearMonth(data.settleMonth, '结算月份');
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = { ...pickFields(data, LEDGER_FIELDS, { label: '结算台账' }), projectId };
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -1153,6 +1155,7 @@ export class SettlementService {
     const old = await this.ledgerOne(id, projectId);
     assertVersion(old, data);
     await this.assertLedgerWritable(data);
+    assertYearMonth(data.settleMonth, '结算月份');
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = pickFields(data, LEDGER_UPDATE_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
