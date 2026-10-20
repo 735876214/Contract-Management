@@ -17,9 +17,16 @@ import {
 } from 'antd';
 import { DownloadOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
-import { aiApi, type AiReportResult } from '@/api/modules';
+import { aiApi, type AiReportDelta, type AiReportResult } from '@/api/modules';
 
 const { Text, Paragraph, Title } = Typography;
+
+/** 环比文案：上期为 0 时后端给的是 null，这里如实写「上期为 0」，不编百分比 */
+function pctText(d: AiReportDelta): string {
+  return d.pct === null
+    ? `上期为 0（本期 ${d.now}）`
+    : `${d.pct > 0 ? '+' : ''}${d.pct.toFixed(2)}%（上期 ${d.prev} → 本期 ${d.now}）`;
+}
 
 /** 行内 `**加粗**` → <strong>（不引 markdown 依赖：材料只用到这一种行内语法） */
 function inline(text: string, keyPrefix: string): ReactNode[] {
@@ -264,6 +271,16 @@ export default function AiReportPanel() {
             <MiniMarkdown text={result.markdown} />
           </div>
 
+          {result.missingSections.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="材料缺少以下小节（模板骨架与 prompt 一致，模型偶尔会漏）"
+              description={result.missingSections.join('、')}
+            />
+          )}
+
           <Collapse
             style={{ marginTop: 12 }}
             items={[
@@ -273,12 +290,13 @@ export default function AiReportPanel() {
                 children: (
                   <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }} type="secondary">
                     {[
-                      `统计区间：${result.period.label}`,
-                      `合同：总数 ${result.facts.contracts.total} 份（执行中 ${result.facts.contracts.executing}），累计金额 ${result.facts.contracts.totalAmount} 元，区间新签 ${result.facts.contracts.signedInPeriod} 份`,
-                      `结算：累计 ${result.facts.settlement.totalAmount} 元，区间 ${result.facts.settlement.amountInPeriod} 元`,
-                      `付款：累计 ${result.facts.payment.totalAmount} 元，区间 ${result.facts.payment.amountInPeriod} 元，应付未付 ${result.facts.payment.unpaid} 元`,
-                      `开票：累计 ${result.facts.invoice.totalAmount} 元，区间 ${result.facts.invoice.amountInPeriod} 元`,
-                      `日报：区间 ${result.facts.daily.reportsInPeriod} 条`,
+                      `公文骨架：${result.sections.join(' / ')}`,
+                      `本期区间：${result.period.label}`,
+                      `对比区间：${result.comparePeriod.label}`,
+                      `项目累计：合同 ${result.facts.totals.contracts} 份（执行中 ${result.facts.totals.executing}），累计金额 ${result.facts.totals.contractAmount} 元，累计结算 ${result.facts.totals.settlementAmount} 元，累计付款 ${result.facts.totals.paymentAmount} 元，累计开票 ${result.facts.totals.invoiceAmount} 元，应付未付 ${result.facts.totals.unpaid} 元`,
+                      `本期发生额：新签 ${result.facts.current.contractsSigned} 份 / ${result.facts.current.contractsSignedAmount} 元，结算 ${result.facts.current.settlementAmount} 元，付款 ${result.facts.current.paymentAmount} 元，开票 ${result.facts.current.invoiceAmount} 元，日报 ${result.facts.current.dailyReports} 条`,
+                      `环比（上期 ${result.facts.compare.period.label}）：新签金额 ${pctText(result.facts.deltas.contractsSignedAmount)}，结算金额 ${pctText(result.facts.deltas.settlementAmount)}，付款金额 ${pctText(result.facts.deltas.paymentAmount)}，日报 ${pctText(result.facts.deltas.dailyReports)}`,
+                      `系统识别风险：${result.facts.risks.length ? result.facts.risks.join('；') : '无'}`,
                     ].join('\n')}
                   </Paragraph>
                 ),

@@ -6,13 +6,27 @@ import { AiQuota } from './ai-quota';
 import { readAiConfig, type AiConfig } from './ai-config';
 import { FieldResolverService } from './field-resolver.service';
 import { chatText, LlmError } from './llm-client';
-import { REPORT_KINDS, auditReport, markdownToHtml, type ReportFacts, type ReportKind } from './report-facts';
+import {
+  REPORT_KINDS,
+  auditReport,
+  deltaOf,
+  markdownToHtml,
+  type ReportDelta,
+  type ReportFacts,
+  type ReportKind,
+  type ReportWindow,
+} from './report-facts';
 import { buildReportMessages } from './report-prompt';
+import { templateSections } from './report-templates';
 
 export interface AiReportResult {
   kind: ReportKind;
   label: string;
+  /** 该材料的公文骨架（节标题），前端照着展示 */
+  sections: string[];
   period: { from: string; to: string; label: string };
+  /** 对比期（环比基数） */
+  comparePeriod: { from: string; to: string; label: string };
   /** 生成的 Markdown 正文 */
   markdown: string;
   /** 事实清单（前端可折叠展示，便于核对数字来源） */
@@ -21,7 +35,18 @@ export interface AiReportResult {
   unknownNumbers: string[];
   /** 数据侧的提醒（例如区间内没有日报） */
   warnings: string[];
+  /** 材料里缺少模板要求的节标题（模型偶尔会漏） */
+  missingSections: string[];
   usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+export interface ExportInput {
+  markdown?: string;
+  title?: string;
+  /** 页眉（公司名/项目部），可选；空则只放标题 */
+  header?: string;
+  /** 页脚说明（默认放生成时间） */
+  footer?: string;
 }
 
 const YMD = (d: Date): string => {
@@ -31,12 +56,16 @@ const YMD = (d: Date): string => {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const iso = (v: unknown): string | null => (v ? YMD(new Date(v as string)) : null);
 
+/** 区间内发生的量（不含项目累计） */
+type WindowNumbers = Omit<ReportWindow, 'period'>;
+
 /**
  * 汇报材料（三期）：**程序给事实、模型给文字**。
  *
  * 为什么不把库结构/明细直接丢给模型让它自己算：
  * 它会算错，还会算得很自信。这里先把区间内的事实聚合好（口径与台账、防超结/防超付一致），
- * 模型只负责组织语言；产出后再把每个数字回查一遍（`auditReport`），编出来的数字会被标出来。
+ * 环比也一并算好（`deltaOf`，上期为 0 时返回 null 而不是 Infinity），
+ * 模型只负责组织语言；产出后再把每个数字回查一遍（`auditReport`）。
  */
 @Injectable()
 export class ReportService {
@@ -63,7 +92,8 @@ export class ReportService {
     if (!cfg.enabled) throw new BadRequestException('AI 未配置（AI_BASE_URL / AI_API_KEY / AI_MODEL），无法生成材料');
 
     const { from, to } = this.resolvePeriod(input?.from, input?.to);
-    const facts = await this.collectFacts(projectId, from, to);
+    const cmp = this.comparePeriod(from, to);
+    const facts = await this.collectFacts(projectId, { from, to }, cmp);
 
     this.quota.consume(userId, cfg.hourlyLimitPerUser);
     const res = await chatText(
@@ -72,7 +102,7 @@ export class ReportService {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
         model: cfg.model,
-        timeoutMs: Math.max(cfg.timeoutMs, 60000),
+        timeoutMs: Math.max(cfg.timeoutMs, 90000),
         temperature: 0.3,
         maxTokens: cfg.maxTokens,
       },
@@ -84,30 +114,57 @@ export class ReportService {
     });
 
     const audit = auditReport(res.text, facts);
+    const sections = templateSections(kind);
     const warnings = [...facts.risks];
     if (factNumbersEmpty(facts)) warnings.push('所选区间内没有数据，材料可能只有框架没有内容');
+    const missingSections = sections.filter((s) => !res.text.includes(s));
 
     return {
       kind,
       label: REPORT_KINDS[kind].label,
-      period: facts.period,
+      sections,
+      period: facts.current.period,
+      comparePeriod: facts.compare.period,
       markdown: res.text,
       facts,
       unknownNumbers: audit.unknown,
       warnings,
+      missingSections,
       usage: res.usage,
     };
   }
 
   /** 导出 docx：只做格式转换，不重新生成内容（导出与页面看到的必须是同一份） */
-  async exportDocx(input: { markdown?: string; title?: string }): Promise<{ buffer: Buffer; fileName: string }> {
+  async exportDocx(input: ExportInput): Promise<{ buffer: Buffer; fileName: string }> {
+    const md = this.requireMarkdown(input);
+    const html = markdownToHtml(md);
+    const title = this.fileBaseName(input?.title);
+    const header = `<p style="font-size:9pt;color:#666;text-align:center;">${escapeInline(
+      input?.header || title,
+    )}</p>`;
+    const footer = `<p style="font-size:9pt;color:#666;text-align:center;">${escapeInline(
+      input?.footer || '本材料由系统数据自动汇总生成，请核对后使用',
+    )}</p>`;
+    const buffer = (await HTMLtoDOCX(html, header, {
+      footer: true,
+      pageNumber: true,
+      font: 'SimSun',
+      fontSize: 21,
+      table: { row: { cantSplit: true } },
+      margins: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
+    }, footer)) as Buffer;
+    return { buffer, fileName: `${title}.docx` };
+  }
+
+  private requireMarkdown(input: ExportInput): string {
     const md = String(input?.markdown || '').trim();
     if (!md) throw new BadRequestException('没有可导出的内容');
     if (md.length > 100000) throw new BadRequestException('内容过长（>10 万字符），请分段导出');
-    const html = markdownToHtml(md);
-    const buffer = (await HTMLtoDOCX(html, null, { table: { row: { cantSplit: true } } })) as Buffer;
-    const title = String(input?.title || '汇报材料').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
-    return { buffer, fileName: `${title}.docx` };
+    return md;
+  }
+
+  private fileBaseName(title?: string): string {
+    return String(title || '汇报材料').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
   }
 
   private resolvePeriod(from?: string, to?: string): { from: Date; to: Date } {
@@ -123,25 +180,16 @@ export class ReportService {
     return { from: start, to: endOfDay };
   }
 
-  private async collectFacts(projectId: string, from: Date, to: Date): Promise<ReportFacts> {
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId },
-      select: {
-        name: true,
-        code: true,
-        projectManager: true,
-        startDate: true,
-        endDate: true,
-        selfContractAmount: true,
-      },
-    });
-    if (!project) throw new BadRequestException('项目不存在');
+  /** 对比期 = 紧邻本期之前、长度相同的一段（本期 10/1~10/19 → 上期 9/12~9/30） */
+  private comparePeriod(from: Date, to: Date): { from: Date; to: Date } {
+    const spanMs = to.getTime() - from.getTime();
+    const cmpTo = new Date(from.getTime() - 1);
+    const cmpFrom = new Date(cmpTo.getTime() - spanMs);
+    return { from: cmpFrom, to: cmpTo };
+  }
 
-    const stats = await this.resolver.projectStats(projectId);
-    const contractWhere = { projectId };
-
-    const [contracts, signedInPeriod, settlementsIn, paymentsIn, invoicesIn, dailyIn] = await Promise.all([
-      this.prisma.contract.findMany({ where: contractWhere, select: { id: true, execStatus: true } }),
+  private async windowNumbers(projectId: string, from: Date, to: Date): Promise<WindowNumbers> {
+    const [signed, settlements, payments, invoices, daily] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId, signDate: { gte: from, lte: to } },
         select: { amount: true, changeAmount: true },
@@ -160,9 +208,45 @@ export class ReportService {
       }),
       this.prisma.dailyReport.count({ where: { projectId, createdAt: { gte: from, lte: to } } }),
     ]);
-
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
       round2(rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0));
+    return {
+      contractsSigned: signed.length,
+      contractsSignedAmount: sum(signed, (c) => Number(c.amount || 0) + Number(c.changeAmount || 0)),
+      settlementCount: settlements.length,
+      settlementAmount: sum(settlements, (r) => r.actualAmount ?? r.amount),
+      paymentCount: payments.length,
+      paymentAmount: sum(payments, (r) => r.amount),
+      invoiceCount: invoices.length,
+      invoiceAmount: sum(invoices, (r) => r.amountWithTax),
+      dailyReports: daily,
+    };
+  }
+
+  private async collectFacts(
+    projectId: string,
+    current: { from: Date; to: Date },
+    compare: { from: Date; to: Date },
+  ): Promise<ReportFacts> {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId },
+      select: {
+        name: true,
+        code: true,
+        projectManager: true,
+        startDate: true,
+        endDate: true,
+        selfContractAmount: true,
+      },
+    });
+    if (!project) throw new BadRequestException('项目不存在');
+
+    const [stats, contracts, now, prev] = await Promise.all([
+      this.resolver.projectStats(projectId),
+      this.prisma.contract.findMany({ where: { projectId }, select: { execStatus: true } }),
+      this.windowNumbers(projectId, current.from, current.to),
+      this.windowNumbers(projectId, compare.from, compare.to),
+    ]);
 
     const facts: ReportFacts = {
       project: {
@@ -173,31 +257,31 @@ export class ReportService {
         endDate: iso(project.endDate),
         selfContractAmount: project.selfContractAmount === null ? null : Number(project.selfContractAmount),
       },
-      period: { from: YMD(from), to: YMD(to), label: `${YMD(from)} ~ ${YMD(to)}` },
-      contracts: {
-        total: contracts.length,
+      current: {
+        period: { from: YMD(current.from), to: YMD(current.to), label: `${YMD(current.from)} ~ ${YMD(current.to)}` },
+        ...now,
+      },
+      compare: {
+        period: { from: YMD(compare.from), to: YMD(compare.to), label: `${YMD(compare.from)} ~ ${YMD(compare.to)}` },
+        ...prev,
+      },
+      totals: {
+        contracts: contracts.length,
         executing: contracts.filter((c) => c.execStatus === 'EXECUTING').length,
-        signedInPeriod: signedInPeriod.length,
-        signedAmountInPeriod: sum(signedInPeriod, (c) => Number(c.amount || 0) + Number(c.changeAmount || 0)),
-        totalAmount: stats.contractAmountTotal,
-      },
-      settlement: {
-        countInPeriod: settlementsIn.length,
-        amountInPeriod: sum(settlementsIn, (r) => r.actualAmount ?? r.amount),
-        totalAmount: stats.settlementAmountTotal,
-      },
-      payment: {
-        countInPeriod: paymentsIn.length,
-        amountInPeriod: sum(paymentsIn, (r) => r.amount),
-        totalAmount: stats.paymentAmountTotal,
+        contractAmount: stats.contractAmountTotal,
+        settlementAmount: stats.settlementAmountTotal,
+        paymentAmount: stats.paymentAmountTotal,
+        invoiceAmount: stats.invoiceAmountTotal,
         unpaid: stats.unpaidAmount,
       },
-      invoice: {
-        countInPeriod: invoicesIn.length,
-        amountInPeriod: sum(invoicesIn, (r) => r.amountWithTax),
-        totalAmount: stats.invoiceAmountTotal,
+      deltas: {
+        contractsSigned: deltaOf(now.contractsSigned, prev.contractsSigned),
+        contractsSignedAmount: deltaOf(now.contractsSignedAmount, prev.contractsSignedAmount),
+        settlementAmount: deltaOf(now.settlementAmount, prev.settlementAmount),
+        paymentAmount: deltaOf(now.paymentAmount, prev.paymentAmount),
+        invoiceAmount: deltaOf(now.invoiceAmount, prev.invoiceAmount),
+        dailyReports: deltaOf(now.dailyReports, prev.dailyReports),
       },
-      daily: { reportsInPeriod: dailyIn },
       risks: [],
     };
 
@@ -211,31 +295,49 @@ export class ReportService {
    */
   private detectRisks(f: ReportFacts): string[] {
     const risks: string[] = [];
-    if (f.payment.unpaid < 0) {
-      risks.push(`累计付款已超过累计结算 ${Math.abs(f.payment.unpaid).toFixed(2)} 元（应付未付为负），需核对是否存在重复付款`);
-    } else if (f.payment.unpaid > 0) {
-      risks.push(`存在应付未付 ${f.payment.unpaid.toFixed(2)} 元，需关注付款进度`);
+    const t = f.totals;
+    if (t.unpaid < 0) {
+      risks.push(`累计付款已超过累计结算 ${Math.abs(t.unpaid).toFixed(2)} 元（应付未付为负），需核对是否存在重复付款`);
+    } else if (t.unpaid > 0) {
+      risks.push(`存在应付未付 ${t.unpaid.toFixed(2)} 元，需关注付款进度`);
     }
-    if (f.settlement.totalAmount > 0 && f.invoice.totalAmount < f.settlement.totalAmount) {
-      risks.push(`累计开票 ${f.invoice.totalAmount.toFixed(2)} 元低于累计结算 ${f.settlement.totalAmount.toFixed(2)} 元，开票进度落后于结算`);
+    if (t.settlementAmount > 0 && t.invoiceAmount < t.settlementAmount) {
+      risks.push(
+        `累计开票 ${t.invoiceAmount.toFixed(2)} 元低于累计结算 ${t.settlementAmount.toFixed(2)} 元，开票进度落后于结算`,
+      );
     }
-    if (f.daily.reportsInPeriod === 0) {
+    if (f.current.dailyReports === 0) {
       risks.push('所选区间内没有日报记录，履约进度缺少数据支撑');
     }
-    if (f.contracts.total > 0 && f.contracts.executing === 0) {
+    if (t.contracts > 0 && t.executing === 0) {
       risks.push('当前没有执行中的合同，请确认合同状态是否已全部办结');
     }
+    const drop = (d: ReportDelta, name: string) => {
+      if (d.pct !== null && d.pct <= -50 && d.prev > 0) {
+        risks.push(`${name}环比下降 ${Math.abs(d.pct).toFixed(2)}%（上期 ${d.prev.toFixed(2)} → 本期 ${d.now.toFixed(2)}），需关注是否出现停滞`);
+      }
+    };
+    drop(f.deltas.contractsSignedAmount, '新签合同金额');
+    drop(f.deltas.paymentAmount, '付款金额');
+    drop(f.deltas.dailyReports, '日报条数');
     return risks;
   }
 }
 
+const escapeInline = (s: string): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
 /** 区间内是否真的抓到了数据（全 0 说明材料只能写框架） */
 function factNumbersEmpty(f: ReportFacts): boolean {
+  const c = f.current;
   return (
-    f.contracts.signedInPeriod === 0 &&
-    f.settlement.countInPeriod === 0 &&
-    f.payment.countInPeriod === 0 &&
-    f.invoice.countInPeriod === 0 &&
-    f.daily.reportsInPeriod === 0
+    c.contractsSigned === 0 &&
+    c.settlementCount === 0 &&
+    c.paymentCount === 0 &&
+    c.invoiceCount === 0 &&
+    c.dailyReports === 0
   );
 }

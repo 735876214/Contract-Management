@@ -614,26 +614,62 @@ export interface AiRegisterConfirmResult {
 
 
 /** 汇报材料（三期）：事实包由后端程序聚合，模型只负责组织语言 */
+/** 汇报材料：一个统计区间内发生的量（本期与对比期共用同一套字段） */
+export interface AiReportWindow {
+  period: { from: string; to: string; label: string };
+  contractsSigned: number;
+  contractsSignedAmount: number;
+  settlementCount: number;
+  settlementAmount: number;
+  paymentCount: number;
+  paymentAmount: number;
+  invoiceCount: number;
+  invoiceAmount: number;
+  dailyReports: number;
+}
+
+/** 环比：`pct` 为 null 表示上期为 0、无法计算（后端不写百分比） */
+export interface AiReportDelta {
+  now: number;
+  prev: number;
+  pct: number | null;
+}
+
+/** 后端 `ReportFacts` 的前端副本（结构变更时必须同步，否则渲染读到 undefined） */
 export interface AiReportFacts {
   project: { name: string; code: string; manager?: string | null; startDate?: string | null; endDate?: string | null; selfContractAmount?: number | null };
-  period: { from: string; to: string; label: string };
-  contracts: { total: number; executing: number; signedInPeriod: number; signedAmountInPeriod: number; totalAmount: number };
-  settlement: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
-  payment: { countInPeriod: number; amountInPeriod: number; totalAmount: number; unpaid: number };
-  invoice: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
-  daily: { reportsInPeriod: number };
+  /** 本期区间 */
+  current: AiReportWindow;
+  /** 对比期区间（环比基数） */
+  compare: AiReportWindow;
+  /** 项目级累计（不受区间限制） */
+  totals: { contracts: number; executing: number; contractAmount: number; settlementAmount: number; paymentAmount: number; invoiceAmount: number; unpaid: number };
+  deltas: {
+    contractsSigned: AiReportDelta;
+    contractsSignedAmount: AiReportDelta;
+    settlementAmount: AiReportDelta;
+    paymentAmount: AiReportDelta;
+    invoiceAmount: AiReportDelta;
+    dailyReports: AiReportDelta;
+  };
   risks: string[];
 }
 
 export interface AiReportResult {
   kind: 'monthly' | 'project' | 'brief';
   label: string;
+  /** 该材料的公文骨架（节标题），后端保证 prompt 按这棵树填 */
+  sections: string[];
   period: { from: string; to: string; label: string };
+  /** 对比期（环比基数） */
+  comparePeriod: { from: string; to: string; label: string };
   markdown: string;
   facts: AiReportFacts;
   /** 材料里出现、但事实清单里找不到的数字 */
   unknownNumbers: string[];
   warnings: string[];
+  /** 材料里缺少模板要求的节标题（模型偶尔会漏） */
+  missingSections: string[];
 }
 
 export const aiApi = {

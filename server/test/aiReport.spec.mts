@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import {
   REPORT_KINDS,
   auditReport,
+  deltaOf,
   factNumbers,
   factsToMarkdown,
   markdownToHtml,
+  type ReportDelta,
   type ReportFacts,
+  type ReportWindow,
 } from '../src/modules/ai/report-facts.ts';
 
 /**
@@ -15,16 +18,67 @@ import {
  * 底线：**材料里的数字必须能在事实清单里找到**。
  * 模型为了让句子顺会编「同比增长 15%」，`auditReport` 就是专门抓这个的——
  * 这条用例必须能失败，否则等于没写。
+ *
+ * 事实包是「本期 / 对比期 / 累计 / 环比」四段（2026-10 重构）：
+ * 区间口径与项目累计分开，环比由程序算好（`deltaOf`），模型只许引用。
  */
 
-const facts: ReportFacts = {
-  project: { name: '紫金街雨污分流工程', code: 'ZJX-01', manager: '张工', startDate: '2026-01-01', endDate: '2026-12-31', selfContractAmount: 1200 },
+const cur: ReportWindow = {
   period: { from: '2026-08-01', to: '2026-08-31', label: '2026-08-01 ~ 2026-08-31' },
-  contracts: { total: 12, executing: 5, signedInPeriod: 2, signedAmountInPeriod: 36476.97, totalAmount: 980000 },
-  settlement: { countInPeriod: 3, amountInPeriod: 150000, totalAmount: 600000 },
-  payment: { countInPeriod: 2, amountInPeriod: 120000, totalAmount: 500000, unpaid: 100000 },
-  invoice: { countInPeriod: 1, amountInPeriod: 80000, totalAmount: 450000 },
-  daily: { reportsInPeriod: 26 },
+  contractsSigned: 2,
+  contractsSignedAmount: 36476.97,
+  settlementCount: 3,
+  settlementAmount: 150000,
+  paymentCount: 2,
+  paymentAmount: 120000,
+  invoiceCount: 1,
+  invoiceAmount: 80000,
+  dailyReports: 26,
+};
+
+const prev: ReportWindow = {
+  period: { from: '2026-07-01', to: '2026-07-31', label: '2026-07-01 ~ 2026-07-31' },
+  contractsSigned: 1,
+  contractsSignedAmount: 20000,
+  settlementCount: 2,
+  settlementAmount: 100000,
+  paymentCount: 1,
+  paymentAmount: 50000,
+  invoiceCount: 0,
+  invoiceAmount: 0,
+  dailyReports: 0,
+};
+
+const d = (now: number, prevValue: number): ReportDelta => deltaOf(now, prevValue);
+
+const facts: ReportFacts = {
+  project: {
+    name: '紫金街雨污分流工程',
+    code: 'ZJX-01',
+    manager: '张工',
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+    selfContractAmount: 1200,
+  },
+  current: cur,
+  compare: prev,
+  totals: {
+    contracts: 12,
+    executing: 5,
+    contractAmount: 980000,
+    settlementAmount: 600000,
+    paymentAmount: 500000,
+    invoiceAmount: 450000,
+    unpaid: 100000,
+  },
+  deltas: {
+    contractsSigned: d(cur.contractsSigned, prev.contractsSigned),
+    contractsSignedAmount: d(cur.contractsSignedAmount, prev.contractsSignedAmount),
+    settlementAmount: d(cur.settlementAmount, prev.settlementAmount),
+    paymentAmount: d(cur.paymentAmount, prev.paymentAmount),
+    invoiceAmount: d(cur.invoiceAmount, prev.invoiceAmount),
+    dailyReports: d(cur.dailyReports, prev.dailyReports),
+  },
   risks: ['存在应付未付 100000.00 元，需关注付款进度'],
 };
 
@@ -35,13 +89,23 @@ describe('factsToMarkdown：事实清单要能直接抄', () => {
     assert.ok(md.includes('36476.97'));
     assert.ok(md.includes('980000.00'));
     assert.ok(md.includes('100000.00'));
-    assert.ok(md.includes('合同总数：12 份'));
-    assert.ok(md.includes('区间内日报：26 条'));
+    assert.ok(md.includes('合同：12 份，其中执行中 5 份'));
+    assert.ok(md.includes('日报：26 条'));
   });
 
-  it('包含项目标识与统计区间，便于模型起标题', () => {
-    assert.ok(md.includes('紫金街雨污分流工程'));
-    assert.ok(md.includes('2026-08-01 ~ 2026-08-31'));
+  it('本期与对比期分开列，区间标签原样给出', () => {
+    assert.ok(md.includes('【统计区间】2026-08-01 ~ 2026-08-31'));
+    assert.ok(md.includes('【对比区间】2026-07-01 ~ 2026-07-31'));
+    assert.ok(md.includes('【本期发生额】'));
+    assert.ok(md.includes('【项目累计（不受区间限制）】'));
+  });
+
+  it('环比由程序算好写进清单（模型不许自己算）', () => {
+    const pct = facts.deltas.contractsSignedAmount.pct;
+    assert.ok(pct !== null);
+    assert.ok(md.includes(`${pct! > 0 ? '+' : ''}${pct!.toFixed(2)}%`));
+    // 上期为 0 的项明确写「无法计算」，不写百分比
+    assert.ok(md.includes('上期为 0，无法计算环比'));
   });
 
   it('风险点原样带出；没有风险时给明确说明而不是留空', () => {
@@ -56,28 +120,39 @@ describe('factsToMarkdown：事实清单要能直接抄', () => {
     assert.ok(nums.includes(1200));
     assert.ok(nums.includes(12000000));
   });
+
+  it('环比的三段数值都进对账清单；上期为 0 时 pct 不进清单', () => {
+    const nums = factNumbers(facts);
+    const all = Object.values(facts.deltas);
+    for (const item of all) {
+      assert.ok(nums.includes(item.now), `now ${item.now} 缺失`);
+      assert.ok(nums.includes(item.prev), `prev ${item.prev} 缺失`);
+      if (item.pct !== null) assert.ok(nums.includes(Math.abs(item.pct)), `pct ${item.pct} 缺失`);
+    }
+    assert.ok(nums.includes(0));
+  });
 });
 
 describe('auditReport：材料里的数字必须来自系统数据', () => {
   it('引用事实清单里的数字不报案', () => {
-    const md = '## 一、经营概况\n本月新签 2 份合同，金额 36476.97 元；累计已付款 500000.00 元。';
-    const r = auditReport(md, facts);
+    const text = '## 一、经营概况\n本月新签 2 份合同，金额 36476.97 元；累计已付款 500000.00 元。';
+    const r = auditReport(text, facts);
     assert.deepEqual(r.unknown, []);
     // 「2 份」这类带量词的是计数，按规则不参与对账，只核金额
     assert.ok(r.checked >= 2);
   });
 
   it('编造的数字必须被抓出来（这是本模块存在的理由）', () => {
-    const md = '本月新签 4 份合同，同比增长 15%，金额 88888.88 元。';
-    const r = auditReport(md, facts);
+    const text = '本月新签 4 份合同，同比增长 15%，金额 88888.88 元。';
+    const r = auditReport(text, facts);
     assert.ok(r.unknown.includes('88888.88'), `未知金额未被识别：${JSON.stringify(r.unknown)}`);
     // 已知局限：份数/百分比与单位的组合太容易和日期、序号混淆，只核金额层面的数字
     assert.equal(r.unknown.includes('15'), false);
   });
 
   it('日期、百分比、量词不算金额，不参与对账', () => {
-    const md = '2026 年 8 月完成 26 条日报，结算覆盖率 65%，涉及 12 家供应商。';
-    const r = auditReport(md, facts);
+    const text = '2026 年 8 月完成 26 条日报，结算覆盖率 65%，涉及 12 家供应商。';
+    const r = auditReport(text, facts);
     assert.deepEqual(r.unknown, []);
   });
 
@@ -87,9 +162,10 @@ describe('auditReport：材料里的数字必须来自系统数据', () => {
   });
 
   it('万元写法按 ×10000 折算后比对', () => {
-    const r = auditReport('垫资 5 万元，自营合同额 1200 万元。', facts);
-    // 5 万 = 50000 元，事实里没有；1200 万 = 12000000 元，正是自营合同额的折算值
-    assert.ok(r.unknown.includes('5万'), `实际：${JSON.stringify(r.unknown)}`);
+    const r = auditReport('垫资 3 万元，自营合同额 1200 万元。', facts);
+    // 3 万 = 30000 元，事实里没有（5 万会命中对比期付款额，故选一个确实不存在的数）；
+    // 1200 万 = 12000000 元，正是自营合同额的折算值
+    assert.ok(r.unknown.includes('3万'), `实际：${JSON.stringify(r.unknown)}`);
     assert.equal(r.unknown.includes('1200万'), false);
   });
 
@@ -99,8 +175,8 @@ describe('auditReport：材料里的数字必须来自系统数据', () => {
   });
 
   it('未知数字去重且数量有上限（避免提示区被刷屏）', () => {
-    const md = Array.from({ length: 40 }, (_, i) => `${i + 9000}.5`).join('，');
-    const r = auditReport(md, facts);
+    const text = Array.from({ length: 40 }, (_, i) => `${i + 9000}.5`).join('，');
+    const r = auditReport(text, facts);
     assert.equal(new Set(r.unknown).size, r.unknown.length);
     assert.ok(r.unknown.length <= 20);
   });

@@ -1,5 +1,6 @@
 import type { LlmMessage } from './llm-client';
 import { REPORT_KINDS, factsToMarkdown, type ReportFacts, type ReportKind } from './report-facts';
+import { templatePromptText } from './report-templates';
 
 /**
  * 汇报材料的 prompt（零依赖纯函数）。
@@ -32,6 +33,9 @@ export function buildReportMessages(input: {
     `【材料类型】${kind.label}`,
     `【写作要求】${kind.hint}`,
     input.extra ? `【补充要求】${input.extra}` : null,
+    '',
+    '【公文骨架】**必须原样使用下面的节标题**（含中文序号），不得改写、增删或调整顺序：',
+    templatePromptText(input.kind),
     '',
     '【事实清单】',
     factsToMarkdown(input.facts),

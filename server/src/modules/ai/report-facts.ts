@@ -6,7 +6,8 @@
  * 汇报材料是给领导看的，一个编出来的数字比写得平淡严重得多。所以：
  * 1. `factsToMarkdown()` 把本轮可用的事实整理成清单给模型（它只需要引用，不需要计算）；
  * 2. `auditReport()` 在产出后把 Markdown 里出现的每个数量/金额逐个对账，
- *    对不上的一律列出来挂在页面上提示「以下数字未在系统数据中找到」。
+ *    对不上的一律列出来挂在页面上提示「以下数字未在系统数据中找到」；
+ * 3. 环比/同比这类派生值也**由程序算好**放进清单（`deltas`），模型只许抄，不许自己算。
  */
 
 export type ReportKind = 'monthly' | 'project' | 'brief';
@@ -16,6 +17,33 @@ export const REPORT_KINDS: Record<ReportKind, { label: string; hint: string }> =
   project: { label: '项目履约汇报', hint: '按「项目概况—履约进展—收付情况—问题与措施」组织' },
   brief: { label: '领导汇报摘要', hint: '一页以内，先结论后数据，只保留最关键的 5~7 条' },
 };
+
+/** 一个统计区间内发生的量（当前期与对比期共用同一套字段） */
+export interface ReportWindow {
+  period: { from: string; to: string; label: string };
+  contractsSigned: number;
+  contractsSignedAmount: number;
+  settlementCount: number;
+  settlementAmount: number;
+  paymentCount: number;
+  paymentAmount: number;
+  invoiceCount: number;
+  invoiceAmount: number;
+  dailyReports: number;
+}
+
+/**
+ * 环比（上期 → 本期）。`pct` 为 null 表示上期为 0、无法计算——
+ * 这时 prompt 里明确写成「上期为 0，不要写百分比」，避免模型自己编一个增长率。
+ */
+export interface ReportDelta {
+  /** 本期数值 */
+  now: number;
+  /** 上期数值 */
+  prev: number;
+  /** 环比百分比（保留 2 位小数）；上期为 0 时为 null */
+  pct: number | null;
+}
 
 export interface ReportFacts {
   project: {
@@ -27,18 +55,30 @@ export interface ReportFacts {
     /** 项目自营合同额（万元，系统字段单位就是万元） */
     selfContractAmount?: number | null;
   };
-  period: { from: string; to: string; label: string };
-  contracts: {
-    total: number;
+  /** 当前（本期）区间 */
+  current: ReportWindow;
+  /** 对比区间（紧邻本期之前的等长区间） */
+  compare: ReportWindow;
+  /** 项目级累计（不受区间限制） */
+  totals: {
+    contracts: number;
     executing: number;
-    signedInPeriod: number;
-    signedAmountInPeriod: number;
-    totalAmount: number;
+    contractAmount: number;
+    settlementAmount: number;
+    paymentAmount: number;
+    invoiceAmount: number;
+    /** 应付未付 = 累计结算 − 累计付款（可为负） */
+    unpaid: number;
   };
-  settlement: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
-  payment: { countInPeriod: number; amountInPeriod: number; totalAmount: number; unpaid: number };
-  invoice: { countInPeriod: number; amountInPeriod: number; totalAmount: number };
-  daily: { reportsInPeriod: number };
+  /** 区间发生额的环比，键与清单里的口径一一对应 */
+  deltas: {
+    contractsSigned: ReportDelta;
+    contractsSignedAmount: ReportDelta;
+    settlementAmount: ReportDelta;
+    paymentAmount: ReportDelta;
+    invoiceAmount: ReportDelta;
+    dailyReports: ReportDelta;
+  };
   /** 程序识别出来的风险点（不是模型编的） */
   risks: string[];
 }
@@ -48,8 +88,16 @@ const money = (n: number | null | undefined): string => {
   return (Math.round(n * 100) / 100).toFixed(2);
 };
 
+const pctText = (d: ReportDelta): string =>
+  d.pct === null ? `上期为 0，无法计算环比（本期 ${money(d.now)}）` : `${d.pct > 0 ? '+' : ''}${d.pct.toFixed(2)}%（上期 ${money(d.prev)} → 本期 ${money(d.now)}）`;
+
+const countPctText = (d: ReportDelta): string =>
+  d.pct === null ? `上期为 0（本期 ${d.now}）` : `${d.pct > 0 ? '+' : ''}${d.pct.toFixed(2)}%（上期 ${d.prev} → 本期 ${d.now}）`;
+
 /** 给模型的事实清单：一条一个数，便于它原样引用 */
 export function factsToMarkdown(f: ReportFacts): string {
+  const c = f.current;
+  const p = f.compare;
   const lines = [
     `【项目】${f.project.name}（编号 ${f.project.code}）`,
     f.project.manager ? `【项目经理】${f.project.manager}` : null,
@@ -60,28 +108,31 @@ export function factsToMarkdown(f: ReportFacts): string {
       ? `【自营合同额】${money(f.project.selfContractAmount)} 万元`
       : null,
     '',
-    `【统计区间】${f.period.from} ~ ${f.period.to}`,
+    `【统计区间】${c.period.label}`,
+    `【对比区间】${p.period.label}（紧邻本期之前的等长区间，只用于环比）`,
     '',
-    '【合同】',
-    `- 合同总数：${f.contracts.total} 份，其中执行中 ${f.contracts.executing} 份`,
-    `- 累计合同金额：${money(f.contracts.totalAmount)} 元`,
-    `- 区间内新签：${f.contracts.signedInPeriod} 份，金额 ${money(f.contracts.signedAmountInPeriod)} 元`,
+    '【项目累计（不受区间限制）】',
+    `- 合同：${f.totals.contracts} 份，其中执行中 ${f.totals.executing} 份`,
+    `- 累计合同金额：${money(f.totals.contractAmount)} 元`,
+    `- 累计已结算：${money(f.totals.settlementAmount)} 元`,
+    `- 累计已付款：${money(f.totals.paymentAmount)} 元`,
+    `- 应付未付：${money(f.totals.unpaid)} 元`,
+    `- 累计开票：${money(f.totals.invoiceAmount)} 元`,
     '',
-    '【结算】',
-    `- 区间内结算单：${f.settlement.countInPeriod} 份，金额 ${money(f.settlement.amountInPeriod)} 元`,
-    `- 累计已结算：${money(f.settlement.totalAmount)} 元`,
+    '【本期发生额】',
+    `- 新签合同：${c.contractsSigned} 份，金额 ${money(c.contractsSignedAmount)} 元`,
+    `- 结算单：${c.settlementCount} 份，金额 ${money(c.settlementAmount)} 元`,
+    `- 付款：${c.paymentCount} 笔，金额 ${money(c.paymentAmount)} 元`,
+    `- 开票：${c.invoiceCount} 张，金额 ${money(c.invoiceAmount)} 元`,
+    `- 日报：${c.dailyReports} 条`,
     '',
-    '【付款】',
-    `- 区间内付款：${f.payment.countInPeriod} 笔，金额 ${money(f.payment.amountInPeriod)} 元`,
-    `- 累计已付款：${money(f.payment.totalAmount)} 元`,
-    `- 应付未付：${money(f.payment.unpaid)} 元`,
-    '',
-    '【发票】',
-    `- 区间内开票：${f.invoice.countInPeriod} 张，金额 ${money(f.invoice.amountInPeriod)} 元`,
-    `- 累计开票：${money(f.invoice.totalAmount)} 元`,
-    '',
-    '【进度记录】',
-    `- 区间内日报：${f.daily.reportsInPeriod} 条`,
+    '【本期 vs 对比期（环比，数值由系统算好，只能引用）】',
+    `- 新签金额：${pctText(f.deltas.contractsSignedAmount)}`,
+    `- 新签份数：${countPctText(f.deltas.contractsSigned)}`,
+    `- 结算金额：${pctText(f.deltas.settlementAmount)}`,
+    `- 付款金额：${pctText(f.deltas.paymentAmount)}`,
+    `- 开票金额：${pctText(f.deltas.invoiceAmount)}`,
+    `- 日报条数：${countPctText(f.deltas.dailyReports)}`,
     '',
     '【系统识别出的风险点】',
     ...(f.risks.length ? f.risks.map((r) => `- ${r}`) : ['- 暂无系统识别的风险点']),
@@ -89,31 +140,43 @@ export function factsToMarkdown(f: ReportFacts): string {
   return lines.filter((l) => l !== null).join('\n');
 }
 
-/** 事实包里的所有数字（金额与计数），供产出对账 */
+/** 事实包里的所有数字（金额、计数、环比百分比），供产出对账 */
 export function factNumbers(f: ReportFacts): number[] {
-  const out: number[] = [
-    f.contracts.total,
-    f.contracts.executing,
-    f.contracts.signedInPeriod,
-    f.contracts.signedAmountInPeriod,
-    f.contracts.totalAmount,
-    f.settlement.countInPeriod,
-    f.settlement.amountInPeriod,
-    f.settlement.totalAmount,
-    f.payment.countInPeriod,
-    f.payment.amountInPeriod,
-    f.payment.totalAmount,
-    f.payment.unpaid,
-    f.invoice.countInPeriod,
-    f.invoice.amountInPeriod,
-    f.invoice.totalAmount,
-    f.daily.reportsInPeriod,
-  ];
+  const out: number[] = [];
+  const pushWindow = (w: ReportWindow) => {
+    out.push(
+      w.contractsSigned,
+      w.contractsSignedAmount,
+      w.settlementCount,
+      w.settlementAmount,
+      w.paymentCount,
+      w.paymentAmount,
+      w.invoiceCount,
+      w.invoiceAmount,
+      w.dailyReports,
+    );
+  };
+  pushWindow(f.current);
+  pushWindow(f.compare);
+  const t = f.totals;
+  out.push(t.contracts, t.executing, t.contractAmount, t.settlementAmount, t.paymentAmount, t.invoiceAmount, t.unpaid);
+  for (const d of Object.values(f.deltas)) {
+    out.push(d.now, d.prev);
+    if (d.pct !== null) out.push(Math.abs(d.pct)); // 「增长 25%」与「下降 25%」都允许
+  }
   if (f.project.selfContractAmount !== null && f.project.selfContractAmount !== undefined) {
     out.push(f.project.selfContractAmount);
     out.push(Math.round(f.project.selfContractAmount * 10000 * 100) / 100); // 万元 → 元
   }
   return out.filter((n) => Number.isFinite(n));
+}
+
+/** 计算环比；上期为 0 时 `pct` 为 null（不能除以 0，也不许模型猜） */
+export function deltaOf(now: number, prev: number): ReportDelta {
+  const n = Number.isFinite(now) ? now : 0;
+  const p = Number.isFinite(prev) ? prev : 0;
+  if (Math.abs(p) < 1e-9) return { now: n, prev: p, pct: null };
+  return { now: n, prev: p, pct: Math.round(((n - p) / Math.abs(p)) * 10000) / 100 };
 }
 
 /** 后面接这些单位的数字不是「金额」，是日期/序号/量词，不参与对账 */
