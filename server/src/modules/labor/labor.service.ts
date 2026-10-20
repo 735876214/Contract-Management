@@ -163,8 +163,10 @@ export class LaborService {
   async exportMark(payload: any, projectId?: string, user?: any) {
     this.validate(payload);
     const data = this.pick(payload);
+    // 按 id 落库时必须做项目归属复核（同 update/remove 的口径）：否则拿到他项目的台账 id
+    // 就能跨项目改名、覆盖身份证/盖章件。id 会出现在导出件、日志与分享链接里。
     const existing = payload?.id
-      ? await this.prisma.laborAuthLedger.findUnique({ where: { id: payload.id } })
+      ? await this.findOne(payload.id, projectId)
       : await this.prisma.laborAuthLedger.findFirst({
           where: {
             projectId: projectId || null,
@@ -192,8 +194,8 @@ export class LaborService {
    * 上传签字盖章版委托书 + 签字部分截图 → 状态置为「已完成」
    * 两个文件都到齐才允许完成（需求 2.1.3 流程）
    */
-  async complete(id: string, data: any) {
-    const old: any = await this.findOne(id);
+  async complete(id: string, data: any, projectId?: string) {
+    const old: any = await this.findOne(id, projectId);
     const signedAuthFile = data?.signedAuthFile ?? old.signedAuthFile;
     const signatureScreenshot = data?.signatureScreenshot ?? old.signatureScreenshot;
     if (!signedAuthFile) throw new BadRequestException('请先上传签字盖章版委托书');

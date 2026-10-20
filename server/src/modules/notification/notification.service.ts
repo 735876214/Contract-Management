@@ -9,7 +9,11 @@ export class NotificationService {
   async findAll(query: any = {}, user: any) {
     const { skip, take } = paginate(query);
     const where: any = { userId: user.userId };
-    if (query.isRead !== undefined && query.isRead !== '') where.isRead = query.isRead === 'true' || query.isRead === true;
+    if (query.isRead !== undefined && query.isRead !== '') {
+      // 兼容历史前端传的 'read'/'unread'：否则任何取值都落到 false，「已读」筛选恒返回未读
+      const raw = String(query.isRead);
+      where.isRead = raw === 'true' || raw === '1' || raw === 'read';
+    }
     if (query.projectId) where.projectId = query.projectId;
     const [list, total] = await Promise.all([
       this.prisma.notification.findMany({ where, skip, take, orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }] }),

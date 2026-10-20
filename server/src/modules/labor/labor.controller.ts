@@ -99,8 +99,8 @@ export class LaborController {
   /** 上传签字盖章版委托书 + 签字截图 → 状态置为「已完成」 */
   @RequirePermissions('labor:edit')
   @Post(':id/complete')
-  complete(@Param('id') id: string, @Body() body: any) {
-    return this.service.complete(id, body);
+  complete(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.complete(id, body, projectId);
   }
 
   @RequirePermissions('labor:edit')

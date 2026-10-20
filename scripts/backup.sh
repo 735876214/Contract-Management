@@ -33,7 +33,7 @@ derive_data_dir() {
   if [ -n "${DATA_DIR:-}" ]; then printf '%s' "${DATA_DIR}"; return; fi
   local compose="${CMS_DIR}/docker-compose.yml" host=""
   if [ -f "${compose}" ]; then
-    host="$(sed -n -E 's/^[[:space:]]*-[[:space:]]*([^:#[:space:]]+):\/data[[:space:]]*$/\1/p' "${compose}" | head -1)"
+    host="$(sed -n -E 's/^[[:space:]]*-[[:space:]]*([^:#[:space:]]+):\/data[[:space:]]*(#.*)?$/\1/p' "${compose}" | head -1)"
   fi
   if [ -n "${host}" ]; then printf '%s' "${host}"; return; fi
   echo "[$(date '+%F %T')] WARN: 未配置 DATA_DIR，且未能从 ${compose} 解析 /data 挂载，回退 ${CMS_DIR}/data" >&2

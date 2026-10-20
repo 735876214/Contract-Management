@@ -13,10 +13,11 @@ import { ReadOutlined } from '@ant-design/icons';
 import { notificationApi } from '@/api/modules';
 import { useTable } from '@/hooks/useTable';
 
+// 值必须是后端认的 'true'/'false'（`query.isRead === 'true'`）；
+// 早前写成 'read'/'unread' 时筛选恒不生效（后端只按 'true' 判断）。
 const READ_OPTIONS = [
-  { value: '', label: '全部' },
-  { value: 'unread', label: '未读' },
-  { value: 'read', label: '已读' },
+  { value: 'false', label: '未读' },
+  { value: 'true', label: '已读' },
 ];
 
 export default function Messages() {
@@ -43,7 +44,7 @@ export default function Messages() {
       }
     >
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} form={queryForm} onFinish={(v) => search(v)}>
-        <Form.Item name="read" label="是否已读">
+        <Form.Item name="isRead" label="是否已读">
           <Select style={{ width: 160 }} options={READ_OPTIONS} allowClear />
         </Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
@@ -68,10 +69,10 @@ export default function Messages() {
           { title: '业务类型', dataIndex: 'bizType', width: 140 },
           {
             title: '已读状态',
-            dataIndex: 'read',
+            dataIndex: 'isRead',
             width: 110,
             render: (v: any, row: any) =>
-              row.read || v ? <Tag color="green">已读</Tag> : <Tag color="red">未读</Tag>,
+              row.isRead || v ? <Tag color="green">已读</Tag> : <Tag color="red">未读</Tag>,
           },
           { title: '创建时间', dataIndex: 'createdAt', width: 180 },
           {
@@ -79,7 +80,7 @@ export default function Messages() {
             width: 110,
             fixed: 'right',
             render: (_: any, row: any) =>
-              row.read ? (
+              row.isRead ? (
                 <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>
               ) : (
                 <Button type="link" size="small" onClick={() => markRead(row.id)}>标记已读</Button>

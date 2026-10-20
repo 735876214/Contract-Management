@@ -1285,7 +1285,9 @@ export class ContractService {
     // 补充协议：`Contract.parentContract` 外键是 ON DELETE SET NULL（schema 未声明 onDelete），
     // 删主合同不会删子合同，只会把 parentContractId 清空 → 留下无主的补充协议，
     // 其编号还占着「主编号（N）」的位，后续按 parentContractId 计数取号会撞 code 唯一键。
-    const supplements = await this.prisma.contract.count({ where: { projectId, parentContractId: { in: chainIds } } });
+    // ⚠️ 只能数**直接下级**：`contractChainIds()` 返回的恒是 [链根, …链根的补充协议]，
+    //    用 `in: chainIds` 会把被删对象自己（当它本身就是补充协议时）也数进去 → 补充协议永远删不掉。
+    const supplements = await this.prisma.contract.count({ where: { projectId, parentContractId: id } });
     if (receipts + settlements + daily + finals + invoices + payments + milestones > 0) {
       throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点），不能删除合同，请改为归档');
     }
