@@ -45,8 +45,14 @@ const renderCompliance = (v: any) => {
   return <span style={{ color: 'var(--cms-error)' }}>{v}</span>;
 };
 
+/**
+ * 百分比列：后端存的是**小数**（税率 0.13、付款比例 0.65），导出侧用的也是 `0.00%` 格式；
+ * 这里必须乘 100，否则页面显示 0.13%（合同页/导出显示 13.00%），同一份数据两种口径。
+ */
+const pct = (v: any) => (v == null || v === '' ? '-' : `${(Number(v) * 100).toFixed(2)}%`);
+
 const renderCell = (key: string, v: any) => {
-  if (key === 'taxRate') return v == null ? '-' : `${v}%`;
+  if (key === 'taxRate' || key === 'currentPayRatio') return pct(v);
   if (/amount$/i.test(key) || /debt/i.test(key) || key === 'amount') return money(v);
   if (key === 'yearSettle' || key === 'yearPaid') return renderYearMap(v);
   if (key === 'compliance') return renderCompliance(v);

@@ -41,7 +41,8 @@ export default function Invoices() {
   /** 筛选用字典选项 */
   const [dicts, setDicts] = useState<Record<string, DictOption[]>>({});
   useEffect(() => {
-    contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
+    // 用轻量 options 接口：列表接口的 pageSize 上限是 500，合同超过 500 份时后续合同在下拉里会静默消失
+    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
     const types = ['goods_category', 'invoice_type', 'invoice_status', 'invoice_review_status'];
     Promise.all(types.map((t) => dictApi.options(t).catch(() => []))).then((lists) => {
       const map: Record<string, DictOption[]> = {};

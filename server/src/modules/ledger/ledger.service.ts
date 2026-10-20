@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, fmtDate, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere } from '../../constants/statuses';
@@ -247,9 +247,25 @@ export class LedgerService {
     return this.columns();
   }
 
+  /**
+   * 汇总与导出要的是**全量**台账行。不能 `findAll({ pageSize: 2000/5000 })` 一把梭：
+   * `paginate` 会把 take 夹到单页上限（500），合同数超过上限时统计卡片与导出文件都静默少算/少行。
+   * 这里按页拉到底（页数上限 1000 是保险丝，正常不会触到）。
+   */
+  private async allRows(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const batch = (res.list || []) as any[];
+      out.push(...batch);
+      if (!batch.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async summary(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
-    const list = res.list as any[];
+    const list = await this.allRows(projectId);
     const sumBy = (key: string) => list.reduce((s, r) => s + (Number(r[key]) || 0), 0);
     return {
       contractCount: list.length,
@@ -299,10 +315,10 @@ export class LedgerService {
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
+    const list = await this.allRows(projectId);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const years = this.exportYears(res.list as any[]);
-    const rows = (res.list as any[]).map((r) => ({
+    const years = this.exportYears(list);
+    const rows = list.map((r) => ({
       ...r,
       settleRatioPct: r.settleRatio !== null && r.settleRatio !== undefined ? r.settleRatio / 100 : null,
       paidRatioPct: r.paidRatio !== null && r.paidRatio !== undefined ? r.paidRatio / 100 : null,

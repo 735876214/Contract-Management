@@ -27,7 +27,8 @@ const LIST_PATH = '/settlement/payment-procedure';
 export default function PaymentProcedures() {
   const [contracts, setContracts] = useState<any[]>([]);
   useEffect(() => {
-    contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
+    // 用轻量 options 接口：列表接口的 pageSize 上限是 500，合同超过 500 份时后续合同在下拉里会静默消失
+    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
   }, []);
   const contractOptions = useMemo(
     () => contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),

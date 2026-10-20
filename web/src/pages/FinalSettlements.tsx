@@ -39,7 +39,8 @@ export default function FinalSettlements() {
   };
 
   useEffect(() => {
-    contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
+    // 用轻量 options 接口：列表接口的 pageSize 上限是 500，合同超过 500 份时后续合同在下拉里会静默消失
+    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
     load(undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

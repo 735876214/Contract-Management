@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -47,13 +47,34 @@ export class RepaymentService {
     return a;
   }
 
-  /** 生成协议编号：前缀 + 年月 + 4 位流水（项目内唯一） */
+  /**
+   * 生成协议编号：前缀 + 年月 + 4 位流水（项目内唯一）。
+   *
+   * 取「该年月已有编号里的最大流水 + 1」，**不能**用 `count + 1`：删掉中间一条后
+   * count 变小、建议号回退到已占用的号（HK-…-0001/0002/0003 删 0001 → 建议 0003），
+   * 而 create 先 checkCode 再建，按系统建议号保存会被 400「编号已存在」顶回来。
+   * 并发时两个请求仍可能算出同一个号，故逐个试到可用为止（表上有唯一键兜底）。
+   */
   async suggestCode(projectId: string) {
     const prefix = await this.sysParam.get('repayment.code.prefix', 'HK');
     const now = new Date();
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const count = await this.prisma.repaymentAgreement.count({ where: { projectId } });
-    return `${prefix}-${ym}-${String(count + 1).padStart(4, '0')}`;
+    const head = `${prefix}-${ym}-`;
+    const rows = await this.prisma.repaymentAgreement.findMany({
+      where: { projectId, code: { startsWith: head } },
+      select: { code: true },
+    });
+    let max = 0;
+    for (const r of rows) {
+      const n = Number(String(r.code).slice(head.length));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    for (let i = 0; i < 50; i += 1) {
+      const code = `${head}${String(max + 1 + i).padStart(4, '0')}`;
+      const dup = await this.prisma.repaymentAgreement.findFirst({ where: { projectId, code }, select: { id: true } });
+      if (!dup) return code;
+    }
+    throw new BadRequestException('还款协议编号生成失败，请手动填写编号');
   }
 
   async checkCode(code: string, projectId: string, excludeId?: string) {
@@ -143,8 +164,24 @@ export class RepaymentService {
     return true;
   }
 
+  /**
+   * 导出用全量协议（分页取）：`findAll({ pageSize: 2000 })` 会被 `paginate` 夹到单页上限，
+   * 协议数超过上限时导出文件**静默**少行，且没有任何提示。
+   */
+  private async allAgreements(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const batch = (res.list || []) as any[];
+      out.push(...batch);
+      if (!batch.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const list = await this.allAgreements(projectId);
     const columns = [
       { header: '签订协议编号', key: 'code', width: 20 },
       { header: '供应商名称', key: 'supplierName', width: 28 },
@@ -159,7 +196,7 @@ export class RepaymentService {
     ];
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
     const rows: any[] = [];
-    (res.list as any[]).forEach((a) => {
+    list.forEach((a) => {
       rows.push({
         code: a.code, supplierName: a.supplier?.name, material: a.material, signDate: fmt(a.signDate),
         settleAmount: num(a.settleAmount), agreedDebtAmount: num(a.agreedDebtAmount),
