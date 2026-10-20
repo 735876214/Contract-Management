@@ -124,9 +124,16 @@ export class TemplateService {
     });
     const { variables, ...rest } = data;
     const payload = pickFields(rest, TPL_FIELDS, { label: '合同模板' });
+    /**
+     * 新版本必须留在原归属上（第 9 轮审计）：TPL_FIELDS 含 projectId，
+     * 原来直接展开 payload → 前端在改模板时塞 projectId: null 就能把**项目私有模板
+     * 升成全局模板**（全公司可见），塞别人的 projectId 则把它搬进别的项目。
+     */
+    delete payload.projectId;
     const created = await this.prisma.contractTemplate.create({
       data: {
         ...payload,
+        projectId: old.projectId ?? null,
         name: data.name || old.name,
         categoryCode: data.categoryCode || old.categoryCode,
         version: (max._max.version || 1) + 1,

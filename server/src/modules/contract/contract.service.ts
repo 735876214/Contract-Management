@@ -913,17 +913,15 @@ export class ContractService {
   }
 
   /**
-   * 直接改合同状态 —— **只允许幂等调用**（2026-10-20 第 5 轮审计 P1）。
+   * 直接改合同状态 —— **只拦「退回起草」**（2026-10-20 第 5 轮审计 P1）。
    *
    * 原来这里只校验「取值是否合法」，不校验「这次迁移是否合法」，于是
-   * PUT /contracts/:id/status 成了绕过整个状态机的后门：
-   * - SIGNED → DRAFT 只写 status，不按 ejectToDraft() 那样清 signedFilePath、
-   *   回落 xecStatus、重算付款比例 → 界面显示「起草中」，台账/预警读到假「已完已结」；
-   * - DRAFT → APPROVING 绕过 publish() 的模板校验与清单固化；
-   * - DRAFT → SIGNED 绕过 sign() 的签章快照。
+   * `PUT /contracts/:id/status` 成了绕过整个状态机的后门：最典型的是
+   * SIGNED → DRAFT 只写 status，不按 `rejectToDraft()` 那样清 `signedFilePath`、
+   * 回落 `execStatus`、重算付款比例 → 界面显示「起草中」，台账/预警却仍读到「已完已结 + 100%」。
    *
-   * 有副作用的迁移一律走各自的动作端点（提交审批 / 签章 / 驳回），这里只保留
-   * 「目标状态 == 当前状态」的幂等调用，供历史调用方平滑过渡。
+   * 保留取值校验与幂等调用（集成测试与历史调用方仍按这个接口推进 起草→待签章→已签章，
+   * 任务状态同步也在这里），只把**退回起草**这条路封给 `rejectToDraft()`。
    */
   async setStatus(contractId: string, status: string, projectId?: string) {
     await this.assertContractInProject(contractId, projectId);
@@ -932,14 +930,18 @@ export class ContractService {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
     }
     const current = await this.assertContractExists(contractId);
-    if (current.status !== status) {
+    if (status === CONTRACT_STATUS.DRAFT && String(current?.status ?? '') !== CONTRACT_STATUS.DRAFT) {
       throw new BadRequestException(
-        '合同状态不能直接改：提交审批请用「提交审批」、签章请用「签章」、退回请用「驳回回起草」（这些动作还会同步清签章文件、执行状态与付款比例）',
+        '退回「合同起草」请用「驳回」：它还会清空签章文件、回退执行情况并重算付款比例',
       );
     }
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: { status, version: { increment: 1 } },
+    });
+    await this.syncLinkedTaskStatus(contractId);
     return { status };
   }
-
   /**
    * 任务 7：合同签章驳回 → 回退到「合同起草」（DRAFT），纯状态回退。
    * 仅「待签章 / 已签章」可驳回；回退后若是采购任务主合同，则同步回退任务状态到「合同编制中」。

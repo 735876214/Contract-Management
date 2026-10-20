@@ -183,7 +183,13 @@ export class DictService {
         throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），停用后历史数据将无法编辑；请先确认或改用新选项后再停用`);
       }
     }
-    const updated = await this.prisma.dictItem.update({ where: { id }, data });
+    /**
+     * 编码/类型是引用锚点，不允许经编辑改（第 9 轮审计）：把 `itemCode` 从 A 改成 B，
+     * 库里存量数据仍写着 A → 引用检查从此永远查不到、历史行标签变空。
+     * 需要换编码请新建一项、把老项停用（有引用的老项本就删不掉）。
+     */
+    const { itemCode: _code, typeCode: _type, id: _id, ...patch } = data || {};
+    const updated = await this.prisma.dictItem.update({ where: { id }, data: patch });
     await this.refreshCache(item.typeCode);
     return updated;
   }
