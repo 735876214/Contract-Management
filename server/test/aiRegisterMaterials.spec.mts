@@ -41,23 +41,28 @@ test('materialRowsFromItems：合价缺失时用数量 × 单价补齐', () => {
   assert.equal(rows[0].totalWithTax, 70);
 });
 
-test('materialRowsFromItems：缺名称与重复行被丢弃并计数', () => {
-  const { rows, skipped } = materialRowsFromItems(
+test('materialRowsFromItems：缺名称的行被丢弃并计数；同名单规格合并而不是丢弃', () => {
+  const { rows, skipped, merged } = materialRowsFromItems(
     [
       { name: '', amountWithTax: 99 },
-      { name: '马甲', spec: 'M', amountWithTax: 10 },
-      { name: '马甲', spec: 'M', amountWithTax: 10 },
+      { name: '马甲', spec: 'M', qty: 10, amountWithTax: 100 },
+      { name: '马甲', spec: 'M', qty: 5, amountWithTax: 60 },
       { name: '马甲', spec: 'L', amountWithTax: 12 },
     ],
     13,
   );
   assert.equal(rows.length, 2);
-  assert.equal(skipped, 2);
+  assert.equal(skipped, 1);
+  assert.equal(merged, 1);
   assert.deepEqual(
     rows.map((r) => r.spec),
     ['M', 'L'],
   );
-  // 序号连续，不受丢弃影响
+  // 合并：数量相加、金额相加、单价按合并合价回算（160 / 15 ≈ 10.6667）
+  assert.equal(rows[0].qty, 15);
+  assert.equal(rows[0].totalWithTax, 160);
+  assert.equal(rows[0].priceWithTax, 10.6667);
+  // 序号连续，不受丢弃/合并影响
   assert.deepEqual(
     rows.map((r) => r.sortOrder),
     [1, 2],

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { ContractService } from '../contract/contract.service';
 import { SupplierService } from '../supplier/supplier.service';
@@ -9,8 +9,10 @@ import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
 import { looksLikeContract } from './docx-text';
 import { chatJson, LlmError } from './llm-client';
 import { materialRowsFromItems } from './register-materials';
-import { normalizeExtraction, type RegisterDraft } from './register-fields';
+import { isRealDay, normalizeExtraction, taxRateFraction, type RegisterDraft } from './register-fields';
 import { buildRegisterMessages } from './register-prompt';
+import { assertPermission } from '../../common/utils/assert-permission';
+import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 
 /** 一次登记的解析结果：**不落库**，等人在前端确认后才写 */
 export interface RegisterParseResult {
@@ -52,8 +54,10 @@ export interface RegisterConfirmResult {
   materialCount: number;
   /** 新建的物资主数据条数（其余为匹配已有） */
   materialBaseCreated: number;
-  /** 因缺名称/重复被丢弃的明细行数 */
+  /** 因缺名称被丢弃的明细行数 */
   materialSkipped: number;
+  /** 因「名称 + 规格」重复而**合并**（数量/金额相加）的明细行数 */
+  materialMerged: number;
 }
 
 /**
@@ -140,6 +144,8 @@ export class RegisterService {
       raw = res.data;
     } catch (e: any) {
       const msg = e instanceof LlmError ? e.message : String(e?.message || e);
+      // 失败不占额度（2026-10-20 审计 P2）：否则上游故障会把用户的每小时额度烧光
+      this.quota.refund(userId);
       this.logger.warn(`合同解析失败：${msg}`);
       return {
         aiEnabled: true,
@@ -163,7 +169,7 @@ export class RegisterService {
       draft.warnings.push(`正文较长已截断（共 ${doc.chars} 字），靠后的条款可能没被识别`);
     }
 
-    const existing = await this.findExisting(draft);
+    const existing = await this.findExisting(draft, ctx.projectId);
     if (existing.contractCode) draft.warnings.push(`合同编号 ${existing.contractCode} 已存在，登记会因编号重复被拒绝`);
     if (existing.supplierName) draft.warnings.push(`供应商「${existing.supplierName}」已存在，登记时将关联已有记录`);
 
@@ -180,7 +186,7 @@ export class RegisterService {
     };
   }
 
-  private async findExisting(draft: RegisterDraft): Promise<RegisterParseResult['existing']> {
+  private async findExisting(draft: RegisterDraft, projectId: string): Promise<RegisterParseResult['existing']> {
     const out: RegisterParseResult['existing'] = {};
     const supplierName = draft.fields.find((f) => f.key === 'supplier.name')?.value;
     const code = draft.fields.find((f) => f.key === 'contract.code')?.value;
@@ -192,10 +198,13 @@ export class RegisterService {
       }
     }
     if (code) {
-      const hit = await this.prisma.contract.findFirst({ where: { code } });
-      if (hit) {
-        out.contractId = hit.id;
-        out.contractCode = hit.code;
+      // 查重口径必须跟 `ContractService.checkCode` 一致（GLOBAL / PROJECT 由系统参数决定），
+      // 否则 scope=PROJECT 时会跨项目误报「编号已存在」（2026-10-20 审计 P1-3）
+      const { exists } = await this.contracts.checkCode(code, projectId);
+      if (exists) {
+        const hit = await this.prisma.contract.findFirst({ where: { projectId, code } });
+        out.contractId = hit?.id;
+        out.contractCode = hit?.code || code;
       }
     }
     return out;
@@ -223,49 +232,64 @@ export class RegisterService {
     if (amount === null || amount < 0) throw new BadRequestException('合同金额必须是不小于 0 的数字');
 
     const signDate = str(c.signDate);
-    if (signDate && !/^\d{4}-\d{2}-\d{2}$/.test(signDate)) {
-      throw new BadRequestException('签订日期格式应为 YYYY-MM-DD');
+    // 格式之外还要校验日期真实存在（2026-10-20 审计 P2）：2026-02-30 会被 Date 静默归一成 3-02
+    if (signDate && !isRealDay(signDate)) {
+      throw new BadRequestException('签订日期不是有效日期（应为 YYYY-MM-DD，例如 2026-02-28）');
     }
     const taxRatePct = num(c.taxRatePct);
-    const taxRate = taxRatePct === null ? null : Math.round(taxRatePct) / 100;
+    const rate = taxRateFraction(taxRatePct);
+    if (rate.error) throw new BadRequestException(rate.error);
+    const taxRate = rate.value;
 
-    // 1) 供应商：优先复用（前端已选 / 库里同名），否则新建
+    // 1) 供应商：前端已选 → 校验存在；否则按名字复用，缺的**在事务里**新建
+    //    （2026-10-20 审计 P1-6：原来在事务外建，合同失败会留下无合同的孤儿供应商）
     let supplierId: string | null = input?.supplierId ? String(input.supplierId) : null;
-    let supplierCreated = false;
     if (supplierId) {
       const hit = await this.prisma.supplier.findFirst({ where: { id: supplierId } });
       if (!hit) throw new BadRequestException('选择的供应商不存在');
-    } else if (!input?.skipSupplier) {
-      const supplierName = str(s.name);
-      if (supplierName) {
-        const same = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
-        if (same) {
-          supplierId = same.id;
-        } else {
-          const created = await this.suppliers.create(
-            {
-              name: supplierName,
-              legalPerson: str(s.legalPerson),
-              bankName: str(s.bankName),
-              bankAccount: str(s.bankAccount),
-              address: str(s.address),
-              contactName: str(s.contactName),
-              contactPhone: str(s.contactPhone),
-              contactEmail: str(s.contactEmail),
-            },
-            ctx.projectId,
-          );
-          supplierId = created.id;
-          supplierCreated = true;
-        }
-      }
+    }
+    const supplierName = str(s.name);
+    const willCreateSupplier = !supplierId && !input?.skipSupplier && Boolean(supplierName);
+    // 2026-10-20 审计 P1-2：建供应商是「供应商管理」的写动作，守卫的 OR 语义
+    // （contract:edit 或 supplier:edit）不足以保证这一点，这里按动作追加校验。
+    if (willCreateSupplier) {
+      assertPermission(
+        user,
+        'supplier:edit',
+        '新增供应商需要「供应商-编辑」权限：可以改选已有供应商，或请管理员授权后再登记',
+      );
     }
 
-    // 2) 合同 + 3) 物资明细：同一个事务。
+    // 2) 供应商（新建时）+ 合同 + 3) 物资明细：同一个事务。
     // 不同事务时，物资行写到一半失败会留下「合同已建、明细只写了一半」的半成品，
     // 再点确认又会被合同编号唯一键拦下（物资明细永远补不上，只能人修库）。
     const written = await this.prisma.$transaction(
       async (tx) => {
+        let supplierCreated = false;
+        if (willCreateSupplier) {
+          const same = await tx.supplier.findFirst({ where: { name: supplierName } });
+          if (same) {
+            supplierId = same.id;
+          } else {
+            const created = await this.suppliers.create(
+              {
+                name: supplierName,
+                legalPerson: str(s.legalPerson),
+                bankName: str(s.bankName),
+                bankAccount: str(s.bankAccount),
+                address: str(s.address),
+                contactName: str(s.contactName),
+                contactPhone: str(s.contactPhone),
+                contactEmail: str(s.contactEmail),
+              },
+              ctx.projectId,
+              tx as any,
+            );
+            supplierId = created.id;
+            supplierCreated = true;
+          }
+        }
+
         const contract = await this.contracts.create(
           {
             code,
@@ -279,22 +303,25 @@ export class RegisterService {
             paymentMode: str(c.paymentMode) || null,
             materialDescription: str(c.materialDescription) || null,
             remark: str(c.remark) || null,
-            execStatus: 'EXECUTING',
+            execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING,
           },
           ctx.projectId,
           user,
           tx as any,
         );
 
-        // 物资明细：用户勾选才写。物资主数据按「名称 + 规格」匹配，缺的先建再挂明细
+        // 物资明细：用户勾选才写。物资主数据按「名称 + 规格」匹配，缺的先建再挂明细；
+        // 只复用**未停用**的主数据（停用项再被 AI 挂上明细，等于绕过停用约束）
         let materialCount = 0;
         let materialBaseCreated = 0;
         let materialSkipped = 0;
+        let materialMerged = 0;
         if (input?.writeMaterials && Array.isArray(input.items) && input.items.length) {
-          const { rows, skipped } = materialRowsFromItems(input.items, taxRatePct);
+          const { rows, skipped, merged } = materialRowsFromItems(input.items, taxRatePct);
           materialSkipped = skipped;
+          materialMerged = merged;
           for (const r of rows) {
-            let base = await tx.materialBase.findFirst({ where: { name: r.name, spec: r.spec } });
+            let base = await tx.materialBase.findFirst({ where: { name: r.name, spec: r.spec, status: 1 } });
             if (!base) {
               base = await tx.materialBase.create({
                 data: { name: r.name, spec: r.spec, unit: r.unit || null, remark: '由 AI 文件登记自动创建' },
@@ -318,11 +345,11 @@ export class RegisterService {
             materialCount += 1;
           }
         }
-        return { contract, materialCount, materialBaseCreated, materialSkipped };
+        return { contract, materialCount, materialBaseCreated, materialSkipped, materialMerged, supplierCreated };
       },
       { timeout: 60000 },
     );
-    const { contract, materialCount, materialBaseCreated, materialSkipped } = written;
+    const { contract, materialCount, materialBaseCreated, materialSkipped, materialMerged, supplierCreated } = written;
 
     return {
       supplierId,
@@ -333,6 +360,7 @@ export class RegisterService {
       materialCount,
       materialBaseCreated,
       materialSkipped,
+      materialMerged,
     };
   }
 }

@@ -40,13 +40,27 @@ export default function AiSettings() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiSettingTestResult | null>(null);
   const [form] = Form.useForm();
+  /** 用户是否动过「启用」开关：没动过就不把 enabled 写进库（见 collect 的注释） */
+  const [enabledTouched, setEnabledTouched] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const v = await aiApi.getSetting();
       setView(v);
-      form.setFieldsValue({ enabled: v.enabled, baseUrl: v.baseUrl, model: v.model, apiKey: '' });
+      /**
+       * 开关显示的是**意图**，不是「当前是否可用」：
+       * `view.enabled` 在「字段没填全」时也是 false，若直接把它回填成关闭，用户填完剩下的项点保存
+       * 会把 `enabled:false` 显式写进库，AI 反而一直起不来（2026-10-20 审计 P2）。
+       * 所以只有库里**显式存过**开关时才回填它的值，否则默认显示「开」。
+       */
+      form.setFieldsValue({
+        enabled: v.source.enabled === 'db' ? v.enabled : true,
+        baseUrl: v.baseUrl,
+        model: v.model,
+        apiKey: '',
+      });
+      setEnabledTouched(false);
     } finally {
       setLoading(false);
     }
@@ -72,10 +86,14 @@ export default function AiSettings() {
   const collect = (): AiSettingInput => {
     const v = form.getFieldsValue();
     const body: AiSettingInput = {
-      enabled: Boolean(v.enabled),
       baseUrl: String(v.baseUrl ?? '').trim(),
       model: String(v.model ?? '').trim(),
     };
+    /**
+     * 只有「用户动过开关」或「库里本来就存着开关」时才提交 enabled。
+     * 否则不提交 → 库里保持未登记状态，等三项填齐后自动启用，不会因为一次保存被钉死成关闭。
+     */
+    if (enabledTouched || view?.source.enabled === 'db') body.enabled = Boolean(v.enabled);
     const key = String(v.apiKey ?? '').trim();
     if (key) body.apiKey = key;
     return body;
@@ -158,14 +176,14 @@ export default function AiSettings() {
           </Space>
         }
       >
-        <Form form={form} layout="vertical" initialValues={{ enabled: false }}>
+        <Form form={form} layout="vertical" initialValues={{ enabled: true }}>
           <Form.Item
             name="enabled"
             label="启用 AI 功能"
             valuePropName="checked"
             extra="关闭后全站 AI 入口保留但调用会被拦下，不会产生费用"
           >
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+            <Switch checkedChildren="启用" unCheckedChildren="停用" onChange={() => setEnabledTouched(true)} />
           </Form.Item>
 
           <Form.Item

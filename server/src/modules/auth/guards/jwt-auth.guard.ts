@@ -37,7 +37,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
      * 请求未带项目上下文时不在这里拦（由 `ProjectId` 装饰器给出明确 400）。
      */
     const request = context.switchToHttp().getRequest();
-    const projectId = request.headers['x-project-id'] || request.query?.projectId || request.body?.projectId;
+    /**
+     * ⚠️ **只认 header 与 query，绝不读 body**（2026-10-20 审计 P1）。
+     *
+     * 守卫跑在 multer 之前：multipart 请求的 `req.body` 此刻还是空对象，于是
+     * 「没读到 projectId」被放行；而参数装饰器在 handler 阶段又能读到 `body.projectId`，
+     * 攻击者只要不带 `x-project-id`、把项目 ID 放进表单字段，就能读别的项目的数据。
+     * body 里的 projectId 一律不作数（前端所有请求都带 header；`window.open` 下载走 query，
+     * query 在守卫阶段可见，因此仍会被成员关系校验）。
+     */
+    const projectId = request.headers['x-project-id'] || request.query?.projectId;
+    // 定上下文：装饰器只读这里，避免「守卫校验 A 项目、handler 用 B 项目」的口径分裂
+    if (projectId) request.projectId = String(projectId);
     if (!projectId) return ok;
     const path: string = request.originalUrl || request.url || '';
     if (PROJECT_CHECK_SKIP_PREFIXES.some((prefix) => path.startsWith(prefix))) return ok;

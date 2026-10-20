@@ -136,7 +136,14 @@ export class AiService {
   /** xlsx → 文本矩阵（只读；跳过合并从属格与空串） */
   private async readCells(buffer: Buffer): Promise<{ wb: ExcelJS.Workbook; sheetNames: string[]; cells: FormCell[] }> {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer as any);
+    try {
+      await wb.xlsx.load(buffer as any);
+    } catch (e: any) {
+      // 损坏文件 / 加密文件 / 其实是 csv 改名：ExcelJS 抛的英文异常会变成 500，换成能指导用户的话
+      throw new BadRequestException(
+        `这个文件打不开（${String(e?.message || e).slice(0, 120)}）：请确认是 Excel 另存的 .xlsx，未设置密码，且没有损坏`,
+      );
+    }
     const cells: FormCell[] = [];
     const sheetNames: string[] = [];
     wb.eachSheet((ws) => {
@@ -239,6 +246,8 @@ export class AiService {
       suggestions = normalizeMapping(data, candByIndex.size);
     } catch (e) {
       const msg = e instanceof LlmError ? e.message : (e as Error)?.message || 'AI 调用失败';
+      // 失败不占额度（2026-10-20 审计 P2）
+      this.quota.refund(userId);
       return { ...base, aiMessage: `${msg}（可手工映射继续）` };
     }
 

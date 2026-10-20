@@ -214,7 +214,7 @@ export class FieldResolverService {
 
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
       rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0);
-    const r2 = (n: number): number => Math.round(n * 100) / 100;
+    const r2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
     const settlementAmountTotal = r2(sum(settlements, (r) => r.actualAmount ?? r.amount));
     const paymentAmountTotal = r2(sum(payments, (r) => r.amount));

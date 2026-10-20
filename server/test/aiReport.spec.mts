@@ -134,24 +134,26 @@ describe('factsToMarkdown：事实清单要能直接抄', () => {
 });
 
 describe('auditReport：材料里的数字必须来自系统数据', () => {
-  it('引用事实清单里的数字不报案', () => {
+  it('引用事实清单里的数字不报案（金额与计数都核）', () => {
     const text = '## 一、经营概况\n本月新签 2 份合同，金额 36476.97 元；累计已付款 500000.00 元。';
     const r = auditReport(text, facts);
     assert.deepEqual(r.unknown, []);
-    // 「2 份」这类带量词的是计数，按规则不参与对账，只核金额
-    assert.ok(r.checked >= 2);
+    // 「2 份」现在是参与对账的（contractsSigned=2 在清单里），所以 checked 把计数也算上
+    assert.ok(r.checked >= 3);
   });
 
   it('编造的数字必须被抓出来（这是本模块存在的理由）', () => {
     const text = '本月新签 4 份合同，同比增长 15%，金额 88888.88 元。';
     const r = auditReport(text, facts);
     assert.ok(r.unknown.includes('88888.88'), `未知金额未被识别：${JSON.stringify(r.unknown)}`);
-    // 已知局限：份数/百分比与单位的组合太容易和日期、序号混淆，只核金额层面的数字
-    assert.equal(r.unknown.includes('15'), false);
+    // 2026-10-20 审计 P2：量词与百分号不再跳过，编造的份数与百分比也要抓
+    assert.ok(r.unknown.includes('4'), `编造的份数未被识别：${JSON.stringify(r.unknown)}`);
+    assert.ok(r.unknown.includes('15'), `编造的百分比未被识别：${JSON.stringify(r.unknown)}`);
   });
 
-  it('日期、百分比、量词不算金额，不参与对账', () => {
-    const text = '2026 年 8 月完成 26 条日报，结算覆盖率 65%，涉及 12 家供应商。';
+  it('真实的计数与百分比不报案；百分比容许取整', () => {
+    // 26 条日报、12 份合同都在清单里；82.38% 被模型写成 82% 属合理取整
+    const text = '2026 年 8 月完成 26 条日报，涉及 12 家供应商，金额环比增长 82%。';
     const r = auditReport(text, facts);
     assert.deepEqual(r.unknown, []);
   });
@@ -163,7 +165,7 @@ describe('auditReport：材料里的数字必须来自系统数据', () => {
   });
 
   it('日期里的数字（含负号片段）不算金额', () => {
-    const r = auditReport('统计区间：2026-08-01 至 2026-10-19，共 80 天。', facts);
+    const r = auditReport('统计区间：2026-08-01 至 2026-10-19，共 26 天。', facts);
     assert.deepEqual(r.unknown, []);
   });
 

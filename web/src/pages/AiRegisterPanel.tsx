@@ -45,6 +45,7 @@ export default function AiRegisterPanel() {
     materialCount?: number;
     materialBaseCreated?: number;
     materialSkipped?: number;
+    materialMerged?: number;
   } | null>(null);
   /** 明细是否随登记一起写库（默认写：用户要的就是「登记完明细也在」） */
   const [writeMaterials, setWriteMaterials] = useState(true);
@@ -256,7 +257,7 @@ export default function AiRegisterPanel() {
               message={`已登记合同 ${done.code}（${done.name}）`}
               description={
                 done.materialCount
-                  ? `已写入物资明细 ${done.materialCount} 行${done.materialBaseCreated ? `（其中 ${done.materialBaseCreated} 条物资主数据为本次新建）` : ''}${done.materialSkipped ? `，${done.materialSkipped} 行因缺名称/重复被跳过` : ''}。可以到「合同管理」里继续补付款安排、条款与附件。`
+                  ? `已写入物资明细 ${done.materialCount} 行${done.materialBaseCreated ? `（其中 ${done.materialBaseCreated} 条物资主数据为本次新建）` : ''}${done.materialMerged ? `，${done.materialMerged} 行因名称与规格重复已合并（数量与金额相加）` : ''}${done.materialSkipped ? `，${done.materialSkipped} 行因缺名称被跳过` : ''}。可以到「合同管理」里继续补付款安排、条款与附件。`
                   : '可以到「合同管理」里继续补付款安排、条款与附件。'
               }
             />

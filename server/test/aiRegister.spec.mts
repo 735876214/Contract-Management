@@ -6,10 +6,12 @@ import {
   foldText,
   guessContractType,
   guessPaymentMode,
+  isRealDay,
   normalizeDateText,
   normalizeExtraction,
   normalizeMoneyText,
   normalizePercentText,
+  taxRateFraction,
   textHasDate,
   textHasMoney,
 } from '../src/modules/ai/register-fields.ts';
@@ -224,5 +226,70 @@ describe('docx-text：document.xml → 带表格结构的文本', () => {
     assert.equal(looksLikeContract('短文本'), false);
     assert.equal(looksLikeContract('这是一份很长的技术方案说明，'.repeat(10)), false);
     assert.equal(looksLikeContract(SAMPLE), true);
+  });
+});
+
+/**
+ * 税率落库换算（2026-10-20 审计 P1-3）。
+ *
+ * 原来 `Math.round(pct)/100`：模型按小数给 `0.13` → round 成 0 → **税率变 0%**；
+ * `13.5` → `0.14`（13.5% 被篡改）。税率错了会连锁污染不含税单价、税额与台账进项税额，
+ * 所以这里既锁「正确换算」也锁「可疑值必须报错而不是静默猜」。
+ */
+describe('税率百分数 → 存库小数', () => {
+  it('整数百分比：13 → 0.13，9 → 0.09', () => {
+    assert.equal(taxRateFraction(13).value, 0.13);
+    assert.equal(taxRateFraction(9).value, 0.09);
+  });
+
+  it('保留小数位：13.5 → 0.135（不再 round 成 0.14）', () => {
+    assert.equal(taxRateFraction(13.5).value, 0.135);
+    assert.equal(taxRateFraction(9.09).value, 0.0909);
+  });
+
+  it('小数形式的百分数按同口径换算：0.13 → 0.13，而不是 0.0013', () => {
+    // 与 normalizePercentText 一致：≤1 视为「0.13 表示 13%」
+    assert.equal(taxRateFraction(0.13).value, 0.13);
+    assert.equal(taxRateFraction(1).value, 1); // 1 = 100%
+  });
+
+  it('0 允许（免税/不征税合同）', () => {
+    assert.equal(taxRateFraction(0).value, 0);
+    assert.equal(taxRateFraction(0).error, undefined);
+  });
+
+  it('负数与超过 100% 一律报错，不截断', () => {
+    assert.ok(taxRateFraction(-1).error);
+    assert.ok(taxRateFraction(1300).error);
+    assert.equal(taxRateFraction(1300).value, null);
+  });
+
+  it('未填 → null（不写税率，而不是写 0）', () => {
+    assert.equal(taxRateFraction(null).value, null);
+    assert.equal(taxRateFraction(undefined).value, null);
+    assert.equal(taxRateFraction(Number.NaN).value, null);
+  });
+});
+
+describe('isRealDay：签订日期必须是真实存在的日期（2026-10-20 审计 P2）', () => {
+  it('正常日期通过', () => {
+    assert.equal(isRealDay('2026-08-01'), true);
+    assert.equal(isRealDay('2024-02-29'), true); // 闰年
+  });
+
+  it('格式对但日期不存在 → 拒绝（不再被 Date 静默归一）', () => {
+    // new Date('2026-02-30') 会变成 3 月 2 日，原实现只校验格式，签订日期被悄悄改掉
+    assert.equal(isRealDay('2026-02-30'), false);
+    assert.equal(isRealDay('2025-02-29'), false); // 平年没有 2-29
+    assert.equal(isRealDay('2026-04-31'), false);
+    assert.equal(isRealDay('2026-13-01'), false);
+    assert.equal(isRealDay('2026-00-10'), false);
+  });
+
+  it('格式不对 / 空值 → 拒绝', () => {
+    assert.equal(isRealDay('2026-8-1'), false);
+    assert.equal(isRealDay('2026/08/01'), false);
+    assert.equal(isRealDay(''), false);
+    assert.equal(isRealDay(null as unknown as string), false);
   });
 });

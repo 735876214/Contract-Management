@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import HTMLtoDOCX from 'html-to-docx';
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
+import { round2 } from '../../common/utils/money';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { AiQuota } from './ai-quota';
 import { type AiConfig } from './ai-config';
@@ -58,7 +59,6 @@ const YMD = (d: Date): string => {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
-const round2 = (n: number): number => Math.round(n * 100) / 100;
 const iso = (v: unknown): string | null => (v ? YMD(new Date(v as string)) : null);
 
 /** 区间内发生的量（不含项目累计） */
@@ -120,6 +120,8 @@ export class ReportService {
       buildReportMessages({ kind, facts, extra: input?.extra }),
     ).catch((e: any) => {
       const msg = e instanceof LlmError ? e.message : String(e?.message || e);
+      // 失败不占额度（2026-10-20 审计 P2）
+      this.quota.refund(userId);
       this.logger.warn(`汇报材料生成失败：${msg}`);
       throw new BadRequestException(`生成失败：${msg}`);
     });
@@ -257,13 +259,23 @@ export class ReportService {
     return String(title || '汇报材料').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
   }
 
+  /**
+   * 统计区间：`YYYY-MM-DD` 按**本地零点**解析。
+   *
+   * ⚠️ 不能写 `new Date(from)`：ISO 日期串会按 **UTC** 解析，容器 TZ 是 Asia/Shanghai 时
+   * 实际起点变成本地 08:00，首日 00:00–08:00 的结算/付款/开票/日报静默漏计，
+   * 而标题写的是整天（2026-10-20 审计 P1-5）。补上 `T00:00:00` 走本地时区解析。
+   */
   private resolvePeriod(from?: string, to?: string): { from: Date; to: Date } {
     const now = new Date();
-    const start = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = to ? new Date(to) : now;
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      throw new BadRequestException('时间范围格式应为 YYYY-MM-DD');
-    }
+    const parseDay = (v: string, label: string): Date => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`);
+      const d = new Date(`${v}T00:00:00`);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${label}不是有效日期：${v}`);
+      return d;
+    };
+    const start = from ? parseDay(from, '开始日期') : new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = to ? parseDay(to, '结束日期') : now;
     if (start > end) throw new BadRequestException('开始日期不能晚于结束日期');
     // 含当天：结束日按 23:59:59.999 取
     const endOfDay = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);

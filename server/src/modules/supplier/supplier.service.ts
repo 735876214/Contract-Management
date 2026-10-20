@@ -73,13 +73,18 @@ export class SupplierService {
     return s;
   }
 
-  async create(data: any, projectId?: string) {
+  /**
+   * 新建供应商。`tx` 用于把「建供应商」并入调用方的事务（AI 文件登记：合同失败时
+   * 不能留下孤儿供应商，2026-10-20 审计 P1-6），不传则走普通连接。
+   */
+  async create(data: any, projectId?: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     if (!data.name) throw new BadRequestException('供应商名称不能为空');
-    const exist = await this.prisma.supplier.findUnique({ where: { name: data.name } });
+    const exist = await db.supplier.findUnique({ where: { name: data.name } });
     if (exist) throw new BadRequestException('供应商名称已存在（系统内唯一）');
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     const payload = pickFields(data, SUPPLIER_FIELDS, { label: '供应商' });
-    return this.prisma.supplier.create({ data: { ...payload, projectId: scope === 'PROJECT' ? projectId : null } });
+    return db.supplier.create({ data: { ...payload, projectId: scope === 'PROJECT' ? projectId : null } });
   }
 
   async update(id: string, data: any) {

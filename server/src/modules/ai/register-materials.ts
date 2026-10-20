@@ -43,6 +43,8 @@ export interface MaterialRowsResult {
   skipped: number;
   /** 由「数量 × 含税单价」补出来的合价行数 */
   filledTotal: number;
+  /** 因「名称 + 规格」重复被**合并**（数量/金额相加）的行数 */
+  merged: number;
 }
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v).trim());
@@ -55,7 +57,7 @@ const pick = (o: Record<string, unknown>, keys: string[]): unknown => {
   }
   return null;
 };
-const round4 = (n: number): number => Math.round(n * 10000) / 10000;
+const round4 = (n: number): number => Math.round((n + Number.EPSILON) * 10000) / 10000;
 
 /** `¥1,234.50` / `1234.5元` / `13%` → 数字（取不到返回 null） */
 export function numOf(v: unknown): number | null {
@@ -72,16 +74,18 @@ const DEFAULT_UNIT = '项';
 /**
  * 抽取明细 → 可直接写 `ContractMaterial` 的行。
  * - 名称缺失的行丢弃并计入 `skipped`；
- * - 同「名称 + 规格」只保留第一行（避免重复行触发唯一约束）；
+ * - 同「名称 + 规格」**合并**（数量与金额相加、单价按合并后合价回算）并计入 `merged`；
+ *   原来是直接丢弃后一行（2026-10-20 审计 P1-4：分批供货的两行只落一行，金额静默变少）；
  * - 合价缺失时用 `数量 × 含税单价` 补齐（并计入 `filledTotal`）；
  * - 税前单价按合同税率反算，税率未知则留空。
  */
 export function materialRowsFromItems(items: unknown, taxRatePct?: number | null): MaterialRowsResult {
   const list: ExtractItem[] = Array.isArray(items) ? (items as ExtractItem[]) : [];
   const rows: MaterialRow[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
   let skipped = 0;
   let filledTotal = 0;
+  let merged = 0;
   const rate = typeof taxRatePct === 'number' && Number.isFinite(taxRatePct) ? taxRatePct : null;
 
   for (const raw of list) {
@@ -93,11 +97,6 @@ export function materialRowsFromItems(items: unknown, taxRatePct?: number | null
     }
     const spec = str(pick(it, ['spec', '规格型号', '规格']));
     const key = `${name}||${spec}`;
-    if (seen.has(key)) {
-      skipped += 1;
-      continue;
-    }
-    seen.add(key);
 
     const qty = numOf(pick(it, ['qty', '数量']));
     const priceWithTax = numOf(pick(it, ['priceWithTax', 'unitPriceWithTax', '含税单价', '单价']));
@@ -106,23 +105,49 @@ export function materialRowsFromItems(items: unknown, taxRatePct?: number | null
       totalWithTax = round4(qty * priceWithTax);
       filledTotal += 1;
     }
-    const priceBeforeTax =
-      priceWithTax !== null && rate !== null && rate > -100 ? round4(priceWithTax / (1 + rate / 100)) : null;
-
-    rows.push({
+    const row: MaterialRow = {
       name,
       spec,
       unit: str(pick(it, ['unit', '计量单位', '单位'])) || DEFAULT_UNIT,
       qty: qty !== null && qty >= 0 ? qty : null,
-      priceBeforeTax,
+      priceBeforeTax: priceWithTax !== null && rate !== null && rate > -100 ? round4(priceWithTax / (1 + rate / 100)) : null,
       priceWithTax: priceWithTax !== null && priceWithTax >= 0 ? priceWithTax : null,
       taxRatePct: rate,
       totalWithTax: totalWithTax !== null && totalWithTax >= 0 ? totalWithTax : null,
       remark: str(pick(it, ['remark', '备注'])) || null,
-      sortOrder: rows.length + 1,
-    });
+      sortOrder: 0,
+    };
+
+    const at = index.get(key);
+    if (at === undefined) {
+      row.sortOrder = rows.length + 1;
+      index.set(key, rows.length);
+      rows.push(row);
+      continue;
+    }
+    merged += 1;
+    mergeRow(rows[at], row, rate);
   }
-  return { rows, skipped, filledTotal };
+  return { rows, skipped, filledTotal, merged };
+}
+
+/** 把重复行并入已有行：数量与金额相加，单价按合并后的合价回落，税前单价重算 */
+function mergeRow(target: MaterialRow, added: MaterialRow, rate: number | null): void {
+  const sum = (a: number | null, b: number | null): number | null =>
+    a === null ? b : b === null ? a : round4(a + b);
+  target.qty = sum(target.qty, added.qty);
+  target.totalWithTax = sum(target.totalWithTax, added.totalWithTax);
+  if (target.qty !== null && target.qty > 0 && target.totalWithTax !== null) {
+    // 分批不同单价时，用「合并后合价 / 合并后数量」得到等效单价，保证明细合计仍等于合同口径
+    target.priceWithTax = round4(target.totalWithTax / target.qty);
+  } else if (target.priceWithTax === null) {
+    target.priceWithTax = added.priceWithTax;
+  }
+  target.priceBeforeTax =
+    target.priceWithTax !== null && rate !== null && rate > -100
+      ? round4(target.priceWithTax / (1 + rate / 100))
+      : null;
+  if (!target.remark && added.remark) target.remark = added.remark;
 }
 
 /** 明细合价合计（用于与合同总价对账，前端也用它展示） */

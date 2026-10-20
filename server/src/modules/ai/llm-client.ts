@@ -121,7 +121,13 @@ interface ChatAttempt {
   usage?: { promptTokens?: number; completionTokens?: number };
 }
 
-/** 单次尝试：发一次请求、判 HTTP 错、抠出 content。不做「空内容」判定（重试逻辑在外面） */
+/**
+ * 单次尝试：发一次请求、判 HTTP 错、抠出 content。不做「空内容」判定（重试逻辑在外面）。
+ *
+ * ⚠️ 超时定时器必须**罩住响应体读取**（2026-10-20 审计 P1-7）：原来拿到响应头就 clearTimeout，
+ * 上游 200 之后慢吐 body 时 `res.json()` 只能等 undici 默认（~300s），而前端 180s 先断，
+ * 用户只看到英文 `timeout of 180000ms exceeded`，配额已扣、上游已计费。
+ */
 async function chatOnce(
   fetchImpl: typeof fetch,
   url: string,
@@ -129,12 +135,13 @@ async function chatOnce(
   messages: LlmMessage[],
   jsonMode: boolean,
   maxTokens: number | undefined,
+  timeoutMs: number = opts.timeoutMs,
 ): Promise<ChatAttempt> {
+  const budget = Math.max(1000, timeoutMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
-  let res: Response;
+  const timer = setTimeout(() => controller.abort(), budget);
   try {
-    res = await fetchImpl(url, {
+    const res = await fetchImpl(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -143,32 +150,33 @@ async function chatOnce(
       body: JSON.stringify(buildChatBody({ ...opts, maxTokens }, messages, jsonMode)),
       signal: controller.signal,
     });
+
+    if (!res.ok) {
+      // 只取前 300 字符：错误体可能是 HTML 网关页，整段塞进日志会把日志页撑爆
+      const detail = await res.text().catch(() => '');
+      throw new LlmError(`AI 上游返回 ${res.status}：${detail.slice(0, 300)}`, 'HTTP', res.status);
+    }
+
+    const body: any = await res.json().catch(() => null);
+    const choice = body?.choices?.[0];
+    return {
+      raw: String(choice?.message?.content ?? ''),
+      reasoning: String(choice?.message?.reasoning_content ?? ''),
+      finish: choice?.finish_reason,
+      usage: {
+        promptTokens: body?.usage?.prompt_tokens,
+        completionTokens: body?.usage?.completion_tokens,
+      },
+    };
   } catch (e: any) {
+    if (e instanceof LlmError) throw e;
     if (e?.name === 'AbortError') {
-      throw new LlmError(`AI 调用超时（>${Math.round(opts.timeoutMs / 1000)}s）`, 'TIMEOUT');
+      throw new LlmError(`AI 调用超时（>${Math.round(budget / 1000)}s）`, 'TIMEOUT');
     }
     throw new LlmError(`AI 调用失败：${e?.message || '网络异常'}`, 'HTTP');
   } finally {
     clearTimeout(timer);
   }
-
-  if (!res.ok) {
-    // 只取前 300 字符：错误体可能是 HTML 网关页，整段塞进日志会把日志页撑爆
-    const detail = await res.text().catch(() => '');
-    throw new LlmError(`AI 上游返回 ${res.status}：${detail.slice(0, 300)}`, 'HTTP', res.status);
-  }
-
-  const body: any = await res.json().catch(() => null);
-  const choice = body?.choices?.[0];
-  return {
-    raw: String(choice?.message?.content ?? ''),
-    reasoning: String(choice?.message?.reasoning_content ?? ''),
-    finish: choice?.finish_reason,
-    usage: {
-      promptTokens: body?.usage?.prompt_tokens,
-      completionTokens: body?.usage?.completion_tokens,
-    },
-  };
 }
 
 /**
@@ -193,7 +201,16 @@ export async function callChat(
   }
 
   const base = opts.maxTokens && opts.maxTokens > 0 ? opts.maxTokens : undefined;
-  const first = await chatOnce(fetchImpl, url, opts, messages, jsonMode, base);
+  /**
+   * 两次尝试**共享一个总预算**（2026-10-20 审计 P1-8）：原来每次各拿满 `timeoutMs`，
+   * 汇报材料那边是 `max(cfg.timeoutMs, 90000)` → 最坏 2×90s=180s，正好撞上前端 axios 的
+   * 180s 上限，客户端必先断。现在剩余预算收敛，最坏 ≈ timeoutMs（第二次至少留 1s）。
+   * 配额只在调用前扣 1 次（防止刷接口），因此这里是 1 次配额 2 次上游调用，日志里会体现。
+   */
+  const deadline = Date.now() + Math.max(1000, opts.timeoutMs);
+  const remaining = () => Math.max(1000, deadline - Date.now());
+
+  const first = await chatOnce(fetchImpl, url, opts, messages, jsonMode, base, remaining());
   if (first.raw) {
     return { raw: first.raw, usage: first.usage };
   }
@@ -202,7 +219,7 @@ export async function callChat(
   const budgetStarved = Boolean(first.reasoning) || first.finish === 'length';
   if (budgetStarved) {
     const retryTokens = Math.min(Math.max((base ?? 2048) * 2, 4096), 32000);
-    const second = await chatOnce(fetchImpl, url, opts, messages, jsonMode, retryTokens);
+    const second = await chatOnce(fetchImpl, url, opts, messages, jsonMode, retryTokens, remaining());
     if (second.raw) {
       return { raw: second.raw, usage: second.usage };
     }

@@ -21,7 +21,12 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
 
-/** 上传限额：单文件 50MB（与 nginx `client_max_body_size 50m`、`files/upload` 同口径）；multer 默认无上限 */
+/**
+ * 上传限额：multer 层 50MB 是**硬上限**（与 nginx `client_max_body_size 50m`、
+ * `files/upload` 同口径），业务上限是 `ai-config.ts` 的 `maxFileBytes`（默认 5MB，可用
+ * `AI_MAX_FILE_BYTES` 调）。两层是有意的：multer 拦「大到会把内存打爆的包」，
+ * service 层给「文件超限」这句人话（2026-10-20 审计 P2 记录过两者不一致，这里写明口径）。
+ */
 const AI_UPLOAD = { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } };
 
 /**
@@ -118,9 +123,11 @@ export class AiController {
 
   /**
    * 把确认过的字段写库（供应商可复用已有 / 新建，合同走 ContractService.create）。
-   * 写库权限按各模块自己的编辑权限判：`ai:use` 只代表"能用 AI"，不代表"能建合同"。
+   * 权限按动作判，**不是「二选一」**：守卫是 OR 语义，写 `('contract:edit','supplier:edit')`
+   * 会让只有 supplier:edit 的岗位也能建合同（2026-10-20 审计 P1）。这里卡 `contract:edit`，
+   * 新建供应商时再由 service 追加校验 `supplier:edit`。
    */
-  @RequirePermissions('contract:edit', 'supplier:edit')
+  @RequirePermissions('contract:edit')
   @Post('register/confirm')
   confirmRegister(@Body() body: RegisterConfirmInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.register.confirm(body, { projectId }, user);

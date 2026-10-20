@@ -23,6 +23,20 @@ export class AiQuota {
     this.hits.set(userId, list);
   }
 
+  /**
+   * 退还一次计数（调用失败时用，2026-10-20 审计 P2）。
+   *
+   * 原来「调用前扣、失败也计」，上游一挂（超时/5xx/空正文）用户连点几下就把
+   * 每小时 60 次烧光并被锁一小时，而他自己一次结果都没拿到。
+   * 现在三个 LLM 入口都在 catch 里退还 —— 失败不占额度，成功才消耗。
+   */
+  refund(userId: string, windowMs = 3600_000): void {
+    const windowStart = Date.now() - windowMs;
+    const list = (this.hits.get(userId) ?? []).filter((t) => t > windowStart);
+    list.pop();
+    this.hits.set(userId, list);
+  }
+
   /** 仅供测试/诊断：当前窗口内已用次数 */
   used(userId: string, windowMs = 3600_000): number {
     const windowStart = Date.now() - windowMs;

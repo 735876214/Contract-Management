@@ -614,8 +614,10 @@ export interface AiRegisterConfirmResult {
   materialCount: number;
   /** 新建的物资主数据条数（其余匹配到已有） */
   materialBaseCreated: number;
-  /** 因缺名称/重复被丢弃的明细行数 */
+  /** 因缺名称被丢弃的明细行数 */
   materialSkipped: number;
+  /** 因「名称 + 规格」重复而合并（数量/金额相加）的明细行数 */
+  materialMerged: number;
 }
 
 

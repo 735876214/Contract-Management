@@ -85,7 +85,7 @@ export interface ReportFacts {
 
 const money = (n: number | null | undefined): string => {
   if (n === null || n === undefined || !Number.isFinite(n)) return '-';
-  return (Math.round(n * 100) / 100).toFixed(2);
+  return (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2);
 };
 
 const pctText = (d: ReportDelta): string =>
@@ -179,8 +179,17 @@ export function deltaOf(now: number, prev: number): ReportDelta {
   return { now: n, prev: p, pct: Math.round(((n - p) / Math.abs(p)) * 10000) / 100 };
 }
 
-/** 后面接这些单位的数字不是「金额」，是日期/序号/量词，不参与对账 */
-const UNIT_TAIL = /^\s*(年|月|日|号|%|％|份|笔|张|条|项|个|家|天|人|次|页|章|节|期|季度)/;
+/**
+ * 后面接这些单位的数字**不是**数据：日期（年/月/日/号）、章节序号（章/节/页）、期间词（期/季度）。
+ *
+ * ⚠️ 2026-10-20 审计 P2：这份名单原来还含 `%` 与 份/笔/张/条/项/个/家/天/人/次，
+ * 等于**所有百分比和所有计数都不参与对账** —— 模型编造「增长 15%」「3 份合同」永远查不出来，
+ * 而对账本来就该覆盖它们（`factNumbers` 里既有计数也有环比 pct）。
+ * 现在只跳过日期与序号，量词与百分号都进对账。
+ */
+const NON_DATA_TAIL = /^\s*(年|月|日|号|期|季度|章|节|页)/;
+/** 百分号尾巴：模型常把 24.97% 写成「25%」，对账要容许四舍五入 */
+const PCT_TAIL = /^\s*[%％]/;
 
 /** 把 Markdown 里的数量/金额扫出来对账，返回系统数据里对不上的那些 */
 export function auditReport(markdown: string, facts: ReportFacts): { unknown: string[]; checked: number } {
@@ -198,13 +207,17 @@ export function auditReport(markdown: string, facts: ReportFacts): { unknown: st
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const tail = text.slice(re.lastIndex, re.lastIndex + 3);
-    if (UNIT_TAIL.test(tail)) continue;
+    if (NON_DATA_TAIL.test(tail)) continue;
+    const isPct = PCT_TAIL.test(tail);
     const value = Number(m[1].replace(/,/g, ''));
     if (!Number.isFinite(value)) continue;
     checked += 1;
     const factor = m[2] ? 10000 : 1;
     const scaled = value * factor;
-    const hit = allowed.some((a) => Math.abs(a - scaled) < 0.011 || Math.abs(a * factor - value) < 0.011);
+    const hit =
+      allowed.some((a) => Math.abs(a - scaled) < 0.011 || Math.abs(a * factor - value) < 0.011) ||
+      // 百分数容许取整（24.97% 写成 25% 不算编造）
+      (isPct && allowed.some((a) => Math.abs(Math.round(a) - value) < 0.51));
     const token = m[0].replace(/\s+/g, '');
     if (!hit && !unknown.includes(token)) unknown.push(token);
   }

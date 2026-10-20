@@ -127,12 +127,24 @@ export class SystemService {
   }
 
   // ---------------- 系统参数 ----------------
+  /**
+   * 敏感参数：**只由「系统管理 → AI 信息登记」页面维护**，通用参数接口既不返回也不接受。
+   *
+   * 2026-10-20 审计 P2：`ai.apiKey` 存在 SysParam 里，通用参数页会把它明文铺在表格中，
+   * 与「密钥只写不读」的口径冲突；而且页面「保存全部」会把别的页面刚改的键覆盖回去。
+   * 这里直接不透出，避免任何读取路径（含导出、日志）带出明文。
+   */
+  private readonly secretParamKeys = new Set(['ai.apiKey']);
+
   async params() {
-    return this.prisma.sysParam.findMany({ orderBy: { key: 'asc' } });
+    const rows = await this.prisma.sysParam.findMany({ orderBy: { key: 'asc' } });
+    return rows.filter((r) => !this.secretParamKeys.has(r.key));
   }
 
   async saveParams(items: { key: string; value?: string }[]) {
     for (const item of items) {
+      // 敏感键不从这里写：否则「读不到值 → 提交空串 → 把密钥清掉」是必然结果
+      if (this.secretParamKeys.has(item.key)) continue;
       await this.sysParam.set(item.key, item.value ?? '');
     }
     await this.sysParam.refresh();
