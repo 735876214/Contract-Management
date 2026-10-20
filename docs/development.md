@@ -93,7 +93,7 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（64 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（66 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -186,6 +186,8 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
   | `test/aiQuota.spec.ts` | **AI 配额（每用户每小时）的计数与失败退还**（2026-10-20 审计 P2：原来调用前扣、失败也计，上游一挂就把额度烧光并锁一小时）：逐次计数 · 达上限抛 429 · `limit<=0` 不限次 · 不同用户各自计数 · `refund` 退还一次后可再调 · 重复退还/从未调用不会退成负数 · 窗口滑过后旧计数失效 |
   | `test/loginThrottle.spec.ts` | **登录失败节流（撞库防护）**（2026-10-20 第 2 轮审计：原来 `login` 只记失败日志、不限制次数，`admin/admin123` 这种默认口令可被跑穿）：键 = `用户名|IP`（用户名去空格转小写，避免大小写各占一个窗口）· 15 分钟内失败 5 次后 `assertNotThrottled` 抛 **429** 且文案带「N 分钟后再试」· 成功一次即清零 · 窗口过期自动放开（不用重启）· 不同账号/不同 IP 互不影响（共用出口 IP 的同事不被连坐）· 单键只保留最近 `maxFailures` 条（长跑不膨胀） |
   | `test/projectScope.spec.ts` | **项目口径收口（跨项目 IDOR）**（2026-10-20 第 3 轮审计：`@ProjectId()` 只回答「能不能进这个项目」，不回答「URL 里这条数据的 id 属不属于它」，于是 `findUnique({ where: { id } })` 成了跨项目读/改/删的入口）：有请求上下文就补 `projectId` · 无上下文（seed/定时任务/单测）保持原样 · 调用方在 `extra` 里塞别的 `projectId` 不能放宽过滤 · 查不到抛 404 且文案不暴露「存在但不属于你」 |
+| `test/money.spec.ts` | **金额/税率的舍入口径**（2026-10-20 第 4 轮审计：`toFixed` 家族是**四舍六入五成双**，`1.005 → 1.00`、`8.85 → 8.8`；`num()` 不拒绝 `Infinity`、`-0`）：`round2/round4` 按「四舍五入」且带 EPSILON 修正 · 大额与负数对称 · `toMoney` 空值/非法值给 null 而不是 0 · 税额、含税/不含税互算在 1e-4 精度内闭合 |
+| `test/commonGuards.spec.ts` | **导入解析 / 附件地址 / 结算状态三个守卫**（2026-10-20 第 8、9 轮审计）：`parseImportDate` 认 `2026年1月31日`、`2026/1/31`、Excel 序列号（45000 → 2023-03-15），识破 `2026-02-30`，空值给 null 而不是 1970 · `pickDictCode` 非空未命中返回 null 由调用方报行级错误（不能静默写 NULL） · `isSafeFileUrl` 只放行站内 `/...` 与 http(s)，`javascript:`/`data:`/`//host` 一律拒 · `assertSettlementProgress` 只允许沿链路前进，回退必须走驳回 |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |

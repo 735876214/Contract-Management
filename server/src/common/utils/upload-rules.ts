@@ -27,3 +27,14 @@ export function isDangerousUploadName(name: unknown): boolean {
   const ext = s.slice(dot);
   return DANGEROUS_UPLOAD_EXTS.includes(ext);
 }
+
+/**
+ * 导入接口的 multer 选项（第 9 轮审计）。
+ *
+ * 这些端点原来用裸 `FileInterceptor('file')`：multer 默认 **memoryStorage + 无大小上限**，
+ * 一个几百 MB 的"xlsx"能直接打满内存（ExcelJS 还会再整包解压一遍），
+ * 而 `assertImportRows` 的行数闸门要等**解析之后**才生效，兜不住内存。
+ * 10MB 足够放几万行常规业务台账；真超了会得到 413/明确的上传上限提示，而不是进程 OOM。
+ */
+export const IMPORT_UPLOAD_LIMITS = { fileSize: 10 * 1024 * 1024, files: 1 } as const;
+export const IMPORT_UPLOAD_OPTIONS = { limits: IMPORT_UPLOAD_LIMITS };

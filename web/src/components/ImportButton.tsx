@@ -128,9 +128,19 @@ export default function ImportButton({
             message.warning(`后台导入未完成：${t.failCount ?? 0} 行校验失败，已全部回滚，未写入任何数据`);
           }
         }
-      } catch {
+      } catch (e: any) {
         if (timerRef.current) clearInterval(timerRef.current);
+        /**
+         * 第 8 轮审计：原来只 setStage('result') 不写失败状态，结果页没有 status，
+         * 渲染分支落到「导入完成：新增 N 行」——断网/接口 500/服务端崩溃都会显示成导入成功。
+         */
+        setResult((r) => ({
+          ...(r || {}),
+          status: 'FAILED',
+          message: e?.message ? `查询后台导入进度失败：${e.message}` : '查不到后台导入进度（网络或服务异常），请稍后到导入记录里确认结果',
+        }));
         setStage('result');
+        message.error('查不到后台导入进度，请稍后到导入记录里确认结果');
       }
     }, 1500);
   };

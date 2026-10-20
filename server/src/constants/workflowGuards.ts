@@ -35,6 +35,41 @@ export function assertContractRejectable(status: string): void {
   }
 }
 
+/**
+ * 结算单状态链（第 5 轮审计）。
+ *
+ * 正序只能往前走；**回退必须走「驳回」**（settlement.service.reject()），
+ * 因为驳回还带两道前置校验：合同已完成总结算（SETTLED）时不许驳回、
+ * 以及台账/发票关联的重算。原来 PUT /settlements/:id 的 statusCode 只做字典校验，
+ * 于是 DONE → DRAFT 一步就能把已完已结合同的月度结算改回草稿，绕过全部守卫。
+ */
+export const SETTLEMENT_STATUS_CHAIN: readonly string[] = [
+  SETTLEMENT_STATUS.DRAFT,
+  SETTLEMENT_STATUS.PENDING,
+  SETTLEMENT_STATUS.CONFIRMED,
+  SETTLEMENT_STATUS.INVOICED,
+  SETTLEMENT_STATUS.PAID,
+  SETTLEMENT_STATUS.DONE,
+];
+
+/** 结算状态只允许「不变」或「沿链路前进」；回退/跳回草稿一律拒绝并提示用驳回 */
+export function assertSettlementProgress(from: string | null | undefined, to: string | null | undefined): void {
+  const cur = String(from ?? SETTLEMENT_STATUS.DRAFT);
+  const next = String(to ?? '');
+  if (cur === next) return;
+  if (next === SETTLEMENT_STATUS.DRAFT) {
+    throw new BadRequestException('不能把结算单直接改回「草稿」：请用「驳回」（它还会校验合同是否已完成总结算）');
+  }
+  const fromIdx = SETTLEMENT_STATUS_CHAIN.indexOf(cur);
+  const toIdx = SETTLEMENT_STATUS_CHAIN.indexOf(next);
+  if (fromIdx < 0 || toIdx < 0) {
+    throw new BadRequestException(`结算状态取值非法：${next}`);
+  }
+  if (toIdx < fromIdx) {
+    throw new BadRequestException(`结算状态不能从「${cur}」回退到「${next}」：请用「驳回」退回草稿后重新提交`);
+  }
+}
+
 /** 结算驳回 → 回填：仅已提交（待确认/已确认/已开票/已付款/已完成）可驳回，草稿不可重复驳回 */
 export function assertSettlementRejectable(statusCode: string): void {
   if (!SETTLEMENT_REJECTABLE_STATUSES.includes(String(statusCode ?? ''))) {

@@ -208,7 +208,16 @@ export class DictService {
   async removeItem(id: string) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
-    const usage = await this.checkItemUsage(item.typeCode, item.itemCode);
+    /**
+     * 第 9 轮审计：这里原来只传 itemCode，而物资基础库的 categoryLevel1/2 存的是字典**名称**，
+     * 名称口径的引用永远查不到 → 被引用的选项能被真删除。必须和 toggleItem/updateItem 一样传 itemName。
+     */
+    if (!this.usageMap[item.typeCode]) {
+      throw new BadRequestException(
+        `字典类型「${item.typeCode}」的引用检查尚未登记（见 dict.service.usageMap），为防止删掉历史数据正在用的选项，不允许删除；请改用「停用」`,
+      );
+    }
+    const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
     if (usage.count > 0) {
       throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），不可删除，仅可停用`);
     }
@@ -267,6 +276,13 @@ export class DictService {
       { model: 'settlementLedger', label: '结算台账', fields: ['isOnAccount'] },
     ],
     contract_template_category: [{ model: 'contractTemplate', label: '合同模板', fields: ['categoryCode'] }],
+    // 第 9 轮审计补登记：这些类型在 schema 里都是字典驱动的列，原来漏登记 → 删除检查恒为 0
+    contract_status: [{ model: 'contract', label: '合同', fields: ['status'] }],
+    contract_sub_type: [{ model: 'contract', label: '合同', fields: ['subTypeCode'] }],
+    final_settlement_status: [{ model: 'finalSettlement', label: '总结算单', fields: ['statusCode'] }],
+    project_member_role: [{ model: 'projectMember', label: '项目成员', fields: ['roleCode'] }],
+    bidder_status: [{ model: 'procurementBidder', label: '投标单位', fields: ['status'] }],
+    doc_template_category: [{ model: 'contractTemplate', label: '单据模板', fields: ['categoryCode'] }],
   };
 
   /** 检查字典项是否被业务数据引用（同时按编码与名称匹配，兼容历史名称口径数据） */

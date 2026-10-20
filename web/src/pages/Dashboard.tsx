@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined } from '@ant-design/icons';
@@ -39,6 +40,14 @@ export default function Dashboard() {
         setTypeStat((c as any[]) || []);
         setReminders((r as any) || {});
         setTodoData(td || { groups: [], total: 0 });
+      })
+      /**
+       * 第 8 轮审计：原来没有 catch —— 任一接口失败（比如 todos 500）整段 then 都不执行，
+       * finally 照样把 loading 关掉，于是 KPI/趋势/待办全渲染成 0 与空图，
+       * 用户分不清「没有数据」和「取数失败」，控制台还留一条 unhandled rejection。
+       */
+      .catch((e: any) => {
+        message.error(e?.message ? `工作台数据加载失败：${e.message}` : '工作台数据加载失败，请稍后重试');
       })
       .finally(() => setLoading(false));
   }, []);

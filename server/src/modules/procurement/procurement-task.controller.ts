@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 /** 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理） */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -139,7 +140,7 @@ export class ProcurementTaskController {
   /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表，并双写结构化投标单位 */
   @RequirePermissions('contract:edit')
   @Post(':id/result-report/import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importResultReport(@Param('id') id: string, @UploadedFile() file: any, @CurrentUser() user: JwtUser) {
     return this.service.importResultReport(id, file?.buffer, user);
   }

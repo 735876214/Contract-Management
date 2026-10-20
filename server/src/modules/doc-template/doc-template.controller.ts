@@ -30,9 +30,10 @@ export class DocTemplateController {
   async renderPaymentProcedure(
     @Param('procedureId') procedureId: string,
     @Query('templateId') templateId: string,
+    @ProjectId() projectId: string,
     @Res() res: Response,
   ) {
-    const { buffer, filename } = await this.service.renderPaymentProcedure(procedureId, templateId || undefined);
+    const { buffer, filename } = await this.service.renderPaymentProcedure(procedureId, templateId || undefined, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);

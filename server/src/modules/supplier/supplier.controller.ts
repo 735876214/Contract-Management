@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('suppliers')
@@ -88,7 +89,7 @@ export class SupplierController {
 
   @RequirePermissions('supplier:edit')
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
     return this.supplierService.import(file.buffer, projectId, { fileName: file?.originalname, user });
@@ -96,7 +97,7 @@ export class SupplierController {
 
   @RequirePermissions('supplier:edit')
   @Post('import/validate')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
     return this.supplierService.import(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });

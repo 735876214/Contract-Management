@@ -12,6 +12,7 @@ import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { periodMonthKey } from '../../common/utils/settlement-period';
+import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
 const INVOICE_FIELDS = [
@@ -374,7 +375,23 @@ export class InvoiceService {
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),
     ]);
-    const codeOf = (items: any[], name: string) => items.find((i: any) => i.itemName === name || i.itemCode === name)?.itemCode || null;
+    /**
+     * 第 9 轮审计：字典项名称没命中就静默写 NULL（单据类别/状态丢失但提示导入成功），
+     * 日期用裸 `new Date(...)`（非法值整批回滚、Excel 序列号静默变成 1970）。
+     * 统一走 import-parse 的严格解析，坏值抛 RowError 带列名。
+     */
+    const codeOf = (items: any[], value: unknown, field: string) => {
+      const code = pickDictCode(items, value);
+      if (code === null && String(value ?? '').trim()) {
+        throw new RowError(`「${field}」填的「${String(value).trim()}」在字典里找不到（可能写错或已停用），请从下拉选项里选`, field);
+      }
+      return code;
+    };
+    const dateOf = (value: unknown, field: string) => {
+      const parsed = parseImportDate(value, field);
+      if (parsed.error) throw new RowError(parsed.error, field);
+      return parsed.date;
+    };
     /** 本批涉及到的合同：提交后要按这些合同重挂结算单关联并刷新台账 */
     const affected = new Set<string>();
     return this.tasks.submit<any>({ module: 'invoice', moduleName: '发票台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
@@ -385,11 +402,17 @@ export class InvoiceService {
         if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
         affected.add(contract.id);
         // 税率统一取自合同台账（需求 2.4）：子表未填时继承合同税率
-        const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
-        let taxRate = taxRaw !== null && taxRaw > 1 ? taxRaw / 100 : taxRaw;
+        // 口径按列名定，不靠数值猜（第 4 轮审计）：「税率(%)」是百分数（13 = 13%），
+        // 「税率」是小数（0.13 = 13%）。旧写法 > 1 ? /100 : 原值 会把 1% 存成 100%、0.5% 存成 50%，
+        // 含税金额随之翻倍。
+        const pctRaw = num(r['税率(%)']);
+        const fracRaw = num(r['税率']);
+        let taxRate = pctRaw !== null ? pctRaw / 100 : fracRaw;
         if (taxRate === null && (contract as any).taxRate != null) {
+          // 合同台账是小数口径（0.13）；历史库里有脏数据存成 13.0000，这里按 ≥1 视为百分数兜底，
+          // 避免把 13 当 1300% 用。
           const ct = Number((contract as any).taxRate);
-          taxRate = ct > 1 ? ct / 100 : ct;
+          taxRate = ct >= 1 ? ct / 100 : ct;
         }
         const amtBefore = num(r['税前金额']);
         const amtWith = num(r['含税金额']);
@@ -398,21 +421,21 @@ export class InvoiceService {
         return {
           data: {
             contractId: contract.id,
-            goodsCategory: codeOf(goods, r['商品类别']),
+            goodsCategory: codeOf(goods, r['商品类别'], '商品类别'),
             settlePeriod: r['结算账期'] || null,
             issuer: r['开票单位'] || null,
-            invoiceDate: r['开票日期'] ? new Date(r['开票日期']) : null,
+            invoiceDate: dateOf(r['开票日期'], '开票日期'),
             invoiceCode: r['发票代码'] || null,
             invoiceNo: r['发票号码'] || null,
             amountBeforeTax: amtBefore,
             taxRate,
             amountWithTax: amtWith,
-            receiveDate: r['发票收取时间'] ? new Date(r['发票收取时间']) : null,
-            reviewStatus: codeOf(review, r['发票信息审核']),
+            receiveDate: dateOf(r['发票收取时间'], '发票收取时间'),
+            reviewStatus: codeOf(review, r['发票信息审核'], '发票信息审核'),
             responsiblePerson: r['责任人'] || null,
-            financeTransferStatus: codeOf(finance, r['财务移交情况']),
-            typeCode: codeOf(types, r['发票类型']),
-            statusCode: codeOf(status, r['状态']),
+            financeTransferStatus: codeOf(finance, r['财务移交情况'], '财务移交情况'),
+            typeCode: codeOf(types, r['发票类型'], '发票类型'),
+            statusCode: codeOf(status, r['状态'], '状态'),
             remark: r['备注'] || null,
           },
         };

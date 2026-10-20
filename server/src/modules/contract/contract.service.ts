@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
+import { checkFileUrl } from '../../common/utils/safe-url';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { projectWhere } from '../../common/utils/project-scope';
@@ -911,18 +912,31 @@ export class ContractService {
     if (!c) throw new NotFoundException('合同不存在');
   }
 
+  /**
+   * 直接改合同状态 —— **只允许幂等调用**（2026-10-20 第 5 轮审计 P1）。
+   *
+   * 原来这里只校验「取值是否合法」，不校验「这次迁移是否合法」，于是
+   * PUT /contracts/:id/status 成了绕过整个状态机的后门：
+   * - SIGNED → DRAFT 只写 status，不按 ejectToDraft() 那样清 signedFilePath、
+   *   回落 xecStatus、重算付款比例 → 界面显示「起草中」，台账/预警读到假「已完已结」；
+   * - DRAFT → APPROVING 绕过 publish() 的模板校验与清单固化；
+   * - DRAFT → SIGNED 绕过 sign() 的签章快照。
+   *
+   * 有副作用的迁移一律走各自的动作端点（提交审批 / 签章 / 驳回），这里只保留
+   * 「目标状态 == 当前状态」的幂等调用，供历史调用方平滑过渡。
+   */
   async setStatus(contractId: string, status: string, projectId?: string) {
     await this.assertContractInProject(contractId, projectId);
     await this.assertNotArchived(contractId, '变更合同状态');
     if (!CONTRACT_STATUSES.includes(status)) {
       throw new BadRequestException('状态取值非法（DRAFT / APPROVING / SIGNED）');
     }
-    await this.assertContractExists(contractId);
-    await this.prisma.contract.update({
-      where: { id: contractId },
-      data: { status, version: { increment: 1 } },
-    });
-    await this.syncLinkedTaskStatus(contractId);
+    const current = await this.assertContractExists(contractId);
+    if (current.status !== status) {
+      throw new BadRequestException(
+        '合同状态不能直接改：提交审批请用「提交审批」、签章请用「签章」、退回请用「驳回回起草」（这些动作还会同步清签章文件、执行状态与付款比例）',
+      );
+    }
     return { status };
   }
 
@@ -1113,6 +1127,8 @@ export class ContractService {
     }
 
     const { attachments, ext, ...rest } = data;
+    this.assertAmountAndRate(data.amount, data.taxRate);
+    const safeAttachments = this.safeAttachments(attachments);
     const contract = await db.contract.create({
       data: {
         ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
@@ -1126,9 +1142,9 @@ export class ContractService {
     if (ext) await this.saveExt(contract.id, ext, tx);
     // 付款安排 / 扩展信息落库后重算「当前生效比例」（派生列，见 syncPayRatio）
     await this.syncPayRatio(contract.id, tx);
-    if (Array.isArray(attachments)) {
+    if (safeAttachments.length) {
       await db.contractAttachment.createMany({
-        data: attachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
+        data: safeAttachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
       });
     }
     // 需求 2.1/2.3：创建合同时可从物资基础库（项目物资清单数据源）选择物资，
@@ -1201,6 +1217,8 @@ export class ContractService {
     ) {
       throw new BadRequestException('合同已签章，不允许直接更换供应商；请通过合同变更流程处理');
     }
+    this.assertAmountAndRate(data.amount, data.taxRate);
+    const safeAttachments = this.safeAttachments(attachments);
     const contract = await this.prisma.contract.update({
       where: { id },
       data: {
@@ -1224,9 +1242,9 @@ export class ContractService {
     }
     if (Array.isArray(attachments)) {
       await this.prisma.contractAttachment.deleteMany({ where: { contractId: id } });
-      if (attachments.length) {
+      if (safeAttachments.length) {
         await this.prisma.contractAttachment.createMany({
-          data: attachments.map((a: any) => ({ contractId: id, fileName: a.fileName, url: a.url, size: a.size })),
+          data: safeAttachments.map((a: any) => ({ contractId: id, fileName: a.fileName, url: a.url, size: a.size })),
         });
       }
     }
@@ -1374,8 +1392,48 @@ export class ContractService {
   private isDraftContract(c: { status?: string | null; execStatus?: string | null }) {
     if (c.status === CONTRACT_STATUS.DRAFT) return true;
     // 历史遗留：合同状态为空时，执行情况为 DRAFT 或同样为空，均视为起草中的草稿
-    if (!c.status && (c.execStatus === CONTRACT_STATUS.DRAFT || !c.execStatus)) return true;
+    // 这里比的是「合同执行情况」（execStatus），必须用执行情况的常量：两者当前值都是 DRAFT，
+    // 用合同状态常量也能跑，但改名/改值时会静默失灵（第 5 轮审计）。
+    if (!c.status && (c.execStatus === CONTRACT_EXECUTION_STATUS.DRAFT || !c.execStatus)) return true;
     return false;
+  }
+
+  /**
+   * 合同金额与税率的**服务端**校验（第 8 轮审计）。
+   *
+   * 原来只有前端 `InputNumber min/max` 挡着，`create`/`update` 直接 `num(data.amount)`，
+   * 而 `num()` 只做 Number.isFinite 兜底 → 绕过界面 POST `amount: -1`、`taxRate: 50` 都能入库，
+   * 随后台账金额、付款比例、月度盈亏、预警全部按错值派生（且很难回溯是哪条合同污染的）。
+   */
+  private assertAmountAndRate(amount: unknown, taxRate: unknown): void {
+    if (amount !== undefined && amount !== null && amount !== '') {
+      const amt = num(amount);
+      if (amt === null) throw new BadRequestException(`合同金额不是有效数字：${String(amount)}`);
+      if (amt < 0) throw new BadRequestException('合同金额不能为负数');
+    }
+    if (taxRate !== undefined && taxRate !== null && taxRate !== '') {
+      const rate = num(taxRate);
+      if (rate === null) throw new BadRequestException(`税率不是有效数字：${String(taxRate)}`);
+      if (rate < 0 || rate > 1) {
+        throw new BadRequestException(
+          `税率请填小数（0.13 表示 13%），取值范围 0~1；收到 ${String(taxRate)}。手里若是百分数请先除以 100`,
+        );
+      }
+    }
+  }
+
+  /**
+   * 附件地址走协议白名单（第 8 轮审计）：附件的 `url` 会被前端直接放进 `href`，
+   * 存一条 `javascript:...` 就是存储型 XSS（打开详情的人会执行它，能读走 localStorage 里的 token）。
+   */
+  private safeAttachments(input: unknown): Array<{ fileName: string | null; url: string; size: number | null }> {
+    if (!Array.isArray(input)) return [];
+    return input.map((a: any, i: number) => {
+      const { url, error } = checkFileUrl(a?.url, `第 ${i + 1} 个附件的地址`);
+      if (error) throw new BadRequestException(error);
+      if (!url) throw new BadRequestException(`第 ${i + 1} 个附件缺少文件地址`);
+      return { fileName: a?.fileName ?? null, url, size: num(a?.size) };
+    });
   }
 
   /**
@@ -1585,7 +1643,11 @@ export class ContractService {
         if (!supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应商');
         const amount = num(r['合同额']);
         if (amount === null) throw new RowError('合同额为必填数字', '合同额');
-        const taxRaw = num(r['税率(%)']) ?? num(r['税率']);
+        // 口径由**列名**决定，不靠数值猜（第 4 轮审计）：税率(%) 是百分数（13 = 13%），
+        // 税率 是小数（0.13 = 13%）。旧写法 	axRaw > 1 ? taxRaw/100 : taxRaw 把 1%（=1）
+        // 存成 1（=100%）、0.5% 存成 0.5（=50%），台账「税前金额」直接错成含税额的一半。
+        const pctRaw = num(r['税率(%)']);
+        const fracRaw = num(r['税率']);
         return {
           code,
           name: r['合同名称'] || code,
@@ -1593,7 +1655,7 @@ export class ContractService {
           supplierId: supplier.id,
           signDate: r['签订日期'] || null,
           amount,
-          taxRate: taxRaw !== null ? (taxRaw > 1 ? taxRaw / 100 : taxRaw) : null,
+          taxRate: pctRaw !== null ? round4(pctRaw / 100) : fracRaw !== null ? round4(fracRaw) : null,
           remark: r['备注'] || null,
         };
       },

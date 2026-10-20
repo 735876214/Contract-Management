@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { DictService } from '../dict/dict.service';
@@ -484,9 +485,21 @@ export class DailyReportService {
       this.dict.options('yes_no'), this.dict.options('asset_status'), this.dict.options('material_source'),
       this.dict.options('material_category'), this.dict.options('material_type'), this.dict.options('measurement_unit'),
     ]);
-    const codeOf = (items: any[], name: string) => {
-      const hit = items.find((i: any) => i.itemName === name || i.itemCode === name);
-      return hit?.itemCode || null;
+    /**
+     * 第 9 轮审计：字典名称没命中就静默写 NULL（类别/状态丢失却提示成功）、
+     * 日期用裸 `new Date(...)`（非法值整批回滚且看不到行号）。统一走严格解析。
+     */
+    const codeOf = (items: any[], value: unknown, field: string) => {
+      const code = pickDictCode(items, value);
+      if (code === null && String(value ?? '').trim()) {
+        throw new RowError(`「${field}」填的「${String(value).trim()}」在字典里找不到（可能写错或已停用），请从下拉选项里选`, field);
+      }
+      return code;
+    };
+    const dateOf = (value: unknown, field: string) => {
+      const parsed = parseImportDate(value, field);
+      if (parsed.error) throw new RowError(parsed.error, field);
+      return parsed.date;
     };
     return this.tasks.submit<any>({ module: 'daily-report', moduleName: '物资日报', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       startRowNo: 2,
@@ -516,28 +529,28 @@ export class DailyReportService {
         const data: any = {
           periodYear: Number(r['账期/年']) || null,
           periodMonth: Number(r['账期/月']) || null,
-          entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
-          exitDate: r['出场日期'] ? new Date(r['出场日期']) : null,
+          entryDate: dateOf(r['进场日期'], '进场日期'),
+          exitDate: dateOf(r['出场日期'], '出场日期'),
           contractId: contract?.id,
-          isAsset: codeOf(yesNo, r['是否资产']),
-          isSafetyMaterial: codeOf(yesNo, r['是否安全物资']),
+          isAsset: codeOf(yesNo, r['是否资产'], '是否资产'),
+          isSafetyMaterial: codeOf(yesNo, r['是否安全物资'], '是否安全物资'),
           assetSupervision: r['资产监管'] || null,
           department: r['部门'] || null,
           personnel: r['人员'] || null,
-          assetStatus: codeOf(assetStatus, r['资产状态']),
-          sourceCode: codeOf(source, r['来源']),
-          materialCategory: codeOf(category, r['材料类别']),
-          materialType: codeOf(type, r['物资种类']),
+          assetStatus: codeOf(assetStatus, r['资产状态'], '资产状态'),
+          sourceCode: codeOf(source, r['来源'], '来源'),
+          materialCategory: codeOf(category, r['材料类别'], '材料类别'),
+          materialType: codeOf(type, r['物资种类'], '物资种类'),
           materialBaseId,
           materialName,
           steelBrand: r['钢筋品牌'] || null,
           steelCount: Number(r['钢筋件数']) || null,
           spec,
-          unit: codeOf(unit, r['计量单位']),
+          unit: codeOf(unit, r['计量单位'], '计量单位'),
           weighQty: num(r['过磅数量/t']),
           deductQty: num(r['扣重/t']),
           settleQty: num(r['结算数量']),
-          isWeighed: codeOf(yesNo, r['是否过磅']),
+          isWeighed: codeOf(yesNo, r['是否过磅'], '是否过磅'),
           noAcceptReason: r['未云筑验收原因'] || null,
           priceBeforeTax: num(r['单价/元(税前)']),
           taxRate: num(r['税率']),
@@ -550,7 +563,7 @@ export class DailyReportService {
           // 新表头「分包合同」；兼容旧导入模板的「劳务合同」
           laborContract: r['分包合同'] || r['劳务合同'] || null,
           usePosition: r['使用部位'] || null,
-          isProxy: codeOf(yesNo, r['是否代购']),
+          isProxy: codeOf(yesNo, r['是否代购'], '是否代购'),
           plateNo: r['车牌号'] || null,
           receiptNo: r['收领单编号'] || null,
           remark: r['备注'] || null,

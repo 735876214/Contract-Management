@@ -1,3 +1,4 @@
+import { checkFileUrl } from '../../common/utils/safe-url';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
@@ -200,6 +201,11 @@ export class LaborService {
     const signatureScreenshot = data?.signatureScreenshot ?? old.signatureScreenshot;
     if (!signedAuthFile) throw new BadRequestException('请先上传签字盖章版委托书');
     if (!signatureScreenshot) throw new BadRequestException('请先上传委托书签字部分截图');
+    // 第 8 轮审计：这两个值是前端 <a href> 直接用的，必须过协议白名单（否则可存 javascript:）
+    for (const [label, value] of [['签字盖章版委托书', signedAuthFile], ['签字页截图', signatureScreenshot]] as const) {
+      const check = checkFileUrl(value, label);
+      if (check.error) throw new BadRequestException(check.error);
+    }
 
     return this.prisma.laborAuthLedger.update({
       where: { id },

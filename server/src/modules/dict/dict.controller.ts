@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('dict')
@@ -128,7 +129,7 @@ export class DictController {
 
   @RequirePermissions('dict:edit', 'system:config')
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   async import(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0 };
     return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user });
@@ -136,7 +137,7 @@ export class DictController {
 
   @RequirePermissions('dict:edit', 'system:config')
   @Post('import/validate')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   async importValidate(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
     return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user, validateOnly: true });

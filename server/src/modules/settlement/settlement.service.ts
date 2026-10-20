@@ -9,7 +9,7 @@ import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
-import { assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
+import { assertSettlementProgress, assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
@@ -228,6 +228,7 @@ export class SettlementService {
     await this.lock.assertWritable(data.contractId, '新增结算单');
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
+    // 新建没有「迁移」可言，状态迁移守卫只在 update() 里做（见 assertSettlementProgress）
     // 同合同同月唯一（业务口径 2026-10-16，见 assertMonthUniqueForContract 的说明）
     await this.assertMonthUniqueForContract(data.contractId, data.settleDate);
     const actual = data.actualAmount ?? (num(data.amount) || 0) - (num(data.deductAmount) || 0);
@@ -271,6 +272,10 @@ export class SettlementService {
     }
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
+    // 状态迁移守卫（第 5 轮审计）：只允许沿链路前进，回退必须走 reject()
+    if (data.statusCode !== undefined && data.statusCode !== null) {
+      assertSettlementProgress(before.statusCode, data.statusCode);
+    }
     // 同合同同月唯一（改日期/改合同都要校验，排除自身）
     await this.assertMonthUniqueForContract(
       data.contractId ?? before.contractId,
@@ -340,6 +345,21 @@ export class SettlementService {
   async remove(id: string, projectId?: string) {
     const before: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.contractId, '删除结算单');
+    /**
+     * 已完成总结算（SETTLED）的合同，月度结算是总结算明细的唯一来源（第 5 轮审计）：
+     * 删掉后明细的 settlementId 变 NULL、金额成无源快照，台账累计结算归零，
+     * 但合同仍是 DONE_SETTLED + 付款比例 100% → 同一合同出现「已完已结 + 累计结算 0」。
+     * update()/reject() 早就拦了这条，只有 remove() 漏了。
+     */
+    const settled = await this.prisma.finalSettlement.findFirst({
+      where: { contractId: before.contractId, statusCode: 'SETTLED' },
+      select: { id: true, code: true },
+    });
+    if (settled) {
+      throw new BadRequestException(
+        `合同已完成总结算（${settled.code || settled.id}），月度结算不可删除；请先在总结算单上作废并回退已结算状态`,
+      );
+    }
     await this.prisma.settlement.delete({ where: { id } });
     // 台账行上的 settlementId 由 DB 级 `SET NULL` 解除，随后重算该合同的台账
     // （该行会退回"仅费用行"形态：monthSettleAmount=0、settleCount=0）

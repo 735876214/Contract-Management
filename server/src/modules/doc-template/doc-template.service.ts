@@ -235,9 +235,13 @@ export class DocTemplateService {
    * **渲染付款单**（付款手续 → Excel）：取单据上的快照值 + 合同/供应商/项目，套模板生成 xlsx。
    * 业务 2026-10-17：生成路径 Word → Excel（单据数据来自表格、导出也是 Excel）。
    */
-  async renderPaymentProcedure(procedureId: string, templateId?: string) {
-    const procedure: any = await this.prisma.paymentProcedure.findUnique({
-      where: { id: procedureId },
+  async renderPaymentProcedure(procedureId: string, templateId?: string, projectId?: string) {
+    /**
+     * 必须按项目过滤（第 9 轮审计）：付款单里载明金额、供应商与银行账号，
+     * 原来只按 procedureId 直取 → 任何有 	emplate:view 的人换个 id 就能下载别项目的付款单。
+     */
+    const procedure: any = await this.prisma.paymentProcedure.findFirst({
+      where: { id: procedureId, ...(projectId ? { projectId } : {}) },
       include: {
         contract: { select: { id: true, code: true, name: true, supplierId: true } },
       },

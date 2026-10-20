@@ -4,6 +4,7 @@ import { num } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere } from '../../constants/statuses';
+import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { CONTRACT_STATUS, MILESTONE_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import {
@@ -262,7 +263,9 @@ export class DashboardService {
   /** 总结算单待办理（未「已结算」） */
   private async todoFinalSettlement(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('FINAL_SETTLEMENT');
-    const where = { projectId, statusCode: { not: 'DONE_SETTLED' } };
+    // 总结算单只有 PENDING_ATTACHMENT / SETTLED 两个状态，DONE_SETTLED 是**合同执行状态**的值，
+    // 写在这里永远匹配不到 → 已上传附件的单据永久滞留在工作台待办（第 5 轮审计）。
+    const where = { projectId, statusCode: { not: FINAL_SETTLEMENT_STATUS.SETTLED } };
     const [rows, count] = await Promise.all([
       this.prisma.finalSettlement.findMany({
         where, orderBy: { createdAt: 'asc' }, take: limit,
