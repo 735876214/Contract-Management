@@ -3,7 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { ContractService } from '../contract/contract.service';
 import { SupplierService } from '../supplier/supplier.service';
 import { AiQuota } from './ai-quota';
-import { aiPublicStatus, readAiConfig, type AiConfig } from './ai-config';
+import { type AiConfig } from './ai-config';
+import { AiSettingService } from './ai-setting.service';
 import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
 import { looksLikeContract } from './docx-text';
 import { chatJson, LlmError } from './llm-client';
@@ -73,10 +74,12 @@ export class RegisterService {
     private quota: AiQuota,
     private contracts: ContractService,
     private suppliers: SupplierService,
+    /** 配置统一走「系统管理 → AI 信息登记」：页面登记 > 环境变量（见 ai-config.ts） */
+    private setting: AiSettingService,
   ) {}
 
-  private config(): AiConfig {
-    return readAiConfig(process.env as Record<string, string | undefined>);
+  private async config(): Promise<AiConfig> {
+    return this.setting.resolve();
   }
 
   private assertUpload(file: any, cfg: AiConfig): { buffer: Buffer; fileName: string } {
@@ -94,7 +97,7 @@ export class RegisterService {
 
   /** 文件 → 草案（不写库） */
   async parse(file: any, ctx: { projectId: string }, userId: string): Promise<RegisterParseResult> {
-    const cfg = this.config();
+    const cfg = await this.config();
     const { buffer, fileName } = this.assertUpload(file, cfg);
 
     let doc;
@@ -111,7 +114,7 @@ export class RegisterService {
     if (!cfg.enabled) {
       return {
         aiEnabled: false,
-        aiMessage: 'AI 未配置（AI_BASE_URL / AI_API_KEY / AI_MODEL），无法自动识别，请手工新建或配置后再试',
+        aiMessage: 'AI 未配置（接口地址 / API Key / 模型名），无法自动识别：请手工新建，或让管理员到「系统管理 → AI 信息登记」填写',
         fileName,
         kind: doc.kind,
         chars: doc.chars,
@@ -345,3 +348,5 @@ const num = (v: unknown): number | null => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(/[,，\s￥¥元]/g, ''));
   return Number.isFinite(n) ? n : null;
 };
+
+

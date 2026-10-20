@@ -7,9 +7,9 @@ export const STORAGE_KEYS = {
   /** 菜单缓存数据（sessionStorage，5 分钟 TTL）
    *  版本后缀：菜单结构发生变更（如新增采购管理分组、付款手续、单据模板、总结算单、
    *  资金费用拆分为保理/逾期两项、AI 助手、系统管理→AI 信息登记）时递增，用于让旧缓存自然失效 */
-  menuCache: `${PREFIX}menu_cache_v14`,
+  menuCache: `${PREFIX}menu_cache_v15`,
   /** 菜单缓存写入时间戳（sessionStorage） */
-  menuCacheAt: `${PREFIX}menu_cache_at_v14`,
+  menuCacheAt: `${PREFIX}menu_cache_at_v15`,
   /**
    * 多页签导航的标签列表（localStorage，持久化）。
    * ⚠️ **刻意不带版本后缀**：标签是用户自己的"打开过哪些页"，不随菜单结构变化而失效；
@@ -85,3 +85,4 @@ export function readSessionWithTTL<T>(key: string, atKey: string, ttl: number): 
   if (!cachedAt || Date.now() - cachedAt > ttl) return null;
   return readSession<T>(key);
 }
+

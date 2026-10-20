@@ -139,9 +139,10 @@ export const MENU_TREE: MenuNode[] = [
       { key: 'system-params', label: '系统参数', icon: 'ControlOutlined', path: '/system/params', permission: 'system:config' },
       { key: 'system-dict', label: '字典管理', icon: 'BookOutlined', path: '/system/dict', permission: 'dict:view' },
       { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:user' },
-      // AI 信息登记（2026-10-20 需求）：把 AI 助手里最常用的「文件登记」单独提到系统管理，
-      // 少点一层页签。权限仍用 ai:view —— 与 /ai/assistant 同一套码，避免「菜单可见但点进去 403」。
-      { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'ai:view' },
+      // AI 信息登记（2026-10-20 需求）：登记全站共用的上游地址 / API Key / 模型名，
+      // 让 AI 助手不依赖 docker 环境变量也能用。权限 `system:config`——
+      // 这改的是全站配置（含密钥），只给管理员，业务用户看不到。
+      { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
     ],
   },
 ];
@@ -158,3 +159,4 @@ export function flattenMenu(nodes: MenuNode[] = MENU_TREE): Array<{ path: string
   walk(nodes);
   return out;
 }
+

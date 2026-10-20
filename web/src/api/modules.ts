@@ -678,6 +678,39 @@ export interface AiReportResult {
   missingSections: string[];
 }
 
+/** AI 信息登记：页面提交内容（不传 = 不改；apiKey 空串 = 清除） */
+export interface AiSettingInput {
+  enabled?: boolean;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+}
+
+export type AiSettingSourceKind = 'db' | 'env' | 'default' | 'none';
+
+export interface AiSettingView {
+  /** 当前是否真的可用（开关开着且三项齐全） */
+  enabled: boolean;
+  model: string;
+  baseUrl: string;
+  /** 是否已保存过密钥（永不回显明文） */
+  apiKeySaved: boolean;
+  /** 每一项取自哪里，页面用标签展示「页面登记 / 环境变量 / 未配置」 */
+  source: { enabled: AiSettingSourceKind; baseUrl: AiSettingSourceKind; model: AiSettingSourceKind; apiKey: AiSettingSourceKind };
+  /** 环境变量是否已有完整配置 */
+  envConfigured: boolean;
+  /** 后端拼好的一句话状态说明 */
+  hint: string;
+}
+
+export interface AiSettingTestResult {
+  ok: boolean;
+  message: string;
+  ms?: number;
+  model?: string;
+  reply?: string;
+}
+
 export const aiApi = {
   status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
   /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
@@ -723,4 +756,13 @@ export const aiApi = {
       rawResponse: true,
     } as any);
   },
+  /**
+   * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
+   * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。
+   */
+  getSetting: () => http.get<any, AiSettingView>('/ai/setting'),
+  saveSetting: (body: AiSettingInput) => http.put<any, AiSettingView>('/ai/setting', body),
+  /** 用当前（或刚填还没保存的）配置真打一次上游；失败原因在返回值里，不抛错 */
+  testSetting: (body: AiSettingInput) =>
+    http.post<any, AiSettingTestResult>('/ai/setting/test', body, { timeout: 30000 } as any),
 };

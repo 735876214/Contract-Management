@@ -95,8 +95,10 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'system-params', label: '系统参数', icon: 'ControlOutlined', path: '/system/params', permission: 'system:config' },
       { key: 'system-dict', label: '字典管理', icon: 'BookOutlined', path: '/system/dict', permission: 'dict:view' },
       { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:log' },
-      // AI 信息登记（2026-10-20）：结构须与后端 MENU_TREE 保持一致，权限码沿用 ai:view
-      { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'ai:view' },
+      // AI 信息登记（2026-10-20）：结构须与后端 MENU_TREE 保持一致；
+      // 这是全站上游配置（含密钥），权限 system:config，只给管理员
+      { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
     ],
   },
 ];
+

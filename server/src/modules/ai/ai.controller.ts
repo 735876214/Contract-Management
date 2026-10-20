@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Res,
   UploadedFile,
   UseGuards,
@@ -12,6 +13,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { AiService } from './ai.service';
+import { AiSettingService, type AiSettingInput } from './ai-setting.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
 import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,9 +42,36 @@ const AI_UPLOAD = { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 10
 export class AiController {
   constructor(
     private service: AiService,
+    private setting: AiSettingService,
     private register: RegisterService,
     private report: ReportService,
   ) {}
+
+  /**
+   * AI 信息登记（系统管理 → AI 信息登记页面用）。
+   *
+   * 与下面的业务接口**分开权限**：这些接口改的是全站共用的上游配置（地址/密钥/模型），
+   * 属于「系统配置」而非常规业务操作，所以要求 `system:config` 而不是 `ai:view`。
+   * 密钥只写不读——`view()` 只回「有没有存过」，永远不回明文。
+   */
+  @RequirePermissions('system:config')
+  @Get('setting')
+  getSetting() {
+    return this.setting.view();
+  }
+
+  @RequirePermissions('system:config')
+  @Put('setting')
+  saveSetting(@Body() body: AiSettingInput) {
+    return this.setting.save(body || {});
+  }
+
+  /** 用当前（或页面上刚填、还没保存的）配置真打一次上游，只做诊断，不改任何状态 */
+  @RequirePermissions('system:config')
+  @Post('setting/test')
+  testSetting(@Body() body: AiSettingInput) {
+    return this.setting.test(body || {});
+  }
 
   /** 前端据此决定「AI 助手」菜单是否可用（未配置时显示"未启用"而不是报错） */
   @RequirePermissions('ai:view')

@@ -2,7 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
-import { aiPublicStatus, readAiConfig, type AiConfig } from './ai-config';
+import { aiPublicStatus, type AiConfig } from './ai-config';
+import { AiSettingService } from './ai-setting.service';
 import { buildFormMappingMessages, normalizeMapping, type MappingSuggestion } from './ai-prompt';
 import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, type AiFieldDef } from './field-catalog';
 import { FormCandidate, FormCell, scanWorkbook } from './form-scan';
@@ -87,21 +88,23 @@ export class AiService {
     private resolver: FieldResolverService,
     /** 与「文件登记」共享同一份每用户配额 */
     private quota: AiQuota,
+    /** 配置统一走「系统管理 → AI 信息登记」：页面登记 > 环境变量（见 ai-config.ts） */
+    private setting: AiSettingService,
   ) {}
 
-  private config(): AiConfig {
-    return readAiConfig(process.env as Record<string, string | undefined>);
+  private async config(): Promise<AiConfig> {
+    return this.setting.resolve();
   }
 
-  status(): {
+  async status(): Promise<{
     enabled: boolean;
     model: string;
     maxFileBytes: number;
     maxCandidates: number;
     hourlyLimitPerUser: number;
     fieldCatalog: AiFieldDef[];
-  } {
-    const cfg = this.config();
+  }> {
+    const cfg = await this.config();
     return {
       ...aiPublicStatus(cfg),
       maxFileBytes: cfg.maxFileBytes,
@@ -165,7 +168,7 @@ export class AiService {
     ctx: ResolveContext,
     userId: string,
   ): Promise<AiInspectResult> {
-    const cfg = this.config();
+    const cfg = await this.config();
     const { buffer } = this.assertUpload(file, cfg);
     const { sheetNames, cells } = await this.readCells(buffer);
 
@@ -206,7 +209,7 @@ export class AiService {
 
     let suggestions: MappingSuggestion[] = [];
     if (!cfg.enabled) {
-      return { ...base, aiMessage: 'AI 未配置（AI_BASE_URL / AI_API_KEY / AI_MODEL），可用手工映射填报' };
+      return { ...base, aiMessage: 'AI 未配置（接口地址 / API Key / 模型名），可用手工映射填报；管理员可在「系统管理 → AI 信息登记」补上' };
     }
 
     const messages: LlmMessage[] = buildFormMappingMessages({
@@ -281,7 +284,7 @@ export class AiService {
     mappingRaw: unknown,
     ctx: ResolveContext,
   ): Promise<AiFillResult> {
-    const cfg = this.config();
+    const cfg = await this.config();
     const { buffer, fileName } = this.assertUpload(file, cfg);
 
     const items = this.parseMapping(mappingRaw);
@@ -383,3 +386,5 @@ export class AiService {
   readonly xlsxMime = XLSX_MIME;
   readonly docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 }
+
+

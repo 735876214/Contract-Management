@@ -64,8 +64,10 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | `DEFAULT_ADMIN_USERNAME/PASSWORD` | `admin`/`admin123` | 空库启动自动建管理员 |
 
 **AI 助手（可选）**：`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 三项齐全才启用（OpenAI Chat
-Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: false`，前端只保留「手工映射」通路
-（AI 是加速器不是唯一通路，不做静默降级报错）。其余可调项：`AI_TIMEOUT_MS`(30000) ·
+Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记」页面填这三项**——存进 `SysParam`、
+保存即生效（不改 env、不重启），优先级高于环境变量（逐项回落：页面 > env > 默认），只配 env 的老部署
+行为不变。缺任一项 `/api/ai/status` 返回 `enabled: false`，前端只保留「手工映射」通路
+（AI 是加速器不是唯一通路，不做静默降级报错）。其余可调项（**仍只认 env**）：`AI_TIMEOUT_MS`(30000) ·
 `AI_MAX_FILE_MB`(5) · `AI_MAX_CANDIDATES`(300) · `AI_MAX_FIELDS_IN_PROMPT`(80) ·
 `AI_HOURLY_LIMIT`(60，每用户每小时调用上限，超限 429) · `AI_MAX_TOKENS`(4000，单次返回上限) ·
 `AI_MAX_TEXT_CHARS`(40000，登记时送进 prompt 的正文长度上限) · `AI_PDF_FONT`(汇报材料导出 PDF
@@ -90,7 +92,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（59 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（60 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -178,6 +180,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
   | `test/aiTtcFont.spec.mts` | **TTC 字体集 → 单字体 TTF 提取**（汇报材料 PDF 内嵌中文字体用，零依赖纯函数）：认 `ttcf` 魔数、读字体数量 · 按表记录把选中的那一支重排偏移复制成独立 sfnt（表数据字节级一致、`align4` 对齐）· 非 TTC / 序号越界 / 表数据越界一律抛错（不静默截断） |
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |
   | `test/aiPrompt.spec.mts` | **AI prompt 安全底线 + 模型输出规整**：**prompt 里绝不出现字段值**（`currentValue` 被显式忽略，用例直接断言值串不在消息里）· 字段/候选清单文本与截断 · `normalizeMapping` 丢弃越界序号/非整数/未知键 · 同一候选留最高置信度、同一字段只留一个（防两格填同一值）· confidence 夹 0~1 且 3 位小数 · 垃圾输入不抛错 · 字段目录键唯一、未关联合同时不下发 contract/supplier 域字段 |
+  | `test/aiSetting.spec.mts` | **AI 配置取值优先级（页面登记 > 环境变量 > 默认值）**：页面填了逐项覆盖 env（不是整体替换）· 页面只填一部分 → 其余回落 env（老部署只配 env 的行为不变）· 空串/空白视为未登记 · 页面开关关掉即不启用且仍回显地址 · 页面开关打开压过 `AI_ENABLED=false` · **开关开着但缺 API Key 仍不启用**（避免「界面说已启用、调用必 401」）· 存储键名锁定 `ai.*` 命名空间（改名会让存量配置静默失效） |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |
@@ -402,3 +405,4 @@ bash scripts/nas-deploy.sh
   ① 先访问 `/login` 再注入 `cms_token` 再跳目标路由（直接冷启动到受保护路由会被 `RequireAuth` 弹回登录页）；
   ② 断言"控制台无报错"时要先**过滤 `chrome-extension://` 噪音**（headless 的 Edge 里挂了扩展，
   会持续抛 `siteHostMap` 异常，否则全站每一步都"失败"）。
+

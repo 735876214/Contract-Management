@@ -70,9 +70,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/system/dict': ['dict:view', 'system:config'],
   // 后端日志接口要求 system:log（同时接受 system:user，兼容只勾了用户管理的既有角色）
   '/system/log': ['system:log', 'system:user'],
-  // AI 信息登记（2026-10-20）：挂在系统管理下，但守卫沿用 ai:view
-  // ——与 `/ai/assistant` 同一套码，避免「菜单可见、点进去 403」
-  '/system/ai-register': ['ai:view'],
+  // AI 信息登记（2026-10-20）：登记全站共用的上游地址/密钥/模型，属于系统配置，
+  // 所以守卫用 system:config（不是 ai:view）——普通用户看不到、也改不了全站密钥
+  '/system/ai-register': ['system:config'],
 };
 
 /**
@@ -93,3 +93,4 @@ export function isRouteAllowed(path: string, hasPermission: (code: string) => bo
   if (codes.length === 0) return true;
   return codes.some((code) => hasPermission(code));
 }
+

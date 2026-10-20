@@ -39,6 +39,7 @@ const Archive = lazy(() => import('@/pages/Archive'));
 const Assets = lazy(() => import('@/pages/Assets'));
 const Messages = lazy(() => import('@/pages/Messages'));
 const AiAssistant = lazy(() => import('@/pages/AiAssistant'));
+const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
 const ContractDraft = lazy(() => import('@/pages/ContractDraft'));
@@ -175,8 +176,9 @@ export const routes: RouteObject[] = [
       { path: 'system/params', element: perm('/system/params', <SystemParamsPage />) },
       { path: 'system/dict', element: perm('/system/dict', <Dict />) },
       { path: 'system/log', element: perm('/system/log', <SystemLogsPage />) },
-      // AI 信息登记（2026-10-20）：同一页面，默认落在「文件登记」页签，权限码与 /ai/assistant 一致
-      { path: 'system/ai-register', element: perm('/system/ai-register', <AiAssistant defaultTab="register" />) },
+      // AI 信息登记（2026-10-20）：登记全站共用的上游地址/密钥/模型，页面与 AI 助手是两回事，
+      // 权限也分开——改配置属于系统配置（system:config），用 AI 属于 ai:view / ai:use
+      { path: 'system/ai-register', element: perm('/system/ai-register', <AiSettings />) },
 
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：

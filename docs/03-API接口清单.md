@@ -503,7 +503,10 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/ai/status` | 是否启用（`AI_BASE_URL`/`AI_API_KEY`/`AI_MODEL`）+ 可填字段目录 `fieldCatalog` | `ai:view` |
+| GET | `/ai/status` | 是否启用（配置来源：**系统管理 → AI 信息登记页面 > 环境变量 > 默认**，三项齐全且开关打开算启用）+ 可填字段目录 `fieldCatalog` | `ai:view` |
+| GET | `/ai/setting` | AI 服务登记内容（**密钥只回“有没有”，绝不回明文**）+ 每项来源 `source`（db/env/default/none）与一句话 `hint` | `system:config` |
+| PUT | `/ai/setting` | 保存 `{enabled?, baseUrl?, model?, apiKey?}`：不传=不改，**空串=清除**（回落环境变量），保存即刻生效（无需重启） | `system:config` |
+| POST | `/ai/setting/test` | 用页面当前值（缺项回落已存/env）**真打一次上游**验证地址/密钥/模型；401/403/404/429/超时/连不上分别给人话，不抛 500 | `system:config` |
 | POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）与模型建议（`fieldKey/confidence`，未启用时为 `null`） | `ai:use` |
 | POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
 | POST | `/ai/register/parse` | multipart `file`（`.docx` / `.xlsx`）→ **只解析不写库**：返回 `draft.fields[]`（`value/verified/warn/note`）、明细 `items[]` 与合计、`warnings[]`、`missing[]`、库内同编号/同名的 `existing` | `ai:use` |

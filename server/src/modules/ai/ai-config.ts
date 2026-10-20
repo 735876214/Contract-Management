@@ -33,6 +33,29 @@ export interface AiConfig {
   maxTextChars: number;
 }
 
+/**
+ * 系统参数表里存 AI 配置的键名（**单一事实源**：service 读写、前端展示的"来源"都用这套键）。
+ * 放在 `ai.*` 命名空间下，与业务参数混在同一张 `SysParam` 表里——
+ * 复用既有的「内存缓存 + 保存即生效」能力，不必为几行配置另起一张表。
+ */
+export const AI_PARAM_KEYS = {
+  enabled: 'ai.enabled',
+  baseUrl: 'ai.baseUrl',
+  apiKey: 'ai.apiKey',
+  model: 'ai.model',
+} as const;
+
+/**
+ * 从「系统管理 → AI 信息登记」页面保存下来的配置（DB 侧）。
+ * 全部可空：null/空串表示「该项未在页面登记」，此时回落环境变量。
+ */
+export interface AiStoredSettings {
+  enabled?: boolean | null;
+  baseUrl?: string | null;
+  apiKey?: string | null;
+  model?: string | null;
+}
+
 export const AI_DEFAULTS = {
   baseUrl: '',
   model: '',
@@ -53,15 +76,30 @@ const positiveInt = (v: string | undefined, fallback: number): number => {
 };
 
 /**
- * 从环境变量读配置（纯函数，便于单测）。
+ * 从环境变量 + 页面登记的配置读配置（纯函数，便于单测）。
+ *
+ * 优先级：**页面登记（DB） > 环境变量 > 默认值**，逐项回落。
+ * 这样两种用法都成立：运维只改 env（原有行为不变）；管理员在页面上填了就以页面为准。
+ *
  * `enabled` 的判据：没有显式关闭 **且** 三个必填项齐全 —— 少一项就当作未配置，
  * 避免出现「界面显示已启用、每次调用都 401」的半死状态。
+ * 显式关闭：页面开关为关（有值时以页面为准），或环境变量 `AI_ENABLED=false`（页面未登记开关时）。
  */
-export function readAiConfig(env: Record<string, string | undefined> = {}): AiConfig {
-  const baseUrl = str(env.AI_BASE_URL) || AI_DEFAULTS.baseUrl;
-  const apiKey = str(env.AI_API_KEY);
-  const model = str(env.AI_MODEL) || AI_DEFAULTS.model;
-  const explicitOff = str(env.AI_ENABLED).toLowerCase() === 'false';
+export function readAiConfig(
+  env: Record<string, string | undefined> = {},
+  stored: AiStoredSettings = {},
+): AiConfig {
+  const pick = (fromDb: string | null | undefined, fromEnv: string | undefined, fallback = ''): string =>
+    str(fromDb ?? '') || str(fromEnv) || fallback;
+
+  const baseUrl = pick(stored.baseUrl, env.AI_BASE_URL, AI_DEFAULTS.baseUrl);
+  const apiKey = pick(stored.apiKey, env.AI_API_KEY);
+  const model = pick(stored.model, env.AI_MODEL, AI_DEFAULTS.model);
+
+  const explicitOff =
+    typeof stored.enabled === 'boolean'
+      ? stored.enabled === false
+      : str(env.AI_ENABLED).toLowerCase() === 'false';
   const configured = Boolean(baseUrl && apiKey && model);
 
   return {

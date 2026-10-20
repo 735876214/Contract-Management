@@ -85,7 +85,10 @@ services:
       DEFAULT_ADMIN_USERNAME: admin
       DEFAULT_ADMIN_PASSWORD: admin123
       # AI 助手（可选）：「模板智能填报」用；三项齐全才启用，缺任一项功能自动降级为「手工映射」。
-      # 兼容 OpenAI Chat Completions 协议；密钥只写在这台机器的 compose 里，不要提交到仓库。
+      # 兼容 OpenAI Chat Completions 协议。
+      # 【推荐】部署后在「系统管理 → AI 信息登记」页面直接填这三项：存进数据库、保存即生效、不用重启；
+      #         页面登记优先于下面的环境变量（逐项回落），也就不用把密钥写进 compose 文件。
+      # 下面的环境变量留给「页面还没登记」的场景，谁配都行，二选一即可。
       # AI_BASE_URL: "https://your-llm-gateway.example/v1"
       # AI_API_KEY: "sk-..."
       # AI_MODEL: "cn:deepseek-v4.1-flash"

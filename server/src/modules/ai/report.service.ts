@@ -5,7 +5,8 @@ import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { AiQuota } from './ai-quota';
-import { readAiConfig, type AiConfig } from './ai-config';
+import { type AiConfig } from './ai-config';
+import { AiSettingService } from './ai-setting.service';
 import { FieldResolverService } from './field-resolver.service';
 import { chatText, LlmError } from './llm-client';
 import { renderReportPdf } from './report-pdf';
@@ -80,13 +81,15 @@ export class ReportService {
     private quota: AiQuota,
     private resolver: FieldResolverService,
     private storage: StorageService,
+    /** 配置统一走「系统管理 → AI 信息登记」：页面登记 > 环境变量（见 ai-config.ts） */
+    private setting: AiSettingService,
   ) {}
 
   /** 解析到的中文字体字节（进程内缓存；字体文件不会变） */
   private fontCache: Uint8Array | null = null;
 
-  private config(): AiConfig {
-    return readAiConfig(process.env as Record<string, string | undefined>);
+  private async config(): Promise<AiConfig> {
+    return this.setting.resolve();
   }
 
   async generate(
@@ -96,8 +99,8 @@ export class ReportService {
   ): Promise<AiReportResult> {
     const kind = (input?.kind || 'monthly') as ReportKind;
     if (!REPORT_KINDS[kind]) throw new BadRequestException(`不支持的材料类型：${input?.kind}`);
-    const cfg = this.config();
-    if (!cfg.enabled) throw new BadRequestException('AI 未配置（AI_BASE_URL / AI_API_KEY / AI_MODEL），无法生成材料');
+    const cfg = await this.config();
+    if (!cfg.enabled) throw new BadRequestException('AI 未配置（接口地址 / API Key / 模型名），无法生成材料：请让管理员到「系统管理 → AI 信息登记」填写');
 
     const { from, to } = this.resolvePeriod(input?.from, input?.to);
     const cmp = this.comparePeriod(from, to);
@@ -428,3 +431,5 @@ function factNumbersEmpty(f: ReportFacts): boolean {
     c.dailyReports === 0
   );
 }
+
+

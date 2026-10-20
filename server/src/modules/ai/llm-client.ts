@@ -121,7 +121,7 @@ export async function callChat(
 ): Promise<{ raw: string; usage?: { promptTokens?: number; completionTokens?: number } }> {
   const url = chatCompletionsUrl(opts.baseUrl);
   if (!url || !opts.apiKey || !opts.model) {
-    throw new LlmError('AI 未配置（缺少 AI_BASE_URL / AI_API_KEY / AI_MODEL）', 'NOT_CONFIGURED');
+    throw new LlmError('AI 未配置（缺少接口地址 / API Key / 模型名，请到「系统管理 → AI 信息登记」填写）', 'NOT_CONFIGURED');
   }
 
   const controller = new AbortController();
@@ -198,3 +198,4 @@ export function stripFence(text: string): string {
   const m = /^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i.exec(raw);
   return (m ? m[1] : raw).trim();
 }
+
