@@ -38,7 +38,16 @@ http.interceptors.response.use(
   },
   async (error) => {
     const status = error?.response?.status;
-    const body = error?.response?.data;
+    let body = error?.response?.data;
+    // 下载类接口（PDF/Excel）异常时响应体是 Blob，直接读 message 拿不到后端的 JSON 文案
+    if (body instanceof Blob) {
+      try {
+        const text = await body.text();
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = null;
+      }
+    }
     const msg =
       (body && typeof body === 'object' && 'message' in body ? body.message : null) ||
       error?.message || '网络异常';

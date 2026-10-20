@@ -223,13 +223,24 @@ export class LaborReceivingService {
     });
     // 上期末累计链需要**该分包单位全部期间**的已存行（含其他单据的）
     const history = await this.prisma.laborReceivingSummary.findMany({
-      where: { projectId: doc.projectId, laborAuthId: doc.laborAuthId, period: { lt: doc.period } },
+      where: { projectId: doc.projectId, laborAuthId: doc.laborAuthId },
       orderBy: [{ period: 'asc' }, { materialName: 'asc' }],
     });
-    // 口径：返回「材料键（不含期）→ 本期期初开累」，与行键（两段）同一形状，勿再用含期的键去查
-    const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, doc.period);
-    const periodRows = agg.receivedByPeriod.get(doc.period) ?? new Map();
+    return this.buildRows(doc.period, saved, agg, history);
+  }
 
+  /**
+   * 由已取好的聚合/历史数据算某一期的行（`mergeDocRows` 的内核）。
+   *
+   * 抽出来是为了「导出时把以前各期扣款累加」只查一次库：
+   * 逐期调 `mergeDocRows` 会让每期都重跑 `aggregateReceipts` 与历史查询，
+   * 导出第 N 期就多付 N 次全量扫表（导出/归档开销随期数平方增长）。
+   */
+  private buildRows(period: string, saved: any[], agg: any, allHistory: any[]): any[] {
+    // `buildPrevCumMap` 内部只取 < period 的期，故这里传全量历史即可
+    const history = allHistory.filter((r) => String(r.period) < period);
+    const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, period);
+    const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
     const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec)));
     const keys = new Set<string>([...periodRows.keys(), ...savedKeys]);
     const list: any[] = [];
@@ -385,9 +396,19 @@ export class LaborReceivingService {
       orderBy: { period: 'asc' },
     });
     let deductPrev = 0;
-    for (const p of prevDocs) {
-      const prevRows: any[] = await this.mergeDocRows(p as any);
-      deductPrev += prevRows.reduce((s, r) => s + (r.deductAmount ?? 0), 0);
+    if (prevDocs.length) {
+      // 一次取库：聚合（含全部收领单）与历史已存行只查一次，逐期只做内存计算
+      const startDay = await this.projectStartDay(doc.projectId);
+      const agg = await this.aggregateReceipts(doc.projectId, doc.laborAuthId, startDay);
+      const allSaved = await this.prisma.laborReceivingSummary.findMany({
+        where: { projectId: doc.projectId, laborAuthId: doc.laborAuthId },
+        orderBy: [{ period: 'asc' }, { materialName: 'asc' }],
+      });
+      for (const p of prevDocs) {
+        const savedForPeriod = allSaved.filter((r) => r.period === p.period);
+        const prevRows = this.buildRows(p.period, savedForPeriod, agg, allSaved);
+        deductPrev += prevRows.reduce((sum, r) => sum + (r.deductAmount ?? 0), 0);
+      }
     }
     let foot3 = rows.length + 6;
     ws3.getRow(foot3).values = ['至本期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev + deductThis)];

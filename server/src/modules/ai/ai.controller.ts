@@ -9,6 +9,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { AiService } from './ai.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
@@ -17,6 +18,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+
+/** 上传限额：单文件 50MB（与 nginx `client_max_body_size 50m`、`files/upload` 同口径）；multer 默认无上限 */
+const AI_UPLOAD = { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } };
 
 /**
  * AI 助手（模块前缀 `api/ai`）。
@@ -53,7 +57,7 @@ export class AiController {
    */
   @RequirePermissions('ai:use')
   @Post('forms/inspect')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
   inspect(
     @UploadedFile() file: any,
     @Body() body: { contractId?: string; supplierId?: string },
@@ -78,7 +82,7 @@ export class AiController {
    */
   @RequirePermissions('ai:use')
   @Post('register/parse')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
   parseRegister(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.register.parse(file, { projectId }, user?.userId || user?.username || 'anonymous');
   }
@@ -132,7 +136,7 @@ export class AiController {
 
   @RequirePermissions('ai:use')
   @Post('forms/fill')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
   async fill(
     @UploadedFile() file: any,
     @Body() body: { mapping?: string; contractId?: string; supplierId?: string },

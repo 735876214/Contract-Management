@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -164,15 +164,31 @@ export class AssetService {
     return true;
   }
 
+  /**
+   * 导出用：按页取全量。
+   * `paginate()` 会把单页 take 夹到上限，`{ pageSize: 5000 }` 只是「一页 5000 行」，
+   * 超过上限的部分不会出现在任何一页里 → 导出静默缺行（此前付款/日报/台账已按同口径改过）。
+   */
+  private async allRows(projectId: string): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findAll({ page, pageSize: 500 }, projectId, 500);
+      const list = (res.list ?? []) as any[];
+      out.push(...list);
+      if (!list.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allRows(projectId);
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.nameMap('asset_ledger_source'), this.dict.nameMap('asset_category_l1'),
       this.dict.nameMap('asset_category_focus'), this.dict.nameMap('measurement_unit'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const rows = (res.list as any[]).map((r) => ({
+    const rows = all.map((r) => ({
       date: fmt(r.date),
       sourceName: source[r.sourceCode]?.name || '',
       categoryL1Name: catL1[r.categoryL1Code]?.name || '',

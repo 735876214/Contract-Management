@@ -252,7 +252,7 @@ export class ArchiveService {
           }
           for (const [dir, settleMonth] of byPeriod) {
             push(`${cat.dir}/${dir}`, '结算单.xlsx', {
-              buffer: await this.settlementService.exportLedger(projectId, settleMonth),
+              buffer: await buf(() => this.settlementService.exportLedger(projectId, settleMonth)),
             });
           }
           break;
@@ -269,7 +269,7 @@ export class ArchiveService {
             const supplier = f.contract?.supplier?.name || '-';
             const contractName = f.contract?.name || f.code || '-';
             push(cat.dir, `${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}-总结算书.xlsx`, {
-              buffer: await this.settlementService.exportComplianceSheet(f.contract.id, projectId),
+              buffer: await buf(() => this.settlementService.exportComplianceSheet(f.contract.id, projectId)),
             });
             if (f.attachmentUrl) {
               push(cat.dir, prefixedFileName(`${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}`, f.attachmentName || '总结算书附件'), {
@@ -288,7 +288,7 @@ export class ArchiveService {
           });
           for (const d of docs) {
             push(`${cat.dir}/${sanitizeSegment(d.subcontractorName)}`, `盘点领用表-${this.periodLabelOfPeriod(d.period)}.xlsx`, {
-              buffer: await this.laborReceivingService.exportWorkbook(d.id),
+              buffer: await buf(() => this.laborReceivingService.exportWorkbook(d.id)),
             });
           }
           break;
@@ -328,7 +328,7 @@ export class ArchiveService {
           for (const rec of records) {
             const label = periodDirOf(rec.period);
             push(cat.dir, `降本、创效、主材盈亏分析表-${label}.xlsx`, {
-              buffer: await this.monthlyProfitLossService.exportWorkbook(rec.id, projectId),
+              buffer: await buf(() => this.monthlyProfitLossService.exportWorkbook(rec.id, projectId)),
             });
           }
           break;

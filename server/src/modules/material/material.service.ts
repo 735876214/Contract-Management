@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -249,8 +249,20 @@ export class MaterialService {
     return this.prisma.materialBase.update({ where: { id }, data: { status: old.status === 1 ? 0 : 1 } });
   }
 
+  /** 导出用：按页取全量（单页上限会被 `paginate` 夹断，超出的行会静默丢失） */
+  private async allBases(): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findBases({ page, pageSize: 500 }, 500);
+      const list = (res.list ?? []) as any[];
+      out.push(...list);
+      if (!list.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async exportBases() {
-    const res = await this.findBases({ pageSize: 5000 }, IMPORT_MAX_ROWS);
+    const all = await this.allBases();
     const columns = [
       { header: '物资名称', key: 'name', width: 26 },
       { header: '规格型号', key: 'spec', width: 18 },
@@ -265,7 +277,7 @@ export class MaterialService {
       { header: '被引用次数', key: 'refCount', width: 12 },
       { header: '备注', key: 'remark', width: 24 },
     ];
-    const rows = (res.list as any[]).map((i) => ({
+    const rows = all.map((i) => ({
       name: i.name, spec: i.spec,
       categoryLevel1: i.categoryLevel1 || '', categoryLevel2: i.categoryLevel2 || '',
       unit: i.unit || '',
