@@ -68,6 +68,17 @@ export class PaymentService {
     return { overAmountWarning: res.message };
   }
 
+  /**
+   * 付款记录挂的合同必须属于当前项目。
+   * 不校验时：本项目付款可挂到别项目合同上 → `findRecords` 的 `contractInclude` 会把
+   * 对方供应商的开户行/账号返回给本项目用户，防超付闸门也按对方合同的累计数算错。
+   */
+  private async assertContractInProject(contractId: string | null | undefined, projectId: string) {
+    if (!contractId) return;
+    const c = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    if (!c || c.projectId !== projectId) throw new BadRequestException('关联合同不存在或不属于当前项目');
+  }
+
   private contractInclude = {
     contract: { select: { id: true, code: true, name: true, supplier: { select: { id: true, name: true, bankName: true, bankAccount: true } } } },
   };
@@ -88,6 +99,7 @@ export class PaymentService {
 
   async createRecord(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
+    await this.assertContractInProject(data.contractId, projectId);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
     // 台账/看板按字符串精确匹配 payMonth，非 YYYY-MM 会让该笔付款在所有月度统计里消失
@@ -110,6 +122,7 @@ export class PaymentService {
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
     assertYearMonth(data.payMonth, '付款月份');
     const payload: any = pickFields(data, RECORD_UPDATE_FIELDS, { label: '付款记录' });
+    await this.assertContractInProject(payload.contractId, projectId ?? before.projectId);
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     delete payload.version;

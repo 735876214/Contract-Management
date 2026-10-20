@@ -50,18 +50,31 @@ export class SystemService {
     return stripPassword(created);
   }
 
+  /**
+   * 改用户：主表与角色关联必须同事务。
+   * 原实现先 `userRole.deleteMany` → `createMany` → `user.update`，三步各自提交：
+   * 用户名撞车（P2002）时 update 失败，而角色关联已经删掉 → 该用户下次登录无任何权限，
+   * 且接口只回 500，管理员看不出「权限被清了」。
+   */
   async updateUser(id: string, data: any) {
     const { roleIds, password, ...rest } = data;
-    if (roleIds) {
-      await this.prisma.userRole.deleteMany({ where: { userId: id } });
-      if (roleIds.length) {
-        await this.prisma.userRole.createMany({ data: roleIds.map((roleId: string) => ({ userId: id, roleId })) });
-      }
-    }
     const payload = pickFields(rest, USER_WRITABLE_FIELDS, { label: '用户' });
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data: password ? { ...payload, password: await bcrypt.hash(password, 10) } : payload,
+    if (payload.username) {
+      const dup = await this.prisma.user.findFirst({ where: { username: payload.username, id: { not: id } } });
+      if (dup) throw new BadRequestException('用户名已存在');
+    }
+    const hashed = password ? await bcrypt.hash(password, 10) : undefined;
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (roleIds) {
+        await tx.userRole.deleteMany({ where: { userId: id } });
+        if (roleIds.length) {
+          await tx.userRole.createMany({ data: roleIds.map((roleId: string) => ({ userId: id, roleId })) });
+        }
+      }
+      return tx.user.update({
+        where: { id },
+        data: hashed ? { ...payload, password: hashed } : payload,
+      });
     });
     return stripPassword(updated);
   }
@@ -85,15 +98,18 @@ export class SystemService {
     return this.prisma.role.create({ data });
   }
 
+  /** 改角色：权限关联与主表同事务（理由同 `updateUser`，失败时不能留下「权限被清空」的角色） */
   async updateRole(id: string, data: any) {
     const { permissionIds, ...rest } = data;
-    if (permissionIds) {
-      await this.prisma.rolePermission.deleteMany({ where: { roleId: id } });
-      if (permissionIds.length) {
-        await this.prisma.rolePermission.createMany({ data: permissionIds.map((permissionId: string) => ({ roleId: id, permissionId })) });
+    return this.prisma.$transaction(async (tx) => {
+      if (permissionIds) {
+        await tx.rolePermission.deleteMany({ where: { roleId: id } });
+        if (permissionIds.length) {
+          await tx.rolePermission.createMany({ data: permissionIds.map((permissionId: string) => ({ roleId: id, permissionId })) });
+        }
       }
-    }
-    return this.prisma.role.update({ where: { id }, data: rest });
+      return tx.role.update({ where: { id }, data: rest });
+    });
   }
 
   async removeRole(id: string) {

@@ -38,12 +38,14 @@ export class RepaymentService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, projectId?: string) {
     const a = await this.prisma.repaymentAgreement.findUnique({
       where: { id },
       include: { supplier: true, contract: true, details: { orderBy: { period: 'asc' } } },
     });
     if (!a) throw new NotFoundException('还款协议不存在');
+    // 归属校验：只验项目成员身份不验记录归属时，拿别项目协议的 id 即可读写删
+    if (projectId && (a as any).projectId !== projectId) throw new NotFoundException('还款协议不存在');
     return a;
   }
 
@@ -133,8 +135,8 @@ export class RepaymentService {
     });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     if (data.code && data.code !== before.code) {
       const { exists } = await this.checkCode(data.code, before.projectId, id);
@@ -158,8 +160,8 @@ export class RepaymentService {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    await this.findOne(id, projectId);
     await this.prisma.repaymentAgreement.delete({ where: { id } });
     return true;
   }

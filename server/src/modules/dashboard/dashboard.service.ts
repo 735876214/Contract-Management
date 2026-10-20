@@ -484,7 +484,7 @@ export class DashboardService {
    * 只做**展示**：不拦截任何单据，也不改 `payment.over_amount_policy` 的策略。
    */
   private async paymentRatioAlerts(projectId: string) {
-    const [contracts, settlements, payments, exts] = await Promise.all([
+    const [contracts, settlements, payments] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId },
         select: { id: true, parentContractId: true, code: true, name: true },
@@ -497,8 +497,15 @@ export class DashboardService {
         where: { projectId, ...paidPaymentWhere() },
         select: { contractId: true, amount: true },
       }),
-      this.prisma.contractExt.findMany({ select: { contractId: true, currentPayRatio: true } }),
     ]);
+    // 付款比例派生列只取本项目合同：原先无 where 全表读，合同数越多本接口越慢，
+    // 也违反「查询必须自带 projectId」。父合同不在本项目时缺少派生列 → 该链按无比例跳过。
+    const exts = contracts.length
+      ? await this.prisma.contractExt.findMany({
+          where: { contractId: { in: contracts.map((c) => c.id) } },
+          select: { contractId: true, currentPayRatio: true },
+        })
+      : [];
 
     const sumByContract = (rows: any[], pick: (r: any) => number) => {
       const map = new Map<string, number>();

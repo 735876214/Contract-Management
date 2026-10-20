@@ -177,8 +177,8 @@ export class InvoiceService {
     return created;
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.validate({ ...before, ...data });
     if (data.invoiceNo && data.invoiceNo !== before.invoiceNo) {
@@ -203,8 +203,8 @@ export class InvoiceService {
     return updated;
   }
 
-  async remove(id: string) {
-    const before: any = await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     await this.prisma.invoice.delete({ where: { id } });
     await this.syncLedger(before.contractId);
     return true;
@@ -217,8 +217,8 @@ export class InvoiceService {
    * ⚠️ **不做验真**，也不接第三方查验服务（如航信/百望）——业务侧明确不需要。
    * 发票信息采集走 `POST /invoices/recognize`（二维码/OCR 识别）+ 人工补录。
    */
-  async verify(id: string) {
-    const inv = await this.findOne(id);
+  async verify(id: string, projectId?: string) {
+    const inv = await this.findOne(id, projectId);
     return this.prisma.invoice.update({
       where: { id },
       data: {
@@ -250,6 +250,9 @@ export class InvoiceService {
         if (dup) throw new Error(`发票号码 ${it.invoiceNo} 已存在`);
         const contract = it.contractId ? await this.prisma.contract.findUnique({ where: { id: it.contractId } }) : null;
         if (it.contractId && !contract) throw new Error('关联合同不存在');
+        // 合同归属校验：不校验的话可把别项目的合同挂到本项目发票上，
+        // 之后按合同汇总的开票额、台账同步都会串到别的项目
+        if (contract && (contract as any).projectId !== projectId) throw new Error('关联合同不属于当前项目');
         const rate = num(it.taxRate);
         const beforeTax = num(it.amountBeforeTax);
         const withTax = rate !== null && beforeTax !== null
@@ -257,7 +260,7 @@ export class InvoiceService {
           : (num(it.amountWithTax) ?? null);
         const invoiceDate = it.invoiceDate ? new Date(it.invoiceDate) : null;
         const d = invoiceDate && !isNaN(invoiceDate.getTime()) ? invoiceDate : null;
-        await this.prisma.invoice.create({
+        const row = await this.prisma.invoice.create({
           data: {
             projectId,
             contractId: contract?.id ?? null,
@@ -278,6 +281,14 @@ export class InvoiceService {
             remark: it.remark || '批量识别导入',
           },
         });
+        // 与 create/import 同一收尾：挂同月结算单 + 刷合同开票台账。
+        // 漏这两步时批量识别进来的发票 settlementId 恒为 null、台账「本月开票额」停在旧值，
+        // 直到以后对同一合同再做一次单条写入才被动纠正。
+        const link = await this.resolveSettlementId(row as any, projectId);
+        if (link !== undefined) {
+          await this.prisma.invoice.update({ where: { id: row.id }, data: { settlementId: link } });
+        }
+        await this.syncLedger(row.contractId);
         created += 1;
       } catch (e: any) {
         errors.push(`第 ${i + 1} 条：${e.message}`);
@@ -287,15 +298,32 @@ export class InvoiceService {
   }
 
   // ---------------- Excel ----------------
+  /**
+   * 导出用全量发票：`findAll({ pageSize: 2000 })` 会被单页上限截断，
+   * 发票数超过上限时导出文件**静默**少行（与台账/还款协议导出同一坑）。
+   */
+  private async allInvoices(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allInvoices(projectId);
+    const res: any = { list: all, total: all.length };
     const [goods, review, finance] = await Promise.all([
       this.dict.nameMap('goods_category'), this.dict.nameMap('invoice_review_status'),
       this.dict.nameMap('finance_transfer_status'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const rows = (res.list as any[]).map((i, idx) => ({
+    const rows = (res.list as any[]).map((i: any, idx: number) => ({
       index: idx + 1,
       goodsCategoryName: goods[i.goodsCategory]?.name || '',
       settlePeriod: i.settlePeriod, issuer: i.issuer, invoiceDate: fmt(i.invoiceDate),

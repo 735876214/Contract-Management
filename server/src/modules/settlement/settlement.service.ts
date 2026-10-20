@@ -579,12 +579,20 @@ export class SettlementService {
 
   /** 一键自动生成/刷新台账：扫描结算单、收票登记、资金费用台账中的合同+月份组合，自动生成缺失行并刷新自动字段 */
   async refreshLedger(projectId: string) {
-    const [settlements, invoices, factoring, overdue, contracts] = await Promise.all([
+    // 资金费用两张表没有 projectId 列（只挂 contractId），先取本项目合同再按 id 过滤：
+    // 原先 `findMany({ select })` 全表读，再在内存里用 contractIds 过筛——
+    // 表一大就整表进内存，且与「查询必须自带项目过滤」的铁律相悖。
+    const contracts = await this.prisma.contract.findMany({ where: { projectId }, select: { id: true } });
+    const contractIdList = contracts.map((c: any) => c.id);
+    const [settlements, invoices, factoring, overdue] = await Promise.all([
       this.prisma.settlement.findMany({ where: { projectId }, select: { contractId: true, settleDate: true } }),
       this.prisma.invoice.findMany({ where: { projectId }, select: { contractId: true, settlePeriod: true, invoiceDate: true } }),
-      this.prisma.factoringCost.findMany({ select: { contractId: true, settlementMonth: true } }),
-      this.prisma.overdueInterest.findMany({ select: { contractId: true, settlementMonth: true } }),
-      this.prisma.contract.findMany({ where: { projectId }, select: { id: true } }),
+      contractIdList.length
+        ? this.prisma.factoringCost.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
+        : [],
+      contractIdList.length
+        ? this.prisma.overdueInterest.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
+        : [],
     ]);
     const contractIds = new Set(contracts.map((c: any) => c.id));
     const combos = new Set<string>();

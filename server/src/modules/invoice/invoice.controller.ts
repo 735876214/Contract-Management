@@ -71,20 +71,20 @@ export class InvoiceController {
 
   @RequirePermissions('invoice:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   @RequirePermissions('invoice:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')
   @Post(':id/verify')
-  verify(@Param('id') id: string) {
-    return this.service.verify(id);
+  verify(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.verify(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')

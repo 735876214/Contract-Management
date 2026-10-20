@@ -86,8 +86,8 @@ export class ReceiptOrderController {
 
   @RequirePermissions('receipt:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('receipt:edit')
@@ -98,20 +98,20 @@ export class ReceiptOrderController {
 
   @RequirePermissions('receipt:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   /** 推送 / 重新推送明细到总日报 */
   @RequirePermissions('receipt:edit')
   @Post(':id/push')
-  push(@Param('id') id: string) {
-    return this.service.repush(id);
+  push(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.repush(id, projectId);
   }
 
   @RequirePermissions('receipt:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

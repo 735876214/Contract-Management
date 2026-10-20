@@ -68,7 +68,8 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/system/role': ['system:role'],
   '/system/params': ['system:config'],
   '/system/dict': ['dict:view', 'system:config'],
-  '/system/log': ['system:user'],
+  // 后端日志接口要求 system:log（同时接受 system:user，兼容只勾了用户管理的既有角色）
+  '/system/log': ['system:log', 'system:user'],
 };
 
 /**

@@ -438,11 +438,11 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/ledger/contracts` | 台账数据（36 列，批量聚合 + 合规性问题计算） | `ledger:view` |
-| GET | `/ledger/columns` | 列配置（默认显隐） | `ledger:view` |
-| PUT | `/ledger/columns` | 保存列显隐配置（存 `sys_param: ledger.columns.config`） | `ledger:view` |
-| GET | `/ledger/summary` | 台账汇总指标（合同额/结算/付款/发票） | `ledger:view` |
-| GET | `/ledger/export` | 导出 Excel（按当前列配置） | `ledger:view` |
+| GET | `/ledger/contracts` | 台账数据（36 列，批量聚合 + 合规性问题计算） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/columns` | 列配置（默认显隐） | `ledger:view` 或 `contract:view` |
+| PUT | `/ledger/columns` | 保存列显隐配置（存 `sys_param: ledger.columns.config`） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/summary` | 台账汇总指标（合同额/结算/付款/发票） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/export` | 导出 Excel（按当前列配置） | `ledger:view` 或 `contract:view` |
 
 ## 20. 还款协议 `/repayments`
 
@@ -483,12 +483,12 @@
 | GET/POST | `/system/users` | 用户列表 / 新增（含角色） | `system:user` |
 | PUT/DELETE | `/system/users/:id` | 修改 / 删除 | `system:user` |
 | POST | `/system/users/:id/reset-password` | 重置密码 | `system:user` |
-| GET/POST | `/system/roles` | 角色列表 / 新增（含权限分配） | `system:user` |
-| PUT/DELETE | `/system/roles/:id` | 修改 / 删除 | `system:user` |
-| GET | `/system/permissions` | 权限树（按模块） | `system:user` |
+| GET/POST | `/system/roles` | 角色列表 / 新增（含权限分配） | `system:role` 或 `system:user` |
+| PUT/DELETE | `/system/roles/:id` | 修改 / 删除 | `system:role` 或 `system:user` |
+| GET | `/system/permissions` | 权限树（按模块） | `system:role` 或 `system:user` |
 | GET/PUT | `/system/params` | 系统参数（编号唯一性策略、供应商共享范围等） | `system:config` |
-| GET | `/system/logs/operations` | 操作日志 | `system:log` |
-| GET | `/system/logs/logins` | 登录日志 | `system:log` |
+| GET | `/system/logs/operations` | 操作日志 | `system:log` 或 `system:user` |
+| GET | `/system/logs/logins` | 登录日志 | `system:log` 或 `system:user` |
 
 > `/system/depts`（部门管理）**已移除**：系统无部门模型；行级数据权限已明确**不做**（业务 2026-10-17 确认）。
 

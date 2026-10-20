@@ -186,7 +186,13 @@ export class ReceiptOrderService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  /**
+   * 单条查询（带项目归属校验）。
+   * 按 id 的读/改/删/推送都必须经过这里：`JwtAuthGuard` 只验「是不是该项目成员」，
+   * 不验「这条记录是不是该项目的」——用户同时属于 A、B 两个项目时，
+   * 拿 B 的收领单 id 配 A 的项目头即可读到/改写/删除 B 的数据。
+   */
+  async findOne(id: string, projectId?: string) {
     const order = await this.prisma.receiptOrder.findUnique({
       where: { id },
       include: {
@@ -198,6 +204,7 @@ export class ReceiptOrderService {
       },
     });
     if (!order) throw new NotFoundException('收领单不存在');
+    if (projectId && (order as any).projectId !== projectId) throw new NotFoundException('收领单不存在');
     return order;
   }
 
@@ -716,8 +723,8 @@ export class ReceiptOrderService {
     return order;
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     // 归档锁：原合同与新合同都不能是已归档合同
     await this.lock.assertWritable(before.materialContractId, '修改收领单');
@@ -778,8 +785,8 @@ export class ReceiptOrderService {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
-    const before = await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.materialContractId, '删除收领单');
     // 单条 DELETE 自带原子性，无需外层事务；级联与加锁说明见下：
     // - 明细（ReceiptOrderDetail）与自动入账的资产台账（AssetLedger.receiptOrderId）均为
@@ -975,8 +982,8 @@ export class ReceiptOrderService {
 
   /** 重新推送：用于保存后补推 / 修复历史数据。⚠️ 归档合同禁止（否则归档后复活已确认日报行，
    *  结算创建又被锁 → 永久「未纳入结算」，打破归档不变量）。 */
-  async repush(id: string) {
-    const order: any = await this.findOne(id);
+  async repush(id: string, projectId?: string) {
+    const order: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(order.materialContractId, '重新推送总日报');
     return this.pushToDailyReport(id);
   }
