@@ -70,6 +70,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/system/dict': ['dict:view', 'system:config'],
   // 后端日志接口要求 system:log（同时接受 system:user，兼容只勾了用户管理的既有角色）
   '/system/log': ['system:log', 'system:user'],
+  // AI 信息登记（2026-10-20）：挂在系统管理下，但守卫沿用 ai:view
+  // ——与 `/ai/assistant` 同一套码，避免「菜单可见、点进去 403」
+  '/system/ai-register': ['ai:view'],
 };
 
 /**

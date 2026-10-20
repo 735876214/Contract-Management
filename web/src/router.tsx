@@ -175,6 +175,8 @@ export const routes: RouteObject[] = [
       { path: 'system/params', element: perm('/system/params', <SystemParamsPage />) },
       { path: 'system/dict', element: perm('/system/dict', <Dict />) },
       { path: 'system/log', element: perm('/system/log', <SystemLogsPage />) },
+      // AI 信息登记（2026-10-20）：同一页面，默认落在「文件登记」页签，权限码与 /ai/assistant 一致
+      { path: 'system/ai-register', element: perm('/system/ai-register', <AiAssistant defaultTab="register" />) },
 
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：

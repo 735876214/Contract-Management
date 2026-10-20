@@ -333,13 +333,20 @@ function FillPanel() {
 }
 
 /**
- * 页面外壳：一期「模板智能填报」与二期「文件登记」各占一个页签，菜单仍只有一个入口。
+ * 页面外壳：一期「模板智能填报」与二期「文件登记」各占一个页签。
+ *
+ * 有两个菜单入口指向本页（2026-10-20）：
+ * - 「AI 助手」/ai/assistant → 默认「模板智能填报」；
+ * - 「系统管理 → AI 信息登记」/system/ai-register → 默认「文件登记」。
  * 页签不写进 URL——两个面板都是「上传即用」的临时状态，刷新后重来更符合预期。
+ * `key` 绑 defaultTab：两个入口来回切换时强制重挂载，否则 defaultActiveKey 只在首次挂载生效，
+ * 会出现「从系统管理点进去却停在上一个入口的页签」。
  */
-export default function AiAssistant() {
+export default function AiAssistant({ defaultTab = 'fill' }: { defaultTab?: 'fill' | 'register' | 'report' }) {
   return (
     <Tabs
-      defaultActiveKey="fill"
+      key={defaultTab}
+      defaultActiveKey={defaultTab}
       items={[
         { key: 'fill', label: '模板智能填报', children: <FillPanel /> },
         { key: 'register', label: '文件登记', children: <AiRegisterPanel /> },
