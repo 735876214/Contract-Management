@@ -113,8 +113,8 @@ export class SettlementController {
 
   @RequirePermissions('settlement:view')
   @Get('ledger/:id')
-  ledgerOne(@Param('id') id: string) {
-    return this.service.ledgerOne(id);
+  ledgerOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.ledgerOne(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')
@@ -125,14 +125,14 @@ export class SettlementController {
 
   @RequirePermissions('settlement:edit')
   @Put('ledger/:id')
-  updateLedger(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateLedger(id, body);
+  updateLedger(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateLedger(id, body, projectId);
   }
 
   @RequirePermissions('settlement:edit')
   @Delete('ledger/:id')
-  removeLedger(@Param('id') id: string) {
-    return this.service.removeLedger(id);
+  removeLedger(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeLedger(id, projectId);
   }
 
   @RequirePermissions('settlement:view')
@@ -149,20 +149,20 @@ export class SettlementController {
 
   @RequirePermissions('settlement:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   /** 任务 7：结算驳回 → 回填（纯状态回退） */
   @RequirePermissions('settlement:edit')
   @Post(':id/reject')
-  reject(@Param('id') id: string) {
-    return this.service.reject(id);
+  reject(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.reject(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

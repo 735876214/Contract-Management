@@ -20,6 +20,15 @@ const INVOICE_FIELDS = [
   'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
   'imageUrl', 'statusCode', 'remark',
 ];
+/**
+ * update 白名单：**不含 projectId**。
+ *
+ * 归属只能由 create 决定：前端表单种子来自 GET 详情、会整包回传，若 update 也吃 projectId，
+ * `PUT /invoices/:id` 带一个别的项目 id 就能把发票搬到别的项目（随后 syncLedger 只按 contractId
+ * 重刷，原项目台账的「本月开票额」会停在旧值）。与 contract.service.ts 的
+ * CONTRACT_UPDATE_FIELDS 同一处理。
+ */
+const INVOICE_UPDATE_FIELDS = INVOICE_FIELDS.filter((f) => f !== 'projectId');
 
 @Injectable()
 export class InvoiceService {
@@ -176,7 +185,7 @@ export class InvoiceService {
       const { exists } = await this.checkNo(data.invoiceNo, before.projectId, id);
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
     }
-    const payload: any = pickFields(data, INVOICE_FIELDS, { label: '发票' });
+    const payload: any = pickFields(data, INVOICE_UPDATE_FIELDS, { label: '发票' });
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });

@@ -152,7 +152,9 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
    使用密度：contract 38 处、settlement 27、receipt-order 27、procurement-task 23、invoice 20……
 5. **例外**（代码侧也已在对应 service 顶部显式注释，避免后人"顺手"补过滤）：
    - `dict` 全局共享，不按项目过滤（`dict.service.ts` 顶部注释）；
-   - `finance` 按 `contractId` 归属（`contractScope`），不直接按项目（`finance.service.ts` 顶部注释）；
+   - `finance` 按 `contractId` 归属：查询本身不按 `projectId` 过滤，但每个入口都用
+     `contractScope(contractId, projectId)` 校验合同属于当前项目（不属于一律 404「合同不存在」），
+     见 `finance.service.ts` 顶部注释与 controller 的 `@ProjectId()`；
    - `supplier` 受系统参数 `supplier.share.scope` 控制：`GLOBAL`（默认）不过滤且 `projectId=null`；`PROJECT` 按项目过滤；
    - `Subcontractor` / `ContractTemplate` 的 `projectId = null` 表示全局共享。
    完整口径表另见 [docs/03-API接口清单.md](03-API接口清单.md) §0。

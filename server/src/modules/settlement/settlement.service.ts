@@ -37,6 +37,8 @@ const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
   'settleDate', 'statusCode', 'remark',
 ];
+/** update 白名单：不含 projectId —— 归属只能由 create 决定 */
+const SETTLE_UPDATE_FIELDS = SETTLE_FIELDS.filter((f) => f !== 'projectId');
 /** 清单项级结算明细的写字段白名单（items 随结算单 body 一并传） */
 const SETTLEMENT_ITEM_FIELDS = ['materialBaseId', 'qty', 'priceBeforeTax', 'taxRatePct', 'remark', 'sortOrder'];
 const LEDGER_FIELDS = [
@@ -44,6 +46,8 @@ const LEDGER_FIELDS = [
   'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount', 'monthActualPurchase',
   'factoringDiscount', 'overdueInterest', 'yearSettleIncome', 'cumSettleIncome', 'isOnAccount', 'remark',
 ];
+/** update 白名单：不含 projectId —— 台账归属只能由 create 决定 */
+const LEDGER_UPDATE_FIELDS = LEDGER_FIELDS.filter((f) => f !== 'projectId');
 
 @Injectable()
 export class SettlementService {
@@ -258,8 +262,8 @@ export class SettlementService {
     return { ...created, ...warn, ...qtyWarn };
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.lock.assertWritable(before.contractId, '修改结算单');
     if (data.contractId && data.contractId !== before.contractId) {
@@ -273,7 +277,7 @@ export class SettlementService {
       data.settleDate ?? before.settleDate,
       id,
     );
-    const payload: any = pickFields(data, SETTLE_FIELDS, { label: '结算单' });
+    const payload: any = pickFields(data, SETTLE_UPDATE_FIELDS, { label: '结算单' });
     ['amount', 'deductAmount', 'actualAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -333,8 +337,8 @@ export class SettlementService {
     return { ...updated, ...warn };
   }
 
-  async remove(id: string) {
-    const before: any = await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.contractId, '删除结算单');
     await this.prisma.settlement.delete({ where: { id } });
     // 台账行上的 settlementId 由 DB 级 `SET NULL` 解除，随后重算该合同的台账
@@ -347,8 +351,8 @@ export class SettlementService {
    * 任务 7：结算驳回 → 回填（回退到「草稿」状态，可重新编辑提交）。
    * 纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
    */
-  async reject(id: string) {
-    const before: any = await this.findOne(id);
+  async reject(id: string, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.contractId, '驳回结算单');
     // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
     assertSettlementRejectable(before.statusCode);
@@ -505,7 +509,20 @@ export class SettlementService {
         data: { ...auto, version: { increment: 1 } },
       });
     }
-    return db.settlementLedger.create({ data: { projectId, contractId, settleMonth, ...auto } });
+    try {
+      return await db.settlementLedger.create({ data: { projectId, contractId, settleMonth, ...auto } });
+    } catch (e: any) {
+      // 先查后建在并发下必然有竞态：两个「刷新台账」、或导入发票的 afterCommit 与保存结算单同时到达，
+      // 后到者撞 @@unique([projectId, contractId, settleMonth]) 抛 P2002 → 整个事务回滚变 500。
+      // 这里退化为更新已有行，让并发两侧都成功（幂等）。
+      if (e?.code !== 'P2002') throw e;
+      const row = await db.settlementLedger.findFirst({ where: { projectId, contractId, settleMonth } });
+      if (!row) throw e;
+      return db.settlementLedger.update({
+        where: { id: row.id },
+        data: { ...auto, version: { increment: 1 } },
+      });
+    }
   }
 
   /**
@@ -1070,9 +1087,11 @@ export class SettlementService {
     return buildResult(list, total, query);
   }
 
-  async ledgerOne(id: string) {
+  async ledgerOne(id: string, projectId?: string) {
     const l = await this.prisma.settlementLedger.findUnique({ where: { id } });
     if (!l) throw new NotFoundException('结算台账记录不存在');
+    // 与 findOne 相同的防御纵深：台账行按 id 直读同样要核归属
+    if (projectId && l.projectId !== projectId) throw new NotFoundException('结算台账记录不存在');
     return l;
   }
 
@@ -1118,15 +1137,24 @@ export class SettlementService {
     // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
     // P2002 变成 500，这里先给出可读的 400
     await this.assertLedgerMonthUnique(projectId, payload.contractId ?? null, payload.settleMonth ?? null);
-    return db.settlementLedger.create({ data: payload });
+    try {
+      return await db.settlementLedger.create({ data: payload });
+    } catch (e: any) {
+      // 预检与写入之间仍有窗口（同一个用户双击「新增」、或两个标签页同时提交）：
+      // P2002 说明这一行刚好被别人建了，转成与预检一致的可读 400，而不是未捕获的 500
+      if (e?.code !== 'P2002') throw e;
+      throw new BadRequestException(
+        `该合同 ${payload.settleMonth ?? ''} 的结算台账已存在，请勿重复新增`,
+      );
+    }
   }
 
-  async updateLedger(id: string, data: any) {
-    const old = await this.ledgerOne(id);
+  async updateLedger(id: string, data: any, projectId?: string) {
+    const old = await this.ledgerOne(id, projectId);
     assertVersion(old, data);
     await this.assertLedgerWritable(data);
     await this.dict.validate('yes_no', data.isOnAccount);
-    const payload: any = pickFields(data, LEDGER_FIELDS, { label: '结算台账' });
+    const payload: any = pickFields(data, LEDGER_UPDATE_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
       'monthActualPurchase', 'factoringDiscount', 'overdueInterest', 'yearSettleIncome', 'cumSettleIncome'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
@@ -1154,8 +1182,8 @@ export class SettlementService {
     if (dup) throw new BadRequestException(`该合同 ${settleMonth} 的结算台账已存在，请勿重复新增`);
   }
 
-  async removeLedger(id: string) {
-    await this.ledgerOne(id);
+  async removeLedger(id: string, projectId?: string) {
+    await this.ledgerOne(id, projectId);
     await this.prisma.settlementLedger.delete({ where: { id } });
     return true;
   }

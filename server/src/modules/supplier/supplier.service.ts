@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -31,8 +31,8 @@ export class SupplierService {
     return scope === 'PROJECT' && projectId ? { projectId } : {};
   }
 
-  async findAll(query: any = {}, projectId?: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId?: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const base = await this.scopeWhere(projectId);
     const where: any = { ...base };
     if (query.keyword) {
@@ -134,7 +134,9 @@ export class SupplierService {
   }
 
   async export(projectId?: string) {
-    const res = await this.findAll({ pageSize: 500 }, projectId);
+    // pageSize 写死 500 会让导出静默截断（paginate 的默认上限也是 500）：这里显式放到
+    // IMPORT_MAX_ROWS，与其它模块的导出口径一致（supplier.share.scope=GLOBAL 时是全库共享）
+    const res = await this.findAll({ pageSize: IMPORT_MAX_ROWS }, projectId, IMPORT_MAX_ROWS);
     const rows = (res.list as any[]).map((s) => ({ ...s, status: s.status === 1 ? '启用' : '停用' }));
     return this.excel.export(this.columns(), rows, '供应商库');
   }

@@ -91,7 +91,14 @@ export class ImportRunnerService {
     if (errors.length) return { total: rows.length, created: 0, updated: 0, errors };
     if (!plans.length) return { total: rows.length, created: 0, updated: 0, errors: [] };
 
-    const res = await this.prisma.$transaction(async (tx) => opts.write(plans, tx as TxClient));
+    // 写入事务必须显式放宽超时：Prisma 默认 `timeout: 5000ms`，而各模块的 write 都是**逐行**往返
+    // （每行 1 次 create + 字典校验/查重/关联查询若干次），单批上限 IMPORT_MAX_ROWS=5000 行、
+    // 异步阈值 1000 行，正常量级就会撞上默认值 → P2028「Transaction already closed」+ 整批回滚 500。
+    // 与 syncLedgerByContract 的 `{ timeout: 30000 }` 同一思路；此处放宽到 180s（低于 nginx 300s）。
+    const res = await this.prisma.$transaction(async (tx) => opts.write(plans, tx as TxClient), {
+      timeout: 180000,
+      maxWait: 20000,
+    });
     const outcome: ImportOutcome = { total: rows.length, created: res?.created || 0, updated: res?.updated || 0, errors: [] };
     if (opts.afterCommit) {
       try {

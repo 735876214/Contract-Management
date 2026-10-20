@@ -18,6 +18,8 @@ const RECORD_FIELDS = [
   'projectId', 'contractId', 'payMonth', 'amount', 'methodCode', 'payDate',
   'receiptUrl', 'statusCode', 'remark',
 ];
+/** update 白名单：不含 projectId —— 归属只能由 create 决定（前端会整包回传表单种子） */
+const RECORD_UPDATE_FIELDS = RECORD_FIELDS.filter((f) => f !== 'projectId');
 
 @Injectable()
 export class PaymentService {
@@ -104,7 +106,7 @@ export class PaymentService {
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
-    const payload: any = pickFields(data, RECORD_FIELDS, { label: '付款记录' });
+    const payload: any = pickFields(data, RECORD_UPDATE_FIELDS, { label: '付款记录' });
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     delete payload.version;

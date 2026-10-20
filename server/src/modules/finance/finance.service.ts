@@ -38,8 +38,10 @@ function pageSlice<T>(rows: T[], query: any = {}): T[] {
  * 资金费用服务（保理费用 / 逾期利息 / 合同资金参数）。
  *
  * ⚠️ **项目隔离例外（有意为之，勿"顺手"补 `projectId` 过滤）**：
- * 本模块的所有查询/写入都**不带** `projectId`，而是按 `contractId` 归属
- * （`Contract` 自身已在项目内，且 controller 已用 `@ProjectId()` 做入口校验）。
+ * 本模块的所有查询/写入都**不带** `projectId` 过滤，而是按 `contractId` 归属；
+ * 归属校验由 controller 注入的 `@ProjectId()` + 本模块的 `contractScope(contractId, projectId)`
+ * 共同完成（2026-10-20 补齐：此前注释声称"controller 已做入口校验"，但 controller 根本没有注入
+ * `@ProjectId()`，任何有 finance:view 的用户拿到别项目的 contractId 就能读写）。
  * 原因：资金费用是**合同级**的下游台账，同一合同可能被跨项目的汇总视图复用；
  * 若在此再加一层 `projectId` 过滤，会导致「合同在 A 项目、费用记录查不到」的割裂。
  * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §18。
@@ -77,12 +79,8 @@ export class FinanceService {
   // ==================== 合同资金参数 ====================
 
   /** 合同参数（付款模式/月利率/宽限期/上限比例），合同未设置时回落到系统参数默认值 */
-  async contractParams(contractId: string) {
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
-      include: { supplier: { select: { name: true } }, project: { select: { name: true, codeAbbr: true } } },
-    });
-    if (!contract) throw new NotFoundException('合同不存在');
+  async contractParams(contractId: string, projectId?: string) {
+    const contract: any = await this.contractScope(contractId, projectId);
     const [defRate, defGrace, defCap, mode100, mode3382] = await Promise.all([
       this.sysParam.get('finance.overdue.default_monthly_rate', '0.006'),
       this.sysParam.get('finance.overdue.default_grace_days', '7'),
@@ -111,9 +109,9 @@ export class FinanceService {
     };
   }
 
-  async updateContractParams(contractId: string, data: any) {
-    const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
-    if (!contract) throw new NotFoundException('合同不存在');
+  async updateContractParams(contractId: string, data: any, projectId?: string) {
+    // 归档锁与项目归属都在 contractScope 里（找不到 / 不属于本项目都抛「合同不存在」）
+    const contract: any = await this.contractScope(contractId, projectId);
     // 归档锁（document-relationships.md §5.2：归档后合同本体禁止写——这里改的正是合同行上的
     // 利率/付款模式等字段）。注意归档锁只拦本次**合同行写入**；下方的 recalcOverdue 属费用行
     // 补录口径（与归档后允许补录发票/付款同一决策），不受归档限制。
@@ -157,8 +155,8 @@ export class FinanceService {
   }
 
   /** 按付款模式为某结算月份生成应付款行（3382 生成 2 行：80% + 20%） */
-  async generateOverdueRows(contractId: string, settlementMonth: string, materialAmount: number) {
-    const params = await this.contractParams(contractId);
+  async generateOverdueRows(contractId: string, settlementMonth: string, materialAmount: number, projectId?: string) {
+    const params = await this.contractParams(contractId, projectId);
     const tranches = modeTranches(params.paymentMode);
     if (!tranches) throw new BadRequestException('自定义付款模式请手动录入应付款行');
     const exist = await this.prisma.overdueInterest.count({ where: { contractId, settlementMonth, materialAmount: { gt: 0 } } });
@@ -189,12 +187,21 @@ export class FinanceService {
 
   // ==================== 保理费用台账 ====================
 
-  private async contractScope(contractId: string) {
+  /**
+   * 按 id 取合同 + **项目归属校验**（资金费用的统一入口）。
+   *
+   * @param projectId 当前请求的项目上下文；不传则只校验合同存在（服务层内部调用/集成测试）。
+   *   controller 一律注入 `@ProjectId()`，因此任何按 contractId 直达的路由（含列表、导出、
+   *   按记录 id 改/删）都绕不过这道 404。
+   */
+  private async contractScope(contractId: string, projectId?: string) {
+    if (!contractId) throw new NotFoundException('合同不存在');
     const contract = await this.prisma.contract.findUnique({
       where: { id: contractId },
-      include: { supplier: { select: { name: true } } },
+      include: { supplier: { select: { name: true } }, project: { select: { name: true, codeAbbr: true } } },
     });
     if (!contract) throw new NotFoundException('合同不存在');
+    if (projectId && contract.projectId !== projectId) throw new NotFoundException('合同不存在');
     return contract;
   }
 
@@ -205,8 +212,8 @@ export class FinanceService {
    * 保理费用一共多少"），若走 SQL 的 `skip/take` 就只能对当前页求和、口径会错。
    * 行数按月增长但量级很小（一个合同几十行），先取全量再切片是这里最不容易出错的写法。
    */
-  async listFactoring(contractId: string, query: any = {}) {
-    const contract = await this.contractScope(contractId);
+  async listFactoring(contractId: string, query: any = {}, projectId?: string) {
+    const contract = await this.contractScope(contractId, projectId);
     const list = await this.prisma.factoringCost.findMany({
       where: { contractId },
       orderBy: [{ seqNo: 'asc' }, { createdAt: 'asc' }],
@@ -254,7 +261,8 @@ export class FinanceService {
     return payload;
   }
 
-  async createFactoring(data: any) {
+  async createFactoring(data: any, projectId?: string) {
+    await this.contractScope(data?.contractId, projectId);
     const payload = this.factoringPayload(data);
     const max = await this.prisma.factoringCost.aggregate({ where: { contractId: payload.contractId }, _max: { seqNo: true } });
     if (payload.seqNo === undefined) payload.seqNo = (max._max.seqNo || 0) + 1;
@@ -265,9 +273,10 @@ export class FinanceService {
     return created;
   }
 
-  async updateFactoring(id: string, data: any) {
+  async updateFactoring(id: string, data: any, projectId?: string) {
     const old = await this.prisma.factoringCost.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('保理费用记录不存在');
+    await this.contractScope(old.contractId, projectId);
     assertVersion(old, data);
     const payload: any = this.factoringPayload(data, old);
     delete payload.version;
@@ -276,16 +285,17 @@ export class FinanceService {
     return updated;
   }
 
-  async removeFactoring(id: string) {
+  async removeFactoring(id: string, projectId?: string) {
     const old = await this.prisma.factoringCost.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('保理费用记录不存在');
+    await this.contractScope(old.contractId, projectId);
     await this.prisma.factoringCost.delete({ where: { id } });
     await this.settlement.syncLedgerByContract(old.contractId);
     return true;
   }
 
-  async exportFactoring(contractId: string) {
-    const { contract, list, totals } = { ...(await this.contractScope(contractId)), ...(await this.listFactoring(contractId)) } as any;
+  async exportFactoring(contractId: string, projectId?: string) {
+    const { contract, list, totals } = { ...(await this.contractScope(contractId, projectId)), ...(await this.listFactoring(contractId, {}, projectId)) } as any;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('保理费用台账');
     const n = list.length + 4;
@@ -357,8 +367,8 @@ export class FinanceService {
     return stats;
   }
 
-  async listOverdue(contractId: string, query: any = {}) {
-    const params = await this.contractParams(contractId);
+  async listOverdue(contractId: string, query: any = {}, projectId?: string) {
+    const params = await this.contractParams(contractId, projectId);
     const where: any = { contractId };
     if (query.settlementMonth) where.settlementMonth = query.settlementMonth;
     const rows = await this.prisma.overdueInterest.findMany({
@@ -398,8 +408,9 @@ export class FinanceService {
     if (!keep && !String(data.settlementMonth || '').trim()) throw new BadRequestException('结算月份不能为空');
   }
 
-  async createOverdue(data: any) {
+  async createOverdue(data: any, projectId?: string) {
     await this.validateOverdue(data);
+    await this.contractScope(data?.contractId, projectId);
     const payload = pickFields(data, OVERDUE_FIELDS.filter((f) => f !== 'contractId'), { label: '逾期利息' });
     const contractId = data.contractId;
     const max = await this.prisma.overdueInterest.aggregate({ where: { contractId, settlementMonth: payload.settlementMonth }, _max: { periodSeq: true } });
@@ -418,9 +429,10 @@ export class FinanceService {
     return created;
   }
 
-  async updateOverdue(id: string, data: any) {
+  async updateOverdue(id: string, data: any, projectId?: string) {
     const old = await this.prisma.overdueInterest.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('逾期利息记录不存在');
+    await this.contractScope(data?.contractId || old.contractId, projectId);
     assertVersion(old, data);
     await this.validateOverdue(data, old);
     const payload = pickFields(data, OVERDUE_FIELDS.filter((f) => f !== 'contractId'), { label: '逾期利息' });
@@ -443,9 +455,10 @@ export class FinanceService {
     return this.prisma.overdueInterest.findUnique({ where: { id } });
   }
 
-  async removeOverdue(id: string) {
+  async removeOverdue(id: string, projectId?: string) {
     const old = await this.prisma.overdueInterest.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('逾期利息记录不存在');
+    await this.contractScope(old.contractId, projectId);
     await this.prisma.overdueInterest.delete({ where: { id } });
     await this.recalcOverdue(old.contractId);
     await this.settlement.syncLedgerByContract(old.contractId);
@@ -453,8 +466,8 @@ export class FinanceService {
   }
 
   /** 逾期利息计算表导出（含标题、统计区、签字区，格式与 Excel 模板一致） */
-  async exportOverdue(contractId: string, query: any = {}) {
-    const { contract, list, stats } = await this.listOverdue(contractId, query);
+  async exportOverdue(contractId: string, query: any = {}, projectId?: string) {
+    const { contract, list, stats } = await this.listOverdue(contractId, query, projectId);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('逾期利息计算表');
     this.styled.writeLogoHeader(ws, { title: '逾期利息计算表', lastCol: 11 });
