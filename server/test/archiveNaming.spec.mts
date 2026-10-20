@@ -4,6 +4,7 @@ import { ARCHIVE_CATEGORIES } from '../src/constants/archiveCategories.ts';
 import {
   PLACEHOLDER_NAME,
   businessFileName,
+  businessFileNameKeepExt,
   dedupePath,
   extOf,
   imagePdfName,
@@ -45,6 +46,12 @@ describe('归档命名：业务化文件名（修正 2/5）', () => {
   it('图片统一转 PDF：即使原文件是 png/jpg，扩展名也固定 .pdf（修正 5）', () => {
     const name = businessFileName({ supplier: 'S', material: 'M', period: '2026.1', docName: '收领单' }, true);
     assert.ok(name.endsWith('.pdf'), name);
+  });
+  it('不能转 PDF 的附件（docx/gif/webp）按真实扩展名命名，不能叫 .pdf', () => {
+    const parts = { supplier: '高邑潜玛', material: '安全物资', period: '2026.1', docName: '收领单' };
+    assert.equal(businessFileNameKeepExt(parts, '2026-01/ab12cd.docx'), '高邑潜玛-安全物资-2026.1-收领单.docx');
+    assert.equal(businessFileNameKeepExt(parts, 'x.gif'), '高邑潜玛-安全物资-2026.1-收领单.gif');
+    assert.equal(businessFileNameKeepExt(parts, 'noext'), '高邑潜玛-安全物资-2026.1-收领单.bin');
   });
   it('缺段用 - 占位（保持四段式结构可读）；段内非法字符清洗', () => {
     assert.equal(

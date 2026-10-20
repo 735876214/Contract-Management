@@ -21,7 +21,7 @@ import {
  * - 调用方只拿一个**相对键**（如 `signed/1730-ab12.pdf`）与 `publicUrl(key)`。
  *
  * 换对象存储（MinIO/S3）时：实现同一个 `StorageLike` 并替换 provider **即可**，调用方不动。
- * 唯一还需要一起改的是**静态资源服务**——`main.ts` 现在用 `useStaticAssets(UPLOAD_DIR, '/api/files')`
+ * 读取改由 `FileServeController`（`JwtAuthGuard` + Range）代理；`main.ts` 已不再 `useStaticAssets`
  * 直接把目录暴露成 URL，对象存储下要改成代理/重定向（本轮不做：无 MinIO 等基础设施时写出的分支无法验收）。
  *
  * 安全：所有键经 `assertSafeStorageKey` 校验，`..` / 绝对路径 / UNC 一律 400，
@@ -95,7 +95,7 @@ export class StorageService implements StorageLike {
 
   /**
    * 确保**存储根目录**存在并返回它（幂等）。
-   * 供启动引导使用：`main.ts` 要把根目录挂成静态资源（`useStaticAssets`），目录不存在会直接报错。
+   * 供启动引导使用：`main.ts` 启动时必须先建好根目录（否则 `FileServeController` 读写直接报错）。
    * 有了它，服务端就再无 `StorageService` 之外的 fs 调用（由 `server/test/storageBoundary.spec.mts` 锁住）。
    */
   ensureRoot(): string {

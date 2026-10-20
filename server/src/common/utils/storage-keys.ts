@@ -68,7 +68,7 @@ export function absPathOf(root: string, key: string): string {
   return normalized ? path.join(root, ...normalized.split('/')) : root;
 }
 
-/** 相对键 → 对外可访问 URL（静态服务前缀 `/api/files`，见 `main.ts` 的 `useStaticAssets`） */
+/** 相对键 → 对外可访问 URL（前缀 `/api/files`，由 `FileServeController`（需登录）提供，见 `main.ts` 注释） */
 export function publicUrlOf(key: string, prefix = '/api/files'): string {
   const normalized = normalizeStorageKey(key);
   return normalized ? `${prefix}/${normalized}` : prefix;

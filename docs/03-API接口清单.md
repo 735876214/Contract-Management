@@ -497,7 +497,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
-| GET | `/files/*` | 静态文件访问（`useStaticAssets(UPLOAD_DIR, '/api/files')`） | — |
+| GET | `/files/*` | 文件读取（`FileServeController`：登录后经 `storage.read()` 返回，支持单段 Range 206） | 需登录（Bearer 或 httpOnly Cookie） |
 
 ## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料）
 

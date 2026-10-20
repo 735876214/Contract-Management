@@ -78,9 +78,9 @@
 
 | 路径 | 实现 | 权限 |
 |---|---|---|
-| `GET /api/files/**` | `main.ts` 的 `useStaticAssets(<UPLOAD_DIR>, {prefix:'/api/files'})` | **无鉴权**（现状；拿到 URL 即可读） |
+| `GET /api/files/**` | `FileServeController`（`server/src/modules/file/file-serve.controller.ts`）代理 `storage.read()`，支持单段 Range（206） | **需登录**（`JwtAuthGuard`；Bearer 或 httpOnly Cookie，GET 接受 Cookie） |
 | `GET /contracts/:id/signed-file` | `storage.exists` + `storage.read`，Buffer 返回并设 `attachment` | `contract:view` |
-| `GET /archive/download` | 逐文件读取/图片转 PDF，JSZip 内存打包 | `archive:view` |
+| `GET /archive/download` | 逐文件读取/图片转 PDF，`archiver` 流式打包（内存只留当前文件） | `archive:view` |
 | 单据模板生成 | 读取 xlsx 模板后渲染 | 各生成端点权限 |
 | 分包授权 Excel | 读取证件/签章图片嵌入表格 | `labor:view` |
 

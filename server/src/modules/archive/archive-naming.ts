@@ -69,6 +69,21 @@ export function businessFileName(
   return `${base}.pdf`;
 }
 
+/**
+ * 「供应商-物资-结算账期-单据名」式命名，但**保留真实扩展名**。
+ *
+ * 用于收领单/发票里**不能转 PDF** 的附件（如 docx、gif/webp/bmp）：`businessFileName()` 恒输出 .pdf，
+ * 而这些文件会原样打包（`imageToPdf` 回退），若仍叫 .pdf 就会出现「名字是 PDF、内容是 Word/PNG」打不开的文件。
+ */
+export function businessFileNameKeepExt(
+  parts: { supplier?: string | null; material?: string | null; period?: string | null; docName: string },
+  originalName: string | null | undefined,
+): string {
+  const seg = (v: string | null | undefined) => sanitizeSegment(v || '-') || '-';
+  const base = `${seg(parts.supplier)}-${seg(parts.material)}-${seg(parts.period)}-${sanitizeSegment(parts.docName)}`;
+  return `${base}${extOf(originalName || '') || '.bin'}`;
+}
+
 /** 非图片附件的命名：保留原扩展名，主体可带前缀（如 `合同编号-文件名`） */
 export function prefixedFileName(prefix: string, originalName: string): string {
   const ext = extOf(originalName);

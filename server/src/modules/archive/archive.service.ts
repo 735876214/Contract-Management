@@ -17,11 +17,12 @@ import { FinanceService } from '../finance/finance.service';
 import { CostService } from '../cost/cost.service';
 import { MonthlyProfitLossService } from '../cost/monthly-profit-loss.service';
 import { LaborReceivingService } from '../cost/labor-receiving.service';
-import { periodKeyOf } from '../../common/utils/settlement-period';
+import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import {
   type ArchiveFile,
   PLACEHOLDER_NAME,
   businessFileName,
+  businessFileNameKeepExt,
   dedupePath,
   extOf,
   imagePdfName,
@@ -65,7 +66,11 @@ export class ArchiveService {
   async entries(projectId: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('项目不存在');
-    const files = await this.collectAll(projectId, project.nameAbbr, project.name);
+    // 目录树只需要「路径 + 文件名」：不生成任何 Excel Buffer（大项目上全量导出会拖慢页面、抬高内存）
+    const files = await this.collectAll(projectId, project.nameAbbr, project.name, {
+      startDay: startDayOf(project.settlementStartDate),
+      withBuffers: false,
+    });
     const groups = ARCHIVE_CATEGORIES.map((c) => {
       const items = files.filter((f) => f.zipPath.startsWith(`${projectRootOf(project.nameAbbr, project.name)}/${c.dir}/`));
       return {
@@ -85,25 +90,30 @@ export class ArchiveService {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('项目不存在');
     const root = projectRootOf(project.nameAbbr, project.name);
-    let files = await this.collectAll(projectId, project.nameAbbr, project.name);
-    let scopeLabel = '全部';
-    if (scope && scope !== 'all') {
-      const cat = ARCHIVE_CATEGORY_BY_KEY[scope];
-      if (!cat) throw new NotFoundException(`未知的归档目录：${scope}`);
-      files = files.filter((f) => f.zipPath.startsWith(`${root}/${cat.dir}/`));
-      scopeLabel = cat.label;
-    }
+    const startDay = startDayOf(project.settlementStartDate);
+    const single = scope && scope !== 'all' ? ARCHIVE_CATEGORY_BY_KEY[scope] : undefined;
+    if (scope && scope !== 'all' && !single) throw new NotFoundException(`未知的归档目录：${scope}`);
+    // 只收集目标分类：此前即使只下载一个目录也会把全部台账导出跑一遍
+    const files = await this.collectAll(projectId, project.nameAbbr, project.name, {
+      startDay,
+      withBuffers: true,
+      onlyKeys: single ? new Set([single.key]) : undefined,
+    });
+    const scopeLabel = single?.label ?? '全部';
 
     // 流式打包：逐个文件读入并 append，内存只保留当前文件 + 压缩缓冲，
     // 不再把全部附件 Buffer 留在 JSZip 里（大项目会 OOM）。
     const archive = new Archiver({ zlib: { level: 9 } });
     const filename = `${root}-归档-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
     archive.on('error', (err) => res.destroy(err));
     archive.pipe(res);
 
-    const presentDirs = new Set<string>();
+    const presentPaths: string[] = [];
     const failedFiles: string[] = [];
     for (const f of files) {
       if (f.buffer) {
@@ -125,17 +135,19 @@ export class ArchiveService {
           );
         }
       }
-      presentDirs.add(f.zipPath.split('/').slice(0, -1).join('/'));
+      presentPaths.push(f.zipPath);
     }
     if (failedFiles.length) {
       console.warn('[归档] 有 ' + failedFiles.length + ' 个附件未能打包（已放入说明占位）:', failedFiles.join(', '));
     }
     // 空目录占位：保证包内目录结构与需求一致（用户要"目录看得见"）
-    const scopeDirs =
-      scope && scope !== 'all' ? [ARCHIVE_CATEGORY_BY_KEY[scope].dir] : ARCHIVE_CATEGORIES.map((c) => c.dir);
+    const scopeDirs = single ? [single.dir] : ARCHIVE_CATEGORIES.map((c) => c.dir);
     for (const dir of scopeDirs) {
       const fullDir = `${root}/${dir}`;
-      if (!presentDirs.has(fullDir)) {
+      // 分类下可能有分层子目录（`月度结算单/2026年1月/…`、`分包领用汇总表/<分包商>/…`）：
+      // 只要存在以 `分类根/` 为前缀的条目就算非空，不能再按「直接父目录 === 分类根」判空。
+      const hasAny = presentPaths.some((p) => p.startsWith(`${fullDir}/`));
+      if (!hasAny) {
         const cat = ARCHIVE_CATEGORIES.find((c) => `${c.dir}` === dir);
         archive.append(placeholderText(dir, cat?.label ?? dir), { name: `${fullDir}/${PLACEHOLDER_NAME}` });
       }
@@ -145,7 +157,15 @@ export class ArchiveService {
   }
 
   /** 收集全部（Excel 动态生成 + 真实附件收集），注册表顺序即目录顺序 */
-  private async collectAll(projectId: string, nameAbbr: string | null, name: string | null): Promise<ArchiveFile[]> {
+  private async collectAll(
+    projectId: string,
+    nameAbbr: string | null,
+    name: string | null,
+    opts: { startDay: number; withBuffers: boolean; onlyKeys?: Set<string> },
+  ): Promise<ArchiveFile[]> {
+    const { startDay, withBuffers, onlyKeys } = opts;
+    /** 只有真正打包时才生成 Excel（目录树/计数场景不需要 Buffer） */
+    const buf = async (fn: () => Promise<Buffer>): Promise<Buffer | undefined> => (withBuffers ? fn() : undefined);
     const root = projectRootOf(nameAbbr, name);
     const out: ArchiveFile[] = [];
     const used = new Set<string>();
@@ -156,9 +176,10 @@ export class ArchiveService {
     };
 
     for (const cat of ARCHIVE_CATEGORIES) {
+      if (onlyKeys && !onlyKeys.has(cat.key)) continue;
       switch (cat.key) {
         case 'contract': {
-          push(cat.dir, '合同台账.xlsx', { buffer: await this.ledgerService.export(projectId) });
+          push(cat.dir, '合同台账.xlsx', { buffer: await buf(() => this.ledgerService.export(projectId)) });
           const contracts = await this.prisma.contract.findMany({
             where: { projectId },
             select: {
@@ -179,12 +200,11 @@ export class ArchiveService {
           break;
         }
         case 'settle-ledger':
-          push(cat.dir, '结算台账.xlsx', { buffer: await this.settlementService.exportLedger(projectId) });
+          push(cat.dir, '结算台账.xlsx', { buffer: await buf(() => this.settlementService.exportLedger(projectId)) });
           break;
         case 'daily-asset':
-          push(cat.dir, '总日报.xlsx', { buffer: await this.dailyReportService.export(projectId) });
-          const assetRes = await this.assetService.export(projectId);
-          push(cat.dir, '资产台账.xlsx', { buffer: Buffer.from((assetRes as any).buffer as unknown as ArrayBuffer) });
+          push(cat.dir, '总日报.xlsx', { buffer: await buf(() => this.dailyReportService.export(projectId)) });
+          push(cat.dir, '资产台账.xlsx', { buffer: await buf(async () => Buffer.from((await this.assetService.export(projectId) as any).buffer as unknown as ArrayBuffer)) });
           break;
         case 'receipt-scan': {
           const orders = await this.prisma.receiptOrder.findMany({
@@ -200,10 +220,14 @@ export class ArchiveService {
           for (const o of orders) {
             const supplier = o.supplier?.name || '-';
             const material = o.details[0]?.materialName || o.materialContractNo || '-';
-            const period = this.periodOf(o.settlement?.settleDate ?? o.orderDate, projectId);
-            push(cat.dir, businessFileName({ supplier, material, period, docName: '收领单' }, true), {
+            const period = this.periodOf(o.settlement?.settleDate ?? o.orderDate, startDay);
+            const parts = { supplier, material, period, docName: '收领单' };
+            // 只有 jpg/png 能嵌进 PDF；docx/gif/webp/bmp 会回退原样打包，命名必须保留真实扩展名
+            const name = o.scanFileName || o.scanUrl!;
+            const pdfable = this.isPdfableImage(name);
+            push(cat.dir, pdfable ? businessFileName(parts, true) : businessFileNameKeepExt(parts, name), {
               storageKey: o.scanUrl!,
-              isImage: this.isImageKey(o.scanFileName || o.scanUrl!),
+              isImage: pdfable,
             });
           }
           break;
@@ -220,12 +244,11 @@ export class ArchiveService {
           const byPeriod = new Map<string, string>(); // 目录名 → settleMonth
           for (const s of settlements) {
             if (!s.settleDate) continue;
-            const label = this.periodLabelOf(s.settleDate as any);
-            const dir = periodDirOf(label);
-            if (!byPeriod.has(dir)) {
-              const d = new Date(s.settleDate as any);
-              byPeriod.set(dir, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-            }
+            // 结算期标签必须走「结算起始日」口径（periodKeyOf），自然月在下期起始日 ≠ 1 时会整体错一个月
+            const settleMonth = periodKeyOf(startDay, s.settleDate);
+            if (!settleMonth) continue;
+            const dir = periodDirOf(settleMonth);
+            if (!byPeriod.has(dir)) byPeriod.set(dir, settleMonth);
           }
           for (const [dir, settleMonth] of byPeriod) {
             push(`${cat.dir}/${dir}`, '结算单.xlsx', {
@@ -271,10 +294,10 @@ export class ArchiveService {
           break;
         }
         case 'payment':
-          push(cat.dir, '付款台账.xlsx', { buffer: await this.paymentService.exportRecords(projectId) });
+          push(cat.dir, '付款台账.xlsx', { buffer: await buf(() => this.paymentService.exportRecords(projectId)) });
           break;
         case 'invoice': {
-          push(cat.dir, '发票台账.xlsx', { buffer: await this.invoiceService.export(projectId) });
+          push(cat.dir, '发票台账.xlsx', { buffer: await buf(() => this.invoiceService.export(projectId)) });
           const invoices = await this.prisma.invoice.findMany({
             where: { projectId, imageUrl: { not: null } },
             select: {
@@ -285,9 +308,12 @@ export class ArchiveService {
           for (const i of invoices) {
             const supplier = i.contract?.supplier?.name || i.issuer || '-';
             const material = i.contract?.name || '-';
-            push(cat.dir, imagePdfName({ supplier, material, period: i.settlePeriod, docName: '发票汇总' }), {
-              storageKey: this.keyOf(i.imageUrl!),
-              isImage: this.isImageKey(i.imageUrl!),
+            const key = this.keyOf(i.imageUrl!);
+            const parts = { supplier, material, period: i.settlePeriod, docName: '发票汇总' };
+            const pdfable = this.isPdfableImage(key);
+            push(cat.dir, pdfable ? imagePdfName(parts) : businessFileNameKeepExt(parts, key), {
+              storageKey: key,
+              isImage: pdfable,
             });
           }
           break;
@@ -317,16 +343,16 @@ export class ArchiveService {
             const overdue = await this.prisma.overdueInterest.count({ where: { contractId: c.id } });
             const label = `${sanitizeSegment(c.supplier?.name || '-')}-${sanitizeSegment(c.name || c.code)}`;
             if (factoring > 0) {
-              push(cat.dir, `保理费用-${label}.xlsx`, { buffer: await this.factoringBuffer(c.id) });
+              push(cat.dir, `保理费用-${label}.xlsx`, { buffer: await buf(() => this.factoringBuffer(c.id)) });
             }
             if (overdue > 0) {
-              push(cat.dir, `逾期利息-${label}.xlsx`, { buffer: await this.overdueBuffer(c.id) });
+              push(cat.dir, `逾期利息-${label}.xlsx`, { buffer: await buf(() => this.overdueBuffer(c.id)) });
             }
           }
           break;
         }
         case 'labor-auth': {
-          push(cat.dir, '分包授权台账.xlsx', { buffer: await this.laborAuthBuffer(projectId) });
+          push(cat.dir, '分包授权台账.xlsx', { buffer: await buf(() => this.laborAuthBuffer(projectId)) });
           const scs = await this.prisma.laborAuthLedger.findMany({
             where: { projectId },
             select: { id: true, subcontractorName: true, signedAuthFile: true },
@@ -341,7 +367,7 @@ export class ArchiveService {
           break;
         }
         case 'repayment':
-          push(cat.dir, '还款协议.xlsx', { buffer: await this.repaymentService.export(projectId) });
+          push(cat.dir, '还款协议.xlsx', { buffer: await buf(() => this.repaymentService.export(projectId)) });
           break;
       }
     }
@@ -368,16 +394,18 @@ export class ArchiveService {
     return storageKeyFromUrl(urlOrKey);
   }
 
-  private isImageKey(keyOrName: string): boolean {
-    return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(extOf(keyOrName));
+  /** 能否真正转成 PDF：pdf-lib 只认 jpg/png（gif/webp/bmp 会回退原文件） */
+  private isPdfableImage(keyOrName: string): boolean {
+    return ['.jpg', '.jpeg', '.png'].includes(extOf(keyOrName));
   }
 
   /** 归属结算期（账期）标签：优先结算单的结算日期，回退收领单日期；期 = 结算起始日 → 下月同日前一日 */
-  private periodOf(date: Date | null, projectId: string): string {
+  private periodOf(date: Date | null, startDay: number): string {
     if (!date) return '-';
-    const d = new Date(date);
-    void projectId;
-    return `${d.getFullYear()}.${d.getMonth() + 1}`;
+    const month = periodKeyOf(startDay, date);
+    if (!month) return '-';
+    const [y, m] = month.split('-');
+    return `${y}.${Number(m)}`;
   }
 
   /** Date → `YYYY.M`（账期标签；periodDirOf 再转成 `YYYY年M月` 目录） */
@@ -387,15 +415,9 @@ export class ArchiveService {
     return m ? `${m[1]}年${Number(m[2])}月` : period;
   }
 
-  private periodLabelOf(date: Date | null): string {
-    if (!date) return '';
-    const d = new Date(date);
-    return `${d.getFullYear()}.${d.getMonth() + 1}`;
-  }
-
   /** 图片 → 单页 PDF（修正 5：归档包不接受裸 jpg/png）。
-   * ⚠️ pdf-lib 只能嵌 jpg/png；gif/webp/bmp 等虽被 isImageKey 归为图片，
-   *    嵌入必然失败 → 回退为原样打包（裸图片），不再让一张图毁掉整个归档导出。 */
+   * ⚠️ pdf-lib 只能嵌 jpg/png；gif/webp/bmp 等不会走到这里（调用方用 isPdfableImage 分流、
+   *    按真实扩展名命名）→ 回退分支只兜底损坏的 jpg/png，仍按原文件打包。 */
   private async imageToPdf(storageKey: string): Promise<Buffer> {
     const raw = await this.storage.read(storageKey);
     const pdf = await PDFDocument.create();

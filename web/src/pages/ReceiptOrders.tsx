@@ -14,6 +14,7 @@ import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { DictTag } from '@/components/DictSelect';
+import { toFileUrl, toStorageKey } from '@/utils/templateFile';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
@@ -506,8 +507,8 @@ export default function ReceiptOrders() {
         materialContractId: detail.materialContractId,
         materialContractNo: detail.materialContractNo, // 快照落库，不在界面显示
         isAssetFlag: detail.isAssetFlag || undefined,
-        // 扫描件：后端存相对键，展示用完整 URL（提交时后端归一化回相对键）
-        scanUrl: detail.scanUrl ? `/api/files/${detail.scanUrl}` : null,
+        // 扫描件：后端存相对键，展示统一走 toFileUrl()（只补一次前缀，历史 URL 形态也不会出现双前缀）
+        scanUrl: detail.scanUrl ? toFileUrl(detail.scanUrl) : null,
         scanFileName: detail.scanFileName || null,
         remark: detail.remark,
       };
@@ -813,7 +814,7 @@ export default function ReceiptOrders() {
               title: '附件', dataIndex: 'scanUrl', width: 110,
               render: (v: any, row: any) =>
                 v ? (
-                  <a href={`/api/files/${v}`} target="_blank" rel="noreferrer">
+                  <a href={toFileUrl(v)} target="_blank" rel="noreferrer">
                     <PaperClipOutlined /> {row.scanFileName || '附件'}
                   </a>
                 ) : (
@@ -1036,7 +1037,11 @@ export default function ReceiptOrders() {
               setUploadingScan(true);
               try {
                 const arr = await fileApi.upload([options.file as File]);
-                headerForm.setFieldsValue({ scanUrl: arr?.[0]?.url, scanFileName: arr?.[0]?.fileName });
+                // 落库统一存相对存储键（上传接口同时返回 url 与 key）
+                headerForm.setFieldsValue({
+                  scanUrl: arr?.[0]?.key || toStorageKey(arr?.[0]?.url),
+                  scanFileName: arr?.[0]?.fileName,
+                });
                 message.success(`「${arr?.[0]?.fileName}」上传成功`);
                 options.onSuccess?.(arr?.[0]);
               } catch (e) {
