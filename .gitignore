@@ -47,3 +47,6 @@ pnpm-debug.log*
 backups/
 .drill/
 data-drill/
+
+# 构建/测试临时目录（曾被误提交，见 a255be6）
+.tmpbuild/
