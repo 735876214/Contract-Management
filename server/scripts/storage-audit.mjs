@@ -45,6 +45,8 @@ const addJson = (source, id, field, raw) => {
   try {
     list = JSON.parse(String(raw));
   } catch {
+    // 附件 JSON 已损坏不能静默丢弃：否则它的引用会被当成「文件不存在」，误报 missing
+    console.warn(`[storage-audit] 附件字段不是合法 JSON，已跳过：${source}#${id}.${field}`);
     return;
   }
   if (!Array.isArray(list)) return;
@@ -58,8 +60,10 @@ async function walk(dir, prefix = '') {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return out;
+  } catch (e) {
+    // 目录读不了绝不能当「空目录」：UPLOAD_DIR 指错时会把全部引用报成 missing、
+    // 又报 0 个孤儿文件，看起来像灾难现场（第 17~20 轮审计 P3-7）
+    throw new Error(`读取上传目录失败：${dir}（UPLOAD_DIR 是否正确？）——${e?.code || e?.message || e}`);
   }
   for (const e of entries) {
     const rel = prefix ? `${prefix}/${e.name}` : e.name;

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
 
@@ -39,8 +39,16 @@ export class NotificationService {
     return true;
   }
 
-  /** 通知发送：站内信（邮件/短信/企微/钉钉接口预留） */
-  async send(data: { userId?: string; title: string; content?: string; type?: string; projectId?: string; bizType?: string; bizId?: string }) {
+  /**
+   * 通知发送：站内信（邮件/短信/企微/钉钉接口预留）。
+   *
+   * `userId` 现在必须给（第 13/14 轮审计）：`findAll` / `unreadCount` / `readAll`
+   * 全部按 `userId = 当前用户` 过滤，落一条 `userId = null` 的行等于**永远查不到的孤儿**，
+   * 而且不留任何痕迹。调用方真没有收件人时，宁可报错让它显式处理（打日志/换收件人），
+   * 也不要静默丢弃。
+   */
+  async send(data: { userId?: string | null; title: string; content?: string; type?: string; projectId?: string; bizType?: string; bizId?: string }) {
+    if (!data?.userId) throw new BadRequestException('通知必须指定收件人（userId）');
     return this.prisma.notification.create({ data: data as any });
   }
 }

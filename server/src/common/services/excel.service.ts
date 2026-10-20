@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { StyledExcelService } from './styled-excel.service';
+import { sanitizeSheetName } from '../utils/excel-sheet';
 
 export interface ExcelColumn {
   header: string;
@@ -15,7 +16,7 @@ export class ExcelService {
   /** 生成 Excel 文件 Buffer（含中建 logo 表头：第 1~2 行，列表头第 3 行，数据第 4 行起） */
   async export(columns: ExcelColumn[], rows: any[], sheetName = 'Sheet1'): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet(sheetName);
+    const ws = wb.addWorksheet(sanitizeSheetName(sheetName, 'Sheet1'));
     this.styled.writeLogoHeader(ws, { title: sheetName, lastCol: columns.length });
     ws.getRow(3).values = columns.map((c) => c.header);
     ws.getRow(3).font = { bold: true };

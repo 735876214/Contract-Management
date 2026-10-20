@@ -350,7 +350,9 @@ function LaborAuthList() {
       />
 
       <Card size="small" title="分包材料员授权委托书信息" style={{ marginBottom: 12 }}>
-        <Form form={form} layout="vertical">
+        {/* onValuesChange 是脏标记的唯一来源（第 17~20 轮审计：全文件只有 setDirty(false)，
+            于是填了半屏未保存内容点 × 也不弹确认、直接丢弃，含已上传的身份证/签字截图） */}
+        <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
           <Row gutter={16}>
             {FORM_FIELDS.map(([name, label, required]) => (
               <Col xs={24} md={12} key={name}>

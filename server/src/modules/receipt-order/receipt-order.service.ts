@@ -775,11 +775,29 @@ export class ReceiptOrderService {
     }
     // 关联可能被重算（改了合同/日期后旧结算单解除、新期重挂）→ 台账的收领单
     // 关联计数随之变化，需重刷（与 settlement 侧改动后的收尾同一套）。
+    //
+    // ⚠️ 参数是**合同 id**，不是结算单 id（第 15/16 轮审计发现的老 bug）：
+    // 原写法传的是 `settlementId`（Settlement 的主键），`syncLedgerByContract` 用它去
+    // `contract.findUnique` 必然查不到 → 直接 `return 0`，而外层还有 try/catch 兜底，
+    // 于是线上表现是「保存成功、台账没刷」。合同换了就两头都刷（旧合同要退挂、新合同要挂上）。
+    const touchedContracts = new Set<string>();
+    if (before.materialContractId) touchedContracts.add(before.materialContractId);
     if (settlementId !== before.settlementId && (settlementId || before.settlementId)) {
-      try {
-        await this.settlement.syncLedgerByContract(settlementId || before.settlementId);
-      } catch (e) {
-        console.error('[收领单] 关联变更后台账刷新失败:', e);
+      const after = await this.findOne(id, projectId);
+      if (after?.materialContractId) touchedContracts.add(after.materialContractId);
+      if (before.settlementId) {
+        const oldSettlement = await this.prisma.settlement.findUnique({
+          where: { id: before.settlementId },
+          select: { contractId: true },
+        });
+        if (oldSettlement?.contractId) touchedContracts.add(oldSettlement.contractId);
+      }
+      for (const contractId of touchedContracts) {
+        try {
+          await this.settlement.syncLedgerByContract(contractId);
+        } catch (e) {
+          console.error('[收领单] 关联变更后台账刷新失败（合同', contractId, '）:', e);
+        }
       }
     }
     return this.findOne(id);

@@ -123,7 +123,13 @@ export class DictController {
   async export(@Query('typeCode') typeCode: string, @Res() res: Response) {
     const buffer = await this.dictService.exportItems(typeCode);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=dict-${typeCode}.xlsx`);
+    // filename* 才是浏览器认的写法：中文/空格塞进 filename= 会乱码，而 typeCode 是
+    // query 原值，含引号或控制字符时 setHeader 直接抛 ERR_INVALID_CHAR（表现为 500）。
+    const ascii = String(typeCode || 'dict').replace(/[^\w.-]/g, '_').slice(0, 60);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="dict-${ascii}.xlsx"; filename*=UTF-8''${encodeURIComponent(`dict-${typeCode}.xlsx`)}`,
+    );
     res.end(buffer);
   }
 

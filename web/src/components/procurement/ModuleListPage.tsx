@@ -305,8 +305,14 @@ export default function ModuleListPage({
       req
         .then((res: any) => {
           if (seq !== fetchSeqRef.current) return; // 过期响应丢弃
-          setRows(res?.list ?? res?.data?.list ?? []);
-          setTotal(res?.total ?? res?.data?.total ?? 0);
+          const list = res?.list ?? res?.data?.list ?? [];
+          const nextTotal = Number(res?.total ?? res?.data?.total ?? 0) || 0;
+          setRows(list);
+          setTotal(nextTotal);
+          // 末页被删空后自动回落到最后一页（第 17~20 轮审计 P3-10：
+          // 原来停在空页，看起来像「数据全没了」，得手动点回上一页）
+          const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize));
+          if (list.length === 0 && nextTotal > 0 && page > maxPage) setPage(maxPage);
           onFetchedRef.current?.(res);
         })
         .catch(() => {
@@ -318,7 +324,8 @@ export default function ModuleListPage({
           if (seq === fetchSeqRef.current) setLoading(false);
         });
     },
-    [buildParams],
+    // page/pageSize 用于「末页被删空后自动回落」，必须进 deps
+    [buildParams, page, pageSize],
   );
 
   useEffect(() => {

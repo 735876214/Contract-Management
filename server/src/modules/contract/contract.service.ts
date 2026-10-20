@@ -57,13 +57,18 @@ const CONTRACT_FIELDS = [
 ];
 
 /**
- * 更新接口的字段白名单：`CONTRACT_FIELDS` 去掉**只能由系统写入**的四个字段。
+ * 更新接口的字段白名单：`CONTRACT_FIELDS` 去掉**只能由系统写入**的字段。
  * `projectId`/`createdBy` 是归属与审计，`yearSeq` 是取号结果，`status` 只能走
  * publish()/setStatus()/sign()/reject() 的状态机——否则 PUT /contracts/:id 的 body
  * 就能把合同搬去别的项目、或把草稿直接置成 SIGNED 绕过发布流程。
+ *
+ * `execStatus`（第 13/14 轮审计）：它是「已完已结」的权威事实——付款比例按它判 100%
+ * （`pay-ratio.ts`）、归档准入按它判能不能归档。放在普通编辑白名单里，一次
+ * `PUT /contracts/:id {execStatus:'DONE_SETTLED'}` 就能把归档阻断项抹掉（归档不可逆）。
+ * 只允许 `sign()` / `rejectToDraft()` / 总结算办理与删除来写。
  */
 const CONTRACT_UPDATE_FIELDS: readonly string[] = CONTRACT_FIELDS.filter(
-  (f) => !['projectId', 'status', 'yearSeq', 'createdBy'].includes(f),
+  (f) => !['projectId', 'status', 'yearSeq', 'createdBy', 'execStatus'].includes(f),
 );
 
 /** 合同起草状态（code 的单一事实源见 constants/statuses.ts，勿在本文件另立一套） */
@@ -147,6 +152,10 @@ export class ContractService {
     return this.prisma.contract.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      // 下拉必须有上限（第 15/16 轮审计）：原来无 take，合同上千的项目打开一次
+      // 起草/物资/结算页就把整项目合同（含金额）全量拉进浏览器。500 与列表页
+      // paginate 的上限同口径，超出部分靠 keyword 搜（前端是远程搜索）。
+      take: 500,
       select: { id: true, code: true, name: true, supplierId: true, amount: true, taxRate: true, typeCode: true },
     });
   }
@@ -935,6 +944,20 @@ export class ContractService {
         '退回「合同起草」请用「驳回」：它还会清空签章文件、回退执行情况并重算付款比例',
       );
     }
+    /**
+     * 不允许经这个接口「推成已签章」（第 13/14 轮审计 P1）。
+     * `sign()` 写 SIGNED 时会同时落 signedFilePath / signedFileName / signedAt /
+     * 供应商快照并把 execStatus 推进到 EXECUTING；这里只写 status 就会得到一份
+     * 「已签章但没有签章件原件」的合同 —— 归档校验按 status 判断，于是能带着缺失原件
+     * 通过归档（归档是单向的），台账的「合同执行情况」也会漏算。
+     * 已经是 SIGNED 的重复调用保持幂等（历史脚本会这么调）。
+     */
+    if (
+      status === CONTRACT_STATUS.SIGNED &&
+      String(current?.status ?? '') !== CONTRACT_STATUS.SIGNED
+    ) {
+      throw new BadRequestException('把合同置为「已签章」请用「签章」功能：它会同时保存签章件、记录签订日期与供应商快照');
+    }
     await this.prisma.contract.update({
       where: { id: contractId },
       data: { status, version: { increment: 1 } },
@@ -1135,6 +1158,14 @@ export class ContractService {
       data: {
         ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
         projectId,
+        /**
+         * 起草状态不接受前端指定（2026-10-21 第 11 轮审计）：`status` 留在
+         * `CONTRACT_FIELDS` 里是为了编辑草稿时能保留，但**新建**必须从「起草中」开始。
+         * 否则 POST /contracts 带 `status: 'SIGNED'` 就能跳过 publish() 与签章审核直接
+         * 落成已签章，而 signedFilePath、execStatus 都没联动 —— 台账/看板会把未签章
+         * 合同计入执行中。状态只能由 publish/setStatus/sign/reject 改。
+         */
+        status: CONTRACT_STATUS.DRAFT,
         signDate: data.signDate ? new Date(data.signDate) : null,
         amount: num(data.amount),
         taxRate: num(data.taxRate),

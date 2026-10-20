@@ -90,7 +90,16 @@ export class OperationLogInterceptor implements NestInterceptor {
     if (context.getType() !== 'http') return next.handle();
     const req: any = context.switchToHttp().getRequest();
     const method: string = req.method;
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return next.handle();
+    /**
+     * 导出/下载也记一条（第 13/14 轮审计）：原来这里只放行写方法，而导出下载全是 GET
+     * —— 合同台账、签章件原件、归档包这类最敏感数据的批量外发**完全无审计**，
+     * 事后答不出「谁在什么时候导走了什么」。下面 `action = '导出'` 的分支也是因此
+     * 从来命中不到（写方法里几乎没有 /export）。
+     */
+    const probeUrl: string = req.originalUrl || req.url || '';
+    const isReadExport =
+      method === 'GET' && /(export|download|signed-file|archive|attachment)/i.test(probeUrl);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isReadExport) return next.handle();
 
     const started = Date.now();
     const url: string = req.originalUrl || req.url || '';

@@ -88,8 +88,20 @@ export default function TagsView() {
 
   const onContextClick = (key: string, action: string) => {
     if (action === 'refresh') {
-      // 递增 version → 缓存键变化 → 该标签内的页面重挂载并重新取数
-      refresh(key);
+      // 递增 version → 缓存键变化 → 该标签内的页面重挂载并重新取数。
+      // 脏标签必须先确认：重挂载等于把未保存的编辑直接扔掉（第 17~20 轮审计）。
+      if (!dirtyKeys.includes(key)) {
+        refresh(key);
+        return;
+      }
+      Modal.confirm({
+        title: '该页有未保存的内容',
+        content: '刷新会重新加载页面，未保存的内容将丢失，确定刷新吗？',
+        okText: '仍然刷新',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: () => refresh(key),
+      });
       return;
     }
     if (action === 'others') {

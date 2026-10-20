@@ -63,6 +63,9 @@ export class SupplierService {
     const list = await this.prisma.supplier.findMany({
       where,
       orderBy: { name: 'asc' },
+      // 供应商是全库共享主数据，无 take 时下拉会把全部启用供应商一次性读进内存
+      // （第 15/16 轮审计）；500 与列表页上限同口径，再多靠 keyword 远程搜索。
+      take: 500,
       select: { id: true, name: true, legalPerson: true, contactName: true, contactPhone: true, bankName: true, bankAccount: true },
     });
     return list;

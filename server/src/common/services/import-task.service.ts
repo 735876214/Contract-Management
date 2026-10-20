@@ -80,31 +80,52 @@ export class ImportTaskService implements OnModuleInit {
       });
       const stale = rows.filter((r) => isImportTaskStale(r, now));
       if (!stale.length) return 0;
-      await this.prisma.importTask.updateMany({
-        where: { id: { in: stale.map((r) => r.id) } },
-        data: { status: 'FAILED', message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
-      });
-      // 补发失败通知：否则提交人只会看到「任务消失/卡住」，不知道要重新导入
+      /**
+       * 用「快照 CAS」而不是只按 id 更新（第 13/14 轮审计）：
+       * 原来 `updateMany({ where: { id: { in } } })` 没有 status/lockedAt 条件，判定与写入
+       * 之间没有任何隔离 —— 心跳恰在窗口内刷新、或任务正好写完并置成 SUCCESS，都会被
+       * 覆盖成 FAILED「未写入任何数据」。而导库没有行级幂等键，用户照提示重导就是
+       * **重复写入且不可逆**。这里把快照里的 status + lockedAt 一起放进 where：
+       * 行一旦变过就更新不上（count = 0），只对真正回收成功的行发通知。
+       */
+      const reaped: typeof stale = [];
       for (const task of stale) {
-        await this.notifier
-          .send({
-            userId: task.userId || undefined,
+        const res = await this.prisma.importTask.updateMany({
+          where: { id: task.id, status: task.status, lockedAt: task.lockedAt },
+          data: { status: 'FAILED', message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
+        });
+        if (res.count > 0) reaped.push(task);
+      }
+      if (!reaped.length) return 0;
+      // 补发失败通知：否则提交人只会看到「任务消失/卡住」，不知道要重新导入
+      for (const task of reaped) {
+        // 没有提交人就别写孤儿通知（userId=null 的行永远查不到），但要留痕
+        if (!task.userId) {
+          console.warn('[import-task] 僵尸任务无提交人，跳过站内通知：', task.id);
+          continue;
+        }
+        try {
+          await this.notifier.send({
+            userId: task.userId,
             title: `【${task.moduleName || '导入'}】导入中断`,
             content: `文件「${task.fileName || '-'}」的导入任务因服务重启或超时被中断，未写入任何数据，请重新导入。`,
             type: 'ERROR',
             projectId: task.projectId || undefined,
             bizType: 'import-task',
             bizId: task.id,
-          })
-          .catch(() => undefined);
+          });
+        } catch (e) {
+          // 通知失败不阻断回收，但不能静默（第 13/14 轮审计）
+          console.error('[import-task] 僵尸任务回收通知发送失败：', task.id, e);
+        }
       }
       console.warn(
         '[import-task] 已回收僵尸导入任务',
-        stale.length,
+        reaped.length,
         '个：',
-        stale.map((r) => r.id).join(', '),
+        reaped.map((r) => r.id).join(', '),
       );
-      return stale.length;
+      return reaped.length;
     } catch (e) {
       // 回收失败不影响服务启动
       console.error('[import-task] 回收僵尸任务失败:', e);

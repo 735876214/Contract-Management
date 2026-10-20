@@ -5,6 +5,28 @@ import { ImportRunnerService, RowError, TxClient } from '../../common/services/i
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { pickFields } from '../../common/pick-fields';
+
+/**
+ * 字典类型允许前端写回的字段。
+ *
+ * 背景（第 11/12 轮审计）：`createType(data)` / `updateType(id, data)` 原来把
+ * `@Body() body: any` 原样交给 prisma，于是 POST 一个 `{ code, name, isSystem: true }`
+ * （或 `{ id: '...' }`、`{ createdAt }`）就能把内置字典标成系统字典——系统字典在
+ * 前端禁止删除/停用，等于把自己锁住；也能改写 id 破坏引用。这里按白名单取字段，
+ * `isSystem` 只由 seed/迁移设置，永不走接口。
+ */
+const DICT_TYPE_FIELDS = ['code', 'name', 'remark', 'sort', 'status', 'scope'] as const;
+const DICT_ITEM_FIELDS = [
+  'typeCode',
+  'itemCode',
+  'itemName',
+  'sortOrder',
+  'status',
+  'color',
+  'remark',
+  'extField1',
+] as const;
 
 /**
  * 字典服务：
@@ -117,19 +139,20 @@ export class DictService {
     if (!data.code) throw new BadRequestException('字典类型编码不能为空');
     const exist = await this.prisma.dictType.findUnique({ where: { code: data.code } });
     if (exist) throw new BadRequestException('字典类型编码已存在');
-    return this.prisma.dictType.create({ data });
+    return this.prisma.dictType.create({ data: pickFields(data, DICT_TYPE_FIELDS, { label: '字典类型' }) });
   }
 
   async updateType(id: string, data: any) {
     const type = await this.prisma.dictType.findUnique({ where: { id } });
     if (!type) throw new NotFoundException('字典类型不存在');
-    if (data.code && data.code !== type.code) {
-      const exist = await this.prisma.dictType.findUnique({ where: { code: data.code } });
+    const patch = pickFields(data, DICT_TYPE_FIELDS, { label: '字典类型' });
+    if (patch.code && patch.code !== type.code) {
+      const exist = await this.prisma.dictType.findUnique({ where: { code: patch.code } });
       if (exist) throw new BadRequestException('字典类型编码已存在');
-      await this.prisma.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: data.code } });
+      await this.prisma.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: patch.code } });
       await this.refreshCache(type.code);
     }
-    return this.prisma.dictType.update({ where: { id }, data });
+    return this.prisma.dictType.update({ where: { id }, data: patch });
   }
 
   async removeType(id: string) {
@@ -164,7 +187,10 @@ export class DictService {
       where: { typeCode_itemCode: { typeCode: data.typeCode, itemCode: data.itemCode } },
     });
     if (exist) throw new BadRequestException('同一字典类型下字典项编码已存在');
-    const item = await this.prisma.dictItem.create({ data });
+    // 白名单取字段：不然 create 时塞 id/createdAt/extField 之外的东西也能写库
+    const item = await this.prisma.dictItem.create({
+      data: pickFields(data, DICT_ITEM_FIELDS, { label: '字典项' }),
+    });
     await this.refreshCache(data.typeCode);
     return item;
   }

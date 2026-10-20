@@ -170,6 +170,9 @@ model Supplier {
   remark             String?
   status             Int      @default(1) // 1 启用 0 停用
   projectId          String? // 全局共享时为空
+
+  // 下拉按 status + name 过滤排序，且是全库共享表（第 15/16 轮审计）
+  @@index([status, name])
   createdAt          DateTime @default(now())
   version            Int      @default(0) // 乐观锁版本号，更新时校验
   updatedAt          DateTime @updatedAt
@@ -443,6 +446,8 @@ model Contract {
   @@unique([projectId, code])
   @@index([projectId, supplierId])
   @@index([projectId, archivedAt])
+  // 列表/台账/看板都按项目 + createdAt desc 排（第 15/16 轮审计：原来缺这个组合索引）
+  @@index([projectId, createdAt])
 }
 
 model ContractExt {
@@ -1176,6 +1181,10 @@ model Notification {
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 通知列表/未读徽标是每用户每 30s 轮询的热路径（第 15/16 轮审计：原来只有主键，零业务索引）
+  @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
 }
 
 model OperationLog {

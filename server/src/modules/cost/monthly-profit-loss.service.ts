@@ -78,7 +78,8 @@ export class MonthlyProfitLossService {
     if (dup) throw new BadRequestException(`该结算期（${period}）已有盈亏分析记录`);
     const payload: any = pickFields({ ...data, period }, HEADER_FIELDS, { label: '月度盈亏分析' });
     payload.projectId = projectId;
-    payload.createdBy = user?.id;
+    // JwtUser 只有 userId（没有 id）：原来写 user?.id 导致「创建人」恒为 null（第 13/14 轮审计）
+    payload.createdBy = user?.userId || user?.id || null;
     ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -116,25 +117,32 @@ export class MonthlyProfitLossService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     payload.version = current.version + 1;
-    await this.prisma.monthlyProfitLoss.update({ where: { id }, data: payload });
-    // 明细手改
-    if (Array.isArray(data?.details)) {
-      for (const d of data.details) {
-        if (!d?.id) continue;
-        // 明细行也必须属于本记录（防止借本记录 id 改写其它记录的明细）
-        const owned = await this.prisma.monthlyProfitLossDetail.findFirst({
-          where: { id: d.id, profitLossId: id },
-          select: { id: true },
-        });
-        if (!owned) continue;
-        const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
-        (['unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty', 'actualUseQty', 'stockQty', 'saveOverQty', 'deductAmount'] as const).forEach((f) => {
-          if (row[f] !== undefined) row[f] = num(row[f]);
-        });
-        // 盈亏金额联动（未被显式改写时）：盈亏数量 × 单价
-        await this.recalcDetailAmount(d.id, row);
+    /**
+     * 头记录 + 明细行必须一个事务（第 13/14 轮审计）：原来先 update 头（version 已 +1），
+     * 再逐行重算明细，中途失败就留下「版本推进了、明细只改了一半」，用户重试还会撞
+     * 乐观锁 409。与 labor-receiving.updateDoc 的口径对齐。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.monthlyProfitLoss.update({ where: { id }, data: payload });
+      // 明细手改
+      if (Array.isArray(data?.details)) {
+        for (const d of data.details) {
+          if (!d?.id) continue;
+          // 明细行也必须属于本记录（防止借本记录 id 改写其它记录的明细）
+          const owned = await tx.monthlyProfitLossDetail.findFirst({
+            where: { id: d.id, profitLossId: id },
+            select: { id: true },
+          });
+          if (!owned) continue;
+          const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
+          (['unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty', 'actualUseQty', 'stockQty', 'saveOverQty', 'deductAmount'] as const).forEach((f) => {
+            if (row[f] !== undefined) row[f] = num(row[f]);
+          });
+          // 盈亏金额联动（未被显式改写时）：盈亏数量 × 单价
+          await this.recalcDetailAmount(d.id, row, tx);
+        }
       }
-    }
+    });
     return this.detail(id, projectId);
   }
 
@@ -389,11 +397,11 @@ export class MonthlyProfitLossService {
     return rows.length;
   }
 
-  /** 明细行手改后联动盈亏金额（显式传了 saveOverAmount 则以手填为准） */
-  private async recalcDetailAmount(detailId: string, row: any) {
+  /** 明细行手改后联动盈亏金额（显式传了 saveOverAmount 则以手填为准；db 用于在事务内复用连接） */
+  private async recalcDetailAmount(detailId: string, row: any, db: any = this.prisma) {
     const data: any = { ...row };
     if (row.saveOverAmount === undefined) {
-      const cur = await this.prisma.monthlyProfitLossDetail.findUnique({ where: { id: detailId } });
+      const cur = await db.monthlyProfitLossDetail.findUnique({ where: { id: detailId } });
       if (cur) {
         const qty = row.saveOverQty !== undefined ? num(row.saveOverQty) : (cur.saveOverQty != null ? Number(cur.saveOverQty) : null);
         const price = row.unitPrice !== undefined ? num(row.unitPrice) : (cur.unitPrice != null ? Number(cur.unitPrice) : null);
@@ -403,7 +411,7 @@ export class MonthlyProfitLossService {
         data.saveRate = qty != null && theory ? round2(qty / theory) : null;
       }
     }
-    await this.prisma.monthlyProfitLossDetail.update({ where: { id: detailId }, data });
+    await db.monthlyProfitLossDetail.update({ where: { id: detailId }, data });
   }
 
   private serializeHeader(r: any, detailCount?: number) {

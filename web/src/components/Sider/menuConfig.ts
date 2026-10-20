@@ -57,6 +57,10 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'settlement-overdue', label: '逾期利息台账', icon: 'FundOutlined', path: '/settlement/overdue', permission: 'finance:view' },
       { key: 'settlement-ledger', label: '结算台账', icon: 'BookOutlined', path: '/settlement/ledger', permission: 'settlement:view' },
       { key: 'settlement-payment', label: '付款管理', icon: 'PayCircleOutlined', path: '/settlement/payment', permission: 'payment:view' },
+      // 兜底菜单漂移补齐（第 17~20 轮审计）：这两条后端 MENU_TREE 有、路由与权限也都登记了，
+      // 只因 /api/menu 失败回退时缺条目，用户会以为功能被砍
+      { key: 'settlement-payment-procedure', label: '付款手续', icon: 'FileDoneOutlined', path: '/settlement/payment-procedure', permission: 'payment:view' },
+      { key: 'settlement-final', label: '总结算单', icon: 'FileDoneOutlined', path: '/settlement/final-settlement', permission: 'settlement:view' },
     ],
   },
   { key: 'invoice', label: '发票管理', icon: 'FileInvoiceOutlined', path: '/invoice', permission: 'invoice:view' },
@@ -83,6 +87,8 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'base-procurement-template', label: '采购模板', icon: 'ShoppingOutlined', path: '/base/procurement-template', permission: 'template:view' },
       // 需求 2.2 修正：合同条款即条款管理页面（原「条款库」名称删除），直接作为叶子菜单
       { key: 'base-clause', label: '合同条款', icon: 'FileTextOutlined', path: '/base/clause', permission: 'template:view' },
+      // 兜底菜单漂移补齐（第 17~20 轮审计）：单据模板后端有、路由与权限也登记了
+      { key: 'base-doc-template', label: '单据模板', icon: 'FileDoneOutlined', path: '/base/doc-template', permission: 'template:view' },
     ],
   },
   {
@@ -94,7 +100,9 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'system-role', label: '角色管理', icon: 'SafetyOutlined', path: '/system/role', permission: 'system:role' },
       { key: 'system-params', label: '系统参数', icon: 'ControlOutlined', path: '/system/params', permission: 'system:config' },
       { key: 'system-dict', label: '字典管理', icon: 'BookOutlined', path: '/system/dict', permission: 'dict:view' },
-      { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:log' },
+      // 权限码与后端 MENU_TREE 对齐（第 17~20 轮审计：这里原写 system:log，后端是 system:user；
+      // system.controller 两个码都接受，但菜单判据不一致会让某些角色在兜底态看不到日志）
+      { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:user' },
       // AI 信息登记（2026-10-20）：结构须与后端 MENU_TREE 保持一致；
       // 这是全站上游配置（含密钥），权限 system:config，只给管理员
       { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },

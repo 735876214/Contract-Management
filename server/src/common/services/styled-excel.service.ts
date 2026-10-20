@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { CSCEC_LOGO_PNG_BASE64 } from './cscec-logo.base64';
+import { sanitizeSheetName } from '../utils/excel-sheet';
 
 /**
  * 中建项目管理表格样式导出服务
@@ -106,7 +107,8 @@ export class StyledExcelService {
 
   async exportTable(opts: StyledTableOptions): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet(opts.sheetName, {
+    // sheet 名可能来自用户填的字典/模板名（含 * ? : \ / [ ] 时 exceljs 直接 throw）→ 统一净化
+    const ws = wb.addWorksheet(sanitizeSheetName(opts.sheetName, 'Sheet1'), {
       views: [{ state: 'frozen', ySplit: 3 }],
     });
     const colCount = opts.columns.length;

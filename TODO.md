@@ -35,30 +35,12 @@
 
 > 当前为空。
 
-## 四域扩展（已全部收口）
+## 四域扩展（已收口，不再立项）
 
-> 单据关系与复用边界见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md)：
-> **采购订单/对账由外部系统承接**（本项目不建 `PurchaseOrder`/`Reconciliation`），主链路为
-> `采购任务/招标定标 → 合同 → 收领单 → 总日报 → 结算单 → 付款/发票`。
-> **招标域已实施**（迁移 `20261019000000_tender_bidder_and_evaluation`，约定见
-> [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)）；
-> **结算生成口径已按总日报落地**（2026-10-18），**合同履约进度/归档锁定/进出场汇总均已实施**，
-> **日报出场日期、半结构化字段 jsonb、合同履约节点表均已实施**
-> （见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) §4–§7）。
-
-> 已定边界（不再立项）：**采购订单与对账由外部系统承接**；合同签订后直接发生收领单及后续流程，
-> 本项目不造订单/对账中间单据。「采购清单 → 合同清单衔接」已做（无新表），与上述链路不冲突。
-
-> 已实施（2026-10-18）：`DailyReport.exitDate`（迁移 `20261108000000_daily_report_exit_date`，
-> 日报表单/列/导入导出同步，只填不参与自动计算）；半结构化字段改 PG `jsonb`
-> （迁移 `20261109000000_semi_structured_jsonb`，覆盖事前说明/采前会/成交报告/采购公告/考察照片
-> 共 13 列；服务端 `parseJsonArray` 兼容 jsonb 数组与历史 JSON 字符串两种形态）；
-> **合同履约节点表 `ContractFulfillment`**（迁移 `20261110000000_contract_fulfillment`：
-> CRUD + 合同详情时间线 + 工作台 OVERDUE_MILESTONE 逾期待办；归档合同禁写）。
-
-> 明确不做（2026-10-18 业务确认）：**移动刚需页 H5 精简版**——现有响应式
-> V1 视口层 + V2 容器层已覆盖移动端基本可用（规则见 [DESIGN.md](DESIGN.md) §10），
-> 不再单出 H5 版本；决策登记见 [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)。
+> 全部已实施完毕，**已完成事项不留在本文件**（见文首规则）。单据关系、复用边界与已定口径
+> 见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) 与
+> [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)，
+> 历史以 `git log` 为准。当前**无遗留待办**；有新需求按上方三档新增。
 
 ## 本文件的维护方式
 

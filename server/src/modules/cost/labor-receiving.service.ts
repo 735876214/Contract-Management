@@ -93,7 +93,8 @@ export class LaborReceivingService {
             subcontractorName: auth.subcontractorName,
             period,
             contractName: String(data?.contractName || '').trim() || null,
-            createdBy: user?.id,
+            // JwtUser 只有 userId（第 13/14 轮审计：原来写 user?.id，创建人恒为 null）
+        createdBy: user?.userId || user?.id || null,
           },
         });
         return this.serializeDoc(created);
@@ -161,7 +162,14 @@ export class LaborReceivingService {
 
   /** 明细行 upsert（按 docId+材料+规格 定位；spec 空串与唯一键同口径） */
   private async upsertDetail(
-    doc: { id: string; projectId: string; laborAuthId: string; subcontractorName: string; period: string },
+    doc: {
+      id: string;
+      projectId: string;
+      laborAuthId: string;
+      subcontractorName: string;
+      period: string;
+      createdBy?: string | null;
+    },
     d: any,
     /** 事务客户端：与头记录更新同生共死 */
     db: any = this.prisma,
@@ -194,7 +202,8 @@ export class LaborReceivingService {
           laborAuthId: doc.laborAuthId,
           subcontractorName: doc.subcontractorName,
           period: doc.period,
-          createdBy: undefined,
+          // 明细行的创建人跟随表头（原来写 `undefined`，等于恒为空；第 13/14 轮审计）
+          createdBy: doc.createdBy ?? null,
         },
       });
     }

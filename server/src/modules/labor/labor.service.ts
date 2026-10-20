@@ -129,7 +129,12 @@ export class LaborService {
       data: {
         ...payload,
         projectId: projectId || null,
-        status: data?.status || SUB_STATUS.EDITING,
+        /**
+         * 新建一律从「编辑中」开始（2026-10-21 第 11 轮审计）：原来直接取
+         * `data.status`，POST 只要带 `status: 'COMPLETED'` 就跳过编制流程。
+         * 与 update() 的口径保持一致——状态只能经状态流转接口改。
+         */
+        status: SUB_STATUS.EDITING,
         createdBy: user?.userId || user?.id || null,
       },
     });

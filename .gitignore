@@ -16,6 +16,8 @@ uploads/
 .env
 .env.local
 .env.*.local
+# 备份/临时 env 一律不入库（含 .env.postgres.bak 这类）
+.env.*.bak
 
 # docker 部署数据目录（compose 默认 ./data）
 data/

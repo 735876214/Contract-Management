@@ -625,16 +625,35 @@ export class SettlementService {
     for (const o of overdue) if (contractIds.has(o.contractId)) add(o.contractId, o.settlementMonth);
     let created = 0;
     let updated = 0;
-    for (const combo of combos) {
-      const [contractId, settleMonth] = combo.split('|');
-      const exist = await this.prisma.settlementLedger.findFirst({
-        where: { projectId, contractId, settleMonth },
-        select: { id: true },
-      });
-      // 与「结算单驱动」共用同一个 upsert（自动字段 + settlementId 都在那里落）
-      await this.upsertLedgerRow(contractId, projectId, settleMonth);
-      if (exist) updated++;
-      else created++;
+    /**
+     * 第 15/16 轮审计：原来每个「合同 × 月份」组合先 `findFirst` 再 `upsertLedgerRow`
+     * （组合数 × 7 次串行往返），100 合同 × 12 个活跃月 ≈ 8400 次串行 SQL，
+     * 同步 HTTP 必然超网关超时，期间还占着连接池。
+     *
+     * 现在：① 一次性把本项目已有台账行的 (contractId, settleMonth) 读回来定位「新增/更新」，
+     * 省掉每个组合的一次点查；② 按 8 并发分批跑 upsert，把往返从「串行 N」压成「N/8」。
+     * 单行 upsert 内部仍是原来的节奏（自动字段、settlementId 都在那里落），不改语义。
+     */
+    const existing = await this.prisma.settlementLedger.findMany({
+      where: { projectId },
+      select: { contractId: true, settleMonth: true },
+    });
+    const existed = new Set(existing.map((r: any) => `${r.contractId}|${r.settleMonth}`));
+    const combosArr = Array.from(combos);
+    const CONCURRENCY = 8;
+    for (let i = 0; i < combosArr.length; i += CONCURRENCY) {
+      const slice = combosArr.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        slice.map(async (combo) => {
+          const [contractId, settleMonth] = combo.split('|');
+          // 与「结算单驱动」共用同一个 upsert（自动字段 + settlementId 都在那里落）
+          await this.upsertLedgerRow(contractId, projectId, settleMonth);
+        }),
+      );
+      for (const combo of slice) {
+        if (existed.has(combo)) updated++;
+        else created++;
+      }
     }
     return { created, updated };
   }
