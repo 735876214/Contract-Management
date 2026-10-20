@@ -507,7 +507,7 @@
 | POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）与模型建议（`fieldKey/confidence`，未启用时为 `null`） | `ai:use` |
 | POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
 | POST | `/ai/register/parse` | multipart `file`（`.docx` / `.xlsx`）→ **只解析不写库**：返回 `draft.fields[]`（`value/verified/warn/note`）、明细 `items[]` 与合计、`warnings[]`、`missing[]`、库内同编号/同名的 `existing` | `ai:use` |
-| POST | `/ai/register/confirm` | 人工确认后的字段（**嵌套结构** `{supplier:{...}, contract:{...}}`，可选 `supplierId` / `skipSupplier`）→ 写库并返回 `{supplierId, supplierCreated, contractId, code, name}` | `contract:edit` **或** `supplier:edit` |
+| POST | `/ai/register/confirm` | 人工确认后的字段（**嵌套结构** `{supplier:{...}, contract:{...}}`，可选 `supplierId` / `skipSupplier`、`items[]` + `writeMaterials`）→ 写库并返回 `{supplierId, supplierCreated, contractId, code, name, materialCount, materialBaseCreated, materialSkipped}` | `contract:edit` **或** `supplier:edit` |
 
 口径（填报）：只回**是否已有内容**（`hasValue`），**绝不回传字段值**（响应体会进操作日志）；取不到值的项跳过不写空串；
 AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` 用 `@Res()` 直出，避免二进制进日志。
@@ -518,18 +518,29 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 - 每个值都**回原文核对**（金额去千分位查、日期按中文写法反查、文本去空白子串匹配），核不到标 `unverified`；
   合同类型/付款安排在模型没给时按条款推断，判不出就是 `null`，不猜。
 - 交叉校验：金额三角（含税 = 不含税 + 税额）、明细合计 vs 合同总价、法定代表人是否与联系人同一人。
-- 明细**只做核对参考、不落库**；合同物资清单仍由「物资基础库 → 合同物资清单」派生。
+- 明细默认只做**核对参考**；`writeMaterials: true` 时才落库（前端默认勾选）：按「名称+规格」在
+  `MaterialBase` 里 find-or-create（新建的 `remark` 标记「由 AI 文件登记自动创建」，便于追溯与回滚），
+  再逐行写 `ContractMaterial`；缺名称、同「名称+规格」重复的行跳过并计入 `materialSkipped`，
+  缺合价的用 `数量×含税单价` 补齐。明细仍以「物资基础库 → 合同物资清单」为权威口径，AI 只是代录入。
 - 请求体必须是嵌套结构，操作日志的按键名脱敏（`bankAccount`）才能生效。
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
 | POST | `/ai/report/generate` | body `{kind: monthly\|project\|brief, from?, to?, extra?}` → 返回 Markdown + 事实清单 `facts` + 数字对账 `unknownNumbers`；区间缺省为「本月 1 日 ~ 今天」 | `ai:use` |
-| POST | `/ai/report/export` | body `{markdown, title?}` → 把**同一份** Markdown 转成 docx（不重新生成） | `ai:use` |
+| POST | `/ai/report/export` | body `{markdown, title?, header?, footer?, format?: 'docx'\|'pdf'}` → 把**同一份** Markdown 转成文件（不重新生成）：`docx` 走 `html-to-docx`（含页眉/页脚/页码），`pdf` 走 pdf-lib（页眉默认用标题、页脚默认「工程管理部 YYYY 年 M 月」、右下「第 X 页 / 共 Y 页」）；`@Res()` 直出二进制 | `ai:use` |
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
 `auditReport()` 把每个数量/金额回查事实清单，对不上的列进 `unknownNumbers` 由前端红字提示。
 风险点（付超结算、开票落后于结算、区间无日报等）由**规则**判定，不交给模型。
+材料骨架由 `report-templates.ts` 固定（月度/项目/简要三套，prompt 里以【公文骨架】下发，模型不得增删小节）；
+`comparePeriod` 给出紧邻本期之前的等长区间用于环比，上期为 0 时 `pct` 为 `null`（prompt 禁止编增长率）。
+
+口径（PDF 字体）：pdf-lib 不带汉字字形，必须内嵌字体——按 `AI_PDF_FONT` → 系统常见路径顺序探测，
+**并且只接受 TrueType（`glyf`）轮廓**：CFF / CID-keyed CFF（Noto CJK、思源、苹方）pdf-lib 子集化后
+会渲染成乱码，程序直接跳过；一个都用不了时返回 400 并提示装 `fonts-wqy-zenhei`（或
+`fonts-arphic-uming`）或用 `AI_PDF_FONT` 指定 `.ttf`/`.ttc`。`.ttc` 字体集会先用
+`ttc-font.ts` 把各支拆成单字体再逐个试嵌（pdf-lib 直接嵌 TTC 会失败）。
 
 ---
 

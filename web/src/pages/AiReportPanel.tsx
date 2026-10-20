@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from 'antd';
-import { DownloadOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { aiApi, type AiReportDelta, type AiReportResult } from '@/api/modules';
 
@@ -111,7 +111,9 @@ export default function AiReportPanel() {
   const [extra, setExtra] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AiReportResult | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'docx' | 'pdf' | null>(null);
+  const [header, setHeader] = useState('');
+  const [footer, setFooter] = useState('');
 
   const generate = async () => {
     setLoading(true);
@@ -132,20 +134,27 @@ export default function AiReportPanel() {
     }
   };
 
-  const exportDocx = async () => {
+  /** 导出：Word 与 PDF 都走同一个接口，只是 `format` 不同；页眉/页脚留空时后端走默认值 */
+  const exportFile = async (format: 'docx' | 'pdf') => {
     if (!result) return;
-    setExporting(true);
+    setExporting(format);
     try {
       const res = await aiApi.reportExport({
         markdown: result.markdown,
         title: `${result.facts.project.name}${result.label}`,
+        header: header.trim() || undefined,
+        footer: footer.trim() || undefined,
+        format,
       });
       const blob = new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        type:
+          format === 'pdf'
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       });
       const cd = res.headers?.['content-disposition'] || '';
       const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : '汇报材料.docx';
+      const fileName = m ? decodeURIComponent(m[1]) : `汇报材料.${format}`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -157,7 +166,7 @@ export default function AiReportPanel() {
     } catch {
       // 拦截器已弹错
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -171,14 +180,14 @@ export default function AiReportPanel() {
         </Space>
       }
       extra={
-        <Button
-          icon={<DownloadOutlined />}
-          loading={exporting}
-          disabled={!result}
-          onClick={exportDocx}
-        >
-          导出 Word
-        </Button>
+        <Space>
+          <Button icon={<DownloadOutlined />} loading={exporting === 'docx'} disabled={!result} onClick={() => exportFile('docx')}>
+            导出 Word
+          </Button>
+          <Button icon={<FilePdfOutlined />} loading={exporting === 'pdf'} disabled={!result} onClick={() => exportFile('pdf')}>
+            导出 PDF
+          </Button>
+        </Space>
       }
     >
       <Alert
@@ -209,6 +218,14 @@ export default function AiReportPanel() {
             <Button type="primary" icon={<ThunderboltOutlined />} loading={loading} onClick={generate}>
               生成材料
             </Button>
+          </Form.Item>
+        </Space>
+        <Space wrap size={16} align="end" style={{ width: '100%' }}>
+          <Form.Item label="页眉（留空用标题）" style={{ marginBottom: 8 }}>
+            <Input value={header} onChange={(e) => setHeader(e.target.value)} placeholder="例如：XX 项目月度情况报告" style={{ width: 260 }} />
+          </Form.Item>
+          <Form.Item label="页脚（留空用默认说明）" style={{ marginBottom: 8 }}>
+            <Input value={footer} onChange={(e) => setFooter(e.target.value)} placeholder="例如：工程管理部　2026 年 10 月" style={{ width: 260 }} />
           </Form.Item>
         </Space>
         <Form.Item label="补充要求（可选）" style={{ marginBottom: 8 }}>

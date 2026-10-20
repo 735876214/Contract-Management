@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Collapse,
   Empty,
   Input,
@@ -37,7 +38,16 @@ export default function AiRegisterPanel() {
   const [result, setResult] = useState<AiRegisterParseResult | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState<{ contractId: string; code: string; name: string } | null>(null);
+  const [done, setDone] = useState<{
+    contractId: string;
+    code: string;
+    name: string;
+    materialCount?: number;
+    materialBaseCreated?: number;
+    materialSkipped?: number;
+  } | null>(null);
+  /** 明细是否随登记一起写库（默认写：用户要的就是「登记完明细也在」） */
+  const [writeMaterials, setWriteMaterials] = useState(true);
 
   const parse = async (file: File) => {
     setParsing(true);
@@ -142,9 +152,13 @@ export default function AiRegisterPanel() {
         supplier,
         contract,
         skipSupplier: !supplier.name,
+        items: writeMaterials ? (result.draft.items as unknown as Record<string, unknown>[]) : undefined,
+        writeMaterials,
       });
       setDone(res);
-      message.success(`已登记：${res.code}${res.supplierId ? '（含供应商）' : ''}`);
+      message.success(
+        `已登记：${res.code}${res.supplierId ? '（含供应商）' : ''}${res.materialCount ? `，明细 ${res.materialCount} 行` : ''}`,
+      );
     } catch {
       // 拦截器已弹错
     } finally {
@@ -240,7 +254,11 @@ export default function AiRegisterPanel() {
               showIcon
               style={{ marginBottom: 12 }}
               message={`已登记合同 ${done.code}（${done.name}）`}
-              description="可以到「合同管理」里继续补付款安排、条款与附件。"
+              description={
+                done.materialCount
+                  ? `已写入物资明细 ${done.materialCount} 行${done.materialBaseCreated ? `（其中 ${done.materialBaseCreated} 条物资主数据为本次新建）` : ''}${done.materialSkipped ? `，${done.materialSkipped} 行因缺名称/重复被跳过` : ''}。可以到「合同管理」里继续补付款安排、条款与附件。`
+                  : '可以到「合同管理」里继续补付款安排、条款与附件。'
+              }
             />
           )}
 
@@ -260,15 +278,19 @@ export default function AiRegisterPanel() {
               items={[
                 {
                   key: 'items',
-                  label: `识别到 ${items.length} 行明细（合计 ${result.draft.itemsTotal ?? '-'}），暂不写库`,
+                  label: `识别到 ${items.length} 行明细（合计 ${result.draft.itemsTotal ?? '-'}）`,
                   children: (
                     <>
                       <Alert
-                        type="info"
+                        type={writeMaterials ? 'success' : 'info'}
                         showIcon
                         style={{ marginBottom: 8 }}
-                        message="明细目前只做核对参考"
-                        description="合同物资清单由「物资基础库 → 合同物资清单」派生，需要的话请到合同详情里选择物资；这里的明细用于确认金额是否与总价一致。"
+                        message={
+                          <Checkbox checked={writeMaterials} onChange={(e) => setWriteMaterials(e.target.checked)}>
+                            登记时把明细写入「合同物资明细」
+                          </Checkbox>
+                        }
+                        description="勾选后按「名称 + 规格」匹配物资基础库，匹配不到会自动新建一条物资主数据（备注标注来源），再把每行挂到合同物资明细上；不勾选则明细只用于核对金额。"
                       />
                       <Table
                         rowKey={(_, i) => String(i)}
@@ -282,6 +304,7 @@ export default function AiRegisterPanel() {
                           { title: '数量', dataIndex: 'qty', width: 80 },
                           { title: '含税单价', dataIndex: 'unitPriceWithTax', width: 110 },
                           { title: '含税合价', dataIndex: 'amountWithTax', width: 110 },
+                          { title: '备注', dataIndex: 'remark' },
                         ]}
                       />
                     </>

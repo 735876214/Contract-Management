@@ -107,15 +107,24 @@ export class AiController {
     return this.report.generate(body || {}, projectId, user?.userId || user?.username || 'anonymous');
   }
 
-  /** 把页面上的同一份 Markdown 导出为 docx（不重新生成，避免导出与预览不一致） */
+  /**
+   * 把页面上的同一份 Markdown 导出为 docx / pdf（不重新生成，避免导出与预览不一致）。
+   * `format=pdf` 需要服务器有中文字体（未安装时返回 400 并给出安装提示）。
+   */
   @RequirePermissions('ai:use')
   @Post('report/export')
-  async exportReport(@Body() body: { markdown?: string; title?: string }, @Res() res: Response) {
-    const { buffer, fileName } = await this.report.exportDocx(body || {});
-    res.setHeader('Content-Type', this.service.docxMime);
+  async exportReport(
+    @Body() body: { markdown?: string; title?: string; header?: string; footer?: string; format?: string },
+    @Res() res: Response,
+  ) {
+    const isPdf = String(body?.format || 'docx').toLowerCase() === 'pdf';
+    const { buffer, fileName } = isPdf
+      ? await this.report.exportPdf(body || {})
+      : await this.report.exportDocx(body || {});
+    res.setHeader('Content-Type', isPdf ? 'application/pdf' : this.service.docxMime);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="report.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      `attachment; filename="report.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
     );
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.end(buffer);

@@ -68,11 +68,14 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
 （AI 是加速器不是唯一通路，不做静默降级报错）。其余可调项：`AI_TIMEOUT_MS`(30000) ·
 `AI_MAX_FILE_MB`(5) · `AI_MAX_CANDIDATES`(300) · `AI_MAX_FIELDS_IN_PROMPT`(80) ·
 `AI_HOURLY_LIMIT`(60，每用户每小时调用上限，超限 429) · `AI_MAX_TOKENS`(4000，单次返回上限) ·
-`AI_MAX_TEXT_CHARS`(40000，登记时送进 prompt 的正文长度上限)。生产按惯例把需要的变量直接写进
-`docker-compose.yml` 的 server `environment`。
+`AI_MAX_TEXT_CHARS`(40000，登记时送进 prompt 的正文长度上限) · `AI_PDF_FONT`(汇报材料导出 PDF
+时内嵌的中文字体**绝对路径**，缺省按 macOS / Debian 常见路径自动探测；`.ttc` 会先拆成单字体再用。
+**只认 TrueType 轮廓**：CFF 类的 Noto CJK / 思源嵌进去是乱码，程序会跳过——Linux 上装
+`fonts-wqy-zenhei` 或 `fonts-arphic-uming` 即可，镜像里已经装好)。生产按惯例把需要的变量直接写进 `docker-compose.yml` 的 server `environment`。
 
 文件登记（二期）的取数与写入口径见 `docs/03-API接口清单.md` §25：`.docx`/`.xlsx` 才能解析
-（`.doc`、PDF 需先另存），`parse` 不写库、`confirm` 才落库，明细只做核对参考不落库。
+（`.doc`、PDF 需先另存），`parse` 不写库、`confirm` 才落库；明细默认只做核对参考，
+勾选「登记时把明细写入合同物资明细」后才落库（按「名称+规格」匹配物资基础库，匹配不到自动新建并打标记）。
 
 生产部署配置直接写在 `docker-compose.yml`（不用 .env，2026-10-17 起）：NAS 数据路径
 （postgres 的 pgdata + cms 的附件目录，两个 bind mount）· `JWT_SECRET`（必改）·
@@ -87,7 +90,7 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（56 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（59 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -170,6 +173,9 @@ Completions 兼容协议），缺任一项 `/api/ai/status` 返回 `enabled: fal
   | `test/startupSeed.spec.mts` | **启动播种的并发安全锁**：`src/main.ts` 与 `test-integration/helpers.ts` 都必须走 `runStartupSeed()`（不得直接调 `seed*` 函数）· 该入口必须保留**事务级**咨询锁（会话级在连接池下会「加锁/解锁不同连接」）。起因：CI 空库上多进程并发播种撞 P2002 → 字典漏播、用例红，而**本地因库已播种完全看不见** |
   | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断） |
   | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、日期/百分比/量词不参与对账、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
+  | `test/aiRegisterMaterials.spec.mts` | **合同物资明细的落库映射**：`numOf` 吃千分位/货币符号/百分号且取不到返回 null（不落 0、不落 NaN）· 兼容 `unitPriceWithTax`/`amountWithTax` 与中文列名 · 合价缺失用「数量 × 单价」补齐并计数 · 缺名称与同「名称+规格」重复行被丢弃并计数 · 单位缺失兜底「项」· 税率未知时税前单价留空 · 非数组输入不抛错 · `itemsTotalWithTax` 四位小数累加 |
+  | `test/aiReportPdf.spec.mts` | **汇报材料 PDF 排版**（pdf-lib，无文件 I/O）：标题居中与层级字号 · 列表圆点行 · 表格分隔行丢弃、单元格用 `·` 连 · 粗体标记抹掉 · `wrapText` 按宽度折行不丢字、空串给一行、超长串可切 · `renderReportPdf` 多页分页且产出合法 PDF（magic 为 `%PDF-`）、标题写进元数据 · 空正文出单页 |
+  | `test/aiTtcFont.spec.mts` | **TTC 字体集 → 单字体 TTF 提取**（汇报材料 PDF 内嵌中文字体用，零依赖纯函数）：认 `ttcf` 魔数、读字体数量 · 按表记录把选中的那一支重排偏移复制成独立 sfnt（表数据字节级一致、`align4` 对齐）· 非 TTC / 序号越界 / 表数据越界一律抛错（不静默截断） |
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |
   | `test/aiPrompt.spec.mts` | **AI prompt 安全底线 + 模型输出规整**：**prompt 里绝不出现字段值**（`currentValue` 被显式忽略，用例直接断言值串不在消息里）· 字段/候选清单文本与截断 · `normalizeMapping` 丢弃越界序号/非整数/未知键 · 同一候选留最高置信度、同一字段只留一个（防两格填同一值）· confidence 夹 0~1 且 3 位小数 · 垃圾输入不抛错 · 字段目录键唯一、未关联合同时不下发 contract/supplier 域字段 |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |

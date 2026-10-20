@@ -59,9 +59,13 @@ RUN npm run build
 FROM node:20-slim AS runtime
 # openssl：Prisma 查询引擎依赖；nginx：单容器内托管前端 + 反代 /api
 # tzdata：让 compose 里的 TZ=Asia/Shanghai 真正生效（合同到期日等按本地时区计算）
+# fonts-wqy-zenhei + fonts-wqy-microhei：汇报材料导出 PDF 要内嵌中文字体（pdf-lib 自己不带汉字字形）。
+#   只装 TrueType 轮廓的字体：CFF 轮廓的（Noto CJK / 思源）pdf-lib 嵌进去会渲染成乱码，
+#   `ReportService.pdfFont()` 会主动跳过它们；装上这两个后不用再配 AI_PDF_FONT。
 # Acquire::Retries：镜像源偶发 502 / 连接超时（走代理时更常见）会让构建随机失败，重试几次即可通过。
 RUN apt-get update -o Acquire::Retries=5 \
  && apt-get install -y --no-install-recommends -o Acquire::Retries=5 openssl ca-certificates nginx tzdata \
+       fonts-wqy-zenhei fonts-wqy-microhei \
  && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
 ENV NODE_ENV=production \

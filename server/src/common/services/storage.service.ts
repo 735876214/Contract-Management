@@ -135,6 +135,15 @@ export class StorageService implements StorageLike {
     return fs.promises.readFile(abs);
   }
 
+  /**
+   * 读取存储目录**以外**的只读资源（目前只有 PDF 嵌入的中文字体）。
+   * 业务代码不直接碰 fs，这类固定资源也从这里取。
+   */
+  async readLocalFile(absPath: string): Promise<Buffer> {
+    if (!absPath || !fs.existsSync(absPath)) throw new BadRequestException('文件不存在');
+    return fs.promises.readFile(absPath);
+  }
+
   async exists(key: string): Promise<boolean> {
     return fs.existsSync(this.absPath(key));
   }

@@ -7,6 +7,7 @@ import { aiPublicStatus, readAiConfig, type AiConfig } from './ai-config';
 import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
 import { looksLikeContract } from './docx-text';
 import { chatJson, LlmError } from './llm-client';
+import { materialRowsFromItems } from './register-materials';
 import { normalizeExtraction, type RegisterDraft } from './register-fields';
 import { buildRegisterMessages } from './register-prompt';
 
@@ -34,6 +35,10 @@ export interface RegisterConfirmInput {
   supplierId?: string;
   /** 只登记合同，不动供应商 */
   skipSupplier?: boolean;
+  /** 抽取到的物资明细（写库前由 `materialRowsFromItems` 规整） */
+  items?: unknown[];
+  /** 是否把明细写入「合同物资明细」（默认不写，用户勾选才写） */
+  writeMaterials?: boolean;
 }
 
 export interface RegisterConfirmResult {
@@ -42,6 +47,12 @@ export interface RegisterConfirmResult {
   contractId: string;
   code: string;
   name: string;
+  /** 写入的物资明细行数 */
+  materialCount: number;
+  /** 新建的物资主数据条数（其余为匹配已有） */
+  materialBaseCreated: number;
+  /** 因缺名称/重复被丢弃的明细行数 */
+  materialSkipped: number;
 }
 
 /**
@@ -247,27 +258,79 @@ export class RegisterService {
       }
     }
 
-    // 2) 合同：走既有 create()，编号唯一 / 名称拼接 / 字典校验 / 付款比例派生都在里面
-    const contract = await this.contracts.create(
-      {
-        code,
-        name,
-        autoName: false,
-        typeCode: str(c.typeCode) || null,
-        supplierId,
-        signDate: signDate || null,
-        amount,
-        taxRate,
-        paymentMode: str(c.paymentMode) || null,
-        materialDescription: str(c.materialDescription) || null,
-        remark: str(c.remark) || null,
-        execStatus: 'EXECUTING',
-      },
-      ctx.projectId,
-      user,
-    );
+    // 2) 合同 + 3) 物资明细：同一个事务。
+    // 不同事务时，物资行写到一半失败会留下「合同已建、明细只写了一半」的半成品，
+    // 再点确认又会被合同编号唯一键拦下（物资明细永远补不上，只能人修库）。
+    const written = await this.prisma.$transaction(
+      async (tx) => {
+        const contract = await this.contracts.create(
+          {
+            code,
+            name,
+            autoName: false,
+            typeCode: str(c.typeCode) || null,
+            supplierId,
+            signDate: signDate || null,
+            amount,
+            taxRate,
+            paymentMode: str(c.paymentMode) || null,
+            materialDescription: str(c.materialDescription) || null,
+            remark: str(c.remark) || null,
+            execStatus: 'EXECUTING',
+          },
+          ctx.projectId,
+          user,
+          tx as any,
+        );
 
-    return { supplierId, supplierCreated, contractId: contract.id, code: contract.code, name: contract.name };
+        // 物资明细：用户勾选才写。物资主数据按「名称 + 规格」匹配，缺的先建再挂明细
+        let materialCount = 0;
+        let materialBaseCreated = 0;
+        let materialSkipped = 0;
+        if (input?.writeMaterials && Array.isArray(input.items) && input.items.length) {
+          const { rows, skipped } = materialRowsFromItems(input.items, taxRatePct);
+          materialSkipped = skipped;
+          for (const r of rows) {
+            let base = await tx.materialBase.findFirst({ where: { name: r.name, spec: r.spec } });
+            if (!base) {
+              base = await tx.materialBase.create({
+                data: { name: r.name, spec: r.spec, unit: r.unit || null, remark: '由 AI 文件登记自动创建' },
+              });
+              materialBaseCreated += 1;
+            }
+            await tx.contractMaterial.create({
+              data: {
+                contractId: contract.id,
+                materialBaseId: base.id,
+                unit: r.unit,
+                qty: r.qty,
+                priceBeforeTax: r.priceBeforeTax,
+                taxRatePct: r.taxRatePct,
+                priceWithTax: r.priceWithTax,
+                totalWithTax: r.totalWithTax,
+                remark: r.remark,
+                sortOrder: r.sortOrder,
+              },
+            });
+            materialCount += 1;
+          }
+        }
+        return { contract, materialCount, materialBaseCreated, materialSkipped };
+      },
+      { timeout: 60000 },
+    );
+    const { contract, materialCount, materialBaseCreated, materialSkipped } = written;
+
+    return {
+      supplierId,
+      supplierCreated,
+      contractId: contract.id,
+      code: contract.code,
+      name: contract.name,
+      materialCount,
+      materialBaseCreated,
+      materialSkipped,
+    };
   }
 }
 

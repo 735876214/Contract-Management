@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import HTMLtoDOCX from 'html-to-docx';
+import fontkit from '@pdf-lib/fontkit';
+import { StorageService } from '../../common/services/storage.service';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { AiQuota } from './ai-quota';
 import { readAiConfig, type AiConfig } from './ai-config';
 import { FieldResolverService } from './field-resolver.service';
 import { chatText, LlmError } from './llm-client';
+import { renderReportPdf } from './report-pdf';
+import { collectionFontCount, extractFontFromCollection, hasCffOutlines, isFontCollection } from './ttc-font';
 import {
   REPORT_KINDS,
   auditReport,
@@ -75,7 +79,11 @@ export class ReportService {
     private prisma: PrismaClient,
     private quota: AiQuota,
     private resolver: FieldResolverService,
+    private storage: StorageService,
   ) {}
+
+  /** 解析到的中文字体字节（进程内缓存；字体文件不会变） */
+  private fontCache: Uint8Array | null = null;
 
   private config(): AiConfig {
     return readAiConfig(process.env as Record<string, string | undefined>);
@@ -154,6 +162,85 @@ export class ReportService {
       margins: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
     }, footer)) as Buffer;
     return { buffer, fileName: `${title}.docx` };
+  }
+
+  /**
+   * 导出 PDF。中文必须靠内嵌字体——pdf-lib 自带的 14 个标准字体没有汉字，
+   * 一个都找不到时明确报错，而不是导出一份满页方框的 PDF。
+   */
+  async exportPdf(input: ExportInput): Promise<{ buffer: Buffer; fileName: string }> {
+    const md = this.requireMarkdown(input);
+    const font = await this.pdfFont();
+    const buffer = await renderReportPdf(md, {
+      font,
+      title: this.fileBaseName(input?.title),
+      header: input?.header,
+      footer: input?.footer,
+    });
+    return { buffer, fileName: `${this.fileBaseName(input?.title)}.pdf` };
+  }
+
+  /**
+   * 找一个能用的中文字体。
+   * 逐个候选**试着真嵌一次**再定，而不是看到文件存在就当能用——否则导出会在最后一步才失败。
+   * `.ttc` 字体集（Debian 的 noto / wqy / arphic 都是）pdf-lib 直接嵌会失败，
+   * 先用 `extractFontFromCollection()` 把里面每一支拆成独立字体再试。
+   */
+  async pdfFont(): Promise<Uint8Array> {
+    if (this.fontCache) return this.fontCache;
+    const { PDFDocument } = await import('pdf-lib');
+    const candidates = [
+      process.env.AI_PDF_FONT,
+      '/Library/Fonts/Arial Unicode.ttf',
+      '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+      // TrueType(glyf) 中文字体优先：wqy / arphic 都是 glyf，pdf-lib 能正确嵌入
+      '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+      '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+      '/usr/share/fonts/truetype/arphic/uming.ttc',
+      '/usr/share/fonts/truetype/arphic/ukai.ttc',
+      // CFF 类（Noto CJK / 思源）放最后：实测嵌入后是乱码，只在没别的字体时才会被排除掉
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+    ].filter(Boolean) as string[];
+    let cffSkipped = 0;
+    for (const path of candidates) {
+      try {
+        const raw = new Uint8Array(await this.storage.readLocalFile(path));
+        const variants = isFontCollection(raw)
+          ? Array.from({ length: Math.min(collectionFontCount(raw), 8) }, (_, i) => {
+              try {
+                return extractFontFromCollection(raw, i);
+              } catch {
+                return null;
+              }
+            }).filter((v): v is Uint8Array => !!v)
+          : [raw];
+        for (const bytes of variants) {
+          // CID-keyed CFF 会让 pdf-lib 输出乱码，必须跳过（宁可报错也不给乱码文件）
+          if (hasCffOutlines(bytes)) {
+            cffSkipped += 1;
+            continue;
+          }
+          try {
+            const probe = await PDFDocument.create();
+            probe.registerFontkit(fontkit);
+            await probe.embedFont(bytes, { subset: true });
+            this.fontCache = bytes;
+            return bytes;
+          } catch {
+            // 这一支不行，试下一支
+          }
+        }
+      } catch {
+        // 换下一个候选文件
+      }
+    }
+    throw new BadRequestException(
+      cffSkipped
+        ? `服务器上的中文字体都是 CFF/PostScript 轮廓（${cffSkipped} 个），pdf-lib 只能正确嵌入 TrueType 字体，导出的 PDF 会变乱码，因此已中止。` +
+            '请安装 fonts-wqy-zenhei（或 fonts-arphic-uming），或用 AI_PDF_FONT 指定一个 .ttf/.ttc 中文字体路径；也可以先导出 Word。'
+        : '服务器没有可用的中文字体，无法导出 PDF：请安装 fonts-wqy-zenhei，或用 AI_PDF_FONT 指定 .ttf/.ttc 中文字体路径（也可以先导出 Word）',
+    );
   }
 
   private requireMarkdown(input: ExportInput): string {

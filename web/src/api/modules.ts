@@ -610,6 +610,12 @@ export interface AiRegisterConfirmResult {
   contractId: string;
   code: string;
   name: string;
+  /** 写入的物资明细行数 */
+  materialCount: number;
+  /** 新建的物资主数据条数（其余匹配到已有） */
+  materialBaseCreated: number;
+  /** 因缺名称/重复被丢弃的明细行数 */
+  materialSkipped: number;
 }
 
 
@@ -694,12 +700,15 @@ export const aiApi = {
     contract?: Record<string, unknown>;
     supplierId?: string;
     skipSupplier?: boolean;
+    /** 抽取到的明细（勾选「顺带写合同物资明细」时才带） */
+    items?: Record<string, unknown>[];
+    writeMaterials?: boolean;
   }) => http.post<any, AiRegisterConfirmResult>('/ai/register/confirm', body),
   /** 汇报材料：由程序聚合事实、模型组织语言；返回 Markdown + 事实清单 + 数字对账结果 */
   reportGenerate: (body: { kind: string; from?: string; to?: string; extra?: string }) =>
     http.post<any, AiReportResult>('/ai/report/generate', body, { timeout: 180000 } as any),
-  /** 导出 docx：把页面上的同一份 Markdown 转成 Word（不重新生成） */
-  reportExport: (body: { markdown: string; title?: string }) =>
+  /** 导出 Word / PDF：把页面上的同一份 Markdown 转成文件（不重新生成，避免导出与预览不一致） */
+  reportExport: (body: { markdown: string; title?: string; header?: string; footer?: string; format?: 'docx' | 'pdf' }) =>
     http.post<any, any>('/ai/report/export', body, { responseType: 'blob', timeout: 120000, rawResponse: true } as any),
   /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
   fill: (file: File, mapping: { sheet: string; cellRef: string; fieldKey: string }[], ctx?: { contractId?: string; supplierId?: string }) => {
