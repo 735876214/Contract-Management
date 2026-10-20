@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -358,8 +358,25 @@ export class DailyReportService {
     ];
   }
 
+  /**
+   * 导出用全量日报：`findAll({ pageSize: 2000 })` 受单页上限（默认 500）截断，
+   * 日报条数超过上限时导出文件**静默**少行。按页拉全量（与发票/付款/台账导出同口径）。
+   */
+  private async allReports(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allReports(projectId);
+    const res: any = { list: all, total: all.length };
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.nameMap('yes_no'), this.dict.nameMap('asset_status'), this.dict.nameMap('material_source'),
       this.dict.nameMap('material_category'), this.dict.nameMap('material_type'), this.dict.nameMap('measurement_unit'),

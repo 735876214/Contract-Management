@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -1341,9 +1341,26 @@ export class SettlementService {
     });
   }
 
+  /**
+   * 导出用全量台账行：`findLedger({ pageSize: 2000 })` 受单页上限（默认 500）截断，
+   * 台账行超过上限时导出文件**静默**少行、合计偏小。按页拉全量（与发票/付款导出同口径）。
+   */
+  private async allLedgerRows(projectId: string, settleMonth?: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findLedger({ page, pageSize, ...(settleMonth ? { settleMonth } : {}) }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   /** 导出台账 Excel；`settleMonth` 传入时只导该月（归档按期目录用，避免每期都塞全项目台账） */
   async exportLedger(projectId: string, settleMonth?: string) {
-    const res = await this.findLedger({ pageSize: 2000, ...(settleMonth ? { settleMonth } : {}) }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allLedgerRows(projectId, settleMonth);
+    const res: any = { list: all, total: all.length };
     const yesNo = await this.dict.nameMap('yes_no');
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({

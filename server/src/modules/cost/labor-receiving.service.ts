@@ -81,19 +81,27 @@ export class LaborReceivingService {
       where: { projectId_laborAuthId_period: { projectId, laborAuthId, period } },
     });
     if (dup) throw new BadRequestException(`该分包单位 ${period} 期已有领用单据（${dup.docNo}）`);
-    const docNo = await this.nextDocNo(projectId, period);
-    const created = await this.prisma.laborReceivingDoc.create({
-      data: {
-        projectId,
-        docNo,
-        laborAuthId,
-        subcontractorName: auth.subcontractorName,
-        period,
-        contractName: String(data?.contractName || '').trim() || null,
-        createdBy: user?.id,
-      },
-    });
-    return this.serializeDoc(created);
+    // 并发下两人同时开单会拿到同一流水号：靠 @@unique([projectId, docNo]) 挡下后重取号
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const docNo = await this.nextDocNo(projectId, period);
+      try {
+        const created = await this.prisma.laborReceivingDoc.create({
+          data: {
+            projectId,
+            docNo,
+            laborAuthId,
+            subcontractorName: auth.subcontractorName,
+            period,
+            contractName: String(data?.contractName || '').trim() || null,
+            createdBy: user?.id,
+          },
+        });
+        return this.serializeDoc(created);
+      } catch (e: any) {
+        if (e?.code !== 'P2002' || attempt === 2) throw e;
+      }
+    }
+    throw new BadRequestException('单据编号生成失败，请稍后重试');
   }
 
   /**
@@ -180,16 +188,23 @@ export class LaborReceivingService {
     }
   }
 
-  /** 单据编号：LRD-YYYYMM-4 位流水（按项目+月份取 max+1） */
+  /**
+   * 单据编号：LRD-YYYYMM-4 位流水（按项目+月份取 max+1）。
+   * 按字符串倒序取 max 只在定长序号成立，流水破 9999 后 5 位编号会排到 4 位前面，
+   * 于是反复分配到已达上限的号 → 这里取回全部同前缀编号、按数值取 max。
+   */
   private async nextDocNo(projectId: string, period: string): Promise<string> {
     const ym = period.replace('-', '');
     const prefix = `LRD-${ym}-`;
-    const last = await this.prisma.laborReceivingDoc.findFirst({
+    const rows = await this.prisma.laborReceivingDoc.findMany({
       where: { projectId, docNo: { startsWith: prefix } },
-      orderBy: { docNo: 'desc' },
       select: { docNo: true },
     });
-    const seq = last ? Number(last.docNo.slice(prefix.length)) + 1 : 1;
+    const seq =
+      rows.reduce((max, r) => {
+        const n = parseInt(String(r.docNo).slice(prefix.length), 10);
+        return Number.isFinite(n) && n > max ? n : max;
+      }, 0) + 1;
     return `${prefix}${String(seq).padStart(4, '0')}`;
   }
 
@@ -364,14 +379,15 @@ export class LaborReceivingService {
     });
     // 底部三行扣款合计（本期 = Σ扣款；上期 = 上一期同分包单位单据；开累 = 上期开累 + 本期）
     const deductThis = rows.reduce((s, r) => s + (r.deductAmount ?? 0), 0);
-    const prevDoc = await this.prisma.laborReceivingDoc.findFirst({
+    // 「至上期末开累」= 以前**全部**结算期的扣款之和（只取紧邻上一张会把第三期起的开累算少）
+    const prevDocs = await this.prisma.laborReceivingDoc.findMany({
       where: { projectId: doc.projectId, laborAuthId: doc.laborAuthId, period: { lt: doc.period } },
-      orderBy: { period: 'desc' },
+      orderBy: { period: 'asc' },
     });
     let deductPrev = 0;
-    if (prevDoc) {
-      const prevRows: any[] = await this.mergeDocRows(prevDoc);
-      deductPrev = prevRows.reduce((s, r) => s + (r.deductAmount ?? 0), 0);
+    for (const p of prevDocs) {
+      const prevRows: any[] = await this.mergeDocRows(p as any);
+      deductPrev += prevRows.reduce((s, r) => s + (r.deductAmount ?? 0), 0);
     }
     let foot3 = rows.length + 6;
     ws3.getRow(foot3).values = ['至本期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev + deductThis)];

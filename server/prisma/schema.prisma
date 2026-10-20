@@ -250,6 +250,8 @@ model LaborReceivingDoc {
   details   LaborReceivingSummary[]
 
   @@unique([projectId, laborAuthId, period])
+  // 编号在项目内唯一：并发开单靠这条挡下后重取号（无约束时两人会拿到同一个 LRD-YYYYMM-NNNN）
+  @@unique([projectId, docNo])
   @@index([projectId])
 }
 

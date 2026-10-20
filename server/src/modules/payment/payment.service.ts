@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -97,6 +97,22 @@ export class PaymentService {
     return buildResult(list, total, query);
   }
 
+  /**
+   * 导出用全量付款记录：`findRecords({ pageSize: 2000 })` 会被单页上限（默认 500）截断，
+   * 大于上限时导出文件**静默**少行、汇总行金额偏小。按页拉全量，与发票/台账导出同口径。
+   */
+  private async allRecords(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findRecords({ page, pageSize }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async createRecord(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.assertContractInProject(data.contractId, projectId);
@@ -145,7 +161,8 @@ export class PaymentService {
   }
 
   async exportRecords(projectId: string) {
-    const res = await this.findRecords({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allRecords(projectId);
+    const res: any = { list: all, total: all.length };
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({
       projectName: project?.name || '',
@@ -195,6 +212,11 @@ export class PaymentService {
     const status = await this.dict.options('payment_status');
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
+    // 行级幂等：付款记录没有业务唯一键，同一份表重复导入会让付款金额翻倍
+    // （累计付款/台账/防超付闸门全跟着虚高）。批内与本库各查一次「合同+月份+金额+日期」。
+    const seen = new Set<string>();
+    const dupKey = (contractId: string, payMonth: string, amount: number, payDate: any) =>
+      `${contractId}|${payMonth}|${amount.toFixed(2)}|${payDate ? new Date(payDate).toISOString().slice(0, 10) : ''}`;
     return this.tasks.submit<any>({ module: 'payment', moduleName: '付款台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
@@ -213,13 +235,28 @@ export class PaymentService {
         if (statusName && codeOf(status, statusName) === null) {
           throw new RowError(`下拉校验失败：「${statusName}」不在状态选项范围内`, '状态');
         }
+        const payDate = r['付款日期'] || null;
+        const key = dupKey(contract.id, payMonth, amount, payDate);
+        if (seen.has(key)) throw new RowError(`重复行：同一合同 ${payMonth} 已有同金额同日期的一行`, '付款金额');
+        const dup = await this.prisma.paymentRecord.findFirst({
+          where: {
+            projectId,
+            contractId: contract.id,
+            payMonth,
+            amount,
+            payDate: payDate ? toDate(payDate) : null,
+          },
+          select: { id: true },
+        });
+        if (dup) throw new RowError(`重复导入：该合同 ${payMonth} 已存在同金额同日期的付款记录，请勿重复导入`, '付款金额');
+        seen.add(key);
         return {
           data: {
             contractId: contract.id,
             payMonth,
             amount,
             methodCode: codeOf(methods, methodName),
-            payDate: r['付款日期'] || null,
+            payDate,
             statusCode: codeOf(status, statusName),
             remark: String(r['备注'] ?? '').trim() || null,
           },
