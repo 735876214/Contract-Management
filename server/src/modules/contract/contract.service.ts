@@ -1187,10 +1187,23 @@ export class ContractService {
     // 签订日期仅在显式传入时更新，避免未携带该字段的编辑请求把已有签订日期清空
     const signDatePatch =
       data.signDate !== undefined ? { signDate: data.signDate ? new Date(data.signDate) : null } : {};
+    const nextFields = pickFields(rest, CONTRACT_UPDATE_FIELDS, { label: '合同' });
+    /**
+     * 供应商快照只在签章时冻结（`supplierSnapshot`），导出正文按快照优先取供应商名称/银行账号。
+     * 已签章后再改 `supplierId` 会让台账显示新供应商、正文仍是旧供应商（两份事实打架），
+     * 因此这里拦住：确需更换走合同变更/补充协议。
+     */
+    if (
+      nextFields.supplierId !== undefined &&
+      nextFields.supplierId !== before.supplierId &&
+      (before as any).supplierSnapshot
+    ) {
+      throw new BadRequestException('合同已签章，不允许直接更换供应商；请通过合同变更流程处理');
+    }
     const contract = await this.prisma.contract.update({
       where: { id },
       data: {
-        ...pickFields(rest, CONTRACT_UPDATE_FIELDS, { label: '合同' }),
+        ...nextFields,
         ...signDatePatch,
         /**
          * ⚠️ 必须**按"传了才写"**处理：`num(undefined)` 返回 `null`，无条件赋值会让任何部分更新
@@ -1269,8 +1282,15 @@ export class ContractService {
       // 履约节点也是登记数据：删除合同会级联清掉，须与其他下游一样先提示
       this.prisma.contractFulfillment.count({ where: { projectId, contractId: { in: chainIds } } }),
     ]);
+    // 补充协议：`Contract.parentContract` 外键是 ON DELETE SET NULL（schema 未声明 onDelete），
+    // 删主合同不会删子合同，只会把 parentContractId 清空 → 留下无主的补充协议，
+    // 其编号还占着「主编号（N）」的位，后续按 parentContractId 计数取号会撞 code 唯一键。
+    const supplements = await this.prisma.contract.count({ where: { projectId, parentContractId: { in: chainIds } } });
     if (receipts + settlements + daily + finals + invoices + payments + milestones > 0) {
       throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点），不能删除合同，请改为归档');
+    }
+    if (supplements > 0) {
+      throw new BadRequestException(`该合同下存在 ${supplements} 份补充协议，不能删除主合同；请先删除补充协议，或改为归档`);
     }
     await this.prisma.contract.delete({ where: { id } });
     return true;

@@ -40,6 +40,20 @@ const ROUTE_MAP: Record<string, { model?: string; module: string }> = {
   auth: { module: '认证授权' },
   files: { module: '文件管理' },
   notifications: { module: '消息中心' },
+  // 以下模块此前没登记：`beforeData` 永远为 null、module 记录成英文路由段，
+  // 收领单/付款手续/总结算这类不可逆操作的「改前值」因此无法从审计日志还原
+  'receipt-orders': { model: 'receiptOrder', module: '收领单' },
+  'payment-procedures': { model: 'paymentProcedure', module: '付款手续' },
+  'final-settlements': { model: 'finalSettlement', module: '总结算单' },
+  'procurement-tasks': { model: 'procurementTask', module: '采购任务' },
+  'procurement-templates': { model: 'procurementTemplate', module: '采购模板' },
+  labor: { model: 'laborAuthLedger', module: '分包授权台账' },
+  'doc-templates': { model: 'contractTemplate', module: '公文模板' },
+  cost: { module: '成本管理' },
+  archive: { module: '合同归档' },
+  dashboard: { module: '看板' },
+  menu: { module: '系统管理' },
+  ai: { module: 'AI 助手' },
 };
 
 const ACTION_MAP: Record<string, string> = {
@@ -139,14 +153,19 @@ export class OperationLogInterceptor implements NestInterceptor {
               action,
               method,
               url,
-              params: safeJson(slimParams({ ...req.body, ...req.query })),
+              params: slimParams({ ...req.body, ...req.query }),
               ip,
               beforeData: safeJson(slimSecrets(before)),
               afterData: safeJson(slimSecrets(data), 8000),
               result: 'SUCCESS',
               duration,
               bizType: route.model || biz,
-              bizId: bizId || (data && data.id) || null,
+              /**
+               * 异步导入（>1000 行）在响应时 only taskId，`created/updated/errors` 都是占位 0；
+               * 以 taskId 作为 bizId，任务结束后由 ImportTaskService.syncOperationLog 回填真实统计
+               * （见 import-task.service.ts）。否则大文件导入在审计日志里永远是成功 0、失败 0。
+               */
+              bizId: (data && data.async && data.taskId) || bizId || (data && data.id) || null,
               projectId: (req.headers['x-project-id'] as string) || null,
               importFile: isImport ? (req as any).file?.originalname || null : null,
               importRows,
@@ -162,7 +181,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               action,
               method,
               url,
-              params: safeJson(slimParams({ ...req.body, ...req.query })),
+              params: slimParams({ ...req.body, ...req.query }),
               ip,
               beforeData: safeJson(slimSecrets(before)),
               result: 'FAIL',

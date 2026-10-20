@@ -30,6 +30,18 @@ export class LogService {
     errorFileUrl?: string;
   }) {
     try {
+      /**
+       * 参数只在这里序列化一次（拦截器若已序列化再 stringify 会变双重转义串，
+       * 前端 `tryPretty` 只解一层，展示成一坨 `\\"`）。
+       * 超长时截断到 4000，并在切断处补省略号而不是硬切在转义序列中间。
+       */
+      const params =
+        data.params == null
+          ? null
+          : (() => {
+              const text = typeof data.params === 'string' ? data.params : JSON.stringify(data.params);
+              return text.length > 4000 ? `${text.slice(0, 3960)}…(已截断)` : text;
+            })();
       await this.prisma.operationLog.create({
         data: {
           userId: data.userId,
@@ -38,7 +50,7 @@ export class LogService {
           action: data.action,
           method: data.method,
           url: data.url?.slice(0, 500),
-          params: data.params ? JSON.stringify(data.params).slice(0, 4000) : null,
+          params,
           ip: data.ip,
           beforeData: data.beforeData ?? null,
           afterData: data.afterData ?? null,

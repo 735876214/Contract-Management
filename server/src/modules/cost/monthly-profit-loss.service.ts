@@ -82,8 +82,25 @@ export class MonthlyProfitLossService {
     ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
-    const created = await this.prisma.monthlyProfitLoss.create({ data: payload });
-    await this.snapshotDetails(created.id, projectId, period);
+    /**
+     * 并发双击时两个请求都会通过上面的 findUnique 查重，后到的会撞 `@@unique([projectId, period])`。
+     * 这里把 P2002 归一成可读的 400（否则全局异常过滤器会把 Prisma 原文回给前端）。
+     */
+    let created: any;
+    try {
+      created = await this.prisma.monthlyProfitLoss.create({ data: payload });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new BadRequestException(`该结算期（${period}）已有盈亏分析记录`);
+      throw e;
+    }
+    try {
+      await this.snapshotDetails(created.id, projectId, period);
+    } catch (e) {
+      // 头记录已建但快照失败会留下"没有明细"的半成品，而用户重试又被期唯一挡住：
+      // 回滚头记录，让用户可以重新生成。
+      await this.prisma.monthlyProfitLoss.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw e;
+    }
     return this.detail(created.id);
   }
 

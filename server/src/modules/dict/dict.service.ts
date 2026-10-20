@@ -172,6 +172,17 @@ export class DictService {
   async updateItem(id: string, data: any) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
+    /**
+     * ⚠️ 编辑接口同样可能把 status 从启用改成停用（前端编辑弹窗带状态下拉），
+     * 若不复用 toggleItem 的引用检查，就能绕过「已被引用的选项不许停用」这条守卫：
+     * 历史行标签变空、validate() 只认启用项，这些行之后保存会被 400 拒绝。
+     */
+    if (item.status === 1 && data?.status !== undefined && Number(data.status) === 0) {
+      const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
+      if (usage.count > 0) {
+        throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），停用后历史数据将无法编辑；请先确认或改用新选项后再停用`);
+      }
+    }
     const updated = await this.prisma.dictItem.update({ where: { id }, data });
     await this.refreshCache(item.typeCode);
     return updated;

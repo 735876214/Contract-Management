@@ -24,8 +24,22 @@ RETAIN_DAYS="${RETAIN_DAYS:-7}"
 PG_CONTAINER="${PG_CONTAINER:-cms-postgres}"
 PG_USER="${PG_USER:-cms}"
 PG_DB="${PG_DB:-cms}"
-# 附件目录：与 docker-compose.yml 里 cms 服务挂载的 NAS 路径同口径（NAS 上改为实际路径）
-DATA_DIR="${DATA_DIR:-${CMS_DIR}/data}"
+# 附件目录：与 docker-compose.yml 里 cms 服务挂载的 **/data** 同口径。
+# ⚠️ 不能默认 ${CMS_DIR}/data：生产把附件挂在 NAS（如 /volume1/docker/cms/data），
+#    仓库目录下根本没有 data/。旧的默认值会让 rsync 复制 0 个文件、却照样打印「备份完成」，
+#    附件从未进入备份；恢复时也写不到生产挂载点。
+# 取值优先级：显式 DATA_DIR > docker-compose.yml 里 `- <宿主路径>:/data` > ${CMS_DIR}/data（并告警）
+derive_data_dir() {
+  if [ -n "${DATA_DIR:-}" ]; then printf '%s' "${DATA_DIR}"; return; fi
+  local compose="${CMS_DIR}/docker-compose.yml" host=""
+  if [ -f "${compose}" ]; then
+    host="$(sed -n -E 's/^[[:space:]]*-[[:space:]]*([^:#[:space:]]+):\/data[[:space:]]*$/\1/p' "${compose}" | head -1)"
+  fi
+  if [ -n "${host}" ]; then printf '%s' "${host}"; return; fi
+  echo "[$(date '+%F %T')] WARN: 未配置 DATA_DIR，且未能从 ${compose} 解析 /data 挂载，回退 ${CMS_DIR}/data" >&2
+  printf '%s' "${CMS_DIR}/data"
+}
+DATA_DIR="$(derive_data_dir)"
 
 DATE="$(date +%F)"
 TODAY_DB="${BACKUP_DIR}/db/${DATE}"
@@ -66,7 +80,16 @@ fi
 DB_SIZE="$(du -h "${DB_FILE}" | cut -f1)"
 
 # ---------------- 2. 附件（rsync 硬链接增量） ----------------
-mkdir -p "${DATA_DIR}"
+# 源目录不存在或为空 → 直接失败。旧实现是 `mkdir -p` 出一个空目录再 rsync，
+# 结果「备份成功但 0 个文件」，灾备演练时才发现附件全丢。
+if [ ! -d "${DATA_DIR}" ]; then
+  log "ERROR: 附件目录不存在：${DATA_DIR}（请用 DATA_DIR=... 指定，或核对 docker-compose.yml 里 cms 服务的 /data 挂载）"
+  exit 1
+fi
+if [ -z "$(ls -A "${DATA_DIR}" 2>/dev/null | head -1)" ] && [ "${ALLOW_EMPTY_DATA:-0}" != "1" ]; then
+  log "ERROR: 附件目录为空：${DATA_DIR}（确认路径是否正确；确实允许空目录时设 ALLOW_EMPTY_DATA=1）"
+  exit 1
+fi
 # 前一日目录（找最近的、早于今天的；没有 → 首次全量）
 PREV_DATE="$(ls -1 "${BACKUP_DIR}/files" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | grep -v "^${DATE}$" | sort | tail -1)"
 if [ -n "${PREV_DATE}" ]; then

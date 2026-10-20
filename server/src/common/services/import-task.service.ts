@@ -65,7 +65,18 @@ export class ImportTaskService implements OnModuleInit {
       const now = new Date();
       const rows = await this.prisma.importTask.findMany({
         where: { status: { in: [...IMPORT_ACTIVE_STATUSES] } },
-        select: { id: true, status: true, lockedAt: true, startedAt: true, createdAt: true },
+        select: {
+          id: true,
+          status: true,
+          lockedAt: true,
+          startedAt: true,
+          createdAt: true,
+          userId: true,
+          moduleName: true,
+          fileName: true,
+          projectId: true,
+          totalRows: true,
+        },
       });
       const stale = rows.filter((r) => isImportTaskStale(r, now));
       if (!stale.length) return 0;
@@ -73,6 +84,20 @@ export class ImportTaskService implements OnModuleInit {
         where: { id: { in: stale.map((r) => r.id) } },
         data: { status: 'FAILED', message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
       });
+      // 补发失败通知：否则提交人只会看到「任务消失/卡住」，不知道要重新导入
+      for (const task of stale) {
+        await this.notifier
+          .send({
+            userId: task.userId || undefined,
+            title: `【${task.moduleName || '导入'}】导入中断`,
+            content: `文件「${task.fileName || '-'}」的导入任务因服务重启或超时被中断，未写入任何数据，请重新导入。`,
+            type: 'ERROR',
+            projectId: task.projectId || undefined,
+            bizType: 'import-task',
+            bizId: task.id,
+          })
+          .catch(() => undefined);
+      }
       console.warn(
         '[import-task] 已回收僵尸导入任务',
         stale.length,
@@ -181,6 +206,27 @@ export class ImportTaskService implements OnModuleInit {
     try {
       outcome = await this.runner.run(rows, {
         ...opts,
+        /**
+         * ⚠️ 任务终态必须与业务写入在**同一个事务**里落库。
+         * 若在事务提交之后才置 SUCCESS，进程死在两者之间会留下「数据已写、任务仍 RUNNING」，
+         * 僵尸回收会把它置 FAILED 并提示重新导入 → 日报这类没有行级幂等键的导入会重复写入。
+         * 现在要么数据与 SUCCESS 一起提交，要么一起回滚；reapStaleTasks 见到的 RUNNING 一定没提交过。
+         */
+        write: async (plans: any[], tx: any) => {
+          const res = await opts.write(plans, tx);
+          await tx.importTask.update({
+            where: { id: taskId },
+            data: {
+              status: 'SUCCESS',
+              processedRows: rows.length,
+              successCount: (res?.created || 0) + (res?.updated || 0),
+              failCount: 0,
+              message: null,
+              finishedAt: new Date(),
+            },
+          });
+          return res;
+        },
         onProgress: async (processed: number) => {
           // 进度 + 心跳一起刷新（心跳用于崩溃/超时判定）；更新失败不阻断导入
           await this.prisma.importTask
@@ -193,6 +239,7 @@ export class ImportTaskService implements OnModuleInit {
         where: { id: taskId },
         data: { status: 'FAILED', message: e?.message || String(e), finishedAt: new Date() },
       });
+      await this.syncOperationLog(taskId, { rows: rows.length, success: 0, fail: rows.length, errorFileUrl: null });
       await this.notify(ctx, 'FAILED', 0, rows.length, taskId);
       return;
     }
@@ -213,7 +260,38 @@ export class ImportTaskService implements OnModuleInit {
         finishedAt: new Date(),
       },
     });
+    await this.syncOperationLog(taskId, {
+      rows: rows.length,
+      success: outcome.created + outcome.updated,
+      fail: outcome.errors.length,
+      errorFileUrl,
+    });
     await this.notify(ctx, outcome.errors.length ? 'FAILED' : 'SUCCESS', outcome.created + outcome.updated, outcome.errors.length, taskId);
+  }
+
+  /**
+   * 回填操作日志的导入统计。
+   * 异步导入在响应返回时只有 taskId（`created/updated/errors` 全是占位 0），
+   * 拦截器按 `bizId = taskId` 记了那条日志；任务结束后在这里把真实行数/错误报告地址补上，
+   * 否则大文件导入在审计日志里永远是「成功 0、失败 0」。
+   */
+  private async syncOperationLog(
+    taskId: string,
+    data: { rows: number; success: number; fail: number; errorFileUrl: string | null },
+  ): Promise<void> {
+    try {
+      await this.prisma.operationLog.updateMany({
+        where: { bizId: taskId },
+        data: {
+          importRows: data.rows,
+          successCount: data.success,
+          failCount: data.fail,
+          errorFileUrl: data.errorFileUrl,
+        } as any,
+      });
+    } catch {
+      /* 日志回填失败不影响导入结果 */
+    }
   }
 
   private async notify(ctx: SubmitContext, status: string, success: number, fail: number, taskId: string) {

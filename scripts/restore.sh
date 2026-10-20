@@ -12,7 +12,18 @@ set -euo pipefail
 
 CMS_DIR="${CMS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 BACKUP_DIR="${BACKUP_DIR:-${CMS_DIR}/backups}"
-DATA_DIR="${DATA_DIR:-${CMS_DIR}/data}"
+# 附件目录与 backup.sh 同口径：显式 DATA_DIR > docker-compose.yml 的 /data 挂载 > ${CMS_DIR}/data
+derive_data_dir() {
+  if [ -n "${DATA_DIR:-}" ]; then printf '%s' "${DATA_DIR}"; return; fi
+  local compose="${CMS_DIR}/docker-compose.yml" host=""
+  if [ -f "${compose}" ]; then
+    host="$(sed -n -E 's/^[[:space:]]*-[[:space:]]*([^:#[:space:]]+):\/data[[:space:]]*$/\1/p' "${compose}" | head -1)"
+  fi
+  if [ -n "${host}" ]; then printf '%s' "${host}"; return; fi
+  echo "WARN: 未配置 DATA_DIR，且未能从 ${compose} 解析 /data 挂载，回退 ${CMS_DIR}/data" >&2
+  printf '%s' "${CMS_DIR}/data"
+}
+DATA_DIR="$(derive_data_dir)"
 PG_CONTAINER="${PG_CONTAINER:-cms-postgres}"
 PG_USER="${PG_USER:-cms}"
 PG_DB="${CMS_DB:-cms}"
