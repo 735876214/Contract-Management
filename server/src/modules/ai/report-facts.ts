@@ -186,7 +186,11 @@ const UNIT_TAIL = /^\s*(年|月|日|号|%|％|份|笔|张|条|项|个|家|天|�
 export function auditReport(markdown: string, facts: ReportFacts): { unknown: string[]; checked: number } {
   const allowed = factNumbers(facts);
   // 日期（2026-08-01）里的数字不是金额，先整段抹掉，否则 -08、-01 会被当成负数
-  const text = String(markdown ?? '').replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, ' ');
+  // 有序列表的序号（`1. ` / `2) `）也不是数据：模型被要求用列表写材料，
+  // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）
+  const text = String(markdown ?? '')
+    .replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, ' ')
+    .replace(/^[ \t]*\d+[.)][ \t]/gm, ' ');
   const unknown: string[] = [];
   let checked = 0;
   // 「12 万元」中间常有空格，单位要跟着吞掉

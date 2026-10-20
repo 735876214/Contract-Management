@@ -92,7 +92,7 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（60 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（61 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -174,13 +174,14 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
   | `test/startupSeed.spec.mts` | **启动播种的并发安全锁**：`src/main.ts` 与 `test-integration/helpers.ts` 都必须走 `runStartupSeed()`（不得直接调 `seed*` 函数）· 该入口必须保留**事务级**咨询锁（会话级在连接池下会「加锁/解锁不同连接」）。起因：CI 空库上多进程并发播种撞 P2002 → 字典漏播、用例红，而**本地因库已播种完全看不见** |
   | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断） |
-  | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、日期/百分比/量词不参与对账、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
+  | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、日期/百分比/量词不参与对账、**有序列表序号（`1.`/`2)`）不算数**（接真上游时实测误报过 2、3）、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
   | `test/aiRegisterMaterials.spec.mts` | **合同物资明细的落库映射**：`numOf` 吃千分位/货币符号/百分号且取不到返回 null（不落 0、不落 NaN）· 兼容 `unitPriceWithTax`/`amountWithTax` 与中文列名 · 合价缺失用「数量 × 单价」补齐并计数 · 缺名称与同「名称+规格」重复行被丢弃并计数 · 单位缺失兜底「项」· 税率未知时税前单价留空 · 非数组输入不抛错 · `itemsTotalWithTax` 四位小数累加 |
   | `test/aiReportPdf.spec.mts` | **汇报材料 PDF 排版**（pdf-lib，无文件 I/O）：标题居中与层级字号 · 列表圆点行 · 表格分隔行丢弃、单元格用 `·` 连 · 粗体标记抹掉 · `wrapText` 按宽度折行不丢字、空串给一行、超长串可切 · `renderReportPdf` 多页分页且产出合法 PDF（magic 为 `%PDF-`）、标题写进元数据 · 空正文出单页 |
   | `test/aiTtcFont.spec.mts` | **TTC 字体集 → 单字体 TTF 提取**（汇报材料 PDF 内嵌中文字体用，零依赖纯函数）：认 `ttcf` 魔数、读字体数量 · 按表记录把选中的那一支重排偏移复制成独立 sfnt（表数据字节级一致、`align4` 对齐）· 非 TTC / 序号越界 / 表数据越界一律抛错（不静默截断） |
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |
   | `test/aiPrompt.spec.mts` | **AI prompt 安全底线 + 模型输出规整**：**prompt 里绝不出现字段值**（`currentValue` 被显式忽略，用例直接断言值串不在消息里）· 字段/候选清单文本与截断 · `normalizeMapping` 丢弃越界序号/非整数/未知键 · 同一候选留最高置信度、同一字段只留一个（防两格填同一值）· confidence 夹 0~1 且 3 位小数 · 垃圾输入不抛错 · 字段目录键唯一、未关联合同时不下发 contract/supplier 域字段 |
   | `test/aiSetting.spec.mts` | **AI 配置取值优先级（页面登记 > 环境变量 > 默认值）**：页面填了逐项覆盖 env（不是整体替换）· 页面只填一部分 → 其余回落 env（老部署只配 env 的行为不变）· 空串/空白视为未登记 · 页面开关关掉即不启用且仍回显地址 · 页面开关打开压过 `AI_ENABLED=false` · **开关开着但缺 API Key 仍不启用**（避免「界面说已启用、调用必 401」）· 存储键名锁定 `ai.*` 命名空间（改名会让存量配置静默失效） |
+  | `test/aiLlmRetry.spec.ts` | **推理型模型「只输出思考、没有正文」的重试口径**（接真上游时发现：`only_reasoning` 模型把 `max_tokens` 先花在 `reasoning_content` 上，思考一长就 `finish_reason:"length"` + 空 `content`，表现为同样提示词随机失败）：空正文且预算烧在思考上 → `max_tokens` 翻倍重试**一次**（未设 maxTokens 时兜底 ≥4096）· 两次都空 → `EMPTY` 错误且消息点明「推理模型、思考占满预算」（不是密钥/地址错）· 首次就有正文不重试 · 真·空回复（无思考、`finish=stop`）不重试，直接报「上游返回空内容」 |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |

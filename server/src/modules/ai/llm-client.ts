@@ -113,17 +113,23 @@ export class LlmError extends Error {
  * 调一次 chat/completions 并解析 JSON。
  * `fetchImpl` 显式注入：单测与集成测试用本地假上游替换，不打真网。
  */
-export async function callChat(
+interface ChatAttempt {
+  raw: string;
+  /** 推理型模型（DeepSeek-V4 / GLM 等）的思维链正文，正常情况下为空 */
+  reasoning: string;
+  finish?: string;
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+/** 单次尝试：发一次请求、判 HTTP 错、抠出 content。不做「空内容」判定（重试逻辑在外面） */
+async function chatOnce(
   fetchImpl: typeof fetch,
+  url: string,
   opts: LlmOptions,
   messages: LlmMessage[],
-  jsonMode = true,
-): Promise<{ raw: string; usage?: { promptTokens?: number; completionTokens?: number } }> {
-  const url = chatCompletionsUrl(opts.baseUrl);
-  if (!url || !opts.apiKey || !opts.model) {
-    throw new LlmError('AI 未配置（缺少接口地址 / API Key / 模型名，请到「系统管理 → AI 信息登记」填写）', 'NOT_CONFIGURED');
-  }
-
+  jsonMode: boolean,
+  maxTokens: number | undefined,
+): Promise<ChatAttempt> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
   let res: Response;
@@ -134,7 +140,7 @@ export async function callChat(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${opts.apiKey}`,
       },
-      body: JSON.stringify(buildChatBody(opts, messages, jsonMode)),
+      body: JSON.stringify(buildChatBody({ ...opts, maxTokens }, messages, jsonMode)),
       signal: controller.signal,
     });
   } catch (e: any) {
@@ -153,16 +159,61 @@ export async function callChat(
   }
 
   const body: any = await res.json().catch(() => null);
-  const raw = String(body?.choices?.[0]?.message?.content ?? '');
-  if (!raw) throw new LlmError('AI 上游返回空内容', 'EMPTY');
-
+  const choice = body?.choices?.[0];
   return {
-    raw,
+    raw: String(choice?.message?.content ?? ''),
+    reasoning: String(choice?.message?.reasoning_content ?? ''),
+    finish: choice?.finish_reason,
     usage: {
       promptTokens: body?.usage?.prompt_tokens,
       completionTokens: body?.usage?.completion_tokens,
     },
   };
+}
+
+/**
+ * 调一次 chat/completions，**空正文自动重试一次**。
+ *
+ * 为什么需要重试（2026-10-20 实测发现）：推理型模型（`only_reasoning`，如 DeepSeek-V4-Flash）
+ * 先写 `reasoning_content` 再写 `content`，两者共用同一个 `max_tokens` 预算。思维链一长就把预算
+ * 烧完 → `finish_reason: "length"`、`content` 为空、`reasoning_content` 一千多字。调用方只能看到
+ * 「上游返回空内容」，表现为**随机失败**（同样的提示词时好时坏，取决于模型思考多长）。
+ * 这里把预算翻倍重试一次（4000 → 8000 能覆盖实测的思考长度），仍然为空才报错，并在报错里
+ * 说清原因，免得使用者以为是密钥或地址错了。
+ */
+export async function callChat(
+  fetchImpl: typeof fetch,
+  opts: LlmOptions,
+  messages: LlmMessage[],
+  jsonMode = true,
+): Promise<{ raw: string; usage?: { promptTokens?: number; completionTokens?: number } }> {
+  const url = chatCompletionsUrl(opts.baseUrl);
+  if (!url || !opts.apiKey || !opts.model) {
+    throw new LlmError('AI 未配置（缺少接口地址 / API Key / 模型名，请到「系统管理 → AI 信息登记」填写）', 'NOT_CONFIGURED');
+  }
+
+  const base = opts.maxTokens && opts.maxTokens > 0 ? opts.maxTokens : undefined;
+  const first = await chatOnce(fetchImpl, url, opts, messages, jsonMode, base);
+  if (first.raw) {
+    return { raw: first.raw, usage: first.usage };
+  }
+
+  // 只有「预算烧在思考上」这一种情况值得重试；真·空回复（模型什么都没写）重试也是空的
+  const budgetStarved = Boolean(first.reasoning) || first.finish === 'length';
+  if (budgetStarved) {
+    const retryTokens = Math.min(Math.max((base ?? 2048) * 2, 4096), 32000);
+    const second = await chatOnce(fetchImpl, url, opts, messages, jsonMode, retryTokens);
+    if (second.raw) {
+      return { raw: second.raw, usage: second.usage };
+    }
+    throw new LlmError(
+      `AI 上游只输出了思考内容、没有正文（模型 ${opts.model} 是推理模型，思考已占满 max_tokens=${retryTokens}）；` +
+        '可调小提示词、改换非推理模型，或在页面上换用其它模型',
+      'EMPTY',
+    );
+  }
+
+  throw new LlmError('AI 上游返回空内容', 'EMPTY');
 }
 
 /**

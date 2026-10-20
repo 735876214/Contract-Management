@@ -156,6 +156,12 @@ describe('auditReport：材料里的数字必须来自系统数据', () => {
     assert.deepEqual(r.unknown, []);
   });
 
+  it('有序列表的序号不报案（模型按提示写 1. / 2. / 3. 时实测误报过 2、3）', () => {
+    const text = '1. 本月新签 2 份合同\n2. 结算金额 150000.00 元\n3) 已付款 120000.00 元';
+    const r = auditReport(text, facts);
+    assert.deepEqual(r.unknown, []);
+  });
+
   it('日期里的数字（含负号片段）不算金额', () => {
     const r = auditReport('统计区间：2026-08-01 至 2026-10-19，共 80 天。', facts);
     assert.deepEqual(r.unknown, []);
