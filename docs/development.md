@@ -93,7 +93,7 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（62 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（64 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -184,6 +184,8 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
   | `test/aiSetting.spec.mts` | **AI 配置取值优先级（页面登记 > 环境变量 > 默认值）**：页面填了逐项覆盖 env（不是整体替换）· 页面只填一部分 → 其余回落 env（老部署只配 env 的行为不变）· 空串/空白视为未登记 · 页面开关关掉即不启用且仍回显地址 · 页面开关打开压过 `AI_ENABLED=false` · **开关开着但缺 API Key 仍不启用**（避免「界面说已启用、调用必 401」）· 存储键名锁定 `ai.*` 命名空间（改名会让存量配置静默失效） |
   | `test/aiLlmRetry.spec.ts` | **推理型模型「只输出思考、没有正文」的重试口径**（接真上游时发现：`only_reasoning` 模型把 `max_tokens` 先花在 `reasoning_content` 上，思考一长就 `finish_reason:"length"` + 空 `content`，表现为同样提示词随机失败）：空正文且预算烧在思考上 → `max_tokens` 翻倍重试**一次**（未设 maxTokens 时兜底 ≥4096）· 两次都空 → `EMPTY` 错误且消息点明「推理模型、思考占满预算」（不是密钥/地址错）· 首次就有正文不重试 · 真·空回复（无思考、`finish=stop`）不重试，直接报「上游返回空内容」 |
   | `test/aiQuota.spec.ts` | **AI 配额（每用户每小时）的计数与失败退还**（2026-10-20 审计 P2：原来调用前扣、失败也计，上游一挂就把额度烧光并锁一小时）：逐次计数 · 达上限抛 429 · `limit<=0` 不限次 · 不同用户各自计数 · `refund` 退还一次后可再调 · 重复退还/从未调用不会退成负数 · 窗口滑过后旧计数失效 |
+  | `test/loginThrottle.spec.ts` | **登录失败节流（撞库防护）**（2026-10-20 第 2 轮审计：原来 `login` 只记失败日志、不限制次数，`admin/admin123` 这种默认口令可被跑穿）：键 = `用户名|IP`（用户名去空格转小写，避免大小写各占一个窗口）· 15 分钟内失败 5 次后 `assertNotThrottled` 抛 **429** 且文案带「N 分钟后再试」· 成功一次即清零 · 窗口过期自动放开（不用重启）· 不同账号/不同 IP 互不影响（共用出口 IP 的同事不被连坐）· 单键只保留最近 `maxFailures` 条（长跑不膨胀） |
+  | `test/projectScope.spec.ts` | **项目口径收口（跨项目 IDOR）**（2026-10-20 第 3 轮审计：`@ProjectId()` 只回答「能不能进这个项目」，不回答「URL 里这条数据的 id 属不属于它」，于是 `findUnique({ where: { id } })` 成了跨项目读/改/删的入口）：有请求上下文就补 `projectId` · 无上下文（seed/定时任务/单测）保持原样 · 调用方在 `extra` 里塞别的 `projectId` 不能放宽过滤 · 查不到抛 404 且文案不暴露「存在但不属于你」 |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |

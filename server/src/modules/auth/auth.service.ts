@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { LogService } from '../../common/services/log.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectAccessService } from '../../common/services/project-access.service';
+import { LoginThrottle } from './login-throttle';
 
 @Injectable()
 export class AuthService {
@@ -14,6 +15,7 @@ export class AuthService {
     private logService: LogService,
     private sysParam: SysParamService,
     private projectAccess: ProjectAccessService,
+    private throttle: LoginThrottle,
   ) {}
 
   async validateUser(username: string, password: string) {
@@ -26,15 +28,24 @@ export class AuthService {
   }
 
   async login(username: string, password: string, ip: string, userAgent: string) {
+    // 撞库防护：同一「用户名 + IP」15 分钟内输错 5 次即临时锁定（见 LoginThrottle）。
+    // 放在查库之前，被锁时连 bcrypt 都不做——既挡住爆破，也不给对手用 bcrypt 拖垮 CPU。
+    const throttleKey = this.throttle.keyOf(username, ip);
+    this.throttle.assertNotThrottled(throttleKey);
     let user: any;
     try {
       user = await this.validateUser(username, password);
     } catch (e) {
+      this.throttle.fail(throttleKey);
       // 失败也要留痕：只记成功路径时，撞库/暴力破解在本系统没有任何审计记录，
       // 登录日志页的「失败」标签成了死代码。用户名记输入值（不存在也照记），不记密码。
       await this.logService.login({ username, ip, userAgent, result: 'FAIL' });
+      // 刚好被锁上时把「还要等几分钟」告诉他，比继续报「用户名或密码错误」有用
+      this.throttle.assertNotThrottled(throttleKey);
       throw e;
     }
+    // 成功即清零：正常用户输错一两次，不该在之后 15 分钟里被上一次的失败拖累
+    this.throttle.reset(throttleKey);
     const permissions = await this.getPermissions(user.id, user.isSuperAdmin);
     const projects = await this.getProjects(user.id, user.isSuperAdmin);
 
@@ -106,10 +117,17 @@ export class AuthService {
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {
+    // 改密同样限次：否则「已登录但想提权」的人可以拿它当旧密码爆破口
+    const pwdKey = `pwd:${userId}`;
+    this.throttle.assertNotThrottled(pwdKey);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('用户不存在');
     const ok = await bcrypt.compare(oldPassword, user.password);
-    if (!ok) throw new ForbiddenException('原密码不正确');
+    if (!ok) {
+      this.throttle.fail(pwdKey);
+      throw new ForbiddenException('原密码不正确');
+    }
+    this.throttle.reset(pwdKey);
     await this.prisma.user.update({ where: { id: userId }, data: { password: await bcrypt.hash(newPassword, 10) } });
     return true;
   }
