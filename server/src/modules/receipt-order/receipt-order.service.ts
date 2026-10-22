@@ -4,6 +4,7 @@ import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 import {
   CONTRACT_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
+  RECEIPT_STATUS,
   SUBCONTRACTOR_STATUS,
 } from '../../constants/statuses';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
@@ -707,7 +708,7 @@ export class ReceiptOrderService {
           settlementId,
           orderNo,
           projectId,
-          status: 'SAVED',
+          status: RECEIPT_STATUS.SAVED,
           pushedAt: new Date(),
           createdBy: user?.userId || user?.id || null,
           details: { create: details },
@@ -752,7 +753,7 @@ export class ReceiptOrderService {
         data: {
           ...this.normalizeHeader(data),
           settlementId,
-          status: 'SAVED',
+          status: RECEIPT_STATUS.SAVED,
           pushedAt: new Date(),
           version: { increment: 1 },
           details: { create: details },

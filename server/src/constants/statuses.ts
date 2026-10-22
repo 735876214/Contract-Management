@@ -195,3 +195,15 @@ export const MODULE_RECORD_STATUS = {
   COMPLETED: 'COMPLETED',
 } as const;
 export type ModuleRecordStatus = (typeof MODULE_RECORD_STATUS)[keyof typeof MODULE_RECORD_STATUS];
+
+/**
+ * 收领单状态（**非字典驱动**，`ReceiptOrder.status` 默认 `DRAFT`）：
+ * `DRAFT` 草稿 / `SAVED` 已保存（保存即推送总日报，见 `pushedAt`）。
+ * 2026-10-22 第 22 轮审计：原先 `receipt-order.service.ts` 两处裸写 `'SAVED'`，
+ * 违反「状态码写常量」铁律（拼错不报错，只会静默落一个没人认得的状态）。
+ */
+export const RECEIPT_STATUS = {
+  DRAFT: 'DRAFT',
+  SAVED: 'SAVED',
+} as const;
+export type ReceiptStatus = (typeof RECEIPT_STATUS)[keyof typeof RECEIPT_STATUS];
