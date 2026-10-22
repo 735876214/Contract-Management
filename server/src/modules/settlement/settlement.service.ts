@@ -2,6 +2,21 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
+
+/**
+ * 导出件末尾的合计行标记（`styled.exportTable({ totalsLabel: '汇总' })` 写进「项目」列）。
+ * 回流时这一行不是数据行，必须跳过，否则「合同编号为必填项」整批报错（第 22 轮审计 P1-2 跟进）。
+ */
+const LEDGER_TOTALS_MARKERS = new Set(['汇总', '合计', '总计']);
+
+/** 取表格里的第一个非空值：兼容模板列名与导出表头（导出件带 a/b/c/d 角标） */
+const pickAny = (r: any, ...labels: string[]): any => {
+  for (const label of labels) {
+    const v = r[label];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return undefined;
+};
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -1512,6 +1527,8 @@ export class SettlementService {
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'settlement-ledger', moduleName: '结算台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
+        // 导出件末尾的合计行不是数据行：跳过（返回 null 由 runner 忽略）
+        if (LEDGER_TOTALS_MARKERS.has(String(r['项目'] ?? '').trim())) return null;
         const contractCode = String(r['合同编号'] ?? '').trim();
         if (!contractCode) throw new RowError('合同编号为必填项（关联校验）', '合同编号');
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
@@ -1535,16 +1552,16 @@ export class SettlementService {
           data: {
             contractId: contract.id,
             settleMonth: month,
-            monthSettleAmount: num(r['本月结算额']),
+            monthSettleAmount: num(pickAny(r, '本月结算额', '本月结算额 a')),
             monthInvoiceAmount: num(r['本月开票额']),
             settleCount: num(r['结算次数']),
-            cumPurchaseAmount: num(r['开累采购额']),
+            cumPurchaseAmount: num(pickAny(r, '开累采购额', '截止当月开累采购额')),
             startSettleAmount: num(r['开工结算额']),
-            monthActualPurchase: num(r['本月实际采购额']),
-            factoringDiscount: num(r['保理贴息']),
-            overdueInterest: num(r['逾期利息']),
-            yearSettleIncome: num(r['本年结算收入']),
-            cumSettleIncome: num(r['开累结算收入']),
+            monthActualPurchase: num(pickAny(r, '本月实际采购额', '当月实际采购额 b')),
+            factoringDiscount: num(pickAny(r, '保理贴息', '保理贴息 c')),
+            overdueInterest: num(pickAny(r, '逾期利息', '逾期利息 d')),
+            yearSettleIncome: num(pickAny(r, '本年结算收入', '本年结算对应收入（含税）')),
+            cumSettleIncome: num(pickAny(r, '开累结算收入', '开累结算对应收入（含税）')),
             isOnAccount: isOnAccount || null,
             remark: String(r['备注'] ?? '').trim() || null,
           },
