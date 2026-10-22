@@ -52,3 +52,7 @@ data-drill/
 
 # 构建/测试临时目录（曾被误提交，见 a255be6）
 .tmpbuild/
+
+# NAS 部署运行态：宿主 compose 副本含 JWT_SECRET，备份含数据库，均不入库
+deploy/nas/docker-compose.yml
+backups/
