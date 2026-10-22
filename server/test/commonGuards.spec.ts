@@ -1,8 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { parseImportDate, pickDictCode } from '../src/common/utils/import-parse.ts';
 import { isSafeFileUrl, checkFileUrl } from '../src/common/utils/safe-url.ts';
 import { assertSettlementProgress, SETTLEMENT_STATUS } from '../src/constants/workflowGuards.ts';
+import { localDayKey } from '../src/common/utils/helpers.ts';
+import { mapPrismaError } from '../src/common/utils/prisma-error.ts';
+
+// 本地日期断言与机器时区相关：固定成业务时区，CI（UTC）与开发机（CST）跑出同一结果
+process.env.TZ = 'Asia/Shanghai';
 
 /**
  * 第 8/9 轮审计新增的三个纯函数守卫：
@@ -111,5 +118,71 @@ describe('结算状态只能沿链路前进', () => {
 
   it('未知状态直接判非法', () => {
     assert.throws(() => assertSettlementProgress(SETTLEMENT_STATUS.PENDING, 'NOT_A_STATUS'), /取值非法/);
+  });
+});
+
+/**
+ * 第 21 轮审计新增的三个「不许回退」守卫：
+ * ① 单据编号/归档包名必须用**本地**日期（UTC 会让北京时间凌晨开出来的单号写成前一天）；
+ * ② Prisma 写冲突要映射成 4xx + 人话，不能把表名/列名/SQL 片段回给前端，也不能一律 500；
+ * ③ 用户接口不许写 `isSuperAdmin`（超管在权限守卫里直接短路，等于自我提权）。
+ */
+describe('localDayKey：单据日期用本地时区', () => {
+  it('跨零点后仍是当天（不因 UTC 退到前一天）', () => {
+    // 2026-10-21T16:30Z === 北京时间 2026-10-22 00:30 → 单据日期必须是 10-22
+    const utcLateNight = new Date('2026-10-21T16:30:00Z');
+    assert.equal(utcLateNight.toISOString().slice(0, 10), '2026-10-21', '前提：UTC 日期是前一天');
+    assert.equal(localDayKey(utcLateNight), '2026-10-22');
+  });
+
+  it('补零格式固定 YYYY-MM-DD', () => {
+    assert.equal(localDayKey(new Date(2026, 0, 5)), '2026-01-05');
+    assert.equal(localDayKey(new Date(2026, 11, 31, 23, 59, 59)), '2026-12-31');
+  });
+
+  it('非法日期返回空串而不是 NaN-NaN-NaN', () => {
+    assert.equal(localDayKey('not-a-date'), '');
+  });
+});
+
+describe('mapPrismaError：写冲突映射成 4xx 人话', () => {
+  it('唯一键冲突 → 400 且带字段名', () => {
+    const r = mapPrismaError({ code: 'P2002', meta: { target: ['projectId', 'code'] } });
+    assert.equal(r?.status, 400);
+    assert.match(String(r?.message), /数据重复/);
+    assert.match(String(r?.message), /projectId/);
+  });
+
+  it('外键被引用 → 400（不是 500）', () => {
+    const r = mapPrismaError({ code: 'P2003', meta: { target: 'supplierId' } });
+    assert.equal(r?.status, 400);
+    assert.match(String(r?.message), /关联数据/);
+  });
+
+  it('记录不存在 → 404', () => {
+    const r = mapPrismaError({ code: 'P2025' });
+    assert.equal(r?.status, 404);
+    assert.match(String(r?.message), /不存在/);
+  });
+
+  it('未知异常不映射（仍走 500，原文不外泄）', () => {
+    assert.equal(mapPrismaError(new Error('connect ECONNREFUSED 10.0.0.1:5432')), null);
+    assert.equal(mapPrismaError({ code: 'P1001' }), null);
+    assert.equal(mapPrismaError(null), null);
+  });
+
+  it('约束字段名只采信白名单字符，挡掉拼接注入', () => {
+    const r = mapPrismaError({ code: 'P2002', meta: { target: ["x', (SELECT 1)) --"] } });
+    assert.equal(r?.status, 400);
+    assert.ok(!String(r?.message).includes('SELECT 1'));
+  });
+});
+
+describe('用户写白名单：不许自我提权', () => {
+  it('system.service.ts 的 USER_WRITABLE_FIELDS 不含 isSuperAdmin', async () => {
+    const src = await readFile(join(__dirname, '../src/modules/system/system.service.ts'), 'utf8');
+    const line = src.split('\n').find((l) => l.includes('const USER_WRITABLE_FIELDS'));
+    assert.ok(line, '必须能找到白名单定义');
+    assert.ok(!line!.includes('isSuperAdmin'), `白名单混入了 isSuperAdmin：${line}`);
   });
 });

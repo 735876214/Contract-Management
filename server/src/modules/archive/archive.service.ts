@@ -4,6 +4,8 @@ import { PrismaClient } from '@prisma/client';
 import { ZipArchive as Archiver } from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { StorageService } from '../../common/services/storage.service';
+import { localDayKey } from '../../common/utils/helpers';
+import { notDraft } from '../../common/utils/contract-chain';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { ARCHIVE_CATEGORIES, ARCHIVE_CATEGORY_BY_KEY } from '../../constants/archiveCategories';
 import { LedgerService } from '../ledger/ledger.service';
@@ -104,7 +106,7 @@ export class ArchiveService {
     // 流式打包：逐个文件读入并 append，内存只保留当前文件 + 压缩缓冲，
     // 不再把全部附件 Buffer 留在 JSZip 里（大项目会 OOM）。
     const archive = new Archiver({ zlib: { level: 9 } });
-    const filename = `${root}-归档-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.zip`;
+    const filename = `${root}-归档-${scopeLabel}-${localDayKey()}.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader(
       'Content-Disposition',
@@ -234,7 +236,9 @@ export class ArchiveService {
         }
         case 'settle-monthly': {
           const settlements = await this.prisma.settlement.findMany({
-            where: { projectId, NOT: { statusCode: 'DRAFT' } },
+            // `notDraft`（不是 `NOT: {statusCode:'DRAFT'}`）：statusCode 可空，
+            // NOT 会连带排除 NULL → 归档包漏掉 NULL 状态的结算单（第 21 轮审计）
+            where: { projectId, ...notDraft },
             select: { settleDate: true },
           });
           // 账期目录：`2026.1` → `2026年1月`（需求原例；`sanitizeSegment` 清掉 Date.toString 的非法字符之外，

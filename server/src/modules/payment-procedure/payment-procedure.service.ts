@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
@@ -107,7 +107,7 @@ export class PaymentProcedureService {
   /** 单据编号：`FK-<合同编号>-<日期>`，同项目已存在则追加序号（表上有 `@@unique([projectId, code])`） */
   private async nextCode(projectId: string, contractId: string, payDate: Date | null) {
     const contract = await this.prisma.contract.findFirst({ where: { id: contractId, projectId }, select: { code: true } });
-    const day = (payDate ?? new Date()).toISOString().slice(0, 10).replace(/-/g, '');
+    const day = localDayKey(payDate ?? new Date()).replace(/-/g, '');
     const base = `FK-${contract?.code || 'HT'}-${day}`;
     for (let i = 0; i < 20; i += 1) {
       const code = i === 0 ? base : `${base}-${i + 1}`;

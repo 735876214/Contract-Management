@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, localDayKey } from '../../common/utils/helpers';
+import { notDraft } from '../../common/utils/contract-chain';
 import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict/dict.service';
@@ -82,7 +83,7 @@ export class FinalSettlementService {
 
   /** 单据编号：`ZJS-<合同编号>-<日期>`，同项目已存在则追加序号 */
   private async nextCode(projectId: string, contractCode: string) {
-    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const day = localDayKey().replace(/-/g, '');
     const base = `ZJS-${contractCode}-${day}`;
     for (let i = 0; i < 20; i += 1) {
       const code = i === 0 ? base : `${base}-${i + 1}`;
@@ -115,7 +116,13 @@ export class FinalSettlementService {
     }
 
     const settlements: any[] = await this.prisma.settlement.findMany({
-      where: { contractId, NOT: { statusCode: 'DRAFT' } },
+      /**
+       * 用 `notDraft` 而不是 `NOT: { statusCode: 'DRAFT' }`（第 21 轮审计 P1）：
+       * `Settlement.statusCode` 是 **String?**，SQL 里 `NOT (statusCode = 'DRAFT')` 对 NULL 求值为
+       * **UNKNOWN**，NULL 状态的历史结算单会被整批漏掉 → 总结算单金额偏小（付款比例跟着按小额算）。
+       * `notDraft` 是 `OR [{null}, {not:'DRAFT'}]`，把 NULL 当「非草稿」纳入，与台账口径一致。
+       */
+      where: { contractId, ...notDraft },
       select: { id: true, settleDate: true, amount: true, actualAmount: true },
       orderBy: { settleDate: 'asc' },
     });

@@ -62,9 +62,17 @@ export class DocTemplateService {
     return items.map((i: any) => i.itemCode);
   }
 
+  /**
+   * 单据模板详情。**必须限定在 `doc_template_category` 五类之内**（第 21 轮审计）：
+   * 单据模板与合同模板**共用 `ContractTemplate` 表**，而 `update`/`remove` 都以本方法为准。
+   * 原来裸 `findUnique({ id })`：把任意**合同模板**的 id 传进来，`PUT/DELETE /doc-templates/:id`
+   * 就能改/删掉合同模板（跨模块越权，且合同模板里存着正文占位符与归档口径）。
+   */
   async findOne(id: string) {
-    const tpl = await this.prisma.contractTemplate.findUnique({ where: { id } });
+    const tpl: any = await this.prisma.contractTemplate.findUnique({ where: { id } });
     if (!tpl) throw new NotFoundException('单据模板不存在');
+    const codes = await this.categoryCodes();
+    if (!codes.includes(String(tpl.categoryCode ?? ''))) throw new NotFoundException('单据模板不存在');
     return this.serialize(tpl);
   }
 

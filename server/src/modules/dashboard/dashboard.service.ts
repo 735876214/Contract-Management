@@ -5,7 +5,7 @@ import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
-import { CONTRACT_STATUS, MILESTONE_STATUS } from '../../constants/statuses';
+import { CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import {
   TODO_CATEGORIES,
@@ -240,7 +240,7 @@ export class DashboardService {
   /** 结算单待提交（草稿） */
   private async todoSettlementDraft(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('SETTLEMENT_DRAFT');
-    const where = { projectId, statusCode: 'DRAFT' };
+    const where = { projectId, statusCode: SETTLEMENT_STATUS.DRAFT };
     const [rows, count] = await Promise.all([
       this.prisma.settlement.findMany({
         where, orderBy: { createdAt: 'asc' }, take: limit,

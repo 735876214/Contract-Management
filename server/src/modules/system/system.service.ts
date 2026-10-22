@@ -5,8 +5,17 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
 
-/** 用户主表可写字段白名单（password 单独处理，roleIds 走关联表） */
-const USER_WRITABLE_FIELDS = ['username', 'realName', 'phone', 'email', 'status', 'isSuperAdmin'];
+/**
+ * 用户主表可写字段白名单（password 单独处理，roleIds 走关联表）。
+ *
+ * **`isSuperAdmin` 不在白名单里**（第 21 轮审计 P0）：超管在
+ * `assertPermission()` / `PermissionsGuard` / `ProjectAccessService` 里**直接短路放行**，
+ * 等于「全部权限 + 全部项目」。而它原来是可写字段——任何拿到 `system:user` 编辑权的人
+ * 只要 `PUT /system/users/<自己的 id>` 带 `{ isSuperAdmin: true }`，一次请求就把自己提成超管
+ * （新用户接口同理）。这条路径不是业务能力：前端根本没有这个开关，
+ * 超管身份由种子/运维在库里指定，接口一律不接受该字段（传了会被 `pickFields` 丢弃）。
+ */
+const USER_WRITABLE_FIELDS = ['username', 'realName', 'phone', 'email', 'status'];
 
 /** 出参统一剥掉 bcrypt 哈希：新增/修改/重置密码都不许把 `password` 回给前端 */
 function stripPassword<T extends Record<string, any> | null | undefined>(row: T): T {

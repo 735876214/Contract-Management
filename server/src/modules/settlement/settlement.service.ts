@@ -10,6 +10,8 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { assertSettlementProgress, assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
+// 总结算单状态常量（第 21 轮审计：不要再裸写 'SETTLED'）
+import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
@@ -303,7 +305,7 @@ export class SettlementService {
     // 草稿 → 提交的转换：合同已「已完已结」时禁止（月度结算是总结算明细快照的来源）
     if (!this.isDraft(resultingStatus) && this.isDraft(before.statusCode)) {
       const settled = await this.prisma.finalSettlement.findFirst({
-        where: { contractId: effectiveContractId, statusCode: 'SETTLED' },
+        where: { contractId: effectiveContractId, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
         select: { id: true },
       });
       if (settled) {
@@ -352,7 +354,7 @@ export class SettlementService {
      * update()/reject() 早就拦了这条，只有 remove() 漏了。
      */
     const settled = await this.prisma.finalSettlement.findFirst({
-      where: { contractId: before.contractId, statusCode: 'SETTLED' },
+      where: { contractId: before.contractId, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
       select: { id: true, code: true },
     });
     if (settled) {
@@ -379,7 +381,7 @@ export class SettlementService {
     // 合同已「已完已结」（总结算附件已上传）时，月度结算是总结算明细的来源，
     // 驳回/修改会让 DONE_SETTLED 断言与底层链脱钩 → 必须先作废总结算单。
     const settled = await this.prisma.finalSettlement.findFirst({
-      where: { contractId: before.contractId, statusCode: 'SETTLED' },
+      where: { contractId: before.contractId, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
       select: { id: true, code: true },
     });
     if (settled) {

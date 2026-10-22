@@ -6,6 +6,7 @@ import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/utils/money';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { paidPaymentWhere } from '../../constants/statuses';
+import { notDraft } from '../../common/utils/contract-chain';
 import { AiQuota } from './ai-quota';
 import { type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
@@ -305,7 +306,7 @@ export class ReportService {
         select: { amount: true, changeAmount: true },
       }),
       this.prisma.settlement.findMany({
-        where: { projectId, createdAt: { gte: from, lte: to }, OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }] },
+        where: { projectId, createdAt: { gte: from, lte: to }, ...notDraft },
         select: { amount: true, actualAmount: true },
       }),
       this.prisma.paymentRecord.findMany({

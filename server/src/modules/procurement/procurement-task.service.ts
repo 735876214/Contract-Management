@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 type JsonValue = Prisma.JsonValue;
-import { paginate, buildResult, num } from '../../common/utils/helpers';
+import { paginate, buildResult, num, localDayKey } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
   ImportTemplateService,
@@ -1159,7 +1159,7 @@ export class ProcurementTaskService {
    * 撞上 `@@unique([projectId, taskNo])` 抛未捕获的 P2002（前端看到 500）。
    */
   private async nextTaskNo(projectId: string): Promise<string> {
-    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const day = localDayKey().replace(/-/g, '');
     const prefix = `PROC-${day}-`;
     const rows = await this.prisma.procurementTask.findMany({
       where: { projectId, taskNo: { startsWith: prefix } },

@@ -93,7 +93,19 @@ describe('集成 · 合同状态流转与任务联动', () => {
     assert.equal((await ctx.prisma.procurementTask.findUnique({ where: { id: task.id } }))?.status, TASK_STATUS.CONTRACT_APPROVING);
 
     const second = await makeContract(ctx.prisma, { projectId: project.id, taskId: task.id, status: CONTRACT_STATUS.DRAFT });
-    await contract.setStatus(second.id, CONTRACT_STATUS.SIGNED);
+    /**
+     * 「已签章」只能由签章动作产生：第 13/14 轮审计把 `setStatus(..., SIGNED)` 封了
+     * （只写 status 会得到「已签章但没有签章件原件」的合同）。所以这里走真实签章路径，
+     * 本用例要验的仍然是「非主合同的状态变化不改写任务状态」。
+     */
+    const pdf2 = Buffer.from('%PDF-1.4\n% 集成测试签章件（非主合同）\n%%EOF\n', 'utf8');
+    const signedSecond = await contract.sign(
+      second.id,
+      { buffer: pdf2, originalname: 'int-nonmain.pdf', size: pdf2.length },
+      '2026-01-16',
+      '集成测试',
+    );
+    assert.equal(signedSecond.status, CONTRACT_STATUS.SIGNED, '非主合同签章后自身应为已签章');
     assert.equal(
       (await ctx.prisma.procurementTask.findUnique({ where: { id: task.id } }))?.status,
       TASK_STATUS.CONTRACT_APPROVING,

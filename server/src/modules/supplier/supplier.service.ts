@@ -108,6 +108,12 @@ export class SupplierService {
   }
 
   async remove(id: string) {
+    /**
+     * 先过 `findOne`（第 21 轮审计）：它按项目口径过滤，别项目的私有供应商在这里就是 404。
+     * 原来直接 `delete({ where: { id } })`——拿到别项目的 supplierId 就能删掉对方的主数据
+     * （引用检查也只查得到**本库全局**的引用，拦不住跨项目删除），且 id 不存在时抛裸 P2025 → 500。
+     */
+    await this.findOne(id);
     // 引用检查覆盖所有非 SetNull 外键：合同之外，还款协议/收领单/资产台账的
     // supplierId 无 onDelete 级联，漏查会让 Prisma 抛裸 P2003（500）。
     const [contracts, repayments, receipts, assets] = await Promise.all([

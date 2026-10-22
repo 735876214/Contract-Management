@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
 import { paidPaymentWhere } from '../../constants/statuses';
+import { notDraft } from '../../common/utils/contract-chain';
 
 /**
  * AI 字段取值器：把「字段目录里的 key」翻译成**当前项目/合同下的真实值**。
@@ -202,7 +203,7 @@ export class FieldResolverService {
 
     const [settlements, payments, invoices] = await Promise.all([
       this.prisma.settlement.findMany({
-        where: { projectId, OR: [{ statusCode: null }, { statusCode: { not: 'DRAFT' } }] },
+        where: { projectId, ...notDraft },
         select: { amount: true, actualAmount: true },
       }),
       this.prisma.paymentRecord.findMany({
