@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, localDayKey } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -215,8 +215,22 @@ export class PaymentService {
     // 行级幂等：付款记录没有业务唯一键，同一份表重复导入会让付款金额翻倍
     // （累计付款/台账/防超付闸门全跟着虚高）。批内与本库各查一次「合同+月份+金额+日期」。
     const seen = new Set<string>();
+    /**
+     * 防超付闸门（第 22 轮审计 P2-13）：导入的写库走事务，而**事务内不得读 sysParam/累计数**
+     * （事务外连接，可能挂起），所以原来 write 分支干脆跳过了超付校验 —— 用导入就能绕开闸门。
+     * 现在把闸门放到 plan 阶段（事务外）执行：策略 + 各合同累计结算/累计付款各查一次，
+     * 并叠加**本批已累加**的金额，这样同一份文件里连开多张也不会漏判。
+     */
+    const overPolicy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
+    const limitOf = new Map<string, number>();
+    const paidOf = new Map<string, number>();
+    const ensureChain = async (contractId: string) => {
+      if (limitOf.has(contractId)) return;
+      limitOf.set(contractId, await chainSettledTotal(this.prisma, contractId, undefined));
+      paidOf.set(contractId, await chainPaidTotal(this.prisma, contractId, undefined, PaymentService.NON_PAYING_STATUSES));
+    };
     const dupKey = (contractId: string, payMonth: string, amount: number, payDate: any) =>
-      `${contractId}|${payMonth}|${amount.toFixed(2)}|${payDate ? new Date(payDate).toISOString().slice(0, 10) : ''}`;
+      `${contractId}|${payMonth}|${amount.toFixed(2)}|${payDate ? localDayKey(payDate) : ''}`;
     return this.tasks.submit<any>({ module: 'payment', moduleName: '付款台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
@@ -236,6 +250,21 @@ export class PaymentService {
           throw new RowError(`下拉校验失败：「${statusName}」不在状态选项范围内`, '状态');
         }
         const payDate = r['付款日期'] || null;
+        const statusCode = codeOf(status, statusName);
+        if (overPolicy !== 'OFF' && !PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) {
+          await ensureChain(contract.id);
+          const overRes = checkOverAmount({
+            limit: limitOf.get(contract.id) ?? 0,
+            used: paidOf.get(contract.id) ?? 0,
+            current: amount,
+            label: '付款',
+          });
+          if (overRes.exceeded) {
+            if (overPolicy === 'BLOCK') throw new RowError(overRes.message, '付款金额');
+            console.warn('[付款/防超付/导入]', overRes.message);
+          }
+          paidOf.set(contract.id, (paidOf.get(contract.id) ?? 0) + amount);
+        }
         const key = dupKey(contract.id, payMonth, amount, payDate);
         if (seen.has(key)) throw new RowError(`重复行：同一合同 ${payMonth} 已有同金额同日期的一行`, '付款金额');
         const dup = await this.prisma.paymentRecord.findFirst({
@@ -257,7 +286,7 @@ export class PaymentService {
             amount,
             methodCode: codeOf(methods, methodName),
             payDate,
-            statusCode: codeOf(status, statusName),
+            statusCode,
             remark: String(r['备注'] ?? '').trim() || null,
           },
         };

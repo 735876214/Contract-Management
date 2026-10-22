@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS, localDayKey } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -56,7 +56,7 @@ export class InvoiceService {
     if (query.keyword) where.OR = [{ invoiceNo: { contains: query.keyword } }, { issuer: { contains: query.keyword } }];
     const [list, total] = await Promise.all([
       this.prisma.invoice.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           contract: { select: { id: true, code: true, name: true, supplierId: true, supplier: { select: { id: true, name: true } } } },
           settlement: { select: { id: true, code: true, settleDate: true } },
@@ -323,7 +323,7 @@ export class InvoiceService {
       this.dict.nameMap('finance_transfer_status'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows = (res.list as any[]).map((i: any, idx: number) => ({
       index: idx + 1,
       goodsCategoryName: goods[i.goodsCategory]?.name || '',

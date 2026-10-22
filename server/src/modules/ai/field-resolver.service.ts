@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
 import { paidPaymentWhere } from '../../constants/statuses';
@@ -28,7 +29,7 @@ const isoDate = (v: Date | string | null | undefined): string => {
   if (!v) return '';
   const d = v instanceof Date ? v : new Date(v);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0, 10);
+  return localDayKey(d);
 };
 
 /** 金额：两位小数、不加千分位（表单单元格里 `1,234.00` 常被 Excel 当文本） */

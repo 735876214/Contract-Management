@@ -383,7 +383,7 @@ export class ReceiptOrderService {
         { authorizedPerson: { contains: keyword } },
       ];
     }
-    const rows = await this.prisma.laborAuthLedger.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
+    const rows = await this.prisma.laborAuthLedger.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 500 });
     return rows.map((r: any) => ({
       id: r.id,
       name: r.subcontractorName,
@@ -450,7 +450,7 @@ export class ReceiptOrderService {
     const list = await this.prisma.contract.findMany({
       where,
       select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     return list;
   }
@@ -464,7 +464,7 @@ export class ReceiptOrderService {
     return this.prisma.contract.findMany({
       where: { projectId, supplierId },
       select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   }
 

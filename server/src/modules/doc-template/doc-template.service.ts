@@ -183,7 +183,7 @@ export class DocTemplateService {
       ? await this.findOne(opts.templateId)
       : await this.prisma.contractTemplate.findFirst({
           where: { categoryCode: opts.categoryCode, status: 1 },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         });
     if (!template) {
       throw new BadRequestException(

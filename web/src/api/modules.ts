@@ -198,8 +198,9 @@ export const dailyApi = {
   unconfirmedSummary: (contractId: string) =>
     http.get<any, any>('/daily-reports/unconfirmed-summary', { params: { contractId } }),
   exportUrl: () => `${http.defaults.baseURL}/daily-reports/export`,
-  importUrl: () => `${http.defaults.baseURL}/daily-reports/import`,
-  validateUrl: () => `${http.defaults.baseURL}/daily-reports/import/validate`,
+  // 日报导入（第 22 轮审计 P2-10）：后端 POST /daily-reports/import 与 /import/validate 都在，
+  // 但日报**没有填写模板**、页面也没挂导入按钮，原来这里留的 importUrl/validateUrl 无人使用（孤儿接口）。
+  // 已删除以免误以为日报可导入；真要导入须先补日报填写模板，再照物资清单页那样接 ImportButton。
 };
 
 export const materialApi = {

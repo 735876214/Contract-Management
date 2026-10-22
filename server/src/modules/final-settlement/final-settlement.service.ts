@@ -56,7 +56,7 @@ export class FinalSettlementService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           contract: { select: { id: true, code: true, name: true, execStatus: true } },
           items: { orderBy: { sortOrder: 'asc' } },

@@ -48,18 +48,28 @@ export class SettlementController {
   @RequirePermissions('settlement:edit')
   @Post('ledger/import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
-  importLedger(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+  importLedger(
+    @UploadedFile() file: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Query('mode') mode?: string,
+  ) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user });
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, mode });
   }
 
   /** 上传前预校验（不写库） */
   @RequirePermissions('settlement:edit')
   @Post('ledger/import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
-  importLedgerValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+  importLedgerValidate(
+    @UploadedFile() file: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Query('mode') mode?: string,
+  ) {
     if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
-    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true, mode });
   }
 
   /** 一键自动生成/刷新结算台账：从结算单、收票登记、资金费用台账自动抓取 */

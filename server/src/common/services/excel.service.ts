@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { StyledExcelService } from './styled-excel.service';
 import { sanitizeSheetName } from '../utils/excel-sheet';
@@ -47,33 +47,97 @@ export class ExcelService {
     await wb.xlsx.load(buffer as any);
     const ws = wb.worksheets[0];
     if (!ws) return [];
+    const colCount = Math.max(ws.columnCount || 0, ws.getRow(headerRowNo).cellCount || 0);
+    // 表头行：优先用调用方指定的行，指定行没有表头（导出件的第 1 行是 logo 头）时自动往后探测（P1-2）
+    const headerRow = this.pickHeaderRow(ws, headerRowNo, colCount);
+    // **按列号固定取表头**（P1-3）：中间存在空表头列时也要占位，
+    // 否则后面各列整体左移一格，值会被塞进前一列的字段里（金额列进文本、文本进金额列）。
     const headers: string[] = [];
-    ws.getRow(headerRowNo).eachCell((cell) => {
-      // 填写模板表头的必填列带 * 前缀，解析时统一去除，导入端按原始列名取值
-      headers.push(String(cell.value ?? '').trim().replace(/^\*/, ''));
-    });
+    for (let c = 1; c <= colCount; c++) {
+      headers[c - 1] = this.headerText(ws.getRow(headerRow).getCell(c).value);
+    }
     const rows: any[] = [];
     ws.eachRow((row, rowNumber) => {
-      if (rowNumber <= headerRowNo || skip.has(rowNumber)) return;
+      if (rowNumber <= headerRow || skip.has(rowNumber)) return;
       const obj: any = {};
       headers.forEach((h, i) => {
         if (!h) return;
-        const cell: any = row.getCell(i + 1).value;
-        let v: any;
-        if (cell && typeof cell === 'object' && 'text' in cell) v = cell.text;
-        else if (cell && typeof cell === 'object' && 'result' in cell) v = cell.result;
-        else v = cell;
+        let v: any = this.cellValue(row.getCell(i + 1).value);
         // 日期单元格统一为 YYYY-MM-DD 字符串，便于各模块按文本日期解析
         if (v instanceof Date) {
           v = Number.isNaN(v.getTime())
             ? null
             : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+        } else if (typeof v === 'string' && /^\d(?:\.\d+)?[eE]\+?\d+$/.test(v.trim())) {
+          // 长数字被 Excel 自己转成了科学计数法：原始位已经丢了，导入只会写入错值
+          throw new BadRequestException(
+            `第 ${rowNumber} 行「${h}」是科学计数法（${v.trim()}），原始数字已丢失精度：请把该列设为「文本」格式后重新填写`,
+          );
+        } else if (typeof v === 'number' && String(Math.abs(Math.trunc(v))).length > 15) {
+          // 15 位以上整数：Excel 数字只有 15 位可靠精度，身份证/银行账号到这里已经不是原值
+          throw new BadRequestException(
+            `第 ${rowNumber} 行「${h}」是 ${v}：超过 15 位的长数字被 Excel 转成浮点后已丢精度，请把该列设为「文本」格式后重新填写`,
+          );
         }
         obj[h] = v;
       });
       if (Object.values(obj).some((v) => v !== null && v !== undefined && v !== '')) rows.push(obj);
     });
     return rows;
+  }
+
+  /**
+   * 单元格原始值：富文本取 text、公式取计算结果，其余原样。
+   * 抽出来是为了让表头与数据行用完全一样的取值口径。
+   */
+  private cellValue(cell: any): any {
+    if (cell && typeof cell === 'object') {
+      if ('text' in cell) return cell.text;
+      if ('result' in cell) return cell.result;
+    }
+    return cell;
+  }
+
+  /** 表头文本：去空白、去填写模板的必填 `*` 前缀 */
+  private headerText(cell: any): string {
+    const v = this.cellValue(cell);
+    return String(v ?? '')
+      .trim()
+      .replace(/^\*/, '');
+  }
+
+  /**
+   * 选表头行（P1-2）：`export()` 产出的文件第 1~2 行是 logo/标题、表头在第 3 行，
+   * 而填写模板的表头在第 1 行。调用方给的 `preferred` 行如果几乎没有表头（<2 列），
+   * 就在前 6 行里挑表头列最多的一行——这样「导出 → 改 → 导回」不必逐模块传行号。
+   */
+  private pickHeaderRow(ws: ExcelJS.Worksheet, preferred: number, colCount: number): number {
+    /**
+     * 每行的「表头像不像」打分 = **不同**非空文本的个数。
+     * 用「不同」而不是「非空」是因为导出文件第 1~2 行是**合并单元格的标题**：
+     * ExcelJS 会把合并区域里每个格子的值都读成同一个标题文本，
+     * 按非空计数时标题行（3 个格子同文）会赢过真正的表头行（如 2 列），实测就是这样错判的。
+     */
+    const filled = (r: number): number => {
+      const set = new Set<string>();
+      for (let c = 1; c <= colCount; c++) {
+        const text = this.headerText(ws.getRow(r).getCell(c).value);
+        if (text) set.add(text);
+      }
+      return set.size;
+    };
+    if (filled(preferred) >= 2) return preferred;
+    let best = preferred;
+    let bestN = filled(preferred);
+    const scan = Math.min(6, ws.rowCount || 6);
+    for (let r = 1; r <= scan; r++) {
+      const n = filled(r);
+      if (n > bestN) {
+        bestN = n;
+        best = r;
+      }
+    }
+    return bestN >= 2 ? best : preferred;
   }
 
   /**

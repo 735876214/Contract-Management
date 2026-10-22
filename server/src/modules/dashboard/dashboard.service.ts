@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/utils/helpers';
+import { num, localDayKey } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere } from '../../constants/statuses';
@@ -208,7 +208,7 @@ export class DashboardService {
           title: `${m.contract.name || m.contract.code} · ${m.name}`,
           code: m.contract.code || '',
           level: 'RED' as TodoLevel,
-          hint: `计划日期 ${m.planDate.toISOString().slice(0, 10)}，已逾期`,
+          hint: `计划日期 ${localDayKey(m.planDate)}，已逾期`,
           target: { path: '/contract/query', editor: m.contract.id },
         })),
     };

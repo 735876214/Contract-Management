@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -383,7 +383,7 @@ export class DailyReportService {
       this.dict.nameMap('material_category'), this.dict.nameMap('material_type'), this.dict.nameMap('measurement_unit'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows = (res.list as any[]).map((r) => {
       const priceAfterTax = num(r.priceAfterTax);
       const stdPrice = num(r.stdPrice);
@@ -480,6 +480,11 @@ export class DailyReportService {
 
   /** 物资日报导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
   async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
+    /**
+     * 不传示例行号（第 22 轮审计 P2-10）：日报**没有**填写模板，用户是拿导出件（export 接口）改完再导回，
+     * 而导出件第 1~2 行是 logo/标题、表头在第 3 行 —— 交给解析器自动探测表头行；
+     * 若这里按模板口径写死 skip=[2]，导出件第 3 行的第一条真实数据会被当成示例行丢掉。
+     */
     const rows = await this.excel.parse(buffer);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.options('yes_no'), this.dict.options('asset_status'), this.dict.options('material_source'),
@@ -517,6 +522,9 @@ export class DailyReportService {
           ? await this.prisma.supplier.findFirst({ where: { name: supplierName } })
           : null;
         if (supplierName && !supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应单位');
+        if (supplier && supplier.status === 0) {
+          throw new RowError(`关联校验失败：供应商「${supplierName}」已停用，不能导入日报行`, '供应单位');
+        }
         // 物资名称/规格型号统一取自物资基础库，日报通过 materialBaseId 关联（需求 2.5）
         const materialName = String(r['物资名称'] ?? '').trim() || null;
         const spec = String(r['规格型号'] ?? '').trim() || null;

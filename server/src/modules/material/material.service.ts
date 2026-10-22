@@ -134,7 +134,7 @@ export class MaterialService {
     if (query.categoryLevel1) where.categoryLevel1 = query.categoryLevel1;
     if (query.categoryLevel2) where.categoryLevel2 = query.categoryLevel2;
     const [list, total] = await Promise.all([
-      this.prisma.materialBase.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.materialBase.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.materialBase.count({ where }),
     ]);
     // 附带引用计数，便于前端提示删除风险
@@ -163,7 +163,7 @@ export class MaterialService {
         { dscCode: { contains: keyword } },
       ];
     }
-    return this.prisma.materialBase.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    return this.prisma.materialBase.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200 });
   }
 
   private async validateBase(data: any) {
@@ -624,7 +624,7 @@ export class MaterialService {
    * - 物资名称+规格型号 须在物资基础库中存在（关联校验）
    * - 同一合同下物资名称+规格型号不能重复（唯一性校验）
    * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
-   * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
+   * - 全部校验通过后才写库：写库在**同一个事务**里（见 write 分支），任一行写失败即整体回滚，不会写部分数据
    */
   async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }, projectId?: string) {
     const contract = await this.assertContract(contractId, projectId);

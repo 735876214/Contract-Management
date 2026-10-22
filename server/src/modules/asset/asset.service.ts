@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -187,7 +187,7 @@ export class AssetService {
       this.dict.nameMap('asset_category_focus'), this.dict.nameMap('measurement_unit'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows = all.map((r) => ({
       date: fmt(r.date),
       sourceName: source[r.sourceCode]?.name || '',

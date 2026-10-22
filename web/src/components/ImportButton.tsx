@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Modal, message, Alert, Typography, Progress, Table } from 'antd';
+import { Button, Modal, message, Alert, Typography, Progress, Table, Checkbox } from 'antd';
 import { ImportOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import http, { stripApiBase } from '@/api/http';
 
@@ -63,6 +63,8 @@ interface Props {
   onDone?: () => void;
   /** 上传完成的额外提示（如「重复行将被跳过」） */
   extraHint?: string;
+  /** 允许「已存在则更新（覆盖模式）」：开启后弹窗里多一个勾选框，勾上则给导入地址追加 ?mode=upsert */
+  allowUpsert?: boolean;
 }
 
 // withToken 已抽到 utils/download，供各页面导出按钮共用
@@ -77,10 +79,17 @@ export default function ImportButton({
   disabled,
   onDone,
   extraHint,
+  allowUpsert,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [stage, setStage] = useState<'menu' | 'validating' | 'confirm' | 'result' | 'progress'>('menu');
   const [uploading, setUploading] = useState(false);
+  const [upsert, setUpsert] = useState(false);
+  /** 覆盖模式：给导入/预校验地址追加 mode=upsert（结算台账「导出→改→导回」用，第 22 轮审计 P1-1） */
+  const withMode = (u: string) => {
+    if (!upsert) return u;
+    return u.includes('?') ? u + '&mode=upsert' : u + '?mode=upsert';
+  };
   const [result, setResult] = useState<ImportResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
@@ -112,6 +121,15 @@ export default function ImportButton({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+  /** 关闭弹窗：必须同时停掉进度轮询（第 22 轮审计 P2-15），否则关掉后仍在打 /import-tasks/:id */
+  const close = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setOpen(false);
+  };
+
   const pollTask = (taskId: string) => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(async () => {
@@ -159,7 +177,7 @@ export default function ImportButton({
       if (onUpload) {
         res = await onUpload(file);
       } else {
-        const url = stripApiBase(typeof uploadUrl === 'function' ? uploadUrl(file) : uploadUrl || '');
+        const url = stripApiBase(withMode(typeof uploadUrl === 'function' ? uploadUrl(file) : uploadUrl || ''));
         res = await http.post<any, ImportResult>(url, buildForm(file), {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
@@ -196,7 +214,7 @@ export default function ImportButton({
     setUploading(true);
     setStage('validating');
     try {
-      const url = stripApiBase(typeof validateUrl === 'function' ? validateUrl(file) : validateUrl);
+      const url = stripApiBase(withMode(typeof validateUrl === 'function' ? validateUrl(file) : validateUrl));
       // 预校验恒定同步执行（最多 5000 行，逐行查库，不走 >1000 行异步任务的分支），
       // 耗时可能远超实例默认的 30s；60s 会在服务端仍在校验时先超时，用户既看不到问题行也无法继续导入。
       // 与部署代理（nginx proxy_read_timeout 300s）对齐，避免客户端比代理更早断开。
@@ -242,14 +260,14 @@ export default function ImportButton({
       <Modal
         title={`【${moduleName}】导入数据`}
         open={open}
-        onCancel={() => setOpen(false)}
+        onCancel={close}
         width={560}
         destroyOnHidden
         footer={
           stage === 'menu' || stage === 'validating'
-            ? [<Button key="cancel" onClick={() => setOpen(false)}>取消</Button>]
+            ? [<Button key="cancel" onClick={close}>取消</Button>]
             : stage === 'progress'
-              ? [<Button key="close" onClick={() => setOpen(false)}>后台运行，关闭窗口</Button>]
+              ? [<Button key="close" onClick={close}>后台运行，关闭窗口</Button>]
               : stage === 'confirm'
                 ? [
                     <Button key="back" onClick={reset}>返回重选</Button>,
@@ -266,7 +284,7 @@ export default function ImportButton({
                   ]
                 : [
                     <Button key="back" onClick={reset}>返回</Button>,
-                    <Button key="close" type="primary" onClick={() => setOpen(false)}>关闭</Button>,
+                    <Button key="close" type="primary" onClick={close}>关闭</Button>,
                   ]
         }
       >
@@ -337,6 +355,14 @@ export default function ImportButton({
                 {validateUrl ? '上传后先预校验并展示问题行，确认无误后再写入系统' : '上传已填写好的模板文件，校验通过后写入系统'}
               </span>
             </Button>
+            {allowUpsert && (
+              <Checkbox checked={upsert} onChange={(e) => setUpsert(e.target.checked)}>
+                已存在则更新（覆盖模式）
+                <span style={{ fontSize: 12, color: 'var(--cms-muted-soft)', marginLeft: 6 }}>
+                  默认只新增不覆盖；勾选后「同合同同月」的已有台账行会被更新
+                </span>
+              </Checkbox>
+            )}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               单次导入最多 5000 行；采用「全成功或全失败」策略：任一行校验失败即整体回滚，不会写入部分数据。{extraHint || ''}
             </Typography.Text>

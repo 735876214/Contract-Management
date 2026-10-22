@@ -198,7 +198,7 @@ export class SettlementService {
     if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { contract: { name: { contains: query.keyword } } }];
     const [list, total] = await Promise.all([
       this.prisma.settlement.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { contract: { select: { id: true, code: true, name: true, supplierId: true, supplier: { select: { id: true, name: true } } } } },
       }),
       this.prisma.settlement.count({ where }),
@@ -429,7 +429,8 @@ export class SettlementService {
       start && end
         ? await this.prisma.settlement.findMany({
             where: { contractId, settleDate: { gte: start, lt: end } },
-            orderBy: { settleDate: 'desc' },
+            // 同月多张结算单时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
+            orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
           })
         : [];
     /** 该行对应的结算单（同合同同月唯一 → 至多一张）；无则 null = 「仅费用行」 */
@@ -757,6 +758,9 @@ export class SettlementService {
     const settlements: any[] = await db.settlement.findMany({
       where: { contractId },
       select: { id: true, settleDate: true },
+      // 与 computeLedgerAutoFields 同口径：同期多张时取最近一张（settleDate desc, id desc），
+      // 否则发票挂在 A 张、台账按 B 张算开票额 → 本月开票额凭空为 0（第 22 轮审计 P1-4）
+      orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
     });
     if (!settlements.length) return empty;
 
@@ -1181,9 +1185,19 @@ export class SettlementService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     if (payload.settleCount !== undefined) payload.settleCount = Number(payload.settleCount) || null;
-    // 自动生成：本月结算额/本月开票额/结算次数/保理贴息/逾期利息 从业务数据自动抓取，忽略手工传入
     if (payload.contractId && payload.settleMonth) {
-      Object.assign(payload, await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth));
+      const auto: any = await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth);
+      /**
+       * **填充式**合并（第 22 轮审计 P1-1）：自动抓取只补空值，不再无条件覆盖。
+       * 原来 `Object.assign(payload, auto)` 有两个后果：
+       * ① 当月没有结算单/发票时，用户填的「本月结算额」「本月开票额」被抹成 null —— 数据凭空消失；
+       * ② 模板里这几列照旧让人填，填了既不生效也不提示。
+       * 现在的口径：有业务单据 → 以系统抓取值为准（台账是派生视图，口径不能被人手改歪）；
+       * 系统算不出来（当月无结算单/发票/资金费用）→ 保留手工填写值，不再清空。
+       */
+      for (const [k, v] of Object.entries(auto)) {
+        if (payload[k] === undefined || payload[k] === null) payload[k] = v;
+      }
     }
     // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
     // P2002 变成 500，这里先给出可读的 400
@@ -1404,11 +1418,34 @@ export class SettlementService {
     const res: any = { list: all, total: all.length };
     const yesNo = await this.dict.nameMap('yes_no');
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    /**
+     * 「本月采购额（公式复核）」原来直接取月采购额同一字段，等于把值抄了一遍、什么都没复核（第 22 轮审计 P2-16）。
+     * 现在按台账**自身累计值**做一次独立核对：本月采购额 = 本月累计采购额 − 上月累计采购额。
+     * 首个有累计值的月份无所谓复核对象，留空（不硬编 0，避免把"算不出来"和"确实是 0"混为一谈）。
+     */
+    const reviewOf = new Map<string, number | null>();
+    const byContract = new Map<string, any[]>();
+    for (const r of res.list as any[]) {
+      if (!r.contractId) continue;
+      const list = byContract.get(r.contractId) || [];
+      list.push(r);
+      byContract.set(r.contractId, list);
+    }
+    for (const list of byContract.values()) {
+      list.sort((x, y) => String(x.settleMonth || '').localeCompare(String(y.settleMonth || '')));
+      let prevCum: number | null = null;
+      for (const r of list) {
+        const cum = num(r.cumPurchaseAmount);
+        if (cum === null || prevCum === null) reviewOf.set(r.id, null);
+        else reviewOf.set(r.id, Number((cum - prevCum).toFixed(2)));
+        if (cum !== null) prevCum = cum;
+      }
+    }
     const rows = (res.list as any[]).map((r) => ({
       projectName: project?.name || '',
       supplierName: r.contract?.supplier?.name, contractName: r.contract?.name, contractCode: r.contract?.code,
       settleMonth: r.settleMonth, monthSettleAmount: num(r.monthSettleAmount), monthInvoiceAmount: num(r.monthInvoiceAmount),
-      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount), monthActualPurchaseReview: num(r.monthActualPurchase),
+      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount), monthActualPurchaseReview: reviewOf.get(r.id) ?? null,
       cumPurchaseAmount: num(r.cumPurchaseAmount),
       startSettleAmount: num(r.startSettleAmount), monthActualPurchase: num(r.monthActualPurchase),
       factoringDiscount: num(r.factoringDiscount), overdueInterest: num(r.overdueInterest),
@@ -1451,14 +1488,14 @@ export class SettlementService {
     const columns: TemplateColumn[] = [
       { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },
       { label: '结算月份', key: 'settleMonth', required: true, type: 'text', width: 14, example: '2026-08', desc: '格式 YYYY-MM' },
-      { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89 },
-      { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72 },
-      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2 },
+      { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '当月有结算单时以系统抓取值为准；无结算单时才用手填值' },
+      { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72, desc: '当月有发票时以系统抓取值为准；无发票时才用手填值' },
+      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '系统按当月结算单张数抓取' },
       { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000 },
       { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000 },
       { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000 },
-      { label: '保理贴息', key: 'factoringDiscount', type: 'money', width: 14, example: 12345.67 },
-      { label: '逾期利息', key: 'overdueInterest', type: 'money', width: 14, example: 0 },
+      { label: '保理贴息', key: 'factoringDiscount', type: 'money', width: 14, example: 12345.67, desc: '系统从资金费用台账抓取，手填不生效' },
+      { label: '逾期利息', key: 'overdueInterest', type: 'money', width: 14, example: 0, desc: '系统从逾期利息台账抓取，手填不生效' },
       { label: '本年结算收入', key: 'yearSettleIncome', type: 'money', width: 16, example: 8000000 },
       { label: '开累结算收入', key: 'cumSettleIncome', type: 'money', width: 16, example: 9000000 },
       { label: '是否挂账', key: 'isOnAccount', type: 'select', width: 10, example: '否', options: yesNo.map((i: any) => i.itemName).filter(Boolean) },
@@ -1468,8 +1505,10 @@ export class SettlementService {
   }
 
   /** 结算台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importLedger(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
+  async importLedger(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean; mode?: string }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
+    /** 覆盖模式（第 22 轮审计 P1-1）：默认「只新增不覆盖」，导出→改→导回时用 upsert 才更新已有行 */
+    const upsert = String(meta?.mode ?? '').toLowerCase() === 'upsert';
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'settlement-ledger', moduleName: '结算台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
@@ -1480,12 +1519,19 @@ export class SettlementService {
         const month = String(r['结算月份'] ?? '').trim();
         if (!/^\d{4}-\d{2}$/.test(month)) throw new RowError('结算月份为必填项，格式 YYYY-MM（如 2026-08）', '结算月份');
         notDup(`${contract.id}|${month}`, `唯一性校验失败：该合同 ${month} 的记录在本次导入中重复`, '结算月份');
-        const dup = await this.prisma.settlementLedger.findFirst({
+        const dup: any = await this.prisma.settlementLedger.findFirst({
           where: { projectId, contractId: contract.id, settleMonth: month },
+          select: { id: true },
         });
-        if (dup) throw new RowError(`唯一性校验失败：该合同 ${month} 的结算台账已存在，导入不覆盖已有数据`, '结算月份');
+        if (dup && !upsert) {
+          throw new RowError(
+            `唯一性校验失败：该合同 ${month} 的结算台账已存在（如需覆盖，请勾选「已存在则更新」后再导入）`,
+            '结算月份',
+          );
+        }
         const isOnAccount = String(r['是否挂账'] ?? '').trim();
         return {
+          existingId: dup?.id ?? null,
           data: {
             contractId: contract.id,
             settleMonth: month,
@@ -1505,8 +1551,24 @@ export class SettlementService {
         };
       },
       write: async (plans, tx) => {
-        for (const p of plans) await this.createLedger(p.data, projectId, tx, { fromImport: true });
-        return { created: plans.length };
+        let created = 0;
+        let updated = 0;
+        for (const p of plans as any[]) {
+          if (upsert && p.existingId) {
+            // 覆盖模式：只更新模板里的可写列（自动抓取字段仍是「系统算得出就用系统的」），并推进乐观锁版本
+            const auto: any = p.data.contractId && p.data.settleMonth
+              ? await this.computeLedgerAutoFields(p.data.contractId, p.data.settleMonth)
+              : {};
+            const payload: any = { ...p.data };
+            for (const [k, v] of Object.entries(auto)) if (payload[k] === undefined || payload[k] === null) payload[k] = v;
+            await tx.settlementLedger.update({ where: { id: p.existingId }, data: { ...payload, version: { increment: 1 } } });
+            updated += 1;
+          } else {
+            await this.createLedger(p.data, projectId, tx, { fromImport: true });
+            created += 1;
+          }
+        }
+        return { created, updated };
       },
     }, meta?.validateOnly ?? false);
   }

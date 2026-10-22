@@ -140,7 +140,7 @@ export class ImportTaskService implements OnModuleInit {
     if (query.status) where.status = query.status;
     if (user && !user.isSuperAdmin) where.userId = user.userId;
     const [list, total] = await Promise.all([
-      this.prisma.importTask.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.importTask.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.importTask.count({ where }),
     ]);
     return buildResult(list, total, query);
@@ -178,7 +178,7 @@ export class ImportTaskService implements OnModuleInit {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey})::bigint)`;
       const active = await tx.importTask.findFirst({
         where: { dedupeKey, status: { in: [...IMPORT_ACTIVE_STATUSES] } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { id: true },
       });
       if (active) return { id: active.id, deduped: true };

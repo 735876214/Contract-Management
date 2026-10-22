@@ -78,10 +78,31 @@ describe('Excel 解析', () => {
     assert.ok(list.every((r: any) => r['字典项编码'] && r['字典项名称']));
   });
 
-  it('按第 1 行解析导出文件会取不到列（这正是修复前的坏路径）', async () => {
+  it('导出文件不传表头行号也能解析（表头自动探测，第 22 轮审计 P1-2）', async () => {
     const buf = await service.export(columns, rows, '字典项');
     const list = await service.parse(buf);
-    // logo/品牌行没有「字典项编码」列 → 每行都 plan 不出对象，导入端静默 0 行
-    assert.ok(list.every((r: any) => r['字典项编码'] === undefined));
+    // 修复前：logo/品牌行被当表头 → 每行都取不到「字典项编码」，导入端静默 0 行
+    assert.equal(list.length, rows.length);
+    assert.deepEqual(list[0], { 字典项编码: 'A01', 字典项名称: '甲' });
+  });
+
+  it('表头中间缺一列时后面的列不会整体左移（第 22 轮审计 P1-3）', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('数据');
+    ws.getRow(1).values = ['合同编号', null, '金额']; // B 列整列没有表头
+    ws.addRow(['HT-1', '备注文字', 1234.5]);
+    const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+    const list = await service.parse(buf);
+    // 修复前 `eachCell()` 只收到两个表头：'备注文字' 会被塞进「金额」，真正的金额丢掉
+    assert.deepEqual(list[0], { 合同编号: 'HT-1', 金额: 1234.5 });
+  });
+
+  it('超过 15 位的长数字直接报错，不静默写入丢精度的值（第 22 轮审计 P2-7）', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('数据');
+    ws.getRow(1).values = ['银行账号'];
+    ws.addRow([31001234567890123456]);
+    const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+    await assert.rejects(() => service.parse(buf), /长数字|科学计数法/);
   });
 });

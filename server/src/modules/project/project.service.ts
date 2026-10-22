@@ -41,7 +41,7 @@ export class ProjectService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { members: { include: { user: { select: { id: true, realName: true, username: true } } } } },
       }),
       this.prisma.project.count({ where }),

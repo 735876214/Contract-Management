@@ -15,6 +15,9 @@ const SUPPLIER_FIELDS = [
   'bankAccount', 'address', 'remark', 'status', 'projectId',
 ];
 
+/** 导入时被识别为「停用」的状态文本（第 22 轮审计 P2-11：原来只认 '停用' 一种写法） */
+const SUPPLIER_DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
+
 @Injectable()
 export class SupplierService {
   constructor(
@@ -46,7 +49,7 @@ export class SupplierService {
     }
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
-      this.prisma.supplier.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.supplier.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.supplier.count({ where }),
     ]);
     // 附带被引用合同数
@@ -171,8 +174,22 @@ export class SupplierService {
         const name = String(r['供应商名称'] ?? '').trim();
         if (!name) throw new RowError('供应商名称为必填项', '供应商名称');
         notDup(name, `供应商名称「${name}」在本次导入中重复`, '供应商名称');
+        /**
+         * 项目隔离（第 22 轮审计 P1-5）：`Supplier.name` 是全库唯一，但 scope=PROJECT 时一行只属于一个项目。
+         * 原来只在 write 阶段按 name 查一次就 update，A 项目导入同名供应商会把 B 项目的
+         * 银行账号/联系人/状态一并改掉（version+1，无任何痕迹）。这里在 plan 阶段就挡掉，行号可回显。
+         */
+        const exist: any = await this.prisma.supplier.findUnique({
+          where: { name },
+          select: { id: true, projectId: true },
+        });
+        if (exist && scope === 'PROJECT' && (exist.projectId ?? null) !== ownerProjectId) {
+          const where = exist.projectId ? '其他项目' : '全局共享库';
+          throw new RowError(`供应商名称「${name}」已被${where}占用，本项目不能再导入同名供应商`, '供应商名称');
+        }
         return {
           name,
+          existingId: exist?.id ?? null,
           payload: {
             name,
             legalPerson: r['法人姓名'] || null,
@@ -187,17 +204,17 @@ export class SupplierService {
             bankAccount: r['银行账号'] || null,
             address: r['公司地址'] || null,
             remark: r['备注'] || null,
-            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+            // 状态口径（第 22 轮审计 P2-11）：原来只认字符串 '停用'，'停用 '（尾随空格）、'0'、'禁用' 全被当成启用
+            status: SUPPLIER_DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
           },
         };
       },
       write: async (plans, tx) => {
         let created = 0;
         let updated = 0;
-        for (const p of plans) {
-          const exist = await tx.supplier.findUnique({ where: { name: p.name } });
-          if (exist) {
-            await tx.supplier.update({ where: { id: exist.id }, data: { ...p.payload, version: { increment: 1 } } });
+        for (const p of plans as any[]) {
+          if (p.existingId) {
+            await tx.supplier.update({ where: { id: p.existingId }, data: { ...p.payload, version: { increment: 1 } } });
             updated++;
           } else {
             await tx.supplier.create({ data: { ...p.payload, projectId: ownerProjectId } });

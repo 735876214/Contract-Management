@@ -50,7 +50,7 @@ export class LedgerService {
 
     let [contracts, total] = await Promise.all([
       this.prisma.contract.findMany({
-        where, ...(complianceFilter ? {} : { skip, take }), orderBy: { createdAt: 'desc' },
+        where, ...(complianceFilter ? {} : { skip, take }), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { supplier: true, ext: true },
       }),
       this.prisma.contract.count({ where }),

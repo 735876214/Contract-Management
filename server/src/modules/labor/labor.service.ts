@@ -64,7 +64,7 @@ export class LaborService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.laborAuthLedger.count({ where }),
     ]);
@@ -88,7 +88,7 @@ export class LaborService {
     }
     return this.prisma.laborAuthLedger.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 500,
     });
   }

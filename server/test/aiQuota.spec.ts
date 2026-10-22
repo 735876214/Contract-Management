@@ -88,9 +88,12 @@ describe('AiQuota：过期用户条目回收（防内存泄漏）', () => {
 
   it('条目数超阈值时回收窗口内已无命中的用户', async () => {
     const q = new AiQuota();
-    for (let i = 0; i < 250; i++) q.consume(`u${i}`, 0, 20);
-    assert.equal(q.userCount(), 250);
-    await new Promise((r) => setTimeout(r, 35)); // 250 个用户全部过期
+    // 插入阶段用长窗口：保证 250 次 consume 自身耗时不会让早插入的条目提前过期，
+    // 这样才能把「阈值以上但都活跃 → 一个都不删」钉住（回收只看窗口，不看条数）。
+    for (let i = 0; i < 250; i++) q.consume(`u${i}`, 0, 60_000);
+    assert.equal(q.userCount(), 250, `阈值以上但都在窗口内，不应回收，实际 ${q.userCount()}`);
+    await new Promise((r) => setTimeout(r, 45)); // 远超下面触发调用用的 20ms 窗口
+    // 触发调用带 20ms 窗口：此前 250 个条目都落在窗口外 → 一次扫净
     q.consume('fresh', 0, 20);
     assert.equal(q.userCount(), 1, `过期用户应被回收，只剩 fresh，实际 ${q.userCount()}`);
     assert.equal(q.used('fresh', 20), 1);

@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
@@ -70,7 +71,7 @@ const CELL_REF_RE = /^[A-Z]{1,3}[1-9]\d{0,5}$/;
 function cellText(cell: ExcelJS.Cell): string {
   const v: any = cell.value;
   if (v == null) return '';
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) return localDayKey(v);
   if (typeof v === 'object') {
     if (Array.isArray(v.richText)) return v.richText.map((r: any) => r.text ?? '').join('');
     if ('result' in v) return String((v as any).result ?? '');

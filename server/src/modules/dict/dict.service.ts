@@ -41,6 +41,9 @@ const DICT_ITEM_FIELDS = [
  * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §3。
  * 另两处同类例外：`finance`（按 `contractId` 归属）、`supplier`（受 `supplier.share.scope` 控制）。
  */
+/** 导入时被识别为「停用」的状态文本（第 22 轮审计 P2-11） */
+const DICT_DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
+
 @Injectable()
 export class DictService {
   private readonly logger = new Logger(DictService.name);
@@ -400,7 +403,8 @@ export class DictService {
           payload: {
             itemName,
             sortOrder: Number(r['排序号']) || 0,
-            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+            // 状态口径（第 22 轮审计 P2-11）：原来只认 '停用'，'停用 '（尾随空格）/『0』/『禁用』都被当成启用
+            status: DICT_DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
             color: r['颜色'] || null,
             extField1: r['扩展字段1'] || null,
             remark: r['备注'] || null,

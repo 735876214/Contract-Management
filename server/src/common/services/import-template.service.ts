@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
+import { localDayKey } from '../utils/helpers';
 
 /**
  * 通用「下载填写模板」服务
@@ -190,7 +191,7 @@ export class ImportTemplateService {
             type: 'date',
             operator: 'between',
             allowBlank: true,
-            formulae: [new Date(2000, 0, 1).toISOString().slice(0, 10), new Date(2099, 11, 31).toISOString().slice(0, 10)],
+            formulae: [localDayKey(new Date(2000, 0, 1)), localDayKey(new Date(2099, 11, 31))],
             showErrorMessage: true,
             errorTitle: '日期无效',
             error: '请填写有效日期，格式 YYYY-MM-DD',
@@ -207,6 +208,10 @@ export class ImportTemplateService {
             error: '请填写不小于 0 的有效数字',
           };
           if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
+        } else {
+          // 文本列（含下拉/级联列）整列设为文本格式（第 22 轮审计 P2-7）：
+          // 18 位身份证、19 位银行账号若按数字存入，Excel 只保留 15 位有效数字，写入时已经不是原值。
+          cell.numFmt = '@';
         }
       }
     }

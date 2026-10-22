@@ -135,7 +135,7 @@ export class ContractService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           supplier: { select: { id: true, name: true, legalPerson: true, contactName: true, contactPhone: true } },
           ext: true,
@@ -151,7 +151,7 @@ export class ContractService {
     if (keyword) where.OR = [{ code: { contains: keyword } }, { name: { contains: keyword } }];
     return this.prisma.contract.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       // 下拉必须有上限（第 15/16 轮审计）：原来无 take，合同上千的项目打开一次
       // 起草/物资/结算页就把整项目合同（含金额）全量拉进浏览器。500 与列表页
       // paginate 的上限同口径，超出部分靠 keyword 搜（前端是远程搜索）。
@@ -1312,7 +1312,7 @@ export class ContractService {
   }
 
   async changes(id: string) {
-    return this.prisma.contractChangeLog.findMany({ where: { contractId: id }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.contractChangeLog.findMany({ where: { contractId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
   }
 
   async remove(id: string, projectId: string) {
@@ -1656,11 +1656,27 @@ export class ContractService {
    */
   async import(buffer: Buffer, projectId: string, user: any, fileName?: string, validateOnly?: boolean) {
     const rows = await this.excel.parse(buffer, [2]);
-    const resolve = async (type: string, val: any) => {
-      if (!val) return null;
+    /**
+     * 字典值解析（第 22 轮审计 P2-9）：原来填错/填了已停用的选项就**静默写 NULL**，
+     * 合同入库后「合同类型」是空的却提示导入成功。现在带列名报错，并把可选值列出来。
+     */
+    const resolve = async (type: string, val: any, label = type) => {
+      const text = String(val ?? '').trim();
+      if (!text) return null;
       const items = await this.dict.options(type);
-      const hit = items.find((i: any) => i.itemCode === val || i.itemName === val);
-      return hit ? hit.itemCode : null;
+      const hit = items.find((i: any) => i.itemCode === text || i.itemName === text);
+      if (!hit) {
+        const names = items
+          .slice(0, 10)
+          .map((i: any) => i.itemName)
+          .filter(Boolean)
+          .join(' / ');
+        throw new RowError(
+          `「${label}」填的「${text}」在字典里找不到（可能是已停用的旧选项）：可选 ${names || '（字典为空，请先维护）'}`,
+          label,
+        );
+      }
+      return hit.itemCode;
     };
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'contract', moduleName: '合同台账', projectId, fileName, userId: user?.userId, username: user?.username }, rows, {
@@ -1674,6 +1690,11 @@ export class ContractService {
         if (!supplierName) throw new RowError('供应商为必填项', '供应商');
         const supplier = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
         if (!supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应商');
+        // 停用供应商不能挂新合同（第 22 轮审计 P2-9）：这些单位多为已终止合作/进了黑名单的，
+        // 原来不带 status 过滤照样能挂上，结算与付款就跟着一条已停用的账户走下去。
+        if (supplier.status === 0) {
+          throw new RowError(`关联校验失败：供应商「${supplierName}」已停用，不能用于新合同（请先到供应商库启用）`, '供应商');
+        }
         const amount = num(r['合同额']);
         if (amount === null) throw new RowError('合同额为必填数字', '合同额');
         // 口径由**列名**决定，不靠数值猜（第 4 轮审计）：税率(%) 是百分数（13 = 13%），
@@ -1684,7 +1705,7 @@ export class ContractService {
         return {
           code,
           name: r['合同名称'] || code,
-          typeCode: await resolve('contract_type', r['合同类型']),
+          typeCode: await resolve('contract_type', r['合同类型'], '合同类型'),
           supplierId: supplier.id,
           signDate: r['签订日期'] || null,
           amount,

@@ -36,7 +36,7 @@ export class SystemService {
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.user.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { roles: { include: { role: true } } },
       }),
       this.prisma.user.count({ where }),
@@ -100,7 +100,7 @@ export class SystemService {
 
   // ---------------- 角色 ----------------
   async roles() {
-    return this.prisma.role.findMany({ include: { permissions: { include: { permission: true } } }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.role.findMany({ include: { permissions: { include: { permission: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
   }
 
   async createRole(data: any) {
@@ -188,7 +188,7 @@ export class SystemService {
       }
     }
     const [list, total] = await Promise.all([
-      this.prisma.operationLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.operationLog.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.operationLog.count({ where }),
     ]);
     return buildResult(list, total, query);
@@ -199,7 +199,7 @@ export class SystemService {
     const where: any = {};
     if (query.keyword) where.username = { contains: query.keyword };
     const [list, total] = await Promise.all([
-      this.prisma.loginLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.loginLog.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.loginLog.count({ where }),
     ]);
     return buildResult(list, total, query);

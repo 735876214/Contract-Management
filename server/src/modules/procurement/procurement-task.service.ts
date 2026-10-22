@@ -308,7 +308,7 @@ export class ProcurementTaskService {
 
     const include: any = moduleDef ? { [moduleDef.rel]: { select: moduleDef.select } } : undefined;
     const [rows, total] = await Promise.all([
-      this.prisma.procurementTask.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip, take }),
+      this.prisma.procurementTask.findMany({ where, include, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take }),
       this.prisma.procurementTask.count({ where }),
     ]);
     // 任务 3.2：列表带出预计采购金额（万元），供「是否需要采前会会议纪要」判定与展示

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 
@@ -26,7 +26,7 @@ export class RepaymentService {
     if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { material: { contains: query.keyword } }];
     const [list, total] = await Promise.all([
       this.prisma.repaymentAgreement.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           supplier: { select: { id: true, name: true, contactName: true, contactPhone: true } },
           contract: { select: { id: true, code: true, name: true } },
@@ -196,7 +196,7 @@ export class RepaymentService {
       { header: '到期未付款金额', key: 'overdueUnpaid', width: 18 },
       { header: '备注', key: 'remark', width: 22 },
     ];
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows: any[] = [];
     list.forEach((a) => {
       rows.push({
