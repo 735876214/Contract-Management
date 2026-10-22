@@ -1,10 +1,12 @@
 # CMS 部署：前后端合并为「一个」容器（内部 nginx 托管前端并把 /api 反代到同容器 127.0.0.1:3000）
 # 数据库：PostgreSQL（单一数据库，已移除 SQLite 演示变体）
 #
-# 部署前必改三处（直接改本文件，不用 .env）：
-#   ① postgres 服务的 NAS 数据路径（pgdata）
-#   ② cms 服务的 NAS 附件路径（data）          ← 两处路径都在下方 volumes 里，有「← NAS 路径」标注
-#   ③ JWT_SECRET（生成：openssl rand -base64 48）——不等于默认占位值才能安全对外
+# 部署前准备：复制 .env.example 为 .env（.env 已被 .gitignore 排除，绝不入库），填四项：
+#   ① POSTGRES_PASSWORD  数据库口令（openssl rand -base64 24）
+#   ② JWT_SECRET         会话签名密钥（openssl rand -base64 48）——缺省或占位值容器会启动即退出
+#   ③ DEFAULT_ADMIN_PASSWORD  空库首次启动自动建的管理员口令，登录后请立即再改一次
+#   ④ PGDATA_DIR / DATA_DIR   两个 NAS 数据目录的**绝对路径**（缺省回落到 /volume1/docker/cms/*）
+# 本文件里不写任何口令；变量缺失时 compose 直接报错退出，不会带空口令把服务拉起来。
 #
 # 用法：
 #   1. 直接拉预构建镜像（需先登录 ghcr.io，见下方说明）：
@@ -38,11 +40,11 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: cms
-      POSTGRES_PASSWORD: cms123456
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置：请复制 .env.example 为 .env 并填写}
       POSTGRES_DB: cms
       TZ: Asia/Shanghai
     volumes:
-      - /volume1/docker/cms/pgdata:/var/lib/postgresql/data   # ← NAS 路径：改成你的实际目录（群晖示例）
+      - ${PGDATA_DIR:-/volume1/docker/cms/pgdata}:/var/lib/postgresql/data   # ← NAS 绝对路径（建议写进 .env 的 PGDATA_DIR）
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
       interval: 10s
@@ -69,21 +71,21 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "9080:8080"              # 对外端口：宿主机 9080 → 容器 8080；被占用就改左边
+      - "${CMS_PORT:-9080}:8080"   # 对外端口：宿主机 → 容器 8080；改 .env 的 CMS_PORT
     environment:
       NODE_ENV: production
       PORT: "3000"               # 容器内后端端口，nginx /api 固定反代到这里
       TZ: Asia/Shanghai          # 合同到期日 / 时间戳按本地时区计算，避免差 8 小时
-      # PostgreSQL 连接（与上方 postgres 服务一致；生产请改用强密码）
-      DATABASE_URL: "postgresql://cms:cms123456@postgres:5432/cms?schema=public"
+      # PostgreSQL 连接：账号/口令/库名全部取自 .env，与上方 postgres 服务用同一组变量
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-cms}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-cms}?schema=public"
       # JWT 签名密钥：必须换成随机值（openssl rand -base64 48）。
       # 不改就上外网 = 任何拿到这串占位值的人都能伪造登录态，等于裸奔。
-      JWT_SECRET: "change-me-openssl-rand-base64-48"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：用 openssl rand -base64 48 生成后写进 .env}
       JWT_EXPIRES_IN: "7d"
       UPLOAD_DIR: "/data/uploads"
       # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
-      DEFAULT_ADMIN_USERNAME: admin
-      DEFAULT_ADMIN_PASSWORD: admin123
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       # AI 助手（可选）：「模板智能填报」用；三项齐全才启用，缺任一项功能自动降级为「手工映射」。
       # 兼容 OpenAI Chat Completions 协议。
       # 【推荐】部署后在「系统管理 → AI 信息登记」页面直接填这三项：存进数据库、保存即生效、不用重启；
@@ -98,7 +100,7 @@ services:
       # AI_PDF_FONT: "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
     # 上传文件目录：改成你的 NAS 实际目录（与 postgres 的数据路径放同一父目录便于备份）
     volumes:
-      - /volume1/docker/cms/data:/data   # ← NAS 路径：改成你的实际目录
+      - ${DATA_DIR:-/volume1/docker/cms/data}:/data   # ← NAS 绝对路径（建议写进 .env 的 DATA_DIR）
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
     logging:
       options:

@@ -80,9 +80,10 @@ Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记�
 （`.doc`、PDF 需先另存），`parse` 不写库、`confirm` 才落库；明细默认只做核对参考，
 勾选「登记时把明细写入合同物资明细」后才落库（按「名称+规格」匹配物资基础库，匹配不到自动新建并打标记）。
 
-生产部署配置直接写在 `docker-compose.yml`（不用 .env，2026-10-17 起）：NAS 数据路径
-（postgres 的 pgdata + cms 的附件目录，两个 bind mount）· `JWT_SECRET`（必改）·
-端口 / 初始管理员也都在 compose 字面值里。
+生产部署配置的**敏感项与路径走 `.env`**（2026-10-22 起，模板见仓库根 `.env.example`）：
+`POSTGRES_PASSWORD` · `JWT_SECRET` · `DEFAULT_ADMIN_PASSWORD` · `PGDATA_DIR` / `DATA_DIR`（NAS 绝对路径）·
+`CMS_PORT`。`docker-compose.yml` 里只写 `${VAR:?}` 引用，口令缺失会直接启动失败；
+NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被 gitignore）。
 前端仅用 `VITE_API_BASE`（部署时由镜像设 `/api`）与 `VITE_PROXY_TARGET`（dev 代理）。
 
 ## 3. 命令速查

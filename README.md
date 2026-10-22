@@ -111,18 +111,22 @@ server/src/
 ## Docker 部署
 
 镜像由 GitHub Actions 在 push 到 `main`（或打 `v*` 标签）时自动构建并推送到 `ghcr.io/735876214/cms-single`
-（公开，NAS 上无需源码 / 构建即可拉取）；每次推送同时产出 `latest` 与 `sha-<commit sha>` 两种 tag。
+（目前是**私有包**：NAS 上要么先 `docker login ghcr.io -u <用户名>` 用带 `read:packages` 的 PAT 登录后拉取，
+要么用 `docker compose up -d --build` 本地构建兜底）；每次推送同时产出 `latest` 与 `sha-<commit sha>` 两种 tag。
 
 `docker-compose.yml` 是**唯一的部署入口**：前后端合并为**一个**容器（内部 nginx 托管前端并把 `/api` 反代到同容器
 `127.0.0.1:3000`），对外只暴露一个端口，减少资源占用与容器数量，降低长时间运行被自动终止的概率。
 
 ```bash
-# 部署前先编辑 docker-compose.yml（配置直接写在 compose 里，不用 .env）：
-#   ① postgres / cms 两个服务的 volumes：改成 NAS 实际路径（「← NAS 路径」标注处，
-#      如 /volume1/docker/cms/pgdata 与 /volume1/docker/cms/data）
-#   ② JWT_SECRET：openssl rand -base64 48 生成随机值替换占位串
-#      ⚠️ 后端会启动校验：占位值（change-me-*）或缺失会使容器启动即退出，
-#      升级已有部署时若从未改过密钥，必须先完成本步再拉新镜像。
+# 凭证与路径都写进 .env（不入库），compose 里只引用变量：
+cp .env.example .env
+#   ① POSTGRES_PASSWORD   openssl rand -base64 24
+#   ② JWT_SECRET          openssl rand -base64 48
+#      ⚠️ 后端启动即校验：缺失或占位值（change-me-*）会让容器直接退出；
+#      升级已有部署时若从未改过密钥，必须先填好再拉新镜像。
+#   ③ DEFAULT_ADMIN_PASSWORD  仅空库首次启动用，登录后立刻在系统里再改一次
+#   ④ PGDATA_DIR / DATA_DIR   NAS 绝对路径，如 /volume1/docker/cms/{pgdata,data}
+#      （写相对路径会跟着执行目录走，换个目录 up 就是另一套空库）
 docker compose up -d
 ```
 
