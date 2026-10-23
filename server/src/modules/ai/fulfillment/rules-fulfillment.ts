@@ -336,9 +336,14 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
     return rid;
   };
   const paidByChainRoot = new Map<string, Cents>();
+  let paidWithoutContract = 0;
   for (const p of payments) {
     const cid = String(p.contractId ?? '');
-    if (!cid) continue;
+    if (!cid) {
+      // 付款没挂合同：这笔钱进不了任何链的累计付款，会让「付款进度」偏低 → 必须说出来
+      paidWithoutContract += 1;
+      continue;
+    }
     const cents = moneyToCents(p.amount) ?? 0n;
     const root = rootOfContract(cid);
     paidByChainRoot.set(root, (paidByChainRoot.get(root) ?? 0n) + cents);
@@ -353,6 +358,7 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
 
   let skippedNoAmount = 0;
   let skippedNoMilestone = 0;
+  let skippedAllNodes = 0;
   // 一条合同链只出一条：分子（累计付款）与分母（合同当前金额）都是**整链**口径，
   // 完成率若只取单个节点（母合同或某份补充协议），同一链上的各合同会各报一条、
   // 结论还互相矛盾（2026-10-23 审计 P1）。整链聚合后实体也归到链根。
@@ -372,7 +378,11 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
     }
     const done = milestones.filter(isDone).length;
     const open = milestones.filter(isOpen).length;
-    if (done + open === 0) continue; // 全被跳过，没有可比口径
+    if (done + open === 0) {
+      // 节点状态既不是已完成也不是未完成（脏状态）：没有可比口径，但要计数
+      skippedAllNodes += chainContracts.length;
+      continue;
+    }
     const donePct = Math.round((done * 100) / (done + open));
 
     const rootContract = chainContracts.find((c) => c.id === rootId) ?? chainContracts[0];
@@ -418,6 +428,12 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
   }
   if (skippedNoMilestone > 0) {
     ctx.notEvaluated.push(`C6 有 ${skippedNoMilestone} 个合同因「没有任何履约节点」无法计算完成率`);
+  }
+  if (skippedAllNodes > 0) {
+    ctx.notEvaluated.push(`C6 有 ${skippedAllNodes} 个合同的履约节点状态既非已完成也非未完成，无法计算完成率`);
+  }
+  if (paidWithoutContract > 0) {
+    ctx.notEvaluated.push(`C6 有 ${paidWithoutContract} 笔付款没有挂合同，未计入任何合同链的累计付款`);
   }
   return out;
 }

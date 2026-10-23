@@ -77,6 +77,8 @@ export interface ScmInvoiceRow {
 export interface ScmMilestoneRow {
   id: string;
   projectId: string;
+  /** 挂在哪份合同上：用于判定该节点是否在「已签合同链」上（草稿合同的计划日不算承诺） */
+  contractId?: string | null;
   statusCode?: string | null;
   planDate?: Date | string | null;
 }

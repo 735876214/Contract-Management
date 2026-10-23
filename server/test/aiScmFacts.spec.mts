@@ -68,10 +68,11 @@ function fixture(): ScmRows {
       { id: 'iv2', projectId: 'p1', statusCode: 'RED', amountWithTax: '777777.00' },
     ],
     milestones: [
-      { id: 'm1', projectId: 'p1', statusCode: 'PENDING', planDate: '2026-09-01' },
-      { id: 'm2', projectId: 'p1', statusCode: 'DONE', planDate: '2026-08-01' },
-      { id: 'm3', projectId: 'p1', statusCode: 'PENDING', planDate: '2026-12-01' },
-      { id: 'm4', projectId: 'p2', statusCode: 'SKIPPED', planDate: '2026-01-01' },
+      // 真实库里 contractId 恒非空（外键 NOT NULL）：夹具必须一样，否则节点会被当成「无合同归属」跳过
+      { id: 'm1', projectId: 'p1', contractId: 'c1', statusCode: 'PENDING', planDate: '2026-09-01' },
+      { id: 'm2', projectId: 'p1', contractId: 'c1', statusCode: 'DONE', planDate: '2026-08-01' },
+      { id: 'm3', projectId: 'p1', contractId: 'c1', statusCode: 'PENDING', planDate: '2026-12-01' },
+      { id: 'm4', projectId: 'p2', contractId: 'c3', statusCode: 'SKIPPED', planDate: '2026-01-01' },
     ],
     suppliers: [
       { id: 's1', name: '甲建设' },
@@ -134,6 +135,56 @@ test('buildScmFacts：风险提示由程序判定（付款超结算 + 节点逾�
   const facts = buildScmFacts(fixture(), AS_OF);
   assert.ok(facts.risks.some((r) => r.includes('付款已超过结算')), '应报付款超结算');
   assert.ok(facts.risks.some((r) => r.includes('履约节点逾期')), '应报节点逾期');
+});
+
+test('buildScmFacts：草稿/链断裂合同上的节点不算逾期，但要作为提示说出来', () => {
+  const rows = fixture();
+  rows.contracts = [
+    ...rows.contracts,
+    { id: 'c9', projectId: 'p2', supplierId: 's2', status: 'SIGNED', amount: '100.00', parentContractId: 'c-missing' },
+  ];
+  rows.milestones = [
+    // 挂在草稿合同 c2 上：计划日已过，但合同还没签，不是承诺
+    { id: 'm5', projectId: 'p2', contractId: 'c2', statusCode: 'PENDING', planDate: '2026-01-01' },
+    // 父合同不在取数集合里（数据坏了）：链断裂，不猜归属
+    { id: 'm6', projectId: 'p2', contractId: 'c9', statusCode: 'PENDING', planDate: '2026-01-01' },
+  ] as any;
+  const facts = buildScmFacts(rows, AS_OF);
+  const p2 = facts.projects.find((p) => p.projectId === 'p2')!;
+  assert.equal(p2.overdueMilestones, 0, '草稿合同与断链合同的节点都不该报逾期');
+  assert.equal(p2.milestoneCount, 0);
+  assert.ok(
+    facts.risks.some((r) => r.includes('履约节点挂在未签 / 链断裂的合同上')),
+    `应提示被跳过的节点，实际：${facts.risks.join(' / ')}`,
+  );
+  assert.ok(
+    facts.risks.some((r) => r.includes('上级合同不在取数范围内')),
+    `应提示断链合同，实际：${facts.risks.join(' / ')}`,
+  );
+});
+
+test('buildScmFacts：父合同没签时补充协议不能单独当一份合同计签约额', () => {
+  const rows = fixture();
+  rows.contracts = [
+    { id: 'p1root', projectId: 'p1', supplierId: 's1', status: 'DRAFT', amount: '500000.00' },
+    {
+      id: 'p1sub',
+      projectId: 'p1',
+      supplierId: 's1',
+      status: 'SIGNED',
+      amount: '0.00',
+      changeAmount: '300000.00',
+      parentContractId: 'p1root',
+    },
+  ];
+  const facts = buildScmFacts(rows, AS_OF);
+  const p1 = facts.projects.find((p) => p.projectId === 'p1')!;
+  assert.equal(p1.contractCount, 0, '主合同没签，整条链都不算签约');
+  assert.equal(p1.signedYuan, 0);
+  assert.ok(
+    facts.risks.some((r) => r.includes('主合同还没签')),
+    `应提示未签链，实际：${facts.risks.join(' / ')}`,
+  );
 });
 
 test('buildScmFacts：供应商集中度按签约额排，占比可对账', () => {

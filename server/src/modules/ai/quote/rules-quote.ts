@@ -136,13 +136,23 @@ const labelOfRow = (r: { materialName?: string | null; spec?: string | null }): 
 export function b1DropAnomalies(input: QuoteTaskInput, tol: QuoteTolerances): QuoteRuleResult {
   const out = empty();
   let checked = 0;
+  let skipped = 0;
   for (const b of input.bidders) {
     const first = bidderFirstCents(b);
     const second = bidderSecondCents(b);
-    if (first === null || second === null || first <= 0n) continue;
+    if (first === null || second === null || first <= 0n) {
+      // 缺一轮报价 / 金额为 0：这一家不参与比较，但要说出有几家被跳过，
+      // 否则「只比了 1 家」也会显示成全绿（2026-10-23 审计）
+      skipped += 1;
+      continue;
+    }
     checked += 1;
     const dropBp = ratioBpOf(first - second, first);
-    if (dropBp === null) continue;
+    if (dropBp === null) {
+      skipped += 1;
+      checked -= 1;
+      continue;
+    }
     const name = nameOf(b);
     if (dropBp < 0) {
       out.findings.push(
@@ -196,18 +206,26 @@ export function b1DropAnomalies(input: QuoteTaskInput, tol: QuoteTolerances): Qu
 export function b2SpreadAnomalies(input: QuoteTaskInput, tol: QuoteTolerances): QuoteRuleResult {
   const out = empty();
   const rows: Array<{ name: string; cents: Cents }> = [];
+  let skipped = 0;
   for (const b of input.bidders) {
     if (b.status === BIDDER_STATUS.ABSTAINED) continue;
     const c = bidderFirstCents(b);
-    if (c === null || c <= 0n) continue;
+    if (c === null || c <= 0n) {
+      // 弃标之外的「首轮金额没填」也要计数：否则 5 家里 3 家没填会被当成「只有 2 家报价」
+      skipped += 1;
+      continue;
+    }
     rows.push({ name: nameOf(b), cents: c });
   }
   if (rows.length < tol.minBidders) {
     out.notEvaluated.push(
-      `B2 未判定：${taskNoOf(input)} 首轮有效报价 ${rows.length} 家，不足 ${tol.minBidders} 家`,
+      `B2 未判定：${taskNoOf(input)} 首轮有效报价 ${rows.length} 家，不足 ${tol.minBidders} 家${
+        skipped > 0 ? `（另有 ${skipped} 家首轮金额未填）` : ''
+      }`,
     );
     return out;
   }
+
   // 家数 ≤ 20 且金额（分）远小于 2^53，这里用浮点做统计只影响「是否低于 3%」这种粗判定
   const vals = rows.map((r) => Number(r.cents));
   const mean = vals.reduce((a, v) => a + v, 0) / vals.length;

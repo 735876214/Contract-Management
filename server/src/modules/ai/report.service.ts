@@ -136,7 +136,7 @@ export class ReportService {
       throw new BadRequestException(`生成失败：${msg}`);
     });
 
-    const audit = auditReport(res.text, facts);
+    const audit = auditReport(res.text, facts, input?.extra);
     const sections = templateSections(kind);
     const warnings = [...facts.risks];
     if (factNumbersEmpty(facts)) warnings.push('所选区间内没有数据，材料可能只有框架没有内容');

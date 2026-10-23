@@ -191,9 +191,33 @@ const NON_DATA_TAIL = /^\s*(年|月|日|号|期|季度|章|节|页)/;
 /** 百分号尾巴：模型常把 24.97% 写成「25%」，对账要容许四舍五入 */
 const PCT_TAIL = /^\s*[%％]/;
 
-/** 把 Markdown 里的数量/金额扫出来对账，返回系统数据里对不上的那些 */
-export function auditReport(markdown: string, facts: ReportFacts): { unknown: string[]; checked: number } {
-  return auditNumbers(markdown, factNumbers(facts));
+/**
+ * 把 Markdown 里的数量/金额扫出来对账，返回系统数据里对不上的那些。
+ *
+ * `extraText` 是用户自己填的「补充说明」：它进了提示词，模型照着复述当然是合法的。
+ * 不做这一步，用户写「本期完成产值 380 万」反而会让整份材料被判成「编造数字」
+ * （2026-10-23 审计 P3）。
+ */
+export function auditReport(
+  markdown: string,
+  facts: ReportFacts,
+  extraText?: string | null,
+): { unknown: string[]; checked: number } {
+  return auditNumbers(markdown, [...factNumbers(facts), ...numbersInText(extraText)]);
+}
+
+/** 从自由文本里抽出数字（与 `auditNumbers` 同一套扫描口径：去千分位、`万` ×10000） */
+export function numbersInText(text?: string | null): number[] {
+  if (!text) return [];
+  const out: number[] = [];
+  const re = /(?<![\dA-Za-z-])(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(String(text))) !== null) {
+    const value = Number(m[1].replace(/,/g, ''));
+    if (!Number.isFinite(value)) continue;
+    out.push(m[2] ? value * 10000 : value);
+  }
+  return out;
 }
 
 /**
@@ -208,10 +232,16 @@ export function auditNumbers(markdown: string, allowedInput: number[]): { unknow
   // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）
   const text = String(markdown ?? '')
     .replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, ' ')
+    // 中文写法的日期（`2026 年 10 月 23 日`）也不是金额：不抹掉的话，年、月、日会
+    // 变成三个「允许数字」，正文里随口写的「2026 年要新增……」也能过对账
+    .replace(/\d{4}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)?/g, ' ')
     // 单据/项目/合同编号（`XM-2026-003`、`HT-2026-101`）不是数据：整段抹掉。
     // 只抹日期不够——编号里的「-2026」会被当成负数，于是模模糊糊抄了公司自己的编号
     // 反而判「编造数字」，连确定性模板串都过不了自己的对账。
     .replace(/[A-Za-z]{1,12}(?:-[0-9]+)+/g, ' ')
+    // **纯数字编号**（`2026-018`）同理：首段四位数字才按编号处理，`10-15 天` 这类
+    // 区间仍按两个数字参与对账（2026-10-23 审计）
+    .replace(/(?<![\dA-Za-z])\d{4}-\d{1,4}(?![\dA-Za-z])/g, ' ')
     .replace(/^[ \t]*\d+[.)][ \t]/gm, ' ');
   const unknown: string[] = [];
   let checked = 0;

@@ -329,7 +329,7 @@ export class ScmService {
       }),
       this.prisma.contractFulfillment.findMany({
         where: { projectId: { in: ids } },
-        select: { id: true, projectId: true, statusCode: true, planDate: true },
+        select: { id: true, projectId: true, contractId: true, statusCode: true, planDate: true },
       }),
     ]);
 
