@@ -59,6 +59,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 结算/付款异常预警（课题 6-9）：后端口径同 AI 助手，ai:view 放行，
   // 金额可见性由 service 内的 contract:view 二次校验兜底
   '/ai/anomaly': ['ai:view'],
+  // 异常报价与价差预警（课题 3-9）：与 ai-anomaly 同口径，ai:view 放行，
+  // 报价/控制价可见性由后端 service 的 contract:view 兜底
+  '/ai/quote': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

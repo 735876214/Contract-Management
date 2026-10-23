@@ -74,6 +74,10 @@ export const MENU_CONFIG: MenuItem[] = [
   { key: 'ai', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
   // 结算/付款异常预警（课题 6-9）：与后端 MENU_TREE 的 ai-anomaly 对齐
   { key: 'ai-anomaly', label: '结算异常预警', icon: 'SafetyOutlined', path: '/ai/anomaly', permission: 'ai:view' },
+  // 异常报价与价差预警（课题 3-9，2026-10-24）：采购定标前的价差/围标核对入口。
+  // 权限同样沿用 ai:view（不新增权限码，免迁移 seed）；报价与控制价的可见性由
+  // 接口内 contract:view 二次校验兜底。
+  { key: 'ai-quote', label: '报价异常预警', icon: 'AuditOutlined', path: '/ai/quote', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   {
     key: 'base',

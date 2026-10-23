@@ -207,6 +207,9 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M2 前端面板 | ✅ 2026-10-23 | `web/src/pages/AnomalyPanel.tsx`、`aiApi.paymentAnomaly`、五处接线 | 两个 build 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过 |
 | M3 评测 | ✅ 2026-10-23 | 夹具生成器+评分器 `server/src/modules/ai/anomaly/anomaly-bench.ts`、`server/test/aiAnomalyBench.spec.mts`、报告 `docs/AI应用评测报告-6-9-结算异常预警.md` | 合成集（12 合同 / 61 结算单 / 9 条注入）：**召回 100%、误报 0**，8 个规则码全覆盖；4 001 张结算单判定 101.6 ms；措辞层 1 次调用 / 1 991 字符 ≈ 905 tokens；756 项测试全绿 |
 | M3.5 评测执行链路 | ✅ 2026-10-23 | 取数形状唯一事实源 `anomaly-dataset.ts`、真值对账 `anomaly-score.ts`、CLI `server/scripts/export-anomaly-dataset.mts` / `score-anomaly.mts`、单测 `aiAnomalyDataset.spec.mts` / `aiAnomalyScore.spec.mts`、npm 脚本 `anomaly:export` / `anomaly:score` | 夹具反推「行 → JSON → 评分」全链路：10/10、退出码 0；篡改真值后如实产出漏报 1 / 误报 1，收紧门槛后退出码 1 且理由带数字；`export` 缺 `--project`、缺 `DATABASE_URL` 都给可读错误 |
+| M4 规则层（3-9） | ✅ 2026-10-24 | `server/src/modules/ai/quote/{quote-types.ts, rules-quote.ts}`、真值夹具 `server/test/fixtures/ai-quote.fixture.mts`、单测 `server/test/aiQuoteRules.spec.mts`、金额原语上提到 `ai/common/money.ts` | 12 个规则码（B1–B7）纯函数，金额全 `bigint` 分；夹具 5 个采购任务 / 12 处注入，干净任务零命中；794 项测试全绿；提交 `41561fe` |
+| M4 后端接口 | ✅ 2026-10-24 | `quote-config.ts` / `quote-prompt.ts` / `quote.service.ts`、`GET /ai/anomaly/quote`、`aiQuotePrompt.spec.mts`、`ai/common/{narrative.ts, params.ts}` | 810 项测试全绿；假 Prisma 直呼 service：命中 4 条、`notEvaluated` 5 条、缺 `contract:view` 得 403、开关关闭不判定、坏参数只回落不静默放宽；提交 `bf682fa` |
+| M4 前端面板 | ✅ 2026-10-24 | `web/src/pages/QuoteAnomalyPanel.tsx`、`aiApi.quoteAnomaly`、四处接线（后端 `menuTree.ts` / 前端 `menuConfig.ts` / `routePermissions.ts` / `router.tsx`） | `web build` 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过；面板只读，未判定与样本量强制可见 |
 
 ### 9.1 与计划的偏差（有意为之）
 

@@ -727,6 +727,53 @@ export interface AiAnomalyResult {
   warnings: string[];
 }
 
+/**
+ * 异常报价与价差识别预警（课题 3-9）一条命中。
+ *
+ * `code` / `level` / `entity` 与后端 `server/src/modules/ai/quote/quote-types.ts` 的
+ * `QUOTE_CODES` / `ANOMALY_LEVEL` 一一对应；面板再存一份中文标签是刻意的
+ * ——要在没有接口返回时也能解释「这条是什么规则」。
+ */
+export interface AiQuoteFinding {
+  code: string;
+  level: 'HIGH' | 'MEDIUM';
+  /** 命中对象：采购任务 / 响应单位 / 清单行 */
+  entity: 'task' | 'bidder' | 'totalItem';
+  entityId: string;
+  taskId: string;
+  taskNo: string;
+  /** 模板串标题（后端生成，保证不缺描述） */
+  title: string;
+  /** 判定依据：已格式化的中文事实行（金额都带单位）。**面板只展示，不做加工** */
+  facts: string[];
+  /** 差额（元字符串，正数 = 超出/偏离金额）；无金额概念时为 null */
+  amountDiff: string | null;
+}
+
+export interface AiQuoteResult {
+  /** 系统参数 `ai.quote.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
+  enabled: boolean;
+  generatedAt: string;
+  /** 扫描范围说明（单个采购任务 / 本项目全部采购任务） */
+  scope: string;
+  /** 参与判定的数据量：0 命中时据此说明「算过哪些数据」 */
+  sample: Record<string, number>;
+  tolerances: {
+    amount: string;
+    dropPct: number;
+    spreadPct: number;
+    underBudgetPct: number;
+    priceDevPct: number;
+    taxRateToleranceBp: number;
+    minBidders: number;
+  };
+  summary: { total: number; high: number; medium: number; byCode: Record<string, number> };
+  findings: AiQuoteFinding[];
+  /** 因数据缺失没跑成的规则：**未判定不等于没问题**，必须显式展示 */
+  notEvaluated: string[];
+  narrative: AiAnomalyNarrative;
+  warnings: string[];
+}
 /** AI 信息登记：页面提交内容（不传 = 不改；apiKey 空串 = 清除） */
 export interface AiSettingInput {
   enabled?: boolean;
@@ -811,6 +858,12 @@ export const aiApi = {
    */
   paymentAnomaly: (query: { from?: string; to?: string; contractId?: string; narrative?: '0' | '1' }) =>
     http.get<any, AiAnomalyResult>('/ai/anomaly/payment', { params: query, timeout: 180000 } as any),
+  /**
+   * 异常报价与价差识别预警（课题 3-9）：只读扫描，规则在服务端算，模型只写结论。
+   * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
+   */
+  quoteAnomaly: (query: { taskId?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiQuoteResult>('/ai/anomaly/quote', { params: query, timeout: 180000 } as any),
   /**
    * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
    * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。

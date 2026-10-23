@@ -112,6 +112,10 @@ export const MENU_TREE: MenuNode[] = [
   // 结算/付款异常预警（课题 6-9，2026-10-23）：独立入口而非 AI 助手的页签——
   // 它是财务月度核对的常驻动作，埋进页签会找不到；权限沿用 ai:view（不新增权限码，免迁移 seed）
   { key: 'ai-anomaly', label: '结算异常预警', icon: 'SafetyOutlined', path: '/ai/anomaly', permission: 'ai:view' },
+  // 异常报价与价差预警（课题 3-9，2026-10-24）：采购定标前的价差/围标核对入口。
+  // 权限同样沿用 ai:view（不新增权限码，免迁移 seed）；报价与控制价的可见性由
+  // 接口内 contract:view 二次校验兜底。
+  { key: 'ai-quote', label: '报价异常预警', icon: 'AuditOutlined', path: '/ai/quote', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   // 项目资料归档（附件需求 2026-10-17）：按需求目录树一键打包 ZIP
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },

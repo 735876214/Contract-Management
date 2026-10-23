@@ -532,6 +532,7 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 | POST | `/ai/report/generate` | body `{kind: monthly\|project\|brief, from?, to?, extra?}` → 返回 Markdown + 事实清单 `facts` + 数字对账 `unknownNumbers`；区间缺省为「本月 1 日 ~ 今天」 | `ai:use` |
 | POST | `/ai/report/export` | body `{markdown, title?, header?, footer?, format?: 'docx'\|'pdf'}` → 把**同一份** Markdown 转成文件（不重新生成）：`docx` 走 `html-to-docx`（含页眉/页脚/页码），`pdf` 走 pdf-lib（页眉默认用标题、页脚默认「工程管理部 YYYY 年 M 月」、右下「第 X 页 / 共 Y 页」）；`@Res()` 直出二进制 | `ai:use` |
 | GET | `/ai/anomaly/payment` | query `{from?, to?, contractId?, narrative?}` → 返回 `{enabled, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不写库、不发通知。`from`/`to` 按**结算日期**过滤，`contractId` 只看单合同，`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/anomaly/quote` | query `{taskId?, narrative?}` → 与原语同形的 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改采购任务状态、不改报价数据。`taskId` 只看单个采购任务（缺省扫本项目全部），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
@@ -559,6 +560,19 @@ R5 结算日期早于关联收领单、R6 付款手续「开累」快照与实�
 写入 `notEvaluated` 并在响应里说出来——**0 命中 ≠ 账没问题**。
 模型措辞经 `auditNarrative()` 回查 `facts` 数字，出现编造数字即丢弃、退回模板串（`narrative.source='template'`），
 判定结果本身不受影响；`ai.anomaly.narrative=0` 或 AI 未配置时不消耗额度。
+
+口径（异常报价与价差预警 · 矩阵课题 3-9）：同样**规则算、模型写**，规则在
+`server/src/modules/ai/quote/rules-quote.ts`（纯函数、`bigint` 分、真值夹具双向对锁），
+service 只按 `projectId` 取数并聚合成行。命中口径：B1 二轮降幅超阈值 / 二轮报价反而上涨、
+B2 首轮有效报价离散系数过低（围标迹象）、B3 成交价超控制价 / 显著低于控制价（弃标风险），
+B4 中标行单价超控制价 / 偏离市场价，B5 税率不在常用集合 / 两轮税率不一致，
+B6 成交价非最低有效报价，B7 有效报价家数不足 / 中标单位缺报价。
+金额口径：控制价取总采购清单 `planPrice`（含税），成交价取 `ProcurementBidder.finalPreTaxTotal` × (1+税率)，
+**全程 `bigint` 分**，比值一律用万分之一整数运算，不出现浮点数。
+阈值走系统参数 `ai.quote.*`（`amountTolerance` 元 / `dropPct` / `spreadPct` / `underBudgetPct` /
+`priceDevPct` / `taxRateToleranceBp` 万分之一 / `minBidders` 家），非法值回落默认并回显 warning；
+数据缺失（无清单行、无一轮报价、无有效报价）不猜，写进 `notEvaluated`——**0 命中 ≠ 报价没问题**。
+模型措辞经 `auditQuoteNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.quote.narrative=0` 或 AI 未配置不消耗额度。
 
 ---
 
