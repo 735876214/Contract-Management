@@ -1,0 +1,520 @@
+/**
+ * AI 预警 · **合同履约偏差**（矩阵课题 4-9）—— 规则层（纯函数）。
+ *
+ * 与 `anomaly/rules-payment.ts`、`quote/rules-quote.ts` 同款：入参是已取好的行，
+ * 出参是命中清单。**不 import Prisma、不做 IO、不读当前时间**（`now` 由上层注入），
+ * 因此能被 `npm test` 裸跑并有真值夹具双向对锁。
+ *
+ * 口径约定：
+ * - 节点状态取 `MILESTONE_STATUS`（PENDING / DONE / SKIPPED）；
+ * - 「逾期」与页面标红同口径（`common/utils/milestone.ts`：未完成且计划日已过），
+ *   本层再加**宽限期**，避免刚到期就报警；
+ * - 天数全部按**本地日历日**差算（UTC 毫秒折算，绕开夏令时）；
+ * - 合同金额用链式当前金额（主合同 + 带符号补充协议），不用 `amount` 裸值。
+ */
+
+import { MILESTONE_STATUS, PAYMENT_EXCLUDED_STATUSES } from '../../../constants/statuses.ts';
+import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
+import { moneyToCents, type Cents } from '../common/money.ts';
+import {
+  FULFILLMENT_CODES,
+  FULFILLMENT_LEVEL,
+  resolveFulfillmentTolerances,
+  type FulfillmentContractRow,
+  type FulfillmentFinding,
+  type FulfillmentInput,
+  type FulfillmentSummary,
+  type FulfillmentTolerances,
+  type MilestoneRow,
+} from './fulfillment-types.ts';
+
+/** 逾期 / 滞后的高风险门槛（天）：超过就升级为「必须马上看」 */
+const HIGH_RISK_DAYS = 30;
+/** 付款快于履约的高风险门槛（百分点） */
+const HIGH_RISK_GAP_PCT = 50;
+
+export interface FulfillmentRuleContext {
+  /** 判定基准日（本地零点）；由 service 传 `new Date()`，单测传固定日期 */
+  now: Date;
+  tol: FulfillmentTolerances;
+  /** 因数据缺失没跑成的规则，写进这里 → 响应里的 `notEvaluated` */
+  notEvaluated: string[];
+}
+
+export interface FulfillmentEvaluation {
+  findings: FulfillmentFinding[];
+  summary: FulfillmentSummary;
+  notEvaluated: string[];
+}
+
+/** 日历日序号（本地时区 → UTC 天序号），非法日期返回 null */
+function dayIndex(v: Date | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const d = v instanceof Date ? v : new Date(v);
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+}
+
+/** b − a 的天数（均为日历日）；任一为空返回 null */
+function daysBetween(a: Date | string | null | undefined, b: Date | string | null | undefined): number | null {
+  const x = dayIndex(a);
+  const y = dayIndex(b);
+  if (x === null || y === null) return null;
+  return y - x;
+}
+
+const dayText = (v: Date | string | null | undefined): string => {
+  const i = dayIndex(v);
+  if (i === null) return '未填';
+  const d = new Date(i * 86_400_000);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+};
+
+const isDone = (m: MilestoneRow) => m.statusCode === MILESTONE_STATUS.DONE;
+const isSkipped = (m: MilestoneRow) => m.statusCode === MILESTONE_STATUS.SKIPPED;
+/** 「还没完成」：既不是 DONE 也不是 SKIPPED（null 视为未完成，与页面一致） */
+const isOpen = (m: MilestoneRow) => !isDone(m) && !isSkipped(m);
+
+const isCountedPayment = (p: { statusCode?: string | null }) =>
+  !PAYMENT_EXCLUDED_STATUSES.includes(String(p.statusCode ?? ''));
+
+function contractLabel(c: FulfillmentContractRow | undefined): { code: string; name: string } {
+  return { code: String(c?.code ?? ''), name: String(c?.name ?? '') };
+}
+
+function push(
+  out: FulfillmentFinding[],
+  finding: Omit<FulfillmentFinding, 'contractCode' | 'contractName'> & { contractCode?: string; contractName?: string },
+) {
+  out.push({
+    ...finding,
+    contractCode: finding.contractCode ?? '',
+    contractName: finding.contractName ?? '',
+  });
+}
+
+/**
+ * C1 节点逾期未完成。
+ *
+ * 口径与页面标红一致（未完成 + 计划日已过），但**再减宽限期**：
+ * 计划日期过了 `graceDays` 天还没完成才报。逾期 > 30 天升为高风险。
+ */
+export function c1Overdue(
+  milestones: MilestoneRow[],
+  contracts: Map<string, FulfillmentContractRow>,
+  ctx: FulfillmentRuleContext,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  for (const m of milestones) {
+    if (!isOpen(m)) continue;
+    const overdue = daysBetween(m.planDate, ctx.now);
+    if (overdue === null || overdue <= ctx.tol.graceDays) continue;
+    const c = contracts.get(m.contractId);
+    const { code, name } = contractLabel(c);
+    push(out, {
+      code: FULFILLMENT_CODES.C1_OVERDUE,
+      level: overdue > HIGH_RISK_DAYS ? FULFILLMENT_LEVEL.HIGH : FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'milestone',
+      entityId: m.id,
+      contractId: m.contractId,
+      contractCode: code,
+      contractName: name,
+      title: `节点「${m.name ?? '(未命名)'}」已逾期 ${overdue} 天仍未完成`,
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `节点：${m.name ?? '(未命名)'}`,
+        `计划日期：${dayText(m.planDate)}`,
+        `实际日期：${dayText(m.actualDate)}`,
+        `逾期天数：${overdue} 天（宽限 ${ctx.tol.graceDays} 天）`,
+        `节点状态：${m.statusCode ?? '未设置'}`,
+        `责任人：${m.owner || '未填'}`,
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/** C2 已完成但没填实际日期（进度不可追溯，也影响所有「是否按期」的判断） */
+export function c2DoneNoActual(
+  milestones: MilestoneRow[],
+  contracts: Map<string, FulfillmentContractRow>,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  for (const m of milestones) {
+    if (!isDone(m) || m.actualDate) continue;
+    const { code, name } = contractLabel(contracts.get(m.contractId));
+    push(out, {
+      code: FULFILLMENT_CODES.C2_DONE_NO_ACTUAL,
+      level: FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'milestone',
+      entityId: m.id,
+      contractId: m.contractId,
+      contractCode: code,
+      contractName: name,
+      title: `节点「${m.name ?? '(未命名)'}」标记完成但没有实际日期`,
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `节点：${m.name ?? '(未命名)'}`,
+        `计划日期：${dayText(m.planDate)}`,
+        '实际日期：未填',
+        '节点状态：已完成',
+        `责任人：${m.owner || '未填'}`,
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * C3 顺序倒挂：更早的计划节点还没完成，更晚的计划节点却已完成。
+ *
+ * 这是「补录进度」时最常见的错误形态——如果两头的实际日期对不上，
+ * 后面所有基于进度的话都不成立。每个未完成节点只报一次（取**最早的那个已完成后继**做对照）。
+ */
+export function c3SequenceInverted(
+  milestones: MilestoneRow[],
+  contracts: Map<string, FulfillmentContractRow>,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  const byContract = new Map<string, MilestoneRow[]>();
+  for (const m of milestones) {
+    if (dayIndex(m.planDate) === null) continue;
+    const list = byContract.get(m.contractId) ?? [];
+    list.push(m);
+    byContract.set(m.contractId, list);
+  }
+  for (const [contractId, rows] of byContract) {
+    const sorted = rows
+      .slice()
+      .sort((a, b) => (dayIndex(a.planDate) as number) - (dayIndex(b.planDate) as number));
+    for (let i = 0; i < sorted.length; i += 1) {
+      const cur = sorted[i];
+      if (!isOpen(cur)) continue;
+      const later = sorted.slice(i + 1).find((x) => isDone(x));
+      if (!later) continue;
+      const { code, name } = contractLabel(contracts.get(contractId));
+      push(out, {
+        code: FULFILLMENT_CODES.C3_SEQUENCE_INVERTED,
+        level: FULFILLMENT_LEVEL.MEDIUM,
+        entity: 'milestone',
+        entityId: cur.id,
+        contractId,
+        contractCode: code,
+        contractName: name,
+        title: `节点「${cur.name ?? '(未命名)'}」未完成，但后续节点「${later.name ?? '(未命名)'}」已完成`,
+        facts: [
+          `合同：${code}${name ? ` ${name}` : ''}`,
+          `未完成节点：${cur.name ?? '(未命名)'}（计划 ${dayText(cur.planDate)}，状态 ${cur.statusCode ?? '未设置'}）`,
+          `已完成节点：${later.name ?? '(未命名)'}（计划 ${dayText(later.planDate)}，实际 ${dayText(later.actualDate)}）`,
+          '口径：按计划日期排序，前序未完成而后序已完成',
+        ],
+        amountDiff: null,
+      });
+    }
+  }
+  return out;
+}
+
+/** C4 完成滞后：实际完成日期晚于计划超过 `lateFinishDays` 天 */
+export function c4FinishLate(
+  milestones: MilestoneRow[],
+  contracts: Map<string, FulfillmentContractRow>,
+  ctx: FulfillmentRuleContext,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  for (const m of milestones) {
+    if (!isDone(m) || !m.actualDate) continue;
+    const late = daysBetween(m.planDate, m.actualDate);
+    if (late === null || late <= ctx.tol.lateFinishDays) continue;
+    const { code, name } = contractLabel(contracts.get(m.contractId));
+    push(out, {
+      code: FULFILLMENT_CODES.C4_FINISH_LATE,
+      level: late > HIGH_RISK_DAYS ? FULFILLMENT_LEVEL.HIGH : FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'milestone',
+      entityId: m.id,
+      contractId: m.contractId,
+      contractCode: code,
+      contractName: name,
+      title: `节点「${m.name ?? '(未命名)'}」实际完成比计划晚 ${late} 天`,
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `节点：${m.name ?? '(未命名)'}`,
+        `计划日期：${dayText(m.planDate)}`,
+        `实际日期：${dayText(m.actualDate)}`,
+        `滞后天数：${late} 天（容忍 ${ctx.tol.lateFinishDays} 天）`,
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * C5 计划日期早于合同签订日期。
+ *
+ * 计划早于签订不一定是错（框架协议、事后补签都常见），但**必须复核**：
+ * 一旦计划轴起点错了，后面所有「逾期多少天」都是错的。
+ */
+export function c5PlanBeforeSign(
+  milestones: MilestoneRow[],
+  contracts: Map<string, FulfillmentContractRow>,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  for (const m of milestones) {
+    const c = contracts.get(m.contractId);
+    const signDay = c?.signedDate ?? c?.signDate;
+    const early = daysBetween(signDay, m.planDate);
+    if (early === null || early >= 0) continue;
+    const { code, name } = contractLabel(c);
+    push(out, {
+      code: FULFILLMENT_CODES.C5_PLAN_BEFORE_SIGN,
+      level: FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'milestone',
+      entityId: m.id,
+      contractId: m.contractId,
+      contractCode: code,
+      contractName: name,
+      title: `节点「${m.name ?? '(未命名)'}」计划日期早于合同签订 ${Math.abs(early)} 天`,
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `合同签订日期：${dayText(signDay)}`,
+        `节点计划日期：${dayText(m.planDate)}`,
+        `提前天数：${Math.abs(early)} 天`,
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * C6 付款快于履约：累计付款占合同当前金额的比例，明显高于节点完成率。
+ *
+ * 「节点完成率」= 已完成节点 ÷（已完成 + 未完成），跳过 SKIPPED。
+ * 差额 ≥ `progressGapPct` 个百分点才报；≥ 50 个百分点为高风险。
+ * 缺数据（没有节点 / 合同金额为 0 或未填）不猜：写入 `notEvaluated` 或直接跳过。
+ */
+export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRuleContext): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  const contracts = input.contracts ?? [];
+  const payments = (input.payments ?? []).filter(isCountedPayment);
+  if (contracts.length === 0) return out;
+
+  const chainRows = contracts.map((c) => ({
+    id: c.id,
+    parentContractId: c.parentContractId ?? null,
+    amount: c.amount,
+    changeAmount: c.changeAmount,
+  }));
+
+  const paidByContract = new Map<string, Cents>();
+  for (const p of payments) {
+    const cid = String(p.contractId ?? '');
+    if (!cid) continue;
+    const cents = moneyToCents(p.amount) ?? 0n;
+    paidByContract.set(cid, (paidByContract.get(cid) ?? 0n) + cents);
+  }
+
+  const byContract = new Map<string, MilestoneRow[]>();
+  for (const m of input.milestones ?? []) {
+    const list = byContract.get(m.contractId) ?? [];
+    list.push(m);
+    byContract.set(m.contractId, list);
+  }
+
+  let skippedNoAmount = 0;
+  let skippedNoMilestone = 0;
+  for (const c of contracts) {
+    const rows = byContract.get(c.id) ?? [];
+    if (rows.length === 0) {
+      skippedNoMilestone += 1;
+      continue;
+    }
+    const done = rows.filter(isDone).length;
+    const open = rows.filter(isOpen).length;
+    if (done + open === 0) continue; // 全被跳过，没有可比口径
+    const donePct = Math.round((done * 100) / (done + open));
+
+    const paid = paidByContract.get(c.id) ?? 0n;
+    if (paid === 0n) continue;
+    const chain = resolveChainAmounts(chainRows, c.id);
+    if (chain.currentAmount === null || chain.currentAmount <= 0) {
+      skippedNoAmount += 1;
+      continue;
+    }
+    const currentCents = moneyToCents(chain.currentAmount.toFixed(2));
+    if (currentCents === null || currentCents <= 0n) {
+      skippedNoAmount += 1;
+      continue;
+    }
+    // 付款比例（百分点，向下去整）：paid / currentAmount × 100
+    const paidPct = Number((paid * 100n) / currentCents);
+    const gap = paidPct - donePct;
+    // 与 C1/C4 同口径：**严格超出**阈值才报，等于阈值属于容忍范围
+    if (gap <= ctx.tol.progressGapPct) continue;
+    push(out, {
+      code: FULFILLMENT_CODES.C6_PROGRESS_PAYMENT_GAP,
+      level: gap >= HIGH_RISK_GAP_PCT ? FULFILLMENT_LEVEL.HIGH : FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'contract',
+      entityId: c.id,
+      contractId: c.id,
+      contractCode: String(c.code ?? ''),
+      contractName: String(c.name ?? ''),
+      title: `付款进度 ${paidPct}% 高于履约完成率 ${donePct}（差 ${gap} 个百分点）`,
+      facts: [
+        `合同：${String(c.code ?? '')}${c.name ? ` ${c.name}` : ''}`,
+        `合同当前金额：${(Number(currentCents) / 100).toFixed(2)} 元`,
+        `累计付款：${(Number(paid) / 100).toFixed(2)} 元（占 ${paidPct}%）`,
+        `履约节点：已完成 ${done} / 未完成 ${open}（完成率 ${donePct}%）`,
+        `差额：${gap} 个百分点（超出阈值 ${ctx.tol.progressGapPct} 个百分点）`,
+      ],
+      amountDiff: null,
+    });
+  }
+  if (skippedNoAmount > 0) {
+    ctx.notEvaluated.push(`C6 有 ${skippedNoAmount} 个合同因「合同金额未填或为 0」无法计算付款比例`);
+  }
+  if (skippedNoMilestone > 0) {
+    ctx.notEvaluated.push(`C6 有 ${skippedNoMilestone} 个合同因「没有任何履约节点」无法计算完成率`);
+  }
+  return out;
+}
+
+/** C7 已出终期结算（非草稿）却仍有未完成节点 —— 结算口径与履约口径自相矛盾 */
+export function c7SettledUnfinished(
+  input: FulfillmentInput,
+  contracts: Map<string, FulfillmentContractRow>,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  const settledContracts = new Map<string, string>();
+  // 变量名不要用 fs：`aiCodeGuards.spec` 会扫 server/src 里的 fs 调用，误判成文件 I/O
+  for (const settle of input.finalSettlements ?? []) {
+    const cid = String(settle.contractId ?? '');
+    if (!cid) continue;
+    const status = String(settle.statusCode ?? '');
+    if (status === 'DRAFT') continue;
+    settledContracts.set(cid, settle.id);
+  }
+  if (settledContracts.size === 0) return out;
+
+  const pendingByContract = new Map<string, MilestoneRow[]>();
+  for (const m of input.milestones ?? []) {
+    if (!isOpen(m)) continue;
+    const list = pendingByContract.get(m.contractId) ?? [];
+    list.push(m);
+    pendingByContract.set(m.contractId, list);
+  }
+
+  for (const [contractId, finalId] of settledContracts) {
+    const pending = pendingByContract.get(contractId) ?? [];
+    if (pending.length === 0) continue;
+    const { code, name } = contractLabel(contracts.get(contractId));
+    push(out, {
+      code: FULFILLMENT_CODES.C7_SETTLED_UNFINISHED,
+      level: FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'contract',
+      entityId: contractId,
+      contractId,
+      contractCode: code,
+      contractName: name,
+      title: `已出终期结算，但仍有 ${pending.length} 个履约节点未完成`,
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `终期结算 ID：${finalId}`,
+        `未完成节点：${pending.map((m) => `${m.name ?? '(未命名)'}（计划 ${dayText(m.planDate)}）`).join('、')}`,
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/** C8 已签章合同没有任何履约节点（等于没有履约跟踪，后面所有偏差都看不见） */
+export function c8NoMilestone(
+  input: FulfillmentInput,
+  contracts: Map<string, FulfillmentContractRow>,
+): FulfillmentFinding[] {
+  const out: FulfillmentFinding[] = [];
+  const withNodes = new Set((input.milestones ?? []).map((m) => m.contractId));
+  for (const c of input.contracts ?? []) {
+    const signed = Boolean(c.signedDate || c.signDate);
+    if (!signed) continue;
+    if (withNodes.has(c.id)) continue;
+    const { code, name } = contractLabel(contracts.get(c.id));
+    push(out, {
+      code: FULFILLMENT_CODES.C8_NO_MILESTONE,
+      level: FULFILLMENT_LEVEL.MEDIUM,
+      entity: 'contract',
+      entityId: c.id,
+      contractId: c.id,
+      contractCode: code,
+      contractName: name,
+      title: '已签章合同没有任何履约节点',
+      facts: [
+        `合同：${code}${name ? ` ${name}` : ''}`,
+        `签订日期：${dayText(c.signedDate ?? c.signDate)}`,
+        '履约节点：0 个',
+      ],
+      amountDiff: null,
+    });
+  }
+  return out;
+}
+
+/** 排序：高风险在前，其次按合同编号、规则码（保证输出稳定，便于对账） */
+export function sortFulfillmentFindings(list: FulfillmentFinding[]): FulfillmentFinding[] {
+  return list.slice().sort((a, b) => {
+    if (a.level !== b.level) return a.level === FULFILLMENT_LEVEL.HIGH ? -1 : 1;
+    if (a.contractCode !== b.contractCode) return a.contractCode < b.contractCode ? -1 : 1;
+    if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+    return a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0;
+  });
+}
+
+export function summarizeFulfillmentFindings(list: FulfillmentFinding[]): FulfillmentSummary {
+  const byCode: Record<string, number> = {};
+  let high = 0;
+  let medium = 0;
+  for (const f of list) {
+    byCode[f.code] = (byCode[f.code] ?? 0) + 1;
+    if (f.level === FULFILLMENT_LEVEL.HIGH) high += 1;
+    else medium += 1;
+  }
+  return { total: list.length, high, medium, byCode };
+}
+
+/**
+ * 全部规则跑一遍。
+ *
+ * `now` 由调用方给：service 传当前时间，单测传固定日期——**规则层永远不读系统时钟**，
+ * 否则夹具会随日期漂移，评测结果不可复现。
+ */
+export function evaluateFulfillmentAnomalies(input: FulfillmentInput): FulfillmentEvaluation {
+  const tol = resolveFulfillmentTolerances(input.tolerances);
+  const ctx: FulfillmentRuleContext = { now: input.now ?? new Date(), tol, notEvaluated: [] };
+  const contracts = new Map<string, FulfillmentContractRow>();
+  for (const c of input.contracts ?? []) contracts.set(c.id, c);
+  const milestones = input.milestones ?? [];
+
+  const findings = [
+    ...c1Overdue(milestones, contracts, ctx),
+    ...c2DoneNoActual(milestones, contracts),
+    ...c3SequenceInverted(milestones, contracts),
+    ...c4FinishLate(milestones, contracts, ctx),
+    ...c5PlanBeforeSign(milestones, contracts),
+    ...c6ProgressPaymentGap(input, ctx),
+    ...c7SettledUnfinished(input, contracts),
+    ...c8NoMilestone(input, contracts),
+  ];
+
+  return {
+    findings: sortFulfillmentFindings(findings),
+    summary: summarizeFulfillmentFindings(findings),
+    notEvaluated: ctx.notEvaluated,
+  };
+}

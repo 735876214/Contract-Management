@@ -17,7 +17,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "anomaly:export": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/export-anomaly-dataset.mts",
     "anomaly:score": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/score-anomaly.mts",
-    "test:quote": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiQuoteBidder.spec.mts test/aiQuotePrompt.spec.mts"
+    "test:quote": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiQuoteBidder.spec.mts test/aiQuotePrompt.spec.mts",
+    "test:fulfillment": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiFulfillmentRules.spec.mts test/aiFulfillmentPrompt.spec.mts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

@@ -62,6 +62,7 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 异常报价与价差预警（课题 3-9）：与 ai-anomaly 同口径，ai:view 放行，
   // 报价/控制价可见性由后端 service 的 contract:view 兜底
   '/ai/quote': ['ai:view'],
+  '/ai/fulfillment': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

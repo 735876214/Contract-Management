@@ -499,7 +499,7 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 文件读取（`FileServeController`：登录后经 `storage.read()` 返回，支持单段 Range 206） | 需登录（Bearer 或 httpOnly Cookie） |
 
-## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警）
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警 / 五期：异常报价与价差预警 / 六期：合同履行偏差预警）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
@@ -533,6 +533,7 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 | POST | `/ai/report/export` | body `{markdown, title?, header?, footer?, format?: 'docx'\|'pdf'}` → 把**同一份** Markdown 转成文件（不重新生成）：`docx` 走 `html-to-docx`（含页眉/页脚/页码），`pdf` 走 pdf-lib（页眉默认用标题、页脚默认「工程管理部 YYYY 年 M 月」、右下「第 X 页 / 共 Y 页」）；`@Res()` 直出二进制 | `ai:use` |
 | GET | `/ai/anomaly/payment` | query `{from?, to?, contractId?, narrative?}` → 返回 `{enabled, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不写库、不发通知。`from`/`to` 按**结算日期**过滤，`contractId` 只看单合同，`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 | GET | `/ai/anomaly/quote` | query `{taskId?, narrative?}` → 与原语同形的 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改采购任务状态、不改报价数据。`taskId` 只看单个采购任务（缺省扫本项目全部），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/anomaly/fulfillment` | query `{contractId?, narrative?}` → 同形 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改履约节点、不改付款/结算状态。`contractId` 只看单合同（缺省扫本项目全部在履行合同），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
@@ -573,6 +574,18 @@ B6 成交价非最低有效报价，B7 有效报价家数不足 / 中标单位�
 `priceDevPct` / `taxRateToleranceBp` 万分之一 / `minBidders` 家），非法值回落默认并回显 warning；
 数据缺失（无清单行、无一轮报价、无有效报价）不猜，写进 `notEvaluated`——**0 命中 ≠ 报价没问题**。
 模型措辞经 `auditQuoteNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.quote.narrative=0` 或 AI 未配置不消耗额度。
+
+口径（合同履行偏差预警 · 矩阵课题 4-9）：同样**规则算、模型写**，规则在
+`server/src/modules/ai/fulfillment/rules-fulfillment.ts`（纯函数、日期按天差、真值夹具双向对锁），
+service 只按 `projectId` 取在履行合同及其节点/付款/终期结算，模型只把命中项写成业务语言。命中口径：
+C1 节点逾期未完成（超过 `graceDays` 未完成，逾期 > 30 天升级高风险）、C2 完成未填实际日期、
+C3 顺序倒挂（更早的计划节点未完成、更晚的却已完成）、C4 完成滞后于计划（超 `lateFinishDays`）、
+C5 节点计划日期早于合同签订日期、C6 付款快于履约（累计付款比例 − 节点完成率 ≥ `progressGapPct` 个百分点，≥ 50 个百分点升为高风险）、
+C7 已出终期结算（非 `DRAFT`）仍有未完成节点、C8 已签章合同没有任何履约节点。
+判定基准日取服务端「今天」（响应 `generatedAt` 即基准时刻），逾期天数一律按**自然日**算，不扣节假日。
+阈值走系统参数 `ai.fulfillment.*`（`graceDays` 天 / `lateFinishDays` 天 / `progressGapPct` 百分点 / `amountTolerance` 元），
+非法值回落默认并回显 warning；缺数据（没有节点、没有付款计划比例）不猜，写入 `notEvaluated`——**0 命中 ≠ 履约没问题**。
+模型措辞经 `auditFulfillmentNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.fulfillment.narrative=0` 或 AI 未配置不消耗额度。
 
 ---
 

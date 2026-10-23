@@ -78,6 +78,7 @@ export const MENU_CONFIG: MenuItem[] = [
   // 权限同样沿用 ai:view（不新增权限码，免迁移 seed）；报价与控制价的可见性由
   // 接口内 contract:view 二次校验兜底。
   { key: 'ai-quote', label: '报价异常预警', icon: 'AuditOutlined', path: '/ai/quote', permission: 'ai:view' },
+  { key: 'ai-fulfillment', label: '履约偏差预警', icon: 'AuditOutlined', path: '/ai/fulfillment', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   {
     key: 'base',

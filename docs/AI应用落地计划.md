@@ -210,6 +210,9 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M4 规则层（3-9） | ✅ 2026-10-24 | `server/src/modules/ai/quote/{quote-types.ts, rules-quote.ts}`、真值夹具 `server/test/fixtures/ai-quote.fixture.mts`、单测 `server/test/aiQuoteRules.spec.mts`、金额原语上提到 `ai/common/money.ts` | 12 个规则码（B1–B7）纯函数，金额全 `bigint` 分；夹具 5 个采购任务 / 12 处注入，干净任务零命中；794 项测试全绿；提交 `41561fe` |
 | M4 后端接口 | ✅ 2026-10-24 | `quote-config.ts` / `quote-prompt.ts` / `quote.service.ts`、`GET /ai/anomaly/quote`、`aiQuotePrompt.spec.mts`、`ai/common/{narrative.ts, params.ts}` | 810 项测试全绿；假 Prisma 直呼 service：命中 4 条、`notEvaluated` 5 条、缺 `contract:view` 得 403、开关关闭不判定、坏参数只回落不静默放宽；提交 `bf682fa` |
 | M4 前端面板 | ✅ 2026-10-24 | `web/src/pages/QuoteAnomalyPanel.tsx`、`aiApi.quoteAnomaly`、四处接线（后端 `menuTree.ts` / 前端 `menuConfig.ts` / `routePermissions.ts` / `router.tsx`） | `web build` 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过；面板只读，未判定与样本量强制可见 |
+| M5 规则层（4-9） | ✅ 2026-10-24 | `server/src/modules/ai/fulfillment/{fulfillment-types.ts, rules-fulfillment.ts}`、真值夹具 `server/test/fixtures/ai-fulfillment.fixture.mts`、单测 `server/test/aiFulfillmentRules.spec.mts` | 8 条规则码（C1–C8）纯函数，日期一律自然日天差；夹具 10 条命中真值（高 3 / 需复核 7）+ 干净合同零命中；边界阈值按「严格大于」逐条锁死 |
+| M5 后端接口 | ✅ 2026-10-24 | `fulfillment-config.ts` / `fulfillment-prompt.ts` / `fulfillment.service.ts`、`GET /ai/anomaly/fulfillment`、`aiFulfillmentPrompt.spec.mts` | 两 build 退出码 0；假 Prisma 直呼 service：命中 10 条、`notEvaluated` 正确、缺 `contract:view` 得 403、开关关闭不判定、坏参数只回落并回显 warning |
+| M5 前端面板 | ✅ 2026-10-24 | `web/src/pages/FulfillmentAnomalyPanel.tsx`、`aiApi.fulfillmentAnomaly`、四处接线（`menuTree.ts` / `menuConfig.ts` / `routePermissions.ts` / `router.tsx`） | `web build` 退出码 0；`routePermissionParity.spec.mts` 通过；面板只读，未判定与样本量强制可见 |
 
 ### 9.1 与计划的偏差（有意为之）
 
@@ -218,11 +221,13 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 3. **规则数 8 条而非计划的 6 条**：R1 拆成跨期重复 / 同物资重复计量 / 终期快照漂移；R6 从"审批时间晚于付款"（`PaymentProcedure` 没有审批完成时间字段，做不到）改成"开累快照与台账不一致"。
 4. **R2 超付口径**：用 `ContractExt.currentPayRatio`（0~1）作上限，比例为空或不在 0~1 的合同**不判定并单独报出**（`notEvaluated`），不用 100% 兜底 —— 兜底等于悄悄放宽规则。
 5. **只读、不落 `Notification`**：D2 的"一期落通知"本轮未做。预警自己写库/发消息会在正式使用时产生"谁点的、何时点的"追溯问题，先只读；要提醒由前端下一个工单决定。
+7. **M5 的 8 条规则（C1–C8）也是按「库里真有的字段」筛过的**：`ContractFulfillment` 只有计划日/实际日/状态/责任人，所以不做「交付物齐全性」「验收结论一致性」这类需要文档解析的判定；把「已出终期结算却仍有未完成节点」「付款快于履约」这类**跨表自相矛盾**做成规则，才是这套系统独有、且不依赖 AI 的部分。
+8. **判定基准日是「服务端今天」，不是查询参数**：预警要回答「现在有没有风险」，让前端传日期会产出「昨天的预警」被当成实时结论；响应里 `generatedAt` 即基准时刻，写进每条事实行，谁看都能对上时间。
 6. **评测用合成夹具而不是真实单据**：库里没有任何业务单据（`Settlement` / `PaymentRecord` / `Invoice` 全为 0 行），且 DB 不可达。于是把「评测」拆成两层：**能否落地（成本/规模/规则一致性）现在可测**，**召回率是否达标**必须等真数据。为避免自己造的题自己打满分，夹具生成时同步登记真值（`TruthItem`）并给评分器加了自校准用例（删/加真值必须变成误报/漏报）。
 
 ### 9.2 尚未闭合的缺口
 
-- **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
+- **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2/M4/M5 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
 - **headless 真渲染未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
 - **生产数据上的召回率仍未测**（M3 只做了规则层的内存版评测）：合成集能证明「实现与设计一致、正常业务不被误伤、规模与成本可测」，但证明不了真实单据的召回。**执行工具已就位（2026-10-23 补齐）**：门控条件一旦解除，只需 `npm run anomaly:export -- --project <id>` 导出 → 人工标注 `hit` → `npm run anomaly:score` 出门槛结果，**不需要改一行代码**；口径见本文 §10、方法见 `docs/AI应用评测报告-6-9-结算异常预警.md` §6。
 
