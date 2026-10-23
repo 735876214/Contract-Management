@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（67 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（68 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
@@ -183,6 +183,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · `isRealDay` 拒绝「格式对但不存在」的日期（2026-02-30 / 2025-02-29 / 2026-04-31，避免被 `new Date` 静默归一成下个月）· **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |
   | `test/aiPrompt.spec.mts` | **AI prompt 安全底线 + 模型输出规整**：**prompt 里绝不出现字段值**（`currentValue` 被显式忽略，用例直接断言值串不在消息里）· 字段/候选清单文本与截断 · `normalizeMapping` 丢弃越界序号/非整数/未知键 · 同一候选留最高置信度、同一字段只留一个（防两格填同一值）· confidence 夹 0~1 且 3 位小数 · 垃圾输入不抛错 · 字段目录键唯一、未关联合同时不下发 contract/supplier 域字段 |
   | `test/aiSetting.spec.mts` | **AI 配置取值优先级（页面登记 > 环境变量 > 默认值）**：页面填了逐项覆盖 env（不是整体替换）· 页面只填一部分 → 其余回落 env（老部署只配 env 的行为不变）· 空串/空白视为未登记 · 页面开关关掉即不启用且仍回显地址 · 页面开关打开压过 `AI_ENABLED=false` · **开关开着但缺 API Key 仍不启用**（避免「界面说已启用、调用必 401」）· 存储键名锁定 `ai.*` 命名空间（改名会让存量配置静默失效） |
+  | `test/aiAnomalyPayment.spec.mts` | **AI 预警「结算/付款异常」的 8 条规则**（矩阵课题 6-9；纯函数，`server/src/modules/ai/anomaly/`）：金额全程 `bigint` 分（`Decimal(18,2)` 超 2^53 不丢精度 · 分位半进位 · **未填 ≠ 0** · 付款比例只认 0~1 小数，`13` 这种「百分数误填」必须 null 而不是 13 倍）· 夹具**双向对锁**（脏数据 8 条规则各命中、共 10 条；净数据 0 命中——防误报比防漏报更要紧）· `DRAFT` 结算与 `FAILED/REFUNDED` 付款不计入累计 · 付款**恰好等于**比例上限不算超付、超容差才报 · 跨单累计超清单量才判（没有清单量口径 → 记 `notEvaluated`）· 缺口径必须显式说出来（**0 命中 ≠ 账没问题**）· 输出确定性（两次调用逐字相同、HIGH 全排在 MEDIUM 之前） |
   | `test/aiLlmRetry.spec.ts` | **推理型模型「只输出思考、没有正文」的重试口径**（接真上游时发现：`only_reasoning` 模型把 `max_tokens` 先花在 `reasoning_content` 上，思考一长就 `finish_reason:"length"` + 空 `content`，表现为同样提示词随机失败）：空正文且预算烧在思考上 → `max_tokens` 翻倍重试**一次**（未设 maxTokens 时兜底 ≥4096）· 两次都空 → `EMPTY` 错误且消息点明「推理模型、思考占满预算」（不是密钥/地址错）· 首次就有正文不重试 · 真·空回复（无思考、`finish=stop`）不重试，直接报「上游返回空内容」 |
   | `test/aiQuota.spec.ts` | **AI 配额（每用户每小时）的计数与失败退还**（2026-10-20 审计 P2：原来调用前扣、失败也计，上游一挂就把额度烧光并锁一小时）：逐次计数 · 达上限抛 429 · `limit<=0` 不限次 · 不同用户各自计数 · `refund` 退还一次后可再调 · 重复退还/从未调用不会退成负数 · 窗口滑过后旧计数失效 |
   | `test/loginThrottle.spec.ts` | **登录失败节流（撞库防护）**（2026-10-20 第 2 轮审计：原来 `login` 只记失败日志、不限制次数，`admin/admin123` 这种默认口令可被跑穿）：键 = `用户名|IP`（用户名去空格转小写，避免大小写各占一个窗口）· 15 分钟内失败 5 次后 `assertNotThrottled` 抛 **429** 且文案带「N 分钟后再试」· 成功一次即清零 · 窗口过期自动放开（不用重启）· 不同账号/不同 IP 互不影响（共用出口 IP 的同事不被连坐）· 单键只保留最近 `maxFailures` 条（长跑不膨胀） |
