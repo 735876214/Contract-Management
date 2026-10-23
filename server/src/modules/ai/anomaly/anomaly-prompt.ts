@@ -1,5 +1,10 @@
 import type { LlmMessage } from '../llm-client';
 import {
+  auditNarrativeNumbers,
+  collectFindingNumbers,
+  type NarratableFinding,
+} from '../common/narrative.ts';
+import {
   type AnomalyEvaluation,
   type Finding,
   ANOMALY_CODE_LABELS,
@@ -35,51 +40,15 @@ export interface AnomalyNarrativeInput {
   evaluation: AnomalyEvaluation;
 }
 
-/** 数字归一：去千分位、去尾部 0，`100` 与 `100.00` 视为同一个数 */
-export function normalizeNumberToken(raw: string): string {
-  const n = Number(String(raw).replace(/,/g, ''));
-  if (!Number.isFinite(n)) return String(raw);
-  const s = String(Number(n.toFixed(4)));
-  return s;
-}
-
 /**
- * 数字正则：负号只在「前面不是字母数字」时才算符号。
- *
- * 否则单据编号 `HT-2026-001` 会被抽成 `-2026`，与 facts 里的 `2026` 对不上，
- * 结果就是「模型老老实实抄了单据编号，系统却判定它编数字」——这类误报比漏报更伤。
+ * 数字归一 / 抽取 / 对账的通用实现在 `ai/common/narrative.ts`（M4 起两个课题共用一套口径）。
+ * 这里保留原有导出名与签名，既有调用方与单测不受影响。
  */
-const NUMBER_RE = /(?<![\dA-Za-z])-?\d+(?:,\d{3})*(?:\.\d+)?/g;
+export { extractNumbers, normalizeNumberToken } from '../common/narrative.ts';
 
-/** 从文本里抽出所有数字（归一后），用于对账 */
-export function extractNumbers(text: string): string[] {
-  const out: string[] = [];
-  for (const m of String(text ?? '').matchAll(NUMBER_RE)) out.push(normalizeNumberToken(m[0]));
-  return out;
-}
-
-/**
- * 允许模型引用的数字全集：`facts` 的键值（`facts` 里的数字是唯一事实源）、
- * 模板标题（标题里带单据编号与金额，编号里的数字也是合法引用）、差额。
- *
- * 用 `Set` 而不是数组：命中几十条时是 O(1) 查找。
- */
+/** 允许模型引用的数字全集（facts 键值 + 标题 + 差额） */
 export function collectFactNumbers(evaluation: AnomalyEvaluation): Set<string> {
-  const set = new Set<string>();
-  const push = (text: unknown) => {
-    if (text == null) return;
-    for (const n of extractNumbers(String(text))) set.add(n);
-  };
-  for (const f of evaluation.findings) {
-    push(f.title);
-    push(f.amountDiff);
-    for (const [k, v] of Object.entries(f.facts ?? {})) {
-      push(v);
-      // facts 的键里也可能带数字（如 `第2轮报价`），一并放行，避免误判
-      push(k);
-    }
-  }
-  return set;
+  return collectFindingNumbers(evaluation.findings as NarratableFinding[]);
 }
 
 /**
@@ -90,21 +59,7 @@ export function collectFactNumbers(evaluation: AnomalyEvaluation): Set<string> {
  * 空集才放行——和 `report.service.ts` 的 `unknownNumbers` 是同一套思路。
  */
 export function auditNarrative(narrative: AnomalyNarrative, evaluation: AnomalyEvaluation): string[] {
-  const allowed = collectFactNumbers(evaluation);
-  const unknown: string[] = [];
-  const seen = new Set<string>();
-  for (const text of [narrative.conclusion, ...(narrative.actions ?? [])]) {
-    for (const n of extractNumbers(String(text ?? ''))) {
-      // 允许「1 条」「2 项」这类序数与量词：单/两位数且不在 facts 里时仍算未知，
-      // 但 0/1/2/3 这些提示词里明确允许的计数词放行（见 SYSTEM_PROMPT 第 4 条）
-      if (allowed.has(n)) continue;
-      if (['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].includes(n)) continue;
-      if (seen.has(n)) continue;
-      seen.add(n);
-      unknown.push(n);
-    }
-  }
-  return unknown;
+  return auditNarrativeNumbers(narrative, evaluation.findings as NarratableFinding[]);
 }
 
 /**

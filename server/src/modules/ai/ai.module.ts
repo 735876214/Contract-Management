@@ -9,6 +9,7 @@ import { FieldResolverService } from './field-resolver.service';
 import { RegisterService } from './register.service';
 import { ReportService } from './report.service';
 import { AnomalyService } from './anomaly/anomaly.service';
+import { QuoteService } from './quote/quote.service';
 
 /**
  * AI 助手模块（纯增量能力：不引入新依赖、不改任何既有表）。
@@ -22,8 +23,8 @@ import { AnomalyService } from './anomaly/anomaly.service';
 @Module({
   imports: [ContractModule, SupplierModule],
   controllers: [AiController],
-  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, AiQuota],
-  exports: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService],
+  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, QuoteService, AiQuota],
+  exports: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, QuoteService],
 })
 export class AiModule {}
 

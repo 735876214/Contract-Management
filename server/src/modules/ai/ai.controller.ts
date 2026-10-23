@@ -18,6 +18,7 @@ import { AiSettingService, type AiSettingInput } from './ai-setting.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
 import { ReportService } from './report.service';
 import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
+import { QuoteService, type QuoteAnomalyQuery } from './quote/quote.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -53,6 +54,7 @@ export class AiController {
     private register: RegisterService,
     private report: ReportService,
     private anomaly: AnomalyService,
+    private quote: QuoteService,
   ) {}
 
   /**
@@ -167,6 +169,20 @@ export class AiController {
   @Get('anomaly/payment')
   paymentAnomaly(@Query() query: PaymentAnomalyQuery, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.anomaly.payment(query || {}, projectId, user);
+  }
+
+  /**
+   * 异常报价与价差识别预警（课题 3-9）——**只读**，不写库、不改任务状态、不发通知。
+   *
+   * 权限：路由层 `ai:view`；命中项带供应商报价与控制价，service 里再要 `contract:view`
+   * （与采购任务详情同一敏感级别）。
+   *
+   * 参数全部可选：`taskId`（只看单个采购任务）、`narrative=0`（只看规则结果，不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/quote')
+  quoteAnomaly(@Query() query: QuoteAnomalyQuery, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.quote.quote(query || {}, projectId, user);
   }
 
   @RequirePermissions('ai:use')
