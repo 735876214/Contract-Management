@@ -202,7 +202,7 @@ export default function AiSettings() {
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
             <Input
               value={purposeDraft[p.code] ?? ''}
-              placeholder={`跟随全局：${view?.model || '（全局模型还没填）'}`}
+              placeholder={p.model ? `留空则用 ${p.model}` : '（全局模型还没填）'}
               allowClear
               style={{ maxWidth: 320 }}
               onChange={(e) => setPurposeDraft((prev) => ({ ...prev, [p.code]: e.target.value }))}

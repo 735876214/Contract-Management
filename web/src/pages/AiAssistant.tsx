@@ -33,6 +33,26 @@ interface Option {
 /** 单元格唯一键：同一份表里可能有多张工作表，必须带 sheet 才不会串行 */
 const keyOf = (c: { sheet: string; cellRef: string }) => `${c.sheet}!${c.cellRef}`;
 
+/** 本页用的是「表单核验」用途；下面这张表只为提示文案服务，不参与任何业务判断 */
+const PURPOSE_LABEL: Record<string, string> = {
+  form_inspect: '表单核验',
+  register: '文件登记',
+  report: '汇报材料',
+  anomaly: '异常预警',
+};
+
+/**
+ * 「已启用」标签旁的模型提示：把四个用途各自实际生效的模型摊开。
+ *
+ * 为什么要摊开：`/api/ai/status` 的 `model` 只是**全局默认**，各用途可能在设置页单独
+ * 指定过、也可能被 `AI_MODEL_<用途>` 覆盖，光看全局名会误判成本页用的是哪个模型。
+ */
+function modelTip(status: { model: string; models?: Record<string, string> }): string {
+  return Object.keys(PURPOSE_LABEL)
+    .map((code) => `${PURPOSE_LABEL[code]}：${status.models?.[code] || status.model || '（未配置）'}`)
+    .join('\n');
+}
+
 /**
  * AI 助手（一期：模板智能填报）。
  *
@@ -43,7 +63,12 @@ const keyOf = (c: { sheet: string; cellRef: string }) => `${c.sheet}!${c.cellRef
  *    页面上只显示「有值/无值」，避免把合同金额、银行账号等敏感信息直接摊在浏览器与操作日志里。
  */
 function FillPanel() {
-  const [status, setStatus] = useState<{ enabled: boolean; model: string } | null>(null);
+  const [status, setStatus] = useState<{
+    enabled: boolean;
+    model: string;
+    /** 各用途实际生效的模型（后端按 页面登记 > AI_MODEL_<用途> > 全局 算好） */
+    models?: Record<string, string>;
+  } | null>(null);
   const [contracts, setContracts] = useState<Option[]>([]);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
   const [contractId, setContractId] = useState<string>();
@@ -223,7 +248,15 @@ function FillPanel() {
         <Space>
           <ThunderboltOutlined />
           <span>AI 助手 · 模板智能填报</span>
-          {status?.enabled ? <Tag color="green">已启用 {status.model}</Tag> : <Tag>未启用</Tag>}
+          {status?.enabled ? (
+            <Tooltip title={<div style={{ whiteSpace: 'pre-line', maxWidth: 320 }}>{modelTip(status)}</div>}>
+              <Tag color="green" style={{ cursor: 'help' }}>
+                已启用 {status.models?.form_inspect || status.model}
+              </Tag>
+            </Tooltip>
+          ) : (
+            <Tag>未启用</Tag>
+          )}
         </Space>
       }
       extra={
