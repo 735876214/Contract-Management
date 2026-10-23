@@ -176,8 +176,10 @@ test('where 构造：下钻补充协议时按整条链取数（否则累计口�
   // 单合同 → 等值条件；多合同（链）→ in 条件，且每个取数都用同一个条件
   assert.deepEqual(w.contractWhere, { projectId: 'proj-1', id: { in: ['C1', 'C1-1', 'C1-1-1'] } });
   assert.deepEqual(w.settlementWhere.contractId, { in: ['C1', 'C1-1', 'C1-1-1'] });
+  // 套在 `contract` 关系里的是合同主键 `id`（`contractId` 是明细表列名，放进去 Prisma 直接报
+  // `Unknown argument projectId`——集成测试 `anomaly-payment.int.spec.ts` 抓到的就是这个）
   assert.deepEqual(w.contractMaterialWhere, {
-    contract: { projectId: 'proj-1', contractId: { in: ['C1', 'C1-1', 'C1-1-1'] } },
+    contract: { projectId: 'proj-1', id: { in: ['C1', 'C1-1', 'C1-1-1'] } },
   });
   // 单元素链仍用等值条件，避免无谓的 in
   const single = buildAnomalyWhere({ from: null, to: null, contractId: 'C1', contractIds: ['C1'] }, 'proj-1');

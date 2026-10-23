@@ -194,7 +194,8 @@ export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): A
         : {}),
     },
     finalSettlementItemWhere: { finalSettlement: { projectId, ...byContract } },
-    contractMaterialWhere: { contract: { projectId, ...byContract } },
+    // 注意：这是套在 `contract` 关系里的条件，合同主键就叫 `id`（`contractId` 是明细表的列名）
+    contractMaterialWhere: { contract: { projectId, ...byContractId } },
   };
 }
 

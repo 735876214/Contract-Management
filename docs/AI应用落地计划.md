@@ -231,8 +231,9 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 
 ### 9.2 尚未闭合的缺口
 
-- **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2/M4/M5 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
-- **headless 真渲染未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
+- **`test:int` 与"真打一次接口"**：~~未做~~ **已闭合（2026-10-23 晚，Docker 恢复后）**。新增 `server/test-integration/anomaly-payment.int.spec.ts`（5 例，覆盖链根归集 / 下钻展开整条链 / 付款按链根 / 链级超付事实 / 区间末刻），`npm run test:int` = **60 项 13 个 spec 全绿**；并在 dev 容器上真打过 `GET /api/ai/anomaly/payment`（56 合同 / 14 结算 / 3 付款的项目返回 4 条命中、2 条未判定），跨项目 `contractId` 返回 404。
+  **这一步不是为了凑验收**：它当场抓到 `contractMaterialWhere` 把明细表列名 `contractId` 塞进了 `contract` 关系（真实 Prisma 报 `Unknown argument projectId`，纯函数单测锁的却是这个错形状）——正是此前"DB 侧查询形状没被真实 Prisma 校验过"的那个风险。
+- **headless 真渲染仍未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
 - **生产数据上的召回率仍未测**（M3 只做了规则层的内存版评测）：合成集能证明「实现与设计一致、正常业务不被误伤、规模与成本可测」，但证明不了真实单据的召回。**执行工具已就位（2026-10-23 补齐）**：门控条件一旦解除，只需 `npm run anomaly:export -- --project <id>` 导出 → 人工标注 `hit` → `npm run anomaly:score` 出门槛结果，**不需要改一行代码**；口径见本文 §10、方法见 `docs/AI应用评测报告-6-9-结算异常预警.md` §6。
 
 ---
