@@ -338,4 +338,56 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     const s: any = await ctx.prisma.settlement.findFirst({ where: { contractId: contract.id } });
     assert.equal(Number(s.amount), 100, '只算已确认的 1×100，不含未确认的 9×100');
   });
+  /**
+   * ⑨ 跨月账期（用户口径 2026-10-22）：月度结算起始日 ≠ 1 时，一期仍是一个月长度，
+   *    只是跨两个自然月；结算单与台账行都按**后一个月**（期末所在月）归集，
+   *    且「本月结算额」「结算次数」是**纯派生**列（该期结算单合计），手填一律无效。
+   */
+  it('⑨ 跨月账期：10/28 的结算单归到 2026-11 的台账行；本月结算额纯派生', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-9');
+    await ctx.prisma.project.update({ where: { id: project.id }, data: { settlementStartDate: day(2026, 1, 26) } });
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+
+    // 10/28 落在期 10/26-11/25 内 → 账期标签 = 期末所在月 2026-11（按自然月会错成 2026-10）
+    const s: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.DRAFT, amount: 1000, settleDate: day(2026, 10, 28) },
+      project.id,
+    );
+    const row: any = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id } });
+    assert.ok(row, '结算单应派生出一行台账');
+    assert.equal(row!.settleMonth, '2026-11', '跨月账期按后一个月（期末所在月）归集');
+    assert.equal(Number(row!.monthSettleAmount), 1000, '本月结算额 = 本期结算单实际金额合计');
+    assert.equal(row!.settleCount, 1, '结算次数 = 本期结算单张数');
+    assert.equal(row!.settlementId, s.id, '台账行要挂上这张结算单');
+
+    await settle.updateLedger(row!.id, { monthSettleAmount: 999, settleCount: 7, version: row!.version }, project.id);
+    const after: any = await ctx.prisma.settlementLedger.findFirst({ where: { id: row!.id } });
+    assert.equal(Number(after!.monthSettleAmount), 1000, '本月结算额纯派生：手填 999 被系统值覆盖');
+    assert.equal(after!.settleCount, 1, '结算次数纯派生：手填 7 被系统值覆盖');
+  });
+
+  /**
+   * ⑩ 唯一性口径由「自然月」改为「账期」：同一合同同一期只允许一张结算单，
+   *    跨月期的两张（10/28 与 11/20 同属期 10/26-11/25）必须被拦住。
+   */
+  it('⑩ 同一合同同一账期只允许一张结算单（与自然月无关）', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-10');
+    await ctx.prisma.project.update({ where: { id: project.id }, data: { settlementStartDate: day(2026, 1, 26) } });
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const base = { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.DRAFT, amount: 100 };
+
+    await settle.create({ ...base, settleDate: day(2026, 10, 28) }, project.id);
+    // 11/20 与 10/28 同属期 10/26-11/25：两张结算单会让台账同一行的「本月结算额」重复计算
+    await assert.rejects(
+      () => settle.create({ ...base, settleDate: day(2026, 11, 20) }, project.id),
+      (e: any) => e instanceof BadRequestException && /同一结算期只允许一张结算单/.test(e.message),
+      '同一账期内再建第二张应被 400 拦住',
+    );
+    // 11/26 已进入下一期（11/26-12/25），可以建
+    const next: any = await settle.create({ ...base, settleDate: day(2026, 11, 26) }, project.id);
+    assert.ok(next?.id, '下一期应可正常新建');
+  });
+
 });

@@ -47,6 +47,7 @@ import {
   periodKeyOf,
   startDayOf,
   formatDay,
+  currentSettlementPeriod,
   previousSettlementPeriod,
 } from '../../common/utils/settlement-period';
 
@@ -429,25 +430,25 @@ export class SettlementService {
    * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
    */
   async computeLedgerAutoFields(contractId: string, settleMonth: string) {
-    const [y, m] = settleMonth.split('-').map(Number);
-    let start: Date | null = null;
-    let end: Date | null = null;
-    if (y && m) {
-      start = new Date(y, m - 1, 1);
-      end = new Date(y, m, 1);
-    }
+    /**
+     * 结算单按**账期**筛选（第 21 轮审计）：原来用「自然月窗口」`[M-01, M+1-01)` 查 settleDate，
+     * 起始日不是 1 日时，一张落在期初（如前一个月月末几天）的结算单会被算到相邻月份的行上，
+     * 结果「本月结算额」在本月缺失、在邻月凭空多出。账期标签由 `periodKeyOf` 给出（期末所在月）。
+     */
+    const period = settleMonth;
     // 台账「本月结算额」**包含草稿**（有意与 contract-chain 的 notDraft 不同——
     // 见 backend-conventions.md「累计结算有两个口径」：台账回答“这条链的账现在是多少”，
     // 自动生成的草稿也是账面数据；防超结/履约才排除草稿）。
     // 按 settleDate 倒序取单：同月多张（历史数据）时稳定取最近一张作为关联目标。
-    const settlements =
-      start && end
-        ? await this.prisma.settlement.findMany({
-            where: { contractId, settleDate: { gte: start, lt: end } },
-            // 同月多张结算单时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
-            orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
-          })
-        : [];
+    const owner = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    const startDay = owner ? await this.startDayOf(owner.projectId) : 1;
+    const settlements = (
+      await this.prisma.settlement.findMany({
+        where: { contractId },
+        // 同一账期多张结算单（历史数据）时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
+        orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
+      })
+    ).filter((r: any) => periodKeyOf(startDay, r.settleDate) === period);
     /** 该行对应的结算单（同合同同月唯一 → 至多一张）；无则 null = 「仅费用行」 */
     const settlementId = (settlements[0] as any)?.id ?? null;
     const [invoices, factoring, overdue] = await Promise.all([
@@ -474,7 +475,7 @@ export class SettlementService {
         .filter(
           (i: any) =>
             (settlementId && i.settlementId === settlementId) ||
-            (periodMonthKey(i.settlePeriod) ?? monthKey(i.invoiceDate)) === settleMonth,
+            (periodMonthKey(i.settlePeriod) ?? periodKeyOf(startDay, i.invoiceDate)) === settleMonth,
         )
         .reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0),
     );
@@ -509,20 +510,26 @@ export class SettlementService {
     excludeId?: string,
   ) {
     if (!contractId || !settleDate) return;
-    const month = monthKey(settleDate);
-    if (!month) return;
-    const [y, m] = month.split('-').map(Number);
-    const dup = await this.prisma.settlement.findFirst({
-      where: {
-        contractId,
-        settleDate: { gte: new Date(y, m - 1, 1), lt: new Date(y, m, 1) },
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
-      select: { id: true, code: true },
+    /**
+     * 判据是**账期**（期末所在月），不是自然月（第 23 轮审计）。
+     * 起始日不是 1 日时，一期跨两个自然月（起始日 26 → 10/26–11/25），
+     * 原来按自然月查重会让「10/28」和「11/20」两张单都通过校验 —— 同一期出现两张结算单，
+     * 而发票/台账的「本月开票额」「本月结算额」都是按行（合同 × 账期）归集的，无从分摊。
+     */
+    const owner = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    const startDay = owner ? await this.startDayOf(owner.projectId) : 1;
+    const period = periodKeyOf(startDay, settleDate);
+    if (!period) return;
+    const same = await this.prisma.settlement.findMany({
+      where: { contractId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true, code: true, settleDate: true },
     });
+    const dup = same.find((r: any) => periodKeyOf(startDay, r.settleDate) === period);
     if (dup) {
+      const span = currentSettlementPeriod(startDay, settleDate as string | Date);
       throw new BadRequestException(
-        `该合同 ${month} 已有结算单${dup.code ? `（${dup.code}）` : ''}：同一合同同一月份只允许一张结算单。`,
+        `该合同本期（${formatDay(span.start)} ~ ${formatDay(span.end)}，账期 ${period}）已有结算单` +
+          `${dup.code ? `（${dup.code}）` : ''}：同一合同同一结算期只允许一张结算单。`,
       );
     }
   }
@@ -579,13 +586,14 @@ export class SettlementService {
     const projectId: string = contract.projectId;
 
     const months = new Set<string>();
-    // (a) 该合同所有结算单所在的月份
+    const startDay = await this.startDayOf(projectId, db);
+    // (a) 该合同所有结算单所在的**账期**（期末所在月），不是自然月（第 21 轮审计）
     const settlements = await db.settlement.findMany({
       where: { contractId },
       select: { settleDate: true },
     });
     for (const s of settlements) {
-      const m = monthKey(s.settleDate);
+      const m = periodKeyOf(startDay, s.settleDate);
       if (m) months.add(m);
     }
     // (b) 已有台账行的月份（含**仅费用行**：无结算单但有资金费用/逾期利息）
@@ -637,8 +645,11 @@ export class SettlementService {
     const add = (contractId: string | null, month: string | null) => {
       if (contractId && month) combos.add(`${contractId}|${month}`);
     };
-    for (const s of settlements) add(s.contractId, monthKey(s.settleDate));
-    for (const i of invoices) add(i.contractId, periodMonthKey(i.settlePeriod) ?? monthKey(i.invoiceDate));
+    // 结算单 → 台账月份必须按**账期**（期末所在月），不能用自然月：起始日不是 1 日时
+    // 一张 10/28 的结算单属于 10/26–11/25 这一期，台账行应落在「2026-11」（第 21 轮审计）
+    const startDay = await this.startDayOf(projectId);
+    for (const s of settlements) add(s.contractId, periodKeyOf(startDay, s.settleDate));
+    for (const i of invoices) add(i.contractId, periodMonthKey(i.settlePeriod) ?? periodKeyOf(startDay, i.invoiceDate));
     for (const f of factoring) if (contractIds.has(f.contractId)) add(f.contractId, f.settlementMonth);
     for (const o of overdue) if (contractIds.has(o.contractId)) add(o.contractId, o.settlementMonth);
     let created = 0;
@@ -1213,6 +1224,14 @@ export class SettlementService {
       for (const [k, v] of Object.entries(auto)) {
         if (payload[k] === undefined || payload[k] === null) payload[k] = v;
       }
+      /**
+       * 「本月结算额」「结算次数」是**纯派生**列（业务口径 2026-10-22）：
+       * 只有一个来源 —— 该账期内的结算单（没有结算单就是 0 / 0），任何手填值一律无效。
+       * 其余自动列保留上面的「填充式」：系统算不出来时不抹掉用户填的值。
+       */
+      payload.monthSettleAmount = auto.monthSettleAmount;
+      payload.settleCount = auto.settleCount;
+      payload.settlementId = auto.settlementId;
     }
     // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
     // P2002 变成 500，这里先给出可读的 400
@@ -1502,10 +1521,10 @@ export class SettlementService {
     const yesNo = await this.dict.options('yes_no');
     const columns: TemplateColumn[] = [
       { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },
-      { label: '结算月份', key: 'settleMonth', required: true, type: 'text', width: 14, example: '2026-08', desc: '格式 YYYY-MM' },
-      { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '当月有结算单时以系统抓取值为准；无结算单时才用手填值' },
+      { label: '结算月份', key: 'settleMonth', required: true, type: 'text', width: 14, example: '2026-08', desc: '格式 YYYY-MM，填**账期标签**（期末所在月）：月度结算起始日不是 1 号时，一期跨两个自然月，按后一个月填' },
+      { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '**系统派生**：本期结算单实际金额合计（本期无结算单即为 0）。此列填了也不生效，导入时忽略' },
       { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72, desc: '当月有发票时以系统抓取值为准；无发票时才用手填值' },
-      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '系统按当月结算单张数抓取' },
+      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '**系统派生**：本期结算单张数（同一合同同一账期恒为 0 或 1）。此列填了也不生效，导入时忽略' },
       { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000 },
       { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000 },
       { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000 },
@@ -1552,9 +1571,10 @@ export class SettlementService {
           data: {
             contractId: contract.id,
             settleMonth: month,
-            monthSettleAmount: num(pickAny(r, '本月结算额', '本月结算额 a')),
+            // 「本月结算额」纯派生（业务口径 2026-10-22）：表里填的一律忽略，写入时由系统按账期结算单重算
+            monthSettleAmount: undefined,
             monthInvoiceAmount: num(r['本月开票额']),
-            settleCount: num(r['结算次数']),
+            settleCount: undefined, // 结算次数同样纯派生（该账期结算单张数）
             cumPurchaseAmount: num(pickAny(r, '开累采购额', '截止当月开累采购额')),
             startSettleAmount: num(r['开工结算额']),
             monthActualPurchase: num(pickAny(r, '本月实际采购额', '当月实际采购额 b')),
@@ -1578,6 +1598,10 @@ export class SettlementService {
               : {};
             const payload: any = { ...p.data };
             for (const [k, v] of Object.entries(auto)) if (payload[k] === undefined || payload[k] === null) payload[k] = v;
+            // 纯派生列强制用系统值（第 22 轮审计 P1-1 之后的补充：派生列不接受手填/表填）
+            payload.monthSettleAmount = auto.monthSettleAmount;
+            payload.settleCount = auto.settleCount;
+            payload.settlementId = auto.settlementId;
             await tx.settlementLedger.update({ where: { id: p.existingId }, data: { ...payload, version: { increment: 1 } } });
             updated += 1;
           } else {

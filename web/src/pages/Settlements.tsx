@@ -439,7 +439,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
             <Form.Item name="actualAmount" label="实际结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
-            <Form.Item name="settleDate" label="结算日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="settleDate" label="结算日期（决定归属哪一期）" tooltip="归属账期按「结算日期」所在期计算：月度结算起始日不是 1 号时一期跨两个自然月，按后一个月归集，同一合同同一期只允许一张结算单"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
             <Form.Item name="statusCode" label="结算状态"><DictSelect typeCode="settlement_status" /></Form.Item>
@@ -612,7 +612,7 @@ function LedgerTab({
   /** 筛选项（问题四：标准筛选区） */
   const extraFilters: ModuleListFilterField[] = [
     { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
-    { key: 'settleMonth', label: '结算月份', control: 'input', placeholder: 'YYYY-MM' },
+    { key: 'settleMonth', label: '结算月份（账期）', control: 'input', placeholder: 'YYYY-MM' },
     { key: 'isOnAccount', label: '是否挂账', control: 'select', options: dicts.yes_no ?? [] },
   ];
 
@@ -621,7 +621,7 @@ function LedgerTab({
     { title: '供应商名称', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
     { title: '合同名称', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
     { title: '合同编号', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
-    { title: '结算月份', dataIndex: 'settleMonth', width: 110 },
+    { title: '结算月份（账期）', dataIndex: 'settleMonth', width: 110 },
     { title: '本月结算额', dataIndex: 'monthSettleAmount', width: 130, align: 'right', render: money },
     { title: '本月开票额', dataIndex: 'monthInvoiceAmount', width: 130, align: 'right', render: money },
     { title: '结算次数', dataIndex: 'settleCount', width: 100 },
@@ -727,16 +727,16 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
           <Col xs={24} md={12}>
             <Form.Item
             name="settleMonth"
-            label="结算月份(YYYY-MM)"
+            label="结算月份（账期·期末所在月，YYYY-MM）"
             // 台账/看板按字符串精确匹配该字段，写成 2026-9 会让当月数字静默漏算
             rules={[{ required: true }, { pattern: /^\d{4}-\d{2}$/, message: '格式须为 YYYY-MM，如 2026-09' }]}
           >
             <Input placeholder="如 2026-09" />
           </Form.Item>
           </Col>
-          <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（自动抓取结算单）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（纯派生·本期结算单合计，不可编辑）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（自动统计）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（纯派生·本期结算单张数，恒为 0 或 1）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
