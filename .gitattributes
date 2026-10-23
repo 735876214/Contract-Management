@@ -1,3 +1,8 @@
+# 行尾统一 LF：本仓在 Linux 容器里跑，CRLF 会在 .sh 的 shebang、.env 的变量值里留下 \r。
+# `text=auto` 让 git 在提交时把文本文件归一化为 LF，检出时也用 LF，避免整文件行尾翻转的假 diff
+# （2026-10-23 一次 61 文件 / 16614 增 16614 删的纯噪音提交就是这么来的）。
+* text=auto eol=lf
+
 # 构建上下文里的脚本必须以 LF 提交/检出：CRLF 会让容器内的 shebang 变成
 # `#!/usr/bin/env bash\r`，启动时报 bad interpreter，容器直接退出。
 *.sh text eol=lf
