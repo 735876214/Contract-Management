@@ -93,7 +93,10 @@ export interface ScmProjectFacts {
   projectId: string;
   code: string;
   name: string;
+  /** 合同链条数（母合同 + 其补充协议算一条） */
   contractCount: number;
+  /** 已签合同份数（链上每一行都算一份：母合同与补充协议各一份，能对上台账） */
+  signedContractCount: number;
   signedYuan: number;
   settledYuan: number;
   paidYuan: number;
@@ -123,7 +126,10 @@ export interface ScmSupplierFacts {
 
 export interface ScmTotals {
   projectCount: number;
+  /** 合同链条数 */
   contractCount: number;
+  /** 已签合同份数（含补充协议） */
+  signedContractCount: number;
   signedYuan: number;
   settledYuan: number;
   paidYuan: number;

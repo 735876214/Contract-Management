@@ -502,6 +502,19 @@ export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleRes
   const settled = sumSettledByChainRoot(cumulative, rootOf);
   const paid = sumPaidByChainRoot(input.payments, rootOf);
   const unusable = chainRootsWithUnusableSettlement(cumulative, rootOf);
+  // 付款比例也是**整链口径**：分子分母都按链根累计了，比例却只取链根那一条合同，
+  // 一旦补充协议的比例与母合同不同（常见：母合同已完已结 100%、补充协议还在 80%），
+  // 上限就会算成一个两边都不成立的值。这里先把链内各家比例收集起来：
+  // 唯一才用，多于一个整链不判（宁可「未判定」也不给假上限）。
+  const bpsByRoot = new Map<string, Set<number>>();
+  for (const c of input.contracts) {
+    const root = rootOf(c.id) ?? c.id;
+    const bp = ratioToBp(c.currentPayRatio);
+    if (bp === null) continue;
+    const set = bpsByRoot.get(root) ?? new Set<number>();
+    set.add(bp);
+    bpsByRoot.set(root, set);
+  }
 
   for (const [rootId, paidCents] of paid) {
     const contract = contracts.get(rootId);
@@ -520,14 +533,23 @@ export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleRes
       pushSkip(ctx, `R2 未判定：${contractLabel(contract, rootId)} 尚无已结算金额（预付款无法据比例判定是否超付）`);
       continue;
     }
-    const bp = ratioToBp(contract.currentPayRatio);
-    if (bp === null) {
+    const bps = bpsByRoot.get(rootId);
+    if (!bps || bps.size === 0) {
       pushSkip(
         ctx,
         `R2 未判定：${contractLabel(contract, rootId)} 没有可用的付款比例（当前比例为空或不在 0~1）`,
       );
       continue;
     }
+    if (bps.size > 1) {
+      const shown = [...bps].map((v) => `${(v / 100).toFixed(2)}%`).join(' / ');
+      pushSkip(
+        ctx,
+        `R2 未判定：${contractLabel(contract, rootId)} 的母合同与补充协议付款比例不一致（${shown}），整链上限没有唯一值`,
+      );
+      continue;
+    }
+    const bp = [...bps][0];
     const limit = (settledCentsTotal * BigInt(bp)) / 10_000n;
     if (paidCents <= limit + ctx.tol.amount) continue;
     const over = paidCents - limit;
@@ -827,6 +849,9 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
     const facts: Record<string, string> = {
       付款手续单: procedure.code || procedure.id.slice(0, 8),
       付款日期: payDay,
+      // 一句话说清口径：手续单上记的是**整链开累**，与单合同台账对不上是正常的，
+      // 不写这句用户拿到面板只能去对单合同（2026-10-23 复核 P3）
+      口径: '母合同与补充协议合计（整链）',
       容差: centsToYuan(ctx.tol.amount),
     };
     if (snapSettled !== null) {

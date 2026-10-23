@@ -143,11 +143,18 @@ test('where 构造：合同收窄与日期区间各自落到正确的字段', ()
   // - 付款/手续/累计结算：只加上界（日期 ≤ 区间末），因为累计类规则必须看见区间之前已发生的单据；
   //   且**日期为空的历史单据要一并取回**（只按 `<= to` 取会让空日期单据凭空消失 → 分母偏小 → 假超付，2026-10-23 审计）；
   // - 发票/收领单：按挂靠的结算单日期只加上界，两者同一口径。
+  // 付款：`payDate` 为空但有 `payMonth` 的月度付款同样要算进累计已付——只放 `payDate: null`
+  // 会把它们连月份一起丢（累计已付偏小 → R2 假安全），所以空日期分支再按月份上界兜一层
   assert.deepEqual(w.paymentWhere, {
     projectId: 'proj-1',
     contractId: 'C9',
-    OR: [{ payDate: { lte: to } }, { payDate: null }],
+    OR: [
+      { payDate: { lte: to } },
+      { payDate: null, OR: [{ payMonth: { lte: '2026-03' } }, { payMonth: null }] },
+    ],
   });
+  // 付款手续只有 `payDate`（`PaymentProcedure` 没有 `payMonth`）：套月份条件会
+  // `Unknown argument payMonth`，纯函数 spec 看不出来，`anomaly-payment.int.spec.ts` 会炸
   assert.deepEqual(w.procedureWhere, {
     projectId: 'proj-1',
     contractId: 'C9',
@@ -158,15 +165,17 @@ test('where 构造：合同收窄与日期区间各自落到正确的字段', ()
     contractId: 'C9',
     OR: [{ settleDate: { lte: to } }, { settleDate: null }],
   });
+  // 发票/收领单跟着**结算单日期**只加上界；结算日期为空的历史结算单同样要放进来看它的票，
+  // 否则「结算算进分母、票却不算」→ R4 静默漏判（2026-10-23 审计）
   assert.deepEqual(w.invoiceWhere, {
     projectId: 'proj-1',
     settlementId: { not: null },
-    settlement: { contractId: 'C9', settleDate: { lte: to } },
+    settlement: { contractId: 'C9', OR: [{ settleDate: { lte: to } }, { settleDate: null }] },
   });
   assert.deepEqual(w.receiptWhere, {
     projectId: 'proj-1',
     settlementId: { not: null },
-    settlement: { contractId: 'C9', settleDate: { lte: to } },
+    settlement: { contractId: 'C9', OR: [{ settleDate: { lte: to } }, { settleDate: null }] },
   });
 });
 

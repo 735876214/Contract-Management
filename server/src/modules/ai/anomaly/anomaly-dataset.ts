@@ -162,21 +162,45 @@ export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): A
     : {};
   // 付款/手续自带日期，同样只设上界（否则区间末之后的付款会被算进累计）。
   // `payDate` 为空的付款按 `payMonth` 兜底参与判定（rules-payment 里已有月份口径），
-  // 因此这里要把它取出来，不能靠日期条件把它过滤掉。
-  const paidBy: any = range.to ? { OR: [{ payDate: { lte: range.to } }, { payDate: null }] } : {};
+  // 因此这里要把它取出来——但**必须同时按月份卡上界**：只写 `payDate: null` 会把
+  // 「没有付款日、账期却在区间末之后」的预付/在建付款整批取回来，`sumPaidByChainRoot`
+  // 又不看 `payMonth`，于是未来账期的钱被算进「累计已付」→ 假超付（HIGH，金额结论直接错）
+  // 且 R3 会在它真正所属的区间再报一次（跨期重复误报）。2026-10-23 复核 P1。
+  const monthUpper = range.to
+    ? `${range.to.getFullYear()}-${String(range.to.getMonth() + 1).padStart(2, '0')}`
+    : null;
+  const paidBy: any = range.to
+    ? {
+        OR: [
+          { payDate: { lte: range.to } },
+          {
+            payDate: null,
+            OR: [{ payMonth: { lte: monthUpper } }, { payMonth: null }],
+          },
+        ],
+      }
+    : {};
+  // 付款手续**没有 payMonth 字段**（`PaymentProcedure` 只有 payDate）：
+  // 给它套月份条件会让 Prisma 直接报 `Unknown argument payMonth`——
+  // 纯函数 spec 看不见、`test:int` 一跑就炸（2026-10-23 复核）
+  const procedurePaidBy: any = range.to ? { OR: [{ payDate: { lte: range.to } }, { payDate: null }] } : {};
   return {
     contractWhere: { projectId, ...byContractId },
     settlementWhere: { ...scoped, ...windowWhere },
     settlementCumulativeWhere: { ...scoped, ...cumulativeWhere },
     paymentWhere: { ...scoped, ...paidBy },
-    procedureWhere: { ...scoped, ...paidBy },
-    // 发票/收领单按结算单间接挂项目；指定合同时再收窄一层；累计口径只设上界
+    procedureWhere: { ...scoped, ...procedurePaidBy },
+    // 发票/收领单按结算单间接挂项目；指定合同时再收窄一层；累计口径只设上界。
+    // 上界必须与 `cumulativeWhere` 同口径地容许「结算日期为空」：结算单本身进了累计口径
+    // （金额算进分母），挂在它上面的发票/收领单却被关系条件 `settleDate <= to` 滤掉，
+    // 就会出现「结算算进去了、票却不算」的错配 → R4 静默漏判、样本计数不可比
+    // （2026-10-23 审计）
     invoiceWhere: {
       projectId,
       settlementId: { not: null },
       settlement: {
         ...byContract,
-        ...(range.to ? { settleDate: { lte: range.to } } : {}),
+        ...(range.to ? { OR: [{ settleDate: { lte: range.to } }, { settleDate: null }] } : {}),
       },
     },
     // 收领单与发票取同一口径：只设上界（原来完全不带日期界，样本里的「收领单」会把
@@ -188,7 +212,7 @@ export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): A
         ? {
             settlement: {
               ...byContract,
-              ...(range.to ? { settleDate: { lte: range.to } } : {}),
+              ...(range.to ? { OR: [{ settleDate: { lte: range.to } }, { settleDate: null }] } : {}),
             },
           }
         : {}),

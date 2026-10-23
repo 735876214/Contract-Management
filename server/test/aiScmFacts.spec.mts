@@ -19,6 +19,7 @@ import {
   buildScmFacts,
   scmFactNumbers,
   scmFactsToMarkdown,
+  scmPctNumbers,
 } from '../src/modules/ai/analysis/scm-facts.ts';
 import { parseScmConfig } from '../src/modules/ai/analysis/scm-config.ts';
 import { DEFAULT_SCM_TOLERANCES, type ScmRows } from '../src/modules/ai/analysis/scm-types.ts';
@@ -221,14 +222,31 @@ test('scmFactsToMarkdown：四个小节齐全，关键数字逐字出现', () =>
   assert.ok(md.includes('甲建设'));
 });
 
-test('scmFactNumbers：覆盖 totals/projects/suppliers 与项目编号里的数字', () => {
+test('scmFactNumbers：只放行金额与计数，编号/基准日里的数字不放行（回退即失败）', () => {
   const facts = buildScmFacts(fixture(), AS_OF);
   const nums = scmFactNumbers(facts);
   assert.ok(nums.includes(1100000));
   assert.ok(nums.includes(380000));
   assert.ok(nums.includes(105.3));
-  assert.ok(nums.includes(2026)); // 基准日 / 项目编号
-  assert.ok(nums.includes(1)); // XM-2026-01 的 01
+  // 反例：基准日 2026-10-23 与项目编号 XM-2026-01 里的数字**不得**进白名单。
+  // 放行它们等于给「2026 年要新增 23 份合同」这类编造开绿灯
+  // （2026-10-23 审计 P2：原实现把 asOf 年月日与项目编号里的数字一起放行）
+  assert.ok(!nums.includes(2026), `不应放行日期/编号里的 2026：${JSON.stringify(nums)}`);
+});
+
+test('对账：风险文案里的阈值百分比不算编造，正文里凭空的大额仍被拦（P1 回归）', async () => {
+  const { auditNumbers, numbersInText } = await import('../src/modules/ai/report-facts.ts');
+  const facts = buildScmFacts(fixture(), AS_OF);
+  const allowed = scmFactNumbers(facts);
+  // 模型把风险条连同「（警戒线 50%）」一起转述 → 阈值必须已被放行（原实现把 % 整段剔掉，
+  // 于是「最该用 AI 的集中度告警」每次都判成编造、整份报告被丢弃）
+  assert.deepEqual(auditNumbers('集中度超过警戒线 50%，请关注。', allowed, scmPctNumbers(facts)).unknown, []);
+  // 但凭空写一个大额（既不在事实、也不在阈值里）仍要被抓出来
+  assert.deepEqual(auditNumbers('签约额已达 9876543 元。', allowed, scmPctNumbers(facts)).unknown, ['9876543']);
+  // 阈值数字只在**百分数写法**下放行：写成「50 万元」仍是编造
+  assert.deepEqual(auditNumbers('尚有 50 万元未开票。', allowed, scmPctNumbers(facts)).unknown, ['50万']);
+  // 用户自己补充说明里的数字不算编造（它已经进了提示词）
+  assert.deepEqual(numbersInText('另有一笔 5000 元待补'), [5000]);
 });
 
 test('parseScmConfig：非法参数回落默认并留人话，不抛错', () => {

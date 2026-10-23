@@ -21,6 +21,7 @@ import {
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
 import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
+import { scanNumbers, stripNonData } from '../report-facts.ts';
 import {
   DEFAULT_SCM_TOLERANCES,
   type ScmFacts,
@@ -110,8 +111,19 @@ export function buildScmFacts(
       if (!parent) return { rootId: String(cur.id), broken: true };
       cur = parent;
     }
-    return { rootId: String(cur?.id ?? id), broken: false };
+    // 追到深度上限还没找到链根：数据成环或层级异常。此时 `cur` 只是中途节点，
+    // 拿它当链根会把一条链拆成多条、金额重复计量，所以按「断链」处理
+    // （2026-10-23 复核 P3）
+    return { rootId: String(cur?.id ?? id), broken: true };
   };
+
+  /** 每条链有几行合同（链根 + 补充协议）：用来区分「有补充协议」与「单份合同」 */
+  const rootRowCount = new Map<string, number>();
+  for (const row of rows.contracts) {
+    const { rootId, broken } = resolveRoot(String(row.id));
+    if (broken) continue;
+    rootRowCount.set(rootId, (rootRowCount.get(rootId) ?? 0) + 1);
+  }
 
   const chainRoots = new Map<
     string,
@@ -119,6 +131,10 @@ export function buildScmFacts(
   >();
   const brokenChainByProject = new Map<string, number>();
   const unsignedChainByProject = new Map<string, number>();
+  const unsignedSupplementByProject = new Map<string, number>();
+  const signedRowByProject = new Map<string, number>();
+  /** 已经处理过的链根：**按链去重**，否则一条未签链上的母合同 + 每个补充协议各 +1（2026-10-23 复核 P2） */
+  const seenRoots = new Set<string>();
   for (const row of rows.contracts) {
     const { rootId, broken } = resolveRoot(String(row.id));
     if (broken) {
@@ -126,17 +142,29 @@ export function buildScmFacts(
       brokenChainByProject.set(proj, (brokenChainByProject.get(proj) ?? 0) + 1);
       continue;
     }
-    if (chainRoots.has(rootId)) continue;
+    if (seenRoots.has(rootId)) continue;
+    seenRoots.add(rootId);
     const rootRow = allById.get(rootId);
     if (!rootRow) continue;
     // 链根没签：整条链都不算签约额（补充协议本身不是一份合同，不能单独计）
     if (!isSignedContract(rootRow)) {
       const proj = String(rootRow.projectId);
       unsignedChainByProject.set(proj, (unsignedChainByProject.get(proj) ?? 0) + 1);
+      // 只有链里真有补充协议时，才说「其补充协议金额未计入」——单份草稿合同
+      // 这么讲是错的，草稿多的项目净是噪声（2026-10-23 复核 P3）
+      if ((rootRowCount.get(rootId) ?? 1) > 1) {
+        unsignedSupplementByProject.set(proj, (unsignedSupplementByProject.get(proj) ?? 0) + 1);
+      }
       continue;
     }
     const chain = resolveChainAmounts(signedChainRows, rootId);
     if (!chain.rootId) continue;
+    // 「已签合同 N 份」要能对上台账：链上每行算一份（母合同 + 补充协议），
+    // 而 `contractCount` 数的是**链**（2026-10-23 复核 P2）
+    signedRowByProject.set(
+      String(rootRow.projectId),
+      (signedRowByProject.get(String(rootRow.projectId)) ?? 0) + (rootRowCount.get(rootId) ?? 1),
+    );
     chainRoots.set(rootId, {
       projectId: rootRow.projectId,
       supplierId: rootRow.supplierId ?? null,
@@ -237,6 +265,7 @@ export function buildScmFacts(
       code: p.code,
       name: p.name,
       contractCount: countByProject.get(p.id) ?? 0,
+      signedContractCount: signedRowByProject.get(p.id) ?? 0,
       signedYuan: Number(centsToYuan(signedCents)),
       settledYuan: Number(centsToYuan(settledCents)),
       paidYuan: Number(centsToYuan(paidCents)),
@@ -260,6 +289,7 @@ export function buildScmFacts(
   const totals: ScmTotals = {
     projectCount: projects.length,
     contractCount: projects.reduce((a, p) => a + p.contractCount, 0),
+    signedContractCount: projects.reduce((a, p) => a + p.signedContractCount, 0),
     signedYuan: Number(centsToYuan(totalSignedCents)),
     settledYuan: Number(centsToYuan(totalSettledCents)),
     paidYuan: Number(centsToYuan(totalPaidCents)),
@@ -296,6 +326,7 @@ export function buildScmFacts(
     risks: buildRisks(projects, totals, suppliers, tol, unknownAmountByProject, {
       broken: brokenChainByProject,
       unsigned: unsignedChainByProject,
+      unsignedSupplements: unsignedSupplementByProject,
       skippedMilestones: skippedMilestoneByProject,
     }),
     empty,
@@ -315,6 +346,8 @@ function buildRisks(
   chainGaps: {
     broken?: Map<string, number>;
     unsigned?: Map<string, number>;
+    /** 未签链里**确实带补充协议**的条数：只有这些才谈得上「补充协议金额未计入」 */
+    unsignedSupplements?: Map<string, number>;
     skippedMilestones?: Map<string, number>;
   } = {},
 ): string[] {
@@ -367,7 +400,13 @@ function buildRisks(
   for (const [projectId, count] of chainGaps.unsigned ?? []) {
     const p = projects.find((x) => x.projectId === projectId);
     if (!p) continue;
-    risks.push(`${p.code}：有 ${count} 条合同链的主合同还没签，其补充协议金额未计入签约额（补充协议不能单独当一份合同）`);
+    const withSupp = chainGaps.unsignedSupplements?.get(projectId) ?? 0;
+    const onlyRoot = count - withSupp;
+    risks.push(
+      `${p.code}：有 ${count} 条合同链的主合同还没签，整链未计入签约额（补充协议不能单独当一份合同）` +
+        (withSupp > 0 ? `；其中 ${withSupp} 条带补充协议，其增量同样未计入` : '') +
+        (onlyRoot > 0 ? `；另有 ${onlyRoot} 条是尚未签章的普通合同` : ''),
+    );
   }
   for (const [projectId, count] of chainGaps.skippedMilestones ?? []) {
     const p = projects.find((x) => x.projectId === projectId);
@@ -397,7 +436,7 @@ export function scmFactsToMarkdown(facts: ScmFacts): string {
 
   lines.push('## 一、总体情况');
   lines.push('');
-  lines.push(`- 在管项目 **${t.projectCount}** 个，已签合同 **${t.contractCount}** 份`);
+  lines.push(`- 在管项目 **${t.projectCount}** 个，已签合同 **${t.signedContractCount}** 份（${t.contractCount} 条合同链，母合同与其补充协议算一条）`);
   lines.push(`- 签约额 ${fmtYuan(t.signedYuan)} 元，结算额 ${fmtYuan(t.settledYuan)} 元（结算率 ${fmtPct(t.settleRatioPct)}）`);
   lines.push(`- 付款额 ${fmtYuan(t.paidYuan)} 元（付款率 ${fmtPct(t.payRatioPct)}），未付 ${fmtYuan(t.unpaidYuan)} 元`);
   lines.push(`- 开票额 ${fmtYuan(t.invoicedYuan)} 元（开票率 ${fmtPct(t.invoiceRatioPct)}），未开票 ${fmtYuan(t.uninvoicedYuan)} 元`);
@@ -455,6 +494,7 @@ export function scmFactNumbers(facts: ScmFacts): number[] {
   for (const key of [
     'projectCount',
     'contractCount',
+    'signedContractCount',
     'signedYuan',
     'settledYuan',
     'paidYuan',
@@ -474,6 +514,7 @@ export function scmFactNumbers(facts: ScmFacts): number[] {
   // （2026-10-23 审计 P2）
   for (const p of facts.projects) {
     push(p.contractCount);
+    push(p.signedContractCount);
     push(p.signedYuan);
     push(p.settledYuan);
     push(p.paidYuan);
@@ -495,11 +536,33 @@ export function scmFactNumbers(facts: ScmFacts): number[] {
   // 而风险文案里就有「开票缺口 60.5 个百分点」「集中度警戒线 50%」「有 2 份合同未填金额」。
   // 原实现只放行 facts 的结构化字段，于是「有风险」＝「模型必然被判编数字」——
   // 越该报警的场景越用不上 AI，方向正好反了。
-  // 但百分比阈值不能顺带放行「同一个数当金额」：阈值 `50%` 里的 50 会让正文的
-  // 「50 万元」也混过去，所以按百分号形态先剔掉（2026-10-23 审计 P2）
+  //
+  // 但两条口子要堵住（2026-10-23 复核）：
+  // 1) 百分比阈值（`警戒线 50%`）**只在百分数写法下**放行，否则同一个数当金额也能过
+  //    ——见 `scmPctNumbers`，这里先按百分号形态剔掉；
+  // 2) 风险文案里带项目编号（`XM-2026-02：……`），直接抽数字会把 `2026`、`01→1`
+  //    重新放行，与「编号里的数字不放行」自相矛盾，所以先过 `stripNonData`。
   for (const risk of facts.risks ?? []) {
-    const withoutPct = String(risk).replace(/\d+(?:\.\d+)?\s*[%％]/g, ' ');
-    for (const n of withoutPct.match(/\d+(?:\.\d+)?/g) ?? []) push(Number(n));
+    const cleaned = stripNonData(String(risk)).replace(/\d+(?:\.\d+)?\s*[%％]/g, ' ');
+    for (const token of scanNumbers(cleaned)) push(token.value);
+  }
+  return out;
+}
+
+/**
+ * 只在**百分数写法**下才放行的阈值（「集中度警戒线 50%」「开票缺口 20 个百分点」）。
+ *
+ * 提示词硬性要求「风险一节只许转述清单里的条目」，而清单本身就印着警戒线：
+ * 阈值不进白名单，则模型照抄自家阈值也会被判成「编造数字」→ 整份报告丢弃
+ * （2026-10-23 复核 P1）。单独一张表，是为了不让 `50` 顺带放行正文的「50 万元」。
+ */
+export function scmPctNumbers(facts: ScmFacts): number[] {
+  const out: number[] = [];
+  for (const risk of facts.risks ?? []) {
+    for (const token of scanNumbers(stripNonData(String(risk)))) {
+      if (!token.isPct) continue;
+      out.push(token.value, Math.round(token.value));
+    }
   }
   return out;
 }

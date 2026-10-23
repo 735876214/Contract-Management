@@ -386,10 +386,11 @@ export class FulfillmentService {
     // ---- C7 专用口径：已定案终期结算（含已「完已结」而退出 C1–C6 的合同） ----
     // 「已出终期结算却仍有未完成节点」本来就不可能出现在 C1–C6 的主口径里（那批合同已被排除），
     // 所以要单独取一次，否则这条规则永远不触发（2026-10-23 审计）
-    const settledAll = await this.prisma.finalSettlement.findMany({
-      where: { projectId, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
+    const settledRaw = await this.prisma.finalSettlement.findMany({
+      where: { projectId },
       select: { id: true, contractId: true, statusCode: true, settledAt: true },
     });
+    const settledAll = settledRaw.filter((f) => f.statusCode === FINAL_SETTLEMENT_STATUS.SETTLED);
     // 全项目合同骨架（窄列）用来解析链根：下钻时要判断某张终期结算是否属于这条链
     const skeleton = await this.prisma.contract.findMany({
       where: { projectId },
@@ -414,8 +415,22 @@ export class FulfillmentService {
       return drillRoot ? rootOf(cid) === drillRoot : true;
     });
     sample['终期结算'] = settledInScope.length;
+    // 未定案（附件没齐）的终期结算：C7 不判，但必须说出来——原来只看 SETTLED，
+    // 「有终期结算但还没定案」这件事在面板上彻底消失（2026-10-23 复核 P2）
+    const unsettledInScope = settledRaw.filter((f) => {
+      const cid = String(f.contractId ?? '');
+      if (!cid) return false;
+      if (drillRoot && rootOf(cid) !== drillRoot) return false;
+      return f.statusCode !== FINAL_SETTLEMENT_STATUS.SETTLED;
+    });
+    if (unsettledInScope.length) {
+      warnings.push(
+        `另有 ${unsettledInScope.length} 份终期结算尚未定案（附件未齐），C7 不判定其是否「已结未完」`,
+      );
+    }
 
-    const knownIds = new Set(contractIds);    const outsideIds = [...new Set(settledInScope.map((f) => String(f.contractId ?? '')))].filter(
+    const knownIds = new Set(contractIds);
+    const outsideIds = [...new Set(settledInScope.map((f) => String(f.contractId ?? '')))].filter(
       (id) => id && !knownIds.has(id),
     );
     let settledContracts: FulfillmentContractRow[] = [];

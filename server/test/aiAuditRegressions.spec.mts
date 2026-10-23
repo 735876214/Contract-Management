@@ -302,3 +302,73 @@ test('对账：「50000万」不能因为允许集合里有 5 就通过（万倍
 test('对账：「逾期 10-15 天」是区间不是负数，不得被抽成 -15 判编造', () => {
   assert.deepEqual(auditNumbers('有 3 份合同逾期 10-15 天。', [3, 10, 15]).unknown, []);
 });
+
+test('R2 整链比例不一致：不得拿链根那一条的比例硬算上限（宁可未判定）', () => {
+  // 母合同已完已结（100%）、补充协议还在 80%：两者相乘都不成立，
+  // 用链根的 100% 判整链会把真超付放过，用 80% 又会把正常付款报成超付
+  const input: PaymentAnomalyInput = {
+    contracts: [
+      { id: 'C1', code: 'HT-2026-003', status: 'SIGNED', currentPayRatio: 1, amount: '1000.00' },
+      { id: 'C2', code: 'HT-2026-003-B1', status: 'SIGNED', parentContractId: 'C1', changeAmount: '0.00', currentPayRatio: 0.8 },
+    ],
+    settlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    cumulativeSettlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    payments: [{ id: 'P1', contractId: 'C2', amount: '1200.00', payDate: new Date('2026-03-10'), statusCode: 'PAID' }],
+  };
+  const ctx = payCtx();
+  const r = r2Overpay(input, ctx);
+  assert.deepEqual(r.findings, [], `比例不唯一时不得出结论：${JSON.stringify(r.findings)}`);
+  assert.ok(
+    ctx.notEvaluated.some((s) => s.includes('付款比例不一致')),
+    `必须说明「比例不一致」，实际 ${JSON.stringify(ctx.notEvaluated)}`,
+  );
+});
+
+test('R2 比例只在补充协议上填了：链级口径要认这一条，不能判「没有可用比例」', () => {
+  const input: PaymentAnomalyInput = {
+    contracts: [
+      { id: 'C1', code: 'HT-2026-004', status: 'SIGNED', currentPayRatio: null, amount: '1000.00' },
+      { id: 'C2', code: 'HT-2026-004-B1', status: 'SIGNED', parentContractId: 'C1', changeAmount: '0.00', currentPayRatio: 0.8 },
+    ],
+    settlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    cumulativeSettlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    payments: [{ id: 'P1', contractId: 'C2', amount: '900.00', payDate: new Date('2026-03-10'), statusCode: 'PAID' }],
+  };
+  const ctx = payCtx();
+  const r = r2Overpay(input, ctx);
+  assert.equal(r.findings.length, 1, `900 > 1000×80%，必须命中：${JSON.stringify(r.findings)}`);
+  assert.ok(r.findings[0].facts.付款比例.includes('80.00%'), JSON.stringify(r.findings[0].facts));
+});
+
+test('C7 主口径里的合同也有终期结算时，它的未完成节点不能被丢掉', () => {
+  // 合同 C8 仍在履行（主口径里），但终期结算已定案而 execStatus 还没同步；
+  // 另一家 C9 已完已结、走 settledScope 进来。两家的未完成节点都必须被 C7 看到。
+  const input: FulfillmentInput = {
+    contracts: [{ id: 'C8', code: 'HT-2026-008', amount: '500.00', execStatus: 'IN_PROGRESS' }],
+    milestones: [
+      { id: 'm8', contractId: 'C8', name: '主体验收', planDate: new Date('2026-08-01'), statusCode: 'PENDING', actualDate: null },
+    ],
+    finalSettlements: [
+      { id: 'FS8', contractId: 'C8', statusCode: 'SETTLED', settledAt: new Date('2026-09-01') },
+      { id: 'FS9', contractId: 'C9', statusCode: 'SETTLED', settledAt: new Date('2026-09-02') },
+    ],
+    settledScope: {
+      contracts: [{ id: 'C9', code: 'HT-2026-009', amount: '500.00', execStatus: 'DONE_SETTLED' }],
+      milestones: [
+        { id: 'm9', contractId: 'C9', name: '竣工验收', planDate: new Date('2026-08-02'), statusCode: 'PENDING', actualDate: null },
+      ],
+    },
+  };
+  const r = evaluateFulfillmentAnomalies(input);
+  const ids = r.findings.filter((f) => f.code === 'C7_SETTLED_UNFINISHED').map((f) => f.entityId).sort();
+  assert.deepEqual(ids, ['C8', 'C9'], `两家都要命中，实际 ${JSON.stringify(r.findings.map((f) => `${f.code}:${f.entityId}`))}`);
+});
+

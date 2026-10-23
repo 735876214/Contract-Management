@@ -75,13 +75,33 @@ async function main(): Promise<void> {
   if (!rows) throw new Error('数据集缺少 rows：评分必须重算规则，不接受只有 candidates 的文件');
 
   // 评分必须用**导出时同一套口径**重算：窗口（区间/单合同）与容差都从数据集 meta 里取，
-  // 否则「线上有区间、评分没有」会让 R3 之类按窗口裁剪的规则得出另一套结论
+  // 否则「线上有区间、评分没有」会让 R3 之类按窗口裁剪的规则得出另一套结论。
+  // 日期必须还原成**本地当日起止**——导出侧写的是 dayStart/dayEnd，
+  // 这里若用 `new Date('YYYY-MM-DD')`（UTC 零点）在负时区会整体错一天
+  const dayStart = (raw?: string | null): Date | null => {
+    if (!raw) return null;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) throw new Error(`数据集 meta 里的日期不合法：${raw}`);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  };
+  const dayEnd = (raw?: string | null): Date | null => {
+    if (!raw) return null;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) throw new Error(`数据集 meta 里的日期不合法：${raw}`);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  };
   const range = {
-    from: dataset.meta.from ? new Date(dataset.meta.from) : null,
-    to: dataset.meta.to ? new Date(dataset.meta.to) : null,
+    from: dayStart(dataset.meta.from),
+    to: dayEnd(dataset.meta.to),
     contractId: dataset.meta.contractId ?? null,
     contractIds: Array.isArray(dataset.meta.contractIds) ? dataset.meta.contractIds : null,
   };
+  if (dataset.meta.enabled === false) {
+    // 线上停用时接口直接返回空命中，拿停用期导出的数据算召回率没有意义
+    console.warn(
+      '⚠ 导出时预警在系统参数里处于**停用**状态：该数据集不代表线上行为（线上会直接返回空命中），结论仅供参考。',
+    );
+  }
   const { input, sample } = buildPaymentAnomalyInput(rows, range);
   const tolerances =
     dataset.meta.tolerances && typeof dataset.meta.tolerances.amount === 'string'
@@ -91,6 +111,10 @@ async function main(): Promise<void> {
           jaccard: Number(dataset.meta.tolerances.jaccard),
         }
       : undefined;
+  if (!tolerances) {
+    // 静默回落默认容差 = 用另一套判据评估线上，必须提示
+    console.warn('⚠ 数据集 meta 里没有可解析的 tolerances，已回落到代码默认容差：结论可能与线上判据不一致。');
+  }
   const evaluation = evaluatePaymentAnomalies({ ...input, ...(tolerances ? { tolerances } : {}) });
   const report = scoreFindings(evaluation.findings, truth);
 

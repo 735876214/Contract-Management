@@ -191,8 +191,14 @@ export function b1DropAnomalies(input: QuoteTaskInput, tol: QuoteTolerances): Qu
     }
   }
   if (checked === 0) {
-    out.notEvaluated.push(`B1 未判定：${taskNoOf(input)} 没有同时填了两轮报价的单位`);
+    out.notEvaluated.push(
+      `B1 未判定：${taskNoOf(input)} 没有同时填了两轮报价的单位${
+        skipped > 0 ? `（${skipped} 家缺一轮报价或金额为 0）` : ''
+      }`,
+    );
   }
+  // 注意：**不做「比了几家」的部分提示**。报价还在进行中时「部分单位只交了首轮」是正常状态，
+  // 把它写成「未判定」会让每张在谈的任务都变黄灯，反而掩护真问题（2026-10-23 复核）。
   return out;
 }
 
@@ -331,12 +337,6 @@ interface MergedRow {
   market: Cents | null;
   info: Cents | null;
   qty: Units | null;
-}
-
-/** 按物资把「总清单行（控制价/市场价/信息价/数量）」与「对比表行（成交单价）」合并 */
-function mergeRows(input: QuoteTaskInput): MergedRow[] {
-  const merged = mergeRowsChecked(input);
-  return merged.rows;
 }
 
 /**

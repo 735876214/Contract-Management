@@ -34,6 +34,7 @@ import {
   buildScmFacts,
   scmFactNumbers,
   scmFactsToMarkdown,
+  scmPctNumbers,
 } from './scm-facts.ts';
 import { buildScmMessages, missingScmSections, SCM_SECTIONS } from './scm-prompt.ts';
 import type { ScmFacts, ScmRows, ScmTolerances } from './scm-types.ts';
@@ -131,6 +132,7 @@ export class ScmService {
         totals: {
           projectCount: 0,
           contractCount: 0,
+          signedContractCount: 0,
           signedYuan: 0,
           settledYuan: 0,
           paidYuan: 0,
@@ -205,7 +207,8 @@ export class ScmService {
 
       // 对账：一个对不上的数字就整份丢弃——全景报告是给领导看的，
       // 「大部分数字对、个别是编的」比整份退回模板更危险（读者无法分辨哪句可信）
-      const audit = auditNumbers(res.text, scmFactNumbers(facts));
+      // 阈值（警戒线 50% 等）走 scmPctNumbers：只在百分数写法下放行，50 万元 不算对账通过
+      const audit = auditNumbers(res.text, scmFactNumbers(facts), scmPctNumbers(facts));
       if (audit.unknown.length) {
         // 用户没拿到模型版报告（退回确定性汇总）⇒ 与「模型返回不可用」同样退额度
         this.quota.refund(userId);

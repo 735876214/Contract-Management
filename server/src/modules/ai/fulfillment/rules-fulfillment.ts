@@ -568,12 +568,14 @@ export function evaluateFulfillmentAnomalies(input: FulfillmentInput): Fulfillme
   const milestones = input.milestones ?? [];
 
   // C7 要看「已出终期结算」的合同——它们多数已退出 C1–C6 主口径，得单独补一份口径给它，
-  // 否则候选集恒空、规则永远不触发（2026-10-23 审计）
+  // 否则候选集恒空、规则永远不触发（2026-10-23 审计）。
+  // ⚠️ 节点必须**两边合并**：主口径里的合同（仍在履行，但终期结算已定案而 execStatus 还没同步）
+  // 也有自己的未完成节点，只喂 settledScope 的节点会让它们凭空变成「没有未完成节点」→ C7 漏判。
   const c7Input: FulfillmentInput = input.settledScope
     ? {
         ...input,
         contracts: [...(input.contracts ?? []), ...input.settledScope.contracts],
-        milestones: input.settledScope.milestones,
+        milestones: [...(input.milestones ?? []), ...input.settledScope.milestones],
       }
     : input;
   const c7Contracts = new Map(contracts);

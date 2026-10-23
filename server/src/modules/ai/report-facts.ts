@@ -162,7 +162,12 @@ export function factNumbers(f: ReportFacts): number[] {
   out.push(t.contracts, t.executing, t.contractAmount, t.settlementAmount, t.paymentAmount, t.invoiceAmount, t.unpaid);
   for (const d of Object.values(f.deltas)) {
     out.push(d.now, d.prev);
-    if (d.pct !== null) out.push(Math.abs(d.pct)); // 「增长 25%」与「下降 25%」都允许
+    if (d.pct !== null) {
+      // 环比带符号（`-25.00%`）而模型既可以写「下降 25%」也可以照抄 `-25.00%`：
+      // 只放行绝对值，就会把系统自己算的负数判成「编造数字」，正文一出现下滑就误报
+      // （2026-10-23 复核 P1）。正负两个值都放行。
+      out.push(d.pct, Math.abs(d.pct));
+    }
   }
   if (f.project.selfContractAmount !== null && f.project.selfContractAmount !== undefined) {
     out.push(f.project.selfContractAmount);
@@ -206,31 +211,17 @@ export function auditReport(
   return auditNumbers(markdown, [...factNumbers(facts), ...numbersInText(extraText)]);
 }
 
-/** 从自由文本里抽出数字（与 `auditNumbers` 同一套扫描口径：去千分位、`万` ×10000） */
-export function numbersInText(text?: string | null): number[] {
-  if (!text) return [];
-  const out: number[] = [];
-  const re = /(?<![\dA-Za-z-])(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(String(text))) !== null) {
-    const value = Number(m[1].replace(/,/g, ''));
-    if (!Number.isFinite(value)) continue;
-    out.push(m[2] ? value * 10000 : value);
-  }
-  return out;
-}
-
 /**
- * **按「允许的数字集合」对账**（7-11 供应链全景复用同一个扫描器，避免两套正则各自演化）。
- * 口径与 `auditReport` 完全一致：日期整段抹掉、有序列表序号抹掉、`万` 后缀按 10000 倍折算、
- * 百分数允许取整（24.97% 写成 25% 不算编造）。
+ * 抹掉**不是数据**的数字段：日期、单据/项目编号、有序列表序号。
+ *
+ * 三个入口（`auditNumbers`、`numbersInText`、`scmFactNumbers`）必须共用这一条管线：
+ * 各写一套正则就会各自演化——2026-10-23 复核发现 `numbersInText` 漏了这一步，
+ * 用户补充说明里的「2026年11月30日」把 2026/11/30 变成三个合法数字，
+ * 于是正文随口写「2026 万元」也能过对账。
  */
-export function auditNumbers(markdown: string, allowedInput: number[]): { unknown: string[]; checked: number } {
-  const allowed = allowedInput;
-  // 日期（2026-08-01）里的数字不是金额，先整段抹掉，否则 -08、-01 会被当成负数
-  // 有序列表的序号（`1. ` / `2) `）也不是数据：模型被要求用列表写材料，
-  // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）
-  const text = String(markdown ?? '')
+export function stripNonData(input: string): string {
+  return String(input ?? '')
+    // 日期（2026-08-01）里的数字不是金额，先整段抹掉，否则 -08、-01 会被当成负数
     .replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, ' ')
     // 中文写法的日期（`2026 年 10 月 23 日`）也不是金额：不抹掉的话，年、月、日会
     // 变成三个「允许数字」，正文里随口写的「2026 年要新增……」也能过对账
@@ -239,37 +230,74 @@ export function auditNumbers(markdown: string, allowedInput: number[]): { unknow
     // 只抹日期不够——编号里的「-2026」会被当成负数，于是模模糊糊抄了公司自己的编号
     // 反而判「编造数字」，连确定性模板串都过不了自己的对账。
     .replace(/[A-Za-z]{1,12}(?:-[0-9]+)+/g, ' ')
-    // **纯数字编号**（`2026-018`）同理：首段四位数字才按编号处理，`10-15 天` 这类
-    // 区间仍按两个数字参与对账（2026-10-23 审计）
-    .replace(/(?<![\dA-Za-z])\d{4}-\d{1,4}(?![\dA-Za-z])/g, ' ')
+    // **纯数字编号**（`2026-018`）同理，但只认**年份形状**的首段：
+    // 原来写 `\d{4}-\d{1,4}`，把「1500-2000 元」「1200-1300 万元」也整段抹掉了，
+    // 区间两端都不再参与对账（2026-10-23 复核 P2）
+    .replace(/(?<![\dA-Za-z])(?:19|20)\d{2}-\d{1,4}(?![\dA-Za-z])/g, ' ')
+    // 有序列表的序号（`1. ` / `2) `）不是数据：模型被要求用列表写材料，
+    // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）
     .replace(/^[ \t]*\d+[.)][ \t]/gm, ' ');
-  const unknown: string[] = [];
-  let checked = 0;
-  // 「12 万元」中间常有空格，单位要跟着吞掉。
-  // 负号只在**前面不是数字/字母/连字符**时才算符号：否则「逾期 10-15 天」会被读成
-  // 10 与 -15，「环比 -25%」这类写法也会在两个对账器（`auditNumbers` 与
-  // `auditNarrativeNumbers`）里得到不同结论（2026-10-23 审计，两侧口径已统一）
-  const re = /(?<![\dA-Za-z-])(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
+}
+
+/**
+ * 扫描文本里的数字 token（去千分位、`万` ×10000、跳过日期/序号尾巴）。
+ * 输入应是 `stripNonData` 的输出。
+ */
+export function scanNumbers(text: string): Array<{ value: number; isPct: boolean; token: string }> {
+  const out: Array<{ value: number; isPct: boolean; token: string }> = [];
+  // 负号只在**前面不是字母/数字**时才算符号：「逾期 10-15 天」读成 10 与 15 两个正数。
+  // 原来 lookbehind 里还带着 `-`，于是区间上界连扫都扫不到（「逾期 10-45 天」里 45
+  // 从不参与对账，`checked` 也少一个），模型在上界编数查不出来（2026-10-23 复核 P1）
+  const re = /(?<![\dA-Za-z])(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const tail = text.slice(re.lastIndex, re.lastIndex + 3);
     if (NON_DATA_TAIL.test(tail)) continue;
-    const isPct = PCT_TAIL.test(tail);
     const value = Number(m[1].replace(/,/g, ''));
     if (!Number.isFinite(value)) continue;
+    out.push({
+      value: m[2] ? value * 10000 : value,
+      isPct: PCT_TAIL.test(tail),
+      token: m[0].replace(/\s+/g, ''),
+    });
+  }
+  return out;
+}
+
+/** 从自由文本里抽出数字（与 `auditNumbers` 同一套剥离 + 扫描口径） */
+export function numbersInText(text?: string | null): number[] {
+  if (!text) return [];
+  return scanNumbers(stripNonData(String(text))).map((t) => t.value);
+}
+
+/**
+ * **按「允许的数字集合」对账**（7-11 供应链全景复用同一个扫描器，避免两套正则各自演化）。
+ * 口径与 `auditReport` 完全一致：日期整段抹掉、有序列表序号抹掉、`万` 后缀按 10000 倍折算、
+ * 百分数允许取整（24.97% 写成 25% 不算编造）。
+ */
+export function auditNumbers(
+  markdown: string,
+  allowedInput: number[],
+  /** 只在**百分数写法**下才放行的数（如阈值「警戒线 50%」）：写成「50 万元」不算对账通过 */
+  pctAllowedInput: number[] = [],
+): { unknown: string[]; checked: number } {
+  const allowed = allowedInput;
+  const pctPool = [...allowed, ...pctAllowedInput];
+  const text = stripNonData(String(markdown ?? ''));
+  const unknown: string[] = [];
+  let checked = 0;
+  for (const t of scanNumbers(text)) {
     checked += 1;
-    const factor = m[2] ? 10000 : 1;
-    const scaled = value * factor;
+    const pool = t.isPct ? pctPool : allowed;
     const hit =
       // 只比「同一尺度」：写了「万」就按 ×10000 比，没写就按原值比。
       // 原来还允许 `a * factor == value` 这一条反向匹配，于是只要允许集合里有 5 元，
       // 正文写「50000万」（5 亿）也会被判为「抄的是我们给的数」——编造检测被反向绕过
       // （2026-10-23 审计）
-      allowed.some((a) => Math.abs(a - scaled) < 0.011) ||
+      pool.some((a) => Math.abs(a - t.value) < 0.011) ||
       // 百分数容许取整（24.97% 写成 25% 不算编造）
-      (isPct && allowed.some((a) => Math.abs(Math.round(a) - value) < 0.51));
-    const token = m[0].replace(/\s+/g, '');
-    if (!hit && !unknown.includes(token)) unknown.push(token);
+      (t.isPct && pool.some((a) => Math.abs(Math.round(a) - t.value) < 0.51));
+    if (!hit && !unknown.includes(t.token)) unknown.push(t.token);
   }
   return { unknown: unknown.slice(0, 20), checked };
 }
