@@ -499,7 +499,7 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 文件读取（`FileServeController`：登录后经 `storage.read()` 返回，支持单段 Range 206） | 需登录（Bearer 或 httpOnly Cookie） |
 
-## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料）
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
@@ -531,6 +531,7 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 |---|---|---|---|
 | POST | `/ai/report/generate` | body `{kind: monthly\|project\|brief, from?, to?, extra?}` → 返回 Markdown + 事实清单 `facts` + 数字对账 `unknownNumbers`；区间缺省为「本月 1 日 ~ 今天」 | `ai:use` |
 | POST | `/ai/report/export` | body `{markdown, title?, header?, footer?, format?: 'docx'\|'pdf'}` → 把**同一份** Markdown 转成文件（不重新生成）：`docx` 走 `html-to-docx`（含页眉/页脚/页码），`pdf` 走 pdf-lib（页眉默认用标题、页脚默认「工程管理部 YYYY 年 M 月」、右下「第 X 页 / 共 Y 页」）；`@Res()` 直出二进制 | `ai:use` |
+| GET | `/ai/anomaly/payment` | query `{from?, to?, contractId?, narrative?}` → 返回 `{enabled, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不写库、不发通知。`from`/`to` 按**结算日期**过滤，`contractId` 只看单合同，`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
@@ -544,6 +545,20 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 会渲染成乱码，程序直接跳过；一个都用不了时返回 400 并提示装 `fonts-wqy-zenhei`（或
 `fonts-arphic-uming`）或用 `AI_PDF_FONT` 指定 `.ttf`/`.ttc`。`.ttc` 字体集会先用
 `ttc-font.ts` 把各支拆成单字体再逐个试嵌（pdf-lib 直接嵌 TTC 会失败）。
+
+口径（结算/付款异常预警 · 矩阵课题 6-9）：**规则算、模型写**。8 条规则的判定与全部算术都在
+`server/src/modules/ai/anomaly/rules-payment.ts`（纯函数、`bigint` 分、有真值夹具双向对锁），
+service 只负责按 `projectId` 取数与聚合，模型只把命中项写成业务语言。命中口径：
+R1-a 跨期指纹重复（同合同两单金额相近 + 明细 Jaccard ≥ 阈值）、R1-b 同物资跨单计量合计超合同链清单量、
+R1-c 总结算快照与月度结算金额偏离、R2 累计付款 > 累计结算 × `ContractExt.currentPayRatio`、
+R3 付款无有效合同（`contractId` 为空 / 合同未签章）、R4 同结算单发票合计 ≠ 结算金额、
+R5 结算日期早于关联收领单、R6 付款手续「开累」快照与实时台账偏离。
+阈值走系统参数 `ai.anomaly.*`（`amountTolerance` 元 / `qtyTolerancePct` 百分点 / `jaccard` 0..1），
+非法值**回落默认并回显 warning**，不静默放宽。`DRAFT` 结算单、`FAILED`/`REFUNDED` 付款、
+`CANCELLED`/`RED` 发票不计入累计。缺口径（如合同没有付款比例、没有清单量）不猜，
+写入 `notEvaluated` 并在响应里说出来——**0 命中 ≠ 账没问题**。
+模型措辞经 `auditNarrative()` 回查 `facts` 数字，出现编造数字即丢弃、退回模板串（`narrative.source='template'`），
+判定结果本身不受影响；`ai.anomaly.narrative=0` 或 AI 未配置时不消耗额度。
 
 ---
 

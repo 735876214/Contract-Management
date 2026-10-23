@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Put,
+  Query,
   Res,
   UploadedFile,
   UseGuards,
@@ -16,6 +17,7 @@ import { AiService } from './ai.service';
 import { AiSettingService, type AiSettingInput } from './ai-setting.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
 import { ReportService } from './report.service';
+import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -50,6 +52,7 @@ export class AiController {
     private setting: AiSettingService,
     private register: RegisterService,
     private report: ReportService,
+    private anomaly: AnomalyService,
   ) {}
 
   /**
@@ -151,6 +154,21 @@ export class AiController {
    * 把页面上的同一份 Markdown 导出为 docx / pdf（不重新生成，避免导出与预览不一致）。
    * `format=pdf` 需要服务器有中文字体（未安装时返回 400 并给出安装提示）。
    */
+  /**
+   * 结算 / 付款异常预警（课题 6-9）——**只读**，不写库、不发通知。
+   *
+   * 权限：`ai:view` 够看结果，但命中项带合同/结算/付款金额，
+   * service 里会再要 `contract:view`（与汇报材料同口径的敏感数据保护）。
+   *
+   * 参数全部可选：`from`/`to`（结算日期区间，YYYY-MM-DD）、`contractId`（只看单合同）、
+   * `narrative=0`（只看规则结果，不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/payment')
+  paymentAnomaly(@Query() query: PaymentAnomalyQuery, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.anomaly.payment(query || {}, projectId, user);
+  }
+
   @RequirePermissions('ai:use')
   @Post('report/export')
   async exportReport(

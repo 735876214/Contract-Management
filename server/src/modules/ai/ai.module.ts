@@ -8,6 +8,7 @@ import { AiSettingService } from './ai-setting.service';
 import { FieldResolverService } from './field-resolver.service';
 import { RegisterService } from './register.service';
 import { ReportService } from './report.service';
+import { AnomalyService } from './anomaly/anomaly.service';
 
 /**
  * AI 助手模块（纯增量能力：不引入新依赖、不改任何既有表）。
@@ -21,8 +22,8 @@ import { ReportService } from './report.service';
 @Module({
   imports: [ContractModule, SupplierModule],
   controllers: [AiController],
-  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AiQuota],
-  exports: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService],
+  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, AiQuota],
+  exports: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService],
 })
 export class AiModule {}
 
