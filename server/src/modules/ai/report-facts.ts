@@ -215,8 +215,11 @@ export function auditNumbers(markdown: string, allowedInput: number[]): { unknow
     .replace(/^[ \t]*\d+[.)][ \t]/gm, ' ');
   const unknown: string[] = [];
   let checked = 0;
-  // 「12 万元」中间常有空格，单位要跟着吞掉
-  const re = /(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
+  // 「12 万元」中间常有空格，单位要跟着吞掉。
+  // 负号只在**前面不是数字/字母/连字符**时才算符号：否则「逾期 10-15 天」会被读成
+  // 10 与 -15，「环比 -25%」这类写法也会在两个对账器（`auditNumbers` 与
+  // `auditNarrativeNumbers`）里得到不同结论（2026-10-23 审计，两侧口径已统一）
+  const re = /(?<![\dA-Za-z-])(-?\d[\d,]*(?:\.\d+)?)\s*(万)?/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const tail = text.slice(re.lastIndex, re.lastIndex + 3);

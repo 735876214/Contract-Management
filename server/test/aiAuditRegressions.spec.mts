@@ -298,3 +298,7 @@ test('对账：「50000万」不能因为允许集合里有 5 就通过（万倍
   const res = auditNumbers('本次累计 50000万 元。', [5]);
   assert.ok(res.unknown.length > 0, '5 亿与 5 元差 1 万倍，必须判为编造');
 });
+
+test('对账：「逾期 10-15 天」是区间不是负数，不得被抽成 -15 判编造', () => {
+  assert.deepEqual(auditNumbers('有 3 份合同逾期 10-15 天。', [3, 10, 15]).unknown, []);
+});
