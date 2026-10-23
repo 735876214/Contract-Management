@@ -206,6 +206,7 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M1 后端接口 | ✅ 2026-10-23 | `anomaly-config.ts` / `anomaly-prompt.ts` / `anomaly.service.ts`、`GET /ai/anomaly/payment`、`aiAnomalyPrompt.spec.mts` | 744 项测试全绿；假 Prisma 直呼 service：10 条命中、`notEvaluated` 正确、缺 `contract:view` 得 403、非法日期 400、开关关闭不判定；提交 `c84b79d` |
 | M2 前端面板 | ✅ 2026-10-23 | `web/src/pages/AnomalyPanel.tsx`、`aiApi.paymentAnomaly`、五处接线 | 两个 build 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过 |
 | M3 评测 | ✅ 2026-10-23 | 夹具生成器+评分器 `server/src/modules/ai/anomaly/anomaly-bench.ts`、`server/test/aiAnomalyBench.spec.mts`、报告 `docs/AI应用评测报告-6-9-结算异常预警.md` | 合成集（12 合同 / 61 结算单 / 9 条注入）：**召回 100%、误报 0**，8 个规则码全覆盖；4 001 张结算单判定 101.6 ms；措辞层 1 次调用 / 1 991 字符 ≈ 905 tokens；756 项测试全绿 |
+| M3.5 评测执行链路 | ✅ 2026-10-23 | 取数形状唯一事实源 `anomaly-dataset.ts`、真值对账 `anomaly-score.ts`、CLI `server/scripts/export-anomaly-dataset.mts` / `score-anomaly.mts`、单测 `aiAnomalyDataset.spec.mts` / `aiAnomalyScore.spec.mts`、npm 脚本 `anomaly:export` / `anomaly:score` | 夹具反推「行 → JSON → 评分」全链路：10/10、退出码 0；篡改真值后如实产出漏报 1 / 误报 1，收紧门槛后退出码 1 且理由带数字；`export` 缺 `--project`、缺 `DATABASE_URL` 都给可读错误 |
 
 ### 9.1 与计划的偏差（有意为之）
 
@@ -220,4 +221,54 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 
 - **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
 - **headless 真渲染未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
-- **生产数据上的召回率仍未测**（M3 只做了规则层的内存版评测）：合成集能证明「实现与设计一致、正常业务不被误伤、规模与成本可测」，但证明不了真实单据的召回。门控条件一旦解除，动作是：把 `cms` 库 8 张表按 `anomaly.service.ts` 的 `select` 导成 JSON → 直接喂 `scoreFindings()` 对账人工标注的 50 条真值（评分器与真值结构已就绪，无需改代码）。详见 `docs/AI应用评测报告-6-9-结算异常预警.md` §6。
+- **生产数据上的召回率仍未测**（M3 只做了规则层的内存版评测）：合成集能证明「实现与设计一致、正常业务不被误伤、规模与成本可测」，但证明不了真实单据的召回。**执行工具已就位（2026-10-23 补齐）**：门控条件一旦解除，只需 `npm run anomaly:export -- --project <id>` 导出 → 人工标注 `hit` → `npm run anomaly:score` 出门槛结果，**不需要改一行代码**；口径见本文 §10、方法见 `docs/AI应用评测报告-6-9-结算异常预警.md` §6。
+
+---
+
+## 10. 评测执行手册（有真实单据时，不改一行代码即可出召回率）
+
+**前置**：能连到有业务数据的库（`DATABASE_URL` 指向它）。
+
+### 10.1 三步
+
+```bash
+cd server
+set -a && source .env && set +a          # 让脚本拿到 DATABASE_URL（Prisma 读环境变量）
+
+# ① 只读导出（8 张表窄列 → JSON，含规则初判候选）
+npm run anomaly:export -- --project <项目id> --out tmp/anomaly-dataset.json \
+  [--from 2026-01-01] [--to 2026-12-31] [--contract <合同id>]
+
+# ② 人工标注（把 candidates 复制进 tmp/anomaly-truth.json 后逐条判定，详见 10.2）
+#    结构：{ projectId, annotatedBy, annotations: [{ code, entityId, hit, note }] }
+
+# ③ 对账评分（门槛不达标退非 0，可直接挂 CI）
+npm run anomaly:score -- --dataset tmp/anomaly-dataset.json --truth tmp/anomaly-truth.json \
+  --min-recall 0.9 --max-fp 2 --out docs/AI应用评测报告-6-9-结算异常预警-真值对账.md
+```
+
+导出物四块：`meta`（样本量/容差/导出时间）· `rows`（原始窄列）· `input`（规则入参）· `candidates`（规则初判，**仅供标注参考**）+ `notEvaluated`（缺口径的合同，必须一起看）。
+
+### 10.2 标注纪律（决定这份报告有没有价值）
+
+- **不得直接采信 `candidates`**：照抄等于召回恒 100%，评了等于没评。逐条改成 `hit: true/false`。
+- **每条 `hit=false` 必须写 `note`**：写清"业务上为什么正常"——这是后面调容差/加规则的唯一依据，否则下次还得重新争一遍口径。
+- **补充 `candidates` 没覆盖、但你确实发现的异常**（`entityId` 用单据 id）：这些就是漏报样本，比命中样本值钱。
+- **主动撤开样本**：请财务挑"上季度实际出过问题、但没人发现的单"。只挑规则已经抓到的，样本必然有选择偏差。
+- 50 条起步；每条规则至少 3 条 hit=true，否则按规则拆分的那一列没有统计意义。
+
+### 10.3 两个防自欺的设计（写在这里，避免将来被"优化"掉）
+
+1. **评分时用 `rows` 重算规则**，不接受数据集里的 `candidates`。这样报告永远描述**当前代码**的行为；改了规则却没有重新导出，会立刻暴露成召回变化，而不是拿一份旧初判冒充新结果。
+2. **评分单位是 `(code, entityId)`，并按规则分列给召回**。合计 90% 掩盖"R2 只有 40%"是最危险的读法——那意味着某一条规则上线即不可用，却在总表上被平均掉了。
+
+### 10.4 已做的冒烟验证（2026-10-23，无 DB）
+
+把规则夹具反推成"Prisma 行形状 → JSON 文件 → 评分脚本"，验证链路本身没有断点：
+
+- 真值 = 全部命中 → 10/10，召回 100%、查准 100%、**退出码 0**；
+- 把一条真值改成 `hit=false` 并补一条人工漏报 → 召回 90%、误报 1，默认门槛（≥90%、≤2 条）**通过**；
+- 收紧到 `--min-recall 0.95 --max-fp 0` → **退出码 1**，理由写明「召回率 90.0% < 门槛 95.0%；误报 1 条 > 门槛 0 条」；
+- `anomaly:export` 缺 `--project` / 缺 `DATABASE_URL` → 退出码 1 且错误信息可照做。
+
+由此确认：**剩下的唯一变量是数据，不是代码**。

@@ -7,7 +7,6 @@ import { AiSettingService } from '../ai-setting.service';
 import { chatJson } from '../llm-client';
 import {
   type Finding,
-  type MaterialQtyRow,
   type PaymentAnomalyInput,
   type AnomalySummary,
   centsToYuan,
@@ -20,9 +19,12 @@ import {
   fallbackNarrative,
   type AnomalyNarrative,
 } from './anomaly-prompt.ts';
-
-/** 合同链上溯上限（与 `contract-chain.ts` 的 CHAIN_MAX_DEPTH 同口径，防环） */
-const CHAIN_MAX_DEPTH = 8;
+import {
+  ANOMALY_ORDER,
+  ANOMALY_SELECT,
+  buildAnomalyWhere,
+  buildPaymentAnomalyInput,
+} from './anomaly-dataset.ts';
 
 export interface PaymentAnomalyQuery {
   from?: string;
@@ -222,153 +224,49 @@ export class AnomalyService {
     if (to && Number.isNaN(to.getTime())) throw new BadRequestException(`结束日期不合法：${query.to}`);
     if (from && to && from > to) throw new BadRequestException('起始日期不能晚于结束日期');
 
-    const contractId = query?.contractId || undefined;
-    const contractWhere: any = { projectId, ...(contractId ? { id: contractId } : {}) };
-    const scoped: any = { projectId, ...(contractId ? { contractId } : {}) };
-    const dateWhere: any = from || to ? { settleDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {};
+    const range = { from, to, contractId: query?.contractId || null };
+    const w = buildAnomalyWhere(range, projectId);
 
     const [contracts, settlements, payments, invoices, procedures, receipts, finalSettlementItems, materialRows] =
       await Promise.all([
-        this.prisma.contract.findMany({
-          where: contractWhere,
-          select: {
-            id: true,
-            parentContractId: true,
-            code: true,
-            name: true,
-            amount: true,
-            status: true,
-            execStatus: true,
-            ext: { select: { currentPayRatio: true } },
-          },
-        }),
+        this.prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
         this.prisma.settlement.findMany({
-          where: { ...scoped, ...dateWhere },
-          select: {
-            id: true,
-            contractId: true,
-            code: true,
-            amount: true,
-            actualAmount: true,
-            settleDate: true,
-            statusCode: true,
-            items: { select: { materialBaseId: true, qty: true, totalWithTax: true } },
-          },
-          orderBy: [{ settleDate: 'asc' }, { createdAt: 'asc' }],
+          where: w.settlementWhere,
+          select: ANOMALY_SELECT.settlement,
+          orderBy: ANOMALY_ORDER.settlement as any,
         }),
         this.prisma.paymentRecord.findMany({
-          where: scoped,
-          select: { id: true, contractId: true, amount: true, payDate: true, payMonth: true, statusCode: true },
-          orderBy: [{ payDate: 'asc' }, { createdAt: 'asc' }],
+          where: w.paymentWhere,
+          select: ANOMALY_SELECT.payment,
+          orderBy: ANOMALY_ORDER.payment as any,
         }),
-        this.prisma.invoice.findMany({
-          where: {
-            projectId,
-            settlementId: { not: null },
-            ...(contractId ? { settlement: { contractId } } : {}),
-          },
-          select: { id: true, settlementId: true, amountWithTax: true, statusCode: true, invoiceNo: true },
-        }),
+        this.prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
         this.prisma.paymentProcedure.findMany({
-          where: scoped,
-          select: {
-            id: true,
-            code: true,
-            contractId: true,
-            settleCumAmount: true,
-            paidCumAmount: true,
-            payDate: true,
-          },
-          orderBy: [{ payDate: 'asc' }, { createdAt: 'asc' }],
+          where: w.procedureWhere,
+          select: ANOMALY_SELECT.procedure,
+          orderBy: ANOMALY_ORDER.procedure as any,
         }),
-        this.prisma.receiptOrder.findMany({
-          where: { projectId, settlementId: { not: null } },
-          select: { id: true, settlementId: true, orderDate: true },
-        }),
+        this.prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
         this.prisma.finalSettlementItem.findMany({
-          where: { finalSettlement: { projectId } },
-          select: { id: true, finalSettlementId: true, settlementId: true, settleMonth: true, amount: true },
+          where: w.finalSettlementItemWhere,
+          select: ANOMALY_SELECT.finalSettlementItem,
         }),
         this.prisma.contractMaterial.findMany({
-          where: { contract: { projectId } },
-          select: { contractId: true, materialBaseId: true, qty: true, materialBase: { select: { name: true } } },
+          where: w.contractMaterialWhere,
+          select: ANOMALY_SELECT.contractMaterial,
         }),
       ]);
 
-    // 合同链清单量：以**链根**为键聚合（与 `chainMaterialQty` 同口径：链根 + 直接补充协议）
-    const rootOf = this.chainRootResolver(contracts as any[]);
-    const materialsByKey = new Map<string, MaterialQtyRow>();
-    for (const row of materialRows as any[]) {
-      const rootId = rootOf(String(row.contractId));
-      if (!rootId) continue;
-      const key = `${rootId}::${row.materialBaseId}`;
-      const acc = materialsByKey.get(key);
-      const qty = row.qty == null ? null : Number(row.qty);
-      if (!acc) {
-        materialsByKey.set(key, {
-          contractId: rootId,
-          materialBaseId: row.materialBaseId,
-          qty: qty ?? undefined,
-          name: row.materialBase?.name ?? null,
-        });
-      } else if (qty != null) {
-        // 求和用 Number 是安全的：这里是「清单暂定数量」，只用于百分比上限判定，
-        // 真正需要分位精度的金额比较全部走 bigint（见 rules-payment.ts）
-        acc.qty = Number(acc.qty ?? 0) + qty;
-      }
-    }
-
-    return {
-      input: {
-        contracts: (contracts as any[]).map((c) => ({
-          id: c.id,
-          code: c.code,
-          name: c.name,
-          amount: c.amount,
-          status: c.status,
-          execStatus: c.execStatus,
-          currentPayRatio: c.ext?.currentPayRatio ?? null,
-        })),
-        settlements: settlements as any,
-        payments: payments as any,
-        invoices: invoices as any,
-        procedures: procedures as any,
-        receipts: receipts as any,
-        finalSettlementItems: finalSettlementItems as any,
-        contractMaterials: [...materialsByKey.values()],
-      },
-      sample: {
-        合同: contracts.length,
-        结算单: settlements.length,
-        付款: payments.length,
-        发票: invoices.length,
-        付款手续: procedures.length,
-        收领单: receipts.length,
-        终期结算明细: finalSettlementItems.length,
-        清单物资行: materialRows.length,
-      },
-    };
-  }
-
-  /** 合同 id → 链根 id（防环、深度上限 8；不在集合里的返回 null） */
-  private chainRootResolver(contracts: any[]): (id: string) => string | null {
-    const byId = new Map<string, any>(contracts.map((c) => [String(c.id), c]));
-    const memo = new Map<string, string | null>();
-    return (id: string) => {
-      if (memo.has(id)) return memo.get(id)!;
-      let cur = byId.get(id);
-      if (!cur) {
-        memo.set(id, null);
-        return null;
-      }
-      for (let depth = 0; depth < CHAIN_MAX_DEPTH; depth++) {
-        const parentId = cur.parentContractId ? String(cur.parentContractId) : '';
-        if (!parentId || !byId.has(parentId)) break;
-        cur = byId.get(parentId)!;
-      }
-      const rootId = String(cur.id);
-      memo.set(id, rootId);
-      return rootId;
-    };
+    // 形状搬运 + 清单量按链根聚合，全部在纯函数里（离线评测脚本复用同一份）
+    return buildPaymentAnomalyInput({
+      contracts: contracts as any[],
+      settlements: settlements as any[],
+      payments: payments as any[],
+      invoices: invoices as any[],
+      procedures: procedures as any[],
+      receipts: receipts as any[],
+      finalSettlementItems: finalSettlementItems as any[],
+      materialRows: materialRows as any[],
+    });
   }
 }

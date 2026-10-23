@@ -94,8 +94,11 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（70 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（72 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（12 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
+| server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
+| server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
 | server | `npm run prisma:deploy` | `prisma migrate deploy`（应用迁移） |
@@ -186,6 +189,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiAnomalyPayment.spec.mts` | **AI 预警「结算/付款异常」的 8 条规则**（矩阵课题 6-9；纯函数，`server/src/modules/ai/anomaly/`）：金额全程 `bigint` 分（`Decimal(18,2)` 超 2^53 不丢精度 · 分位半进位 · **未填 ≠ 0** · 付款比例只认 0~1 小数，`13` 这种「百分数误填」必须 null 而不是 13 倍）· 夹具**双向对锁**（脏数据 8 条规则各命中、共 10 条；净数据 0 命中——防误报比防漏报更要紧）· `DRAFT` 结算与 `FAILED/REFUNDED` 付款不计入累计 · 付款**恰好等于**比例上限不算超付、超容差才报 · 跨单累计超清单量才判（没有清单量口径 → 记 `notEvaluated`）· 缺口径必须显式说出来（**0 命中 ≠ 账没问题**）· 输出确定性（两次调用逐字相同、HIGH 全排在 MEDIUM 之前） |
   | `test/aiAnomalyPrompt.spec.mts` | **AI 预警的阈值解析 + 措辞兜底**（同一模块，`anomaly-config.ts` / `anomaly-prompt.ts`）：系统参数 `ai.anomaly.*` 全空取默认值 · `0/false/off` 认作关 · **非法值回落并留 problem**（不静默变成「永不报」）· 金额容差按元→分、`0` 合法（严格相等）、负数与非数回落 · 数量容差夹 0~100、Jaccard 夹 0~1 · 默认值表必须覆盖全部键 · **数字对账**：模型结论里出现 `facts` 之外的数字即判编造（`HT-2026-001` 这类单据编号里的数字**不**误判）· 允许 0~10 计数词 · 兜底文案把「0 命中」与「N 条规则未判定」分得开（**0 命中 ≠ 账没问题**）· 提示词含铁律「不得计算任何新的数字」「不得给法律/税务定性」 |
   | `test/aiAnomalyBench.spec.mts` | **6-9 评测夹具与评分器**（`anomaly-bench.ts`）：同 seed 逐字节可复现 · 换 seed 只动随机量（超付额） · `mulberry32` 分布不退化 · 规模与注入条数（12 合同 / 61 结算单 / 9 条注入） · **8 个规则码全覆盖** · 规则层召回 100% 且**零误报** · 干净合同 c09～c12 零命中 · `notEvaluated` 为空 · **评分器自校准**（删真值→该命中变误报；加真值→变漏报） · 分列召回口径 · 判定结果可渲染 Markdown · 重复评测结果稳定 · 规模护栏（2 001 单 < 2 s） |
+  | `test/aiAnomalyDataset.spec.mts` | **6-9 取数形状层**（`anomaly-dataset.ts`）：线上接口与离线评测共用同一份 `select`/`where`/行映射（各写一份等于「评测对象 ≠ 线上代码」）· 清单量按**链根**聚合、同物料求和、游离合同丢弃；聚合键必须是链根而非签约主体（否则补充协议永远「超额结算」）· `currentPayRatio` 从 `ext` 取、缺失为 null（R2 记未判定而不是超付）· **每个 where 都显式带 projectId**（跨项目串数据是事故）· 结算日期只约束结算单 · 窄列护栏（不得顺手 SELECT *）· 假 Prisma 行 → R3 命中端到端 |
+  | `test/aiAnomalyScore.spec.mts` | **6-9 真值对账评分层**（`anomaly-score.ts`）：评分单位是 `(code, entityId)` 唯一键（不是「条数」）· 真值解析**带下标爆炸**（缺字段 / `hit` 非布尔 / 重复标注都要报——标注写错被静默忽略就会伪装成规则漏报）· 误报区分「人工判定不该报」与「真值未标注」· **按规则拆分召回**（合计 90% 掩盖某条规则 40% 是最危险的读法）· 真值无 `hit=true` 时召回为 `null` 而非 0%（不许给出假结论）· 门槛（召回比例 + 误报条数）与 Markdown 报告四段（空清单写「无。」） |
   | `test/aiLlmRetry.spec.ts` | **推理型模型「只输出思考、没有正文」的重试口径**（接真上游时发现：`only_reasoning` 模型把 `max_tokens` 先花在 `reasoning_content` 上，思考一长就 `finish_reason:"length"` + 空 `content`，表现为同样提示词随机失败）：空正文且预算烧在思考上 → `max_tokens` 翻倍重试**一次**（未设 maxTokens 时兜底 ≥4096）· 两次都空 → `EMPTY` 错误且消息点明「推理模型、思考占满预算」（不是密钥/地址错）· 首次就有正文不重试 · 真·空回复（无思考、`finish=stop`）不重试，直接报「上游返回空内容」 |
   | `test/aiQuota.spec.ts` | **AI 配额（每用户每小时）的计数与失败退还**（2026-10-20 审计 P2：原来调用前扣、失败也计，上游一挂就把额度烧光并锁一小时）：逐次计数 · 达上限抛 429 · `limit<=0` 不限次 · 不同用户各自计数 · `refund` 退还一次后可再调 · 重复退还/从未调用不会退成负数 · 窗口滑过后旧计数失效 |
   | `test/loginThrottle.spec.ts` | **登录失败节流（撞库防护）**（2026-10-20 第 2 轮审计：原来 `login` 只记失败日志、不限制次数，`admin/admin123` 这种默认口令可被跑穿）：键 = `用户名|IP`（用户名去空格转小写，避免大小写各占一个窗口）· 15 分钟内失败 5 次后 `assertNotThrottled` 抛 **429** 且文案带「N 分钟后再试」· 成功一次即清零 · 窗口过期自动放开（不用重启）· 不同账号/不同 IP 互不影响（共用出口 IP 的同事不被连坐）· 单键只保留最近 `maxFailures` 条（长跑不膨胀） |
