@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import { r2Overpay, r4InvoiceMismatch } from '../src/modules/ai/anomaly/rules-payment.ts';
 import { resolveTolerances } from '../src/modules/ai/anomaly/anomaly-types.ts';
 import type { PaymentAnomalyInput } from '../src/modules/ai/anomaly/anomaly-types.ts';
-import { c3SequenceInverted, c6ProgressPaymentGap, c7SettledUnfinished } from '../src/modules/ai/fulfillment/rules-fulfillment.ts';
+import { c3SequenceInverted, c6ProgressPaymentGap, c7SettledUnfinished, evaluateFulfillmentAnomalies } from '../src/modules/ai/fulfillment/rules-fulfillment.ts';
 import { resolveFulfillmentTolerances } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
 import type { FulfillmentContractRow, FulfillmentInput } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
 import { evaluateQuoteAnomalies } from '../src/modules/ai/quote/rules-quote.ts';
@@ -210,4 +210,91 @@ test('L3：正常精度范围内的百分比不能被报成「超出 0–100 范
   const msg = cfg.problems.join(' ');
   assert.equal(msg.includes('超出 0–100 范围'), false, `实际提示：${msg}`);
   assert.ok(msg.includes('一位小数'), `应提示精度截断，实际：${msg}`);
+});
+
+// ---------------------------------------------------------------- 第二轮审计（2026-10-23 复核）
+
+test('R2 链根：结算挂母合同、付款挂补充协议时不得按单份合同报超付', () => {
+  const input: PaymentAnomalyInput = {
+    contracts: [
+      { id: 'C1', code: 'HT-2026-001', status: 'SIGNED', currentPayRatio: 0.8, amount: '1000.00' },
+      { id: 'C2', code: 'HT-2026-001-B1', status: 'SIGNED', parentContractId: 'C1', changeAmount: '0.00' },
+    ],
+    settlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    cumulativeSettlements: [
+      { id: 'S1', contractId: 'C1', code: 'JS-001', amount: '1000.00', settleDate: new Date('2026-03-01'), statusCode: 'CONFIRMED', items: [] },
+    ],
+    payments: [
+      { id: 'P1', contractId: 'C2', amount: '500.00', payDate: new Date('2026-03-10'), statusCode: 'PAID' },
+    ],
+  };
+  const ctx = payCtx();
+  const r = r2Overpay(input, ctx);
+  assert.deepEqual(r.findings, [], `500 ≤ 1000×80%，不得按「补充协议结算为 0」报超付：${JSON.stringify(r.findings)}`);
+});
+
+test('C6 同一条合同链只出一条，且用整链金额与整链完成率', () => {
+  const input: FulfillmentInput = {
+    contracts: [
+      { id: 'C1', code: 'HT-2026-001', amount: '1000.00', changeAmount: '0.00', signedDate: new Date('2026-01-01') },
+      { id: 'C2', code: 'HT-2026-001-B1', parentContractId: 'C1', amount: '0.00', changeAmount: '200.00', signedDate: new Date('2026-02-01') },
+    ],
+    milestones: [
+      { id: 'm1', contractId: 'C1', name: '节点一', planDate: new Date('2026-02-01'), statusCode: 'DONE', actualDate: new Date('2026-02-01') },
+      { id: 'm2', contractId: 'C2', name: '节点二', planDate: new Date('2026-06-01'), statusCode: 'PENDING', actualDate: null },
+    ],
+    payments: [{ id: 'P1', contractId: 'C2', amount: '1100.00', payDate: new Date('2026-03-01'), statusCode: 'PAID' }],
+  };
+  const ctx = fulCtx();
+  const out = c6ProgressPaymentGap(input, ctx);
+  assert.equal(out.length, 1, `整链只应出一条（分子分母都是整链口径），实际 ${JSON.stringify(out)}`);
+  assert.equal(out[0].entityId, 'C1', '实体应归到链根');
+  assert.ok(out[0].facts.some((f) => f.includes('整链')), `facts 要说明是整链口径：${JSON.stringify(out[0].facts)}`);
+  // 整链：1100 / 1200 = 91%，完成率 1/2 = 50%，差 41 个百分点
+  assert.ok(out[0].title.includes('91%'), `付款比例应按整链金额算：${out[0].title}`);
+});
+
+test('C7 已出终期结算但已「完已结」的合同，仍要能被 C7 看见（否则规则恒空）', () => {
+  const input: FulfillmentInput = {
+    // 主口径里没有这家合同：它已完已结，被 C1–C6 排除
+    contracts: [],
+    milestones: [],
+    finalSettlements: [{ id: 'FS1', contractId: 'C9', statusCode: 'SETTLED', settledAt: new Date('2026-09-01') }],
+    settledScope: {
+      contracts: [{ id: 'C9', code: 'HT-2026-009', amount: '500.00', execStatus: 'DONE_SETTLED' }],
+      milestones: [
+        { id: 'm9', contractId: 'C9', name: '竣工验收', planDate: new Date('2026-08-01'), statusCode: 'PENDING', actualDate: null },
+      ],
+    },
+  };
+  const r = evaluateFulfillmentAnomalies(input);
+  const hit = r.findings.find((f) => f.code === 'C7_SETTLED_UNFINISHED');
+  assert.ok(hit, `C7 必须命中，实际 ${JSON.stringify(r.findings.map((f) => f.code))}`);
+  assert.equal(hit!.entityId, 'C9');
+});
+
+test('B4：对比表与总清单行数相同但物资对不上时，不按行序强配（宁可未判定）', () => {
+  const items = [
+    { id: 'ti-1', materialBaseId: 'mb-1', materialName: '水泥', spec: 'P.O42.5', unit: 't', qty: 100, planPrice: 1200, marketPrice: 950 },
+    { id: 'ti-2', materialBaseId: 'mb-2', materialName: '砂石', spec: '中砂', unit: 'm3', qty: 50, planPrice: 100, marketPrice: 120 },
+  ];
+  const compareItems = [
+    { materialBaseId: 'ti-2', materialName: '砂石', spec: '中砂', unit: 'm3', qty: 50, planPrice: 100, dealPrice: 110 },
+    { materialBaseId: 'ti-1', materialName: '水泥', spec: 'P.O42.5', unit: 't', qty: 100, planPrice: 1200, dealPrice: 1500 },
+  ];
+  const r = evaluateQuoteAnomalies({
+    tasks: [{ task: { id: 'T1', taskNo: 'PROC-2026-001', status: 'COMPLETED' }, bidders: [], items, compareItems }],
+  } as any);
+  assert.equal(r.findings.filter((f) => f.code.startsWith('B4')).length, 0, '行序错位时不得出结论');
+  assert.ok(
+    r.notEvaluated.some((n) => n.includes('对不上')),
+    `必须明确说「行对不上」，实际 ${JSON.stringify(r.notEvaluated)}`,
+  );
+});
+
+test('对账：「50000万」不能因为允许集合里有 5 就通过（万倍率不得反向匹配）', () => {
+  const res = auditNumbers('本次累计 50000万 元。', [5]);
+  assert.ok(res.unknown.length > 0, '5 亿与 5 元差 1 万倍，必须判为编造');
 });

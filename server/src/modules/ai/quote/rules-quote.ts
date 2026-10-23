@@ -317,6 +317,16 @@ interface MergedRow {
 
 /** 按物资把「总清单行（控制价/市场价/信息价/数量）」与「对比表行（成交单价）」合并 */
 function mergeRows(input: QuoteTaskInput): MergedRow[] {
+  const merged = mergeRowsChecked(input);
+  return merged.rows;
+}
+
+/**
+ * 归并 + **一致性护栏**：行序配对是「没有 id 可用」时的兜底，一旦两侧对不上就宁可
+ * 「未判定」也不能硬配——硬配的后果不是报错，而是**静默错配**：市场价/控制价贴到
+ * 另一条物资上，B4 给出「某物资比市场价高 300%」这种指错行的结论。
+ */
+function mergeRowsChecked(input: QuoteTaskInput): { rows: MergedRow[]; warning: string | null } {
   const totals = input.items ?? [];
   const compares = input.compareItems ?? [];
   const totalKeys = new Set(totals.map((r) => keyOfRow(r)));
@@ -328,25 +338,45 @@ function mergeRows(input: QuoteTaskInput): MergedRow[] {
    *
    * 因此：两侧 id 完全不重叠且行数一致时，按**行序**配对（两侧都由同一份
    * `orderBy: sortOrder` 的总清单派生，顺序是契约的一部分）。
-   * 行数不一致时不猜，交由 `b4UnitPriceAnomalies` 报「未判定」。
+   * 行数不一致、或行序配对后物资名/数量对不上时**不猜**，只报「未判定」。
    */
   const byIndex =
     compares.length > 0 &&
     compares.length === totals.length &&
     !compares.some((r) => totalKeys.has(keyOfRow(r)));
   if (byIndex) {
-    return totals.map((t, i) => {
+    const mismatch = totals.find((t, i) => {
       const c = compares[i];
-      return {
-        key: keyOfRow(t),
-        label: labelOfRow(t),
-        deal: moneyToCents(c.dealPrice),
-        plan: moneyToCents(t.planPrice) ?? moneyToCents(c.planPrice),
-        market: moneyToCents(t.marketPrice) ?? moneyToCents(c.marketPrice),
-        info: moneyToCents(t.infoPrice) ?? moneyToCents(c.infoPrice),
-        qty: qtyToUnits(t.qty) ?? qtyToUnits(c.qty),
-      };
+      const n1 = String(t.materialName ?? '').trim();
+      const n2 = String(c.materialName ?? '').trim();
+      if (n1 && n2 && n1 !== n2) return true;
+      const q1 = qtyToUnits(t.qty);
+      const q2 = qtyToUnits(c.qty);
+      return q1 !== null && q2 !== null && q1 !== q2;
     });
+    if (!mismatch) {
+      return {
+        rows: totals.map((t, i) => {
+          const c = compares[i];
+          return {
+            key: keyOfRow(t),
+            label: labelOfRow(t),
+            deal: moneyToCents(c.dealPrice),
+            plan: moneyToCents(t.planPrice) ?? moneyToCents(c.planPrice),
+            market: moneyToCents(t.marketPrice) ?? moneyToCents(c.marketPrice),
+            info: moneyToCents(t.infoPrice) ?? moneyToCents(c.infoPrice),
+            qty: qtyToUnits(t.qty) ?? qtyToUnits(c.qty),
+          };
+        }),
+        warning: null,
+      };
+    }
+    return {
+      rows: [],
+      warning:
+        `B4 未判定：${taskNoOf(input)} 的采购价格对比表与总采购清单行数相同但物资/数量对不上` +
+        '（清单可能被改过行序或增删后未重新发布对比表），不按行序强行配对，避免把价格贴到别的物资上',
+    };
   }
 
   const map = new Map<string, MergedRow>();
@@ -382,7 +412,7 @@ function mergeRows(input: QuoteTaskInput): MergedRow[] {
     row.info = row.info ?? moneyToCents(it.infoPrice);
     row.qty = row.qty ?? qtyToUnits(it.qty);
   }
-  return [...map.values()];
+  return { rows: [...map.values()], warning: null };
 }
 
 /**
@@ -392,9 +422,11 @@ function mergeRows(input: QuoteTaskInput): MergedRow[] {
  */
 export function b4UnitPriceAnomalies(input: QuoteTaskInput, tol: QuoteTolerances): QuoteRuleResult {
   const out = empty();
-  const rows = mergeRows(input).filter((r) => r.deal !== null && r.deal > 0n);
+  const merged = mergeRowsChecked(input);
+  if (merged.warning) out.notEvaluated.push(merged.warning);
+  const rows = merged.rows.filter((r) => r.deal !== null && r.deal > 0n);
   if (rows.length === 0) {
-    out.notEvaluated.push(`B4 未判定：${taskNoOf(input)} 采购价格对比表还没有录成交单价`);
+    if (!merged.warning) out.notEvaluated.push(`B4 未判定：${taskNoOf(input)} 采购价格对比表还没有录成交单价`);
     return out;
   }
   for (const r of rows) {

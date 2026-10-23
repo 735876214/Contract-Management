@@ -207,6 +207,8 @@ export class ScmService {
       // 「大部分数字对、个别是编的」比整份退回模板更危险（读者无法分辨哪句可信）
       const audit = auditNumbers(res.text, scmFactNumbers(facts));
       if (audit.unknown.length) {
+        // 用户没拿到模型版报告（退回确定性汇总）⇒ 与「模型返回不可用」同样退额度
+        this.quota.refund(userId);
         result.markdown = fallback;
         result.source = 'template';
         result.discardedNumbers = audit.unknown;

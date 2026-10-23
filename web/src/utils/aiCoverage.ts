@@ -14,6 +14,14 @@ export interface CoverageInput {
   enabled: boolean;
   sample?: Record<string, number> | null;
   notEvaluated: string[];
+  /**
+   * **判定基线样本**：没有这些单据，规则本身就无从谈起。
+   *
+   * 样本合计 > 0 并不代表「查清楚了」：一个项目有合同但没有结算单时，
+   * 合计仍然 > 0（合同 1），可累计类规则一条都算不出来 —— 面板照样亮绿。
+   * 传 `['结算单']` 这类键名后，缺项就直接黄灯并写明缺什么。
+   */
+  requiredSample?: string[];
 }
 
 export interface CoverageState {
@@ -36,6 +44,14 @@ export function coverageState(result: CoverageInput): CoverageState {
   }
   if (sampled === 0) {
     return { ok: false, sampled, reason: '所选范围内没有任何可用数据，规则未执行。' };
+  }
+  const missing = (result.requiredSample ?? []).filter((k) => Number((result.sample ?? {})[k] ?? 0) <= 0);
+  if (missing.length) {
+    return {
+      ok: false,
+      sampled,
+      reason: `所选范围内没有${missing.join('、')}，依赖它的规则等于没检查（样本只有其它单据不代表查清楚了）。`,
+    };
   }
   if (result.notEvaluated.length > 0) {
     return {

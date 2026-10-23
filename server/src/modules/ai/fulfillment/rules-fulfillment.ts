@@ -353,27 +353,39 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
 
   let skippedNoAmount = 0;
   let skippedNoMilestone = 0;
+  // 一条合同链只出一条：分子（累计付款）与分母（合同当前金额）都是**整链**口径，
+  // 完成率若只取单个节点（母合同或某份补充协议），同一链上的各合同会各报一条、
+  // 结论还互相矛盾（2026-10-23 审计 P1）。整链聚合后实体也归到链根。
+  const chains = new Map<string, { rootId: string; rows: Array<{ id: string; code?: string | null; name?: string | null }> }>();
   for (const c of contracts) {
-    const rows = byContract.get(c.id) ?? [];
-    if (rows.length === 0) {
-      skippedNoMilestone += 1;
+    const rootId = rootOfContract(c.id);
+    const entry = chains.get(rootId) ?? { rootId, rows: [] };
+    entry.rows.push(c);
+    chains.set(rootId, entry);
+  }
+
+  for (const { rootId, rows: chainContracts } of chains.values()) {
+    const milestones = chainContracts.flatMap((c) => byContract.get(c.id) ?? []);
+    if (milestones.length === 0) {
+      skippedNoMilestone += chainContracts.length;
       continue;
     }
-    const done = rows.filter(isDone).length;
-    const open = rows.filter(isOpen).length;
+    const done = milestones.filter(isDone).length;
+    const open = milestones.filter(isOpen).length;
     if (done + open === 0) continue; // 全被跳过，没有可比口径
     const donePct = Math.round((done * 100) / (done + open));
 
-    const chain = resolveChainAmounts(chainRows, c.id);
-    const paid = paidByChainRoot.get(rootOfContract(c.id)) ?? 0n;
+    const rootContract = chainContracts.find((c) => c.id === rootId) ?? chainContracts[0];
+    const chain = resolveChainAmounts(chainRows, rootId);
+    const paid = paidByChainRoot.get(rootId) ?? 0n;
     if (paid === 0n) continue;
     if (chain.currentAmount === null || chain.currentAmount <= 0) {
-      skippedNoAmount += 1;
+      skippedNoAmount += chainContracts.length;
       continue;
     }
     const currentCents = moneyToCents(chain.currentAmount.toFixed(2));
     if (currentCents === null || currentCents <= 0n) {
-      skippedNoAmount += 1;
+      skippedNoAmount += chainContracts.length;
       continue;
     }
     // 付款比例（百分点，向下去整）：paid / currentAmount × 100
@@ -381,20 +393,21 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
     const gap = paidPct - donePct;
     // 与 C1/C4 同口径：**严格超出**阈值才报，等于阈值属于容忍范围
     if (gap <= ctx.tol.progressGapPct) continue;
+    const chainNote = chainContracts.length > 1 ? `（整链 ${chainContracts.length} 份合同）` : '';
     push(out, {
       code: FULFILLMENT_CODES.C6_PROGRESS_PAYMENT_GAP,
       level: gap >= HIGH_RISK_GAP_PCT ? FULFILLMENT_LEVEL.HIGH : FULFILLMENT_LEVEL.MEDIUM,
       entity: 'contract',
-      entityId: c.id,
-      contractId: c.id,
-      contractCode: String(c.code ?? ''),
-      contractName: String(c.name ?? ''),
+      entityId: rootId,
+      contractId: rootId,
+      contractCode: String(rootContract.code ?? ''),
+      contractName: String(rootContract.name ?? ''),
       title: `付款进度 ${paidPct}% 高于履约完成率 ${donePct}（差 ${gap} 个百分点）`,
       facts: [
-        `合同：${String(c.code ?? '')}${c.name ? ` ${c.name}` : ''}`,
-        `合同当前金额：${(Number(currentCents) / 100).toFixed(2)} 元`,
+        `合同：${String(rootContract.code ?? '')}${rootContract.name ? ` ${rootContract.name}` : ''}${chainNote}`,
+        `合同当前金额：${(Number(currentCents) / 100).toFixed(2)} 元（母合同 + 补充协议增量）`,
         `累计付款：${(Number(paid) / 100).toFixed(2)} 元（占 ${paidPct}%）`,
-        `履约节点：已完成 ${done} / 未完成 ${open}（完成率 ${donePct}%）`,
+        `履约节点：已完成 ${done} / 未完成 ${open}（完成率 ${donePct}%，整链合计）`,
         `差额：${gap} 个百分点（超出阈值 ${ctx.tol.progressGapPct} 个百分点）`,
       ],
       amountDiff: null,
@@ -538,6 +551,18 @@ export function evaluateFulfillmentAnomalies(input: FulfillmentInput): Fulfillme
   for (const c of input.contracts ?? []) contracts.set(c.id, c);
   const milestones = input.milestones ?? [];
 
+  // C7 要看「已出终期结算」的合同——它们多数已退出 C1–C6 主口径，得单独补一份口径给它，
+  // 否则候选集恒空、规则永远不触发（2026-10-23 审计）
+  const c7Input: FulfillmentInput = input.settledScope
+    ? {
+        ...input,
+        contracts: [...(input.contracts ?? []), ...input.settledScope.contracts],
+        milestones: input.settledScope.milestones,
+      }
+    : input;
+  const c7Contracts = new Map(contracts);
+  for (const c of input.settledScope?.contracts ?? []) c7Contracts.set(c.id, c);
+
   const findings = [
     ...c1Overdue(milestones, contracts, ctx),
     ...c2DoneNoActual(milestones, contracts),
@@ -545,7 +570,7 @@ export function evaluateFulfillmentAnomalies(input: FulfillmentInput): Fulfillme
     ...c4FinishLate(milestones, contracts, ctx),
     ...c5PlanBeforeSign(milestones, contracts),
     ...c6ProgressPaymentGap(input, ctx),
-    ...c7SettledUnfinished(input, contracts, ctx),
+    ...c7SettledUnfinished(c7Input, c7Contracts, ctx),
     ...c8NoMilestone(input, contracts),
   ];
 

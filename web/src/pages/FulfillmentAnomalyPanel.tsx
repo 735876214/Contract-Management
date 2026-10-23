@@ -77,7 +77,9 @@ export default function FulfillmentAnomalyPanel() {
     }
   };
 
-  const coverage = result ? coverageState(result) : { ok: false, sampled: 0, reason: '' };
+  const coverage = result
+    ? coverageState({ ...result, requiredSample: ['履约节点'] })
+    : { ok: false, sampled: 0, reason: '' };
   const findings = useMemo(() => {
     const list = result?.findings || [];
     return list.filter(

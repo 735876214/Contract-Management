@@ -88,12 +88,15 @@ export function buildScmFacts(
   const known = new Set(projectIds);
 
   // ---- 合同：按链聚合（链根一个金额，补充协议只用 changeAmount 增量） ----
+  // 只有**已签**的补充协议才贡献增量：草稿/审批中的补充协议 `changeAmount` 已由服务端算好，
+  // 直接加进签约额会让「还在走的变更」提前记进合同额（2026-10-23 审计）
+  const signedChainRows = rows.contracts.filter((r) => isSignedContract(r));
   const chainRoots = new Map<
     string,
     { projectId: string; supplierId: string | null; cents: Cents | null; signed: boolean }
   >();
   for (const row of rows.contracts) {
-    const chain = resolveChainAmounts(rows.contracts, row.id);
+    const chain = resolveChainAmounts(signedChainRows, row.id);
     if (!chain.rootId) continue;
     if (chainRoots.has(chain.rootId)) continue;
     const rootRow = rows.contracts.find((r) => r.id === chain.rootId);

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS } from '../../../constants/statuses.ts';
+import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, FINAL_SETTLEMENT_STATUS } from '../../../constants/statuses.ts';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { AiQuota } from '../ai-quota';
@@ -171,8 +171,15 @@ export class FulfillmentService {
       const toleranceText = fulfillmentToleranceText(cfg.tolerances);
       const promptExtras = promptNumberExtras(
         collected.sample,
-        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
-        [toleranceText, collected.scope],
+        [
+          evaluation.summary.total,
+          evaluation.summary.high,
+          evaluation.summary.medium,
+          evaluation.notEvaluated.length,
+          ...Object.values(evaluation.summary.byCode ?? {}),
+        ],
+        // 「未判定」文案里的数字也是系统给的，复述出来不算编造
+        [toleranceText, collected.scope, ...evaluation.notEvaluated],
       );
       const messages = buildFulfillmentMessages({
         scope: collected.scope,
@@ -205,6 +212,8 @@ export class FulfillmentService {
       const unknown = auditFulfillmentNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用模板串，也不给人一份带假数字的结论）
+        // 用户没拿到可用结论 ⇒ 与「模型返回不可用」同样退额度
+        this.quota.refund(userId);
         result.narrative = { ...fallbackFulfillmentNarrative(evaluation), source: 'template', unknownNumbers: unknown };
         result.warnings.push(
           `模型结论里出现了系统数据之外的数字（${unknown.slice(0, 5).join('、')}），已丢弃并回落模板串`,
@@ -335,7 +344,7 @@ export class FulfillmentService {
       return empty;
     }
 
-    const [milestones, payments, finalSettlements] = await Promise.all([
+    const [milestones, payments] = await Promise.all([
       this.prisma.contractFulfillment.findMany({
         where: { projectId, contractId: { in: contractIds } },
         select: {
@@ -352,10 +361,6 @@ export class FulfillmentService {
       this.prisma.paymentRecord.findMany({
         where: { projectId, contractId: { in: contractIds } },
         select: { id: true, contractId: true, amount: true, payDate: true, statusCode: true },
-      }),
-      this.prisma.finalSettlement.findMany({
-        where: { projectId, contractId: { in: contractIds } },
-        select: { id: true, contractId: true, statusCode: true, settledAt: true },
       }),
     ]);
 
@@ -376,8 +381,111 @@ export class FulfillmentService {
       合同: contractRows.length,
       履约节点: milestones.length,
       付款: payments.length,
-      终期结算: finalSettlements.length,
     };
+
+    // ---- C7 专用口径：已定案终期结算（含已「完已结」而退出 C1–C6 的合同） ----
+    // 「已出终期结算却仍有未完成节点」本来就不可能出现在 C1–C6 的主口径里（那批合同已被排除），
+    // 所以要单独取一次，否则这条规则永远不触发（2026-10-23 审计）
+    const settledAll = await this.prisma.finalSettlement.findMany({
+      where: { projectId, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
+      select: { id: true, contractId: true, statusCode: true, settledAt: true },
+    });
+    // 全项目合同骨架（窄列）用来解析链根：下钻时要判断某张终期结算是否属于这条链
+    const skeleton = await this.prisma.contract.findMany({
+      where: { projectId },
+      select: { id: true, parentContractId: true },
+    });
+    const parentOf = new Map(skeleton.map((c) => [c.id, c.parentContractId ?? null]));
+    const rootOf = (id: string): string => {
+      let cur = id;
+      const guard = new Set<string>([id]);
+      for (let i = 0; i < 32; i += 1) {
+        const parent = parentOf.get(cur);
+        if (!parent || guard.has(parent)) break;
+        guard.add(parent);
+        cur = parent;
+      }
+      return cur;
+    };
+    const drillRoot = query?.contractId ? rootOf(query.contractId) : null;
+    const settledInScope = settledAll.filter((f) => {
+      const cid = String(f.contractId ?? '');
+      if (!cid) return false;
+      return drillRoot ? rootOf(cid) === drillRoot : true;
+    });
+    sample['终期结算'] = settledInScope.length;
+
+    const knownIds = new Set(contractIds);    const outsideIds = [...new Set(settledInScope.map((f) => String(f.contractId ?? '')))].filter(
+      (id) => id && !knownIds.has(id),
+    );
+    let settledContracts: FulfillmentContractRow[] = [];
+    const settledMilestones: FulfillmentInput['milestones'] = [];
+    if (outsideIds.length) {
+      const extraContracts = await this.prisma.contract.findMany({
+        where: {
+          projectId,
+          id: { in: outsideIds },
+          // 草稿没签章谈不上履约，即便有终期结算也不判
+          AND: [{ OR: [{ status: null }, { status: { not: CONTRACT_STATUS.DRAFT } }] }],
+        },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          amount: true,
+          changeAmount: true,
+          parentContractId: true,
+          signDate: true,
+          signedDate: true,
+          status: true,
+          execStatus: true,
+        },
+        orderBy: { code: 'asc' },
+      });
+      settledContracts = extraContracts.map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        amount: c.amount,
+        changeAmount: c.changeAmount,
+        parentContractId: c.parentContractId,
+        signDate: c.signDate,
+        signedDate: c.signedDate,
+        status: c.status,
+        execStatus: c.execStatus,
+      }));
+      if (settledContracts.length) {
+        const rows = await this.prisma.contractFulfillment.findMany({
+          where: { projectId, contractId: { in: settledContracts.map((c) => c.id) } },
+          select: {
+            id: true,
+            contractId: true,
+            name: true,
+            planDate: true,
+            actualDate: true,
+            statusCode: true,
+            owner: true,
+          },
+          orderBy: [{ planDate: 'asc' }],
+        });
+        settledMilestones.push(
+          ...rows.map((m) => ({
+            id: m.id,
+            contractId: m.contractId,
+            name: m.name,
+            planDate: m.planDate,
+            actualDate: m.actualDate,
+            statusCode: m.statusCode,
+            owner: m.owner,
+          })),
+        );
+      }
+      if (settledContracts.length) {
+        warnings.push(
+          `C7 另外纳入了 ${settledContracts.length} 份已出终期结算、但已退出「在履行」口径的合同（含已完已结）`,
+        );
+      }
+    }
 
     const scope = query?.contractId
       ? `合同 ${contracts[0]?.code ?? query.contractId}${contracts.length > 1 ? `（含同链 ${contracts.length} 份）` : ''}`
@@ -406,12 +514,13 @@ export class FulfillmentService {
           payDate: p.payDate,
           statusCode: p.statusCode,
         })),
-        finalSettlements: finalSettlements.map((f) => ({
+        finalSettlements: settledInScope.map((f) => ({
           id: f.id,
           contractId: f.contractId,
           statusCode: f.statusCode,
           settledAt: f.settledAt,
         })),
+        settledScope: settledContracts.length ? { contracts: settledContracts, milestones: settledMilestones } : undefined,
         // 基准日由 service 注入，规则层不读系统时钟（单测才能固定）
         now: new Date(),
       },

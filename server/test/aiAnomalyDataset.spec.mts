@@ -140,20 +140,48 @@ test('where 构造：合同收窄与日期区间各自落到正确的字段', ()
   assert.deepEqual(w.settlementWhere.settleDate, { gte: from, lte: to });
   // **区间口径一分为二**（H1）：
   // - 结算单：区间 = 判定对象（gte/lte 都加）；
-  // - 付款/手续：只加上界（payDate ≤ 区间末），因为累计类规则必须看见区间之前已发生的付款；
-  // - 发票：按挂靠的结算单日期只加上界。
-  assert.deepEqual(w.paymentWhere, { projectId: 'proj-1', contractId: 'C9', payDate: { lte: to } });
-  assert.deepEqual(w.procedureWhere, { projectId: 'proj-1', contractId: 'C9', payDate: { lte: to } });
+  // - 付款/手续/累计结算：只加上界（日期 ≤ 区间末），因为累计类规则必须看见区间之前已发生的单据；
+  //   且**日期为空的历史单据要一并取回**（只按 `<= to` 取会让空日期单据凭空消失 → 分母偏小 → 假超付，2026-10-23 审计）；
+  // - 发票/收领单：按挂靠的结算单日期只加上界，两者同一口径。
+  assert.deepEqual(w.paymentWhere, {
+    projectId: 'proj-1',
+    contractId: 'C9',
+    OR: [{ payDate: { lte: to } }, { payDate: null }],
+  });
+  assert.deepEqual(w.procedureWhere, {
+    projectId: 'proj-1',
+    contractId: 'C9',
+    OR: [{ payDate: { lte: to } }, { payDate: null }],
+  });
   assert.deepEqual(w.settlementCumulativeWhere, {
     projectId: 'proj-1',
     contractId: 'C9',
-    settleDate: { lte: to },
+    OR: [{ settleDate: { lte: to } }, { settleDate: null }],
   });
   assert.deepEqual(w.invoiceWhere, {
     projectId: 'proj-1',
     settlementId: { not: null },
     settlement: { contractId: 'C9', settleDate: { lte: to } },
   });
+  assert.deepEqual(w.receiptWhere, {
+    projectId: 'proj-1',
+    settlementId: { not: null },
+    settlement: { contractId: 'C9', settleDate: { lte: to } },
+  });
+});
+
+test('where 构造：下钻补充协议时按整条链取数（否则累计口径被裁窄）', () => {
+  const to = new Date('2026-03-31T23:59:59+08:00');
+  const w = buildAnomalyWhere({ from: null, to, contractId: 'C1', contractIds: ['C1', 'C1-1', 'C1-1-1'] }, 'proj-1');
+  // 单合同 → 等值条件；多合同（链）→ in 条件，且每个取数都用同一个条件
+  assert.deepEqual(w.contractWhere, { projectId: 'proj-1', id: { in: ['C1', 'C1-1', 'C1-1-1'] } });
+  assert.deepEqual(w.settlementWhere.contractId, { in: ['C1', 'C1-1', 'C1-1-1'] });
+  assert.deepEqual(w.contractMaterialWhere, {
+    contract: { projectId: 'proj-1', contractId: { in: ['C1', 'C1-1', 'C1-1-1'] } },
+  });
+  // 单元素链仍用等值条件，避免无谓的 in
+  const single = buildAnomalyWhere({ from: null, to: null, contractId: 'C1', contractIds: ['C1'] }, 'proj-1');
+  assert.deepEqual(single.contractWhere, { projectId: 'proj-1', id: 'C1' });
 });
 
 test('select 形状：只取判定需要的窄列（回归护栏，防止有人顺手 SELECT *）', () => {

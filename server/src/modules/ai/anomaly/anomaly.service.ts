@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import { SysParamService } from '../../../common/services/sys-param.service';
@@ -160,8 +160,15 @@ export class AnomalyService {
       const toleranceText = `金额容差 ${centsToYuan(cfg.tolerances.amount)} 元；数量容差 +${cfg.tolerances.qtyPct}%；明细重合度 ${cfg.tolerances.jaccard}`;
       const promptExtras = promptNumberExtras(
         sample,
-        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
-        [toleranceText, result.period ? `${result.period.from} 至 ${result.period.to}` : null],
+        [
+          evaluation.summary.total,
+          evaluation.summary.high,
+          evaluation.summary.medium,
+          evaluation.notEvaluated.length,
+          ...Object.values(evaluation.summary.byCode ?? {}),
+        ],
+        // 「未判定」文案里也带数字（如「3 条规则未参与判定」），提示词给过的数不能算编造
+        [toleranceText, result.period ? `${result.period.from} 至 ${result.period.to}` : null, ...evaluation.notEvaluated],
       );
       const messages = buildAnomalyMessages({
         period: result.period,
@@ -191,6 +198,8 @@ export class AnomalyService {
       const unknown = auditNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用干巴巴的模板串，也不给人一份带假数字的结论）
+        // 用户没拿到可用结论，与「模型返回不可用」同样退额度（否则编数字还倒扣用户配额）
+        this.quota.refund(userId);
         result.narrative = { ...fallbackNarrative(evaluation), source: 'template', unknownNumbers: unknown };
         result.warnings.push(
           `模型结论里出现了系统数据之外的数字（${unknown.slice(0, 5).join('、')}），已丢弃并回落模板串`,
@@ -233,13 +242,17 @@ export class AnomalyService {
     query: PaymentAnomalyQuery,
     projectId: string,
   ): Promise<{ input: PaymentAnomalyInput; sample: Record<string, number> }> {
-    const from = query?.from ? new Date(query.from) : null;
-    const to = query?.to ? new Date(query.to) : null;
+    const from = query?.from ? startOfDay(new Date(query.from)) : null;
+    const to = query?.to ? endOfDay(new Date(query.to)) : null;
     if (from && Number.isNaN(from.getTime())) throw new BadRequestException(`起始日期不合法：${query.from}`);
     if (to && Number.isNaN(to.getTime())) throw new BadRequestException(`结束日期不合法：${query.to}`);
     if (from && to && from > to) throw new BadRequestException('起始日期不能晚于结束日期');
 
-    const range = { from, to, contractId: query?.contractId || null };
+    // 下钻到补充协议时，取数必须带上整条链：结算/付款/清单量分散在母合同与各补充协议上，
+    // 只取当前合同会让「累计口径」的规则（R1-a/R1-b/R2/R6）把分母算窄，甚至
+    // 反过来断言「项目内没有清单量可供对比」（2026-10-23 审计）
+    const chainIds = await this.resolveChainIds(projectId, query?.contractId);
+    const range = { from, to, contractId: query?.contractId || null, contractIds: chainIds };
     const w = buildAnomalyWhere(range, projectId);
 
     const [
@@ -302,4 +315,54 @@ export class AnomalyService {
       range,
     );
   }
+
+  /**
+   * 下钻合同 → 整条补充协议链的合同 id 集合（母合同 + 全部层级的下游补充协议）。
+   *
+   * 不返回 null 时上游按链取数；未下钻（未传 contractId）时整项目取数，
+   * 口径本来就完整，返回 null 让 `buildAnomalyWhere` 走原路径。
+   */
+  private async resolveChainIds(projectId: string, contractId?: string): Promise<string[] | null> {
+    if (!contractId) return null;
+    const seed = await this.prisma.contract.findFirst({
+      where: { id: contractId, projectId },
+      select: { id: true, parentContractId: true },
+    });
+    // 不属于本项目 / 不存在：明确 404，避免「查不到数据」被当成「没有异常」
+    if (!seed) throw new NotFoundException('合同不存在或不属于当前项目');
+
+    const ids = new Set<string>([seed.id]);
+    // 1) 向上找到链根（防御异常数据里的环：最多 32 层）
+    let cursor: string | null = seed.parentContractId ?? null;
+    for (let depth = 0; cursor && depth < 32; depth += 1) {
+      const parent: { id: string; parentContractId: string | null } | null = await this.prisma.contract.findFirst({
+        where: { id: cursor, projectId },
+        select: { id: true, parentContractId: true },
+      });
+      if (!parent || ids.has(parent.id)) break;
+      ids.add(parent.id);
+      cursor = parent.parentContractId ?? null;
+    }
+    // 2) 向下补齐所有层级的补充协议
+    let frontier = [...ids];
+    for (let depth = 0; frontier.length && depth < 32; depth += 1) {
+      const children: Array<{ id: string }> = await this.prisma.contract.findMany({
+        where: { projectId, parentContractId: { in: frontier } },
+        select: { id: true },
+      });
+      frontier = children.map((c) => c.id).filter((id) => !ids.has(id));
+      for (const id of frontier) ids.add(id);
+    }
+    return [...ids];
+  }
+}
+
+/** 日期上界按「当天收尾」处理：库里 payDate/settleDate 可能带时分秒，直接比 00:00:00 会漏掉末日 */
+function endOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+/** 日期下界按「当天零点」处理（与 endOfDay 对称，避免 12:30 的起始日把上午数据漏掉） */
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }

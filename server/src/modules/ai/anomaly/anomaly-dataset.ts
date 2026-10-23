@@ -104,6 +104,16 @@ export interface AnomalyDateRange {
   from: Date | null;
   to: Date | null;
   contractId?: string | null;
+  /**
+   * **已展开的合同链 id 集合**（链根 + 直接补充协议）。
+   *
+   * 为什么要单独一个字段（2026-10-23 审计）：只看单合同会把链切断——
+   * 按补充协议下钻时母合同上的清单量取不到（R1-b 直接退化成「没有清单量未判定」），
+   * 母合同上的结算取不到（R2 分母变 0 → 假超 High 超付），付款记在补充协议上时
+   * 母合同侧又看不到。`contractId` 保留给「只按这一个合同」的旧行为，
+   * service/脚本一律传展开后的 `contractIds`。
+   */
+  contractIds?: string[] | null;
 }
 
 export interface AnomalyWhereSet {
@@ -121,18 +131,41 @@ export interface AnomalyWhereSet {
 }
 
 export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): AnomalyWhereSet {
-  const contractId = range.contractId || undefined;
-  const scoped: any = { projectId, ...(contractId ? { contractId } : {}) };
+  // 链范围优先用展开后的 contractIds；没展开时退回单个 contractId（老行为）
+  const chainIds =
+    range.contractIds && range.contractIds.length
+      ? [...new Set(range.contractIds.map(String))]
+      : range.contractId
+        ? [String(range.contractId)]
+        : null;
+  // 只有一个 id 时用等值条件（与老行为一致，也更好读）；多于一个才用 in
+  const singleChainId = chainIds && chainIds.length === 1 ? chainIds[0] : null;
+  // 合同维度的收窄条件：**必须同一个条件用到所有明细取数上**，
+  // 否则「判定集按链收窄、总结算明细按项目全取」会让 R1-c 把其它合同的结算单
+  // 当成「不在本项目中」（2026-10-23 审计 P1-1）
+  const byContract: any = chainIds
+    ? singleChainId
+      ? { contractId: singleChainId }
+      : { contractId: { in: chainIds } }
+    : {};
+  const byContractId: any = chainIds ? (singleChainId ? { id: singleChainId } : { id: { in: chainIds } }) : {};
+  const scoped: any = { projectId, ...byContract };
   const windowWhere: any =
     range.from || range.to
       ? { settleDate: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }
       : {};
-  // 累计口径只设上界：区间之前的单据是「已发生的事实」，累计类规则必须看见
-  const cumulativeWhere: any = range.to ? { settleDate: { lte: range.to } } : {};
-  // 付款/手续自带日期，同样只设上界（否则区间末之后的付款会被算进累计）
-  const paidBy: any = range.to ? { payDate: { lte: range.to } } : {};
+  // 累计口径只设上界：区间之前的单据是「已发生的事实」，累计类规则必须看见。
+  // 未填日期的历史单据也要看见：只按 `settleDate <= to` 取会让「日期为空」的结算单
+  // 从累计里凭空消失，分母偏小 → 假超付（2026-10-23 审计 P1-3）。
+  const cumulativeWhere: any = range.to
+    ? { OR: [{ settleDate: { lte: range.to } }, { settleDate: null }] }
+    : {};
+  // 付款/手续自带日期，同样只设上界（否则区间末之后的付款会被算进累计）。
+  // `payDate` 为空的付款按 `payMonth` 兜底参与判定（rules-payment 里已有月份口径），
+  // 因此这里要把它取出来，不能靠日期条件把它过滤掉。
+  const paidBy: any = range.to ? { OR: [{ payDate: { lte: range.to } }, { payDate: null }] } : {};
   return {
-    contractWhere: { projectId, ...(contractId ? { id: contractId } : {}) },
+    contractWhere: { projectId, ...byContractId },
     settlementWhere: { ...scoped, ...windowWhere },
     settlementCumulativeWhere: { ...scoped, ...cumulativeWhere },
     paymentWhere: { ...scoped, ...paidBy },
@@ -142,13 +175,26 @@ export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): A
       projectId,
       settlementId: { not: null },
       settlement: {
-        ...(contractId ? { contractId } : {}),
+        ...byContract,
         ...(range.to ? { settleDate: { lte: range.to } } : {}),
       },
     },
-    receiptWhere: { projectId, settlementId: { not: null } },
-    finalSettlementItemWhere: { finalSettlement: { projectId } },
-    contractMaterialWhere: { contract: { projectId } },
+    // 收领单与发票取同一口径：只设上界（原来完全不带日期界，样本里的「收领单」会把
+    // 区间末之后的单据也算进去，与发票计数不可比 —— 2026-10-23 审计）
+    receiptWhere: {
+      projectId,
+      settlementId: { not: null },
+      ...(chainIds || range.to
+        ? {
+            settlement: {
+              ...byContract,
+              ...(range.to ? { settleDate: { lte: range.to } } : {}),
+            },
+          }
+        : {}),
+    },
+    finalSettlementItemWhere: { finalSettlement: { projectId, ...byContract } },
+    contractMaterialWhere: { contract: { projectId, ...byContract } },
   };
 }
 

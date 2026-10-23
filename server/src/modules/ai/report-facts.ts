@@ -228,7 +228,11 @@ export function auditNumbers(markdown: string, allowedInput: number[]): { unknow
     const factor = m[2] ? 10000 : 1;
     const scaled = value * factor;
     const hit =
-      allowed.some((a) => Math.abs(a - scaled) < 0.011 || Math.abs(a * factor - value) < 0.011) ||
+      // 只比「同一尺度」：写了「万」就按 ×10000 比，没写就按原值比。
+      // 原来还允许 `a * factor == value` 这一条反向匹配，于是只要允许集合里有 5 元，
+      // 正文写「50000万」（5 亿）也会被判为「抄的是我们给的数」——编造检测被反向绕过
+      // （2026-10-23 审计）
+      allowed.some((a) => Math.abs(a - scaled) < 0.011) ||
       // 百分数容许取整（24.97% 写成 25% 不算编造）
       (isPct && allowed.some((a) => Math.abs(Math.round(a) - value) < 0.51));
     const token = m[0].replace(/\s+/g, '');

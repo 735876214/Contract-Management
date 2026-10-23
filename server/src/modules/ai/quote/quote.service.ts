@@ -167,8 +167,15 @@ export class QuoteService {
       const toleranceText = quoteToleranceText(cfg.tolerances);
       const promptExtras = promptNumberExtras(
         sample,
-        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
-        [toleranceText],
+        [
+          evaluation.summary.total,
+          evaluation.summary.high,
+          evaluation.summary.medium,
+          evaluation.notEvaluated.length,
+          ...Object.values(evaluation.summary.byCode ?? {}),
+        ],
+        // 「未判定」文案里的数字也是系统给的，复述出来不算编造
+        [toleranceText, ...evaluation.notEvaluated],
       );
       const messages = buildQuoteMessages({
         scope,
@@ -201,6 +208,8 @@ export class QuoteService {
       const unknown = auditQuoteNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用模板串，也不给人一份带假数字的结论）
+        // 用户没拿到可用结论 ⇒ 与「模型返回不可用」同样退额度
+        this.quota.refund(userId);
         result.narrative = { ...fallbackQuoteNarrative(evaluation), source: 'template', unknownNumbers: unknown };
         result.warnings.push(
           `模型结论里出现了系统数据之外的数字（${unknown.slice(0, 5).join('、')}），已丢弃并回落模板串`,
@@ -299,10 +308,20 @@ export class QuoteService {
     ]);
 
     const compareByTask = new Map<string, CompareItemRow[]>();
+    // 只有**已发布**的价格对比表才算数：`publishedAt` 是「对比表阶段发布后回填」，
+    // 编辑中的草稿成交价还在改，拿它判 B4 单价异常会报出一串「成交价与市场价差太多」的假异常
+    let draftCompares = 0;
     for (const pc of priceCompares) {
+      if (!pc.publishedAt) {
+        draftCompares += 1;
+        continue;
+      }
       const parsed = this.parseCompareItems(pc.items);
       if (parsed.length) compareByTask.set(pc.taskId, parsed);
       else if (pc.items) warnings.push(`采购价格对比表（任务 ${pc.taskId}）的明细 JSON 解析失败，相关单行单价规则未参与判定`);
+    }
+    if (draftCompares) {
+      warnings.push(`${draftCompares} 份采购价格对比表尚未发布，其成交价未参与单行单价判定（草稿数据不算异常）`);
     }
 
     const byTask = <T extends { taskId?: string | null }>(rows: T[]): Map<string, T[]> => {

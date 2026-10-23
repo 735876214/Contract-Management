@@ -108,7 +108,9 @@ export default function AnomalyPanel() {
     }
   };
 
-  const coverage = result ? coverageState(result) : { ok: false, sampled: 0, reason: '' };
+  const coverage = result
+    ? coverageState({ ...result, requiredSample: ['结算单'] })
+    : { ok: false, sampled: 0, reason: '' };
   const findings = useMemo(() => {
     const list = result?.findings || [];
     return list.filter(

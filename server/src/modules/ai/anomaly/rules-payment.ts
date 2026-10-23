@@ -375,6 +375,9 @@ export function r1cFinalSnapshotDrift(
   const findings: Finding[] = [];
   if (!items?.length) return { findings };
   const byId = new Map(settlements.map((s) => [s.id, s]));
+  // 引用到的结算单不在本次取数范围内：**不能断言「不在本项目中」**
+  // （可能是结算日在区间外、属于其它合同、或确实已删除），逐条报会变成大面积误报
+  let outOfScope = 0;
 
   for (const item of items) {
     const snapshot = moneyToCents(item.amount);
@@ -398,19 +401,8 @@ export function r1cFinalSnapshotDrift(
     }
     const target = byId.get(item.settlementId);
     if (!target) {
-      findings.push({
-        code: ANOMALY_CODES.R1_FINAL_SNAPSHOT_DRIFT,
-        level: ANOMALY_LEVEL.MEDIUM,
-        entity: 'settlement',
-        entityId: item.settlementId,
-        title: `总结算单明细（${month}）引用的月度结算单不在本项目中`,
-        facts: {
-          总结算单: item.finalSettlementId.slice(0, 8),
-          结算月份: month,
-          明细金额: centsToYuan(snapshot),
-        },
-        amountDiff: null,
-      });
+      // 只计数，末尾汇总一条 notEvaluated（逐条报会刷屏，且断言「不在本项目中」是错的）
+      outOfScope += 1;
       continue;
     }
     const current = settledCents(target);
@@ -434,6 +426,12 @@ export function r1cFinalSnapshotDrift(
       amountDiff: centsToYuan(gap),
     });
   }
+  if (outOfScope) {
+    pushSkip(
+      ctx,
+      `R1-c 未判定 ${outOfScope} 条总结算明细：其引用的月度结算单不在本次取数范围内（可能是结算日在区间外、属于其它合同或已删除），不能据此断言「不在本项目」`,
+    );
+  }
   return { findings };
 }
 
@@ -442,33 +440,45 @@ export function r1cFinalSnapshotDrift(
 // ---------------------------------------------------------------------------
 
 /**
- * 按合同累计结算额（排除草稿；`actualAmount` 回退 `amount`）。
- * 口径与 `contract-chain.chainSettledTotal` 一致。未关联合同的结算单不在此聚合（另有规则覆盖）。
+ * 按**链根**累计结算额。
+ *
+ * 为什么按链根（2026-10-23 审计 P1）：付款上限是「整条链」的口径（`contract-chain.ts`：
+ * 当前金额 = 母合同 + 补充协议增量，`amount-guard` 也按链判）。若按签约主体各自聚合，
+ * 「结算记在母合同、付款记在补充协议」这种常见组合会让补充协议的分母变 0，
+ * 于是 1 万元以内的正常付款也被报成「超出上限 100%」的高风险超付。
  */
-function sumSettledByContract(rows: SettlementRow[]): Map<string, Cents> {
+function sumSettledByChainRoot(rows: SettlementRow[], rootOf: (id: string) => string | null): Map<string, Cents> {
   const map = new Map<string, Cents>();
   for (const row of rows) {
     if (!row.contractId || !isCountedSettlement(row)) continue;
     const cents = settledCents(row);
     if (cents === null) continue;
-    map.set(row.contractId, (map.get(row.contractId) ?? 0n) + cents);
+    const root = rootOf(row.contractId) ?? row.contractId;
+    map.set(root, (map.get(root) ?? 0n) + cents);
   }
   return map;
 }
 
-/** 该合同是否有一张以上「计入口径但推不出金额」的结算单 */
-function contractHasUnusableSettlement(rows: SettlementRow[], contractId: string): boolean {
-  return rows.some((row) => row.contractId === contractId && isCountedSettlement(row) && settledCents(row) === null);
+/** 链上有「计入口径但推不出金额」的结算单（链根集合） */
+function chainRootsWithUnusableSettlement(rows: SettlementRow[], rootOf: (id: string) => string | null): Set<string> {
+  const set = new Set<string>();
+  for (const row of rows) {
+    if (!row.contractId || !isCountedSettlement(row)) continue;
+    if (settledCents(row) !== null) continue;
+    set.add(rootOf(row.contractId) ?? row.contractId);
+  }
+  return set;
 }
 
-/** 按合同累计付款额（排除失败/已退款；`null` 状态计入，与 `paidPaymentWhere()` 同口径） */
-function sumPaidByContract(rows: PaymentRow[]): Map<string, Cents> {
+/** 按**链根**累计付款额（排除失败/已退款；`null` 状态计入，与 `paidPaymentWhere()` 同口径） */
+function sumPaidByChainRoot(rows: PaymentRow[], rootOf: (id: string) => string | null): Map<string, Cents> {
   const map = new Map<string, Cents>();
   for (const row of rows) {
     if (!row.contractId || !isCountedPayment(row)) continue;
     const cents = moneyToCents(row.amount);
     if (cents === null) continue;
-    map.set(row.contractId, (map.get(row.contractId) ?? 0n) + cents);
+    const root = rootOf(row.contractId) ?? row.contractId;
+    map.set(root, (map.get(root) ?? 0n) + cents);
   }
   return map;
 }
@@ -486,27 +496,35 @@ function sumPaidByContract(rows: PaymentRow[]): Map<string, Cents> {
 export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleResult {
   const findings: Finding[] = [];
   const contracts = new Map(input.contracts.map((c) => [c.id, c]));
+  const rootOf = makeRootResolver(input.contracts);
   // 累计口径：区间之前的历史结算必须看见，否则「区间内结算 / 全时段付款」必互相打架
   const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
-  const settled = sumSettledByContract(cumulative);
-  const paid = sumPaidByContract(input.payments);
+  const settled = sumSettledByChainRoot(cumulative, rootOf);
+  const paid = sumPaidByChainRoot(input.payments, rootOf);
+  const unusable = chainRootsWithUnusableSettlement(cumulative, rootOf);
 
-  for (const [contractId, paidCents] of paid) {
-    const contract = contracts.get(contractId);
+  for (const [rootId, paidCents] of paid) {
+    const contract = contracts.get(rootId);
     // 合同缺失/未签章的付款由 R3 报，这里不重复
     if (!contract) continue;
-    // 有结算单但一张都推不出金额（amount/actualAmount 都没填）时**不能当 0**：
-    // 那会把「单据没填金额」报成「超付 100%」，真正原因反被藏起来（与 contract-chain 同取舍）
-    if (!settled.has(contractId) && contractHasUnusableSettlement(cumulative, contractId)) {
-      pushSkip(ctx, `R2 未判定：${contractLabel(contract, contractId)} 的结算单没有金额（amount/actualAmount 均为空）`);
+    // 链上有任何一张结算单推不出金额时**整条链不判**：把缺失的金额当 0 会让分母偏小，
+    // 于是「单据没填金额」被报成「超付」，真正原因反被藏起来
+    // （2026-10-23 审计 P2：原来只在「一张都推不出」时才跳过，混合情形仍会误报）
+    if (unusable.has(rootId)) {
+      pushSkip(ctx, `R2 未判定：${contractLabel(contract, rootId)} 的结算单没有金额（amount/actualAmount 均为空），累计结算额不可用`);
       continue;
     }
-    const settledCentsTotal = settled.get(contractId) ?? 0n;
+    const settledCentsTotal = settled.get(rootId) ?? 0n;
+    // 没有任何已结算金额时，「付款 > 结算×比例」恒成立（预付款场景），判超付是纯噪音
+    if (settledCentsTotal === 0n) {
+      pushSkip(ctx, `R2 未判定：${contractLabel(contract, rootId)} 尚无已结算金额（预付款无法据比例判定是否超付）`);
+      continue;
+    }
     const bp = ratioToBp(contract.currentPayRatio);
     if (bp === null) {
       pushSkip(
         ctx,
-        `R2 未判定：${contractLabel(contract, contractId)} 没有可用的付款比例（当前比例为空或不在 0~1）`,
+        `R2 未判定：${contractLabel(contract, rootId)} 没有可用的付款比例（当前比例为空或不在 0~1）`,
       );
       continue;
     }
@@ -517,10 +535,11 @@ export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleRes
       code: ANOMALY_CODES.R2_OVERPAY,
       level: ANOMALY_LEVEL.HIGH,
       entity: 'contract',
-      entityId: contractId,
-      title: `${contractLabel(contract, contractId)} 累计付款超出生效付款比例上限`,
+      entityId: rootId,
+      title: `${contractLabel(contract, rootId)} 累计付款超出生效付款比例上限`,
       facts: {
-        合同: contractLabel(contract, contractId),
+        合同: contractLabel(contract, rootId),
+        口径: '母合同与补充协议合计（整链）',
         累计结算金额: centsToYuan(settledCentsTotal),
         付款比例: `${(bp / 100).toFixed(2)}%`,
         应付上限: centsToYuan(limit),
@@ -616,7 +635,6 @@ export function r4InvoiceMismatch(input: PaymentAnomalyInput, ctx: RuleContext):
   // 发票可能指向区间之前的结算单：用累计口径查得到，就不会被误报成「跨项目数据串了」
   const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
   const settlements = new Map(cumulative.filter(isCountedSettlement).map((s) => [s.id, s]));
-  const inWindow = new Set(input.settlements.map((s) => s.id));
   const bySettlement = groupBy(
     input.invoices.filter((i) => isCountedInvoice(i) && i.settlementId),
     (i) => i.settlementId as string,
@@ -749,19 +767,29 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
     return { findings };
   }
 
-  const settledByContract = groupBy(
-    (input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements).filter(
-      (s) => isCountedSettlement(s) && s.contractId,
-    ),
-    (s) => s.contractId as string,
+  // 手续单上记的是**整条链**的开累（台账口径 = 母合同 + 补充协议），
+  // 所以实时累计也必须按链根汇总，否则「手续开在母合同、付款记在补充协议」
+  // 会被算成「实时付款 0，手续单多记了钱」的假偏离（2026-10-23 审计）
+  const rootOf = makeRootResolver(input.contracts);
+  const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
+  const rootSettled = groupBy(
+    cumulative.filter((s) => isCountedSettlement(s) && s.contractId),
+    (s) => rootOf(s.contractId as string) ?? String(s.contractId),
   );
-  const paidByContract = groupBy(
+  const rootPaid = groupBy(
     input.payments.filter((p) => isCountedPayment(p) && p.contractId),
-    (p) => p.contractId as string,
+    (p) => rootOf(p.contractId as string) ?? String(p.contractId),
   );
+  // 静默跳过要能说出来：金额全空 / 没有合同的手续单原来一句不提，面板会显示「全绿」
+  let skippedNoAmount = 0;
+  let skippedNoContract = 0;
+
 
   for (const procedure of procedures) {
-    if (!procedure.contractId) continue;
+    if (!procedure.contractId) {
+      skippedNoContract += 1;
+      continue;
+    }
     const payDay = isoDay(procedure.payDate);
     if (!payDay) {
       pushSkip(ctx, `R6 未判定：手续单 ${procedure.code || procedure.id.slice(0, 8)} 没有付款日期`);
@@ -769,17 +797,21 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
     }
     const snapSettled = moneyToCents(procedure.settleCumAmount);
     const snapPaid = moneyToCents(procedure.paidCumAmount);
-    if (snapSettled === null && snapPaid === null) continue;
+    if (snapSettled === null && snapPaid === null) {
+      skippedNoAmount += 1;
+      continue;
+    }
+    const rootId = rootOf(procedure.contractId) ?? String(procedure.contractId);
 
     let liveSettled = 0n;
-    for (const s of settledByContract.get(procedure.contractId) ?? []) {
+    for (const s of rootSettled.get(rootId) ?? []) {
       const day = isoDay(s.settleDate);
       if (!day || day > payDay) continue;
       const cents = settledCents(s);
       if (cents !== null) liveSettled += cents;
     }
     let livePaid = 0n;
-    for (const p of paidByContract.get(procedure.contractId) ?? []) {
+    for (const p of rootPaid.get(rootId) ?? []) {
       const day = isoDay(p.payDate);
       // 只有「账期」没有付款日的付款行：按账期月 ≤ 付款月 计入（口径从宽，避免误报）
       const inRange = day ? day <= payDay : !!p.payMonth && p.payMonth <= payDay.slice(0, 7);
@@ -816,6 +848,12 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
       facts,
       amountDiff: centsToYuan(absBig(driftPaid) >= absBig(driftSettled) ? driftPaid : driftSettled),
     });
+  }
+  if (skippedNoContract) {
+    pushSkip(ctx, `R6 未判定 ${skippedNoContract} 张付款手续单：没有关联合同，无法按合同链核对开累`);
+  }
+  if (skippedNoAmount) {
+    pushSkip(ctx, `R6 未判定 ${skippedNoAmount} 张付款手续单：手续上的开累金额（结算/付款）都是空值`);
   }
   return { findings };
 }

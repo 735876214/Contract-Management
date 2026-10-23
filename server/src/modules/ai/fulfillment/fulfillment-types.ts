@@ -152,6 +152,13 @@ export interface FulfillmentInput {
   milestones: MilestoneRow[];
   payments?: FulfillmentPaymentRow[];
   finalSettlements?: FulfillmentFinalSettlementRow[];
+  /**
+   * **C7 专用补充口径**：已出终期结算的合同往往已经是「已完已结」（`execStatus=DONE_SETTLED`），
+   * 因而被 C1–C6 的主口径排除在外。若 C7 也只看主口径，它的候选集恒为空——
+   * 「已出终期结算却仍有未完成节点」这条规则永远是死的（2026-10-23 审计）。
+   * 这里单独带上这些合同与节点，只喂给 C7。
+   */
+  settledScope?: { contracts: FulfillmentContractRow[]; milestones: MilestoneRow[] };
   /** 判定基准日（本地零点）；缺省用当前时间，单测必须显式传固定日期 */
   now?: Date;
   tolerances?: Partial<FulfillmentTolerances>;

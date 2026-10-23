@@ -74,8 +74,24 @@ async function main(): Promise<void> {
   const rows = dataset.rows as AnomalyRows | undefined;
   if (!rows) throw new Error('数据集缺少 rows：评分必须重算规则，不接受只有 candidates 的文件');
 
-  const { input, sample } = buildPaymentAnomalyInput(rows);
-  const evaluation = evaluatePaymentAnomalies(input);
+  // 评分必须用**导出时同一套口径**重算：窗口（区间/单合同）与容差都从数据集 meta 里取，
+  // 否则「线上有区间、评分没有」会让 R3 之类按窗口裁剪的规则得出另一套结论
+  const range = {
+    from: dataset.meta.from ? new Date(dataset.meta.from) : null,
+    to: dataset.meta.to ? new Date(dataset.meta.to) : null,
+    contractId: dataset.meta.contractId ?? null,
+    contractIds: Array.isArray(dataset.meta.contractIds) ? dataset.meta.contractIds : null,
+  };
+  const { input, sample } = buildPaymentAnomalyInput(rows, range);
+  const tolerances =
+    dataset.meta.tolerances && typeof dataset.meta.tolerances.amount === 'string'
+      ? {
+          amount: BigInt(Math.round(Number(dataset.meta.tolerances.amount) * 100)),
+          qtyPct: Number(dataset.meta.tolerances.qtyPct),
+          jaccard: Number(dataset.meta.tolerances.jaccard),
+        }
+      : undefined;
+  const evaluation = evaluatePaymentAnomalies({ ...input, ...(tolerances ? { tolerances } : {}) });
   const report = scoreFindings(evaluation.findings, truth);
 
   const meta: ScoreMeta = {

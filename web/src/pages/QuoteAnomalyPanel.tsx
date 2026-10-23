@@ -90,7 +90,9 @@ export default function QuoteAnomalyPanel() {
     }
   };
 
-  const coverage = result ? coverageState(result) : { ok: false, sampled: 0, reason: '' };
+  const coverage = result
+    ? coverageState({ ...result, requiredSample: ['采购任务'] })
+    : { ok: false, sampled: 0, reason: '' };
   const findings = useMemo(() => {
     const list = result?.findings || [];
     return list.filter(

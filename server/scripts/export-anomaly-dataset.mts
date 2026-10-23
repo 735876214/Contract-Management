@@ -23,7 +23,8 @@ import {
   type AnomalyRows,
 } from '../src/modules/ai/anomaly/anomaly-dataset.ts';
 import { evaluatePaymentAnomalies } from '../src/modules/ai/anomaly/rules-payment.ts';
-import { DEFAULT_TOLERANCES, centsToYuan } from '../src/modules/ai/anomaly/anomaly-types.ts';
+import { centsToYuan } from '../src/modules/ai/anomaly/anomaly-types.ts';
+import { ANOMALY_PARAM_KEY_LIST, parseAnomalyConfig } from '../src/modules/ai/anomaly/anomaly-config.ts';
 
 interface Args {
   project: string;
@@ -58,6 +59,54 @@ function parseDay(raw: string | undefined, label: string): Date | null {
   return d;
 }
 
+/** 与线上 `anomaly.service.collect()` 同口径：起点零点、终点当日 23:59:59.999 */
+function dayStart(d: Date | null): Date | null {
+  return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0) : null;
+}
+function dayEnd(d: Date | null): Date | null {
+  return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999) : null;
+}
+
+/** 读系统参数并解析成与线上完全相同的配置（容差/开关都按库里配置，不从代码默认值来） */
+async function readAnomalyConfig(prisma: PrismaClient) {
+  const rows = await prisma.sysParam.findMany({ where: { key: { in: ANOMALY_PARAM_KEY_LIST } } });
+  const byKey = new Map(rows.map((r) => [r.key, r.value ?? undefined]));
+  const raw: Record<string, string | undefined> = {};
+  for (const k of ANOMALY_PARAM_KEY_LIST) raw[k] = byKey.get(k) || undefined;
+  return parseAnomalyConfig(raw);
+}
+
+/** 下钻合同时补齐整条补充协议链（与线上 `resolveChainIds` 同口径） */
+async function resolveChainIds(prisma: PrismaClient, projectId: string, contractId: string | null) {
+  if (!contractId) return null;
+  const seed = await prisma.contract.findFirst({
+    where: { id: contractId, projectId },
+    select: { id: true, parentContractId: true },
+  });
+  if (!seed) throw new Error(`合同不存在或不属于项目 ${projectId}：${contractId}`);
+  const ids = new Set<string>([seed.id]);
+  let cursor: string | null = seed.parentContractId ?? null;
+  for (let depth = 0; cursor && depth < 32; depth += 1) {
+    const parent = await prisma.contract.findFirst({
+      where: { id: cursor, projectId },
+      select: { id: true, parentContractId: true },
+    });
+    if (!parent || ids.has(parent.id)) break;
+    ids.add(parent.id);
+    cursor = parent.parentContractId ?? null;
+  }
+  let frontier = [...ids];
+  for (let depth = 0; frontier.length && depth < 32; depth += 1) {
+    const children = await prisma.contract.findMany({
+      where: { projectId, parentContractId: { in: frontier } },
+      select: { id: true },
+    });
+    frontier = children.map((c) => c.id).filter((id) => !ids.has(id));
+    for (const id of frontier) ids.add(id);
+  }
+  return [...ids];
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!process.env.DATABASE_URL) {
@@ -66,46 +115,63 @@ async function main(): Promise<void> {
       '未检测到 DATABASE_URL：先把后端使用的连接串放进环境变量（如 `set -a && source .env && set +a`），再重跑本脚本',
     );
   }
-  const from = parseDay(args.from, '--from');
-  const to = parseDay(args.to, '--to');
+  const from = dayStart(parseDay(args.from, '--from'));
+  const to = dayEnd(parseDay(args.to, '--to'));
   if (from && to && from > to) throw new Error('--from 不能晚于 --to');
 
   const prisma = new PrismaClient();
   try {
-    const w = buildAnomalyWhere({ from, to, contractId: args.contract ?? null }, args.project);
-    const [contracts, settlements, payments, invoices, procedures, receipts, finalSettlementItems, materialRows] =
-      await Promise.all([
-        prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
-        prisma.settlement.findMany({
-          where: w.settlementWhere,
-          select: ANOMALY_SELECT.settlement,
-          orderBy: ANOMALY_ORDER.settlement as any,
-        }),
-        prisma.paymentRecord.findMany({
-          where: w.paymentWhere,
-          select: ANOMALY_SELECT.payment,
-          orderBy: ANOMALY_ORDER.payment as any,
-        }),
-        prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
-        prisma.paymentProcedure.findMany({
-          where: w.procedureWhere,
-          select: ANOMALY_SELECT.procedure,
-          orderBy: ANOMALY_ORDER.procedure as any,
-        }),
-        prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
-        prisma.finalSettlementItem.findMany({
-          where: w.finalSettlementItemWhere,
-          select: ANOMALY_SELECT.finalSettlementItem,
-        }),
-        prisma.contractMaterial.findMany({
-          where: w.contractMaterialWhere,
-          select: ANOMALY_SELECT.contractMaterial,
-        }),
-      ]);
+    const chainIds = await resolveChainIds(prisma, args.project, args.contract ?? null);
+    const w = buildAnomalyWhere({ from, to, contractId: args.contract ?? null, contractIds: chainIds }, args.project);
+    const [
+      contracts,
+      settlements,
+      cumulativeSettlements,
+      payments,
+      invoices,
+      procedures,
+      receipts,
+      finalSettlementItems,
+      materialRows,
+    ] = await Promise.all([
+      prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
+      prisma.settlement.findMany({
+        where: w.settlementWhere,
+        select: ANOMALY_SELECT.settlement,
+        orderBy: ANOMALY_ORDER.settlement as any,
+      }),
+      // 累计口径：区间之前的结算单也要，否则 R2/R4/R6 的分母被区间裁窄
+      prisma.settlement.findMany({
+        where: w.settlementCumulativeWhere,
+        select: ANOMALY_SELECT.settlement,
+        orderBy: ANOMALY_ORDER.settlement as any,
+      }),
+      prisma.paymentRecord.findMany({
+        where: w.paymentWhere,
+        select: ANOMALY_SELECT.payment,
+        orderBy: ANOMALY_ORDER.payment as any,
+      }),
+      prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
+      prisma.paymentProcedure.findMany({
+        where: w.procedureWhere,
+        select: ANOMALY_SELECT.procedure,
+        orderBy: ANOMALY_ORDER.procedure as any,
+      }),
+      prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
+      prisma.finalSettlementItem.findMany({
+        where: w.finalSettlementItemWhere,
+        select: ANOMALY_SELECT.finalSettlementItem,
+      }),
+      prisma.contractMaterial.findMany({
+        where: w.contractMaterialWhere,
+        select: ANOMALY_SELECT.contractMaterial,
+      }),
+    ]);
 
     const rows: AnomalyRows = {
       contracts: contracts as any[],
       settlements: settlements as any[],
+      cumulativeSettlements: cumulativeSettlements as any[],
       payments: payments as any[],
       invoices: invoices as any[],
       procedures: procedures as any[],
@@ -114,8 +180,10 @@ async function main(): Promise<void> {
       materialRows: materialRows as any[],
     };
 
-    const { input, sample } = buildPaymentAnomalyInput(rows);
-    const evaluation = evaluatePaymentAnomalies(input);
+    // 容差与开关必须读**系统参数**：线上是按库里配置判的，脚本用默认值就会得出另一套结论
+    const cfg = await readAnomalyConfig(prisma);
+    const { input, sample } = buildPaymentAnomalyInput(rows, { from, to, contractId: args.contract ?? null });
+    const evaluation = evaluatePaymentAnomalies({ ...input, tolerances: cfg.tolerances });
 
     const payload = {
       meta: {
@@ -123,13 +191,16 @@ async function main(): Promise<void> {
         from: args.from ?? null,
         to: args.to ?? null,
         contractId: args.contract ?? null,
+        contractIds: chainIds,
         exportedAt: new Date().toISOString(),
         sample,
         tolerances: {
-          amount: centsToYuan(DEFAULT_TOLERANCES.amount),
-          qtyPct: DEFAULT_TOLERANCES.qtyPct,
-          jaccard: DEFAULT_TOLERANCES.jaccard,
+          amount: centsToYuan(cfg.tolerances.amount),
+          qtyPct: cfg.tolerances.qtyPct,
+          jaccard: cfg.tolerances.jaccard,
         },
+        enabled: cfg.enabled,
+        problems: cfg.problems,
         note: 'rows 是原始取数（评分脚本会用它重算规则，保证评测对象 = 线上代码）；candidates 是规则初判，只供标注时参考，不得直接采信。',
       },
       rows,
