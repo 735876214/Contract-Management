@@ -36,6 +36,16 @@
 #   2. 不设 restart 策略：依赖安装 / 编译失败时容器停在 exited 便于看日志，而不是无限重启刷屏；
 #   3. JWT_SECRET / 数据库密码是写死的弱值，仅限本地，生产必须用 .env 注入随机值；
 #   4. node_modules 用命名卷隔离，避免宿主机（Windows）依赖与容器（Linux）二进制互相污染。
+#
+# ⚠ 僵尸进程（2026-10 修复，**三个服务都必须保留 `init: true`，勿删**）：
+#   `init: true` 让 docker-init(tini) 当容器 PID1，专职「回收孤儿进程 + 转发信号」。
+#   不开的话 PID1 就是应用自己（npm / npx / nest，本质都是 node 进程），而 node 只回收
+#   自己 fork 的那几个孩子，不会回收「被别人过继来的」孤儿：调试期间的短命进程
+#   （watch 热重启留下的旧进程、prisma schema-engine、IDE attach 的调试残留、
+#     docker exec 里的临时命令、探针脚本）一旦生父先退出，就会被挂到 PID1 名下；
+#   它们随后退出就定格成 <defunct>。僵尸进程**杀不掉**（kill -9 无效，Z 状态不占 CPU/内存，
+#   只占 PID 表槽位），只能重建容器才清得掉 —— 这就是「每次调试都攒僵尸、且删不掉」的来历。
+#   自检 / 清理：sh scripts/dev-zombie-check.sh [--fix]
 # ============================================================================
 
 # 独立项目名：与 docker-compose.yml（项目名=目录名）隔离网络、卷、容器，可同时运行
@@ -45,6 +55,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: cms-postgres-dev
+    init: true                   # 回收僵尸进程（docker exec 进去敲 psql 等短命命令也不会留 defunct）
     environment:
       POSTGRES_USER: cms
       POSTGRES_PASSWORD: cms123456
@@ -64,13 +75,15 @@ services:
   server:
     image: node:20              # 完整版（含 openssl）：prisma generate 需要
     container_name: cms-server-dev
+    init: true                  # tini 作 PID1：回收热重启/调试产生的孤儿进程，并把信号转发给 watcher
     working_dir: /app
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "3000:3000"             # 后端 API（前端 vite 反代到这里）
-      - "9229:9229"             # Node 调试端口：把下面 command 的 start:dev 换成 start:debug 后可用 IDE Attach
+      - "9229:9229"             # Node 调试端口：把下面 command 的 nest start --watch 换成
+                                #   exec ./node_modules/.bin/nest start --watch --debug 后即可 IDE Attach
     environment:
       NODE_ENV: development
       PORT: "3000"
@@ -102,16 +115,19 @@ services:
         [ -x node_modules/.bin/nest ] || npm ci --legacy-peer-deps --no-audit --no-fund
         # 应用数据库迁移：与生产 compose 完全一致（20260901000000_init 是「空库 → 当前 schema」的折叠基线，
         # 全新空库也能一次建出全表，不再出现 P3018 relation "Contract" does not exist）。
-        npx prisma generate
-        npx prisma migrate deploy
+        ./node_modules/.bin/prisma generate
+        ./node_modules/.bin/prisma migrate deploy
         # 改了 prisma/schema.prisma 后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
         # 不要用 db push：那会让本机库脱离迁移历史，缺失的迁移只会在别人/生产上暴露。
-        # exec 让 node 进程成为 PID1，Ctrl-C 能直接停掉 watcher
-        exec npm run start:dev
+        # 直接跑 nest CLI（不经 npm run / npx）：npm 夹在中间只是一层多余父子进程，
+        # stop/restart 时它先死、把 watcher 过继给 PID1，既多攒孤儿又拖慢信号；
+        # exec 让 nest 顶替 shell 成为容器的直接子进程（PID1 由 init: true 的 tini 担当）。
+        exec ./node_modules/.bin/nest start --watch
 
   web:
     image: node:20
     container_name: cms-web-dev
+    init: true                  # 同上：vite 重启 esbuild 服务等短命子进程由 tini 回收
     working_dir: /app
     depends_on:
       - server
@@ -135,7 +151,7 @@ services:
       - |
         set -e
         [ -x node_modules/.bin/vite ] || npm ci --legacy-peer-deps --no-audit --no-fund
-        exec npx vite --host 0.0.0.0 --port 5173
+        exec ./node_modules/.bin/vite --host 0.0.0.0 --port 5173
 
 volumes:
   pgdata-dev:

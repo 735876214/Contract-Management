@@ -410,6 +410,21 @@ bash scripts/nas-deploy.sh
   **大小写敏感**，遇到 401 `invalid_api_key` 先核对原样大小写。
 - **改后端要重启 dev 容器**：`docker compose -f docker-compose.dev.yml restart server`
   （`nest start --watch` 不感知宿主机新增/修改的文件，见 §6 ③）。
+- **容器里的 `<defunct>` 僵尸进程（2026-10 已根治，别把 `init: true` 删了）**：dev compose 的
+  postgres / server / web 三个服务都开了 `init: true`，由 tini 当 PID1 负责回收孤儿进程。
+  - **症状**：调试久了容器里 `<defunct>` 越来越多；`kill -9` 它们毫无反应（Z 状态不占 CPU/内存，
+    只占 PID 表槽位，要等父进程 `wait()` 才消失），只有重建容器才清得掉——「删不掉」不是权限问题，
+    是僵尸进程的定义。
+  - **自检**：`sh scripts/dev-zombie-check.sh`（逐个容器扫 `/proc/*/stat` 数 Z，退出码 1 = 有僵尸；
+    容器基础镜像通常没有 `ps`，脚本因此不用 `ps`）。
+  - **清理**：`sh scripts/dev-zombie-check.sh --fix`，或
+    `docker compose -f docker-compose.dev.yml up -d --force-recreate`（数据在命名卷里，不会丢）。
+  - **为什么需要 init**：没有它 PID1 就是应用自身（`npm` / `npx` / `nest`，都是 node 进程），
+    node 只回收自己 fork 的孩子，不回收「过继」来的孤儿；调试期间的短命进程
+    （watch 热重启的旧实例、prisma schema-engine、IDE attach 残留、`docker exec` 里的临时命令）
+    生父先退出后就被挂到 PID1 名下，退出即定格成 Z。生产 compose 与 NAS compose 早就用 `init: true`
+    兜住了，只有 dev compose 漏了——这就是「只有调试时才出问题」的由来。
+  - 同理：给 dev 服务加 healthcheck / 探针时也要确认 `init: true` 还在，否则探针命令会成为僵尸来源。
 - **改前端要真渲染核验**：手法见 §5.2（Edge headless + CDP）。两条实践细节：
   ① 先访问 `/login` 再注入 `cms_token` 再跳目标路由（直接冷启动到受保护路由会被 `RequireAuth` 弹回登录页）；
   ② 断言"控制台无报错"时要先**过滤 `chrome-extension://` 噪音**（headless 的 Edge 里挂了扩展，
