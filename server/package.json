@@ -11,7 +11,7 @@
     "seed": "ts-node prisma/seed.ts",
     "test": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/*.spec.ts test/*.spec.mts",
     "test:int": "prisma migrate deploy && node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test-integration/*.int.spec.ts",
-    "test:anomaly": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiAnomalyPayment.spec.mts test/aiAnomalyPrompt.spec.mts",
+    "test:anomaly": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiAnomalyPayment.spec.mts test/aiAnomalyPrompt.spec.mts test/aiAnomalyBench.spec.mts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy"

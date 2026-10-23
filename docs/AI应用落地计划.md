@@ -205,6 +205,7 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M0 规则层 | ✅ 2026-10-23 | `server/src/modules/ai/anomaly/{anomaly-types.ts, rules-payment.ts}`、真值夹具 `server/test/fixtures/ai-anomaly-payment.fixture.mts`、单测 `server/test/aiAnomalyPayment.spec.mts` | 8 条规则纯函数（金额全 bigint 分/万分之一单位）；夹具 10 条命中真值 + 干净夹具 0 命中；`npm test` 全绿 |
 | M1 后端接口 | ✅ 2026-10-23 | `anomaly-config.ts` / `anomaly-prompt.ts` / `anomaly.service.ts`、`GET /ai/anomaly/payment`、`aiAnomalyPrompt.spec.mts` | 744 项测试全绿；假 Prisma 直呼 service：10 条命中、`notEvaluated` 正确、缺 `contract:view` 得 403、非法日期 400、开关关闭不判定；提交 `c84b79d` |
 | M2 前端面板 | ✅ 2026-10-23 | `web/src/pages/AnomalyPanel.tsx`、`aiApi.paymentAnomaly`、五处接线 | 两个 build 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过 |
+| M3 评测 | ✅ 2026-10-23 | 夹具生成器+评分器 `server/src/modules/ai/anomaly/anomaly-bench.ts`、`server/test/aiAnomalyBench.spec.mts`、报告 `docs/AI应用评测报告-6-9-结算异常预警.md` | 合成集（12 合同 / 61 结算单 / 9 条注入）：**召回 100%、误报 0**，8 个规则码全覆盖；4 001 张结算单判定 101.6 ms；措辞层 1 次调用 / 1 991 字符 ≈ 905 tokens；756 项测试全绿 |
 
 ### 9.1 与计划的偏差（有意为之）
 
@@ -213,9 +214,10 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 3. **规则数 8 条而非计划的 6 条**：R1 拆成跨期重复 / 同物资重复计量 / 终期快照漂移；R6 从"审批时间晚于付款"（`PaymentProcedure` 没有审批完成时间字段，做不到）改成"开累快照与台账不一致"。
 4. **R2 超付口径**：用 `ContractExt.currentPayRatio`（0~1）作上限，比例为空或不在 0~1 的合同**不判定并单独报出**（`notEvaluated`），不用 100% 兜底 —— 兜底等于悄悄放宽规则。
 5. **只读、不落 `Notification`**：D2 的"一期落通知"本轮未做。预警自己写库/发消息会在正式使用时产生"谁点的、何时点的"追溯问题，先只读；要提醒由前端下一个工单决定。
+6. **评测用合成夹具而不是真实单据**：库里没有任何业务单据（`Settlement` / `PaymentRecord` / `Invoice` 全为 0 行），且 DB 不可达。于是把「评测」拆成两层：**能否落地（成本/规模/规则一致性）现在可测**，**召回率是否达标**必须等真数据。为避免自己造的题自己打满分，夹具生成时同步登记真值（`TruthItem`）并给评分器加了自校准用例（删/加真值必须变成误报/漏报）。
 
 ### 9.2 尚未闭合的缺口
 
 - **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
 - **headless 真渲染未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
-- **M3 评测**：需要先把夹具灌进一个可用的 PostgreSQL（或让 `cms_postgres` 可达），才能统计召回率/误报率。
+- **生产数据上的召回率仍未测**（M3 只做了规则层的内存版评测）：合成集能证明「实现与设计一致、正常业务不被误伤、规模与成本可测」，但证明不了真实单据的召回。门控条件一旦解除，动作是：把 `cms` 库 8 张表按 `anomaly.service.ts` 的 `select` 导成 JSON → 直接喂 `scoreFindings()` 对账人工标注的 50 条真值（评分器与真值结构已就绪，无需改代码）。详见 `docs/AI应用评测报告-6-9-结算异常预警.md` §6。
