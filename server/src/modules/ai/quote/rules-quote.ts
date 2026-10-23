@@ -317,6 +317,38 @@ interface MergedRow {
 
 /** 按物资把「总清单行（控制价/市场价/信息价/数量）」与「对比表行（成交单价）」合并 */
 function mergeRows(input: QuoteTaskInput): MergedRow[] {
+  const totals = input.items ?? [];
+  const compares = input.compareItems ?? [];
+  const totalKeys = new Set(totals.map((r) => keyOfRow(r)));
+  /**
+   * **真实落库形状**：价格对比表 JSON 里每行的 `materialBaseId` 是「总采购清单行 id」
+   * （`procurement-task.service.ts` 保存时写 `t.id`），而总采购清单行的 `materialBaseId`
+   * 是物资 id ——两套 id 永不相等。按 id 归并会让「清单行 ↔ 成交价」错开：
+   * 成交价行单独成行，**市场价（只存在总清单行上）永远到不了**，B4 的市场价比较静默失效。
+   *
+   * 因此：两侧 id 完全不重叠且行数一致时，按**行序**配对（两侧都由同一份
+   * `orderBy: sortOrder` 的总清单派生，顺序是契约的一部分）。
+   * 行数不一致时不猜，交由 `b4UnitPriceAnomalies` 报「未判定」。
+   */
+  const byIndex =
+    compares.length > 0 &&
+    compares.length === totals.length &&
+    !compares.some((r) => totalKeys.has(keyOfRow(r)));
+  if (byIndex) {
+    return totals.map((t, i) => {
+      const c = compares[i];
+      return {
+        key: keyOfRow(t),
+        label: labelOfRow(t),
+        deal: moneyToCents(c.dealPrice),
+        plan: moneyToCents(t.planPrice) ?? moneyToCents(c.planPrice),
+        market: moneyToCents(t.marketPrice) ?? moneyToCents(c.marketPrice),
+        info: moneyToCents(t.infoPrice) ?? moneyToCents(c.infoPrice),
+        qty: qtyToUnits(t.qty) ?? qtyToUnits(c.qty),
+      };
+    });
+  }
+
   const map = new Map<string, MergedRow>();
   const get = (r: TotalItemRow | CompareItemRow): MergedRow => {
     const key = keyOfRow(r);

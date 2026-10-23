@@ -104,8 +104,10 @@ export function fulfillmentFixture(): FulfillmentInput {
       { id: 'k2p2', contractId: 'k2', amount: 99_999, payDate: '2026-04-11', statusCode: 'FAILED' },
     ],
     finalSettlements: [
-      // K3 已出终期结算（非草稿），但验收节点未完成 → C7
-      { id: 'k3fs', contractId: 'k3', statusCode: 'CONFIRMED', settledAt: '2026-09-20' },
+      // K3 已出终期结算（**已定案**），但验收节点未完成 → C7
+      // 状态取值必须是 `FINAL_SETTLEMENT_STATUS` 里真有的：只有 PENDING_ATTACHMENT（待补附件）/ SETTLED（已定案）。
+      // 原来写 'CONFIRMED' 这种字典里不存在的值，配上「排除 DRAFT」的过滤，C7 就成了永不触发的死条件。
+      { id: 'k3fs', contractId: 'k3', statusCode: 'SETTLED', settledAt: '2026-09-20' },
     ],
   };
 }

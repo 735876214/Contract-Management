@@ -4,6 +4,7 @@ import { AuditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { aiApi, procurementTaskApi, type AiQuoteFinding, type AiQuoteResult } from '@/api/modules';
+import { coverageState } from '../utils/aiCoverage';
 import EmptyState from '@/components/EmptyState';
 
 const { Text, Paragraph } = Typography;
@@ -89,6 +90,7 @@ export default function QuoteAnomalyPanel() {
     }
   };
 
+  const coverage = result ? coverageState(result) : { ok: false, sampled: 0, reason: '' };
   const findings = useMemo(() => {
     const list = result?.findings || [];
     return list.filter(
@@ -318,14 +320,10 @@ export default function QuoteAnomalyPanel() {
 
           {result.summary.total === 0 ? (
             <Alert
-              type="success"
+              type={coverage.ok ? 'success' : 'warning'}
               showIcon
-              message="所选范围内的采购任务未发现命中"
-              description={
-                result.notEvaluated.length > 0
-                  ? `注意：仍有 ${result.notEvaluated.length} 条规则未判定（见上），这部分任务等于没检查。`
-                  : '所有规则均已执行且无命中，可以按已核对处理。'
-              }
+              message={coverage.ok ? `所选范围内未发现命中` : '未命中，但不能视作「已核对通过」'}
+              description={coverage.ok ? '规则全部执行且数据齐全，可以按已核对处理。' : coverage.reason}
             />
           ) : (
             <Table<AiQuoteFinding>

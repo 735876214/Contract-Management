@@ -58,8 +58,12 @@ export function collectFactNumbers(evaluation: AnomalyEvaluation): Set<string> {
  * 但财务场景 10% 的编造就是事故。这里把「编没编」变成可判定的集合差，
  * 空集才放行——和 `report.service.ts` 的 `unknownNumbers` 是同一套思路。
  */
-export function auditNarrative(narrative: AnomalyNarrative, evaluation: AnomalyEvaluation): string[] {
-  return auditNarrativeNumbers(narrative, evaluation.findings as NarratableFinding[]);
+export function auditNarrative(
+  narrative: AnomalyNarrative,
+  evaluation: AnomalyEvaluation,
+  extras: Array<string | number | null | undefined> = [],
+): string[] {
+  return auditNarrativeNumbers(narrative, evaluation.findings as NarratableFinding[], extras);
 }
 
 /**

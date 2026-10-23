@@ -208,6 +208,10 @@ export function auditNumbers(markdown: string, allowedInput: number[]): { unknow
   // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）
   const text = String(markdown ?? '')
     .replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g, ' ')
+    // 单据/项目/合同编号（`XM-2026-003`、`HT-2026-101`）不是数据：整段抹掉。
+    // 只抹日期不够——编号里的「-2026」会被当成负数，于是模模糊糊抄了公司自己的编号
+    // 反而判「编造数字」，连确定性模板串都过不了自己的对账。
+    .replace(/[A-Za-z]{1,12}(?:-[0-9]+)+/g, ' ')
     .replace(/^[ \t]*\d+[.)][ \t]/gm, ' ');
   const unknown: string[] = [];
   let checked = 0;

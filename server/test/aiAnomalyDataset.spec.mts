@@ -120,7 +120,13 @@ test('where 构造：每个查询都显式带 projectId（铁律 3，跨项目�
     assert.ok(text.includes('"projectId":"proj-1"'), `${name} 必须带 projectId，实际 ${text}`);
   }
   // 间接挂项目的两张表用嵌套形式，也必须收在项目内
-  assert.deepEqual(w.invoiceWhere, { projectId: 'proj-1', settlementId: { not: null } });
+  // 发票额外带 `settlement: {}`（空条件也保留关系过滤）：不给区间时也要走「挂到本项目结算单」这条路，
+  // 否则一张挂别人项目的发票只要 settlementId 非空就能漏进来（H1 的同一处根因）。
+  assert.deepEqual(w.invoiceWhere, {
+    projectId: 'proj-1',
+    settlementId: { not: null },
+    settlement: {},
+  });
   assert.deepEqual(w.finalSettlementItemWhere, { finalSettlement: { projectId: 'proj-1' } });
   assert.deepEqual(w.contractMaterialWhere, { contract: { projectId: 'proj-1' } });
 });
@@ -132,10 +138,22 @@ test('where 构造：合同收窄与日期区间各自落到正确的字段', ()
   assert.deepEqual(w.contractWhere, { projectId: 'proj-1', id: 'C9' });
   assert.equal(w.settlementWhere.contractId, 'C9');
   assert.deepEqual(w.settlementWhere.settleDate, { gte: from, lte: to });
-  // 付款/手续不带结算日期条件（它们的日期字段不同，日期筛选只约束结算单）
-  assert.equal(w.paymentWhere.settleDate, undefined);
-  assert.equal(w.paymentWhere.contractId, 'C9');
-  assert.deepEqual(w.invoiceWhere, { projectId: 'proj-1', settlementId: { not: null }, settlement: { contractId: 'C9' } });
+  // **区间口径一分为二**（H1）：
+  // - 结算单：区间 = 判定对象（gte/lte 都加）；
+  // - 付款/手续：只加上界（payDate ≤ 区间末），因为累计类规则必须看见区间之前已发生的付款；
+  // - 发票：按挂靠的结算单日期只加上界。
+  assert.deepEqual(w.paymentWhere, { projectId: 'proj-1', contractId: 'C9', payDate: { lte: to } });
+  assert.deepEqual(w.procedureWhere, { projectId: 'proj-1', contractId: 'C9', payDate: { lte: to } });
+  assert.deepEqual(w.settlementCumulativeWhere, {
+    projectId: 'proj-1',
+    contractId: 'C9',
+    settleDate: { lte: to },
+  });
+  assert.deepEqual(w.invoiceWhere, {
+    projectId: 'proj-1',
+    settlementId: { not: null },
+    settlement: { contractId: 'C9', settleDate: { lte: to } },
+  });
 });
 
 test('select 形状：只取判定需要的窄列（回归护栏，防止有人顺手 SELECT *）', () => {

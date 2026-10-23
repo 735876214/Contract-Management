@@ -45,7 +45,7 @@ export function normalizeNumberToken(raw: string): string {
  * 否则单据编号 `HT-2026-001` 会被抽成 `-2026`，与 facts 里的 `2026` 对不上，
  * 结果就是「模型老老实实抄了单据编号，系统却判定它编数字」——这类误报比漏报更伤。
  */
-const NUMBER_RE = /(?<![\dA-Za-z])-?\d+(?:,\d{3})*(?:\.\d+)?/g;
+const NUMBER_RE = /(?<![\dA-Za-z-])-?\d+(?:,\d{3})*(?:\.\d+)?/g;
 
 /** 允许模型无条件使用的计数词（提示词铁律里明确放行 0~10） */
 const COUNT_WORDS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
@@ -66,7 +66,11 @@ export function collectFindingNumbers(findings: NarratableFinding[]): Set<string
   const set = new Set<string>();
   const push = (text: unknown) => {
     if (text == null) return;
-    for (const n of extractNumbers(String(text))) set.add(n);
+    for (const n of extractNumbers(String(text))) {
+      set.add(n);
+      // 差额是负数（「付款超结算 -5000」），模型写「超 5000 元」是同一事实的绝对值写法
+      if (n.startsWith('-')) set.add(n.slice(1));
+    }
   };
   for (const f of findings ?? []) {
     push(f.title);
@@ -92,8 +96,26 @@ export function collectFindingNumbers(findings: NarratableFinding[]): Set<string
  *
  * @returns 未知数字列表（空数组=通过）
  */
-export function auditNarrativeNumbers(narrative: Narrative, findings: NarratableFinding[]): string[] {
+export function auditNarrativeNumbers(
+  narrative: Narrative,
+  findings: NarratableFinding[],
+  /**
+   * 提示词**自己**提供给模型的数字（样本计数、命中总数、阈值文案）。
+   *
+   * 这些数字模型复述出来是「抄」，不是「编」。原来只放行 facts + 计数词 0~10，
+   * 于是「本次扫描命中 12 项」必被判编造 → 整段结论丢弃回退模板：
+   * 命中越多（越该报警）反而越用不上 AI，方向正好反了。
+   */
+  extras: Array<string | number | null | undefined> = [],
+): string[] {
   const allowed = collectFindingNumbers(findings);
+  for (const extra of extras) {
+    if (extra == null) continue;
+    for (const n of extractNumbers(String(extra))) {
+      allowed.add(n);
+      if (n.startsWith('-')) allowed.add(n.slice(1));
+    }
+  }
   const unknown: string[] = [];
   const seen = new Set<string>();
   for (const text of [narrative?.conclusion, ...(narrative?.actions ?? [])]) {
@@ -106,6 +128,24 @@ export function auditNarrativeNumbers(narrative: Narrative, findings: Narratable
     }
   }
   return unknown;
+}
+
+/**
+ * 提示词里由系统给出的数字集合（样本计数、命中总数、高风险/需复核数）。
+ *
+ * 供各课题 service 组装 `extras` 传给 `auditNarrativeNumbers`，让「模型复述我们给的数」
+ * 不被误判成编造。传进来的都是**系统自己算出来的**数字，放行不引入新口径。
+ */
+export function promptNumberExtras(
+  sample: Record<string, number> | null | undefined,
+  summaryNumbers: Array<number | null | undefined> = [],
+  extraText: Array<string | number | null | undefined> = [],
+): Array<string | number> {
+  const out: Array<string | number> = [];
+  for (const v of Object.values(sample ?? {})) if (Number.isFinite(v)) out.push(v);
+  for (const v of summaryNumbers) if (v != null && Number.isFinite(v)) out.push(v);
+  for (const v of extraText) if (v != null) out.push(v);
+  return out;
 }
 
 /** 面板要显示的「基于多少条数据算的」统一渲染：`{ 合同: 3, 结算单: 4 }` → `合同 3，结算单 4` */

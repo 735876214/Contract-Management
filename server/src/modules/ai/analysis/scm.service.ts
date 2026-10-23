@@ -157,7 +157,7 @@ export class ScmService {
     };
     if (!cfg.enabled) return result;
 
-    const collected = await this.collect(wanted);
+    const collected = await this.collect(wanted, user);
     result.projects = collected.projects;
     result.sample = collected.sample;
     result.scope = collected.scope;
@@ -259,7 +259,10 @@ export class ScmService {
    * 按**显式项目集合**取数。`projectIds` 为空表示全部项目（已在上面过权限闸）。
    * 六张表一次取全，只有窄列；单库几十个项目、几千行是毫秒级。
    */
-  private async collect(wanted: string[]): Promise<{
+  private async collect(
+    wanted: string[],
+    user?: { userId?: string; isSuperAdmin?: boolean },
+  ): Promise<{
     rows: ScmRows;
     projects: Array<{ id: string; code: string; name: string }>;
     sample: Record<string, number>;
@@ -267,7 +270,14 @@ export class ScmService {
     warnings: string[];
   }> {
     const warnings: string[] = [];
+    // 项目隔离（铁律 3）：`projectIds` 是**客户端可控参数**，路由也没接 `@ProjectId()`，
+    // 所以这里必须自己按成员关系收口——否则任何持 `ai:view`+`contract:view` 的人
+    // 传别人的项目 id 就能读走签约/付款/开票金额（IDOR）。
     const projectWhere: any = wanted.length ? { id: { in: wanted } } : {};
+    if (user && !user.isSuperAdmin) {
+      if (!user.userId) throw new BadRequestException('缺少用户身份，无法校验项目权限');
+      projectWhere.members = { some: { userId: user.userId } };
+    }
     const projects = await this.prisma.project.findMany({
       where: projectWhere,
       select: { id: true, code: true, name: true },
@@ -287,7 +297,7 @@ export class ScmService {
     const ids = projects.map((p) => p.id);
     if (wanted.length && projects.length !== wanted.length) {
       const missing = wanted.filter((id) => !ids.includes(id));
-      warnings.push(`有 ${missing.length} 个所选项目不存在或已删除，已跳过：${missing.join('、')}`);
+      warnings.push(`有 ${missing.length} 个所选项目不存在、已删除或您不在其成员中，已跳过：${missing.join('、')}`);
     }
 
     const [contracts, settlements, payments, invoices, milestones] = await Promise.all([

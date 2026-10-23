@@ -66,8 +66,12 @@ export function parseScmConfig(raw: Record<string, string | null | undefined>): 
       }
       return def;
     }
-    const clamped = Math.round(clamp(v, 0, 100) * 10) / 10;
-    if (clamped !== v) problems.push(`${key} 的 ${v}% 超出 0–100 范围，按 ${clamped}% 处理`);
+    const limited = clamp(v, 0, 100);
+    const clamped = Math.round(limited * 10) / 10;
+    // 两种情形要分开说：**越界**与**精度截断**。原来一律报「超出 0–100 范围」，
+    // 于是 50.05 这种正常值被报成「超出范围」（用户会去改一个本来没错的参数）。
+    if (limited !== v) problems.push(`${key} 的 ${v}% 超出 0–100 范围，按 ${clamped}% 处理`);
+    else if (clamped !== v) problems.push(`${key} 的 ${v}% 保留一位小数后为 ${clamped}%`);
     return clamped;
   };
 

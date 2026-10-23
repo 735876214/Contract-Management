@@ -55,6 +55,36 @@ import {
   type SettlementRow,
 } from './anomaly-types.ts';
 
+/**
+ * 合同 → 链根 id（补充协议归到主合同）。
+ *
+ * 清单量在数据集层已按链根聚合，结算量若仍按 `contractId` 归集，
+ * 「主合同挂清单、补充协议挂结算」这种最常见形态就会永远比不出来（清单项级超结静默漏报）。
+ */
+function makeRootResolver(contracts: ContractRow[]): (id: string | null | undefined) => string | null {
+  const byId = new Map<string, ContractRow>();
+  for (const c of contracts) byId.set(c.id, c);
+  const memo = new Map<string, string | null>();
+  return (id) => {
+    if (!id) return null;
+    if (memo.has(id)) return memo.get(id)!;
+    let cur: ContractRow | undefined = byId.get(id);
+    if (!cur) {
+      memo.set(id, null);
+      return null;
+    }
+    const seen = new Set<string>([id]);
+    while (cur.parentContractId) {
+      const parent: ContractRow | undefined = byId.get(cur.parentContractId);
+      if (!parent || seen.has(parent.id)) break;
+      seen.add(parent.id);
+      cur = parent;
+    }
+    memo.set(id, cur.id);
+    return cur.id;
+  };
+}
+
 /** 规则清单（文档/前端/自检共用；顺序即展示顺序） */
 export const PAYMENT_RULE_IDS = [
   ANOMALY_CODES.R1_DUP_ACROSS_PERIOD,
@@ -160,6 +190,17 @@ function contractLabel(row: ContractRow | undefined, fallbackId: string): string
   return row.code || row.name || `合同 ${fallbackId.slice(0, 8)}`;
 }
 
+/**
+ * 按 id 取合同标签（R1-a / R1-b 的 `facts.合同` 用它）。
+ *
+ * 原来那两处传的是 `contractLabel(undefined, id)`，于是 facts 恒为「合同 3f9a1c2b」——
+ * 财务拿到这条记录无法定位合同（编号就在入参里，白扔了）。
+ */
+function contractLabeler(contracts: ContractRow[]): (id: string) => string {
+  const byId = new Map(contracts.map((c) => [c.id, c]));
+  return (id) => contractLabel(byId.get(id), id);
+}
+
 // ---------------------------------------------------------------------------
 // R1-a 跨期指纹重复
 // ---------------------------------------------------------------------------
@@ -175,8 +216,13 @@ interface RuleResult {
  * 真出问题时月份恰恰是**不同**的（同一批活下个月又结了一次）。
  * 等级固定 HIGH：这类命中一旦成立，业务后果是直接多付钱。
  */
-export function r1aDuplicateAcrossPeriod(settlements: SettlementRow[], ctx: RuleContext): RuleResult {
+export function r1aDuplicateAcrossPeriod(
+  settlements: SettlementRow[],
+  ctx: RuleContext,
+  contracts: ContractRow[] = [],
+): RuleResult {
   const findings: Finding[] = [];
+  const label = contractLabeler(contracts);
   const counted = settlements.filter((s) => isCountedSettlement(s) && (s.items?.length ?? 0) > 0);
   const byContract = groupBy(counted, (s) => s.contractId ?? '');
 
@@ -206,7 +252,7 @@ export function r1aDuplicateAcrossPeriod(settlements: SettlementRow[], ctx: Rule
           entityId: b.id,
           title: `结算单 ${b.code || b.id.slice(0, 8)} 与 ${a.code || a.id.slice(0, 8)} 金额相同且物资明细高度重合`,
           facts: {
-            合同: contractLabel(undefined, contractId),
+            合同: label(contractId),
             结算单A: a.code || a.id.slice(0, 8),
             结算月份A: monthA ?? '未填',
             金额A: centsToYuan(ca),
@@ -241,6 +287,7 @@ export function r1bDuplicateMaterialQty(
   settlements: SettlementRow[],
   materials: MaterialQtyRow[] | undefined,
   ctx: RuleContext,
+  contracts: ContractRow[] = [],
 ): RuleResult {
   const findings: Finding[] = [];
   if (!materials?.length) {
@@ -264,14 +311,18 @@ export function r1bDuplicateMaterialQty(
     return { findings };
   }
 
+  // 结算量必须折到链根再比：清单量（上游）就是按链根聚合的
+  const rootOf = makeRootResolver(contracts);
+  const label = contractLabeler(contracts);
   const settledQty = new Map<string, bigint>();
   for (const s of settlements) {
     if (!s.contractId || !isCountedSettlement(s)) continue;
+    const rootId = rootOf(s.contractId) ?? s.contractId;
     for (const it of s.items ?? []) {
       if (!it.materialBaseId) continue;
       const units = qtyToUnits(it.qty);
       if (units === null) continue;
-      const key = `${s.contractId}::${it.materialBaseId}`;
+      const key = `${rootId}::${it.materialBaseId}`;
       settledQty.set(key, (settledQty.get(key) ?? 0n) + units);
     }
   }
@@ -292,7 +343,7 @@ export function r1bDuplicateMaterialQty(
       entityId: contractId,
       title: `物资 ${chain.name || materialBaseId.slice(0, 8)} 累计结算量超出合同清单量 ${overPct.toFixed(1)}%`,
       facts: {
-        合同: contractLabel(undefined, contractId),
+        合同: label(contractId),
         物资: chain.name || `物资 ${materialBaseId.slice(0, 8)}`,
         合同链清单量: unitsToQty(chain.units),
         累计已结量: unitsToQty(got),
@@ -405,6 +456,11 @@ function sumSettledByContract(rows: SettlementRow[]): Map<string, Cents> {
   return map;
 }
 
+/** 该合同是否有一张以上「计入口径但推不出金额」的结算单 */
+function contractHasUnusableSettlement(rows: SettlementRow[], contractId: string): boolean {
+  return rows.some((row) => row.contractId === contractId && isCountedSettlement(row) && settledCents(row) === null);
+}
+
 /** 按合同累计付款额（排除失败/已退款；`null` 状态计入，与 `paidPaymentWhere()` 同口径） */
 function sumPaidByContract(rows: PaymentRow[]): Map<string, Cents> {
   const map = new Map<string, Cents>();
@@ -430,13 +486,21 @@ function sumPaidByContract(rows: PaymentRow[]): Map<string, Cents> {
 export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleResult {
   const findings: Finding[] = [];
   const contracts = new Map(input.contracts.map((c) => [c.id, c]));
-  const settled = sumSettledByContract(input.settlements);
+  // 累计口径：区间之前的历史结算必须看见，否则「区间内结算 / 全时段付款」必互相打架
+  const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
+  const settled = sumSettledByContract(cumulative);
   const paid = sumPaidByContract(input.payments);
 
   for (const [contractId, paidCents] of paid) {
     const contract = contracts.get(contractId);
     // 合同缺失/未签章的付款由 R3 报，这里不重复
     if (!contract) continue;
+    // 有结算单但一张都推不出金额（amount/actualAmount 都没填）时**不能当 0**：
+    // 那会把「单据没填金额」报成「超付 100%」，真正原因反被藏起来（与 contract-chain 同取舍）
+    if (!settled.has(contractId) && contractHasUnusableSettlement(cumulative, contractId)) {
+      pushSkip(ctx, `R2 未判定：${contractLabel(contract, contractId)} 的结算单没有金额（amount/actualAmount 均为空）`);
+      continue;
+    }
     const settledCentsTotal = settled.get(contractId) ?? 0n;
     const bp = ratioToBp(contract.currentPayRatio);
     if (bp === null) {
@@ -483,8 +547,13 @@ export function r3PayWithoutContract(input: PaymentAnomalyInput, ctx: RuleContex
   const findings: Finding[] = [];
   const contracts = new Map(input.contracts.map((c) => [c.id, c]));
 
+  const from = input.window?.from ?? null;
   for (const payment of input.payments) {
     if (!isCountedPayment(payment)) continue;
+    // 付款取数只设上界（累计口径）；明细类判定要守住区间下界，
+    // 否则「上月已处理过的无合同付款」每次查询都会再报一遍
+    if (from && payment.payDate && isoDay(payment.payDate) && isoDay(payment.payDate)! < from) continue;
+    if (from && !payment.payDate && payment.payMonth && payment.payMonth < from.slice(0, 7)) continue;
     const amount = moneyToCents(payment.amount);
     const label = payment.payDate ? isoDay(payment.payDate) ?? '未填' : payment.payMonth ?? '未填';
     const baseFacts: Record<string, string> = {
@@ -544,18 +613,29 @@ export function r3PayWithoutContract(input: PaymentAnomalyInput, ctx: RuleContex
  */
 export function r4InvoiceMismatch(input: PaymentAnomalyInput, ctx: RuleContext): RuleResult {
   const findings: Finding[] = [];
-  const settlements = new Map(
-    input.settlements.filter(isCountedSettlement).map((s) => [s.id, s]),
-  );
+  // 发票可能指向区间之前的结算单：用累计口径查得到，就不会被误报成「跨项目数据串了」
+  const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
+  const settlements = new Map(cumulative.filter(isCountedSettlement).map((s) => [s.id, s]));
+  const inWindow = new Set(input.settlements.map((s) => s.id));
   const bySettlement = groupBy(
     input.invoices.filter((i) => isCountedInvoice(i) && i.settlementId),
     (i) => i.settlementId as string,
   );
 
+  // 「找不到」有三种完全不同的原因，**必须分开说**：草稿结算 / 不属于本项目 / 没有。
+  // 原来一律写「在本项目内找不到（或为草稿）」，而集合已被区间裁剪过，
+  // 于是「日期在区间外」也被诊断成「跨项目数据串了」，还按发票张数刷出一串条目。
+  const draftSettlementIds = new Set(
+    (input.cumulativeSettlements ?? []).filter((s) => !isCountedSettlement(s)).map((s) => s.id),
+  );
+  let draftSkipped = 0;
+  let absentSkipped = 0;
+
   for (const [settlementId, invoices] of bySettlement) {
     const settlement = settlements.get(settlementId);
     if (!settlement) {
-      pushSkip(ctx, `R4 未判定：发票指向的结算单 ${settlementId.slice(0, 8)} 不在本项目（或为草稿）`);
+      if (draftSettlementIds.has(settlementId)) draftSkipped += invoices.length;
+      else absentSkipped += invoices.length;
       continue;
     }
     const expected = settledCents(settlement);
@@ -588,6 +668,12 @@ export function r4InvoiceMismatch(input: PaymentAnomalyInput, ctx: RuleContext):
       },
       amountDiff: centsToYuan(gap),
     });
+  }
+  if (draftSkipped > 0) {
+    pushSkip(ctx, `R4 未覆盖 ${draftSkipped} 张发票：其结算单仍是草稿（草稿不参与票款比对）`);
+  }
+  if (absentSkipped > 0) {
+    pushSkip(ctx, `R4 未判定 ${absentSkipped} 张发票：其结算单不在本项目已加载的结算单里（可能已删除或属于其它项目）`);
   }
   return { findings };
 }
@@ -664,7 +750,9 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
   }
 
   const settledByContract = groupBy(
-    input.settlements.filter((s) => isCountedSettlement(s) && s.contractId),
+    (input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements).filter(
+      (s) => isCountedSettlement(s) && s.contractId,
+    ),
     (s) => s.contractId as string,
   );
   const paidByContract = groupBy(
@@ -770,10 +858,14 @@ export function summarizeFindings(findings: Finding[]): AnomalySummary {
  */
 export function evaluatePaymentAnomalies(input: PaymentAnomalyInput): AnomalyEvaluation {
   const ctx: RuleContext = { tol: resolveTolerances(input.tolerances), notEvaluated: [] };
+  // 累计口径：区间之前的单据是已发生的事实（见 PaymentAnomalyInput.cumulativeSettlements）
+  const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
   const findings = [
-    ...r1aDuplicateAcrossPeriod(input.settlements, ctx).findings,
-    ...r1bDuplicateMaterialQty(input.settlements, input.contractMaterials, ctx).findings,
-    ...r1cFinalSnapshotDrift(input.finalSettlementItems, input.settlements, ctx).findings,
+    // 明细类：只看判定区间内的结算单，否则历史问题每月重复报
+    ...r1aDuplicateAcrossPeriod(input.settlements, ctx, input.contracts).findings,
+    // 累计类：清单量是合同全生命周期的上限，必须用累计结算量
+    ...r1bDuplicateMaterialQty(cumulative, input.contractMaterials, ctx, input.contracts).findings,
+    ...r1cFinalSnapshotDrift(input.finalSettlementItems, cumulative, ctx).findings,
     ...r2Overpay(input, ctx).findings,
     ...r3PayWithoutContract(input, ctx).findings,
     ...r4InvoiceMismatch(input, ctx).findings,

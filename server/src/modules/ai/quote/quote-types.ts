@@ -255,24 +255,47 @@ export interface QuoteEvaluation {
 export { amountOfUnits, centsToYuan, moneyToCents, parseScaled, qtyToUnits };
 export type { Cents, Units };
 
+/**
+ * 金额列 → 分；**非正数一律当「没报价」**（`null`）。
+ *
+ * 报价列是	extbf{可空}的，但「录了 0」与「没录」在库里的表现不同（前者是 0 不是 null）。
+ * 若把 0 当成一个真实报价，B3/B6 会算出「成交价 0 元」这种荒谬结论，
+ * B7 还会输出「最终价、第二轮、第一轮均为空」这种与数据自相矛盾的说明。
+ */
+const positiveCents = (raw: unknown): Cents | null => {
+  const cents = moneyToCents(raw);
+  return cents !== null && cents > 0n ? cents : null;
+};
+
 export function bidderFirstCents(b: BidderRow): Cents | null {
-  return moneyToCents(b.firstPreTaxTotal);
+  return positiveCents(b.firstPreTaxTotal);
 }
 
 export function bidderSecondCents(b: BidderRow): Cents | null {
-  return moneyToCents(b.secondPreTaxTotal);
+  return positiveCents(b.secondPreTaxTotal);
 }
 
 export function bidderFinalCents(b: BidderRow): Cents | null {
-  return moneyToCents(b.finalPreTaxTotal);
+  return positiveCents(b.finalPreTaxTotal);
 }
 
+/** 「首轮通过」（`ProcurementBidder.passedFirst` 是「是/否」字符串，取值同 `procurementFlow`） */
+const PASSED_FIRST_YES = '是';
+
 /**
- * 「可用报价」：最终确认价 → 第二轮 → 第一轮。
- * 定标时服务端只写 `finalPreTaxTotal`；只导入过两轮报价（未定标）的行没有 final。
+ * 「可用报价」——**必须与合同侧取价同口径**（`procurementFlow.candidatesFromBidders`）：
+ * 最终确认价 → （首轮通过则第二轮，否则第一轮）→ 第二轮 → 第一轮。
+ *
+ * 原实现是 `final ?? second ?? first`：未通过第一轮的单位仍拿着第二轮价当有效报价，
+ * 于是「成交价非最低」会误报，且与合同金额的取价口径分叉（同一个标的两套价）。
  */
 export function bidderTotalCents(b: BidderRow): Cents | null {
-  return bidderFinalCents(b) ?? bidderSecondCents(b) ?? bidderFirstCents(b);
+  const final = bidderFinalCents(b);
+  if (final !== null) return final;
+  const second = bidderSecondCents(b);
+  const first = bidderFirstCents(b);
+  const passed = String(b.passedFirst ?? '').trim() === PASSED_FIRST_YES;
+  return passed && second !== null ? second : (first ?? second);
 }
 
 /** 首轮或第二轮有正数报价，且未弃标 —— 计入「有效报价家数」 */

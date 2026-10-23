@@ -15,11 +15,11 @@ import {
   CONTRACT_STATUS,
   INVOICE_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
-  MILESTONE_STATUS,
   PAYMENT_EXCLUDED_STATUSES,
   SETTLEMENT_STATUS,
 } from '../../../constants/statuses.ts';
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
+import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
 import {
   DEFAULT_SCM_TOLERANCES,
@@ -167,8 +167,10 @@ export function buildScmFacts(
     if (!known.has(row.projectId)) continue;
     const stat = milestoneByProject.get(row.projectId) ?? { total: 0, overdue: 0 };
     stat.total += 1;
-    const plan = toDay(row.planDate);
-    if (row.statusCode === MILESTONE_STATUS.PENDING && plan && dayDiff(plan, asOfDay) > 0) {
+    // 逾期口径必须与页面标红同源：复用 `isMilestoneOverdue`（非 DONE/SKIPPED 且计划日已过）。
+    // 原来只认 `statusCode === PENDING`，而节点表里 statusCode 是**可空**的（新建节点不传），
+    // 于是「未填状态但计划日已过」的节点一律不算逾期 —— 全景报告的逾期数会系统性少计。
+    if (isMilestoneOverdue({ planDate: row.planDate ?? null, statusCode: row.statusCode ?? null }, asOfDay)) {
       stat.overdue += 1;
     }
     milestoneByProject.set(row.projectId, stat);
@@ -420,6 +422,14 @@ export function scmFactNumbers(facts: ScmFacts): number[] {
   // 项目编号/供应商名里的数字（如 `XM-2026-01`）不是金额，但出现在正文里也不该报成编造
   for (const p of facts.projects) {
     for (const n of p.code.match(/\d+/g) ?? []) push(Number(n));
+    for (const n of (p.name ?? '').match(/\d+/g) ?? []) push(Number(n));
+  }
+  // **风险条自身带的数字**必须放行：提示词要求模型「逐条转述风险」，
+  // 而风险文案里就有「开票缺口 60.5 个百分点」「集中度警戒线 50%」「有 2 份合同未填金额」。
+  // 原实现只放行 facts 的结构化字段，于是「有风险」＝「模型必然被判编数字」——
+  // 越该报警的场景越用不上 AI，方向正好反了。
+  for (const risk of facts.risks ?? []) {
+    for (const n of String(risk).match(/\d+(?:\.\d+)?/g) ?? []) push(Number(n));
   }
   return out;
 }

@@ -13,7 +13,11 @@
  * - 合同金额用链式当前金额（主合同 + 带符号补充协议），不用 `amount` 裸值。
  */
 
-import { MILESTONE_STATUS, PAYMENT_EXCLUDED_STATUSES } from '../../../constants/statuses.ts';
+import {
+  FINAL_SETTLEMENT_STATUS,
+  MILESTONE_STATUS,
+  PAYMENT_EXCLUDED_STATUSES,
+} from '../../../constants/statuses.ts';
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
 import { moneyToCents, type Cents } from '../common/money.ts';
 import {
@@ -195,7 +199,12 @@ export function c3SequenceInverted(
     for (let i = 0; i < sorted.length; i += 1) {
       const cur = sorted[i];
       if (!isOpen(cur)) continue;
-      const later = sorted.slice(i + 1).find((x) => isDone(x));
+      const curDay = dayIndex(cur.planDate) as number;
+      // **同日节点不算「后继」**：同一天并行的多个节点（如「到货」与「初验」）
+      // 谁先完成都对，按数组顺序取「后面的」就会把并行节点误判成顺序倒挂。
+      const later = sorted
+        .slice(i + 1)
+        .find((x) => isDone(x) && (dayIndex(x.planDate) as number) > curDay);
       if (!later) continue;
       const { code, name } = contractLabel(contracts.get(contractId));
       push(out, {
@@ -312,12 +321,27 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
     changeAmount: c.changeAmount,
   }));
 
-  const paidByContract = new Map<string, Cents>();
+  // 付款按**链根**归集：分母是整链金额，分子若只认本合同，付款记在补充协议上时
+  // paid 恒为 0 → C6 静默不报（比误报更危险：看着像「没有问题」）。
+  const rootOfContract = (id: string): string => {
+    const byId = new Map(chainRows.map((c) => [c.id, c]));
+    let rid = id;
+    let node = byId.get(id);
+    const guard = new Set<string>([id]);
+    while (node?.parentContractId && byId.has(node.parentContractId) && !guard.has(node.parentContractId)) {
+      guard.add(node.parentContractId);
+      rid = node.parentContractId;
+      node = byId.get(node.parentContractId);
+    }
+    return rid;
+  };
+  const paidByChainRoot = new Map<string, Cents>();
   for (const p of payments) {
     const cid = String(p.contractId ?? '');
     if (!cid) continue;
     const cents = moneyToCents(p.amount) ?? 0n;
-    paidByContract.set(cid, (paidByContract.get(cid) ?? 0n) + cents);
+    const root = rootOfContract(cid);
+    paidByChainRoot.set(root, (paidByChainRoot.get(root) ?? 0n) + cents);
   }
 
   const byContract = new Map<string, MilestoneRow[]>();
@@ -340,9 +364,9 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
     if (done + open === 0) continue; // 全被跳过，没有可比口径
     const donePct = Math.round((done * 100) / (done + open));
 
-    const paid = paidByContract.get(c.id) ?? 0n;
-    if (paid === 0n) continue;
     const chain = resolveChainAmounts(chainRows, c.id);
+    const paid = paidByChainRoot.get(rootOfContract(c.id)) ?? 0n;
+    if (paid === 0n) continue;
     if (chain.currentAmount === null || chain.currentAmount <= 0) {
       skippedNoAmount += 1;
       continue;
@@ -389,16 +413,29 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
 export function c7SettledUnfinished(
   input: FulfillmentInput,
   contracts: Map<string, FulfillmentContractRow>,
+  ctx?: FulfillmentRuleContext,
 ): FulfillmentFinding[] {
   const out: FulfillmentFinding[] = [];
   const settledContracts = new Map<string, string>();
   // 变量名不要用 fs：`aiCodeGuards.spec` 会扫 server/src 里的 fs 调用，误判成文件 I/O
+  // 口径：只有「已定案」（SETTLED）才算已出终期结算。字典（final_settlement_status）
+  // 只有 PENDING_ATTACHMENT / SETTLED 两个值——原来按 `status === 'DRAFT'` 排除草稿，
+  // 那是个**永远不成立**的死条件（等于把「待补附件」也当成了已结算）。
+  let unsettledNoted = 0;
   for (const settle of input.finalSettlements ?? []) {
     const cid = String(settle.contractId ?? '');
     if (!cid) continue;
     const status = String(settle.statusCode ?? '');
-    if (status === 'DRAFT') continue;
+    if (status !== FINAL_SETTLEMENT_STATUS.SETTLED) {
+      unsettledNoted += 1;
+      continue;
+    }
     settledContracts.set(cid, settle.id);
+  }
+  if (unsettledNoted > 0) {
+    ctx?.notEvaluated?.push(
+      `C7 有 ${unsettledNoted} 份终期结算未定案（statusCode ≠ SETTLED），未纳入「已出终期结算」判定`,
+    );
   }
   if (settledContracts.size === 0) return out;
 
@@ -508,7 +545,7 @@ export function evaluateFulfillmentAnomalies(input: FulfillmentInput): Fulfillme
     ...c4FinishLate(milestones, contracts, ctx),
     ...c5PlanBeforeSign(milestones, contracts),
     ...c6ProgressPaymentGap(input, ctx),
-    ...c7SettledUnfinished(input, contracts),
+    ...c7SettledUnfinished(input, contracts, ctx),
     ...c8NoMilestone(input, contracts),
   ];
 

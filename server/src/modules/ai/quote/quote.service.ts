@@ -6,6 +6,9 @@ import { AiQuota } from '../ai-quota';
 import { aiModelFor } from '../ai-config';
 import { AiSettingService } from '../ai-setting.service';
 import { chatJson } from '../llm-client';
+import { promptNumberExtras } from '../common/narrative.ts';
+import { TASK_STATUS } from '../../../constants/procurementFlow';
+import { sampleTotal } from '../common/coverage.ts';
 import {
   type CompareItemRow,
   type QuoteFinding,
@@ -123,6 +126,7 @@ export class QuoteService {
     };
     if (!cfg.enabled) {
       empty.warnings.push('报价异常预警已在系统参数里停用（ai.quote.enabled=0），未执行任何判定');
+      empty.notEvaluated.push('预警未启用（ai.quote.enabled=0）：本次未执行任何规则，不能视作「无异常」');
       empty.narrative.conclusion = '报价异常预警已停用。如需恢复，请让管理员把系统参数 ai.quote.enabled 设为 1。';
       return empty;
     }
@@ -139,6 +143,9 @@ export class QuoteService {
       notEvaluated: evaluation.notEvaluated,
       warnings: [...empty.warnings, ...warnings],
     };
+
+    // 「没有数据」≠「没有异常」
+    if (sampleTotal(result.sample) === 0) result.notEvaluated.push('本次扫描范围内没有任何可用数据，未执行判定（不能视作「无异常」）');
 
     // 0 命中不打模型：既费额度，又容易写成「已核查确认无风险」这种越权结论
     const wantNarrative = cfg.narrative && String(query?.narrative ?? '1') !== '0';
@@ -157,10 +164,16 @@ export class QuoteService {
 
     this.quota.consume(userId, ai.hourlyLimitPerUser);
     try {
+      const toleranceText = quoteToleranceText(cfg.tolerances);
+      const promptExtras = promptNumberExtras(
+        sample,
+        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
+        [toleranceText],
+      );
       const messages = buildQuoteMessages({
         scope,
         sample,
-        toleranceText: quoteToleranceText(cfg.tolerances),
+        toleranceText,
         evaluation,
       });
       const res = await chatJson(
@@ -185,7 +198,7 @@ export class QuoteService {
         return result;
       }
 
-      const unknown = auditQuoteNarrative(narrative, evaluation);
+      const unknown = auditQuoteNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用模板串，也不给人一份带假数字的结论）
         result.narrative = { ...fallbackQuoteNarrative(evaluation), source: 'template', unknownNumbers: unknown };
@@ -320,16 +333,39 @@ export class QuoteService {
       compareItems: compareByTask.get(t.id) ?? [],
     }));
 
+    /**
+     * **空壳任务不参与判定**（M8）。未发起的任务、以及既没有响应单位也没有总采购清单的任务，
+     * 每条都会产出 7 条「未判定」，几十个任务就是几百行噪音——真正的疑点被淹掉。
+     * 这里直接剔除，并把剔除数量写进 warnings（不静默跳过）。
+     */
+    const judged = inputs.filter(
+      (t) =>
+        String(t.task?.status ?? '') !== TASK_STATUS.NOT_STARTED &&
+        (t.bidders.length > 0 || (t.items?.length ?? 0) > 0 || (t.compareItems?.length ?? 0) > 0),
+    );
+    const shellCount = inputs.length - judged.length;
+    if (shellCount > 0) {
+      warnings.push(
+        '已跳过 ' + shellCount + ' 个尚未产生数据（未发起 / 无响应单位 / 无清单）的采购任务，其疑点未参与判定',
+      );
+    }
+    if (!judged.length) {
+      return { tasks: [], sample: {}, scope: '本项目的采购任务都还没有可判定的数据', warnings };
+    }
+    const usable = judged;
+
     const sample: Record<string, number> = {
-      采购任务: inputs.length,
-      响应单位: inputs.reduce((n, t) => n + t.bidders.length, 0),
-      总采购清单行: inputs.reduce((n, t) => n + (t.items?.length ?? 0), 0),
-      价格对比表明细: inputs.reduce((n, t) => n + (t.compareItems?.length ?? 0), 0),
+      采购任务: usable.length,
+      响应单位: usable.reduce((n, t) => n + t.bidders.length, 0),
+      总采购清单行: usable.reduce((n, t) => n + (t.items?.length ?? 0), 0),
+      价格对比表明细: usable.reduce((n, t) => n + (t.compareItems?.length ?? 0), 0),
     };
     const taskNo = tasks[0]?.taskNo;
-    const scope = query?.taskId ? `采购任务 ${taskNo ?? query.taskId}` : `本项目全部采购任务（${tasks.length} 个）`;
+    const scope = query?.taskId
+      ? `采购任务 ${taskNo ?? query.taskId}`
+      : `本项目可判定的采购任务（${usable.length} 个）`;
 
-    return { tasks: inputs, sample, scope, warnings };
+    return { tasks: usable, sample, scope, warnings };
   }
 
   /** `ProcurementPriceCompare.items` 是 JSON 字符串；坏了不能让整个接口 500，交给 warnings */

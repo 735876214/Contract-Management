@@ -45,11 +45,17 @@ test('fmtBp：两位小数百分比，负数带号', () => {
   assert.equal(fmtBp(0), '0.00%');
 });
 
-test('bidderTotalCents：最终价 → 第二轮 → 第一轮 回退链', () => {
+test('bidderTotalCents：与合同侧取价同口径（最终价 → 首轮通过则二轮 → 首轮）', () => {
   assert.equal(bidderTotalCents({ id: 'a', finalPreTaxTotal: 300, secondPreTaxTotal: 200, firstPreTaxTotal: 100 }), 30_000n);
-  assert.equal(bidderTotalCents({ id: 'b', secondPreTaxTotal: 200, firstPreTaxTotal: 100 }), 20_000n);
-  assert.equal(bidderTotalCents({ id: 'c', firstPreTaxTotal: 100 }), 10_000n);
-  assert.equal(bidderTotalCents({ id: 'd' }), null);
+  // 首轮通过：二轮价才是有效报价（`procurementFlow.candidatesFromBidders` 同口径）
+  assert.equal(bidderTotalCents({ id: 'b', passedFirst: '是', secondPreTaxTotal: 200, firstPreTaxTotal: 100 }), 20_000n);
+  // 首轮未通过：仍以首轮价为准，二轮价不作数（否则 B6「成交价非最低」会误报）
+  assert.equal(bidderTotalCents({ id: 'c', passedFirst: '否', secondPreTaxTotal: 200, firstPreTaxTotal: 100 }), 10_000n);
+  assert.equal(bidderTotalCents({ id: 'd', firstPreTaxTotal: 100 }), 10_000n);
+  assert.equal(bidderTotalCents({ id: 'e' }), null);
+  // 0 不是报价：不能据此下「成交价 0 元」的结论，也不能说「均为空」
+  assert.equal(bidderTotalCents({ id: 'f', finalPreTaxTotal: 0, firstPreTaxTotal: 100 }), 10_000n);
+  assert.equal(bidderTotalCents({ id: 'g', finalPreTaxTotal: 0 }), null);
 });
 
 test('budgetCentsOf：缺数量或缺单价的行跳过，一行都用不上返回 null', () => {

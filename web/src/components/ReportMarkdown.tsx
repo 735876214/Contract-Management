@@ -140,7 +140,9 @@ export default function ReportMarkdown({ text }: { text: string }) {
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trimEnd();
     if (!line.trim()) {
-      flushList();
+      // 空行是块级分隔：**表格也要收尾**。只 flushList 会让积压的表格行排到下一个块之后，
+      // 于是「表格 → 空行 → 列表」在页面上顺序颠倒（与导出的 docx/html 不一致）。
+      flushAll();
       continue;
     }
     if (isTableRow(line)) {

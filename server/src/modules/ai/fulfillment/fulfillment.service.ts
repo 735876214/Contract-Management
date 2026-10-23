@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS } from '../../../constants/statuses.ts';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { AiQuota } from '../ai-quota';
@@ -7,6 +8,8 @@ import { aiModelFor } from '../ai-config';
 import { AiSettingService } from '../ai-setting.service';
 import { chatJson } from '../llm-client';
 import { centsToYuan } from '../common/money.ts';
+import { promptNumberExtras } from '../common/narrative.ts';
+import { sampleTotal } from '../common/coverage.ts';
 import {
   type FulfillmentContractRow,
   type FulfillmentFinding,
@@ -125,6 +128,7 @@ export class FulfillmentService {
 
     if (!cfg.enabled) {
       result.warnings.push('履约偏差预警已在系统参数里停用（ai.fulfillment.enabled=0），未执行任何判定');
+      result.notEvaluated.push('预警未启用（ai.fulfillment.enabled=0）：本次未执行任何规则，不能视作「无异常」');
       result.narrative.conclusion =
         '履约偏差预警已停用。如需恢复，请让管理员把系统参数 ai.fulfillment.enabled 设为 1。';
       return result;
@@ -140,6 +144,11 @@ export class FulfillmentService {
     result.summary = evaluation.summary;
     result.findings = evaluation.findings;
     result.notEvaluated = evaluation.notEvaluated;
+
+    // 「没有数据」≠「没有异常」
+    if (sampleTotal(result.sample) === 0) {
+      result.notEvaluated.push('本次扫描范围内没有任何可用数据，未执行判定（不能视作「无异常」）');
+    }
 
     const wantNarrative = cfg.narrative && String(query?.narrative ?? '1') !== '0';
     if (!wantNarrative || !evaluation.findings.length) {
@@ -159,10 +168,16 @@ export class FulfillmentService {
 
     this.quota.consume(userId, ai.hourlyLimitPerUser);
     try {
+      const toleranceText = fulfillmentToleranceText(cfg.tolerances);
+      const promptExtras = promptNumberExtras(
+        collected.sample,
+        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
+        [toleranceText, collected.scope],
+      );
       const messages = buildFulfillmentMessages({
         scope: collected.scope,
         sample: collected.sample,
-        toleranceText: fulfillmentToleranceText(cfg.tolerances),
+        toleranceText,
         evaluation,
       });
       const res = await chatJson(
@@ -187,7 +202,7 @@ export class FulfillmentService {
         return result;
       }
 
-      const unknown = auditFulfillmentNarrative(narrative, evaluation);
+      const unknown = auditFulfillmentNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用模板串，也不给人一份带假数字的结论）
         result.narrative = { ...fallbackFulfillmentNarrative(evaluation), source: 'template', unknownNumbers: unknown };
@@ -237,12 +252,28 @@ export class FulfillmentService {
     warnings: string[];
   }> {
     const warnings: string[] = [];
-    // 只看「在履行」的合同：草稿没签章谈不上履约偏差；已终止的合同本文档口径里不存在
-    const contractWhere: any = { projectId };
-    if (query?.contractId) contractWhere.id = query.contractId;
-    else contractWhere.OR = [{ status: null }, { status: { not: 'DRAFT' } }];
+    // 只看「在履行」的合同：草稿没签章谈不上履约偏差。
+    // 下钻（按合同筛选）时**不能**把合同集收窄成一行：C6 靠 `resolveChainAmounts`
+    // 把补充协议的 changeAmount 折进分母，只给一行就会把它当链根、分母变小，
+    // 同一份数据「换个入口结论翻转」。所以先取全项目合同，再按**链成员**过滤。
+    const contractWhere: any = {
+      projectId,
+      AND: [
+        // 草稿没签章谈不上履约偏差
+        { OR: [{ status: null }, { status: { not: CONTRACT_STATUS.DRAFT } }] },
+        // 已完已结（DONE_SETTLED）的合同不再参与履约偏差：遗留节点会永久红报，
+        // 而它的偏差已经由终期结算与结算单固化了。原来 execStatus 取来却不用，
+        // scope 文案却写着「在履行」——口径与文案不一致。
+        {
+          OR: [
+            { execStatus: null },
+            { execStatus: { not: CONTRACT_EXECUTION_STATUS.DONE_SETTLED } },
+          ],
+        },
+      ],
+    };
 
-    const contracts = await this.prisma.contract.findMany({
+    const allContracts = await this.prisma.contract.findMany({
       where: contractWhere,
       select: {
         id: true,
@@ -258,14 +289,50 @@ export class FulfillmentService {
       },
       orderBy: { code: 'asc' },
     });
+
+    // 合同链成员（根 + 全部后代）：下钻时用整条链参与判定，避免 C6 分母塌成单份合同
+    const chainMembersOf = (targetId: string): Set<string> => {
+      const byId = new Map(allContracts.map((c) => [c.id, c]));
+      let rootId = targetId;
+      const seen = new Set<string>([targetId]);
+      let cur = byId.get(targetId);
+      while (cur?.parentContractId && byId.has(cur.parentContractId) && !seen.has(cur.parentContractId)) {
+        seen.add(cur.parentContractId);
+        rootId = cur.parentContractId;
+        cur = byId.get(cur.parentContractId);
+      }
+      const members = new Set<string>();
+      const rootOf = (id: string): string => {
+        let node = byId.get(id);
+        const guard = new Set<string>([id]);
+        let rid = id;
+        while (node?.parentContractId && byId.has(node.parentContractId) && !guard.has(node.parentContractId)) {
+          guard.add(node.parentContractId);
+          rid = node.parentContractId;
+          node = byId.get(node.parentContractId);
+        }
+        return rid;
+      };
+      for (const c of allContracts) if (rootOf(c.id) === rootId) members.add(c.id);
+      return members;
+    };
+
+    const contracts = query?.contractId
+      ? allContracts.filter((c) => chainMembersOf(query.contractId!).has(c.id))
+      : allContracts;
+    if (query?.contractId && contracts.length && contracts.length > 1) {
+      warnings.push(`按合同筛选：已并入同一合同链的 ${contracts.length} 份合同（含补充协议），C6 按整链口径计算`);
+    }
     const contractIds = contracts.map((c) => c.id);
     if (!contractIds.length) {
-      return {
+      const empty = {
         input: { contracts: [], milestones: [], payments: [], finalSettlements: [] },
         sample: {},
-        scope: '本项目暂无可判定的合同',
+        scope: query?.contractId ? `合同 ${query.contractId} 不属于本项目（或为草稿）` : '本项目暂无可判定的合同',
         warnings,
       };
+      warnings.push('没有取到任何可判定的合同，C1–C8 均未执行（面板不应据此显示「无异常」）');
+      return empty;
     }
 
     const [milestones, payments, finalSettlements] = await Promise.all([
@@ -313,8 +380,8 @@ export class FulfillmentService {
     };
 
     const scope = query?.contractId
-      ? `合同 ${contracts[0]?.code ?? query.contractId}`
-      : `本项目全部在履行合同（${contractRows.length} 份）`;
+      ? `合同 ${contracts[0]?.code ?? query.contractId}${contracts.length > 1 ? `（含同链 ${contracts.length} 份）` : ''}`
+      : `本项目在履行合同（${contractRows.length} 份，已排除草稿与已完已结）`;
 
     if (!milestones.length) {
       warnings.push('本项目在履行合同没有任何履约节点，C1–C7 无法判定（C8 会逐份报出缺节点的合同）');

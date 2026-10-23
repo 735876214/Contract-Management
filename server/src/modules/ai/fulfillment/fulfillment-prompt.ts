@@ -38,13 +38,14 @@ export interface FulfillmentNarrativeInput {
 export function auditFulfillmentNarrative(
   narrative: FulfillmentNarrative,
   evaluation: FulfillmentEvaluation,
+  extras: Array<string | number | null | undefined> = [],
 ): string[] {
   const items: NarratableFinding[] = evaluation.findings.map((f) => ({
     title: f.title,
     amountDiff: f.amountDiff ?? null,
     facts: f.facts,
   }));
-  return auditNarrativeNumbers(narrative, items);
+  return auditNarrativeNumbers(narrative, items, extras);
 }
 
 /**

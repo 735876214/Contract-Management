@@ -108,6 +108,8 @@ export interface ContractRow {
   execStatus?: string | null;
   /** `ContractExt.currentPayRatio`（0..1；null = 推不出来，超付规则据此**不报**） */
   currentPayRatio?: unknown;
+  /** 合同链父级（补充协议指向主合同）；规则层据此把「结算量 / 清单量」对齐到链根 */
+  parentContractId?: string | null;
 }
 
 export interface SettlementItemRow {
@@ -184,7 +186,18 @@ export interface MaterialQtyRow {
  */
 export interface PaymentAnomalyInput {
   contracts: ContractRow[];
+  /** **判定对象**：结算日期落在所选区间内的结算单（明细类规则只认这一批） */
   settlements: SettlementRow[];
+  /**
+   * **累计口径**：结算日期 ≤ 区间末端的全部结算单（含区间之前的历史）。
+   *
+   * 累计类规则（R1-b 清单量 / R1-c 总结算引用 / R2 超付上限 / R4 票款 / R6 台账快照）
+   * 必须用这一批：否则「区间内结算 + 全时段付款」互相打架，选任何区间都会把
+   * 历史合规付款报成超付。缺省时退化为 `settlements`。
+   */
+  cumulativeSettlements?: SettlementRow[];
+  /** 判定区间（`from` 用于区分「区间外」与「跨项目」；两者都可缺省） */
+  window?: { from?: string | null; to?: string | null };
   payments: PaymentRow[];
   invoices: InvoiceRow[];
   procedures?: ProcedureRow[];

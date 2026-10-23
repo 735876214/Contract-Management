@@ -90,6 +90,15 @@ export const ANOMALY_ORDER = {
 // where：**每个都显式带 projectId**（铁律 3）
 // ---------------------------------------------------------------------------
 
+/** 本地时区的 `YYYY-MM-DD`（规则层比日期只用字符串，避免时区漂移） */
+function dayOf(d: Date | null | undefined): string | null {
+  if (!d) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export interface AnomalyDateRange {
   /** 已解析的日期（解析与报错留在调用方：接口要 400，脚本要退非 0） */
   from: Date | null;
@@ -99,7 +108,10 @@ export interface AnomalyDateRange {
 
 export interface AnomalyWhereSet {
   contractWhere: any;
+  /** 判定对象：结算日期落在区间内 */
   settlementWhere: any;
+  /** 累计口径：结算日期 ≤ 区间末端（累计类规则要用） */
+  settlementCumulativeWhere: any;
   paymentWhere: any;
   procedureWhere: any;
   invoiceWhere: any;
@@ -111,20 +123,28 @@ export interface AnomalyWhereSet {
 export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): AnomalyWhereSet {
   const contractId = range.contractId || undefined;
   const scoped: any = { projectId, ...(contractId ? { contractId } : {}) };
-  const dateWhere: any =
+  const windowWhere: any =
     range.from || range.to
       ? { settleDate: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }
       : {};
+  // 累计口径只设上界：区间之前的单据是「已发生的事实」，累计类规则必须看见
+  const cumulativeWhere: any = range.to ? { settleDate: { lte: range.to } } : {};
+  // 付款/手续自带日期，同样只设上界（否则区间末之后的付款会被算进累计）
+  const paidBy: any = range.to ? { payDate: { lte: range.to } } : {};
   return {
     contractWhere: { projectId, ...(contractId ? { id: contractId } : {}) },
-    settlementWhere: { ...scoped, ...dateWhere },
-    paymentWhere: scoped,
-    procedureWhere: scoped,
-    // 发票/收领单按结算单间接挂项目；指定合同时再收窄一层
+    settlementWhere: { ...scoped, ...windowWhere },
+    settlementCumulativeWhere: { ...scoped, ...cumulativeWhere },
+    paymentWhere: { ...scoped, ...paidBy },
+    procedureWhere: { ...scoped, ...paidBy },
+    // 发票/收领单按结算单间接挂项目；指定合同时再收窄一层；累计口径只设上界
     invoiceWhere: {
       projectId,
       settlementId: { not: null },
-      ...(contractId ? { settlement: { contractId } } : {}),
+      settlement: {
+        ...(contractId ? { contractId } : {}),
+        ...(range.to ? { settleDate: { lte: range.to } } : {}),
+      },
     },
     receiptWhere: { projectId, settlementId: { not: null } },
     finalSettlementItemWhere: { finalSettlement: { projectId } },
@@ -139,7 +159,10 @@ export function buildAnomalyWhere(range: AnomalyDateRange, projectId: string): A
 /** 一个项目（或一个合同）的原始取数结果，形状由上面 `ANOMALY_SELECT` 决定 */
 export interface AnomalyRows {
   contracts: any[];
+  /** 区间内结算单（判定对象） */
   settlements: any[];
+  /** 截至区间末的结算单（累计口径） */
+  cumulativeSettlements: any[];
   payments: any[];
   invoices: any[];
   procedures: any[];
@@ -192,7 +215,10 @@ export function makeChainRootResolver(contracts: ReadonlyArray<{ id: string; par
  * 这里只做**形状搬运 + 一处聚合**（清单量按链根求和），不做任何判定：
  * 金额一律以 Prisma 的 Decimal/字符串原样传下去，到 `rules-payment.ts` 才转 bigint 分。
  */
-export function buildPaymentAnomalyInput(rows: AnomalyRows): AnomalyDataset {
+export function buildPaymentAnomalyInput(
+  rows: AnomalyRows,
+  range?: AnomalyDateRange,
+): AnomalyDataset {
   const rootOf = makeChainRootResolver(rows.contracts as any[]);
   const materialsByKey = new Map<string, MaterialQtyRow>();
   for (const row of rows.materialRows) {
@@ -225,8 +251,11 @@ export function buildPaymentAnomalyInput(rows: AnomalyRows): AnomalyDataset {
         status: c.status,
         execStatus: c.execStatus,
         currentPayRatio: c.ext?.currentPayRatio ?? null,
+        parentContractId: c.parentContractId ?? null,
       })),
       settlements: rows.settlements,
+      cumulativeSettlements: rows.cumulativeSettlements?.length ? rows.cumulativeSettlements : rows.settlements,
+      window: { from: dayOf(range?.from), to: dayOf(range?.to) },
       payments: rows.payments,
       invoices: rows.invoices,
       procedures: rows.procedures,

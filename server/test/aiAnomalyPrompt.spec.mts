@@ -116,6 +116,14 @@ describe('anomaly-prompt · 数字提取与对账', () => {
   it('从中文句子里抽数字（含负数、小数、百分比）', () => {
     assert.deepEqual(extractNumbers('差额 5,000.00 元，占 1.5%'), ['5000', '1.5']);
     assert.deepEqual(extractNumbers('未发现异常'), []);
+    assert.deepEqual(extractNumbers('差额 -5000 元'), ['-5000']);
+  });
+
+  it('单据编号/日期里的数字**不算数据**（不参与对账，「抄编号」永远不会被判编造）', () => {
+    // 编号与日期是标识，不是金额：两侧都不抽取，模型正文里写编号既不贡献数字也不触发误报。
+    assert.deepEqual(extractNumbers('合同 HT-2026-001 逾期'), []);
+    assert.deepEqual(extractNumbers('项目 XM-2026-003'), []);
+    assert.deepEqual(extractNumbers('截至 2026-10-23'), ['2026']);
   });
 
   it('fact 数字全集包含 facts 值、标题与差额', () => {
@@ -123,7 +131,8 @@ describe('anomaly-prompt · 数字提取与对账', () => {
     assert.ok(allowed.has('150000'));
     assert.ok(allowed.has('145000'));
     assert.ok(allowed.has('5000'));
-    assert.ok(allowed.has('2026'));
+    // 标题里的合同编号 `HT-2026-001` 不再把 2026 灌进白名单（编号不是数据）
+    assert.equal(allowed.has('2026'), false);
   });
 
   it('结论只引用 facts 数字时对账通过', () => {

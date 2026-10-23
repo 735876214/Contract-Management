@@ -37,13 +37,17 @@ export interface QuoteNarrativeInput {
  * 采购编号（`PROC-20261001-001`）是动作建议必须引用的东西，所以把 `taskNo` 一并放进
  * 放行集合——否则模型老老实实抄了编号，系统反而判它编数字。
  */
-export function auditQuoteNarrative(narrative: QuoteNarrative, evaluation: QuoteEvaluation): string[] {
+export function auditQuoteNarrative(
+  narrative: QuoteNarrative,
+  evaluation: QuoteEvaluation,
+  extras: Array<string | number | null | undefined> = [],
+): string[] {
   const items: NarratableFinding[] = evaluation.findings.map((f) => ({
     title: `${f.taskNo ?? ''} ${f.title}`,
     amountDiff: f.amountDiff ?? null,
     facts: f.facts,
   }));
-  return auditNarrativeNumbers(narrative, items);
+  return auditNarrativeNumbers(narrative, items, extras);
 }
 
 /**

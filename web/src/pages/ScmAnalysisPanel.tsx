@@ -250,7 +250,7 @@ export default function ScmAnalysisPanel() {
         showIcon
         style={{ marginBottom: 16 }}
         message="数字由系统算，AI 只负责组织语言"
-        description="签约额按合同链汇总（补充协议只算变更金额）；草稿结算、失败付款、红冲发票不计入；比例的分母为 0 时显示「—」而不是 0%。正文里凡出现与事实对不上的数字，该段落会被丢弃并在下方提示。"
+        description="签约额按合同链汇总（补充协议只算变更金额）；草稿结算、失败付款、红冲发票不计入；比例的分母为 0 时显示「—」而不是 0%。正文里凡出现与事实对不上的数字，**整份 AI 正文会被丢弃、退回系统模板结论**（不做局部替换），并在下方列出对不上的数字。"
       />
 
       {disabled && (
@@ -284,7 +284,7 @@ export default function ScmAnalysisPanel() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`模型输出了 ${result.discardedNumbers.length} 个对不上的数字，相关段落已丢弃`}
+          message={`模型输出了 ${result.discardedNumbers.length} 个对不上的数字，整份 AI 正文已丢弃、改为系统模板结论`}
           description={`涉及：${result.discardedNumbers.slice(0, 12).join('、')}${result.discardedNumbers.length > 12 ? ' 等' : ''}`}
         />
       )}

@@ -14,6 +14,8 @@ import {
 } from './anomaly-types.ts';
 import { evaluatePaymentAnomalies } from './rules-payment.ts';
 import { ANOMALY_PARAM_KEY_LIST, parseAnomalyConfig, type AnomalyConfig } from './anomaly-config.ts';
+import { promptNumberExtras } from '../common/narrative.ts';
+import { sampleTotal } from '../common/coverage.ts';
 import {
   auditNarrative,
   buildAnomalyMessages,
@@ -119,6 +121,7 @@ export class AnomalyService {
     };
     if (!cfg.enabled) {
       empty.warnings.push('异常预警已在系统参数里停用（ai.anomaly.enabled=0），未执行任何判定');
+      empty.notEvaluated.push('预警未启用（ai.anomaly.enabled=0）：本次未执行任何规则，不能视作「无异常」');
       empty.narrative.conclusion = '异常预警已停用。如需恢复，请让管理员把系统参数 ai.anomaly.enabled 设为 1。';
       return empty;
     }
@@ -133,6 +136,9 @@ export class AnomalyService {
       findings: evaluation.findings,
       notEvaluated: evaluation.notEvaluated,
     };
+
+    // 「没有数据」≠「没有异常」：样本全 0 时必须说出来，否则面板会把「一条没查」渲染成绿色通过
+    if (sampleTotal(result.sample) === 0) result.notEvaluated.push('本次扫描范围内没有任何可用数据，未执行判定（不能视作「无异常」）');
 
     // 0 命中时不打模型：让模型写「没有问题」既费额度，又容易写成「已核查确认无风险」这种越权结论
     const wantNarrative = cfg.narrative && String(query?.narrative ?? '1') !== '0';
@@ -151,10 +157,16 @@ export class AnomalyService {
 
     this.quota.consume(userId, ai.hourlyLimitPerUser);
     try {
+      const toleranceText = `金额容差 ${centsToYuan(cfg.tolerances.amount)} 元；数量容差 +${cfg.tolerances.qtyPct}%；明细重合度 ${cfg.tolerances.jaccard}`;
+      const promptExtras = promptNumberExtras(
+        sample,
+        [evaluation.summary.total, evaluation.summary.high, evaluation.summary.medium],
+        [toleranceText, result.period ? `${result.period.from} 至 ${result.period.to}` : null],
+      );
       const messages = buildAnomalyMessages({
         period: result.period,
         sample,
-        toleranceText: `金额容差 ${centsToYuan(cfg.tolerances.amount)} 元；数量容差 +${cfg.tolerances.qtyPct}%；明细重合度 ${cfg.tolerances.jaccard}`,
+        toleranceText,
         evaluation,
       });
       const res = await chatJson(globalThis.fetch as any, {
@@ -175,7 +187,8 @@ export class AnomalyService {
         return result;
       }
 
-      const unknown = auditNarrative(narrative, evaluation);
+      // 提示词自己给过模型的数字（样本计数、命中总数、阈值）复述出来是「抄」不是「编」
+      const unknown = auditNarrative(narrative, evaluation, promptExtras);
       if (unknown.length) {
         // 对账失败＝模型编了数字，一律丢弃（宁可用干巴巴的模板串，也不给人一份带假数字的结论）
         result.narrative = { ...fallbackNarrative(evaluation), source: 'template', unknownNumbers: unknown };
@@ -229,11 +242,25 @@ export class AnomalyService {
     const range = { from, to, contractId: query?.contractId || null };
     const w = buildAnomalyWhere(range, projectId);
 
-    const [contracts, settlements, payments, invoices, procedures, receipts, finalSettlementItems, materialRows] =
-      await Promise.all([
+    const [
+      contracts,
+      settlements,
+      cumulativeSettlements,
+      payments,
+      invoices,
+      procedures,
+      receipts,
+      finalSettlementItems,
+      materialRows,
+    ] = await Promise.all([
         this.prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
         this.prisma.settlement.findMany({
           where: w.settlementWhere,
+          select: ANOMALY_SELECT.settlement,
+          orderBy: ANOMALY_ORDER.settlement as any,
+        }),
+        this.prisma.settlement.findMany({
+          where: w.settlementCumulativeWhere,
           select: ANOMALY_SELECT.settlement,
           orderBy: ANOMALY_ORDER.settlement as any,
         }),
@@ -260,15 +287,19 @@ export class AnomalyService {
       ]);
 
     // 形状搬运 + 清单量按链根聚合，全部在纯函数里（离线评测脚本复用同一份）
-    return buildPaymentAnomalyInput({
-      contracts: contracts as any[],
-      settlements: settlements as any[],
-      payments: payments as any[],
-      invoices: invoices as any[],
-      procedures: procedures as any[],
-      receipts: receipts as any[],
-      finalSettlementItems: finalSettlementItems as any[],
-      materialRows: materialRows as any[],
-    });
+    return buildPaymentAnomalyInput(
+      {
+        contracts: contracts as any[],
+        settlements: settlements as any[],
+        cumulativeSettlements: cumulativeSettlements as any[],
+        payments: payments as any[],
+        invoices: invoices as any[],
+        procedures: procedures as any[],
+        receipts: receipts as any[],
+        finalSettlementItems: finalSettlementItems as any[],
+        materialRows: materialRows as any[],
+      },
+      range,
+    );
   }
 }
