@@ -39,6 +39,7 @@ const Archive = lazy(() => import('@/pages/Archive'));
 const Assets = lazy(() => import('@/pages/Assets'));
 const Messages = lazy(() => import('@/pages/Messages'));
 const AiAssistant = lazy(() => import('@/pages/AiAssistant'));
+const AnomalyPanel = lazy(() => import('@/pages/AnomalyPanel'));
 const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
@@ -158,6 +159,8 @@ export const routes: RouteObject[] = [
       { path: 'cost/profit-loss', element: perm('/cost/profit-loss', <CostProfitLoss />) },
       { path: 'archive', element: perm('/archive', <Archive />) },
       { path: 'ai/assistant', element: perm('/ai/assistant', <AiAssistant />) },
+      // 结算/付款异常预警（课题 6-9）：独立页，入口在侧边栏「结算异常预警」
+      { path: 'ai/anomaly', element: perm('/ai/anomaly', <AnomalyPanel />) },
 
       // —— 基础信息管理 ——
       { path: 'base/project', element: perm('/base/project', <Projects />) },

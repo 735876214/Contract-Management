@@ -72,6 +72,8 @@ export const MENU_CONFIG: MenuItem[] = [
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },
   // AI 助手（2026-10-19）：fallback 菜单，结构须与后端 MENU_TREE 保持一致
   { key: 'ai', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
+  // 结算/付款异常预警（课题 6-9）：与后端 MENU_TREE 的 ai-anomaly 对齐
+  { key: 'ai-anomaly', label: '结算异常预警', icon: 'SafetyOutlined', path: '/ai/anomaly', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   {
     key: 'base',

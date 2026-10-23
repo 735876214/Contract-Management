@@ -195,3 +195,27 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 - **D1 顺序**：按本计划（6-9 先落地，7-11 收尾演示）？还是反过来先出可汇报成果？——后者会挤掉 6-9 至少一周。
 - **D2 结果持久化**：一期只落 `Notification`（零迁移）；二期是否建 `AiFinding` 表以支持处置状态机？
 - **D3 规则阈值归属**：金额容差、Jaccard 阈值、超付比例是否接受"全部进 SysParam 由管理员可调"（默认值写进迁移/种子）？
+
+---
+
+## 9. 实现进度（滚动更新，只记已落地的与偏差）
+
+| 里程碑 | 状态 | 落地物 | 验收证据 |
+|---|---|---|---|
+| M0 规则层 | ✅ 2026-10-23 | `server/src/modules/ai/anomaly/{anomaly-types.ts, rules-payment.ts}`、真值夹具 `server/test/fixtures/ai-anomaly-payment.fixture.mts`、单测 `server/test/aiAnomalyPayment.spec.mts` | 8 条规则纯函数（金额全 bigint 分/万分之一单位）；夹具 10 条命中真值 + 干净夹具 0 命中；`npm test` 全绿 |
+| M1 后端接口 | ✅ 2026-10-23 | `anomaly-config.ts` / `anomaly-prompt.ts` / `anomaly.service.ts`、`GET /ai/anomaly/payment`、`aiAnomalyPrompt.spec.mts` | 744 项测试全绿；假 Prisma 直呼 service：10 条命中、`notEvaluated` 正确、缺 `contract:view` 得 403、非法日期 400、开关关闭不判定；提交 `c84b79d` |
+| M2 前端面板 | ✅ 2026-10-23 | `web/src/pages/AnomalyPanel.tsx`、`aiApi.paymentAnomaly`、五处接线 | 两个 build 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过 |
+
+### 9.1 与计划的偏差（有意为之）
+
+1. **面板做成独立菜单，而不是 AI 助手的页签**。原本先按页签试了一版，又撤回：`menuTree.ts` 与 `menuConfig.ts` 的漂移锁要求两处逐项对齐，页签虽省事，但"结算异常预警"是财务月度核对的**常驻动作**，藏进 AI 助手的第四个页签等于没有入口。最终：`/ai/anomaly` 平级菜单，权限沿用 `ai:view`（**不新增权限码**，Seed 与 `Permission` 表无需迁移）。
+2. **权限双层**：路由要 `ai:view`（能进 AI 入口），service 再要 `contract:view`（命中项带合同/结算/付款金额）。与 `report.service.ts` 同口径，避免"能看 AI 面板就能看全公司金额"。
+3. **规则数 8 条而非计划的 6 条**：R1 拆成跨期重复 / 同物资重复计量 / 终期快照漂移；R6 从"审批时间晚于付款"（`PaymentProcedure` 没有审批完成时间字段，做不到）改成"开累快照与台账不一致"。
+4. **R2 超付口径**：用 `ContractExt.currentPayRatio`（0~1）作上限，比例为空或不在 0~1 的合同**不判定并单独报出**（`notEvaluated`），不用 100% 兜底 —— 兜底等于悄悄放宽规则。
+5. **只读、不落 `Notification`**：D2 的"一期落通知"本轮未做。预警自己写库/发消息会在正式使用时产生"谁点的、何时点的"追溯问题，先只读；要提醒由前端下一个工单决定。
+
+### 9.2 尚未闭合的缺口
+
+- **`test:int` 与"真打一次接口"仍未做**：本容器到 `cms-postgres-dev` 的 TCP 可连，但 PostgreSQL 协议握手后即被断开（PG 日志 `could not send data to client: Broken pipe`），`docker exec` 在该 daemon 上报 `NotFound: task … not found`。M1/M2 用"假 Prisma 直呼 service + 两个 build + 漂移锁单测"替代，**DB 侧的查询形状（select/关系名）没被真实 Prisma 校验过**，这是上生产前必须补的一步。
+- **headless 真渲染未做**：容器内无 Edge/Chromium，DESIGN.md §5.2 的渲染核验无法执行；面板的视觉与交互未经肉眼确认。
+- **M3 评测**：需要先把夹具灌进一个可用的 PostgreSQL（或让 `cms_postgres` 可达），才能统计召回率/误报率。

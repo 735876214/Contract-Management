@@ -681,6 +681,52 @@ export interface AiReportResult {
   missingSections: string[];
 }
 
+/**
+ * 结算 / 付款异常预警（课题 6-9）一条命中。
+ *
+ * `code` / `level` 与后端 `server/src/modules/ai/anomaly/anomaly-types.ts` 的
+ * `ANOMALY_CODES` / `ANOMALY_LEVEL` 一一对应；面板再写一份中文标签是刻意的
+ * ——要在不依赖接口的情况下也能解释「这条是什么规则」（无名代码对使用者等于没提示）。
+ */
+export interface AiAnomalyFinding {
+  code: string;
+  level: 'HIGH' | 'MEDIUM';
+  /** 命中对象：合同 / 结算单 / 付款 / 付款手续 */
+  entity: 'contract' | 'settlement' | 'payment' | 'procedure';
+  entityId: string;
+  /** 模板串标题（后端生成，保证不缺描述） */
+  title: string;
+  /** 判定依据：中文键 → 已格式化的值。**面板只展示，不做加工** */
+  facts: Record<string, string>;
+  /** 差额（元字符串，正数 = 超出/重复金额）；无金额概念时为 null */
+  amountDiff: string | null;
+}
+
+export interface AiAnomalyNarrative {
+  conclusion: string;
+  actions: string[];
+  /** llm = 模型措辞且数字对账通过；template = 模板兜底（模型未配置/失败/对账失败） */
+  source: 'llm' | 'template';
+  /** 结论里出现、但不在事实清单里的数字（对账失败即为非空） */
+  unknownNumbers: string[];
+}
+
+export interface AiAnomalyResult {
+  /** 系统参数 `ai.anomaly.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
+  enabled: boolean;
+  generatedAt: string;
+  period: { from: string | null; to: string | null };
+  /** 参与判定的单据量：0 命中时据此说明「算过哪些数据」，是可信度的依据 */
+  sample: Record<string, number>;
+  tolerances: { amount: string; qtyPct: number; jaccard: number };
+  summary: { total: number; high: number; medium: number; byCode: Record<string, number> };
+  findings: AiAnomalyFinding[];
+  /** 因数据缺失没跑成的规则：**未判定不等于没问题**，必须显式展示 */
+  notEvaluated: string[];
+  narrative: AiAnomalyNarrative;
+  warnings: string[];
+}
+
 /** AI 信息登记：页面提交内容（不传 = 不改；apiKey 空串 = 清除） */
 export interface AiSettingInput {
   enabled?: boolean;
@@ -759,6 +805,12 @@ export const aiApi = {
       rawResponse: true,
     } as any);
   },
+  /**
+   * 结算 / 付款异常预警（课题 6-9）：只读扫描，规则在服务端算，模型只写结论。
+   * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
+   */
+  paymentAnomaly: (query: { from?: string; to?: string; contractId?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiAnomalyResult>('/ai/anomaly/payment', { params: query, timeout: 180000 } as any),
   /**
    * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
    * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。

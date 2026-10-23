@@ -56,6 +56,9 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // AI 助手（2026-10-19）：入口与「能不能用」统一按 ai:view 放行，
   // 真正的 ai:use 由后端 403 兜底（菜单可见、点进去能用，符合「守卫不得比菜单更严」）
   '/ai/assistant': ['ai:view'],
+  // 结算/付款异常预警（课题 6-9）：后端口径同 AI 助手，ai:view 放行，
+  // 金额可见性由 service 内的 contract:view 二次校验兜底
+  '/ai/anomaly': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],
