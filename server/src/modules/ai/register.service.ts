@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { ContractService } from '../contract/contract.service';
 import { SupplierService } from '../supplier/supplier.service';
 import { AiQuota } from './ai-quota';
-import { type AiConfig } from './ai-config';
+import { aiModelFor, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
 import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
 import { looksLikeContract } from './docx-text';
@@ -136,7 +136,8 @@ export class RegisterService {
       const res = await chatJson(globalThis.fetch as any, {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
-        model: cfg.model,
+        // 文件登记：长正文 + 要求字段齐全，可单独配上下文大的模型
+        model: aiModelFor(cfg, 'register'),
         timeoutMs: cfg.timeoutMs,
         temperature: 0,
         maxTokens: cfg.maxTokens,
@@ -157,7 +158,8 @@ export class RegisterService {
         draft: empty,
         existing: {},
         items: 0,
-        model: cfg.model,
+        // 回给前端的「这次用的哪个模型」要跟真实调用一致（用途级覆盖后不再等于全局）
+        model: aiModelFor(cfg, 'register'),
       };
     }
 
@@ -182,7 +184,7 @@ export class RegisterService {
       draft,
       existing,
       items: draft.items.length,
-      model: cfg.model,
+      model: aiModelFor(cfg, 'register'),
     };
   }
 

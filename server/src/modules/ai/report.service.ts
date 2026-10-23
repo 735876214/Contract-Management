@@ -8,7 +8,7 @@ import { assertPermission } from '../../common/utils/assert-permission';
 import { paidPaymentWhere } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import { AiQuota } from './ai-quota';
-import { type AiConfig } from './ai-config';
+import { aiModelFor, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
 import { FieldResolverService } from './field-resolver.service';
 import { chatText, LlmError } from './llm-client';
@@ -121,7 +121,8 @@ export class ReportService {
       {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
-        model: cfg.model,
+        // 汇报材料：长输出 + 重措辞，可单独配强模型
+        model: aiModelFor(cfg, 'report'),
         timeoutMs: Math.max(cfg.timeoutMs, 90000),
         temperature: 0.3,
         maxTokens: cfg.maxTokens,

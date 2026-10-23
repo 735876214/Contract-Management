@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { AiQuota } from '../ai-quota';
+import { aiModelFor } from '../ai-config';
 import { AiSettingService } from '../ai-setting.service';
 import { chatJson } from '../llm-client';
 import {
@@ -167,7 +168,8 @@ export class QuoteService {
         {
           baseUrl: ai.baseUrl,
           apiKey: ai.apiKey,
-          model: ai.model,
+          // 与结算/履约预警同属「异常预警」用途
+          model: aiModelFor(ai, 'anomaly'),
           timeoutMs: Math.max(ai.timeoutMs, 60000),
           temperature: 0.2,
           maxTokens: ai.maxTokens,

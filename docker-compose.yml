@@ -94,6 +94,8 @@ services:
       # AI_BASE_URL: "https://your-llm-gateway.example/v1"
       # AI_API_KEY: "sk-..."
       # AI_MODEL: "cn:deepseek-v4.1-flash"
+      # 用途级模型（可选，2026-10-23）：不填就都用上面的 AI_MODEL；页面「按用途指定模型」优先于这里。
+      # AI_MODEL_FORM_INSPECT / AI_MODEL_REGISTER / AI_MODEL_REPORT / AI_MODEL_ANOMALY
       # 汇报材料导出 PDF 要内嵌中文字体（镜像已装 fonts-wqy-zenhei，会自动探测）。
       # 注意：pdf-lib 只能正确嵌 TrueType 轮廓，CFF 类的 Noto CJK / 思源会渲染成乱码，程序会跳过它们。
       # 想用自己的字体就指定绝对路径（.ttf，或 TrueType 轮廓的 .ttc，会自动拆成单字体）：

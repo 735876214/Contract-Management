@@ -819,8 +819,30 @@ export interface AiFulfillmentResult {
 export interface AiSettingInput {
   enabled?: boolean;
   baseUrl?: string;
+  /** 全局默认模型；空串 = 清除（回落环境变量） */
   model?: string;
+  /** 用途级模型覆盖：`{ register: "qwen-plus" }`；值空串 = 清除该用途（跟随全局）。不传的用途不动 */
+  models?: Record<string, string>;
   apiKey?: string;
+}
+
+/** 诊断接口入参：在登记内容之外，可指定「测哪个用途」的模型 */
+export interface AiSettingTestInput extends AiSettingInput {
+  /** 只测某个用途实际会用的模型（不传 = 测全局 model） */
+  purpose?: string;
+}
+
+/** 登记页「按用途指定模型」表格的一行 */
+export interface AiSettingPurposeView {
+  code: string;
+  name: string;
+  desc: string;
+  /** 该用途实际生效的模型（没单独指定时等于全局模型） */
+  model: string;
+  /** db = 页面单独登记过；env = 来自用途环境变量；default = 跟随全局模型 */
+  source: 'db' | 'env' | 'default';
+  /** 页面登记过的原始值（留空表示未覆盖；用它回填输入框，便于「清空 = 跟随全局」） */
+  stored: string;
 }
 
 export type AiSettingSourceKind = 'db' | 'env' | 'default' | 'none';
@@ -838,6 +860,8 @@ export interface AiSettingView {
   envConfigured: boolean;
   /** 后端拼好的一句话状态说明 */
   hint: string;
+  /** 按用途的模型明细（页面表格直接渲染这份，不在前端重算回落逻辑） */
+  purposes: AiSettingPurposeView[];
 }
 
 export interface AiSettingTestResult {
@@ -918,6 +942,6 @@ export const aiApi = {
   getSetting: () => http.get<any, AiSettingView>('/ai/setting'),
   saveSetting: (body: AiSettingInput) => http.put<any, AiSettingView>('/ai/setting', body),
   /** 用当前（或刚填还没保存的）配置真打一次上游；失败原因在返回值里，不抛错 */
-  testSetting: (body: AiSettingInput) =>
+  testSetting: (body: AiSettingTestInput) =>
     http.post<any, AiSettingTestResult>('/ai/setting/test', body, { timeout: 30000 } as any),
 };

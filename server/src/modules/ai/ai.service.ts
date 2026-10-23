@@ -3,7 +3,7 @@ import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
-import { aiPublicStatus, type AiConfig } from './ai-config';
+import { aiModelFor, aiPublicStatus, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
 import { buildFormMappingMessages, normalizeMapping, type MappingSuggestion } from './ai-prompt';
 import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, filterFieldsByPermission, SCOPE_READ_PERMISSION, type AiFieldDef } from './field-catalog';
@@ -254,7 +254,8 @@ export class AiService {
       const { data } = await chatJson(globalThis.fetch, {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
-        model: cfg.model,
+        // 表单核验：短文本 + 只要结构化 JSON，管理员可以单独给它配便宜模型
+        model: aiModelFor(cfg, 'form_inspect'),
         timeoutMs: cfg.timeoutMs,
         maxTokens: 2000,
       }, messages);

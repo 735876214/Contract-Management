@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Divider, Form, Input, Space, Switch, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { ApiOutlined, ExperimentOutlined, SaveOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { aiApi, type AiSettingInput, type AiSettingTestResult, type AiSettingView } from '../api/modules';
+import { aiApi, type AiSettingInput, type AiSettingPurposeView, type AiSettingTestResult, type AiSettingView } from '../api/modules';
 
 const { Paragraph, Text } = Typography;
 
 /**
  * 来源标签：让管理员一眼看出「现在生效的是页面填的，还是 docker 里的环境变量」。
- * 只在**确实来自某处**（页面/环境变量）时才显示——default/
-one 没有信息量，
+ * 只在**确实来自某处**（页面/环境变量）时才显示——default/none 没有信息量，
  * 挤在 label 后面会读成「接口地址默认值」，误导人以为有个默认地址可用。
  */
 const SOURCE_LABEL: Record<string, string> = {
@@ -39,6 +38,12 @@ export default function AiSettings() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiSettingTestResult | null>(null);
+  /** 用途级模型的输入值（key = 用途码；空串 = 跟随全局模型） */
+  const [purposeDraft, setPurposeDraft] = useState<Record<string, string>>({});
+  /** 正在测试哪个用途（行内按钮 loading） */
+  const [purposeTesting, setPurposeTesting] = useState<string>('');
+  /** 每个用途上一次测试的结果（行内小标签展示，互不覆盖） */
+  const [purposeResults, setPurposeResults] = useState<Record<string, AiSettingTestResult>>({});
   const [form] = Form.useForm();
   /** 用户是否动过「启用」开关：没动过就不把 enabled 写进库（见 collect 的注释） */
   const [enabledTouched, setEnabledTouched] = useState(false);
@@ -48,6 +53,9 @@ export default function AiSettings() {
     try {
       const v = await aiApi.getSetting();
       setView(v);
+      // 用途表格回填**页面登记过的原始值**（stored），没登记过就是空 → 显示「跟随全局」
+      setPurposeDraft(Object.fromEntries((v.purposes ?? []).map((p) => [p.code, p.stored])));
+      setPurposeResults({});
       /**
        * 开关显示的是**意图**，不是「当前是否可用」：
        * `view.enabled` 在「字段没填全」时也是 false，若直接把它回填成关闭，用户填完剩下的项点保存
@@ -96,6 +104,15 @@ export default function AiSettings() {
     if (enabledTouched || view?.source.enabled === 'db') body.enabled = Boolean(v.enabled);
     const key = String(v.apiKey ?? '').trim();
     if (key) body.apiKey = key;
+    /**
+     * 用途级模型：**四个用途都带上**，空串表示「清除该用途的覆盖、跟随全局」。
+     * 只带非空项是不够的——那样清空输入框再保存，旧覆盖会留在库里，页面显示跟实际生效不一致。
+     */
+    const models: Record<string, string> = {};
+    for (const p of view?.purposes ?? []) {
+      models[p.code] = String(purposeDraft[p.code] ?? '').trim();
+    }
+    if (Object.keys(models).length) body.models = models;
     return body;
   };
 
@@ -126,6 +143,20 @@ export default function AiSettings() {
     }
   };
 
+  /**
+   * 只测某一个用途的模型（页面上的值优先，还没保存也能先测）。
+   * 结果记在该行上：四个用途的模型名往往不一样，用一个共用的提示框会互相覆盖。
+   */
+  const testPurpose = async (code: string) => {
+    setPurposeTesting(code);
+    try {
+      const r = await aiApi.testSetting({ ...collect(), purpose: code });
+      setPurposeResults((prev) => ({ ...prev, [code]: r }));
+    } finally {
+      setPurposeTesting('');
+    }
+  };
+
   const clearKey = async () => {
     setSaving(true);
     try {
@@ -137,6 +168,87 @@ export default function AiSettings() {
       setSaving(false);
     }
   };
+
+  /**
+   * 「按用途指定模型」表格。
+   *
+   * 为什么要有这张表：全站原来只有一个模型——表单核验（只要结构化 JSON）、
+   * 合同登记（长正文）、汇报材料（长输出）、异常预警（重推理）挤同一个模型，
+   * 要么贵模型干粗活、要么便宜模型干不了细活。现在每个用途可以单独挑模型，
+   * **留空 = 跟随上面那个全局模型**。
+   *
+   * 「来源」列由后端算好（页面登记 / 环境变量 / 跟随全局），前端不重复实现回落逻辑。
+   */
+  const purposeColumns = [
+    {
+      title: '用途',
+      dataIndex: 'name',
+      width: 220,
+      render: (_: unknown, p: AiSettingPurposeView) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{p.name}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {p.desc}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '模型',
+      dataIndex: 'model',
+      render: (_: unknown, p: AiSettingPurposeView) => {
+        const r = purposeResults[p.code];
+        return (
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Input
+              value={purposeDraft[p.code] ?? ''}
+              placeholder={`跟随全局：${view?.model || '（全局模型还没填）'}`}
+              allowClear
+              style={{ maxWidth: 320 }}
+              onChange={(e) => setPurposeDraft((prev) => ({ ...prev, [p.code]: e.target.value }))}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {String(purposeDraft[p.code] ?? '').trim()
+                ? `保存后${p.name}使用该模型`
+                : `未单独指定，实际用 ${p.model || '（无）'}`}
+            </Text>
+            {r ? (
+              <Text type={r.ok ? 'success' : 'danger'} style={{ fontSize: 12 }}>
+                {r.ok ? `连接正常${r.ms ? `（${r.ms} ms）` : ''}` : r.message}
+              </Text>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    {
+      title: '来源',
+      dataIndex: 'source',
+      width: 120,
+      render: (_: unknown, p: AiSettingPurposeView) =>
+        SOURCE_LABEL[p.source] ? (
+          <Tag color={SOURCE_COLOR[p.source]}>{SOURCE_LABEL[p.source]}</Tag>
+        ) : (
+          <Tag>跟随全局</Tag>
+        ),
+    },
+    {
+      title: '操作',
+      dataIndex: 'op',
+      width: 100,
+      render: (_: unknown, p: AiSettingPurposeView) => (
+        <Button
+          size="small"
+          icon={<ExperimentOutlined />}
+          loading={purposeTesting === p.code}
+          disabled={Boolean(purposeTesting) && purposeTesting !== p.code}
+          onClick={() => testPurpose(p.code)}
+        >
+          测试
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -211,11 +323,11 @@ export default function AiSettings() {
             name="model"
             label={
               <Space size={6}>
-                模型名
+                全局默认模型
                 {view && SOURCE_LABEL[view.source.model] ? <Tag color={SOURCE_COLOR[view.source.model]}>{SOURCE_LABEL[view.source.model]}</Tag> : null}
               </Space>
             }
-            extra="例：deepseek-chat / qwen-plus / llama3.1（写上游文档里的模型标识，不是显示名）"
+            extra="某用途没单独指定时就用它（用途可在下方表格里单独指定）。例：deepseek-chat / qwen-plus / llama3.1（写上游文档里的模型标识，不是显示名）"
           >
             <Input placeholder="deepseek-chat" allowClear />
           </Form.Item>
@@ -268,6 +380,33 @@ export default function AiSettings() {
             页面上的值**没保存也能先测**。
           </Paragraph>
         )}
+      </Card>
+
+      <Card
+        title={
+          <Space>
+            <ExperimentOutlined />
+            按用途指定模型
+          </Space>
+        }
+        loading={loading}
+        extra={
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>
+            保存
+          </Button>
+        }
+      >
+        <Paragraph type="secondary" style={{ marginTop: 0 }}>
+          不同用途干不同的活：表单核验要的是结构化 JSON（便宜模型够用），文件登记读长正文、汇报材料要长输出、
+          异常预警重推理（值得上强模型）。留空 = 跟随上面的全局模型；保存后立即生效，不需要重启服务。
+        </Paragraph>
+        <Table<AiSettingPurposeView>
+          rowKey="code"
+          size="middle"
+          pagination={false}
+          dataSource={view?.purposes ?? []}
+          columns={purposeColumns as any}
+        />
       </Card>
 
       {view?.envConfigured ? (

@@ -14,7 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { AiService } from './ai.service';
-import { AiSettingService, type AiSettingInput } from './ai-setting.service';
+import { AiSettingService, type AiSettingInput, type AiSettingTestInput } from './ai-setting.service';
 import { RegisterService, type RegisterConfirmInput } from './register.service';
 import { ReportService } from './report.service';
 import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
@@ -78,10 +78,10 @@ export class AiController {
     return this.setting.save(body || {});
   }
 
-  /** 用当前（或页面上刚填、还没保存的）配置真打一次上游，只做诊断，不改任何状态 */
+  /** 用当前（或页面上刚填、还没保存的）配置真打一次上游，只做诊断，不改任何状态；`purpose` 可指定测哪个用途 */
   @RequirePermissions('system:config')
   @Post('setting/test')
-  testSetting(@Body() body: AiSettingInput) {
+  testSetting(@Body() body: AiSettingTestInput) {
     return this.setting.test(body || {});
   }
 
