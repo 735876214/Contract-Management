@@ -42,6 +42,7 @@ const AiAssistant = lazy(() => import('@/pages/AiAssistant'));
 const AnomalyPanel = lazy(() => import('@/pages/AnomalyPanel'));
 const QuoteAnomalyPanel = lazy(() => import('@/pages/QuoteAnomalyPanel'));
 const FulfillmentAnomalyPanel = lazy(() => import('@/pages/FulfillmentAnomalyPanel'));
+const ScmAnalysisPanel = lazy(() => import('@/pages/ScmAnalysisPanel'));
 const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
@@ -166,6 +167,8 @@ export const routes: RouteObject[] = [
       // 异常报价与价差预警（课题 3-9）：独立页，入口在侧边栏「报价异常预警」
       { path: 'ai/quote', element: perm('/ai/quote', <QuoteAnomalyPanel />) },
       { path: 'ai/fulfillment', element: perm('/ai/fulfillment', <FulfillmentAnomalyPanel />) },
+      // 供应链运营全景（课题 7-11）：跨项目汇报材料，可导出 Word/PDF
+      { path: 'ai/analysis', element: perm('/ai/analysis', <ScmAnalysisPanel />) },
 
       // —— 基础信息管理 ——
       { path: 'base/project', element: perm('/base/project', <Projects />) },

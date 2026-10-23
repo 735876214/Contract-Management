@@ -193,7 +193,16 @@ const PCT_TAIL = /^\s*[%％]/;
 
 /** 把 Markdown 里的数量/金额扫出来对账，返回系统数据里对不上的那些 */
 export function auditReport(markdown: string, facts: ReportFacts): { unknown: string[]; checked: number } {
-  const allowed = factNumbers(facts);
+  return auditNumbers(markdown, factNumbers(facts));
+}
+
+/**
+ * **按「允许的数字集合」对账**（7-11 供应链全景复用同一个扫描器，避免两套正则各自演化）。
+ * 口径与 `auditReport` 完全一致：日期整段抹掉、有序列表序号抹掉、`万` 后缀按 10000 倍折算、
+ * 百分数允许取整（24.97% 写成 25% 不算编造）。
+ */
+export function auditNumbers(markdown: string, allowedInput: number[]): { unknown: string[]; checked: number } {
+  const allowed = allowedInput;
   // 日期（2026-08-01）里的数字不是金额，先整段抹掉，否则 -08、-01 会被当成负数
   // 有序列表的序号（`1. ` / `2) `）也不是数据：模型被要求用列表写材料，
   // 不抹掉就会把 1、2、3 报成「材料里编造的数字」（实测出现过 unknown=[2,3] 的误报）

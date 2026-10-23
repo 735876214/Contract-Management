@@ -213,6 +213,9 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M5 规则层（4-9） | ✅ 2026-10-24 | `server/src/modules/ai/fulfillment/{fulfillment-types.ts, rules-fulfillment.ts}`、真值夹具 `server/test/fixtures/ai-fulfillment.fixture.mts`、单测 `server/test/aiFulfillmentRules.spec.mts` | 8 条规则码（C1–C8）纯函数，日期一律自然日天差；夹具 10 条命中真值（高 3 / 需复核 7）+ 干净合同零命中；边界阈值按「严格大于」逐条锁死 |
 | M5 后端接口 | ✅ 2026-10-24 | `fulfillment-config.ts` / `fulfillment-prompt.ts` / `fulfillment.service.ts`、`GET /ai/anomaly/fulfillment`、`aiFulfillmentPrompt.spec.mts` | 两 build 退出码 0；假 Prisma 直呼 service：命中 10 条、`notEvaluated` 正确、缺 `contract:view` 得 403、开关关闭不判定、坏参数只回落并回显 warning |
 | M5 前端面板 | ✅ 2026-10-24 | `web/src/pages/FulfillmentAnomalyPanel.tsx`、`aiApi.fulfillmentAnomaly`、四处接线（`menuTree.ts` / `menuConfig.ts` / `routePermissions.ts` / `router.tsx`） | `web build` 退出码 0；`routePermissionParity.spec.mts` 通过；面板只读，未判定与样本量强制可见 |
+| M6 事实层（7-11） | ✅ 2026-10-25 | `server/src/modules/ai/analysis/{scm-types.ts, scm-facts.ts}`、单测 `server/test/aiScmFacts.spec.mts` | 跨项目口径纯函数：签约额按合同链（补充协议只算 `changeAmount`）、草稿/失败/红冲全部排除、分母为 0 返回 `null`、未填金额不计但单独提示；11 个单测锁口径（含空数据不抛错） |
+| M6 后端接口 | ✅ 2026-10-25 | `scm-config.ts` / `scm-prompt.ts` / `scm.service.ts`、`GET /ai/analysis/supply-chain`、复用 `ai/common/{narrative,params}.ts` 与 `report-facts.auditNumbers` | 跨项目需 `dashboard:view`（单项目只要 `contract:view`）、最多 20 个项目（超出 400）、幽灵项目跳过并提示；假 Prisma 直呼 service 八条验收全过：正文数字对账通过、编 9,999,999 整份退回模板、缺节记 `missingSections`、参数脏值回落、停用短路、越权 403 |
+| M6 前端面板 | ✅ 2026-10-25 | `web/src/pages/ScmAnalysisPanel.tsx`、`web/src/components/ReportMarkdown.tsx`（带表格的极简渲染）、`aiApi.supplyChain`、四处接线（`menuTree.ts` / `menuConfig.ts` / `routePermissions.ts` / `router.tsx`） | 面板只读：项目多选 → 生成 → 正文预览 + 事实清单 + 风险点；导出 Word/PDF 复用 `POST /ai/report/export`（同一份 Markdown，不重新生成）；`web build` 退出码 0 |
 
 ### 9.1 与计划的偏差（有意为之）
 
@@ -224,6 +227,7 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 7. **M5 的 8 条规则（C1–C8）也是按「库里真有的字段」筛过的**：`ContractFulfillment` 只有计划日/实际日/状态/责任人，所以不做「交付物齐全性」「验收结论一致性」这类需要文档解析的判定；把「已出终期结算却仍有未完成节点」「付款快于履约」这类**跨表自相矛盾**做成规则，才是这套系统独有、且不依赖 AI 的部分。
 8. **判定基准日是「服务端今天」，不是查询参数**：预警要回答「现在有没有风险」，让前端传日期会产出「昨天的预警」被当成实时结论；响应里 `generatedAt` 即基准时刻，写进每条事实行，谁看都能对上时间。
 6. **评测用合成夹具而不是真实单据**：库里没有任何业务单据（`Settlement` / `PaymentRecord` / `Invoice` 全为 0 行），且 DB 不可达。于是把「评测」拆成两层：**能否落地（成本/规模/规则一致性）现在可测**，**召回率是否达标**必须等真数据。为避免自己造的题自己打满分，夹具生成时同步登记真值（`TruthItem`）并给评分器加了自校准用例（删/加真值必须变成误报/漏报）。
+- **7-11 的「模型编数字」处理比 6-9 更狠**：6-9/3-9/4-9 是逐条丢弃命中项或退回模板串，7-11 是**整份正文丢弃**退回确定性汇总。理由：预警是核对清单，读者会逐条核；全景报告是给领导看的叙述文，读者无法分辨哪一句可信，「大部分对、个别编」比整份退回更危险。
 
 ### 9.2 尚未闭合的缺口
 

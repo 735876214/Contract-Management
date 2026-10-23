@@ -63,6 +63,7 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 报价/控制价可见性由后端 service 的 contract:view 兜底
   '/ai/quote': ['ai:view'],
   '/ai/fulfillment': ['ai:view'],
+  '/ai/analysis': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

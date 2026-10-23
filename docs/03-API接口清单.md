@@ -499,7 +499,7 @@
 | POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
 | GET | `/files/*` | 文件读取（`FileServeController`：登录后经 `storage.read()` 返回，支持单段 Range 206） | 需登录（Bearer 或 httpOnly Cookie） |
 
-## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警 / 五期：异常报价与价差预警 / 六期：合同履行偏差预警）
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警 / 五期：异常报价与价差预警 / 六期：合同履行偏差预警 / 七期：供应链运营全景）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
@@ -534,6 +534,7 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 | GET | `/ai/anomaly/payment` | query `{from?, to?, contractId?, narrative?}` → 返回 `{enabled, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不写库、不发通知。`from`/`to` 按**结算日期**过滤，`contractId` 只看单合同，`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 | GET | `/ai/anomaly/quote` | query `{taskId?, narrative?}` → 与原语同形的 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改采购任务状态、不改报价数据。`taskId` 只看单个采购任务（缺省扫本项目全部），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 | GET | `/ai/anomaly/fulfillment` | query `{contractId?, narrative?}` → 同形 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改履约节点、不改付款/结算状态。`contractId` 只看单合同（缺省扫本项目全部在履行合同），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/analysis/supply-chain` | query `{projectIds?, narrative?}` → `{enabled, asOf, scope, projects[], sample, tolerances, toleranceText, facts, markdown, sections[], missingSections[], unknownNumbers[], discardedNumbers[], source, warnings[], usage?}`。**跨项目只读汇总**：`projectIds` 逗号分隔（最多 20 个，超出 400；不传 = 全部项目）。`narrative=0` 或 `ai.analysis.narrative=0` 只出确定性汇总 | `ai:view`（service 内另需 `contract:view`；跨项目即 >1 个项目或不指定时再要 `dashboard:view`） |
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
@@ -586,6 +587,19 @@ C7 已出终期结算（非 `DRAFT`）仍有未完成节点、C8 已签章合同
 阈值走系统参数 `ai.fulfillment.*`（`graceDays` 天 / `lateFinishDays` 天 / `progressGapPct` 百分点 / `amountTolerance` 元），
 非法值回落默认并回显 warning；缺数据（没有节点、没有付款计划比例）不猜，写入 `notEvaluated`——**0 命中 ≠ 履约没问题**。
 模型措辞经 `auditFulfillmentNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.fulfillment.narrative=0` 或 AI 未配置不消耗额度。
+
+口径（供应链运营全景 · 矩阵课题 7-11）：**跨项目**的汇报材料，事实层在
+`server/src/modules/ai/analysis/scm-facts.ts`（纯函数、真值单测锁口径），service 只做「按显式项目集合取数」。
+口径：签约额按**合同链**汇总（主合同 `amount` + 补充协议 `changeAmount` 带符号增量；`DRAFT` 合同不计，
+主合同金额未填也不计但单独提示——**未填 ≠ 0**）；结算额取 `actualAmount` 回退 `amount` 且排除草稿；
+付款排除 `FAILED`/`REFUNDED`；开票排除 `RED`/`CANCELLED`；比例的分母为 0 时返回 `null`（面板显示「—」而不是 0%）；
+未付 = 结算 − 付款（可为负，表示付款已超结算）；逾期节点 = `PENDING` 且计划日早于基准日（与页面标红同口径）。
+风险点（付款超结算、开票缺口、节点逾期、供应商集中度）由**规则**判定写进 `facts.risks`，模型只许转述。
+正文必须含四个小节（总体情况 / 项目对照 / 供应商集中度 / 风险与建议），缺节记 `missingSections`（正文仍可用）；
+模型输出含任何无法对账的数字即**整份丢弃**改走确定性汇总（`discardedNumbers` 透明展示被丢弃的数字）——
+全景报告是给领导看的，「大部分数字对、个别是编的」比整份退回模板更危险。阈值走系统参数
+`ai.analysis.*`（`topSharePct` / `invoiceGapPct` / `topSuppliers`），非法值回落默认并回显 warning；
+导出 Word/PDF 复用 `POST /ai/report/export`（页面上的同一份 Markdown，不重新生成）。
 
 ---
 

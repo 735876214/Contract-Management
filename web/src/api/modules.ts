@@ -815,6 +815,86 @@ export interface AiFulfillmentResult {
   narrative: AiAnomalyNarrative;
   warnings: string[];
 }
+/**
+ * 供应链运营全景（课题 7-11）：跨项目汇总的**事实包**。
+ * 页面展示的数字全部来自这里——后端算好、模型只抄，所以前端不需要做任何再计算。
+ */
+export interface AiScmProjectFacts {
+  projectId: string;
+  code: string;
+  name: string;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  /** 已结算未付款；负值 = 付款已超过结算 */
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  /** 付款率/结算率/开票率（%）；分母为 0 时为 null（不是 0%） */
+  payRatioPct: number | null;
+  settleRatioPct: number | null;
+  invoiceRatioPct: number | null;
+  milestoneCount: number;
+  overdueMilestones: number;
+}
+
+export interface AiScmSupplierFacts {
+  supplierId: string | null;
+  name: string;
+  contractCount: number;
+  signedYuan: number;
+  sharePct: number;
+}
+
+export interface AiScmTotals {
+  projectCount: number;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  payRatioPct: number | null;
+  settleRatioPct: number | null;
+  invoiceRatioPct: number | null;
+  overdueMilestones: number;
+}
+
+export interface AiScmFacts {
+  /** 事实基准日（YYYY-MM-DD） */
+  asOf: string;
+  totals: AiScmTotals;
+  projects: AiScmProjectFacts[];
+  suppliers: AiScmSupplierFacts[];
+  /** 程序判定的风险提示（模型只许转述） */
+  risks: string[];
+  empty: boolean;
+}
+
+export interface AiScmResult {
+  enabled: boolean;
+  generatedAt: string;
+  asOf: string;
+  scope: string;
+  projects: Array<{ id: string; code: string; name: string }>;
+  sample: Record<string, number>;
+  tolerances: { topSharePct: number; invoiceGapPct: number; topSuppliers: number };
+  toleranceText: string;
+  facts: AiScmFacts;
+  /** 报告正文（Markdown）：AI 版或确定性汇总版，两者数字同源 */
+  markdown: string;
+  sections: string[];
+  missingSections: string[];
+  /** 恒为空数组：对不上的数字不会进正文 */
+  unknownNumbers: string[];
+  /** 被丢弃的模型数字（透明展示） */
+  discardedNumbers: string[];
+  source: 'llm' | 'template';
+  warnings: string[];
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
 /** AI 信息登记：页面提交内容（不传 = 不改；apiKey 空串 = 清除） */
 export interface AiSettingInput {
   enabled?: boolean;
@@ -935,6 +1015,14 @@ export const aiApi = {
    */
   fulfillmentAnomaly: (query: { contractId?: string; narrative?: '0' | '1' }) =>
     http.get<any, AiFulfillmentResult>('/ai/anomaly/fulfillment', { params: query, timeout: 180000 } as any),
+
+  /**
+   * 供应链运营全景（课题 7-11）：**跨项目**只读汇总。
+   * `projectIds` 逗号分隔（不传 = 全部项目，需要跨项目权限 `dashboard:view`）；
+   * `narrative=0` 强制只出确定性汇总（不调模型）。
+   */
+  supplyChain: (query: { projectIds?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiScmResult>('/ai/analysis/supply-chain', { params: query, timeout: 180000 } as any),
   /**
    * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
    * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。

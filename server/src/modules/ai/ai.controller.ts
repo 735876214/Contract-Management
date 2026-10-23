@@ -20,6 +20,7 @@ import { ReportService } from './report.service';
 import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
 import { QuoteService, type QuoteAnomalyQuery } from './quote/quote.service';
 import { FulfillmentService, type FulfillmentAnomalyQuery } from './fulfillment/fulfillment.service';
+import { ScmService, type ScmAnalysisQuery } from './analysis/scm.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -57,6 +58,7 @@ export class AiController {
     private anomaly: AnomalyService,
     private quote: QuoteService,
     private fulfillment: FulfillmentService,
+    private scm: ScmService,
   ) {}
 
   /**
@@ -202,6 +204,21 @@ export class AiController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.fulfillment.fulfillment(query || {}, projectId, user);
+  }
+
+  /**
+   * 供应链运营全景（课题 7-11）——**只读**，不写库、不发通知。
+   *
+   * 与前三个预警不同：它是**跨项目**的，所以不接 `@ProjectId()`——项目集合由前端显式传
+   * （`projectIds=a,b,c`，最多 20 个；不传 = 全部项目）。权限三层：
+   * 路由 `ai:view`、service `contract:view`、跨项目（>1 个或不指定）另需 `dashboard:view`。
+   *
+   * `narrative=0`：只出确定性汇总（不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('analysis/supply-chain')
+  supplyChain(@Query() query: ScmAnalysisQuery, @CurrentUser() user: JwtUser) {
+    return this.scm.panorama(query || {}, user);
   }
 
   @RequirePermissions('ai:use')
