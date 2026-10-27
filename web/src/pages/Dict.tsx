@@ -4,9 +4,10 @@ import {
   Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm,
   InputNumber, Select, Tooltip, Upload, Descriptions,
 } from 'antd';
-import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 
 const COLORS = ['blue', 'green', 'red', 'orange', 'gold', 'cyan', 'purple', 'magenta', 'volcano', 'geekblue', 'default'];
 
@@ -23,6 +24,16 @@ export default function Dict() {
   const [typeForm] = Form.useForm();
   const [itemForm] = Form.useForm();
   const invalidate = useDictStore((s) => s.invalidate);
+  /**
+   * 窄容器主从降级：`xs=24` 会让「类型列表」与「字典项」上下堆叠，
+   * 选一个类型后要往下滚很久才看得到明细（375px 实测：列表高约 1.5 屏）。
+   * 窄容器改成「列表 → 点进明细」单栏切换，宽容器两栏并存不受影响。
+   * 判定用**容器宽度**（`useContainerWidth`，行内注释见 DESIGN.md §10.2）——
+   * 视口值只归页面外壳使用，本页两栏形态由自己所在容器决定。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const isNarrow = containerSize.isNarrow;
+  const [mobileDetail, setMobileDetail] = useState(false);
 
   const loadTypes = async (keyword = '') => {
     const res: any = await dictApi.types({ keyword, pageSize: 500 });
@@ -104,8 +115,8 @@ export default function Dict() {
   };
 
   return (
-    <Row gutter={16}>
-      <Col xs={24} lg={7}>
+    <Row gutter={16} ref={cqRef} className="cq">
+      <Col xs={24} lg={7} style={isNarrow && mobileDetail ? { display: 'none' } : undefined}>
         <Card
           title="字典类型"
           extra={
@@ -128,7 +139,7 @@ export default function Dict() {
             {filteredTypes.map((t) => (
               <div
                 key={t.id}
-                onClick={() => setCurrentType(t)}
+                onClick={() => { setCurrentType(t); setMobileDetail(true); }}
                 style={{
                   padding: '8px 12px',
                   cursor: 'pointer',
@@ -166,9 +177,18 @@ export default function Dict() {
         </Card>
       </Col>
 
-      <Col xs={24} lg={17}>
+      <Col xs={24} lg={17} style={isNarrow && !mobileDetail ? { display: 'none' } : undefined}>
         <Card
-          title={currentType ? `字典项 · ${currentType.name}` : '字典项'}
+          title={
+            isNarrow ? (
+              <Space size={4}>
+                <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => setMobileDetail(false)}>
+                  字典类型
+                </Button>
+                {currentType && <span>· {currentType.name}</span>}
+              </Space>
+            ) : currentType ? `字典项 · ${currentType.name}` : '字典项'
+          }
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={() => currentType && loadItems(currentType.code)} disabled={!currentType}>

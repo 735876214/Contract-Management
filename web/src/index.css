@@ -525,6 +525,39 @@ body {
   .ant-table-wrapper {
     max-width: 100%;
   }
+
+  /* 卡片头操作组换行：AntD 的 `.ant-card-head-wrapper` 默认不换行、`.ant-card-extra`
+     还带 `margin-inline-start:auto`，3–4 个按钮并排会直接把卡片（进而整个内容区）
+     撑出视口——实测 `/labor/auth` 溢出 26px、`/system/dict` 溢出 48px。
+     只做"放不下才折行"：标题保留原来的弹性（不强制独占一行），extra 限宽 100%
+     且内部 Space 可折行；桌面端与"标题+一个按钮"的窄卡片形态不变。 */
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .ant-card-head .ant-card-extra {
+    max-width: 100%;
+  }
+  /* ⚠️ 标题不能沿用 AntD 的 `flex:1`（basis 0）：basis 0 时标题的"理想宽度"是 0，
+     于是它与满宽的 extra 被判定为**能塞进同一行**→ 标题被压成 0 宽而"消失"、
+     extra 自己再折行（2026-10-27 375px 实测踩到）。改成按内容取宽度，
+     放不下时才会把 extra 换到下一行。 */
+  .ant-card-head .ant-card-head-title {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .ant-card-head .ant-card-extra > .ant-space {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  /* 行内操作按钮的触控目标：表格里 `size="small"` 的链接按钮只有 30px 高，
+     手机上「编辑 / 停用 / 删除」三连击很容易误触（实测 44×30）。只放宽表格内的
+     small 按钮高度，不动工具栏与表单里的 small 按钮（它们不在 `.ant-table` 内）。 */
+  .ant-table .ant-btn.ant-btn-sm {
+    min-height: 40px;
+    padding-block: 0;
+  }
 }
 
 /* 窄屏手机（<576px，antd sm 断点以下） */
