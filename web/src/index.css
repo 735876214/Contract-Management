@@ -580,16 +580,23 @@ body {
   }
   /* 标题里的长文本/状态 Tag 不截断：AntD 的 `.ant-card-head-title` 是
      `white-space:nowrap` + ellipsis，手机端会把标题内的 Tag 裁掉半截
-     （`/ai/assistant` 的「已启用 <模型名>」即此）。允许换行与任意断词，
-     卡片头随内容增高——比"静默裁掉半截"可读。 */
+     （`/ai/assistant` 的「已启用 <模型名>」即此）。允许换行，卡片头随内容增高——
+     比"静默裁掉半截"可读。⚠️ 不加 `overflow-wrap: anywhere`：那会把模型名这类
+     长标识从中间劈开（实测 `deepseek` → `deep eek`），中文标题本身就能在字间断行。 */
   .ant-card-head .ant-card-head-title {
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
-    overflow-wrap: anywhere;
   }
   .ant-card-head .ant-card-head-title > .ant-space {
     flex-wrap: wrap;
+    max-width: 100%;
+  }
+  /* 万一标题里的 Tag 比整行还长（超长模型名），用省略号收口，而不是把卡片撑破 */
+  .ant-card-head .ant-card-head-title .ant-tag {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* 行内操作按钮的触控目标：表格里 `size="small"` 的链接按钮只有 30px 高，
