@@ -219,24 +219,6 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 - **空状态统一走 `components/EmptyState.tsx`**（`compact` 变体给表格空态，`actionText` 给出口），
   别再散落裸 `<Empty>`；**不做自定义 SVG 插画**（无设计资源，§0 已声明不搬插画规范）。
 
-## 10.1 多页签与编辑器页签（2026-10-17 批次新增）
-
-> 多页签（keep-alive）+ 编辑器页签的完整实现与取舍见
-> [CLAUDE.md §5](CLAUDE.md) 与 `.claude/rules/frontend-conventions.md`；这里只写视觉与交互口径。
-
-- **标签栏属页面外壳层**（宽度=内容区=视口），响应式按 §10.1 走 `useResponsive()`
-  （≤md 紧凑形态 `.is-compact`）；`layouts/TagsView.tsx` 已登记进 `containerQuery.spec.mts`
-  的视口层白名单。
-- **通栏位置与卡片形态**（2026-10-17 用户确认，对标 XHan Admin）：标签条在**顶栏正下方、
-  面包屑之上**、侧栏右侧内容区全宽（不在内容边距里），浅带底 `surface-soft` + hairline 分隔；
-  标签为 **6px 圆角矩形卡片**（非 pill）、默认透明底灰字、激活 = canvas 底 + 珊瑚深档文字、
-  **编辑器激活标签 = 品牌色实底白字**（虚线边已废弃——数量多太碎）；**仅激活标签带菜单图标**。
-  标签顺序稳定不因激活重排；有未保存内容的标签打琥珀点（关闭前会确认）。
-- 标签栏在顶栏与内容区之间 `position: sticky`；≤md 横向滚动、不撑破页面。
-- **编辑器页签壳**（`components/editor/EditorTabPage.tsx`）：页头（衬线标题 + 状态 Tag 槽位）+
-  正文 + **sticky 底栏**（hairline 顶边 + canvas 底）——"长表单的底部按钮被滚出视口"由它兜住。
-  底栏按钮层级：主操作实心品牌色、取消描边、附加动作（预览/导出）走左槽或 `footerExtra`。
-
 ## 10. 响应式（**双层模型**）
 
 > 规范制定依据：2026-10 的两轮响应式改造（**V1 视口层**：外壳按窗口宽度收起/精简；
@@ -263,7 +245,7 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 - 纯样式收敛（内边距、弹窗兜底）放在 [web/src/index.css](web/src/index.css) 的媒体查询里，
   阈值与 AntD 对齐（`max-width: 767.98px` / `575.98px`）。
 
-**四条硬性约定**
+**六条硬性约定**
 
 1. **表单 `<Col>` 一律写断点**（`xs={24} md={n}`），**禁止固定 `span`**。
    **例外：列表页筛选区**（`ModuleListPage`）——它的列数与列宽自 V2 起由**列表页自身容器**决定
@@ -275,6 +257,14 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 3. **弹窗宽度必须响应式**：宽度可在大屏取固定值，但必须能被全局 `max-width: calc(100vw - 16px)`
    兜住（该规则已在 `index.css` 全局生效，新增弹窗无需逐个改写）。
 4. **侧栏 `≤md` 走 Drawer**：由 `AppSider` 内部按 `useResponsive()` 自动切换，选中菜单后自动关闭。
+5. **卡片头操作组 `≤md` 必须能折行**：`index.css` 的 `<768px` 段已统一让 `.ant-card-head-wrapper`
+   折行、`.ant-card-extra` 限宽 100%、内部 `Space` 折行，桌面端形态不变。
+   页面给 `extra` 放 3–4 个按钮时**不需要再写响应式代码**，但必须知道这条兜底存在——
+   `/labor/auth`、`/system/dict` 曾因 extra 不折行把整页撑出 26px / 48px。
+   ⚠️ 标题沿用 AntD 的 `flex:1`（basis 0）时会被满宽的 extra 压成 0 宽，该段已一并改为
+   `flex: 0 1 auto`；**替换卡片头样式时别把这条丢了**。
+6. **行内操作按钮的触控目标**：表格内 `size="small"` 按钮在 `≤md` 时最小高 40px
+   （同段 CSS 兜底）；不要再引入更小的尺寸。工具栏与表单里的 small 按钮不受影响。
 
 ### 10.2 组件内部层（判定依据：**容器**）
 
@@ -304,6 +294,8 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
   | 台账冻结列（`Ledger`） | 只冻结合同编号 | 序号 + 合同编号 |
   | 卡片（`.cq` 卡片，如工作台统计卡） | KPI 字号 22px · `ant-card-body` padding 12 | 30px / 20px |
   | ECharts（工作台两图） | 图例字号/尺寸收紧 · 饼图关扇形标签 | 默认 |
+  | 字典页主从（`Dict`） | 「类型列表 ⇄ 字典项」单栏切换（明细标题带返回） | 两栏并存 |
+
 - ⚠️ **`.doc-preview` 的字号刻意不随容器变**：预览的是"要打印导出的那张纸"，
   字号随容器变会让预览与导出物不一致（与 §3.1「paper 不随主题」同理）。
 - **写法规则**：宽容器形态 = 基线样式（写在 `index.css`），窄容器覆盖一律写进 `containers.css` 的
@@ -324,3 +316,22 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
 - **复杂报表 / 导入导出配置 / 字典权限页不强行移动化**：PC 专属，仅保证不破版。
 - 移动端不做原生 APP/H5 独立版本（如确有刚需页，另立专题）。
 - **不引入第三方 CQ 库 / PostCSS 插件**：`@container` 用原生 CSS 就够，保持现有构建链。
+
+## 11. 多页签与编辑器页签（2026-10-17 批次新增）
+
+> 多页签（keep-alive）+ 编辑器页签的完整实现与取舍见
+> [CLAUDE.md §5](CLAUDE.md) 与 `.claude/rules/frontend-conventions.md`；这里只写视觉与交互口径。
+> （本节原误编为 `## 10.1` 且排在 §10 之前，2026-10-27 改为 §11 并归位到文末。）
+
+- **标签栏属页面外壳层**（宽度=内容区=视口），响应式按 §10.1 走 `useResponsive()`
+  （≤md 紧凑形态 `.is-compact`）；`layouts/TagsView.tsx` 已登记进 `containerQuery.spec.mts`
+  的视口层白名单。
+- **通栏位置与卡片形态**（2026-10-17 用户确认，对标 XHan Admin）：标签条在**顶栏正下方、
+  面包屑之上**、侧栏右侧内容区全宽（不在内容边距里），浅带底 `surface-soft` + hairline 分隔；
+  标签为 **6px 圆角矩形卡片**（非 pill）、默认透明底灰字、激活 = canvas 底 + 珊瑚深档文字、
+  **编辑器激活标签 = 品牌色实底白字**（虚线边已废弃——数量多太碎）；**仅激活标签带菜单图标**。
+  标签顺序稳定不因激活重排；有未保存内容的标签打琥珀点（关闭前会确认）。
+- 标签栏在顶栏与内容区之间 `position: sticky`；≤md 横向滚动、不撑破页面。
+- **编辑器页签壳**（`components/editor/EditorTabPage.tsx`）：页头（衬线标题 + 状态 Tag 槽位）+
+  正文 + **sticky 底栏**（hairline 顶边 + canvas 底）——"长表单的底部按钮被滚出视口"由它兜住。
+  底栏按钮层级：主操作实心品牌色、取消描边、附加动作（预览/导出）走左槽或 `footerExtra`。
