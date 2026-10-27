@@ -286,6 +286,34 @@ body {
   font-size: 12px;
 }
 
+/* 手机端：只渲染当前标签 + 下拉按钮（切换 / 批量关闭，见 `layouts/TagsView.tsx`）。
+   平铺时 375px 下要横滑 0.6k px 才能点到当前页签的关闭按钮，且与抽屉导航重复。 */
+.cms-tags-view.is-mobile {
+  gap: 6px;
+}
+.cms-tags-view.is-mobile .cms-tags-view__item {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.cms-tags-view__mobile-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--cms-hairline);
+  border-radius: var(--cms-radius-sm);
+  background: var(--cms-surface-card);
+  color: var(--cms-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cms-tags-view__mobile-more:hover {
+  color: var(--cms-body-strong);
+}
+
 /* 每个标签的内容容器：非活动的整体 display:none（由内联样式给），
    这里只保证它在栅格/弹性布局里不会被内容撑破 */
 .cms-tab-pane {

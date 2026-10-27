@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Dropdown, Modal } from 'antd';
-import { CloseOutlined, EditOutlined } from '@ant-design/icons';
+import { CloseOutlined, EditOutlined, MenuOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTabsStore } from '@/store/tabs';
 import { isEditorKey } from '@/utils/tabs';
@@ -119,61 +119,104 @@ export default function TagsView() {
     );
   };
 
-  return (
-    <div
-      className={`cms-tags-view${isMobile ? ' is-compact' : ''}`}
-      role="tablist"
-      aria-label="已打开的页面"
-    >
-      {tabs.map((t) => {
-        const active = t.key === activeKey;
-        const dirty = dirtyKeys.includes(t.key);
-        const editor = isEditorKey(t.key);
-        return (
-          <Dropdown
-            key={t.key}
-            trigger={['contextMenu']}
-            menu={{
-              items: contextItems(t.key),
-              onClick: ({ key: action }) => onContextClick(t.key, action),
-            }}
-          >
-            <div
-              role="tab"
-              aria-selected={active}
-              className={`cms-tags-view__item${active ? ' is-active' : ''}${dirty ? ' is-dirty' : ''}${
-                editor ? ' is-editor' : ''
-              }`}
-              onClick={() => {
-                if (!active) navigate(t.href);
+  /** 单个标签：桌面平铺与手机端（只渲染当前一个）共用同一份渲染逻辑 */
+  const renderTab = (t: (typeof tabs)[number]) => {
+    const active = t.key === activeKey;
+    const dirty = dirtyKeys.includes(t.key);
+    const editor = isEditorKey(t.key);
+    return (
+      <Dropdown
+        key={t.key}
+        trigger={['contextMenu']}
+        menu={{
+          items: contextItems(t.key),
+          onClick: ({ key: action }) => onContextClick(t.key, action),
+        }}
+      >
+        <div
+          role="tab"
+          aria-selected={active}
+          className={`cms-tags-view__item${active ? ' is-active' : ''}${dirty ? ' is-dirty' : ''}${
+            editor ? ' is-editor' : ''
+          }`}
+          onClick={() => {
+            if (!active) navigate(t.href);
+          }}
+        >
+          {/* 图标仅激活态显示（一排小图标过吵；参考图 3 也是仅激活标签带图标） */}
+          {active && (
+            <span className="cms-tags-view__icon">
+              {editor ? <EditOutlined /> : t.icon ? renderIcon(t.icon) : null}
+            </span>
+          )}
+          <span className="cms-tags-view__label" title={t.title}>
+            {t.title}
+          </span>
+          {t.closable && (
+            <button
+              type="button"
+              className="cms-tags-view__close"
+              aria-label={`关闭 ${t.title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                requestClose(t.key, () => go(closeTab(t.key)));
               }}
             >
-              {/* 图标仅激活态显示（一排小图标过吵；参考图 3 也是仅激活标签带图标） */}
-              {active && (
-                <span className="cms-tags-view__icon">
-                  {editor ? <EditOutlined /> : t.icon ? renderIcon(t.icon) : null}
-                </span>
-              )}
-              <span className="cms-tags-view__label" title={t.title}>
-                {t.title}
-              </span>
-              {t.closable && (
-                <button
-                  type="button"
-                  className="cms-tags-view__close"
-                  aria-label={`关闭 ${t.title}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    requestClose(t.key, () => go(closeTab(t.key)));
-                  }}
-                >
-                  <CloseOutlined />
-                </button>
-              )}
-            </div>
-          </Dropdown>
-        );
-      })}
+              <CloseOutlined />
+            </button>
+          )}
+        </div>
+      </Dropdown>
+    );
+  };
+
+  /**
+   * 手机端：只显示**当前标签** + 一个下拉（切换 / 批量关闭）。
+   * 平铺在 375px 下必然横向滚动（实测要滑 0.6k px 才能点到当前页签的关闭按钮），
+   * 且与抽屉导航功能重复。当前标签始终可见后，"关掉当前页"不再需要先找它。
+   * 下拉里的批量关闭复用桌面右键菜单的确认逻辑（脏标签照样先确认）。
+   */
+  if (isMobile) {
+    const activeTab = tabs.find((t) => t.key === activeKey);
+    const others = tabs.filter((t) => t.key !== activeKey);
+    const mobileItems: any[] = [
+      ...others.map((t) => ({
+        key: `switch:${t.key}`,
+        label: `${t.title}${dirtyKeys.includes(t.key) ? ' •' : ''}`,
+      })),
+      ...(others.length ? [{ type: 'divider' as const }] : []),
+      { key: 'others', label: '关闭其他标签', disabled: closableCount === 0 },
+      { key: 'all', label: '关闭全部标签', disabled: closableCount === 0 },
+    ];
+    return (
+      <div className="cms-tags-view is-compact is-mobile" role="tablist" aria-label="已打开的页面">
+        {activeTab && renderTab(activeTab)}
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: mobileItems,
+            onClick: ({ key }) => {
+              if (key.startsWith('switch:')) {
+                const target = tabs.find((t) => t.key === key.slice('switch:'.length));
+                if (target && target.key !== activeKey) navigate(target.href);
+                return;
+              }
+              if (activeTab) onContextClick(activeTab.key, key);
+            },
+          }}
+        >
+          <button type="button" className="cms-tags-view__mobile-more" aria-label="切换或关闭页签">
+            <MenuOutlined />
+            <span>{tabs.length}</span>
+          </button>
+        </Dropdown>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cms-tags-view" role="tablist" aria-label="已打开的页面">
+      {tabs.map(renderTab)}
     </div>
   );
 }
