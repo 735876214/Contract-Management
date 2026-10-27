@@ -578,6 +578,19 @@ body {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+  /* 标题里的长文本/状态 Tag 不截断：AntD 的 `.ant-card-head-title` 是
+     `white-space:nowrap` + ellipsis，手机端会把标题内的 Tag 裁掉半截
+     （`/ai/assistant` 的「已启用 <模型名>」即此）。允许换行与任意断词，
+     卡片头随内容增高——比"静默裁掉半截"可读。 */
+  .ant-card-head .ant-card-head-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .ant-card-head .ant-card-head-title > .ant-space {
+    flex-wrap: wrap;
+  }
 
   /* 行内操作按钮的触控目标：表格里 `size="small"` 的链接按钮只有 30px 高，
      手机上「编辑 / 停用 / 删除」三连击很容易误触（实测 44×30）。只放宽表格内的

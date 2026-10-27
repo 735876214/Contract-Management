@@ -263,6 +263,9 @@ ECharts 5（`echarts-for-react`）；饼图统一 `radius: ['40%','70%']`。系�
    `/labor/auth`、`/system/dict` 曾因 extra 不折行把整页撑出 26px / 48px。
    ⚠️ 标题沿用 AntD 的 `flex:1`（basis 0）时会被满宽的 extra 压成 0 宽，该段已一并改为
    `flex: 0 1 auto`；**替换卡片头样式时别把这条丢了**。
+   标题内的长文本 / 状态 Tag 同段改为 `white-space: normal` + `overflow-wrap: anywhere`
+   （AntD 默认 `nowrap` + ellipsis 会把 Tag 裁掉半截，`/ai/assistant` 的「已启用 <模型名>」即此），
+   卡片头随内容增高。
 6. **行内操作按钮的触控目标**：表格内 `size="small"` 按钮在 `≤md` 时最小高 40px
    （同段 CSS 兜底）；不要再引入更小的尺寸。工具栏与表单里的 small 按钮不受影响。
 
