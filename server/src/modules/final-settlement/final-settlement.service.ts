@@ -179,21 +179,26 @@ export class FinalSettlementService {
     if (!file?.url) throw new BadRequestException('缺少附件');
     await this.dict.validate('contract_execution_status', CONTRACT_EXECUTION_STATUS.DONE_SETTLED);
 
-    const updated = await this.prisma.finalSettlement.update({
-      where: { id },
-      data: {
-        attachmentUrl: file.url,
-        attachmentName: file.fileName,
-        statusCode: FINAL_SETTLEMENT_STATUS.SETTLED,
-        settledAt: before.settledAt ?? new Date(),
-        version: { increment: 1 },
-      },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
-    });
+    // 「单据置已结算」与「合同置已完已结」是同一笔业务事实，必须在同一事务里落库：
+    // 只成功一半会留下「单据已结算、合同仍显示未结」的假状态（付款比例也跟着错）。
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.finalSettlement.update({
+        where: { id },
+        data: {
+          attachmentUrl: file.url,
+          attachmentName: file.fileName,
+          statusCode: FINAL_SETTLEMENT_STATUS.SETTLED,
+          settledAt: before.settledAt ?? new Date(),
+          version: { increment: 1 },
+        },
+        include: { items: { orderBy: { sortOrder: 'asc' } } },
+      });
 
-    await this.prisma.contract.update({
-      where: { id: before.contractId },
-      data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_SETTLED, version: { increment: 1 } },
+      await tx.contract.update({
+        where: { id: before.contractId },
+        data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_SETTLED, version: { increment: 1 } },
+      });
+      return row;
     });
     // 合同执行情况变了 → 重算「当前生效比例」（已完已结 = 100%），台账列与付款预警读的就是它
     await this.contract.syncPayRatio(before.contractId);
@@ -203,21 +208,23 @@ export class FinalSettlementService {
   async remove(id: string) {
     const before: any = await this.findOne(id);
     await this.lock.assertWritable(before.contractId, '删除总结算单');
-    await this.prisma.finalSettlement.delete({ where: { id } });
-    // 已结算的单据被删 → 合同不再处于"已完已结"（否则会留下没有单据支撑的假状态）
-    if (before.statusCode === FINAL_SETTLEMENT_STATUS.SETTLED) {
-      const contract = await this.prisma.contract.findUnique({
+    // 「删单据」与「合同执行情况回退」同一事务：只删成功而回退失败会留下
+    // 「没有任何单据却显示已完已结」的假状态（付款比例卡在 100%）。
+    const rolledBack = await this.prisma.$transaction(async (tx) => {
+      await tx.finalSettlement.delete({ where: { id } });
+      if (before.statusCode !== FINAL_SETTLEMENT_STATUS.SETTLED) return false;
+      const contract = await tx.contract.findUnique({
         where: { id: before.contractId },
         select: { execStatus: true },
       });
-      if (contract?.execStatus === CONTRACT_EXECUTION_STATUS.DONE_SETTLED) {
-        await this.prisma.contract.update({
-          where: { id: before.contractId },
-          data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_UNSETTLED, version: { increment: 1 } },
-        });
-        await this.contract.syncPayRatio(before.contractId);
-      }
-    }
+      if (contract?.execStatus !== CONTRACT_EXECUTION_STATUS.DONE_SETTLED) return false;
+      await tx.contract.update({
+        where: { id: before.contractId },
+        data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_UNSETTLED, version: { increment: 1 } },
+      });
+      return true;
+    });
+    if (rolledBack) await this.contract.syncPayRatio(before.contractId);
     return true;
   }
 

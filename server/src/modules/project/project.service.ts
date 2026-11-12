@@ -7,6 +7,7 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict/dict.service';
+import { ProjectAccessService } from '../../common/services/project-access.service';
 
 const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'packageLeader', 'projectManager', 'selfContractAmount', 'industryType',
@@ -26,7 +27,19 @@ export class ProjectService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private access: ProjectAccessService,
   ) {}
+
+  /**
+   * 项目级访问校验（成员关系）。
+   *
+   * `@ProjectId()` 只保证「请求头里的项目是自己的」，不保证 URL 里的项目 id 是自己的：
+   * 不校验时任何持 `project:view` 的成员换个 id 就能读别项目详情（含全部成员手机号/邮箱），
+   * 持 `project:edit` 的还能改写/删除别项目、增删别项目成员。超管按设计放行。
+   */
+  private async assertAccess(id: string, user?: any) {
+    await this.access.assertAccess(user?.userId, id, !!user?.isSuperAdmin);
+  }
 
   async findAll(query: any = {}, user: any) {
     const { skip, take } = paginate(query);
@@ -49,7 +62,8 @@ export class ProjectService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: any) {
+    await this.assertAccess(id, user);
     const p = await this.prisma.project.findUnique({
       where: { id },
       include: { members: { include: { user: { select: { id: true, realName: true, username: true, phone: true } } } } },
@@ -85,8 +99,8 @@ export class ProjectService {
     return db.project.create({ data: payload });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, user?: any) {
+    const before = await this.findOne(id, user);
     assertVersion(before, data);
     if (data.status) await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
@@ -99,7 +113,8 @@ export class ProjectService {
     return this.prisma.project.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
-  async remove(id: string) {
+  async remove(id: string, user?: any) {
+    await this.assertAccess(id, user);
     /**
      * 项目下**所有**项目级业务表都要计入：这些表的 projectId 外键是 `onDelete: Cascade`，
      * 只看合同/日报/结算/发票会放行「已有招标或劳务/成本数据」的项目，
@@ -136,7 +151,8 @@ export class ProjectService {
     return this.prisma.project.delete({ where: { id } });
   }
 
-  async members(projectId: string) {
+  async members(projectId: string, user?: any) {
+    await this.assertAccess(projectId, user);
     return this.prisma.projectMember.findMany({
       where: { projectId },
       include: { user: { select: { id: true, realName: true, username: true, phone: true, email: true } } },
@@ -144,14 +160,16 @@ export class ProjectService {
     });
   }
 
-  async addMember(projectId: string, userId: string, roleCode: string) {
+  async addMember(projectId: string, userId: string, roleCode: string, user?: any) {
+    await this.assertAccess(projectId, user);
     await this.dict.validate('project_member_role', roleCode, true);
     const exist = await this.prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } });
     if (exist) return this.prisma.projectMember.update({ where: { id: exist.id }, data: { roleCode } });
     return this.prisma.projectMember.create({ data: { projectId, userId, roleCode } });
   }
 
-  async removeMember(projectId: string, userId: string) {
+  async removeMember(projectId: string, userId: string, user?: any) {
+    await this.assertAccess(projectId, user);
     await this.prisma.projectMember.deleteMany({ where: { projectId, userId } });
     return true;
   }

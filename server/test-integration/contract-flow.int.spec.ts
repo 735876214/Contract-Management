@@ -1,10 +1,11 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { BadRequestException } from '@nestjs/common';
-import { bootIntApp, makeContract, makeProject, makeTask, type IntContext } from './helpers';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { bootIntApp, makeContract, makeProject, makeTask, uniq, type IntContext } from './helpers';
 import { ContractService } from '../src/modules/contract/contract.service';
 import { CONTRACT_STATUS } from '../src/constants/statuses';
 import { TASK_STATUS } from '../src/constants/procurementFlow';
+import { requestContext } from '../src/common/services/request-context';
 
 /**
  * 集成测试 · **合同状态流转与采购任务状态联动**（真库、真守卫、真联动）。
@@ -121,5 +122,80 @@ describe('集成 · 合同状态流转与任务联动', () => {
       TASK_STATUS.LIST_EDITING,
       '任务未走完阶段链时，合同状态不应介入',
     );
+  });
+
+  /**
+   * 跨项目按 id 直达（2026-11-12 续审 R5 新增）：合同子资源此前只校验"合同存在"，
+   * 持本项目 contract:edit 的用户换个 id 就能读写/发布他项目的合同。
+   */
+  it('合同子资源校验项目归属：跨项目详情/变更/扩展/发布一律 404', async () => {
+    const projectA = await makeProject(ctx.prisma, 'ISO-A');
+    const projectB = await makeProject(ctx.prisma, 'ISO-B');
+    const contractB = await makeContract(ctx.prisma, {
+      projectId: projectB.id,
+      status: CONTRACT_STATUS.APPROVING,
+      amount: 1000,
+    });
+    const taskB = await makeTask(ctx.prisma, { projectId: projectB.id });
+
+    await requestContext.run({ projectId: projectA.id }, async () => {
+      const is404 = (e: any) => e instanceof NotFoundException;
+      await assert.rejects(() => contract.findOne(contractB.id), is404, '合同详情');
+      await assert.rejects(() => contract.changes(contractB.id), is404, '变更日志');
+      await assert.rejects(() => contract.getExt(contractB.id), is404, '扩展信息');
+      await assert.rejects(() => contract.draftList(contractB.id), is404, '草稿清单');
+      await assert.rejects(() => contract.publish(contractB.id), is404, '发布');
+      await assert.rejects(() => contract.signedFile(contractB.id), is404, '签章件下载');
+      // 跨项目关联采购任务：不允许把本合同的变更联动进别项目的任务
+      await assert.rejects(
+        () =>
+          contract.create(
+            { code: uniq('INT-HT').toUpperCase(), name: '跨项目任务合同', taskId: taskB.id },
+            projectA.id,
+            { userId: 'int-test' },
+          ),
+        (e: any) => e instanceof BadRequestException && /采购任务/.test(e.message),
+        '跨项目 taskId',
+      );
+    });
+
+    // 本项目的请求上下文不受影响
+    const ok = await requestContext.run({ projectId: projectB.id }, () => contract.findOne(contractB.id));
+    assert.equal(ok.id, contractB.id);
+  });
+
+  it('已签章合同不能被重新发布（状态机不回退）', async () => {
+    const project = await makeProject(ctx.prisma, 'PUB-GUARD');
+    const c = await makeContract(ctx.prisma, { projectId: project.id, amount: 1000 });
+    await ctx.prisma.contract.update({ where: { id: c.id }, data: { status: CONTRACT_STATUS.SIGNED } });
+    await requestContext.run({ projectId: project.id }, async () => {
+      await assert.rejects(
+        () => contract.publish(c.id),
+        (e: any) => e instanceof BadRequestException && /已签章/.test(e.message),
+      );
+    });
+    const after = await ctx.prisma.contract.findUnique({ where: { id: c.id } });
+    assert.equal(after?.status, CONTRACT_STATUS.SIGNED, '发布被拒绝后状态不得变化');
+  });
+
+  it('草稿清单保存只能写本合同的行（跨合同行 id 一律 404）', async () => {
+    const project = await makeProject(ctx.prisma, 'DRAFT-ROW');
+    const c1 = await makeContract(ctx.prisma, { projectId: project.id });
+    const c2 = await makeContract(ctx.prisma, { projectId: project.id });
+    const mb = await ctx.prisma.materialBase.create({
+      data: { name: uniq('INT-MAT'), spec: 'S' },
+    });
+    const rowOfC2 = await ctx.prisma.contractDraftMaterial.create({
+      data: { contractId: c2.id, materialBaseId: mb.id, unit: '', sortOrder: 1 },
+    });
+    await requestContext.run({ projectId: project.id }, async () => {
+      await assert.rejects(
+        () => contract.draftSave(c1.id, [{ id: rowOfC2.id, qty: 1 }]),
+        (e: any) => e instanceof NotFoundException,
+      );
+    });
+    // 原本的取值未被改动
+    const row = await ctx.prisma.contractDraftMaterial.findUnique({ where: { id: rowOfC2.id } });
+    assert.equal(row?.qty, null);
   });
 });

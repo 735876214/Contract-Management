@@ -1,13 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
-import { num, assertVersion } from '../../common/utils/helpers';
+import { num, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { ContractService } from '../contract/contract.service';
-import { ContractLockService } from '../../common/services/contract-lock.service';
 import { paymentModeViolation } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
@@ -58,6 +57,18 @@ const OVERDUE_FIELDS = [
   'isSettlementPeriod', 'periodSeq',
 ];
 
+/**
+ * 数值字段归一：空值 → null；非法值（NaN / Infinity）→ **400**。
+ * 直接 `Number()` 交给 Prisma 会抛原始错误变成 500，用户只看到「服务器错误」；
+ * 资金费用与逾期利息都是按金额计息的台账，非法值必须在入口挡掉。
+ */
+function finiteNumber(v: any, label: string): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) throw new BadRequestException(`${label}必须是有效数字`);
+  return n;
+}
+
 const fmt = (v: any) => {
   if (v === null || v === undefined || v === '') return '';
   const d = new Date(v);
@@ -73,7 +84,6 @@ export class FinanceService {
     private styled: StyledExcelService,
     private settlement: SettlementService,
     private contractService: ContractService,
-    private lock: ContractLockService,
   ) {}
 
   // ==================== 合同资金参数 ====================
@@ -159,6 +169,10 @@ export class FinanceService {
     const params = await this.contractParams(contractId, projectId);
     const tranches = modeTranches(params.paymentMode);
     if (!tranches) throw new BadRequestException('自定义付款模式请手动录入应付款行');
+    // 负值/NaN 会生成引擎不认的行（materialAmount<=0 不计息、NaN 直接写库失败变 500），入口先拦
+    const material = Number(materialAmount);
+    if (!Number.isFinite(material) || material <= 0) throw new BadRequestException('材料款金额必须为正数');
+    assertYearMonth(settlementMonth, '结算月份');
     const exist = await this.prisma.overdueInterest.count({ where: { contractId, settlementMonth, materialAmount: { gt: 0 } } });
     if (exist > 0) throw new BadRequestException(`${settlementMonth} 已存在材料款行，请直接编辑或先删除`);
     const maxSeq = await this.prisma.overdueInterest.aggregate({ where: { contractId, settlementMonth }, _max: { periodSeq: true } });
@@ -172,7 +186,7 @@ export class FinanceService {
           data: {
             contractId,
             settlementMonth,
-            materialAmount: round(materialAmount * t.ratio, 2),
+            materialAmount: round(material * t.ratio, 2),
             paymentRatio: t.ratio,
             payableDate,
             isSettlementPeriod: true,
@@ -250,9 +264,17 @@ export class FinanceService {
     if (payload.financingInterest !== undefined || payload.handlingFee !== undefined || keep) {
       payload.totalCost = round(interest + fee, 2);
     }
-    for (const k of ['financingAmount', 'actualReceipt', 'financingInterest', 'handlingFee']) {
-      if (payload[k] !== undefined) payload[k] = payload[k] === null || payload[k] === '' ? null : Number(payload[k]);
+    const labels: Record<string, string> = {
+      financingAmount: '融资金额',
+      actualReceipt: '实际到账金额',
+      financingInterest: '融资利息',
+      handlingFee: '手续费',
+    };
+    for (const k of Object.keys(labels)) {
+      if (payload[k] !== undefined) payload[k] = finiteNumber(payload[k], labels[k]);
     }
+    // 结算月份是台账「保理贴息」列的归集键（按字符串精确匹配），写成 2026-9 就永远不会被任何月份命中
+    if (payload.settlementMonth !== undefined) assertYearMonth(payload.settlementMonth, '结算月份');
     // 前端传 YYYY-MM-DD 字符串，Prisma 需要完整 DateTime
     if (payload.financingDate !== undefined) {
       const d = payload.financingDate ? new Date(payload.financingDate) : null;
@@ -295,11 +317,14 @@ export class FinanceService {
   }
 
   async exportFactoring(contractId: string, projectId?: string) {
-    const { contract, list, totals } = { ...(await this.contractScope(contractId, projectId)), ...(await this.listFactoring(contractId, {}, projectId)) } as any;
+    // 只用 listFactoring 的返回值：它的 `contract` 是精简版（id/code/name/supplierName），
+    // 若与 contractScope 的完整合同对象做展开合并，后者会被覆盖掉，`contract.supplier?.name`
+    // 恒为 undefined —— 导出标题会显示成「保理费用台账（）」。
+    const { contract, list, totals } = await this.listFactoring(contractId, {}, projectId);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('保理费用台账');
     const n = list.length + 4;
-    this.styled.writeLogoHeader(ws, { title: `保理费用台账（${contract.supplier?.name || ''}）`, lastCol: 9 });
+    this.styled.writeLogoHeader(ws, { title: `保理费用台账（${contract.supplierName || ''}）`, lastCol: 9 });
     ws.getCell(3, 1).value = `合同编号：${contract.code}　合同名称：${contract.name}`;
     const headers = ['序号', '融资到账时间', '融资金额', '实际到账金额', '融资利息', '手续费', '费用合计（含税）', '结算月份', '备注'];
     ws.getRow(4).values = headers;
@@ -408,10 +433,30 @@ export class FinanceService {
     if (!keep && !String(data.settlementMonth || '').trim()) throw new BadRequestException('结算月份不能为空');
   }
 
+  /**
+   * 逾期利息行的数值/月份归一：非法数字 400（别让 Prisma 抛 500），
+   * 结算月份必须是 YYYY-MM —— 台账「逾期利息」列按该字符串精确归集，写错就永远不命中。
+   */
+  private normalizeOverdueNumbers(payload: any) {
+    const labels: Record<string, string> = {
+      materialAmount: '材料款金额',
+      paymentRatio: '付款比例',
+      paymentAmount: '付款金额',
+      prevCumulative: '期初开累',
+    };
+    for (const k of Object.keys(labels)) {
+      if (payload[k] !== undefined) payload[k] = finiteNumber(payload[k], labels[k]);
+    }
+    if (payload.settlementMonth !== undefined && payload.settlementMonth !== null && payload.settlementMonth !== '') {
+      assertYearMonth(payload.settlementMonth, '结算月份');
+    }
+  }
+
   async createOverdue(data: any, projectId?: string) {
     await this.validateOverdue(data);
     await this.contractScope(data?.contractId, projectId);
     const payload = pickFields(data, OVERDUE_FIELDS.filter((f) => f !== 'contractId'), { label: '逾期利息' });
+    this.normalizeOverdueNumbers(payload);
     const contractId = data.contractId;
     const max = await this.prisma.overdueInterest.aggregate({ where: { contractId, settlementMonth: payload.settlementMonth }, _max: { periodSeq: true } });
     payload.periodSeq = (max._max.periodSeq || 0) + 1;
@@ -436,9 +481,7 @@ export class FinanceService {
     assertVersion(old, data);
     await this.validateOverdue(data, old);
     const payload = pickFields(data, OVERDUE_FIELDS.filter((f) => f !== 'contractId'), { label: '逾期利息' });
-    for (const k of ['materialAmount', 'paymentRatio', 'paymentAmount', 'prevCumulative']) {
-      if (payload[k] !== undefined) payload[k] = payload[k] === null || payload[k] === '' ? null : Number(payload[k]);
-    }
+    this.normalizeOverdueNumbers(payload);
     // 前端传 YYYY-MM-DD 字符串，Prisma 需要完整 DateTime
     for (const k of ['payableDate', 'paymentDate']) {
       if (payload[k] !== undefined) {

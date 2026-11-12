@@ -31,8 +31,8 @@ export class ProjectController {
 
   @RequirePermissions('project:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.projectService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.projectService.findOne(id, user);
   }
 
   @RequirePermissions('project:edit')
@@ -61,31 +61,31 @@ export class ProjectController {
 
   @RequirePermissions('project:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.projectService.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: JwtUser) {
+    return this.projectService.update(id, body, user);
   }
 
   @RequirePermissions('project:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.projectService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.projectService.remove(id, user);
   }
 
   @RequirePermissions('project:view')
   @Get(':id/members')
-  members(@Param('id') id: string) {
-    return this.projectService.members(id);
+  members(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.projectService.members(id, user);
   }
 
   @RequirePermissions('project:edit')
   @Post(':id/members')
-  addMember(@Param('id') id: string, @Body() body: { userId: string; roleCode: string }) {
-    return this.projectService.addMember(id, body.userId, body.roleCode);
+  addMember(@Param('id') id: string, @Body() body: { userId: string; roleCode: string }, @CurrentUser() user: JwtUser) {
+    return this.projectService.addMember(id, body.userId, body.roleCode, user);
   }
 
   @RequirePermissions('project:edit')
   @Delete(':id/members/:userId')
-  removeMember(@Param('id') id: string, @Param('userId') userId: string) {
-    return this.projectService.removeMember(id, userId);
+  removeMember(@Param('id') id: string, @Param('userId') userId: string, @CurrentUser() user: JwtUser) {
+    return this.projectService.removeMember(id, userId, user);
   }
 }

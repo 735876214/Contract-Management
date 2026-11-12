@@ -3,9 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { num, localDayKey } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { paidPaymentWhere } from '../../constants/statuses';
+import { paidPaymentWhere, INVOICE_STATUS } from '../../constants/statuses';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
-import { CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
+import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import {
   TODO_CATEGORIES,
@@ -41,7 +41,7 @@ export class DashboardService {
       paidAmount: Number(sumBy(payments, 'amount').toFixed(2)),
       invoiceAmount: Number(sumBy(invoices, 'amountWithTax').toFixed(2)),
       settlementCount: settlements.length,
-      executingCount: contracts.filter((c: any) => c.execStatus === 'EXECUTING').length,
+      executingCount: contracts.filter((c: any) => c.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
     };
   }
 
@@ -99,7 +99,7 @@ export class DashboardService {
   /** 提醒：发票待查验 + 合同金额红/黄预警 */
   async reminders(projectId: string, user: any) {
     const [pendingInvoices, amountAlerts, paymentRatioAlerts] = await Promise.all([
-      this.prisma.invoice.findMany({ where: { projectId, statusCode: 'WAIT_VERIFY' }, take: 10 }),
+      this.prisma.invoice.findMany({ where: { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY }, take: 10 }),
       this.amountAlerts(projectId),
       this.paymentRatioAlerts(projectId),
     ]);
@@ -165,7 +165,7 @@ export class DashboardService {
         title: c.name || '未命名合同',
         code: c.code || '',
         level: 'RED' as TodoLevel,
-        hint: `创建于 ${c.createdAt.toISOString().slice(0, 16).replace('T', ' ')}，已超时`,
+        hint: `创建于 ${localDayKey(c.createdAt)} ${c.createdAt.toTimeString().slice(0, 5)}，已超时`,
         target: { path: '/contract/draft', editor: c.id },
       })),
     };
@@ -311,7 +311,7 @@ export class DashboardService {
   /** 待查验发票 */
   private async todoInvoiceVerify(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('INVOICE_VERIFY');
-    const where = { projectId, statusCode: 'WAIT_VERIFY' };
+    const where = { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY };
     const [rows, count] = await Promise.all([
       this.prisma.invoice.findMany({
         where, orderBy: { createdAt: 'asc' }, take: limit,
@@ -334,9 +334,11 @@ export class DashboardService {
   /** 逾期利息待对账（有应付款金额但未付款的行） */
   private async todoOverdueInterest(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('OVERDUE_INTEREST');
-    // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行
+    // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行。
+    // **不要加 take 上限**：合同 id 只是过滤条件（select 单列，开销很小），
+    // 截断会让超出部分合同的逾期行静默从待办与计数里消失。
     const contracts = await this.prisma.contract.findMany({
-      where: { projectId, archivedAt: null }, select: { id: true }, take: 500,
+      where: { projectId, archivedAt: null }, select: { id: true },
     });
     const contractIds = contracts.map((c) => c.id);
     if (!contractIds.length) return { key: 'OVERDUE_INTEREST', label: '', count: 0, items: [] };
@@ -352,7 +354,6 @@ export class DashboardService {
       }),
       this.prisma.overdueInterest.count({ where }),
     ]);
-    const nameById = new Map(contracts.map((c) => [c.id, '']));
     return {
       key: 'OVERDUE_INTEREST', label: '', count,
       items: rows.map((r) => ({

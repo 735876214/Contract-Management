@@ -1834,7 +1834,7 @@ export class ProcurementTaskService {
     });
     const updated = await this.prisma.procurementTask.update({
       where: { id: taskId },
-      data: { stage: reportIndex, status: 'RESULT_EDITING', version: { increment: 1 } },
+      data: { stage: reportIndex, status: TASK_STATUS.RESULT_EDITING, version: { increment: 1 } },
     });
     return this.serialize(updated);
   }
