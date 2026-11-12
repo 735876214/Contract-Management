@@ -11,6 +11,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement/settlement.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 
@@ -42,6 +43,7 @@ export class InvoiceService {
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
     private settlement: SettlementService,
+    private scope: ProjectScopeService,
   ) {}
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
@@ -162,6 +164,8 @@ export class InvoiceService {
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
     await this.validate(data);
+    // 引用合同必须属于当前项目（防跨项目串数据）。导入路径的合同由 plan 阶段按项目解析，故只兜交互式写入。
+    if (!tx) await this.scope.assertContractInProject(data.contractId, projectId, '关联合同');
     if (data.invoiceNo) {
       const { exists } = await this.checkNo(data.invoiceNo, projectId);
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
@@ -190,6 +194,9 @@ export class InvoiceService {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.validate({ ...before, ...data });
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
+    }
     if (data.invoiceNo && data.invoiceNo !== before.invoiceNo) {
       const { exists } = await this.checkNo(data.invoiceNo, before.projectId, id);
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);

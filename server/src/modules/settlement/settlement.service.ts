@@ -30,6 +30,7 @@ import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
 // 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
@@ -79,6 +80,7 @@ export class SettlementService {
     private tasks: ImportTaskService,
     private sysParam: SysParamService,
     private lock: ContractLockService,
+    private scope: ProjectScopeService,
   ) {}
 
   // ---------------- 结算单 ----------------
@@ -243,6 +245,8 @@ export class SettlementService {
 
   async create(data: any, projectId: string, tx?: TxClient) {
     await this.lock.assertWritable(data.contractId, '新增结算单');
+    // 引用合同必须属于当前项目（防 projectId=A、contractId=B 的跨项目串数据）
+    await this.scope.assertContractInProject(data.contractId, projectId, '合同');
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
     // 新建没有「迁移」可言，状态迁移守卫只在 update() 里做（见 assertSettlementProgress）
@@ -296,6 +300,9 @@ export class SettlementService {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.lock.assertWritable(before.contractId, '修改结算单');
+    if (data.contractId) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '合同');
+    }
     if (data.contractId && data.contractId !== before.contractId) {
       await this.lock.assertWritable(data.contractId, '修改结算单');
     }
@@ -1223,6 +1230,8 @@ export class SettlementService {
     if (!opts?.fromImport) this.assertLedgerWritable(data);
     // 结算月份同样按字符串精确匹配（台账按月列、自动抓取结算单/开票额都按它），格式错会静默对不上
     assertYearMonth(data.settleMonth, '结算月份');
+    // 引用合同必须属于当前项目（导入路径的合同由 plan 阶段按项目解析，此处只兜交互式写入）
+    if (!tx) await this.scope.assertContractInProject(data.contractId, projectId, '合同');
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = { ...pickFields(data, LEDGER_FIELDS, { label: '结算台账' }), projectId };
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',
@@ -1272,6 +1281,9 @@ export class SettlementService {
     assertVersion(old, data);
     await this.assertLedgerWritable(data);
     assertYearMonth(data.settleMonth, '结算月份');
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? old.projectId, '合同');
+    }
     await this.dict.validate('yes_no', data.isOnAccount);
     const payload: any = pickFields(data, LEDGER_UPDATE_FIELDS, { label: '结算台账' });
     ['monthSettleAmount', 'monthInvoiceAmount', 'yearSettleAmount', 'cumPurchaseAmount', 'startSettleAmount',

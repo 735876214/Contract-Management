@@ -13,6 +13,7 @@ import { DictService } from '../dict/dict.service';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement/settlement.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 
 
@@ -82,6 +83,7 @@ export class ReceiptOrderService {
     private dict: DictService,
     private settlement: SettlementService,
     private lock: ContractLockService,
+    private scope: ProjectScopeService,
   ) {}
 
   // ==================== 结算单关联 ====================
@@ -688,6 +690,11 @@ export class ReceiptOrderService {
     if (!data?.orderDate) throw new BadRequestException('请选择日期');
     await this.assertContractSigned(data.materialContractId);
     await this.lock.assertWritable(data.materialContractId, '新增收领单');
+    // 引用型外键必须属于当前项目（防跨项目串数据；前端下拉是项目内数据源，但接口可被直接调用）
+    await this.scope.assertContractInProject(data.materialContractId, projectId, '物资合同');
+    await this.scope.assertContractInProject(data.subcontractId, projectId, '分包合同');
+    await this.scope.assertContractInProject(data.supplySubcontractId, projectId, '供应分包合同');
+    await this.scope.assertLaborAuthInProject(data.subcontractorId, projectId, '分包商');
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -729,6 +736,19 @@ export class ReceiptOrderService {
     assertVersion(before, data);
     // 归档锁：原合同与新合同都不能是已归档合同
     await this.lock.assertWritable(before.materialContractId, '修改收领单');
+    const scopeProject = projectId ?? before.projectId;
+    if (data.materialContractId !== undefined) {
+      await this.scope.assertContractInProject(data.materialContractId, scopeProject, '物资合同');
+    }
+    if (data.subcontractId !== undefined) {
+      await this.scope.assertContractInProject(data.subcontractId, scopeProject, '分包合同');
+    }
+    if (data.supplySubcontractId !== undefined) {
+      await this.scope.assertContractInProject(data.supplySubcontractId, scopeProject, '供应分包合同');
+    }
+    if (data.subcontractorId !== undefined) {
+      await this.scope.assertLaborAuthInProject(data.subcontractorId, scopeProject, '分包商');
+    }
     if (data.materialContractId && data.materialContractId !== before.materialContractId) {
       await this.lock.assertWritable(data.materialContractId, '修改收领单');
       await this.assertContractSigned(data.materialContractId);

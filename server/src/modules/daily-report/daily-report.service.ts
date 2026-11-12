@@ -10,6 +10,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 import {
   assertSiteConfirmable,
   SITE_CONFIRM_STATUS,
@@ -32,6 +33,7 @@ export class DailyReportService {
     private tasks: ImportTaskService,
     private sysParam: SysParamService,
     private lock: ContractLockService,
+    private scope: ProjectScopeService,
   ) {}
 
   /** 日报行是结算量的来源：目标合同已归档时禁止写（2026-10-18 业务流审计）。 */
@@ -270,6 +272,9 @@ export class DailyReportService {
     //    导入路径在 plan 阶段（事务外）已用 RowError 拦截归档合同，事务内这里
     //    只在非事务（交互式）调用时锁，事务调用依赖 plan 阶段的过滤。
     if (!tx) await this.assertContractWritable(data.contractId, '新增日报');
+    // 引用合同必须属于当前项目（防跨项目串数据：projectId=A、contractId=B 会让 A 的结算
+    // 挂到 B 的合同上，B 的链口径也跟着变）。导入路径在 plan 阶段已按项目解析合同，故只兜交互式写入。
+    if (!tx) await this.scope.assertContractInProject(data.contractId, projectId, '合同');
     // 事务内不得调用 this.dict（它使用事务外的 PrismaClient 连接，连接池耗尽会挂起）。
     // 导入流程已在事务外的 map 阶段完成 validate，此处仅在无事务的直连写入时校验。
     if (!tx) await this.validate(data);
@@ -288,6 +293,9 @@ export class DailyReportService {
     const before = await this.findOne(id, projectId);
     // 结算来源可被绕过归档锁修改 → 归档不变量被打破（原/新合同都要检查）
     await this.assertContractWritable(before.contractId, '修改日报');
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '合同');
+    }
     if (data.contractId !== undefined && data.contractId !== before.contractId) {
       await this.assertContractWritable(data.contractId, '修改日报');
     }

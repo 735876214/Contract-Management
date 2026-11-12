@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 
 @Injectable()
 export class RepaymentService {
@@ -10,6 +11,7 @@ export class RepaymentService {
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private scope: ProjectScopeService,
   ) {}
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
@@ -120,6 +122,7 @@ export class RepaymentService {
     if (!data.code) throw new BadRequestException('签订协议编号不能为空');
     const { exists } = await this.checkCode(data.code, projectId);
     if (exists) throw new BadRequestException('协议编号在当前项目中已存在');
+    await this.scope.assertContractInProject(data.contractId, projectId, '关联合同');
     const details = Array.isArray(data.details) ? data.details : [];
     if (!details.length) throw new BadRequestException('至少需录入一条约定还款明细');
     const { details: _d, ...rest } = data;
@@ -138,6 +141,9 @@ export class RepaymentService {
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
+    }
     if (data.code && data.code !== before.code) {
       const { exists } = await this.checkCode(data.code, before.projectId, id);
       if (exists) throw new BadRequestException('协议编号在当前项目中已存在');

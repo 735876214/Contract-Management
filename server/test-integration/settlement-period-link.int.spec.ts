@@ -6,6 +6,8 @@ import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntCont
 import { SettlementService } from '../src/modules/settlement/settlement.service';
 import { InvoiceService } from '../src/modules/invoice/invoice.service';
 import { ReceiptOrderService } from '../src/modules/receipt-order/receipt-order.service';
+import { DailyReportService } from '../src/modules/daily-report/daily-report.service';
+import { RepaymentService } from '../src/modules/repayment/repayment.service';
 import { SETTLEMENT_STATUS, INVOICE_STATUS, SITE_CONFIRM_STATUS } from '../src/constants/statuses';
 
 /**
@@ -27,6 +29,8 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   let settle: SettlementService;
   let invoices: InvoiceService;
   let receipts: ReceiptOrderService;
+  let daily: DailyReportService;
+  let repayments: RepaymentService;
 
   /** 某月（默认 15 日，落在自然月期内） */
   const day = (y: number, m: number, d = 15) => new Date(y, m - 1, d);
@@ -46,6 +50,8 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     settle = ctx.get<SettlementService>(SettlementService);
     invoices = ctx.get<InvoiceService>(InvoiceService);
     receipts = ctx.get<ReceiptOrderService>(ReceiptOrderService);
+    daily = ctx.get<DailyReportService>(DailyReportService);
+    repayments = ctx.get<RepaymentService>(RepaymentService);
   });
   after(async () => {
     await ctx.app.close();
@@ -457,6 +463,62 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
       await ctx.prisma.invoice.count({ where: { projectId: project.id } }),
       0,
       '两阶段：有错误时不写入任何数据',
+    );
+  });
+
+  /**
+   * ⑬ 跨项目引用合同一律 400（2026-11-12 复审新增）。
+   * 路由层只校验「请求头项目」的成员关系，不校验请求体里的 contractId；
+   * 审计中实测：项目 A 的日报挂 B 的合同可以成功，随后 A 的结算会生成 `projectId=A、contractId=B`
+   * 的单据，B 的链口径（按合同汇总）也跟着变化。所有接受 contractId 的写入口都要拦。
+   */
+  it('⑬ 跨项目引用合同一律 400（日报/结算/发票/收领单/还款协议）', async () => {
+    const projectA = await makeProject(ctx.prisma, 'LNK-13A');
+    const projectB = await makeProject(ctx.prisma, 'LNK-13B');
+    const supplierA = await makeSupplier(ctx.prisma, projectA.id);
+    const contractB = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: projectB.id, supplierId: supplierA.id, amount: 10000 });
+    const isScopeError = (e: any) => e instanceof BadRequestException && /不属于当前项目/.test(e.message);
+
+    await assert.rejects(
+      () => daily.create({ contractId: contractB.id, materialName: '跨项目测试', entryDate: day(2026, 9, 10), settleQty: 1 }, projectA.id),
+      isScopeError,
+      '日报不能挂到别的项目的合同上',
+    );
+    await assert.rejects(
+      () =>
+        settle.create(
+          { contractId: contractB.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.DRAFT, amount: 1, settleDate: day(2026, 9) },
+          projectA.id,
+        ),
+      isScopeError,
+      '结算单不能挂到别的项目的合同上',
+    );
+    await assert.rejects(
+      () =>
+        invoices.create(
+          { contractId: contractB.id, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, invoiceNo: uniq('XPROJ').toUpperCase(), amountWithTax: 1 },
+          projectA.id,
+        ),
+      isScopeError,
+      '发票不能挂到别的项目的合同上',
+    );
+    await assert.rejects(
+      () =>
+        receipts.create(
+          { supplierId: supplierA.id, receivingUnitId: 'unit-x', orderDate: day(2026, 9, 10), materialContractId: contractB.id },
+          projectA.id,
+        ),
+      isScopeError,
+      '收领单不能挂到别的项目的合同上',
+    );
+    await assert.rejects(
+      () =>
+        repayments.create(
+          { code: uniq('RP13').toUpperCase(), contractId: contractB.id, details: [{ period: 1, amount: 1, dueDate: day(2026, 10) }] },
+          projectA.id,
+        ),
+      isScopeError,
+      '还款协议不能挂到别的项目的合同上',
     );
   });
 });
