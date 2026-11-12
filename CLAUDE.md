@@ -91,7 +91,6 @@ cd server && npm run test:int  # DB 集成测试（21 个 spec，改金额/状�
 | [DESIGN.md](DESIGN.md) | 视觉规则、设计 token、组件样式约定 |
 | [TODO.md](TODO.md) | 剩余任务（只列未完成项，完成即删条目） |
 | [docs/project-overview.md](docs/project-overview.md) / [architecture.md](docs/architecture.md) / [user-guide.md](docs/user-guide.md) | 项目说明 / 架构与数据流 / 使用说明 |
-| [docs/AI经营数据助手-设计与实施计划.md](docs/AI经营数据助手-设计与实施计划.md) | **AI 经营数据助手**：按需取数（单项目/多选/全部）→ 报告/表格的现状深查、数据集注册表、意图层、接口、分期与验收 |
 | [docs/development.md](docs/development.md) | 开发方式、命令、测试清单、回归清单、本机操作要点（§9） |
 | [docs/component-api.md](docs/component-api.md) | 前端组件与后端通用服务的接口 |
 | [docs/local-storage-structure.md](docs/local-storage-structure.md) | **本地文件存储结构**：目录/命名/字段映射/读写路径/生命周期/只读审计脚本 |
