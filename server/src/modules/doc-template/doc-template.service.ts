@@ -8,6 +8,7 @@ import { buildPaymentDocValues } from './doc-template-vars';
 import { renderTemplateExcel } from './doc-excel';
 import { isExcelTemplateFileName, normalizeDocTemplateFileKey } from './doc-template-file';
 import { StorageService } from '../../common/services/storage.service';
+import { requestContext } from '../../common/services/request-context';
 
 /** Excel 单据模板的可写字段（fileUrl/fileName 经校验与归一后写入） */
 const DOC_EXCEL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'fileUrl', 'fileName', 'createdBy'];
@@ -73,6 +74,10 @@ export class DocTemplateService {
     if (!tpl) throw new NotFoundException('单据模板不存在');
     const codes = await this.categoryCodes();
     if (!codes.includes(String(tpl.categoryCode ?? ''))) throw new NotFoundException('单据模板不存在');
+    // 历史项目级模板只对所属项目可见（新建一律全局）；跨项目按 id 直达视为不存在
+    if (tpl.projectId && requestContext.projectId && tpl.projectId !== requestContext.projectId) {
+      throw new NotFoundException('单据模板不存在');
+    }
     return this.serialize(tpl);
   }
 
@@ -182,7 +187,15 @@ export class DocTemplateService {
     const template = opts.templateId
       ? await this.findOne(opts.templateId)
       : await this.prisma.contractTemplate.findFirst({
-          where: { categoryCode: opts.categoryCode, status: 1 },
+          // 新建模板一律全局（projectId=null），但历史项目级模板仍存在：
+          // 不限定可见范围时可能取到**别的项目的私有模板**并把它的内容渲染进本项目的单据。
+          where: {
+            categoryCode: opts.categoryCode,
+            status: 1,
+            ...(requestContext.projectId
+              ? { OR: [{ projectId: null }, { projectId: requestContext.projectId }] }
+              : {}),
+          },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         });
     if (!template) {

@@ -15,6 +15,7 @@ import { SettlementService } from '../settlement/settlement.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
+import { projectWhere } from '../../common/utils/project-scope';
 
 
 /** 明细中需要按 Decimal 落库的数值字段 */
@@ -217,8 +218,10 @@ export class ReceiptOrderService {
    */
   async loadContractMaterials(contractId: string) {
     if (!contractId) throw new BadRequestException('缺少物资合同 ID');
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
+    // 项目归属（2026-11-12 续审）：本接口只收 contractId，不追加过滤时换一个 id
+    // 就能读到别项目合同的物资清单与供应商名称。
+    const contract = await this.prisma.contract.findFirst({
+      where: projectWhere(contractId),
       include: { supplier: { select: { id: true, name: true } } },
     });
     if (!contract) throw new NotFoundException('物资合同不存在');
@@ -442,7 +445,8 @@ export class ReceiptOrderService {
    * 保证仍可下拉选择，不阻塞业务。
    */
   async subcontractorContracts(subcontractorId: string, projectId: string) {
-    const sub = await this.prisma.laborAuthLedger.findUnique({ where: { id: subcontractorId } });
+    // 分包商必须属于当前项目：否则可用别项目的 id 探测存在性并拿到本项目的租赁执行合同列表
+    const sub = await this.prisma.laborAuthLedger.findFirst({ where: { id: subcontractorId, projectId } });
     if (!sub) throw new NotFoundException('分包商不存在');
     const ids: string[] = [];
     if (sub.subcontractId) ids.push(sub.subcontractId);
@@ -726,8 +730,14 @@ export class ReceiptOrderService {
       await this.syncAssetLedger(created.id, tx, assetDict);
       return created;
     });
-    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）
-    await this.pushToDailyReport(order.id);
+    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）。
+    // 推送在保存事务之后：失败不能让「已落库的收领单」变成 500（用户重试会产生重复单据），
+    // 与 update 路径同口径——只记日志，可经「重新推送」补推。
+    try {
+      await this.pushToDailyReport(order.id);
+    } catch (e) {
+      console.error('[收领单] 推送总日报失败（保存已生效，可手动补推）:', e);
+    }
     return order;
   }
 

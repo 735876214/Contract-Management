@@ -149,13 +149,26 @@ export class DictService {
     const type = await this.prisma.dictType.findUnique({ where: { id } });
     if (!type) throw new NotFoundException('字典类型不存在');
     const patch = pickFields(data, DICT_TYPE_FIELDS, { label: '字典类型' });
-    if (patch.code && patch.code !== type.code) {
+    const renaming = !!patch.code && patch.code !== type.code;
+    if (renaming) {
       const exist = await this.prisma.dictType.findUnique({ where: { code: patch.code } });
       if (exist) throw new BadRequestException('字典类型编码已存在');
-      await this.prisma.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: patch.code } });
-      await this.refreshCache(type.code);
     }
-    return this.prisma.dictType.update({ where: { id }, data: patch });
+    // 改名要同时迁移字典项的 typeCode：两步分开提交时，若第二步失败会留下
+    // 「类型还是旧编码、字典项已挂到新编码」的孤儿数据（前台所有下拉变空）。
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (renaming) {
+        await tx.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: patch.code } });
+      }
+      return tx.dictType.update({ where: { id }, data: patch });
+    });
+    if (renaming) {
+      // 新旧编码都要失效：`options()` 会把**空结果**也缓存 24h，
+      // 只清旧编码时，若新编码此前被查过（缓存为空数组），改名后下拉会持续为空。
+      await this.refreshCache(type.code);
+      await this.refreshCache(patch.code);
+    }
+    return updated;
   }
 
   async removeType(id: string) {
@@ -163,8 +176,11 @@ export class DictService {
     if (!type) throw new NotFoundException('字典类型不存在');
     const usage = await this.checkTypeUsage(type.code);
     if (usage.used) throw new BadRequestException(`该字典类型已被业务数据引用（${usage.count} 处），不可删除`);
-    await this.prisma.dictItem.deleteMany({ where: { typeCode: type.code } });
-    await this.prisma.dictType.delete({ where: { id } });
+    // 明细与类型同事务：只删成功一半会留下没有类型头的孤儿字典项
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dictItem.deleteMany({ where: { typeCode: type.code } });
+      await tx.dictType.delete({ where: { id } });
+    });
     await this.refreshCache(type.code);
     return true;
   }
@@ -217,7 +233,9 @@ export class DictService {
      * 库里存量数据仍写着 A → 引用检查从此永远查不到、历史行标签变空。
      * 需要换编码请新建一项、把老项停用（有引用的老项本就删不掉）。
      */
-    const { itemCode: _code, typeCode: _type, id: _id, ...patch } = data || {};
+    const { itemCode: _code, typeCode: _type, id: _id, ...rest } = data || {};
+    // 白名单（与 createItem 同口径）：前端多带一个未识别字段不应变成 500
+    const patch = pickFields(rest, DICT_ITEM_FIELDS, { label: '字典项' });
     const updated = await this.prisma.dictItem.update({ where: { id }, data: patch });
     await this.refreshCache(item.typeCode);
     return updated;

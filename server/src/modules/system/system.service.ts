@@ -45,6 +45,11 @@ export class SystemService {
   }
 
   async createUser(data: any) {
+    // 用户名是登录凭据的唯一键：空值会让 findUnique 抛 Prisma 校验错误变成 500，
+    // 统一 trim 后必填校验，别把「表单没填」当服务器故障回给前端。
+    const username = String(data?.username ?? '').trim();
+    if (!username) throw new BadRequestException('用户名不能为空');
+    data = { ...data, username };
     const exist = await this.prisma.user.findUnique({ where: { username: data.username } });
     if (exist) throw new BadRequestException('用户名已存在');
     const password = await bcrypt.hash(data.password || '123456', 10);
@@ -68,6 +73,10 @@ export class SystemService {
   async updateUser(id: string, data: any) {
     const { roleIds, password, ...rest } = data;
     const payload = pickFields(rest, USER_WRITABLE_FIELDS, { label: '用户' });
+    if (payload.username !== undefined) {
+      payload.username = String(payload.username ?? '').trim();
+      if (!payload.username) throw new BadRequestException('用户名不能为空');
+    }
     if (payload.username) {
       const dup = await this.prisma.user.findFirst({ where: { username: payload.username, id: { not: id } } });
       if (dup) throw new BadRequestException('用户名已存在');

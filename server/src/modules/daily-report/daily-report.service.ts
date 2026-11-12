@@ -319,54 +319,6 @@ export class DailyReportService {
     return true;
   }
 
-  private exportColumns() {
-    return [
-      { header: '账期/年', key: 'periodYear', width: 10 },
-      { header: '账期/月', key: 'periodMonth', width: 10 },
-      { header: '进场日期', key: 'entryDate', width: 14 },
-      { header: '出场日期', key: 'exitDate', width: 14 },
-      { header: '合同编号', key: 'contractCode', width: 20 },
-      { header: '是否资产', key: 'isAssetName', width: 10 },
-      { header: '是否安全物资', key: 'isSafetyMaterialName', width: 14 },
-      { header: '资产监管', key: 'assetSupervision', width: 14 },
-      { header: '部门', key: 'department', width: 14 },
-      { header: '人员', key: 'personnel', width: 12 },
-      { header: '资产状态', key: 'assetStatusName', width: 12 },
-      { header: '来源', key: 'sourceName', width: 18 },
-      { header: '材料类别', key: 'materialCategoryName', width: 14 },
-      { header: '物资种类', key: 'materialTypeName', width: 14 },
-      { header: '物资名称', key: 'materialName', width: 20 },
-      { header: '钢筋品牌', key: 'steelBrand', width: 12 },
-      { header: '钢筋件数', key: 'steelCount', width: 12 },
-      { header: '规格型号', key: 'spec', width: 14 },
-      { header: '计量单位', key: 'unitName', width: 12 },
-      { header: '过磅数量/t', key: 'weighQty', width: 14 },
-      { header: '扣重/t', key: 'deductQty', width: 12 },
-      { header: '结算数量', key: 'settleQty', width: 12 },
-      { header: '是否过磅', key: 'isWeighedName', width: 12 },
-      { header: '未云筑验收原因', key: 'noAcceptReason', width: 20 },
-      { header: '单价/元(税前)', key: 'priceBeforeTax', width: 14 },
-      { header: '税率', key: 'taxRate', width: 10 },
-      { header: '单价/元(税后)', key: 'priceAfterTax', width: 14 },
-      { header: '金额/元(税前)', key: 'amountBeforeTax', width: 16 },
-      { header: '金额/元(税后)', key: 'amountAfterTax', width: 16 },
-      { header: '供应单位', key: 'supplierName', width: 26 },
-      { header: '领用单位', key: 'receiveUnit', width: 16 },
-      { header: '领料人', key: 'receiver', width: 12 },
-      { header: '分包合同', key: 'laborContract', width: 16 },
-      { header: '使用部位', key: 'usePosition', width: 16 },
-      { header: '是否代购', key: 'isProxyName', width: 12 },
-      { header: '车牌号', key: 'plateNo', width: 14 },
-      { header: '收领单编号', key: 'receiptNo', width: 16 },
-      { header: '备注', key: 'remark', width: 22 },
-      { header: '分包计价账期', key: 'subcontractPeriod', width: 14 },
-      { header: '收入单价', key: 'incomePrice', width: 12 },
-      { header: '收入合价', key: 'incomeAmount', width: 14 },
-      { header: '标准单价', key: 'stdPrice', width: 12 },
-      { header: '标准合价', key: 'stdAmount', width: 14 },
-    ];
-  }
-
   /**
    * 导出用全量日报：`findAll({ pageSize: 2000 })` 受单页上限（默认 500）截断，
    * 日报条数超过上限时导出文件**静默**少行。按页拉全量（与发票/付款/台账导出同口径）。

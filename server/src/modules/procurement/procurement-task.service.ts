@@ -920,7 +920,9 @@ export class ProcurementTaskService {
     if (task.status !== TASK_STATUS.NOT_STARTED) throw new BadRequestException('任务已进入后续流程，总采购清单不可修改');
     if (!Array.isArray(items)) throw new BadRequestException('清单数据无效');
 
-    const num = numOf('数量/单价');
+    // 数量/单价均不允许为负：负控制价会拉低「预计采购金额」（进而影响采前会门槛），
+    // 负数还会随总清单带入合同起草清单。
+    const num = numOf('数量/单价', { min: 0 });
 
     const normalized = items.map((raw) => {
       const materialBaseId = String(raw?.materialBaseId ?? '').trim();
@@ -1237,7 +1239,7 @@ export class ProcurementTaskService {
     }
 
     const text = textOf;
-    const num = numOf('表格中的价格/占比');
+    const num = numOf('表格中的价格/占比', { min: 0 });
     const rows = (v: any, fields: string[]): string | null | undefined => {
       // 未传（undefined）= 不修改该字段（PATCH 语义）：发布价格对比表自动灌入的 priceCompareRows
       // 不能被「只保存框架简介」这类局部提交覆盖清空；显式传 []（清空表格）才会写 null。
@@ -1401,7 +1403,7 @@ export class ProcurementTaskService {
     }
 
     const text = textOf;
-    const num = numOf('表格中的数量/金额');
+    const num = numOf('表格中的数量/金额', { min: 0 });
     const date = dateOf('会议时间');
     /** 表格行：数值字段按数字存，其余按文本存；空表存 null */
     const jsonRows = (v: any, numericFields: string[], fields: string[]): string | null => {
@@ -1776,6 +1778,24 @@ export class ProcurementTaskService {
     const date = dateOf('采购开启时间');
     const suppliers = Array.isArray(body?.suppliers) ? body.suppliers : undefined;
     const candidates = Array.isArray(body?.candidates) ? body.candidates : undefined;
+    /**
+     * 候选人会被持久化成两份事实：JSON 快照（本表）与结构化行（`applyCandidateStatuses` 写 Decimal）。
+     * 不校验时，缺名称/非数字价格会先污染快照，再让生成合同取到空单位或让 Prisma 写 NaN 抛 500。
+     */
+    if (candidates !== undefined) {
+      for (const [i, c] of candidates.entries()) {
+        if (!String(c?.name ?? '').trim()) {
+          throw new BadRequestException(`第 ${i + 1} 个拟推荐成交候选人缺少单位名称`);
+        }
+        const raw = c?.finalPreTaxPrice;
+        if (raw !== undefined && raw !== null && raw !== '') {
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n < 0) {
+            throw new BadRequestException(`第 ${i + 1} 个候选单位的「最终确认不含税价格」必须为非负数字`);
+          }
+        }
+      }
+    }
 
     const payload = {
       unitCount: int(body?.unitCount, '成交单位数量'),
@@ -2017,7 +2037,9 @@ export class ProcurementTaskService {
       const row = byName.get(name);
       if (!row) continue; // 候选人不在导入表内：不静默新建结构化行（正常流程不会出现）
       won.add(name);
-      const price = c?.finalPreTaxPrice == null || c.finalPreTaxPrice === '' ? null : Number(c.finalPreTaxPrice);
+      // 存量快照里的价格可能是历史脏数据（非数字）：这里兜成 null 而不是把 NaN 写进 Decimal 列
+      const rawPrice = c?.finalPreTaxPrice == null || c.finalPreTaxPrice === '' ? null : Number(c.finalPreTaxPrice);
+      const price = rawPrice !== null && Number.isFinite(rawPrice) ? rawPrice : null;
       const current = row.finalPreTaxTotal == null ? null : Number(row.finalPreTaxTotal);
       if (row.status !== BIDDER_STATUS.WON || current !== price) {
         await this.prisma.procurementBidder.update({
