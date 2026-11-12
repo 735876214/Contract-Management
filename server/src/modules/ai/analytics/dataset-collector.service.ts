@@ -14,6 +14,7 @@ import { deriveContractFulfillment } from '../../../common/utils/contract-fulfil
 import { summarizeAssetFlow } from '../../../common/utils/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots';
+import { datasetColumnsOf } from './dataset-columns';
 import { localDayKey, localMonthKey, type DayRange } from '../common/period';
 import type {
   AiAnalyticsProjectFact,
@@ -63,7 +64,16 @@ const ds = (
 ): AiCollectedDataset => {
   const total = rows.length;
   const capped = rows.slice(0, MAX_ROWS);
-  return { key, columns, rows: capped, totalRows: total, truncated: total > capped.length, summary };
+  // 列定义以 `dataset-columns.ts` 为单一事实源（工作簿/行级填充/前端映射共用）
+  const shared = datasetColumnsOf(key);
+  return {
+    key,
+    columns: shared.length ? [...shared] : columns,
+    rows: capped,
+    totalRows: total,
+    truncated: total > capped.length,
+    summary,
+  };
 };
 
 /**
@@ -210,6 +220,14 @@ export class DatasetCollector {
     t.unpaidYuan = round2(t.settledYuan - t.paidYuan);
     t.uninvoicedYuan = round2(t.settledYuan - t.invoicedYuan);
     return t;
+  }
+
+  /** 供填报取值复用：项目集合 × 期间的窗口口径（与报告同一实现） */
+  async windowTotals(
+    projects: Array<{ id: string; code: string; name: string }>,
+    range: DayRange,
+  ): Promise<AiAnalyticsTotals> {
+    return this.sumTotals(await this.projectCore(projects, range));
   }
 
   async collect(

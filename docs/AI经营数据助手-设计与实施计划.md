@@ -406,7 +406,7 @@ DB 集成 spec：
 - 前端意图预览、warnings/unknown/discarded 展示。
 - 出口：一段话 → 意图预览 → 报告；模型只选数据集/期间/范围；编数字时报告仍可用并列出 `discardedNumbers`；AI 停用/超时不空窗；配额退款；`aiPurposeModel.spec` 5 用途通过。
 
-### Phase 4：工作簿 + 填报扩展 + 行级填充
+### Phase 4：工作簿 + 填报扩展 + 行级填充（已实施 2026-11-12）
 
 - `workbook-builder` + `POST /workbook` + StorageService 落库 + 下载端点；默认只勾「报告」，表格按需补生成并挂到同一记录。
 - `field-catalog`/`field-resolver` 的 `period.*`/`cross.*` + `forms/*` scope/period + 前端控件。

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
+import { assertPermission } from '../../common/utils/assert-permission';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
@@ -7,8 +8,12 @@ import { aiModelFor, aiPublicStatus, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
 import { buildFormMappingMessages, normalizeMapping, type MappingSuggestion } from './ai-prompt';
 import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, filterFieldsByPermission, SCOPE_READ_PERMISSION, type AiFieldDef } from './field-catalog';
-import { FormCandidate, FormCell, scanWorkbook } from './form-scan';
+import { FormCandidate, FormCell, detectTableRegions, scanWorkbook, type FormTableRegion } from './form-scan';
 import { FieldResolverService, type ResolveContext } from './field-resolver.service';
+import { DatasetCollector } from './analytics/dataset-collector.service';
+import { AI_DATASETS, filterDatasets } from './analytics/dataset-registry';
+import { datasetColumnsOf } from './analytics/dataset-columns';
+import { endOfDay, parseLocalDay } from './common/period';
 import { chatJson, LlmError, type LlmMessage } from './llm-client';
 
 /** 扫描上限：表单类文件很小，但**带格式的空表**可以有几十万行（Excel 记住用过的区域） */
@@ -48,6 +53,10 @@ export interface AiInspectResult {
   truncated: number;
   /** 目录里还剩多少字段没被用上（前端「可手工补填」下拉） */
   availableFields: AiFieldDef[];
+  /** 表格区（行级填充）：表头连排 + 下方连续空行 */
+  tables?: FormTableRegion[];
+  /** 可选数据集（已实现 + 有权限）及其 Excel 列，用于行级填充的列映射 */
+  tableDatasets?: Array<{ key: string; label: string; columns: string[] }>;
 }
 
 export interface AiFillItem {
@@ -91,10 +100,39 @@ export class AiService {
     private quota: AiQuota,
     /** 配置统一走「系统管理 → AI 信息登记」：页面登记 > 环境变量（见 ai-config.ts） */
     private setting: AiSettingService,
+    /** 行级填充取数：与经营数据助手共用采集器（口径单一实现） */
+    private collector: DatasetCollector,
   ) {}
 
   private async config(): Promise<AiConfig> {
     return this.setting.resolve();
+  }
+
+  /**
+   * 填报范围收口（2026-11-12）：跨项目（selected/all）需要 `dashboard:view`，
+   * 项目集合按 `ProjectMember` 过滤；跨项目必须给期间（否则"汇总值"没有语义）。
+   * 跨项目时清空 contractId/supplierId —— 单据级字段没有汇总值。
+   */
+  private async resolveFormScope(ctx: ResolveContext, user: any): Promise<ResolveContext> {
+    const mode = ctx.scope?.mode ?? 'current';
+    if (mode === 'current') {
+      return { ...ctx, scope: { mode: 'current', projectIds: [ctx.projectId] } };
+    }
+    assertPermission(user, 'dashboard:view', '跨项目填报需要「统计报表-查看」权限');
+    if (!ctx.period?.from || !ctx.period?.to) {
+      throw new BadRequestException('跨项目填报需要选择期间（开始与结束日期）');
+    }
+    const where: any = {};
+    if (!user?.isSuperAdmin) {
+      if (!user?.userId) throw new BadRequestException('缺少用户身份，无法校验项目权限');
+      where.members = { some: { userId: user.userId } };
+    }
+    const allowed = await this.prisma.project.findMany({ where, select: { id: true } });
+    const allowedIds = allowed.map((p) => p.id);
+    const wanted = mode === 'selected' ? (ctx.scope?.projectIds ?? []) : allowedIds;
+    const ids = wanted.filter((id) => allowedIds.includes(id));
+    if (!ids.length) throw new BadRequestException('填报范围里没有有权限的项目');
+    return { ...ctx, scope: { mode, projectIds: ids }, contractId: null, supplierId: null };
   }
 
   async status(): Promise<{
@@ -188,12 +226,23 @@ export class AiService {
     user: any,
   ): Promise<AiInspectResult> {
     const cfg = await this.config();
+    ctx = await this.resolveFormScope(ctx, user);
     const { buffer } = this.assertUpload(file, cfg);
     const { sheetNames, cells } = await this.readCells(buffer);
 
     const { candidates, truncated } = scanWorkbook(cells, cfg.maxCandidates);
-    const hasContract = Boolean(ctx.contractId);
-    const allFields = availableFields({ hasContract, hasSupplier: hasContract || Boolean(ctx.supplierId) });
+    const crossProject = (ctx.scope?.mode ?? 'current') !== 'current';
+    const tables = detectTableRegions(cells, 10);
+    const { visible } = filterDatasets(this.canReader(user));
+    const tableDatasets = visible
+      .filter((d) => datasetColumnsOf(d.key).length > 0)
+      .map((d) => ({ key: d.key, label: d.label, columns: [...datasetColumnsOf(d.key)] }));
+    const hasContract = !crossProject && Boolean(ctx.contractId);
+    const allFields = availableFields({
+      hasContract,
+      hasSupplier: hasContract || Boolean(ctx.supplierId),
+      crossProject,
+    });
     // 只能列出「这个人有权读」的字段（见 field-catalog.SCOPE_READ_PERMISSION）
     const { fields, denied } = filterFieldsByPermission(allFields, this.canReader(user));
     const deniedNote = denied.length
@@ -221,6 +270,8 @@ export class AiService {
       })),
       truncated,
       availableFields: fields,
+      tables,
+      tableDatasets,
     };
 
     if (!candidates.length) {
@@ -243,9 +294,11 @@ export class AiService {
       maxCandidates: cfg.maxCandidates,
       // 没有关联合同时，模型常把「合同金额/合同编号」硬套到不存在的合同字段上，
       // 那样的建议会被下面的可用字段白名单丢掉，不如提前告诉它用统计口径或留空。
-      note: hasContract
-        ? undefined
-        : '本次未关联任何合同：不要使用 contract.* 字段。表单里的「合同金额/累计金额」类标签可用 stats.* 统计字段；「合同编号/签订日期」这类没有对应统计口径的，请留空不选。',
+      note: crossProject
+        ? '本次是跨项目汇总填报：只能使用 period.*（本期发生额）/ cross.*（跨项目聚合）与项目基础字段；不要使用 contract.* / supplier.* 单据级字段。'
+        : hasContract
+          ? undefined
+          : '本次未关联任何合同：不要使用 contract.* 字段。表单里的「合同金额/累计金额」类标签可用 stats.* 统计字段；「合同编号/签订日期」这类没有对应统计口径的，请留空不选。',
     });
 
     const uid = this.userIdOf(user);
@@ -314,6 +367,7 @@ export class AiService {
     user: any,
   ): Promise<AiFillResult> {
     const cfg = await this.config();
+    ctx = await this.resolveFormScope(ctx, user);
     const { buffer, fileName } = this.assertUpload(file, cfg);
 
     /**
@@ -322,9 +376,14 @@ export class AiService {
      * 供应商银行账号逐个抄出来（2026-10-20 审计 P3）。
      */
     const can = this.canReader(user);
+    const crossProject = (ctx.scope?.mode ?? 'current') !== 'current';
     const blocked: string[] = [];
     const items = this.parseMapping(mappingRaw).filter((it) => {
       const def = aiFieldByKey(it.fieldKey);
+      if (crossProject && def && (def.scope === 'contract' || def.scope === 'supplier')) {
+        blocked.push(`${it.fieldKey} @ ${it.sheet}!${it.cellRef}（跨项目填报不提供单据级字段）`);
+        return false;
+      }
       const code = def ? SCOPE_READ_PERMISSION[def.scope] : undefined;
       if (code && !can(code)) {
         blocked.push(`${it.fieldKey} @ ${it.sheet}!${it.cellRef}（缺少 ${code} 权限）`);
@@ -377,6 +436,119 @@ export class AiService {
       // 被权限拦下的项也算「跳过」，前端能直接告诉用户为什么少了这些格
       skipped: [...blocked, ...skipped],
       fileName: fileName.replace(/\.xlsx$/i, '') + '-已填.xlsx',
+    };
+  }
+
+  /**
+   * 行级表格填充（Phase 4）：把数据集的行按用户列映射写进模板的表区。
+   *
+   * 与单值回填共用权限/范围校验；写值不写公式（以 `= + - @` 开头的文本强制按文本落库），
+   * 超出模板空行时插行并复制样式；行数上限 2000，超出截断并在返回里标记。
+   */
+  async fillTable(
+    file: any,
+    body: {
+      datasetKey?: string;
+      sheet?: string;
+      headerRow?: number | string;
+      startRow?: number | string;
+      columns?: unknown;
+    },
+    ctx: ResolveContext,
+    user: any,
+  ): Promise<{ buffer: Buffer; fileName: string; filledRows: number; skippedCells: number; truncated: boolean }> {
+    const cfg = await this.config();
+    ctx = await this.resolveFormScope(ctx, user);
+    const { buffer, fileName } = this.assertUpload(file, cfg);
+
+    const datasetKey = String(body?.datasetKey ?? '').trim();
+    const def = AI_DATASETS.find((d) => d.key === datasetKey);
+    if (!def || !def.implemented) throw new BadRequestException('数据集不存在或尚未实现');
+    const allowedColumns = new Set(datasetColumnsOf(datasetKey));
+    if (!allowedColumns.size) throw new BadRequestException('该数据集暂不支持行级填充');
+
+    const sheet = String(body?.sheet ?? '').trim();
+    const startRow = Math.max(1, Math.floor(Number(body?.startRow) || 0));
+    if (!sheet || !startRow) throw new BadRequestException('缺少工作表或起始行');
+
+    let rawColumns: unknown = body?.columns;
+    if (typeof rawColumns === 'string') {
+      try {
+        rawColumns = JSON.parse(rawColumns);
+      } catch {
+        throw new BadRequestException('列映射不是合法 JSON');
+      }
+    }
+    if (!Array.isArray(rawColumns) || !rawColumns.length) throw new BadRequestException('缺少列映射');
+    if (rawColumns.length > 50) throw new BadRequestException('列映射过多（上限 50 列）');
+    const mappings: Array<{ col: number; source: string }> = [];
+    for (const raw of rawColumns as any[]) {
+      const col = Math.floor(Number(raw?.col) || 0);
+      const source = String(raw?.source ?? '').trim();
+      if (col < 1) throw new BadRequestException('列映射里的列号不合法');
+      if (!allowedColumns.has(source)) throw new BadRequestException(`未知的数据集列：${source}`);
+      if (!mappings.some((m) => m.col === col)) mappings.push({ col, source });
+    }
+
+    const { wb } = await this.readCells(buffer);
+    const ws = wb.getWorksheet(sheet);
+    if (!ws) throw new BadRequestException(`工作表不存在：${sheet}`);
+
+    const projects = (ctx.scope?.projectIds?.length ? ctx.scope.projectIds : [ctx.projectId]).map((id) => ({
+      id,
+      code: '',
+      name: '',
+    }));
+    const from = parseLocalDay(ctx.period?.from);
+    const to = parseLocalDay(ctx.period?.to) ?? new Date();
+    const collected = await this.collector.collect(projects, { from, to: endOfDay(to) }, null);
+    const fact = collected.datasets.find((d) => d.key === datasetKey);
+    if (!fact) throw new BadRequestException('该数据集没有取到数据');
+
+    const MAX_TABLE_ROWS = 2000;
+    const rows = fact.rows.slice(0, MAX_TABLE_ROWS);
+    const truncated = fact.rows.length > MAX_TABLE_ROWS;
+    const templateRow = Math.min(startRow, Math.max(ws.rowCount, startRow));
+    const maxCol = Math.max(ws.columnCount, ...mappings.map((m) => m.col));
+
+    let filledRows = 0;
+    let skippedCells = 0;
+    rows.forEach((row, i) => {
+      const target = startRow + i;
+      if (target > ws.rowCount) {
+        ws.insertRow(target, 1);
+        const src = ws.getRow(templateRow);
+        for (let c = 1; c <= maxCol; c += 1) {
+          const toCell = ws.getCell(target, c);
+          const fromCell = src.getCell(c);
+          toCell.style = { ...(fromCell.style as any) };
+          toCell.numFmt = fromCell.numFmt;
+        }
+      }
+      for (const m of mappings) {
+        const value = row[m.source];
+        if (value === null || value === undefined || value === '') {
+          skippedCells += 1;
+          continue;
+        }
+        const cell = ws.getCell(target, m.col);
+        if (cell.isMerged && (cell.master as ExcelJS.Cell)?.address !== cell.address) {
+          skippedCells += 1;
+          continue;
+        }
+        cell.value =
+          typeof value === 'string' && /^[=+\-@]/.test(value) ? `'${value}` : (value as any);
+      }
+      filledRows += 1;
+    });
+
+    const out = await wb.xlsx.writeBuffer();
+    return {
+      buffer: Buffer.from(out),
+      fileName: fileName.replace(/\.xlsx$/i, '') + '-已填表.xlsx',
+      filledRows,
+      skippedCells,
+      truncated,
     };
   }
 

@@ -85,6 +85,8 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
   const [notes, setNotes] = useState('');
   const [title, setTitle] = useState('');
   const [narrative, setNarrative] = useState(true);
+  const [withWorkbook, setWithWorkbook] = useState(false);
+  const [workbookInfo, setWorkbookInfo] = useState<{ fileName: string } | null>(null);
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState<'docx' | 'pdf' | null>(null);
@@ -135,15 +137,22 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
     }
     setGenerating(true);
     try {
-      const res = await aiApi.analyticsReport({ ...body(), title: title.trim() || undefined });
+      const res = await aiApi.analyticsReport({ ...body(), title: title.trim() || undefined, outputs: { report: true, workbook: false } });
       setResult(res);
       setPlan(null);
-      if (res.persisted) {
+      setWorkbookInfo(null);
+      if (res.id && withWorkbook) {
+        try {
+          const wb = await aiApi.analyticsWorkbook({ ...body(), title: title.trim() || undefined, reportId: res.id });
+          setWorkbookInfo({ fileName: wb.fileName });
+          message.success(`报告已保存，表格已生成（${wb.sheets.length} 个 sheet）`);
+        } catch {
+          message.warning('报告已生成，但表格生成失败（历史里可稍后重试）');
+        }
+      } else if (res.persisted) {
         message.success('报告已生成并保存到历史');
-        onSaved();
-      } else {
-        message.warning('报告已生成，但历史记录保存失败');
       }
+      onSaved();
     } catch {
       // 拦截器已弹错
     } finally {
@@ -177,6 +186,29 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
       // 拦截器已弹错
     } finally {
       setExporting(null);
+    }
+  };
+
+  const doDownloadWorkbook = async () => {
+    if (!result?.id) return;
+    try {
+      const res = await aiApi.analyticsWorkbookDownload(result.id);
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const cd = (res.headers && (res.headers['content-disposition'] as string)) || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+      const fileName = m ? decodeURIComponent(m[1]) : workbookInfo?.fileName || `${result.title}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // 拦截器已弹错
     }
   };
 
@@ -336,6 +368,9 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
             <Button type="primary" icon={<FileTextOutlined />} loading={generating} onClick={doGenerate}>
               生成报告
             </Button>
+            <Checkbox checked={withWorkbook} onChange={(e) => setWithWorkbook(e.target.checked)}>
+              同时生成表格（xlsx）
+            </Checkbox>
           </Space>
         </Form>
       </Card>
@@ -387,6 +422,11 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
           title={result.title}
           extra={
             <Space wrap>
+              {workbookInfo && (
+                <Button icon={<DownloadOutlined />} onClick={doDownloadWorkbook}>
+                  表格
+                </Button>
+              )}
               <Button icon={<DownloadOutlined />} loading={exporting === 'docx'} disabled={!result.id} onClick={() => doExport('docx')}>
                 Word
               </Button>

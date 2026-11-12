@@ -1,6 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
+import { StorageService } from '../../../common/services/storage.service';
+import { StyledExcelService } from '../../../common/services/styled-excel.service';
 import type { JwtUser } from '../../../common/decorators/user.decorator';
 import { datasetByKey, filterDatasets, limitDatasets, DEFAULT_DATASET_KEYS, MAX_DATASETS } from './dataset-registry';
 import { parseIntentRules, normalizeModelIntent, type ModelIntentPatch } from '../intent/intent-rules';
@@ -22,7 +24,8 @@ import {
   buildNarratedReport,
 } from './dataset-facts';
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt';
-import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod } from '../common/period';
+import { buildAnalyticsWorkbookModel } from './workbook-builder';
+import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod, type DayRange } from '../common/period';
 import { AI_SECTION_TITLES } from './analytics.types';
 
 export interface AnalyticsReportInput extends AiAnalyticsPlanInput {
@@ -51,6 +54,8 @@ export class AnalyticsService {
     private setting: AiSettingService,
     private quota: AiQuota,
     private intent: IntentService,
+    private storage: StorageService,
+    private styled: StyledExcelService,
   ) {}
 
   /** 权限判据与 `ai.service.ts` 的 `canReader` 同约定：超管恒 true */
@@ -104,7 +109,7 @@ export class AnalyticsService {
     body: AiAnalyticsPlanInput,
     projectId: string,
     user: JwtUser,
-    opts: { consumeQuota?: boolean } = {},
+    opts: { consumeQuota?: boolean; useIntentLlm?: boolean } = {},
   ): Promise<AiAnalyticsPlanResult> {
     assertPermission(user, 'ai:use', '生成经营数据报告需要「使用 AI 助手」权限');
     const can = this.can(user);
@@ -115,7 +120,7 @@ export class AnalyticsService {
     let modelPatch: ModelIntentPatch | null = null;
     let source: 'rules' | 'llm' = 'rules';
     const text = String(body?.text ?? '').trim();
-    if (text) {
+    if (text && opts.useIntentLlm !== false) {
       const cfg = await this.setting.resolve();
       if (cfg.enabled) {
         const userId = user?.userId || user?.username || 'anonymous';
@@ -237,31 +242,9 @@ export class AnalyticsService {
     return projects[0] ? `${projects[0].code} ${projects[0].name}` : '当前项目';
   }
 
-  /**
-   * 确定性报告（Phase 2，不调模型）：取数 → 事实包 → Markdown → 落库。
-   * 事实 JSON 落库与返回都做**瘦身**（每数据集最多 200 行），完整明细留给工作簿（Phase 4）。
-   */
-  async report(body: AnalyticsReportInput, projectId: string, user: JwtUser) {
-    const cfg = await this.setting.resolve();
-    const wantsNarrative = cfg.enabled && body?.narrative !== false;
-    const userId = user?.userId || user?.username || 'anonymous';
-    if (wantsNarrative) this.quota.consume(userId, cfg.hourlyLimitPerUser);
-    let plan: AiAnalyticsPlanResult;
-    try {
-      plan = await this.plan(body || {}, projectId, user, { consumeQuota: false });
-    } catch (e) {
-      if (wantsNarrative) this.quota.refund(userId);
-      throw e;
-    }
+  /** 报告与工作簿共用：取数 → 事实包（同一份数字，不允许两条链路各算一遍） */
+  private async prepareFacts(plan: AiAnalyticsPlanResult, range: DayRange, cmpRange: DayRange | null) {
     const intent = plan.intent;
-    const now = new Date();
-    const range = resolvePresetPeriod(intent.period.preset, now, {
-      from: intent.period.from,
-      to: intent.period.to,
-    });
-    if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
-    const cmpRange = compareRange(range, intent.compare);
-
     const collected = await this.collector.collect(plan.projects, range, cmpRange);
     const scopeLabel = this.scopeLabel(intent, plan.projects);
     const periodLabel = rangeLabel(range);
@@ -287,11 +270,41 @@ export class AnalyticsService {
       totals: collected.totals,
       compareTotals: collected.compareTotals,
       byProject: collected.byProject,
-      datasets: collected.datasets,
+      // 只保留用户选择的数据集（采集器按全量构建，报告/工作簿/历史都只该出现所选）
+      datasets: collected.datasets.filter((d) => intent.datasets.includes(d.key)),
       warnings: [...plan.warnings, ...collected.warnings],
       asOf: collected.asOf,
-      generatedAt: now.toISOString(),
+      generatedAt: new Date().toISOString(),
     });
+    return { facts, scopeLabel, periodLabel };
+  }
+
+  /**
+   * 确定性报告（Phase 2，不调模型）：取数 → 事实包 → Markdown → 落库。
+   * 事实 JSON 落库与返回都做**瘦身**（每数据集最多 200 行），完整明细留给工作簿（Phase 4）。
+   */
+  async report(body: AnalyticsReportInput, projectId: string, user: JwtUser) {
+    const cfg = await this.setting.resolve();
+    const wantsNarrative = cfg.enabled && body?.narrative !== false;
+    const userId = user?.userId || user?.username || 'anonymous';
+    if (wantsNarrative) this.quota.consume(userId, cfg.hourlyLimitPerUser);
+    let plan: AiAnalyticsPlanResult;
+    try {
+      plan = await this.plan(body || {}, projectId, user, { consumeQuota: false });
+    } catch (e) {
+      if (wantsNarrative) this.quota.refund(userId);
+      throw e;
+    }
+    const intent = plan.intent;
+    const now = new Date();
+    const range = resolvePresetPeriod(intent.period.preset, now, {
+      from: intent.period.from,
+      to: intent.period.to,
+    });
+    if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
+    const cmpRange = compareRange(range, intent.compare);
+
+    const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
 
     const warnings = [...facts.warnings];
     let markdown = analyticsFactsToMarkdown(facts);
@@ -390,6 +403,125 @@ export class AnalyticsService {
 
   list(user: JwtUser, query: any) {
     return this.store.list(user, query || {});
+  }
+
+  /**
+   * 多 sheet 工作簿（确定性、不调模型、不扣配额）：与报告共用同一份事实包。
+   * `reportId` 给了就挂到已有报告记录上；否则新建一条「仅表格」记录。
+   */
+  async workbook(
+    body: AnalyticsReportInput & { reportId?: string },
+    projectId: string,
+    user: JwtUser,
+  ) {
+    assertPermission(user, 'ai:use', '生成经营数据表格需要「使用 AI 助手」权限');
+    const plan = await this.plan(body || {}, projectId, user, { consumeQuota: false, useIntentLlm: false });
+    const now = new Date();
+    const range = resolvePresetPeriod(plan.intent.period.preset, now, {
+      from: plan.intent.period.from,
+      to: plan.intent.period.to,
+    });
+    if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
+    const cmpRange = compareRange(range, plan.intent.compare);
+    const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
+    const model = buildAnalyticsWorkbookModel(facts);
+    const title = String(body?.title || analyticsTitle(plan.intent.reportKind, scopeLabel, periodLabel)).slice(0, 60);
+
+    const buffer = await this.styled.withWorkbook(async (wb) => {
+      for (const sheet of model) {
+        const ws = wb.addWorksheet(sheet.name);
+        let headerRow = 1;
+        if (sheet.note) {
+          const noteCell = ws.getCell(1, 1);
+          noteCell.value = sheet.note;
+          noteCell.font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+          if (sheet.columns.length > 1) ws.mergeCells(1, 1, 1, sheet.columns.length);
+          headerRow = 2;
+        }
+        ws.getRow(headerRow).values = sheet.columns;
+        ws.getRow(headerRow).font = { bold: true };
+        ws.views = [{ state: 'frozen', ySplit: headerRow }];
+        sheet.columns.forEach((col, i) => {
+          ws.getColumn(i + 1).width = Math.min(32, Math.max(10, col.length * 2 + 6));
+        });
+        if (!sheet.rows.length) {
+          ws.getCell(headerRow + 1, 1).value = '无数据';
+        }
+        sheet.rows.forEach((row, r) => {
+          sheet.columns.forEach((col, c) => {
+            const raw = row[col];
+            // 数据一律写字符串/数值，不生成公式（以 = + - @ 开头的文本强制按文本落库）
+            const value =
+              typeof raw === 'string' && /^[=+\-@]/.test(raw) ? `'${raw}` : (raw as any);
+            ws.getCell(headerRow + 1 + r, c + 1).value = value ?? '';
+          });
+        });
+      }
+    });
+
+    const fileName = `${title}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
+    const saved = await this.storage.save(buffer, { sub: `ai-analytics/${projectId}`, ext: '.xlsx', name: fileName });
+    const warnings = [...facts.warnings];
+    const factsForStore = {
+      ...facts,
+      datasets: facts.datasets.map((d) => ({ ...d, rows: d.rows.slice(0, 200) })),
+    };
+    let id: string;
+    try {
+      if (body?.reportId) {
+        await this.store.attachWorkbook(body.reportId, user, { key: saved.key, name: fileName, size: saved.size });
+        id = body.reportId;
+      } else {
+        const row = await this.store.create({
+          projectId,
+          createdBy: user?.userId ?? null,
+          createdByName: user?.realName ?? user?.username ?? null,
+          title,
+          rawText: plan.intent.rawText ?? null,
+          intentJson: plan.intent,
+          scopeJson: facts.scope,
+          datasetKeys: plan.intent.datasets,
+          factsJson: factsForStore,
+          warningsJson: warnings,
+          scopeMode: plan.intent.scope.mode,
+          projectCount: plan.projects.length,
+          periodFrom: range.from,
+          periodTo: range.to,
+          periodLabel,
+          compareMode: plan.intent.compare,
+          narrative: false,
+          source: 'template',
+          markdown: null,
+          hasReport: false,
+          workbookKey: saved.key,
+          workbookName: fileName,
+          workbookSize: saved.size,
+          hasWorkbook: true,
+        });
+        id = row.id;
+      }
+    } catch {
+      // DB 失败时把刚写的文件删掉，避免留下无主孤儿
+      await this.storage.remove(saved.key).catch(() => undefined);
+      throw new InternalServerErrorException('工作簿已生成但记录保存失败，已回滚文件，请重试');
+    }
+
+    return {
+      id,
+      fileName,
+      size: saved.size,
+      sheets: model.map((s) => s.name),
+      warnings,
+      reportId: body?.reportId ?? null,
+    };
+  }
+
+  /** 下载存档工作簿（只按记录 key 读取；不接受客户端传入路径） */
+  async workbookFile(id: string, user: JwtUser) {
+    const row = await this.store.detail(id, user);
+    if (!row.workbookKey) throw new NotFoundException('该记录没有表格文件');
+    const buffer = await this.storage.read(row.workbookKey);
+    return { buffer, fileName: row.workbookName || 'analytics.xlsx' };
   }
 
   detail(id: string, user: JwtUser) {

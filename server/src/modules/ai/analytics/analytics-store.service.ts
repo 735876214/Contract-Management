@@ -25,6 +25,10 @@ export interface CreateAnalyticsReportInput {
   source?: string | null;
   markdown?: string | null;
   hasReport?: boolean;
+  workbookKey?: string | null;
+  workbookName?: string | null;
+  workbookSize?: number | null;
+  hasWorkbook?: boolean;
 }
 
 export interface ListAnalyticsReportsQuery {
@@ -82,6 +86,10 @@ export class AnalyticsStore {
         source: input.source ?? 'template',
         markdown: input.markdown ?? null,
         hasReport: input.hasReport ?? false,
+        workbookKey: input.workbookKey ?? null,
+        workbookName: input.workbookName ?? null,
+        workbookSize: input.workbookSize ?? null,
+        hasWorkbook: input.hasWorkbook ?? false,
       },
     });
   }
@@ -133,6 +141,20 @@ export class AnalyticsStore {
       }),
     ]);
     return { list, total, page, pageSize };
+  }
+
+  /** 把工作簿挂到已有记录（报告记录「同时生成表格」的场景） */
+  async attachWorkbook(id: string, user: JwtUser, file: { key: string; name: string; size: number }) {
+    const row = await this.detail(id, user);
+    return this.prisma.aiAnalyticsReport.update({
+      where: { id: row.id },
+      data: {
+        workbookKey: file.key,
+        workbookName: file.name,
+        workbookSize: file.size,
+        hasWorkbook: true,
+      },
+    });
   }
 
   /** 详情（本人或超管）；非创建人 404，不泄露存在性 */

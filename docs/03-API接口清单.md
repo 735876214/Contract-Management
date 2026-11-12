@@ -510,8 +510,9 @@
 | GET | `/ai/setting` | AI 服务登记内容（**密钥只回“有没有”，绝不回明文**）+ 每项来源 `source`（db/env/default/none）与一句话 `hint` + **按用途的模型明细 `purposes[]`**（`code/name/desc/model/source/stored`，回落在后端算好） | `system:config` |
 | PUT | `/ai/setting` | 保存 `{enabled?, baseUrl?, model?, models?, apiKey?}`：`model` 是全局默认，`models` 按用途覆盖（**空串=该用途跟随全局**，未知用途 400）；不传=不改，**空串=清除**（回落环境变量），保存即刻生效（无需重启） | `system:config` |
 | POST | `/ai/setting/test` | 用页面当前值（缺项回落已存/env）**真打一次上游**验证地址/密钥/模型；可选 `purpose` 只测该用途实际会用的模型；401/403/404/429/超时/连不上分别给人话，不抛 500 | `system:config` |
-| POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）与模型建议（`fieldKey/confidence`，未启用时为 `null`） | `ai:use` |
-| POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
+| POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`、`scopeMode=current\|selected\|all`、`projectIds`（JSON 数组串）、`from`/`to`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）、模型建议、**表格区 `tables[]`**（表头 + 空行）与 **`tableDatasets[]`**（已实现且有权限的数据集与 Excel 列） | `ai:use`（跨项目另需 `dashboard:view`） |
+| POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）+ 同上 scope/period；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
+| POST | `/ai/forms/fill-table` | multipart `file` + `datasetKey`、`sheet`、`headerRow`、`startRow`、`columns`（JSON：`[{col, source}]`，`source` 为数据集 Excel 列名）+ scope/period；按行写入表区（不足插行并复制样式、不生成公式、≤2000 行），返回 `x-ai-filled-rows` / `x-ai-skipped` / `x-ai-truncated` | `ai:use`（跨项目另需 `dashboard:view`） |
 | POST | `/ai/register/parse` | multipart `file`（`.docx` / `.xlsx`）→ **只解析不写库**：返回 `draft.fields[]`（`value/verified/warn/note`）、明细 `items[]` 与合计、`warnings[]`、`missing[]`、库内同编号/同名的 `existing` | `ai:use` |
 | POST | `/ai/register/confirm` | 人工确认后的字段（**嵌套结构** `{supplier:{...}, contract:{...}}`，可选 `supplierId` / `skipSupplier`、`items[]` + `writeMaterials`）→ 写库并返回 `{supplierId, supplierCreated, contractId, code, name, materialCount, materialBaseCreated, materialSkipped}` | `contract:edit` **或** `supplier:edit` |
 
@@ -541,9 +542,11 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 | GET | `/ai/analytics/datasets` | 数据集注册表：只返回 **`implemented: true` 且当前用户有权限**的条目；另返回 `deniedDatasets`、`crossProjectAllowed`、`maxDatasets`、`defaultKeys` | `ai:view` |
 | POST | `/ai/analytics/plan` | body `{text?, scope?, period?, compare?, datasets?, focus?, outputs?, reportKind?, detail?, groupBy?, notes?}` → `{intent, warnings, unknownTerms, unknownDatasets, deniedDatasets, projects, source}`。意图只含枚举与注册表 key（模型不输出 ID/日期/数字）；合并顺序 **文本 < 模型补丁 < 前端显式选择**；AI 失败自动回落规则解析 | `ai:use` |
 | POST | `/ai/analytics/report` | 同 plan，另可带 `title?`、`narrative?` → `{id, persisted, title, intent, scope, period, compareMode, comparePeriod, sections, markdown, facts, unknownNumbers, discardedNumbers, warnings, source, usage}`。确定性表格 + 模型段落；模型段落过 `auditNumbers()`，对不上事实的数字 → **整段丢弃**（`discardedNumbers`）并回退确定性报告；成功即落库 | `ai:use` |
+| POST | `/ai/analytics/workbook` | 同 plan + 可选 `reportId` → `{id, fileName, size, sheets, warnings, reportId}`。多 sheet xlsx（总览/项目对照/所选数据集/风险），**不调模型、不扣配额**；带 `reportId` 挂到已有报告记录 | `ai:use` |
 | GET | `/ai/analytics` | 历史列表：`page,pageSize,keyword,has=report\|workbook,projectId?,from,to,all?`。默认**本人全部**（跨项目生成的报告切项目后仍可见）；超管 `all=1` 看全部 | `ai:view` |
 | GET | `/ai/analytics/:id` | 记录详情（本人或超管；非创建人 404，不泄露存在性） | `ai:view` |
 | GET | `/ai/analytics/:id/export?format=docx\|pdf` | 用**存档 Markdown** 重新排版导出，不重新取数（GET 下载走 httpOnly Cookie 鉴权） | `ai:view` |
+| GET | `/ai/analytics/:id/workbook` | 下载存档 xlsx（只按记录 key 读取，不接受客户端路径） | `ai:view` |
 | DELETE | `/ai/analytics/:id` | 只删 DB 记录（文件保留，由 `storage-audit.mjs` 人工审计） | `ai:use` |
 
 口径（经营数据助手）：范围支持当前项目 / 多选 / 全部项目（跨项目需 `dashboard:view`，项目集合按

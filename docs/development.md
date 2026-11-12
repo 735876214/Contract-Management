@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（85 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（19 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（87 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（20 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -179,12 +179,14 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiPeriod.spec.mts` | **AI 经营数据助手的期间原语**：本月/上月/本季度/今年/年初至今/近 30·90 天按本地日计算 · 累计至今没有起点 · 自定义期间按**本地零点**解析并含结束日、缺日期/倒置返回 null · 环比 = 紧邻本期之前等长段、同比 = 起止各回退一年 · `none` 与累计至今的对比期一律 null（展示 `-`，不当作下降 100%）· 空业务日期不落任何区间 |
   | `test/aiCommonFacts.spec.mts` | **AI 事实层共享原语**：有效发票排除作废/红冲、NULL 与未填状态计入、金额整数分合计且空金额跳过 · 合同链根多级上溯、父级缺失判断链（不猜）、成环按断链处理、链行数按链根归集 |
   | `test/aiAnalyticsFacts.spec.mts` | **AI 经营数据助手 · 事实包与确定性报告**（Phase 2）+ **模型叙述对账**（Phase 3）：注册表元信息回填、空数据集进 `warnings`（不是 0）· 风险由程序判定（付款超结算=高、开票缺口≥20pp=中、环比下降≥50%=中）· Markdown 固定小节与口径说明（合同链/业务发生日/发票两态/未填≠0）· 无对比期不显示变化列 · `analyticsFactNumbers` 放行总览/项目/风险文案里的数字 · 标题 ≤60 字 · 模型叙述按稳定章节 ID 追加、剥离标题/表格、编造数字**整段丢弃**并退回确定性报告、空/非对象结果不空窗 |
+  | `test/aiAnalyticsWorkbook.spec.mts` | **AI 经营数据助手 · 多 sheet 工作簿模型**（Phase 4）：sheet 名净化（非法字符/31 字符/重名加序号）· 总览（本期/对比期/变化）· 项目对照（按签约额倒序）· 每个数据集一张 sheet + 截断说明 · 风险与提示（等级 + 数据提醒） |
+  | `test/aiFieldCatalogScope.spec.mts` | **AI 填表字段目录 · 期间/跨项目作用域**（Phase 4）：字段键唯一、period/cross 字段齐备 · 金额/比例标签带单位 · 跨项目上下文不出现 contract/supplier、单项目不出现 cross · 权限映射 period=contract:view / cross=dashboard:view 且无权限进 denied |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
   | `test/themeTokens.spec.mts` | **色值来源锁**：`web/src` 里除白名单（`theme.ts`、`index.css`、`Sider/index.less`、`RichTextEditor.tsx`、`docExport.ts`）外不得出现 `#hex` / `rgb()` 字面量——视觉改动只改 token 层 |
   | `test/startupSeed.spec.mts` | **启动播种的并发安全锁**：`src/main.ts` 与 `test-integration/helpers.ts` 都必须走 `runStartupSeed()`（不得直接调 `seed*` 函数）· 该入口必须保留**事务级**咨询锁（会话级在连接池下会「加锁/解锁不同连接」）。起因：CI 空库上多进程并发播种撞 P2002 → 字典漏播、用例红，而**本地因库已播种完全看不见** |
-  | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断） |
+  | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断）· **表格区识别**（行级填充）：表头连排 + 下方连续空行才成表区、数据行不被当表头、不连续列拆段、表区数量上限 |
   | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、**量词（份/条/家）与百分比都参与对账**（2026-10-20 审计：原来一律跳过，等于编造的份数与百分比永远查不出来；百分数容许取整 82.38%→82%）、日期与章节序号不参与对账、**有序列表序号（`1.`/`2)`）不算数**（接真上游时实测误报过 2、3）、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
   | `test/aiRegisterMaterials.spec.mts` | **合同物资明细的落库映射**：`numOf` 吃千分位/货币符号/百分号且取不到返回 null（不落 0、不落 NaN）· 兼容 `unitPriceWithTax`/`amountWithTax` 与中文列名 · 合价缺失用「数量 × 单价」补齐并计数 · 缺名称与同「名称+规格」重复行被丢弃并计数 · 单位缺失兜底「项」· 税率未知时税前单价留空 · 非数组输入不抛错 · `itemsTotalWithTax` 四位小数累加 |
   | `test/aiReportPdf.spec.mts` | **汇报材料 PDF 排版**（pdf-lib，无文件 I/O）：标题居中与层级字号 · 列表圆点行 · 表格分隔行丢弃、单元格用 `·` 连 · 粗体标记抹掉 · `wrapText` 按宽度折行不丢字、空串给一行、超长串可切 · `renderReportPdf` 多页分页且产出合法 PDF（magic 为 `%PDF-`）、标题写进元数据 · 空正文出单页 |
@@ -267,6 +269,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
 | `aiAnalyticsPlan.int.spec.ts` | **AI 经营数据助手（Phase 1）权限与意图**：注册表只返回已实现且有权限的条目、无权限进 `denied`（超管全量）· `scope=current` 必须是成员项目 · `scope=all` 需 `dashboard:view` 且返回成员项目集合 · `scope=selected` 忽略无权/未知项目并提示、`mentions` 回写匹配到的项目名 · 无权数据集被剔除（`deniedDatasets`） |
 | `aiAnalyticsStore.int.spec.ts` | **AI 经营数据助手（Phase 2）报告与历史**：确定性报告落库（合同链 = 主合同 + 补充协议 `changeAmount`、草稿结算/失败付款/红冲发票不计入、日报条数）· 历史默认本人全部、非创建人 404、`projectId` 可选筛选 · 删除后不可再取 |
+| `aiAnalyticsWorkbook.int.spec.ts` | **AI 经营数据助手（Phase 4）工作簿与行级填充**：多 sheet 工作簿落库/下载（合法 xlsx、`hasReport`+`hasWorkbook` 同记录）· 行级填充按列映射写入数据集行（插行复制样式、数值列落 number、公式前缀文本化、行数上限） |
 | `contract-archive.int.spec.ts` | **合同归档锁定**（业务口径 2026-10-18，单向）：未签章/草稿结算阻断 · 下游收口后可归档 · 归档后合同/结算/收领单写入口 400、读取仍可用 · 不可重复归档 |
 | `contract-milestone.int.spec.ts` | **合同履约节点**（四域扩展按需项 2026-10-18）：CRUD 全链与 overdue 派生 · 跨项目 404 · 非法状态 400 · 归档合同禁止写 · 逾期节点进工作台 OVERDUE_MILESTONE 组 |
 | `material-categories.int.spec.ts` | **物资分类字典与基础库引用**（2026-10-18 分类表）：启动同步后一级 10/二级 67 项且二级挂一级 · 创建物资存名称、同名二级按一级归位 · 二级不属于所选一级/旧分类名 → 400 · 只传二级自动带出一级 · 导入模板的一/二级分类列**预置下拉**（隐藏选项表 + 数据验证） |

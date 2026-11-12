@@ -34,6 +34,29 @@ import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.de
  */
 const AI_UPLOAD = { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } };
 
+/** multipart 只能传文本：projectIds 允许 JSON 数组串或逗号分隔串 */
+const parseProjectIds = (v: unknown): string[] => {
+  if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  if (typeof v !== 'string' || !v.trim()) return [];
+  try {
+    const arr = JSON.parse(v);
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  } catch {
+    return v.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+};
+
+/** 表单填报的共享上下文（inspect/fill 口径一致） */
+const formContext = (body: any, projectId: string) => ({
+  projectId,
+  contractId: body?.contractId || null,
+  supplierId: body?.supplierId || null,
+  scope: body?.scopeMode
+    ? { mode: body.scopeMode as 'current' | 'selected' | 'all', projectIds: parseProjectIds(body.projectIds) }
+    : undefined,
+  period: body?.from || body?.to ? { from: body?.from, to: body?.to } : undefined,
+});
+
 /**
  * AI 助手（模块前缀 `api/ai`）。
  *
@@ -103,15 +126,11 @@ export class AiController {
   @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
   inspect(
     @UploadedFile() file: any,
-    @Body() body: { contractId?: string; supplierId?: string },
+    @Body() body: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string; from?: string; to?: string },
     @ProjectId() projectId: string,
     @CurrentUser() user: JwtUser,
   ) {
-    return this.service.inspectForm(
-      file,
-      { projectId, contractId: body?.contractId || null, supplierId: body?.supplierId || null },
-      user,
-    );
+    return this.service.inspectForm(file, formContext(body, projectId), user);
   }
 
   /**
@@ -245,7 +264,7 @@ export class AiController {
   @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
   async fill(
     @UploadedFile() file: any,
-    @Body() body: { mapping?: string; contractId?: string; supplierId?: string },
+    @Body() body: { mapping?: string; contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string; from?: string; to?: string },
     @ProjectId() projectId: string,
     @CurrentUser() user: JwtUser,
     @Res() res: Response,
@@ -253,7 +272,7 @@ export class AiController {
     const result = await this.service.fillForm(
       file,
       body?.mapping,
-      { projectId, contractId: body?.contractId || null, supplierId: body?.supplierId || null },
+      formContext(body, projectId),
       user,
     );
     // 统计放进响应头：附件流的正文是二进制，前端拿不到 JSON
@@ -265,6 +284,49 @@ export class AiController {
     res.setHeader('x-ai-filled', String(result.filled));
     res.setHeader('x-ai-skipped', String(result.skipped.length));
     res.setHeader('Access-Control-Expose-Headers', 'x-ai-filled, x-ai-skipped, Content-Disposition');
+    res.end(result.buffer);
+  }
+
+  /**
+   * 行级表格填充：把数据集的行写进模板的表区（列映射由前端选择）。
+   * 返回 xlsx 附件 + `x-ai-filled-rows / x-ai-skipped / x-ai-truncated` 统计头。
+   */
+  @RequirePermissions('ai:use')
+  @Post('forms/fill-table')
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
+  async fillTable(
+    @UploadedFile() file: any,
+    @Body()
+    body: {
+      datasetKey?: string;
+      sheet?: string;
+      headerRow?: string;
+      startRow?: string;
+      columns?: string;
+      contractId?: string;
+      supplierId?: string;
+      scopeMode?: string;
+      projectIds?: string;
+      from?: string;
+      to?: string;
+    },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ) {
+    const result = await this.service.fillTable(file, body || {}, formContext(body, projectId), user);
+    res.setHeader('Content-Type', this.service.xlsxMime);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
+    );
+    res.setHeader('x-ai-filled-rows', String(result.filledRows));
+    res.setHeader('x-ai-skipped', String(result.skippedCells));
+    res.setHeader('x-ai-truncated', result.truncated ? '1' : '0');
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
+    );
     res.end(result.buffer);
   }
 }

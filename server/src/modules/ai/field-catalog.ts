@@ -17,8 +17,8 @@
 /** 值类型：决定格式化方式（金额 2 位小数、比例 ×100、日期 YYYY-MM-DD） */
 export type AiFieldType = 'text' | 'date' | 'money' | 'number' | 'percent' | 'dict';
 
-/** 取值作用域：project 只需项目上下文；contract/supplier 需要对应 id */
-export type AiFieldScope = 'project' | 'contract' | 'supplier' | 'stats';
+/** 取值作用域：project 只需项目上下文；contract/supplier 需要对应 id；period = 期间发生额；cross = 跨项目聚合 */
+export type AiFieldScope = 'project' | 'contract' | 'supplier' | 'stats' | 'period' | 'cross';
 
 export interface AiFieldDef {
   /** 稳定键：`<域>.<字段>`，作为模型的输出契约，**不要改名**（改名会让历史映射失效） */
@@ -84,6 +84,24 @@ export const AI_FIELD_CATALOG: readonly AiFieldDef[] = [
   { key: 'stats.paymentAmountTotal', label: '累计付款金额(元)', type: 'money', scope: 'stats' },
   { key: 'stats.invoiceAmountTotal', label: '累计开票金额(元)', type: 'money', scope: 'stats' },
   { key: 'stats.unpaidAmount', label: '应付未付金额(元)', type: 'money', scope: 'stats' },
+
+  // ---------- 期间发生额（按业务发生日；缺省为「本月 1 日 ~ 今天」） ----------
+  { key: 'period.contractSignedCount', label: '本期新签合同数量', type: 'number', scope: 'period', aliases: ['本期合同数'] },
+  { key: 'period.contractSignedAmount', label: '本期新签合同金额(元)', type: 'money', scope: 'period', aliases: ['本期签约额'] },
+  { key: 'period.settlementAmount', label: '本期结算金额(元)', type: 'money', scope: 'period', aliases: ['本期结算额'] },
+  { key: 'period.paymentAmount', label: '本期付款金额(元)', type: 'money', scope: 'period', aliases: ['本期付款额'] },
+  { key: 'period.invoiceAmount', label: '本期开票金额(元)', type: 'money', scope: 'period', aliases: ['本期开票额'] },
+  { key: 'period.dailyReportCount', label: '本期日报条数', type: 'number', scope: 'period' },
+
+  // ---------- 跨项目聚合（全部/多选项目；需要「统计报表-查看」权限） ----------
+  { key: 'cross.projectCount', label: '汇总项目数量', type: 'number', scope: 'cross' },
+  { key: 'cross.contractCount', label: '汇总合同数量', type: 'number', scope: 'cross' },
+  { key: 'cross.signedAmount', label: '汇总签约额(元)', type: 'money', scope: 'cross', aliases: ['全部项目签约额'] },
+  { key: 'cross.settlementAmount', label: '汇总结算额(元)', type: 'money', scope: 'cross' },
+  { key: 'cross.paymentAmount', label: '汇总付款额(元)', type: 'money', scope: 'cross' },
+  { key: 'cross.invoiceAmount', label: '汇总开票额(元)', type: 'money', scope: 'cross' },
+  { key: 'cross.unpaidAmount', label: '汇总应付未付(元)', type: 'money', scope: 'cross' },
+  { key: 'cross.uninvoicedAmount', label: '汇总已结未开票(元)', type: 'money', scope: 'cross' },
 ] as const;
 
 const FIELD_MAP = new Map(AI_FIELD_CATALOG.map((f) => [f.key, f]));
@@ -95,11 +113,22 @@ export function aiFieldByKey(key: string): AiFieldDef | undefined {
 /**
  * 按上下文过滤可用字段：没有选中合同时，`contract.*` / `supplier.*` 字段不该出现在候选里
  * （否则模型会把"合同编号"映射成一个永远取不到值的字段，用户看到的是空填充）。
+ * 跨项目填报（`crossProject`）时不提供 `contract.*` / `supplier.*`（单据级字段没有「汇总值」语义），
+ * 只提供 `period.*` / `cross.*` 与项目基础字段。
  */
-export function availableFields(ctx: { hasContract: boolean; hasSupplier: boolean }): AiFieldDef[] {
+export function availableFields(ctx: {
+  hasContract: boolean;
+  hasSupplier: boolean;
+  crossProject?: boolean;
+  /** 期间字段是否可用（默认 true；缺省期间按「本月 1 日 ~ 今天」） */
+  hasPeriod?: boolean;
+}): AiFieldDef[] {
+  const cross = Boolean(ctx.crossProject);
   return AI_FIELD_CATALOG.filter((f) => {
-    if (f.scope === 'contract') return ctx.hasContract;
-    if (f.scope === 'supplier') return ctx.hasSupplier;
+    if (f.scope === 'contract') return ctx.hasContract && !cross;
+    if (f.scope === 'supplier') return ctx.hasSupplier && !cross;
+    if (f.scope === 'period') return ctx.hasPeriod !== false;
+    if (f.scope === 'cross') return cross;
     return true;
   });
 }
@@ -117,6 +146,9 @@ export const SCOPE_READ_PERMISSION: Record<AiFieldScope, string> = {
   contract: 'contract:view',
   supplier: 'supplier:view',
   stats: 'contract:view',
+  period: 'contract:view',
+  // 跨项目汇总比单项目敏感：与统计报表同权限（dashboard:view）
+  cross: 'dashboard:view',
 };
 
 /**

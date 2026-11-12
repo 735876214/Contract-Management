@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   cellRefOf,
   colLetter,
+  detectTableRegions,
   looksLikeLabel,
   scanSheetCells,
   scanWorkbook,
@@ -189,5 +190,59 @@ describe('坐标一致性', () => {
     const out = scanSheetCells([cell('S', 7, 27, '合同金额：')]);
     assert.equal(out[0].cellRef, cellRefOf(out[0].row, out[0].col));
     assert.equal(out[0].cellRef, 'AB7');
+  });
+});
+
+describe('表格区识别（行级填充）', () => {
+  it('表头连排 + 下方连续空行 → 一个表区', () => {
+    const regions = detectTableRegions([
+      cell('S', 3, 1, '序号'),
+      cell('S', 3, 2, '合同编号'),
+      cell('S', 3, 3, '金额'),
+      // 4、5 行在 A–C 列为空
+    ]);
+    assert.equal(regions.length, 1);
+    const r = regions[0];
+    assert.equal(r.sheet, 'S');
+    assert.equal(r.headerRow, 3);
+    assert.equal(r.startRow, 4);
+    assert.deepEqual(
+      r.columns.map((c) => [c.letter, c.label]),
+      [['A', '序号'], ['B', '合同编号'], ['C', '金额']],
+    );
+    assert.ok(r.emptyRows >= 2);
+  });
+
+  it('表头下方立即有数据 → 不算可填表区（没有空行）', () => {
+    const regions = detectTableRegions([
+      cell('S', 1, 1, '序号'),
+      cell('S', 1, 2, '合同编号'),
+      cell('S', 2, 1, '1'),
+      cell('S', 2, 2, 'HT-001'),
+    ]);
+    assert.equal(regions.length, 0);
+  });
+
+  it('单格表头不算表区；列不连续时拆成两段', () => {
+    assert.deepEqual(detectTableRegions([cell('S', 1, 1, '金额')]), []);
+    const regions = detectTableRegions([
+      cell('S', 1, 1, '甲'),
+      cell('S', 1, 2, '乙'),
+      // C 列空，D/E 另一段
+      cell('S', 1, 4, '丙'),
+      cell('S', 1, 5, '丁'),
+    ]);
+    assert.equal(regions.length, 2);
+    assert.deepEqual(regions[0].columns.map((c) => c.letter), ['A', 'B']);
+    assert.deepEqual(regions[1].columns.map((c) => c.letter), ['D', 'E']);
+  });
+
+  it('表区数量上限生效（防空转）', () => {
+    const cells: FormCell[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      cells.push(cell('S', i * 3 + 1, 1, '甲'));
+      cells.push(cell('S', i * 3 + 1, 2, '乙'));
+    }
+    assert.equal(detectTableRegions(cells, 5).length, 5);
   });
 });

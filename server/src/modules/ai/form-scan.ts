@@ -180,6 +180,78 @@ export function scanSheetCells(cells: readonly FormCell[]): FormCandidate[] {
   return out;
 }
 
+/** 表格区（行级填充用）：表头行 + 下方连续空行 */
+export interface FormTableRegion {
+  sheet: string;
+  /** 表头所在行（1 基） */
+  headerRow: number;
+  /** 第一行可写数据行（1 基） */
+  startRow: number;
+  /** 表头列 */
+  columns: Array<{ col: number; letter: string; label: string }>;
+  /** 表头下方连续空行数（≤ 上限） */
+  emptyRows: number;
+}
+
+/**
+ * 识别「表头连排 + 下方连续空行」的表格区（Phase 4 行级填充）。
+ *
+ * 与 `scanSheetCells` 的表头排除同源：连续 ≥2 个非空格即视为表头候选；
+ * 只收**下方至少 1 行空行**的区域（没有空行就没地方写，不能算可填表区）。
+ * 同一行可能出现多个表头段（并列小表），逐个登记；上限由调用方截断。
+ */
+export function detectTableRegions(cells: readonly FormCell[], maxRegions = 10): FormTableRegion[] {
+  const bySheet = new Map<string, Map<string, FormCell>>();
+  for (const c of cells) {
+    const t = String(c.text ?? '').trim();
+    if (!t) continue;
+    const sheet = bySheet.get(c.sheet) ?? new Map<string, FormCell>();
+    sheet.set(`${c.row}|${c.col}`, { ...c, text: t });
+    bySheet.set(c.sheet, sheet);
+  }
+
+  const out: FormTableRegion[] = [];
+  for (const [sheet, grid] of bySheet) {
+    const rows = [...new Set([...grid.values()].map((c) => c.row))].sort((a, b) => a - b);
+    for (const row of rows) {
+      const rowCells = [...grid.values()].filter((c) => c.row === row).sort((a, b) => a.col - b.col);
+      // 找出连续的非空段（长度 ≥2）
+      const runs: FormCell[][] = [];
+      let run: FormCell[] = [];
+      for (const c of rowCells) {
+        if (run.length && c.col !== run[run.length - 1].col + 1) {
+          if (run.length >= 2) runs.push(run);
+          run = [];
+        }
+        run.push(c);
+      }
+      if (run.length >= 2) runs.push(run);
+
+      for (const r of runs) {
+        if (out.length >= maxRegions) return out;
+        // 表头至少含一个"像标签"的格：否则纯数字/编号的数据行也会被当成表头
+        if (!r.some((c) => looksLikeLabel(c.text))) continue;
+        const cols = r.map((c) => c.col);
+        let emptyRows = 0;
+        for (let rr = row + 1; rr <= row + 500; rr += 1) {
+          const hasValue = cols.some((col) => grid.has(`${rr}|${col}`));
+          if (hasValue) break;
+          emptyRows += 1;
+        }
+        if (emptyRows < 1) continue;
+        out.push({
+          sheet,
+          headerRow: row,
+          startRow: row + 1,
+          columns: r.map((c) => ({ col: c.col, letter: colLetter(c.col), label: trimLabel(c.text) })),
+          emptyRows,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * 全簿扫描：按 sheet 分组后逐表扫描，结果按 (sheet, row, col) 排序并截断到 `maxCandidates`。
  * 截断**保留**前 N 个（按阅读顺序），并返回被丢弃的数量 —— 前端要提示"请精简上传或分段处理"，

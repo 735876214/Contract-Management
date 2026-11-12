@@ -42,6 +42,17 @@ export class AnalyticsController {
     return this.service.report(body || {}, projectId, user);
   }
 
+  /** 多 sheet 工作簿（不调模型、不扣配额）；可带 `reportId` 挂到已有报告记录 */
+  @RequirePermissions('ai:use')
+  @Post('workbook')
+  workbook(
+    @Body() body: AnalyticsReportInput & { reportId?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.service.workbook(body || {}, projectId, user);
+  }
+
   /** 历史列表：默认本人全部（跨项目可见）；`projectId` 可选筛选；超管 `all=1` */
   @RequirePermissions('ai:view')
   @Get()
@@ -64,6 +75,20 @@ export class AnalyticsController {
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="analytics.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    );
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.end(buffer);
+  }
+
+  /** 下载存档工作簿（只按记录 key 读取） */
+  @RequirePermissions('ai:view')
+  @Get(':id/workbook')
+  async workbookFile(@Param('id') id: string, @CurrentUser() user: JwtUser, @Res() res: Response) {
+    const { buffer, fileName } = await this.service.workbookFile(id, user);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="analytics.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
     );
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.end(buffer);

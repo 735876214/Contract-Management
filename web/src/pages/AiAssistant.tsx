@@ -3,7 +3,9 @@ import {
   Alert,
   Button,
   Card,
+  DatePicker,
   Empty,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -16,8 +18,9 @@ import {
   message,
 } from 'antd';
 import { DownloadOutlined, InboxOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import type { Dayjs } from 'dayjs';
 import { aiApi, type AiInspectCandidate, type AiInspectResult } from '@/api/modules';
-import { contractApi, supplierApi } from '@/api/business';
+import { contractApi, projectApi, supplierApi } from '@/api/business';
 import AiRegisterPanel from './AiRegisterPanel';
 import AiReportPanel from './AiReportPanel';
 
@@ -73,12 +76,22 @@ function FillPanel() {
   const [suppliers, setSuppliers] = useState<Option[]>([]);
   const [contractId, setContractId] = useState<string>();
   const [supplierId, setSupplierId] = useState<string>();
+  /** 填报范围（2026-11-12）：跨项目时填入的是汇总值，需「统计报表-查看」权限与期间 */
+  const [scopeMode, setScopeMode] = useState<'current' | 'selected' | 'all'>('current');
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [projects, setProjects] = useState<Option[]>([]);
+  const [periodRange, setPeriodRange] = useState<[Dayjs, Dayjs] | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [result, setResult] = useState<AiInspectResult | null>(null);
   const [picked, setPicked] = useState<Record<string, string | undefined>>({});
   const [filling, setFilling] = useState(false);
+  /** 行级表格填充：选表区 → 选数据集 → 列映射 */
+  const [tableIndex, setTableIndex] = useState(0);
+  const [tableDatasetKey, setTableDatasetKey] = useState<string>();
+  const [tableMapping, setTableMapping] = useState<Record<number, string | undefined>>({});
+  const [tableFilling, setTableFilling] = useState(false);
 
   useEffect(() => {
     aiApi
@@ -87,6 +100,10 @@ function FillPanel() {
       .catch(() => setStatus({ enabled: false, model: '' }));
     contractApi.options().then((list: Option[]) => setContracts(list || [])).catch(() => undefined);
     supplierApi.options().then((list: Option[]) => setSuppliers(list || [])).catch(() => undefined);
+    projectApi
+      .list({ page: 1, pageSize: 200 })
+      .then((res: any) => setProjects(res?.list || res?.items || []))
+      .catch(() => undefined);
   }, []);
 
   const fieldOptions = useMemo(
@@ -99,14 +116,30 @@ function FillPanel() {
     [result],
   );
 
+  /** 上传/回填共用上下文：跨项目时只传 range（表单里是汇总值） */
+  const formCtx = useMemo(
+    () => ({
+      contractId,
+      supplierId,
+      scopeMode: scopeMode === 'current' ? undefined : scopeMode,
+      projectIds: scopeMode === 'selected' ? projectIds : undefined,
+      from: scopeMode === 'current' ? undefined : periodRange?.[0]?.format('YYYY-MM-DD'),
+      to: scopeMode === 'current' ? undefined : periodRange?.[1]?.format('YYYY-MM-DD'),
+    }),
+    [contractId, supplierId, scopeMode, projectIds, periodRange],
+  );
+
   /** 上传即扫描：省掉「上传 + 点扫描」两步，失败时保留文件方便重试 */
   const inspect = useCallback(
     async (f: File) => {
       setInspecting(true);
       setResult(null);
       setPicked({});
+      setTableIndex(0);
+      setTableDatasetKey(undefined);
+      setTableMapping({});
       try {
-        const res = await aiApi.inspect(f, { contractId, supplierId });
+        const res = await aiApi.inspect(f, formCtx);
         setResult(res);
         // 初始映射 = 模型建议（只采纳高置信度，低置信度留给用户判断）
         const initial: Record<string, string | undefined> = {};
@@ -122,12 +155,12 @@ function FillPanel() {
         setInspecting(false);
       }
     },
-    [contractId, supplierId],
+    [formCtx],
   );
 
   /**
-   * 切换「关联合同 / 关联供应商」后可用字段会变，必须重扫一遍：
-   * 否则用户先传文件、后选合同，下拉里还是旧字段集，合同字段根本选不到。
+   * 切换「填报范围 / 关联合同 / 关联供应商」后可用字段会变，必须重扫一遍：
+   * 否则用户先传文件、后改范围，下拉里还是旧字段集，汇总字段根本选不到。
    * 首次挂载跳过（此时还没上传文件，重扫没有意义）。
    */
   const firstCtx = useRef(true);
@@ -137,9 +170,9 @@ function FillPanel() {
       return;
     }
     if (file) void inspect(file);
-    // 只跟随关联对象变化；file 变化本身由 onPick 触发扫描
+    // 只跟随填报上下文变化；file 变化本身由 onPick 触发扫描
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contractId, supplierId]);
+  }, [formCtx]);
 
   const onPick = (f: File) => {
     if (!/\.xlsx$/i.test(f.name)) {
@@ -170,7 +203,7 @@ function FillPanel() {
     }
     setFilling(true);
     try {
-      const res = await aiApi.fill(file, mapped, { contractId, supplierId });
+      const res = await aiApi.fill(file, mapped, formCtx);
       const blob = res.data as Blob;
       const filled = Number(res.headers?.['x-ai-filled'] ?? 0);
       const skipped = Number(res.headers?.['x-ai-skipped'] ?? 0);
@@ -192,9 +225,67 @@ function FillPanel() {
     }
   };
 
+  const tableRegion = result?.tables?.[tableIndex];
+  const tableDataset = result?.tableDatasets?.find((d) => d.key === tableDatasetKey);
+
+  /** 选数据集时按表头文字自动预填列映射（用户仍可逐列改） */
+  const applyTableDataset = (key?: string) => {
+    setTableDatasetKey(key);
+    const ds = result?.tableDatasets?.find((d) => d.key === key);
+    const map: Record<number, string | undefined> = {};
+    if (ds && tableRegion) {
+      for (const c of tableRegion.columns) {
+        const hit =
+          ds.columns.find((col) => col === c.label) ??
+          ds.columns.find((col) => c.label.includes(col) || col.includes(c.label));
+        if (hit) map[c.col] = hit;
+      }
+    }
+    setTableMapping(map);
+  };
+
+  const fillTable = async () => {
+    if (!file || !tableRegion || !tableDatasetKey) return;
+    const columns = Object.entries(tableMapping)
+      .filter(([, source]) => !!source)
+      .map(([col, source]) => ({ col: Number(col), source: source as string }));
+    if (!columns.length) {
+      message.warning('至少映射一列');
+      return;
+    }
+    setTableFilling(true);
+    try {
+      const res = await aiApi.fillTable(file, {
+        datasetKey: tableDatasetKey,
+        sheet: tableRegion.sheet,
+        headerRow: tableRegion.headerRow,
+        startRow: tableRegion.startRow,
+        columns,
+        ...formCtx,
+      });
+      const filledRows = Number(res.headers?.['x-ai-filled-rows'] ?? 0);
+      const skipped = Number(res.headers?.['x-ai-skipped'] ?? 0);
+      const truncated = String(res.headers?.['x-ai-truncated'] ?? '') === '1';
+      const fileName = decodeURIComponent(
+        String(res.headers?.['content-disposition'] || '').replace(/^.*filename\*=UTF-8''/, '') ||
+          'ai-filled-table.xlsx',
+      );
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success(`已写入 ${filledRows} 行${skipped ? `，跳过 ${skipped} 空值/合并格` : ''}${truncated ? '（超出 2000 行已截断）' : ''}`);
+    } catch {
+      // 拦截器已提示
+    } finally {
+      setTableFilling(false);
+    }
+  };
+
   const columns = [
-    { title: '工作表', dataIndex: 'sheet', width: 140, ellipsis: true },
-    { title: '单元格', dataIndex: 'cellRef', width: 90 },
+    { title: '工作表', dataIndex: 'sheet', width: 140, ellipsis: true },    { title: '单元格', dataIndex: 'cellRef', width: 90 },
     {
       title: '表单标签',
       dataIndex: 'label',
@@ -294,6 +385,38 @@ function FillPanel() {
       )}
 
       <Space wrap style={{ marginBottom: 12 }}>
+        <Segmented
+          value={scopeMode}
+          onChange={(v) => setScopeMode(v as 'current' | 'selected' | 'all')}
+          options={[
+            { value: 'current', label: '当前项目' },
+            { value: 'selected', label: '多选项目' },
+            { value: 'all', label: '全部项目' },
+          ]}
+        />
+        {scopeMode === 'selected' && (
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ minWidth: 240, maxWidth: 420 }}
+            maxTagCount="responsive"
+            placeholder="选择要汇总的项目"
+            value={projectIds}
+            onChange={setProjectIds}
+            options={projects.map((p) => ({ value: p.id, label: `${p.name || p.id}${p.code ? `（${p.code}）` : ''}` }))}
+          />
+        )}
+        {scopeMode !== 'current' && (
+          <DatePicker.RangePicker value={periodRange} onChange={(v) => setPeriodRange(v as [Dayjs, Dayjs] | null)} />
+        )}
+        {scopeMode !== 'current' && (
+          <Text type="secondary">跨项目填报：填入的是汇总值，需要「统计报表-查看」权限与期间</Text>
+        )}
+      </Space>
+
+      <Space wrap style={{ marginBottom: 12 }}>
         <Select
           allowClear
           showSearch
@@ -359,6 +482,73 @@ function FillPanel() {
             locale={{ emptyText: <Empty description="没有找到可填的空白单元格" /> }}
             scroll={{ x: 980 }}
           />
+
+          {!!result?.tables?.length && !!result.tableDatasets?.length && (
+            <Card size="small" style={{ marginTop: 16 }} title="表格区行级填充">
+              <Space wrap>
+                <Select
+                  style={{ minWidth: 300 }}
+                  value={tableIndex}
+                  onChange={(i) => {
+                    setTableIndex(i);
+                    setTableDatasetKey(undefined);
+                    setTableMapping({});
+                  }}
+                  options={result.tables.map((t, i) => ({
+                    value: i,
+                    label: `${t.sheet} · 第 ${t.headerRow} 行表头（${t.columns.length} 列 / ${t.emptyRows} 空行）`,
+                  }))}
+                />
+                <Select
+                  allowClear
+                  style={{ minWidth: 220 }}
+                  placeholder="选择数据集"
+                  value={tableDatasetKey}
+                  onChange={applyTableDataset}
+                  options={result.tableDatasets.map((d) => ({ value: d.key, label: d.label }))}
+                />
+                <Button
+                  type="primary"
+                  loading={tableFilling}
+                  disabled={!tableRegion || !tableDatasetKey}
+                  onClick={fillTable}
+                >
+                  生成行级填充文件
+                </Button>
+              </Space>
+              {tableRegion && tableDataset && (
+                <Table
+                  style={{ marginTop: 12 }}
+                  rowKey="col"
+                  size="small"
+                  pagination={false}
+                  dataSource={tableRegion.columns}
+                  columns={[
+                    { title: '列', dataIndex: 'letter', width: 70 },
+                    { title: '模板表头', dataIndex: 'label' },
+                    {
+                      title: '数据列',
+                      key: 'source',
+                      render: (_: unknown, r: { col: number }) => (
+                        <Select
+                          allowClear
+                          style={{ width: '100%' }}
+                          value={tableMapping[r.col]}
+                          onChange={(v) => setTableMapping((m) => ({ ...m, [r.col]: v }))}
+                          options={tableDataset.columns.map((c) => ({ value: c, label: c }))}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              )}
+              {tableRegion && !tableDataset && (
+                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                  选择数据集后按表头自动预填列映射；跨项目时需先在页首选择期间。
+                </Text>
+              )}
+            </Card>
+          )}
         </>
       )}
     </Card>

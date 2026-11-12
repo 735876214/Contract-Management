@@ -553,6 +553,20 @@ export interface AiInspectCandidate {
   confidence?: number | null;
 }
 
+export interface AiTableRegion {
+  sheet: string;
+  headerRow: number;
+  startRow: number;
+  columns: Array<{ col: number; letter: string; label: string }>;
+  emptyRows: number;
+}
+
+export interface AiTableDataset {
+  key: string;
+  label: string;
+  columns: string[];
+}
+
 export interface AiInspectResult {
   aiEnabled: boolean;
   aiMessage?: string;
@@ -561,6 +575,10 @@ export interface AiInspectResult {
   /** 超出扫描上限被丢弃的槽位数（>0 时前端提示精简文件） */
   truncated: number;
   availableFields: { key: string; label: string; type: string; scope: string; sensitive?: boolean }[];
+  /** 表格区（行级填充） */
+  tables?: AiTableRegion[];
+  /** 行级填充可选数据集与列 */
+  tableDatasets?: AiTableDataset[];
 }
 
 
@@ -1052,12 +1070,16 @@ export interface AiAnalyticsRecordDetail extends AiAnalyticsRecordSummary {
 
 export const aiApi = {
   status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
-  /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
-  inspect: (file: File, ctx?: { contractId?: string; supplierId?: string }) => {
+  /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段；`scopeMode` 非 current 时为跨项目汇总填报 */
+  inspect: (file: File, ctx?: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string[]; from?: string; to?: string }) => {
     const form = new FormData();
     form.append('file', file);
     if (ctx?.contractId) form.append('contractId', ctx.contractId);
     if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    if (ctx?.scopeMode) form.append('scopeMode', ctx.scopeMode);
+    if (ctx?.projectIds?.length) form.append('projectIds', JSON.stringify(ctx.projectIds));
+    if (ctx?.from) form.append('from', ctx.from);
+    if (ctx?.to) form.append('to', ctx.to);
     return http.post<any, AiInspectResult>('/ai/forms/inspect', form, { timeout: 120000 } as any);
   },
   /** 文件登记：上传合同文件 → 登记草案（**不写库**，只返回抽取结果供人确认） */
@@ -1083,18 +1105,59 @@ export const aiApi = {
   reportExport: (body: { markdown: string; title?: string; header?: string; footer?: string; format?: 'docx' | 'pdf' }) =>
     http.post<any, any>('/ai/report/export', body, { responseType: 'blob', timeout: 120000, rawResponse: true } as any),
   /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
-  fill: (file: File, mapping: { sheet: string; cellRef: string; fieldKey: string }[], ctx?: { contractId?: string; supplierId?: string }) => {
+  fill: (
+    file: File,
+    mapping: { sheet: string; cellRef: string; fieldKey: string }[],
+    ctx?: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string[]; from?: string; to?: string },
+  ) => {
     const form = new FormData();
     form.append('file', file);
     form.append('mapping', JSON.stringify(mapping));
     if (ctx?.contractId) form.append('contractId', ctx.contractId);
     if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    if (ctx?.scopeMode) form.append('scopeMode', ctx.scopeMode);
+    if (ctx?.projectIds?.length) form.append('projectIds', JSON.stringify(ctx.projectIds));
+    if (ctx?.from) form.append('from', ctx.from);
+    if (ctx?.to) form.append('to', ctx.to);
     return http.post<any, any>('/ai/forms/fill', form, {
       responseType: 'blob',
       timeout: 120000,
       rawResponse: true,
     } as any);
   },
+  /** 行级表格填充：数据集行 → 模板表区（返回 xlsx + 统计响应头） */
+  fillTable: (
+    file: File,
+    body: {
+      datasetKey: string;
+      sheet: string;
+      headerRow: number;
+      startRow: number;
+      columns: Array<{ col: number; source: string }>;
+      scopeMode?: string;
+      projectIds?: string[];
+      from?: string;
+      to?: string;
+    },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('datasetKey', body.datasetKey);
+    form.append('sheet', body.sheet);
+    form.append('headerRow', String(body.headerRow));
+    form.append('startRow', String(body.startRow));
+    form.append('columns', JSON.stringify(body.columns));
+    if (body.scopeMode) form.append('scopeMode', body.scopeMode);
+    if (body.projectIds?.length) form.append('projectIds', JSON.stringify(body.projectIds));
+    if (body.from) form.append('from', body.from);
+    if (body.to) form.append('to', body.to);
+    return http.post<any, any>('/ai/forms/fill-table', form, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any);
+  },
+
   /**
    * 结算 / 付款异常预警（课题 6-9）：只读扫描，规则在服务端算，模型只写结论。
    * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
@@ -1131,6 +1194,20 @@ export const aiApi = {
   /** 确定性报告（不调模型）：成功即落库，返回 id 供历史/导出使用 */
   analyticsReport: (body: Record<string, unknown>) =>
     http.post<any, AiAnalyticsReportResult>('/ai/analytics/report', body, { timeout: 180000 } as any),
+  /** 多 sheet 工作簿：不调模型、不扣配额；带 `reportId` 时挂到已有报告记录 */
+  analyticsWorkbook: (body: Record<string, unknown>) =>
+    http.post<any, { id: string; fileName: string; size: number; sheets: string[]; warnings: string[]; reportId: string | null }>(
+      '/ai/analytics/workbook',
+      body,
+      { timeout: 180000 } as any,
+    ),
+  /** 下载存档工作簿（GET 走 Cookie 鉴权） */
+  analyticsWorkbookDownload: (id: string) =>
+    http.get<any, any>(`/ai/analytics/${id}/workbook`, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any),
   /** 历史列表：默认本人全部（跨项目可见）；`projectId` 可选筛选；超管 `all=1` */
   analyticsHistory: (params: Record<string, unknown>) =>
     http.get<any, { list: AiAnalyticsRecordSummary[]; total: number; page: number; pageSize: number }>('/ai/analytics', {

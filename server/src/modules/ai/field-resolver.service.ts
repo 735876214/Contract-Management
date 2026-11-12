@@ -4,6 +4,8 @@ import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
+import { DatasetCollector } from './analytics/dataset-collector.service';
+import { endOfDay, parseLocalDay } from './common/period';
 
 /**
  * AI 字段取值器：把「字段目录里的 key」翻译成**当前项目/合同下的真实值**。
@@ -21,6 +23,10 @@ export interface ResolveContext {
   projectId: string;
   contractId?: string | null;
   supplierId?: string | null;
+  /** 填报范围：current=当前项目；selected/all=跨项目（projectIds 由服务端按成员关系收口） */
+  scope?: { mode: 'current' | 'selected' | 'all'; projectIds?: string[] };
+  /** 期间（YYYY-MM-DD；缺省 = 本月 1 日 ~ 今天） */
+  period?: { from?: string; to?: string };
 }
 
 type DictMap = Map<string, string>;
@@ -53,7 +59,10 @@ const count = (v: unknown): string => {
 
 @Injectable()
 export class FieldResolverService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(
+    private prisma: PrismaClient,
+    private collector: DatasetCollector,
+  ) {}
 
   /** 字典 typeCode → { itemCode: itemName }（单次请求内缓存，避免每字段一次查询） */
   private async dict(typeCode: string): Promise<DictMap> {
@@ -167,6 +176,37 @@ export class FieldResolverService {
       put('stats.paymentAmountTotal', money(stats.paymentAmountTotal));
       put('stats.invoiceAmountTotal', money(stats.invoiceAmountTotal));
       put('stats.unpaidAmount', money(stats.unpaidAmount));
+    }
+
+    // ---------- 期间发生额 / 跨项目聚合（口径与经营数据助手同一实现） ----------
+    const periodKeys = [...wanted].filter((k) => k.startsWith('period.'));
+    const crossKeys = [...wanted].filter((k) => k.startsWith('cross.'));
+    if (periodKeys.length || crossKeys.length) {
+      const ids = ctx.scope?.projectIds?.length ? ctx.scope.projectIds : [ctx.projectId];
+      const projects = ids.map((id) => ({ id, code: '', name: '' }));
+      const now = new Date();
+      if (periodKeys.length) {
+        const from = parseLocalDay(ctx.period?.from) ?? new Date(now.getFullYear(), now.getMonth(), 1);
+        const to = parseLocalDay(ctx.period?.to) ?? now;
+        const totals = await this.collector.windowTotals(projects, { from, to: endOfDay(to) });
+        put('period.contractSignedCount', count(totals.contractCount));
+        put('period.contractSignedAmount', money(totals.signedYuan));
+        put('period.settlementAmount', money(totals.settledYuan));
+        put('period.paymentAmount', money(totals.paidYuan));
+        put('period.invoiceAmount', money(totals.invoicedYuan));
+        put('period.dailyReportCount', count(totals.dailyReports));
+      }
+      if (crossKeys.length) {
+        const totals = await this.collector.windowTotals(projects, { from: null, to: endOfDay(now) });
+        put('cross.projectCount', count(totals.projectCount));
+        put('cross.contractCount', count(totals.contractCount));
+        put('cross.signedAmount', money(totals.signedYuan));
+        put('cross.settlementAmount', money(totals.settledYuan));
+        put('cross.paymentAmount', money(totals.paidYuan));
+        put('cross.invoiceAmount', money(totals.invoicedYuan));
+        put('cross.unpaidAmount', money(totals.unpaidYuan));
+        put('cross.uninvoicedAmount', money(totals.uninvoicedYuan));
+      }
     }
 
     return out;
