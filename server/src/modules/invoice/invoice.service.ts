@@ -127,7 +127,15 @@ export class InvoiceService {
       await this.settlement.assertLinkable(payload.settlementId, projectId, { contractId, date, label: '发票' });
       return payload.settlementId;
     }
-    if (before?.settlementId) return undefined;
+    // 2026-11-12 复审：改了合同 / 结算账期 / 开票日期时，旧的自动匹配可能已违反
+    // 「同合同同期」——与 receipt-order 的同名逻辑保持一致，按新值重算；三者都没变才保留原关联。
+    const contractChanged =
+      payload.contractId !== undefined && payload.contractId !== before?.contractId;
+    const periodChanged =
+      (payload.settlePeriod !== undefined && payload.settlePeriod !== before?.settlePeriod) ||
+      (payload.invoiceDate !== undefined &&
+        new Date(payload.invoiceDate ?? 0).getTime() !== new Date(before?.invoiceDate ?? 0).getTime());
+    if (before?.settlementId && !contractChanged && !periodChanged) return undefined;
     return this.settlement.findSettlementIdFor(contractId, date);
   }
 
@@ -392,6 +400,12 @@ export class InvoiceService {
       if (parsed.error) throw new RowError(parsed.error, field);
       return parsed.date;
     };
+    /**
+     * 批内去重 + 库内查重放在 **plan 阶段**：发票号有 DB 唯一约束
+     * （`@@unique([projectId, invoiceNo])`），原实现不预检，重复号会在 write 的事务里
+     * 撞 P2002 → 整批回滚，用户只看到一行原始约束错误，不知道是第几行、哪个号重复。
+     */
+    const notDup = this.runner.batchDup();
     /** 本批涉及到的合同：提交后要按这些合同重挂结算单关联并刷新台账 */
     const affected = new Set<string>();
     return this.tasks.submit<any>({ module: 'invoice', moduleName: '发票台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
@@ -401,6 +415,12 @@ export class InvoiceService {
         const contract = await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } });
         if (!contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
         affected.add(contract.id);
+        // 发票号码：模板标为必填、前端表单也必填；导入同样要求，并给出可定位到行的重复提示
+        const invoiceNo = String(r['发票号码'] ?? '').trim();
+        if (!invoiceNo) throw new RowError('发票号码为必填项', '发票号码');
+        notDup(invoiceNo, `发票号码「${invoiceNo}」在本次导入中重复`, '发票号码');
+        const dupNo = await this.prisma.invoice.findFirst({ where: { projectId, invoiceNo }, select: { id: true } });
+        if (dupNo) throw new RowError(`发票号码「${invoiceNo}」在当前项目中已存在`, '发票号码');
         // 税率统一取自合同台账（需求 2.4）：子表未填时继承合同税率
         // 口径按列名定，不靠数值猜（第 4 轮审计）：「税率(%)」是百分数（13 = 13%），
         // 「税率」是小数（0.13 = 13%）。旧写法 > 1 ? /100 : 原值 会把 1% 存成 100%、0.5% 存成 50%，
@@ -426,7 +446,7 @@ export class InvoiceService {
             issuer: r['开票单位'] || null,
             invoiceDate: dateOf(r['开票日期'], '开票日期'),
             invoiceCode: r['发票代码'] || null,
-            invoiceNo: r['发票号码'] || null,
+            invoiceNo,
             amountBeforeTax: amtBefore,
             taxRate,
             amountWithTax: amtWith,

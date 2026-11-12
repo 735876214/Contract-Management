@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
 import { BadRequestException } from '@nestjs/common';
 import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntContext } from './helpers';
 import { SettlementService } from '../src/modules/settlement/settlement.service';
@@ -390,4 +391,72 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     assert.ok(next?.id, '下一期应可正常新建');
   });
 
+  /**
+   * ⑪ 改合同后的重算：发票从合同 A 改挂到合同 B（请求不传 settlementId）时，
+   *    旧关联必须按新合同同期重算——否则会留在 A 的结算单上，台账把这张发票算到 A。
+   */
+  it('⑪ 发票改挂到另一个合同：结算单关联按新合同重算', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-11');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contractA = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contractB = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const sA: any = await settle.create(
+      { contractId: contractA.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 10000, settleDate: day(2026, 9) },
+      project.id,
+    );
+    const sB: any = await settle.create(
+      { contractId: contractB.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 20000, settleDate: day(2026, 9) },
+      project.id,
+    );
+
+    const inv: any = await makeInvoice(project.id, contractA.id, {
+      settlePeriod: '2026-09',
+      invoiceDate: day(2026, 9, 10),
+      amountWithTax: 8000,
+      invoiceNo: uniq('INV11').toUpperCase(),
+    });
+    assert.equal(
+      (await ctx.prisma.invoice.findUnique({ where: { id: inv.id } }))!.settlementId,
+      sA.id,
+      '初始应挂 A 合同的同期结算单',
+    );
+
+    await invoices.update(inv.id, { contractId: contractB.id, version: 0 });
+    const moved: any = await ctx.prisma.invoice.findUnique({ where: { id: inv.id } });
+    assert.equal(moved.settlementId, sB.id, '改合同后应挂新合同同期结算单，不能留在旧合同上');
+
+    const rowA = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contractA.id, settleMonth: '2026-09' } });
+    const rowB = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contractB.id, settleMonth: '2026-09' } });
+    assert.equal(Number(rowA!.monthInvoiceAmount), 0, '旧合同台账不应再计入这张发票');
+    assert.equal(Number(rowB!.monthInvoiceAmount), 8000, '新合同台账应按关联计入开票额');
+  });
+
+  /**
+   * ⑫ 导入的重复发票号在 plan 阶段报行级错误：发票号有 DB 唯一约束，
+   *    原实现不预检 → write 事务撞 P2002 → 整批回滚且只给原始约束错误（不知道第几行）。
+   */
+  it('⑫ 发票导入：同批重复号码在 plan 阶段给出行级错误且零写入', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-12');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('数据');
+    ws.addRow(['合同编号', '发票号码']);
+    ws.addRow(['示例行：导入时自动忽略']); // 第 2 行是模板示例行（parse 跳过）
+    ws.addRow([contract.code, 'DUP-9001']);
+    ws.addRow([contract.code, 'DUP-9001']);
+    const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+
+    const outcome: any = await invoices.import(buf, project.id, { fileName: 'dup.xlsx' });
+    assert.equal(outcome.created, 0);
+    assert.ok(outcome.errors.length >= 1, '应返回行级错误而不是抛原始约束异常');
+    assert.match(String(outcome.errors[0].message), /重复/);
+    assert.equal(outcome.errors[0].row, 4, '重复行应定位到第 4 行');
+    assert.equal(
+      await ctx.prisma.invoice.count({ where: { projectId: project.id } }),
+      0,
+      '两阶段：有错误时不写入任何数据',
+    );
+  });
 });
