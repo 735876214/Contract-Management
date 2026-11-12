@@ -8,8 +8,10 @@ import { NotificationService } from '../../modules/notification/notification.ser
 import {
   IMPORT_ACTIVE_STATUSES,
   IMPORT_TASK_STALE_MESSAGE,
+  IMPORT_TASK_STATUS,
   importDedupeKey,
   isImportTaskStale,
+  type ImportTaskStatus,
 } from '../utils/import-task';
 
 /** 超过该行数走异步导入（需求 2.7） */
@@ -92,7 +94,7 @@ export class ImportTaskService implements OnModuleInit {
       for (const task of stale) {
         const res = await this.prisma.importTask.updateMany({
           where: { id: task.id, status: task.status, lockedAt: task.lockedAt },
-          data: { status: 'FAILED', message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
+          data: { status: IMPORT_TASK_STATUS.FAILED, message: IMPORT_TASK_STALE_MESSAGE, finishedAt: now },
         });
         if (res.count > 0) reaped.push(task);
       }
@@ -189,7 +191,7 @@ export class ImportTaskService implements OnModuleInit {
           fileName: ctx.fileName,
           totalRows: rows.length,
           dedupeKey,
-          status: 'PENDING',
+          status: IMPORT_TASK_STATUS.PENDING,
           projectId: ctx.projectId,
           userId: ctx.userId,
           username: ctx.username,
@@ -221,7 +223,7 @@ export class ImportTaskService implements OnModuleInit {
   private async execute<T>(taskId: string, rows: any[], opts: RunOptions<T>, ctx: SubmitContext) {
     await this.prisma.importTask.update({
       where: { id: taskId },
-      data: { status: 'RUNNING', startedAt: new Date(), lockedAt: new Date() },
+      data: { status: IMPORT_TASK_STATUS.RUNNING, startedAt: new Date(), lockedAt: new Date() },
     });
     let outcome: ImportOutcome;
     try {
@@ -238,7 +240,7 @@ export class ImportTaskService implements OnModuleInit {
           await tx.importTask.update({
             where: { id: taskId },
             data: {
-              status: 'SUCCESS',
+              status: IMPORT_TASK_STATUS.SUCCESS,
               processedRows: rows.length,
               successCount: (res?.created || 0) + (res?.updated || 0),
               failCount: 0,
@@ -258,10 +260,10 @@ export class ImportTaskService implements OnModuleInit {
     } catch (e: any) {
       await this.prisma.importTask.update({
         where: { id: taskId },
-        data: { status: 'FAILED', message: e?.message || String(e), finishedAt: new Date() },
+        data: { status: IMPORT_TASK_STATUS.FAILED, message: e?.message || String(e), finishedAt: new Date() },
       });
       await this.syncOperationLog(taskId, { rows: rows.length, success: 0, fail: rows.length, errorFileUrl: null });
-      await this.notify(ctx, 'FAILED', 0, rows.length, taskId);
+      await this.notify(ctx, IMPORT_TASK_STATUS.FAILED, 0, rows.length, taskId);
       return;
     }
 
@@ -272,7 +274,7 @@ export class ImportTaskService implements OnModuleInit {
     await this.prisma.importTask.update({
       where: { id: taskId },
       data: {
-        status: outcome.errors.length ? 'FAILED' : 'SUCCESS',
+        status: outcome.errors.length ? IMPORT_TASK_STATUS.FAILED : IMPORT_TASK_STATUS.SUCCESS,
         processedRows: rows.length,
         successCount: outcome.created + outcome.updated,
         failCount: outcome.errors.length,
@@ -287,7 +289,7 @@ export class ImportTaskService implements OnModuleInit {
       fail: outcome.errors.length,
       errorFileUrl,
     });
-    await this.notify(ctx, outcome.errors.length ? 'FAILED' : 'SUCCESS', outcome.created + outcome.updated, outcome.errors.length, taskId);
+    await this.notify(ctx, outcome.errors.length ? IMPORT_TASK_STATUS.FAILED : IMPORT_TASK_STATUS.SUCCESS, outcome.created + outcome.updated, outcome.errors.length, taskId);
   }
 
   /**
@@ -315,16 +317,16 @@ export class ImportTaskService implements OnModuleInit {
     }
   }
 
-  private async notify(ctx: SubmitContext, status: string, success: number, fail: number, taskId: string) {
+  private async notify(ctx: SubmitContext, status: ImportTaskStatus, success: number, fail: number, taskId: string) {
     try {
       await this.notifier.send({
         userId: ctx.userId,
-        title: `【${ctx.moduleName}】导入${status === 'SUCCESS' ? '完成' : '失败'}`,
+        title: `【${ctx.moduleName}】导入${status === IMPORT_TASK_STATUS.SUCCESS ? '完成' : '失败'}`,
         content:
-          status === 'SUCCESS'
+          status === IMPORT_TASK_STATUS.SUCCESS
             ? `文件「${ctx.fileName || '-'}」导入完成，成功写入 ${success} 行。`
             : `文件「${ctx.fileName || '-'}」导入未完成，${fail} 行校验失败，已全部回滚，未写入任何数据。可下载错误报告核对。`,
-        type: status === 'SUCCESS' ? 'SUCCESS' : 'ERROR',
+        type: status === IMPORT_TASK_STATUS.SUCCESS ? 'SUCCESS' : 'ERROR',
         projectId: ctx.projectId,
         bizType: 'import-task',
         bizId: taskId,

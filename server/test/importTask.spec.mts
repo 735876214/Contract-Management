@@ -4,6 +4,7 @@ import {
   IMPORT_ACTIVE_STATUSES,
   IMPORT_TASK_STALE_MS,
   IMPORT_TASK_STALE_MESSAGE,
+  IMPORT_TASK_STATUS,
   importDedupeKey,
   isImportTaskStale,
 } from '../src/common/utils/import-task.ts';
@@ -26,6 +27,11 @@ describe('僵尸判定 isImportTaskStale', () => {
     assert.equal(IMPORT_TASK_STALE_MS, 10 * MIN);
     assert.ok(IMPORT_TASK_STALE_MESSAGE.includes('请重新导入'));
     assert.deepEqual([...IMPORT_ACTIVE_STATUSES], ['PENDING', 'RUNNING']);
+    // 状态码单一事实源：service 里不再裸写字符串，取值一变这里先红
+    assert.deepEqual(
+      { ...IMPORT_TASK_STATUS },
+      { PENDING: 'PENDING', RUNNING: 'RUNNING', SUCCESS: 'SUCCESS', FAILED: 'FAILED' },
+    );
   });
 
   it('RUNNING：心跳新鲜不算僵尸；超过阈值即算', () => {

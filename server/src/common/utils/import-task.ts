@@ -19,8 +19,23 @@ export const IMPORT_TASK_STALE_MS = 10 * 60 * 1000;
 /** 回收任务的统一提示语 */
 export const IMPORT_TASK_STALE_MESSAGE = '导入被中断（服务重启或执行超时），请重新导入';
 
+/**
+ * `ImportTask.status` 的取值（状态码单一事实源，禁止在 service 里裸写字符串）。
+ * PENDING/RUNNING 为「处理中」；SUCCESS/FAILED 为终态。
+ */
+export const IMPORT_TASK_STATUS = {
+  PENDING: 'PENDING',
+  RUNNING: 'RUNNING',
+  SUCCESS: 'SUCCESS',
+  FAILED: 'FAILED',
+} as const;
+export type ImportTaskStatus = (typeof IMPORT_TASK_STATUS)[keyof typeof IMPORT_TASK_STATUS];
+
 /** 参与去重判定的任务状态 */
-export const IMPORT_ACTIVE_STATUSES: readonly string[] = ['PENDING', 'RUNNING'];
+export const IMPORT_ACTIVE_STATUSES: readonly string[] = [
+  IMPORT_TASK_STATUS.PENDING,
+  IMPORT_TASK_STATUS.RUNNING,
+];
 
 interface TaskLike {
   status: string;
@@ -50,9 +65,9 @@ export function isImportTaskStale(
 ): boolean {
   const status = String(task?.status ?? '');
   let ref: number | null = null;
-  if (status === 'RUNNING') {
+  if (status === IMPORT_TASK_STATUS.RUNNING) {
     ref = ms(task.lockedAt) ?? ms(task.startedAt) ?? ms(task.createdAt);
-  } else if (status === 'PENDING') {
+  } else if (status === IMPORT_TASK_STATUS.PENDING) {
     ref = ms(task.createdAt);
   } else {
     return false;
