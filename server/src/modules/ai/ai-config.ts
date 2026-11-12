@@ -48,6 +48,12 @@ export const AI_PURPOSES = [
     desc: '结算/报价/履约三类预警的结论与建议；重推理，且必须能对上后端算出的数字',
     envKey: 'AI_MODEL_ANOMALY',
   },
+  {
+    code: 'intent',
+    name: '意图解析',
+    desc: '经营数据助手：把一段自然语言解析成范围/期间/数据集（只输出枚举，不输出 ID/日期/数字）；短 JSON，便宜模型即可',
+    envKey: 'AI_MODEL_INTENT',
+  },
 ] as const;
 
 /** 用途码（`AI_PURPOSES` 的 code 联合类型） */

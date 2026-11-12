@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseIntentRules } from '../src/modules/ai/intent/intent-rules.ts';
+import { normalizeModelIntent, parseIntentRules } from '../src/modules/ai/intent/intent-rules.ts';
 
 /**
  * 规则意图解析（Phase 1 唯一路径）：只输出枚举与注册表 key，不产出 ID/日期/数字；
@@ -101,5 +101,55 @@ describe('AI 经营数据助手 · 规则意图', () => {
     const { intent } = parseIntentRules({ text: long, notes: '注'.repeat(500) });
     assert.equal(intent.rawText?.length, 2000);
     assert.equal(intent.notes?.length, 300);
+  });
+
+  it('模型补丁只认白名单：ID/日期/金额/未知枚举一律忽略', () => {
+    const { patch } = normalizeModelIntent({
+      scope: { mode: 'all', mentions: ['甲项目', '  '], projectId: 'p-ID-123' },
+      period: { preset: 'this_year', from: '2020-01-01', to: '2020-12-31' },
+      compare: 'yoy',
+      datasets: ['contract.summary', 'nope.key', 'contract.summary'],
+      focus: ['payment_risk', 'nope'],
+      reportKind: 'brief',
+      detail: 'both',
+      groupBy: 'month',
+      outputs: { report: true, workbook: true },
+      amount: 999999,
+      from: '2020-01-01',
+    });
+    assert.equal(patch.scopeMode, 'all');
+    assert.deepEqual(patch.mentions, ['甲项目']);
+    assert.equal(patch.periodPreset, 'this_year');
+    assert.equal(patch.compare, 'yoy');
+    assert.deepEqual(patch.datasets, ['contract.summary']);
+    assert.deepEqual(patch.focus, ['payment_risk']);
+    assert.equal(patch.reportKind, 'brief');
+    assert.equal(patch.detail, 'both');
+    assert.equal(patch.groupBy, 'month');
+    assert.deepEqual(patch.outputs, { report: true, workbook: true });
+    assert.ok(!('amount' in patch), '模型给出的金额不进补丁');
+    assert.ok(!('from' in patch) && !('to' in patch), '模型给出的日期不进补丁');
+  });
+
+  it('合并顺序：文本 < 模型补丁 < 前端显式选择', () => {
+    const model = {
+      scopeMode: 'all' as const,
+      compare: 'yoy' as const,
+      datasets: ['invoice.records'],
+      reportKind: 'brief' as const,
+    };
+    const fromModel = parseIntentRules({ text: '本月合同汇总' }, model);
+    assert.equal(fromModel.intent.scope.mode, 'all');
+    assert.equal(fromModel.intent.compare, 'yoy');
+    assert.deepEqual(fromModel.intent.datasets, ['invoice.records']);
+    assert.equal(fromModel.intent.reportKind, 'brief');
+
+    const explicit = parseIntentRules(
+      { text: '本月合同汇总', scope: { mode: 'current' }, datasets: ['contract.summary'] },
+      model,
+    );
+    assert.equal(explicit.intent.scope.mode, 'current', '前端显式范围压过模型');
+    assert.deepEqual(explicit.intent.datasets, ['contract.summary'], '前端显式数据集整体替换模型结果');
+    assert.equal(explicit.intent.reportKind, 'brief', '未被前端覆盖的字段沿用模型');
   });
 });

@@ -3,8 +3,13 @@ import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import type { JwtUser } from '../../../common/decorators/user.decorator';
 import { datasetByKey, filterDatasets, limitDatasets, DEFAULT_DATASET_KEYS, MAX_DATASETS } from './dataset-registry';
-import { parseIntentRules } from '../intent/intent-rules';
+import { parseIntentRules, normalizeModelIntent, type ModelIntentPatch } from '../intent/intent-rules';
 import type { AiAnalyticsPlanInput } from '../intent/intent.types';
+import { IntentService } from '../intent/intent.service';
+import { AiSettingService } from '../ai-setting.service';
+import { AiQuota } from '../ai-quota';
+import { chatJson, LlmError } from '../llm-client';
+import { aiModelFor } from '../ai-config';
 import type { AiAnalyticsIntent, AiAnalyticsPlanResult } from './analytics.types';
 import { DatasetCollector } from './dataset-collector.service';
 import { AnalyticsStore } from './analytics-store.service';
@@ -14,13 +19,17 @@ import {
   analyticsFactsToMarkdown,
   analyticsTitle,
   buildAnalyticsFacts,
+  buildNarratedReport,
 } from './dataset-facts';
+import { buildAnalyticsNarrativeMessages } from './analytics-prompt';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod } from '../common/period';
 import { AI_SECTION_TITLES } from './analytics.types';
 
 export interface AnalyticsReportInput extends AiAnalyticsPlanInput {
   /** 可改标题（≤60 字）；不传则自动生成「范围 + 期间 + 类型」 */
   title?: string;
+  /** 是否调模型写叙述（默认 true；AI 未配置时自动降级为确定性报告） */
+  narrative?: boolean;
 }
 
 /** 项目集合上限：显式多选/全部项目都受它约束（防一次拉爆查询预算） */
@@ -39,6 +48,9 @@ export class AnalyticsService {
     private collector: DatasetCollector,
     private store: AnalyticsStore,
     private reportService: ReportService,
+    private setting: AiSettingService,
+    private quota: AiQuota,
+    private intent: IntentService,
   ) {}
 
   /** 权限判据与 `ai.service.ts` 的 `canReader` 同约定：超管恒 true */
@@ -88,12 +100,44 @@ export class AnalyticsService {
    * 与 `ScmService` 同款 IDOR 防护：项目集合来自客户端参数时必须按 `ProjectMember` 收口；
    * 跨项目（全部项目或 >1 个）额外要求 `dashboard:view`。
    */
-  async plan(body: AiAnalyticsPlanInput, projectId: string, user: JwtUser): Promise<AiAnalyticsPlanResult> {
+  async plan(
+    body: AiAnalyticsPlanInput,
+    projectId: string,
+    user: JwtUser,
+    opts: { consumeQuota?: boolean } = {},
+  ): Promise<AiAnalyticsPlanResult> {
     assertPermission(user, 'ai:use', '生成经营数据报告需要「使用 AI 助手」权限');
     const can = this.can(user);
     const allowed = await this.allowedProjects(user);
-    const parsed = parseIntentRules(body ?? {});
-    const warnings = [...parsed.warnings];
+    const warnings: string[] = [];
+
+    // ---- Phase 3：有文本且 AI 启用时，先让模型做意图（只输出枚举）；失败回落规则 ----
+    let modelPatch: ModelIntentPatch | null = null;
+    let source: 'rules' | 'llm' = 'rules';
+    const text = String(body?.text ?? '').trim();
+    if (text) {
+      const cfg = await this.setting.resolve();
+      if (cfg.enabled) {
+        const userId = user?.userId || user?.username || 'anonymous';
+        const consume = opts.consumeQuota !== false;
+        if (consume) this.quota.consume(userId, cfg.hourlyLimitPerUser);
+        try {
+          const r = await this.intent.parse(cfg, text, allowed.map((p) => p.name));
+          const norm = normalizeModelIntent(r.raw);
+          modelPatch = norm.patch;
+          warnings.push(...norm.warnings);
+          source = 'llm';
+        } catch (e) {
+          if (consume) this.quota.refund(userId);
+          const msg = e instanceof LlmError ? e.message : String((e as any)?.message || e);
+          // 失败不空窗：按规则解析继续，用户拿到的是确定性结果 + 一句原因
+          warnings.push(`AI 意图解析失败，已按规则解析：${msg}`);
+        }
+      }
+    }
+
+    const parsed = parseIntentRules(body ?? {}, modelPatch);
+    warnings.push(...parsed.warnings);
 
     let intent: AiAnalyticsIntent = parsed.intent;
     const scope = intent.scope.mode;
@@ -183,7 +227,7 @@ export class AnalyticsService {
       unknownDatasets: [...unknown],
       deniedDatasets: requestedDenied,
       projects: projects.map((p) => ({ id: p.id, code: p.code, name: p.name })),
-      source: 'rules',
+      source,
     };
   }
 
@@ -198,7 +242,17 @@ export class AnalyticsService {
    * 事实 JSON 落库与返回都做**瘦身**（每数据集最多 200 行），完整明细留给工作簿（Phase 4）。
    */
   async report(body: AnalyticsReportInput, projectId: string, user: JwtUser) {
-    const plan = await this.plan(body || {}, projectId, user);
+    const cfg = await this.setting.resolve();
+    const wantsNarrative = cfg.enabled && body?.narrative !== false;
+    const userId = user?.userId || user?.username || 'anonymous';
+    if (wantsNarrative) this.quota.consume(userId, cfg.hourlyLimitPerUser);
+    let plan: AiAnalyticsPlanResult;
+    try {
+      plan = await this.plan(body || {}, projectId, user, { consumeQuota: false });
+    } catch (e) {
+      if (wantsNarrative) this.quota.refund(userId);
+      throw e;
+    }
     const intent = plan.intent;
     const now = new Date();
     const range = resolvePresetPeriod(intent.period.preset, now, {
@@ -239,13 +293,46 @@ export class AnalyticsService {
       generatedAt: now.toISOString(),
     });
 
-    const markdown = analyticsFactsToMarkdown(facts);
+    const warnings = [...facts.warnings];
+    let markdown = analyticsFactsToMarkdown(facts);
+    let discardedNumbers: string[] = [];
+    let reportSource: 'template' | 'llm' = 'template';
+    let usage: { promptTokens?: number; completionTokens?: number } | null = null;
+
+    // Phase 3：模型只写段落；数字对账失败 → 整段叙述丢弃，仍返回确定性报告
+    if (wantsNarrative) {
+      try {
+        const res = await chatJson(
+          globalThis.fetch as any,
+          {
+            baseUrl: cfg.baseUrl,
+            apiKey: cfg.apiKey,
+            model: aiModelFor(cfg, 'report'),
+            timeoutMs: Math.max(cfg.timeoutMs, 90000),
+            temperature: 0.3,
+            maxTokens: cfg.maxTokens,
+          },
+          buildAnalyticsNarrativeMessages(facts, intent.notes),
+          true,
+        );
+        const narrated = buildNarratedReport(facts, res.data);
+        markdown = narrated.markdown;
+        discardedNumbers = narrated.discarded;
+        warnings.push(...narrated.warnings);
+        if (narrated.accepted) reportSource = 'llm';
+        usage = res.usage ?? null;
+      } catch (e) {
+        // 意图与叙述共享一次配额：意图也没成功消费时退还，否则保留（已有一次成功调用）
+        if (plan.source === 'rules') this.quota.refund(userId);
+        const msg = e instanceof LlmError ? e.message : String((e as any)?.message || e);
+        warnings.push(`AI 叙述失败，已输出确定性报告：${msg}`);
+      }
+    }
     const title = String(body?.title || analyticsTitle(intent.reportKind, scopeLabel, periodLabel)).slice(0, 60);
     const factsForStore = {
       ...facts,
       datasets: facts.datasets.map((d) => ({ ...d, rows: d.rows.slice(0, 200) })),
     };
-    const warnings = [...facts.warnings];
     let id: string | null = null;
     let persisted = true;
     try {
@@ -260,14 +347,16 @@ export class AnalyticsService {
         datasetKeys: intent.datasets,
         factsJson: factsForStore,
         warningsJson: warnings,
+        unknownNumbersJson: [],
+        discardedNumbersJson: discardedNumbers,
         scopeMode: intent.scope.mode,
         projectCount: plan.projects.length,
         periodFrom: range.from,
         periodTo: range.to,
         periodLabel,
         compareMode: intent.compare,
-        narrative: false,
-        source: 'template',
+        narrative: reportSource === 'llm',
+        source: reportSource,
         markdown,
         hasReport: true,
       });
@@ -291,10 +380,10 @@ export class AnalyticsService {
       markdown,
       facts: factsForStore,
       unknownNumbers: [] as string[],
-      discardedNumbers: [] as string[],
+      discardedNumbers,
       warnings: [...new Set(warnings)],
-      source: 'template' as const,
-      usage: null,
+      source: reportSource,
+      usage,
       factNumbers: analyticsFactNumbers(facts),
     };
   }

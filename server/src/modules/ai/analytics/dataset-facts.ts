@@ -10,6 +10,7 @@
  */
 
 import { round2 } from '../../../common/utils/money.ts';
+import { auditNumbers } from '../report-facts.ts';
 import {
   AI_DATASETS,
   datasetByKey,
@@ -193,7 +194,14 @@ const renderTable = (columns: string[], rows: Array<Record<string, string | numb
 const formatCell = (v: string | number | null): string => (v === null || v === undefined ? '' : String(v));
 
 /** 确定性 Markdown 报告：范围/口径说明 + 总览 + 项目对照 + 各数据集小节 + 风险 */
-export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts): string {
+export interface ReportNarrativeOptions {
+  /** 章节 ID → 模型撰写的段落（已过对账；服务端只接受注册表里的章节 ID） */
+  narratives?: Record<string, string>;
+  /** 模型建议（3~6 条），显示在报告最后一节 */
+  advice?: string[];
+}
+
+export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: ReportNarrativeOptions = {}): string {
   const lines: string[] = [];
   lines.push(`# ${facts.scope.label} · ${facts.period.label}`);
   lines.push('');
@@ -221,6 +229,12 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts): string {
     }
   }
   lines.push('');
+
+  // 模型撰写的「经营总览」段落（可选；确定性表格仍是主体）
+  if (options.narratives?.overview) {
+    lines.push(options.narratives.overview);
+    lines.push('');
+  }
 
   // 二、项目对照（按签约额取前 20）
   const projects = [...facts.byProject].sort((a, b) => b.signedYuan - a.signedYuan).slice(0, TABLE_ROWS_IN_REPORT);
@@ -267,6 +281,10 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts): string {
       }
       lines.push('');
     }
+    if (options.narratives?.[section]) {
+      lines.push(options.narratives[section]);
+      lines.push('');
+    }
     sectionNo += 1;
   }
 
@@ -283,7 +301,79 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts): string {
     for (const w of facts.warnings) lines.push(`- ${w}`);
   }
   lines.push('');
+
+  if (options.advice?.length) {
+    sectionNo += 1;
+    lines.push(`## ${CN_NUM[sectionNo] ?? String(sectionNo + 1)}、建议`);
+    lines.push('');
+    for (const a of options.advice) lines.push(`- ${a}`);
+    lines.push('');
+  }
   return lines.join('\n');
+}
+
+export interface NarratedReportResult {
+  markdown: string;
+  /** 对不上事实的数字（非空 = 模型叙述整段丢弃，改用确定性报告） */
+  discarded: string[];
+  accepted: boolean;
+  warnings: string[];
+}
+
+/** 段落只允许纯文本：模型若写标题/表格/引用块，逐行剥掉（prompt 已禁止，这里是硬保险） */
+const sanitizeNarrativeText = (raw: string): string =>
+  String(raw ?? '')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*(#{1,6}\s|\||>|```)/.test(line))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * 组合「程序表格 + 模型段落」并做数字对账（Phase 3）。
+ *
+ * 对账不通过 → **整份模型叙述丢弃**、输出确定性报告，并返回 `discarded` 供前端展示；
+ * 模型叙述只追加在对应章节里，表格与汇总仍由程序生成，模型无法改写数字。
+ */
+export function buildNarratedReport(facts: AiAnalyticsFacts, raw: unknown): NarratedReportResult {
+  const deterministic = (): string => analyticsFactsToMarkdown(facts);
+  if (!raw || typeof raw !== 'object') {
+    return { markdown: deterministic(), discarded: [], accepted: false, warnings: ['模型返回的叙述不是对象，已输出确定性报告'] };
+  }
+  const obj = raw as Record<string, any>;
+  const known = new Set<string>(['overview', ...facts.datasets.map((d) => d.section)]);
+  const narratives: Record<string, string> = {};
+  if (obj.sections && typeof obj.sections === 'object') {
+    for (const [id, text] of Object.entries(obj.sections)) {
+      if (!known.has(id)) continue;
+      const clean = sanitizeNarrativeText(String(text ?? '')).slice(0, 2000);
+      if (clean) narratives[id] = clean;
+    }
+  }
+  const advice = Array.isArray(obj.advice)
+    ? obj.advice.map((a: unknown) => sanitizeNarrativeText(String(a ?? ''))).filter(Boolean).slice(0, 6)
+    : [];
+  const combined = [...Object.values(narratives), ...advice].join('\n');
+  if (!combined.trim()) {
+    return { markdown: deterministic(), discarded: [], accepted: false, warnings: ['模型没有返回可用的叙述，已输出确定性报告'] };
+  }
+  const audit = auditNumbers(combined, analyticsFactNumbers(facts));
+  if (audit.unknown.length) {
+    return {
+      markdown: deterministic(),
+      discarded: audit.unknown,
+      accepted: false,
+      warnings: [
+        `模型叙述包含无法对账的数字（${audit.unknown.slice(0, 5).join('、')}${audit.unknown.length > 5 ? ' 等' : ''}），已整段丢弃，改用确定性报告`,
+      ],
+    };
+  }
+  return {
+    markdown: analyticsFactsToMarkdown(facts, { narratives, advice }),
+    discarded: [],
+    accepted: true,
+    warnings: [],
+  };
 }
 
 const fmtCell = (key: keyof AiAnalyticsTotals, v: number): string => {

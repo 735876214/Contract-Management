@@ -32,10 +32,10 @@ const ENV = {
 };
 
 describe('AI 用途目录（单一事实源）', () => {
-  it('四个用途齐备、用途码与存储键唯一', () => {
+  it('五个用途齐备、用途码与存储键唯一', () => {
     assert.deepEqual(
       AI_PURPOSES.map((p) => p.code).sort(),
-      ['anomaly', 'form_inspect', 'register', 'report'],
+      ['anomaly', 'form_inspect', 'intent', 'register', 'report'],
     );
     const codes = new Set(AI_PURPOSES.map((p) => p.code));
     const envKeys = new Set(AI_PURPOSES.map((p) => p.envKey));

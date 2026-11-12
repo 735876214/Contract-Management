@@ -17,6 +17,7 @@ import {
   Segmented,
   Select,
   Space,
+  Switch,
   Tag,
   Typography,
   message,
@@ -83,6 +84,7 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
   const [detail, setDetail] = useState<string | undefined>();
   const [notes, setNotes] = useState('');
   const [title, setTitle] = useState('');
+  const [narrative, setNarrative] = useState(true);
   const [planning, setPlanning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState<'docx' | 'pdf' | null>(null);
@@ -106,6 +108,7 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
       notes: notes.trim() || undefined,
       reportKind,
       detail,
+      narrative,
     };
     return b;
   };
@@ -310,6 +313,11 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
                         <Input maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} />
                       </Form.Item>
                     </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label="AI 撰写分析段落" extra="关闭则只出确定性表格与汇总">
+                        <Switch checked={narrative} onChange={setNarrative} />
+                      </Form.Item>
+                    </Col>
                     <Col span={24}>
                       <Form.Item label="补充说明（只影响写作，不影响取数）">
                         <Input maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -394,6 +402,15 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
               type="warning"
               showIcon
               message="历史记录保存失败：本次结果仍可查看，但刷新后不可找回。"
+            />
+          )}
+          {!!result.discardedNumbers.length && (
+            <Alert
+              style={{ marginBottom: 12 }}
+              type="error"
+              showIcon
+              message="模型叙述包含无法对账的数字，已整段丢弃，报告改用确定性结果"
+              description={result.discardedNumbers.join('、')}
             />
           )}
           {!!result.warnings.length && (

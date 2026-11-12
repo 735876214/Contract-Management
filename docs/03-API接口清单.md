@@ -538,6 +538,17 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 | GET | `/ai/anomaly/quote` | query `{taskId?, narrative?}` → 与原语同形的 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改采购任务状态、不改报价数据。`taskId` 只看单个采购任务（缺省扫本项目全部），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 | GET | `/ai/anomaly/fulfillment` | query `{contractId?, narrative?}` → 同形 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改履约节点、不改付款/结算状态。`contractId` 只看单合同（缺省扫本项目全部在履行合同），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
 | GET | `/ai/analysis/supply-chain` | query `{projectIds?, narrative?}` → `{enabled, asOf, scope, projects[], sample, tolerances, toleranceText, facts, markdown, sections[], missingSections[], unknownNumbers[], discardedNumbers[], source, warnings[], usage?}`。**跨项目只读汇总**：`projectIds` 逗号分隔（最多 20 个，超出 400；不传 = 全部项目）。`narrative=0` 或 `ai.analysis.narrative=0` 只出确定性汇总 | `ai:view`（service 内另需 `contract:view`；跨项目即 >1 个项目或不指定时再要 `dashboard:view`） |
+| GET | `/ai/analytics/datasets` | 数据集注册表：只返回 **`implemented: true` 且当前用户有权限**的条目；另返回 `deniedDatasets`、`crossProjectAllowed`、`maxDatasets`、`defaultKeys` | `ai:view` |
+| POST | `/ai/analytics/plan` | body `{text?, scope?, period?, compare?, datasets?, focus?, outputs?, reportKind?, detail?, groupBy?, notes?}` → `{intent, warnings, unknownTerms, unknownDatasets, deniedDatasets, projects, source}`。意图只含枚举与注册表 key（模型不输出 ID/日期/数字）；合并顺序 **文本 < 模型补丁 < 前端显式选择**；AI 失败自动回落规则解析 | `ai:use` |
+| POST | `/ai/analytics/report` | 同 plan，另可带 `title?`、`narrative?` → `{id, persisted, title, intent, scope, period, compareMode, comparePeriod, sections, markdown, facts, unknownNumbers, discardedNumbers, warnings, source, usage}`。确定性表格 + 模型段落；模型段落过 `auditNumbers()`，对不上事实的数字 → **整段丢弃**（`discardedNumbers`）并回退确定性报告；成功即落库 | `ai:use` |
+| GET | `/ai/analytics` | 历史列表：`page,pageSize,keyword,has=report\|workbook,projectId?,from,to,all?`。默认**本人全部**（跨项目生成的报告切项目后仍可见）；超管 `all=1` 看全部 | `ai:view` |
+| GET | `/ai/analytics/:id` | 记录详情（本人或超管；非创建人 404，不泄露存在性） | `ai:view` |
+| GET | `/ai/analytics/:id/export?format=docx\|pdf` | 用**存档 Markdown** 重新排版导出，不重新取数（GET 下载走 httpOnly Cookie 鉴权） | `ai:view` |
+| DELETE | `/ai/analytics/:id` | 只删 DB 记录（文件保留，由 `storage-audit.mjs` 人工审计） | `ai:use` |
+
+口径（经营数据助手）：范围支持当前项目 / 多选 / 全部项目（跨项目需 `dashboard:view`，项目集合按
+`ProjectMember` 收口）；期间按业务发生日归期；合同金额按合同链；发票排除作废/红冲；未填金额按未知处理。
+报告与表格生成物落 `AiAnalyticsReport`（快照），只写 AI 留痕表、不改任何业务单据。
 
 口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
 （口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后

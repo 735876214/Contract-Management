@@ -30,6 +30,66 @@ import {
 import { datasetByKey, DEFAULT_DATASET_KEYS, limitDatasets, MAX_DATASETS } from '../analytics/dataset-registry.ts';
 import type { AiAnalyticsPlanInput, RulesParseResult } from './intent.types.ts';
 
+/** 模型意图的**白名单补丁**：只允许枚举与注册表 key；ID/日期/数字一律不读取 */
+export interface ModelIntentPatch {
+  scopeMode?: AiScopeMode;
+  mentions?: string[];
+  periodPreset?: AiPeriodPreset;
+  compare?: AiCompareMode;
+  datasets?: string[];
+  focus?: AiFocus[];
+  reportKind?: AiReportKind;
+  detail?: AiDetailLevel;
+  groupBy?: AiGroupBy;
+  outputs?: { report?: boolean; workbook?: boolean };
+}
+
+/**
+ * 把模型返回的 JSON 归一成白名单补丁（Phase 3）。
+ * 硬约束：只认注册表里存在的 dataset key 与枚举值；`from/to`、项目 ID、金额等字段**直接忽略**。
+ */
+export function normalizeModelIntent(raw: unknown): { patch: ModelIntentPatch; warnings: string[] } {
+  const patch: ModelIntentPatch = {};
+  const warnings: string[] = [];
+  if (!raw || typeof raw !== 'object') {
+    return { patch, warnings: ['模型返回的意图不是对象，已忽略'] };
+  }
+  const obj = raw as Record<string, any>;
+  const scope = pickEnum(obj.scope?.mode, AI_SCOPE_MODES);
+  if (scope) patch.scopeMode = scope;
+  if (Array.isArray(obj.scope?.mentions)) {
+    const rawMentions = (obj.scope.mentions as unknown[])
+      .map((m) => String(m ?? '').trim())
+      .filter((m) => m.length > 0);
+    patch.mentions = [...new Set(rawMentions)].slice(0, 20);
+  }
+  const period = pickEnum(obj.period?.preset, AI_PERIOD_PRESETS);
+  if (period) patch.periodPreset = period;
+  const compare = pickEnum(obj.compare, AI_COMPARE_MODES);
+  if (compare) patch.compare = compare;
+  const kind = pickEnum(obj.reportKind, AI_REPORT_KINDS);
+  if (kind) patch.reportKind = kind;
+  const detail = pickEnum(obj.detail, AI_DETAIL_LEVELS);
+  if (detail) patch.detail = detail;
+  const groupBy = pickEnum(obj.groupBy, AI_GROUP_BYS);
+  if (groupBy) patch.groupBy = groupBy;
+  if (Array.isArray(obj.datasets)) {
+    const keys = [...new Set(obj.datasets.map((k: unknown) => String(k ?? '').trim()))].filter((k) => !!datasetByKey(k));
+    if (keys.length) patch.datasets = keys;
+  }
+  if (Array.isArray(obj.focus)) {
+    const focus = [...new Set(obj.focus.map((f: unknown) => pickEnum(f, AI_FOCUSES)).filter((f): f is AiFocus => !!f))];
+    if (focus.length) patch.focus = focus;
+  }
+  if (obj.outputs && typeof obj.outputs === 'object') {
+    const outputs: { report?: boolean; workbook?: boolean } = {};
+    if (typeof obj.outputs.report === 'boolean') outputs.report = obj.outputs.report;
+    if (typeof obj.outputs.workbook === 'boolean') outputs.workbook = obj.outputs.workbook;
+    if (Object.keys(outputs).length) patch.outputs = outputs;
+  }
+  return { patch, warnings };
+}
+
 /** 关键词 → 数据集 key（**长词在前**，泛词放后；匹配到即选中） */
 const DATASET_KEYWORDS: ReadonlyArray<{ key: string; words: string[] }> = [
   { key: 'final_settlement.summary', words: ['工作总结算', '总结算'] },
@@ -145,7 +205,10 @@ function parseGroupBy(text: string): AiGroupBy {
  * 合并顺序：先按文本得出候选意图 → 再用**显式结构化选择**逐字段覆盖。
  * `datasets` 非空时整体替换（用户点选的数据集优先，不做并集）。
  */
-export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult {
+export function parseIntentRules(
+  input: AiAnalyticsPlanInput,
+  modelPatch?: ModelIntentPatch | null,
+): RulesParseResult {
   const warnings: string[] = [];
   const unknownDatasets: string[] = [];
   const text = String(input?.text ?? '').slice(0, 2000);
@@ -158,8 +221,9 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
   if (textPeriod === 'all') textCompare = 'none';
   const textDatasets = matchDatasets(text);
 
-  // ---- 结构化覆盖：scope ----
+  // ---- 结构化覆盖：scope ----（顺序：文本 → 模型补丁 → 前端显式选择）
   let scopeMode: AiScopeMode = textScope;
+  if (modelPatch?.scopeMode) scopeMode = modelPatch.scopeMode;
   if (input?.scope?.mode != null) {
     const picked = pickEnum(input.scope.mode, AI_SCOPE_MODES);
     if (picked) scopeMode = picked;
@@ -170,6 +234,7 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
   let preset: AiPeriodPreset = textPeriod;
   let from = input?.period?.from;
   let to = input?.period?.to;
+  if (modelPatch?.periodPreset) preset = modelPatch.periodPreset;
   if (input?.period?.preset != null) {
     const picked = pickEnum(input.period.preset, AI_PERIOD_PRESETS);
     if (picked) preset = picked;
@@ -184,6 +249,7 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
 
   // ---- 结构化覆盖：对比 ----
   let compare: AiCompareMode = textCompare;
+  if (modelPatch?.compare) compare = modelPatch.compare;
   if (input?.compare != null) {
     const picked = pickEnum(input.compare, AI_COMPARE_MODES);
     if (picked) compare = picked;
@@ -193,18 +259,21 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
 
   // ---- 结构化覆盖：报告类型 / 分组 / 明细 ----
   let reportKind: AiReportKind = parseReportKind(text);
+  if (modelPatch?.reportKind) reportKind = modelPatch.reportKind;
   if (input?.reportKind != null) {
     const picked = pickEnum(input.reportKind, AI_REPORT_KINDS);
     if (picked) reportKind = picked;
     else warnings.push(`忽略未知的报告类型：${input.reportKind}`);
   }
   let groupBy: AiGroupBy = parseGroupBy(text);
+  if (modelPatch?.groupBy) groupBy = modelPatch.groupBy;
   if (input?.groupBy != null) {
     const picked = pickEnum(input.groupBy, AI_GROUP_BYS);
     if (picked) groupBy = picked;
     else warnings.push(`忽略未知的分组维度：${input.groupBy}`);
   }
   let detail: AiDetailLevel = parseDetail(text);
+  if (modelPatch?.detail) detail = modelPatch.detail;
   if (input?.detail != null) {
     const picked = pickEnum(input.detail, AI_DETAIL_LEVELS);
     if (picked) detail = picked;
@@ -224,7 +293,7 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
       if (!datasetKeys.includes(key)) datasetKeys.push(key);
     }
   } else {
-    datasetKeys = textDatasets.slice();
+    datasetKeys = modelPatch?.datasets?.length ? modelPatch.datasets.slice() : textDatasets.slice();
   }
   if (!datasetKeys.length) datasetKeys = [...DEFAULT_DATASET_KEYS];
   const limited = limitDatasets(datasetKeys, MAX_DATASETS);
@@ -245,22 +314,26 @@ export function parseIntentRules(input: AiAnalyticsPlanInput): RulesParseResult 
       }
     }
   } else {
-    focus.push(...matchFocus(text));
+    focus.push(...(modelPatch?.focus?.length ? modelPatch.focus : matchFocus(text)));
   }
 
   // ---- 输出形态：默认只出报告；表格按需 ----
   const wantsWorkbook = /(表格|工作簿|xlsx|excel|导出表)/i.test(text);
   const outputs = {
-    report: input?.outputs?.report ?? true,
-    workbook: input?.outputs?.workbook ?? wantsWorkbook,
+    report: input?.outputs?.report ?? modelPatch?.outputs?.report ?? true,
+    workbook: input?.outputs?.workbook ?? modelPatch?.outputs?.workbook ?? wantsWorkbook,
   };
 
   const intent: AiAnalyticsIntent = {
     version: 1,
     scope: {
       mode: scopeMode,
-      // 项目名称提示由服务端用有权限项目去匹配；这里只透传前端给的提示
-      mentions: Array.isArray(input?.scope?.mentions) ? input.scope.mentions.slice(0, 20) : undefined,
+      // 项目名称提示由服务端用有权限项目去匹配；前端显式选择优先，其次模型给出的 mentions
+      mentions: Array.isArray(input?.scope?.mentions)
+        ? input.scope.mentions.slice(0, 20)
+        : modelPatch?.mentions?.length
+          ? modelPatch.mentions
+          : undefined,
     },
     period: { preset, ...(preset === 'custom' ? { from, to } : {}) },
     datasets: datasetKeys,

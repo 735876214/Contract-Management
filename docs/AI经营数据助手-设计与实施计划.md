@@ -393,14 +393,14 @@ DB 集成 spec：
 - 注册表（27 key、`implemented` 门控）、意图类型/规则解析（含 compare）；`GET /datasets`、`POST /plan`（规则路径）。
 - 出口：迁移已应用且列已落地；`docStats` / `schemaDanglingRefs` 通过；`GET /datasets` 按权限过滤且只返回已实现条目；`POST /plan` 把「全部项目今年合同结算付款简报」解析为 `scope=all, this_year, 核心数据集, brief`，说「同比」时 `compare=yoy`；未知项进 warnings；六处发票口径回归绿；两个 build + `npm test` 绿。
 
-### Phase 2：确定性报告 + 落库 + 历史（无模型也可用）
+### Phase 2：确定性报告 + 落库 + 历史（无模型也可用）（已实施 2026-11-12）
 
 - `DatasetCollector` + `buildAnalyticsFacts` + 确定性 Markdown；`POST /report`（`narrative=false`）+ 落库。
 - 历史列表/详情/导出 Word/PDF + 访问控制；跨项目收口。
 - 前端「生成」「历史」基础版。
 - 出口：单项目/多选/全部均能生成确定性报告；成功后历史出现记录；历史默认本人全部（跨项目生成的报告切换项目后仍可见）、`projectId` 可筛选、非创建人 404、超管 all 可见；导出用存档 Markdown；越权项目跳过并提示；无 `dashboard:view` 跨项目 403；`test:int` 绿；headless 渲染。
 
-### Phase 3：自然语言意图 + 模型叙述 + 对账
+### Phase 3：自然语言意图 + 模型叙述 + 对账（已实施 2026-11-12）
 
 - 新增 `intent` 用途；`IntentService` LLM 解析 + 规则兜底；章节 JSON 叙述 + `auditNumbers` + 降级。
 - 前端意图预览、warnings/unknown/discarded 展示。

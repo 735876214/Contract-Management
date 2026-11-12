@@ -5,6 +5,7 @@ import {
   analyticsFactsToMarkdown,
   analyticsTitle,
   buildAnalyticsFacts,
+  buildNarratedReport,
 } from '../src/modules/ai/analytics/dataset-facts.ts';
 import type {
   AiAnalyticsTotals,
@@ -117,5 +118,49 @@ describe('AI 经营数据助手 · 事实包与报告', () => {
     const md = analyticsFactsToMarkdown(facts);
     assert.ok(md.includes('| 指标 | 本期 |'));
     assert.ok(!md.includes('| 指标 | 本期 | 对比期 | 变化 |'));
+  });
+
+  it('模型叙述：对账通过时按章节追加段落与建议，标题/表格被剥掉', () => {
+    const facts = buildAnalyticsFacts(input());
+    const res = buildNarratedReport(facts, {
+      sections: {
+        overview: '本期新签合同金额 100000 元，整体经营平稳。',
+        contracts: '## 小标题\n| 仅供模型表格 | x |\n合同执行情况良好。',
+        nope: '未知章节不该出现',
+      },
+      advice: ['关注付款进度与开票缺口'],
+    });
+    assert.equal(res.accepted, true);
+    assert.deepEqual(res.discarded, []);
+    assert.ok(res.markdown.includes('整体经营平稳'));
+    assert.ok(res.markdown.includes('合同执行情况良好'));
+    assert.ok(res.markdown.includes('、建议'));
+    assert.ok(!res.markdown.includes('未知章节不该出现'));
+    assert.ok(!res.markdown.includes('## 小标题'), '模型写的标题会被剥掉');
+    assert.ok(!res.markdown.includes('仅供模型表格'), '模型写的表格会被剥掉');
+    assert.ok(res.markdown.includes('### 合同汇总'), '程序表格仍是主体');
+  });
+
+  it('模型叙述编数字：整段丢弃并返回 discarded，报告退回确定性版本', () => {
+    const facts = buildAnalyticsFacts(input());
+    const res = buildNarratedReport(facts, {
+      sections: { overview: '本期金额 123456789 元，同比大增。' },
+      advice: [],
+    });
+    assert.equal(res.accepted, false);
+    assert.ok(res.discarded.length > 0, '无法对账的数字要能列出来');
+    assert.ok(!res.markdown.includes('123456789'), '丢弃的段落不得进入报告');
+    assert.ok(res.markdown.includes('## 一、经营总览'), '仍返回确定性报告');
+    assert.ok(res.warnings.some((w) => w.includes('丢弃')));
+  });
+
+  it('模型返回空/非对象：不空窗，直接输出确定性报告', () => {
+    const facts = buildAnalyticsFacts(input());
+    for (const raw of [null, 'text', { sections: {}, advice: [] }, { sections: { nope: 'x' } }]) {
+      const res = buildNarratedReport(facts, raw);
+      assert.equal(res.accepted, false);
+      assert.ok(res.markdown.includes('## 一、经营总览'));
+      assert.ok(res.warnings.length > 0);
+    }
   });
 });

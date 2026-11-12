@@ -178,7 +178,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiIntent.spec.mts` | **AI 经营数据助手的规则意图**（Phase 1 唯一解析路径）：自然语言 → scope / period preset / datasets / focus / reportKind / outputs · 同比与环比**单选**、累计至今归一 `none` · 前端 `datasets` 非空**整体替换**文本命中（不做并集），其余字段逐字段覆盖 · 未知数据集/关注点/范围丢弃并进 `warnings` · 自定义期间缺日期回落本月 · 超 8 个截断 · 默认只出报告、提到表格才带工作簿 · `rawText`≤2000 / `notes`≤300 |
   | `test/aiPeriod.spec.mts` | **AI 经营数据助手的期间原语**：本月/上月/本季度/今年/年初至今/近 30·90 天按本地日计算 · 累计至今没有起点 · 自定义期间按**本地零点**解析并含结束日、缺日期/倒置返回 null · 环比 = 紧邻本期之前等长段、同比 = 起止各回退一年 · `none` 与累计至今的对比期一律 null（展示 `-`，不当作下降 100%）· 空业务日期不落任何区间 |
   | `test/aiCommonFacts.spec.mts` | **AI 事实层共享原语**：有效发票排除作废/红冲、NULL 与未填状态计入、金额整数分合计且空金额跳过 · 合同链根多级上溯、父级缺失判断链（不猜）、成环按断链处理、链行数按链根归集 |
-  | `test/aiAnalyticsFacts.spec.mts` | **AI 经营数据助手 · 事实包与确定性报告**（Phase 2）：注册表元信息回填、空数据集进 `warnings`（不是 0）· 风险由程序判定（付款超结算=高、开票缺口≥20pp=中、环比下降≥50%=中）· Markdown 固定小节与口径说明（合同链/业务发生日/发票两态/未填≠0）· 无对比期不显示变化列 · `analyticsFactNumbers` 放行总览/项目/风险文案里的数字 · 标题 ≤60 字 |
+  | `test/aiAnalyticsFacts.spec.mts` | **AI 经营数据助手 · 事实包与确定性报告**（Phase 2）+ **模型叙述对账**（Phase 3）：注册表元信息回填、空数据集进 `warnings`（不是 0）· 风险由程序判定（付款超结算=高、开票缺口≥20pp=中、环比下降≥50%=中）· Markdown 固定小节与口径说明（合同链/业务发生日/发票两态/未填≠0）· 无对比期不显示变化列 · `analyticsFactNumbers` 放行总览/项目/风险文案里的数字 · 标题 ≤60 字 · 模型叙述按稳定章节 ID 追加、剥离标题/表格、编造数字**整段丢弃**并退回确定性报告、空/非对象结果不空窗 |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
