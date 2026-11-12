@@ -93,7 +93,14 @@ export class ExcelService {
   private cellValue(cell: any): any {
     if (cell && typeof cell === 'object') {
       if ('text' in cell) return cell.text;
+      // 富文本单元格（部分文字加粗/变色，复制粘贴很常见）：ExcelJS 给的是 { richText: [{text}] }，
+      // 不处理时会把整个对象当值落库（显示成 [object Object]，金额/名称全错）
+      if ('richText' in cell && Array.isArray((cell as any).richText)) {
+        return (cell as any).richText.map((t: any) => String(t?.text ?? '')).join('');
+      }
       if ('result' in cell) return cell.result;
+      // 公式错误值（#N/A 等）：不能当有效输入，返回 null 交给必填校验报行级错误
+      if ('error' in cell) return null;
     }
     return cell;
   }
