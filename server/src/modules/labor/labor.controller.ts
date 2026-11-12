@@ -64,8 +64,9 @@ export class LaborController {
   /** 附件要求文件名：分包材料员授权委托书_{分包商名称}_{日期}.pdf */
   @RequirePermissions('labor:view')
   @Get(':id/letter-filename')
-  async letterFileName(@Param('id') id: string) {
-    const row: any = await this.service.findOne(id);
+  async letterFileName(@Param('id') id: string, @ProjectId() projectId: string) {
+    // 与 letter/findOne 同口径：按 id 直达也必须属于当前项目，否则可读到别项目分包商名称
+    const row: any = await this.service.findOne(id, projectId);
     return { fileName: letterFileName(row.subcontractorName) };
   }
 
