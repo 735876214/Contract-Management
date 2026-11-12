@@ -533,6 +533,7 @@ export default function ResultReport() {
     {
       title: '操作',
       width: 90,
+      fixed: 'right',
       render: (_v, r) => (
         <Button
           type="link"

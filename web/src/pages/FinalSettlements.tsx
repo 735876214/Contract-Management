@@ -126,6 +126,8 @@ export default function FinalSettlements() {
             <Table
               rowKey="id"
               size="small"
+              // 表格必须声明 scroll（DESIGN.md §10.1 第 2 条）
+              scroll={{ x: 480 }}
               pagination={false}
               dataSource={row.items || []}
               columns={[

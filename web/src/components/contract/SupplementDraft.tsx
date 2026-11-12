@@ -527,7 +527,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               )}
               <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={priceRows} pagination={false}
                 scroll={{ x: 1560 }}
-                columns={[...priceColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(priceRows, setPriceRows, i) }]} />
+                columns={[...priceColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => deleteBtn(priceRows, setPriceRows, i) }]} />
             </Card>
           )}
 
@@ -544,7 +544,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               )}
               <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={qtyRows} pagination={false}
                 scroll={{ x: 1500 }}
-                columns={[...qtyColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(qtyRows, setQtyRows, i) }]} />
+                columns={[...qtyColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => deleteBtn(qtyRows, setQtyRows, i) }]} />
             </Card>
           )}
 
@@ -555,7 +555,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               </Card>
               <Card size="small" title="新增合同清单（增项）" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setItemNew([...itemNew, blankItem()])}>加一行</Button>}>
                 <Table<ItemRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={itemNew} pagination={false} scroll={{ x: 1200 }}
-                  columns={[...itemColumns, { title: '操作', width: 60, render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setItemNew(itemNew.filter((_, j) => j !== i))} /> }]} />
+                  columns={[...itemColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setItemNew(itemNew.filter((_, j) => j !== i))} /> }]} />
               </Card>
             </>
           )}

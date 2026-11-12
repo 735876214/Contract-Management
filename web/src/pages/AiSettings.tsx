@@ -236,6 +236,7 @@ export default function AiSettings() {
       title: '操作',
       dataIndex: 'op',
       width: 100,
+      fixed: 'right',
       render: (_: unknown, p: AiSettingPurposeView) => (
         <Button
           size="small"
@@ -403,6 +404,8 @@ export default function AiSettings() {
         <Table<AiSettingPurposeView>
           rowKey="code"
           size="middle"
+          // 表格必须声明 scroll（DESIGN.md §10.1 第 2 条）：窄屏下让表格内部横滑，不压扁列
+          scroll={{ x: 680 }}
           pagination={false}
           dataSource={view?.purposes ?? []}
           columns={purposeColumns as any}

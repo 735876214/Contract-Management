@@ -556,7 +556,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
                 ),
               },
               {
-                title: '操作', width: 70,
+                title: '操作', width: 70, fixed: 'right',
                 render: (_: any, r: any) => (
                   <Button type="link" size="small" danger
                     onClick={() => { setItems((prev) => prev.filter((x) => x.key !== r.key)); setDirty(true); }}>

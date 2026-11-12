@@ -331,6 +331,8 @@ export default function QuoteAnomalyPanel() {
             <Table<AiQuoteFinding>
               rowKey={(r) => `${r.code}-${r.entityId}-${r.title}`}
               size="small"
+              // 表格必须声明 scroll（DESIGN.md §10.1 第 2 条）：窄屏下让表格内部横滑，不压扁列
+              scroll={{ x: 920 }}
               loading={loading}
               columns={columns}
               dataSource={findings}

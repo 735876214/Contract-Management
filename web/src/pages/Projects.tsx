@@ -158,6 +158,8 @@ function ProjectList() {
             },
             {
               title: '操作',
+              width: 90,
+              fixed: 'right',
               render: (_, row: any) => (
                 <Popconfirm title="移除该成员？" onConfirm={async () => {
                   await projectApi.removeMember(current.id, row.userId);

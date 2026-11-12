@@ -208,6 +208,7 @@ function RolesTab() {
           {
             title: '操作',
             width: 160,
+            fixed: 'right',
             render: (_: any, row: any) => (
               <Space size={4}>
                 <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>

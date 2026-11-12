@@ -117,6 +117,8 @@ export default function Archive() {
             <Table
               style={{ marginTop: 16 }}
               size="small"
+              // 表格必须声明 scroll（DESIGN.md §10.1 第 2 条）：窄屏下让表格内部横滑，不压扁「目录」列
+              scroll={{ x: 760 }}
               rowKey="zipPath"
               loading={detailLoading}
               dataSource={detailItems ?? []}
