@@ -657,8 +657,23 @@ export default function ReceiptOrders() {
         : await receiptOrderApi.create(payload);
       const targetId = saved?.id || editingId;
       if (targetId) {
-        const pushed = await receiptOrderApi.push(targetId);
-        message.success(`保存成功，已推送 ${pushed?.pushed ?? 0} 条明细到总日报`);
+        /**
+         * 保存本身已成功（后端保存时也会自动推送总日报）；这里再推一次是幂等补推。
+         * 补推失败**不能**让用户以为保存失败：否则会重复点保存 → 乐观锁 409/重复单据。
+         * 失败时改为提示保存成功即可，明细已由服务端保存流程推送。
+         */
+        let pushedCount: number | null = null;
+        try {
+          const pushed = await receiptOrderApi.push(targetId);
+          pushedCount = pushed?.pushed ?? 0;
+        } catch {
+          /* 补推失败不影响保存结果（后端保存时已尝试推送，可稍后「重新推送」） */
+        }
+        message.success(
+          pushedCount == null
+            ? '保存成功（明细将在总日报中自动生成，如缺失可点「重新推送」）'
+            : `保存成功，已推送 ${pushedCount} 条明细到总日报`,
+        );
       } else {
         message.success('保存成功');
       }

@@ -139,7 +139,7 @@ function ContractList() {
                   <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
                 )}
                 {!row.archivedAt && (
-                  <Popconfirm title="确认删除该合同？关联的清单、结算、付款等数据将一并删除。" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
+                  <Popconfirm title="确认删除该合同？（存在下游单据或补充协议时会被服务端拒绝，请改为归档；仅物资清单等随合同级联删除）" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
                     <Button type="link" size="small" danger>删除</Button>
                   </Popconfirm>
                 )}
