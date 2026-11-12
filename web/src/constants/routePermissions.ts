@@ -64,6 +64,8 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/ai/quote': ['ai:view'],
   '/ai/fulfillment': ['ai:view'],
   '/ai/analysis': ['ai:view'],
+  // 经营数据助手（2026-11-12）：入口沿用 ai:view；生成/删除由后端 ai:use 兜底
+  '/ai/analytics': ['ai:view'],
   // 基础信息管理
   '/base/project': ['project:view'],
   '/base/supplier': ['supplier:view'],

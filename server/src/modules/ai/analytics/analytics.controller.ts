@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { AnalyticsService } from './analytics.service';
+import { Body, Controller, Delete, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
+import { AnalyticsService, type AnalyticsReportInput } from './analytics.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../../common/decorators/permissions.decorator';
@@ -32,5 +33,52 @@ export class AnalyticsController {
   @Post('plan')
   plan(@Body() body: AiAnalyticsPlanInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.service.plan(body || {}, projectId, user);
+  }
+
+  /** 确定性报告（Phase 2 不调模型）：成功即落库，返回 id 供历史/导出使用 */
+  @RequirePermissions('ai:use')
+  @Post('report')
+  report(@Body() body: AnalyticsReportInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.service.report(body || {}, projectId, user);
+  }
+
+  /** 历史列表：默认本人全部（跨项目可见）；`projectId` 可选筛选；超管 `all=1` */
+  @RequirePermissions('ai:view')
+  @Get()
+  history(@Query() query: any, @CurrentUser() user: JwtUser) {
+    return this.service.list(user, query || {});
+  }
+
+  /** 记录详情（本人或超管；非创建人 404） */
+  @RequirePermissions('ai:view')
+  @Get(':id/export')
+  async exportRecord(
+    @Param('id') id: string,
+    @Query('format') format: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ) {
+    const isPdf = String(format || 'docx').toLowerCase() === 'pdf';
+    const { buffer, fileName } = await this.service.exportRecord(id, format, user);
+    res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="analytics.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    );
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.end(buffer);
+  }
+
+  @RequirePermissions('ai:view')
+  @Get(':id')
+  detail(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.service.detail(id, user);
+  }
+
+  /** 删除记录：只删 DB 行（文件留给存储审计） */
+  @RequirePermissions('ai:use')
+  @Delete(':id')
+  remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.service.remove(id, user);
   }
 }

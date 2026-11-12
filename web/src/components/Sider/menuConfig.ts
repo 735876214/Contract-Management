@@ -81,6 +81,8 @@ export const MENU_CONFIG: MenuItem[] = [
   { key: 'ai-fulfillment', label: '履约偏差预警', icon: 'AuditOutlined', path: '/ai/fulfillment', permission: 'ai:view' },
   // 供应链运营全景（课题 7-11）：跨项目汇报材料入口，与后端 MENU_TREE 的 ai-analysis 对齐
   { key: 'ai-analysis', label: '供应链全景', icon: 'BarChartOutlined', path: '/ai/analysis', permission: 'ai:view' },
+  // 经营数据助手（2026-11-12）：与后端 MENU_TREE 的 ai-analytics 对齐
+  { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   {
     key: 'base',

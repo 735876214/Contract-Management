@@ -94,6 +94,72 @@ export interface AiAnalyticsPlanResult {
   source: 'rules' | 'llm';
 }
 
+/** 采集到的一个数据集（格式化行；金额为元、数量为原始精度） */
+export interface AiCollectedDataset {
+  key: string;
+  columns: string[];
+  rows: Array<Record<string, string | number | null>>;
+  /** 截断前的总行数（报告页显示「共 N 行，显示前 M 行」） */
+  totalRows: number;
+  truncated: boolean;
+  /** 一句话汇总（含数字，供面板与报告小节开头） */
+  summary: string;
+}
+
+/** 经营总览的核心指标（元；数量类原样） */
+export interface AiAnalyticsTotals {
+  projectCount: number;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  dailyReports: number;
+  procurementTasks: number;
+}
+
+/** 按项目的核心指标（与 totals 同口径，逐项目；`projectCount` 只属于 totals） */
+export interface AiAnalyticsProjectFact {
+  projectId: string;
+  code: string;
+  name: string;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  dailyReports: number;
+  procurementTasks: number;
+}
+
+/** 报告事实包：模型只许引用这里的数字，一个新数都不许算 */
+export interface AiAnalyticsFacts {
+  version: 1;
+  generatedAt: string;
+  asOf: string;
+  scope: { mode: string; label: string; projects: Array<{ id: string; code: string; name: string }>; projectCount: number };
+  period: { from: string | null; to: string; label: string; preset: string };
+  compareMode: AiCompareMode;
+  comparePeriod: { from: string | null; to: string; label: string; mode: 'mom' | 'yoy' } | null;
+  totals: AiAnalyticsTotals;
+  compareTotals: AiAnalyticsTotals | null;
+  byProject: AiAnalyticsProjectFact[];
+  datasets: AiAnalyticsDatasetFact[];
+  risks: Array<{ code: string; level: 'RED' | 'YELLOW' | 'INFO'; text: string }>;
+  warnings: string[];
+}
+
+/** 事实包里的数据集小节（带注册表元信息，展示层不再查注册表） */
+export interface AiAnalyticsDatasetFact extends AiCollectedDataset {
+  label: string;
+  section: AiReportSectionId;
+  empty: boolean;
+}
+
 export const AI_PERIOD_PRESETS: readonly AiPeriodPreset[] = [
   'this_month',
   'last_month',

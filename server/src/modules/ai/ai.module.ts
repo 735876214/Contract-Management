@@ -14,6 +14,8 @@ import { FulfillmentService } from './fulfillment/fulfillment.service';
 import { ScmService } from './analysis/scm.service';
 import { AnalyticsController } from './analytics/analytics.controller';
 import { AnalyticsService } from './analytics/analytics.service';
+import { DatasetCollector } from './analytics/dataset-collector.service';
+import { AnalyticsStore } from './analytics/analytics-store.service';
 
 /**
  * AI 助手模块（纯增量能力：不引入新依赖、不改任何既有表）。
@@ -27,7 +29,7 @@ import { AnalyticsService } from './analytics/analytics.service';
 @Module({
   imports: [ContractModule, SupplierModule],
   controllers: [AiController, AnalyticsController],
-  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, QuoteService, FulfillmentService, ScmService, AnalyticsService, AiQuota],
+  providers: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, QuoteService, FulfillmentService, ScmService, AnalyticsService, DatasetCollector, AnalyticsStore, AiQuota],
   exports: [AiService, AiSettingService, FieldResolverService, RegisterService, ReportService, AnomalyService, QuoteService, FulfillmentService, ScmService, AnalyticsService],
 })
 export class AiModule {}

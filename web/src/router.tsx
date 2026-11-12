@@ -43,6 +43,7 @@ const AnomalyPanel = lazy(() => import('@/pages/AnomalyPanel'));
 const QuoteAnomalyPanel = lazy(() => import('@/pages/QuoteAnomalyPanel'));
 const FulfillmentAnomalyPanel = lazy(() => import('@/pages/FulfillmentAnomalyPanel'));
 const ScmAnalysisPanel = lazy(() => import('@/pages/ScmAnalysisPanel'));
+const AiAnalytics = lazy(() => import('@/pages/AiAnalytics'));
 const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
@@ -169,6 +170,8 @@ export const routes: RouteObject[] = [
       { path: 'ai/fulfillment', element: perm('/ai/fulfillment', <FulfillmentAnomalyPanel />) },
       // 供应链运营全景（课题 7-11）：跨项目汇报材料，可导出 Word/PDF
       { path: 'ai/analysis', element: perm('/ai/analysis', <ScmAnalysisPanel />) },
+      // 经营数据助手（2026-11-12）：按需范围/期间/数据集生成报告，历史留痕
+      { path: 'ai/analytics', element: perm('/ai/analytics', <AiAnalytics />) },
 
       // —— 基础信息管理 ——
       { path: 'base/project', element: perm('/base/project', <Projects />) },

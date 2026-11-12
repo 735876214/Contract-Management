@@ -120,6 +120,8 @@ export const MENU_TREE: MenuNode[] = [
   // 供应链运营全景（课题 7-11，2026-10-25）：跨项目汇报材料入口。
   // 沿用 ai:view 进页面；跨项目看数由接口内 dashboard:view 二次校验兜底（只有一个项目权限时会被拒）。
   { key: 'ai-analysis', label: '供应链全景', icon: 'BarChartOutlined', path: '/ai/analysis', permission: 'ai:view' },
+  // 经营数据助手（2026-11-12）：按需范围/期间/数据集生成可导出的确定性报告，历史留痕
+  { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   // 项目资料归档（附件需求 2026-10-17）：按需求目录树一键打包 ZIP
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },

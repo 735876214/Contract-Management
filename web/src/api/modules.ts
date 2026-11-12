@@ -956,6 +956,100 @@ export interface AiSettingTestResult {
   reply?: string;
 }
 
+export interface AiAnalyticsDatasetMeta {
+  key: string;
+  label: string;
+  desc: string;
+  permission: string;
+  periodField: string | null;
+  reportSection: string;
+  defaultSelected: boolean;
+}
+
+export interface AiAnalyticsDatasetsResult {
+  datasets: AiAnalyticsDatasetMeta[];
+  deniedDatasets: string[];
+  crossProjectAllowed: boolean;
+  maxDatasets: number;
+  defaultKeys: string[];
+}
+
+export type AiPeriodPreset =
+  | 'this_month' | 'last_month' | 'this_quarter' | 'this_year'
+  | 'last_30_days' | 'last_90_days' | 'ytd' | 'all' | 'custom';
+export type AiCompareMode = 'none' | 'mom' | 'yoy';
+export type AiScopeMode = 'current' | 'selected' | 'all';
+
+export interface AiAnalyticsIntent {
+  version: 1;
+  scope: { mode: AiScopeMode; mentions?: string[] };
+  period: { preset: AiPeriodPreset; from?: string; to?: string };
+  datasets: string[];
+  groupBy: 'project' | 'month' | 'supplier' | 'contract';
+  detail: 'summary' | 'detail' | 'both';
+  focus: string[];
+  outputs: { report: boolean; workbook: boolean };
+  reportKind: 'monthly' | 'project' | 'brief' | 'custom' | 'comparison';
+  compare: AiCompareMode;
+  notes?: string;
+  rawText?: string;
+}
+
+export interface AiAnalyticsPlanResult {
+  intent: AiAnalyticsIntent;
+  warnings: string[];
+  unknownTerms: string[];
+  unknownDatasets: string[];
+  deniedDatasets: string[];
+  projects: Array<{ id: string; code: string; name: string }>;
+  source: 'rules' | 'llm';
+}
+
+export interface AiAnalyticsReportResult {
+  id: string | null;
+  persisted: boolean;
+  title: string;
+  intent: AiAnalyticsIntent;
+  scope: { mode: string; label: string; projects: Array<{ id: string; code: string; name: string }>; projectCount: number };
+  period: { from: string | null; to: string; label: string; preset: string };
+  compareMode: AiCompareMode;
+  comparePeriod: { from: string | null; to: string; label: string; mode: 'mom' | 'yoy' } | null;
+  sections: Array<{ id: string; title: string }>;
+  markdown: string;
+  facts: any;
+  unknownNumbers: string[];
+  discardedNumbers: string[];
+  warnings: string[];
+  source: 'template' | 'llm';
+  factNumbers?: number[];
+}
+
+export interface AiAnalyticsRecordSummary {
+  id: string;
+  title: string;
+  projectId: string;
+  createdBy: string | null;
+  createdByName: string | null;
+  scopeMode: string | null;
+  projectCount: number;
+  periodLabel: string | null;
+  compareMode: string | null;
+  datasetKeys: string[];
+  hasReport: boolean;
+  hasWorkbook: boolean;
+  narrative: boolean;
+  source: string | null;
+  createdAt: string;
+}
+
+export interface AiAnalyticsRecordDetail extends AiAnalyticsRecordSummary {
+  markdown?: string | null;
+  factsJson?: any;
+  warningsJson?: any;
+  rawText?: string | null;
+  intentJson?: any;
+}
+
 export const aiApi = {
   status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
   /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段 */
@@ -1027,6 +1121,31 @@ export const aiApi = {
    */
   supplyChain: (query: { projectIds?: string; narrative?: '0' | '1' }) =>
     http.get<any, AiScmResult>('/ai/analysis/supply-chain', { params: query, timeout: 180000 } as any),
+
+  // ---------- AI 经营数据助手（Phase 1–2）----------
+  /** 数据集注册表：只返回已实现且当前用户有权限的条目 */
+  analyticsDatasets: () => http.get<any, AiAnalyticsDatasetsResult>('/ai/analytics/datasets'),
+  /** 自然语言/结构化选择 → 最终意图（规则解析 + 逐字段覆盖） */
+  analyticsPlan: (body: Record<string, unknown>) =>
+    http.post<any, AiAnalyticsPlanResult>('/ai/analytics/plan', body, { timeout: 60000 } as any),
+  /** 确定性报告（不调模型）：成功即落库，返回 id 供历史/导出使用 */
+  analyticsReport: (body: Record<string, unknown>) =>
+    http.post<any, AiAnalyticsReportResult>('/ai/analytics/report', body, { timeout: 180000 } as any),
+  /** 历史列表：默认本人全部（跨项目可见）；`projectId` 可选筛选；超管 `all=1` */
+  analyticsHistory: (params: Record<string, unknown>) =>
+    http.get<any, { list: AiAnalyticsRecordSummary[]; total: number; page: number; pageSize: number }>('/ai/analytics', {
+      params,
+    }),
+  analyticsDetail: (id: string) => http.get<any, AiAnalyticsRecordDetail>(`/ai/analytics/${id}`),
+  /** 用存档 Markdown 重新导出（GET 下载走 Cookie 鉴权） */
+  analyticsExport: (id: string, format: 'docx' | 'pdf') =>
+    http.get<any, any>(`/ai/analytics/${id}/export`, {
+      params: { format },
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any),
+  analyticsRemove: (id: string) => http.delete<any, { id: string; deleted: boolean }>(`/ai/analytics/${id}`),
   /**
    * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
    * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。
