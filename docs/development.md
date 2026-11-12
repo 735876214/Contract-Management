@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（79 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（16 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（84 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（18 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -173,6 +173,11 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/milestone.spec.mts` | **履约节点逾期派生**（四域扩展按需项 2026-10-18）：到期日当天不逾期、过期未完成=逾期 · DONE/SKIPPED 不逾期 · 无/非法 planDate 不逾期 |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
+  | `test/invoiceStatus.spec.mts` | **发票终态口径锁**（业务口径 2026-11-12：作废 `CANCELLED` / 红冲 `RED` 不计入金额口径）：排除清单常量、`countedInvoiceWhere()` 显式纳入 NULL（禁止 `NOT: { in }`）、内存谓词同口径、前后端镜像一致 · 源码扫描六处金额聚合都接了过滤、AI 两处私有谓词已收敛 |
+  | `test/aiDatasetRegistry.spec.mts` | **AI 经营数据助手数据集注册表**（2026-11-12 评审：27 个业务单据域单一事实源）：key 唯一 · 已实现 18 个、Phase 5 的 9 个对用户不可见 · 默认选中 4 个且必须是已实现 · 权限过滤不暴露未实现、无权限进 `denied` 而非静默消失 · 最多 8 个去重截断并回报截断数 |
+  | `test/aiIntent.spec.mts` | **AI 经营数据助手的规则意图**（Phase 1 唯一解析路径）：自然语言 → scope / period preset / datasets / focus / reportKind / outputs · 同比与环比**单选**、累计至今归一 `none` · 前端 `datasets` 非空**整体替换**文本命中（不做并集），其余字段逐字段覆盖 · 未知数据集/关注点/范围丢弃并进 `warnings` · 自定义期间缺日期回落本月 · 超 8 个截断 · 默认只出报告、提到表格才带工作簿 · `rawText`≤2000 / `notes`≤300 |
+  | `test/aiPeriod.spec.mts` | **AI 经营数据助手的期间原语**：本月/上月/本季度/今年/年初至今/近 30·90 天按本地日计算 · 累计至今没有起点 · 自定义期间按**本地零点**解析并含结束日、缺日期/倒置返回 null · 环比 = 紧邻本期之前等长段、同比 = 起止各回退一年 · `none` 与累计至今的对比期一律 null（展示 `-`，不当作下降 100%）· 空业务日期不落任何区间 |
+  | `test/aiCommonFacts.spec.mts` | **AI 事实层共享原语**：有效发票排除作废/红冲、NULL 与未填状态计入、金额整数分合计且空金额跳过 · 合同链根多级上溯、父级缺失判断链（不猜）、成环按断链处理、链行数按链根归集 |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
   | `test/docStats.spec.mts` | **活文档统计数字漂移锁**：本文件与 `CLAUDE.md` 里的 spec/model/模块/迁移计数须与代码一致，且本表列全了每个 spec |
@@ -257,7 +262,9 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 |---|---|
 | `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 |
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |
-| `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计 · 跨项目 404 |
+| `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计（**作废/红冲排除、空状态计入**）· 跨项目 404 |
+| `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 |
+| `aiAnalyticsPlan.int.spec.ts` | **AI 经营数据助手（Phase 1）权限与意图**：注册表只返回已实现且有权限的条目、无权限进 `denied`（超管全量）· `scope=current` 必须是成员项目 · `scope=all` 需 `dashboard:view` 且返回成员项目集合 · `scope=selected` 忽略无权/未知项目并提示、`mentions` 回写匹配到的项目名 · 无权数据集被剔除（`deniedDatasets`） |
 | `contract-archive.int.spec.ts` | **合同归档锁定**（业务口径 2026-10-18，单向）：未签章/草稿结算阻断 · 下游收口后可归档 · 归档后合同/结算/收领单写入口 400、读取仍可用 · 不可重复归档 |
 | `contract-milestone.int.spec.ts` | **合同履约节点**（四域扩展按需项 2026-10-18）：CRUD 全链与 overdue 派生 · 跨项目 404 · 非法状态 400 · 归档合同禁止写 · 逾期节点进工作台 OVERDUE_MILESTONE 组 |
 | `material-categories.int.spec.ts` | **物资分类字典与基础库引用**（2026-10-18 分类表）：启动同步后一级 10/二级 67 项且二级挂一级 · 创建物资存名称、同名二级按一级归位 · 二级不属于所选一级/旧分类名 → 400 · 只传二级自动带出一级 · 导入模板的一/二级分类列**预置下拉**（隐藏选项表 + 数据验证） |

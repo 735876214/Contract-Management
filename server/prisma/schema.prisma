@@ -134,6 +134,7 @@ model Project {
   procurementEvaluations   ProcurementEvaluation[]
   inspectionReports        InspectionReport[]
   contractFulfillments     ContractFulfillment[]
+  aiAnalyticsReports       AiAnalyticsReport[]
 
   @@index([createdAt])
 }
@@ -1765,4 +1766,48 @@ model ProcurementEvaluation {
 
   @@index([taskId])
   @@index([bidderId])
+}
+
+// ---------------- AI 经营数据助手 ----------------
+
+/// AI 经营数据助手的生成记录（报告正文 + 事实快照 + 表格文件 key）。
+/// 记录是**快照**：重新生成 = 新增一条，不覆盖；历史按创建人可见（跨项目可见），超管可看全部。
+/// `projectId` 只作元数据与文件目录（发起时的当前项目），不参与列表过滤。
+/// 不设 `kind` 列：一条记录可同时有报告与工作簿，用 `hasReport` / `hasWorkbook` 表达。
+model AiAnalyticsReport {
+  id                   String    @id @default(cuid())
+  projectId            String
+  createdBy            String? // 用户 ID 快照（不建 User 关系，用户删除后历史仍在）
+  createdByName        String?
+  title                String
+  rawText              String?   @db.Text
+  intentJson           Json?
+  scopeJson            Json?
+  datasetKeys          String[]  @default([])
+  factsJson            Json?
+  warningsJson         Json?
+  unknownNumbersJson   Json?
+  discardedNumbersJson Json?
+  scopeMode            String?
+  projectCount         Int       @default(0)
+  periodFrom           DateTime?
+  periodTo             DateTime?
+  periodLabel          String?
+  compareMode          String? // 'none' | 'mom' | 'yoy'
+  narrative            Boolean   @default(false)
+  source               String? // 'llm' | 'template'
+  markdown             String?   @db.Text
+  hasReport            Boolean   @default(false)
+  workbookKey          String? // StorageService 相对键，绝不接受客户端传入
+  workbookName         String?
+  workbookSize         Int?
+  hasWorkbook          Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([projectId, createdBy, createdAt])
+  @@index([createdBy, createdAt])
 }
