@@ -34,6 +34,17 @@ export default function Dict() {
   const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
   const isNarrow = containerSize.isNarrow;
   const [mobileDetail, setMobileDetail] = useState(false);
+  /**
+   * 窄容器下**只隐藏另一栏是不够的，还要把可见栏拉满整行**：
+   * `Col` 的 `lg={7}`/`lg={17}` 按**视口**断点生效，当视口 ≥1200 而容器 <720
+   * （分屏 / 嵌入等窄容器场景）时，剩下的那一栏仍只占 7/24 或 17/24 的宽度——
+   * 500px 容器里只剩 ~146px，标题与「新增」按钮重叠、搜索框被压成一条。
+   * 容器级响应式的判定与宽度必须同源，故这里用容器档位直接覆盖 flex 宽度。
+   */
+  const colStyle = (hidden: boolean) =>
+    isNarrow
+      ? { display: hidden ? ('none' as const) : undefined, flex: '0 0 100%', maxWidth: '100%' }
+      : undefined;
 
   const loadTypes = async (keyword = '') => {
     const res: any = await dictApi.types({ keyword, pageSize: 500 });
@@ -116,7 +127,7 @@ export default function Dict() {
 
   return (
     <Row gutter={16} ref={cqRef} className="cq">
-      <Col xs={24} lg={7} style={isNarrow && mobileDetail ? { display: 'none' } : undefined}>
+      <Col xs={24} lg={7} style={colStyle(mobileDetail)}>
         <Card
           title="字典类型"
           extra={
@@ -177,7 +188,7 @@ export default function Dict() {
         </Card>
       </Col>
 
-      <Col xs={24} lg={17} style={isNarrow && !mobileDetail ? { display: 'none' } : undefined}>
+      <Col xs={24} lg={17} style={colStyle(!mobileDetail)}>
         <Card
           title={
             isNarrow ? (
@@ -310,10 +321,12 @@ export default function Dict() {
               { title: '备注', dataIndex: 'remark', render: (v: string) => v || '-' },
               {
                 title: '操作',
-                width: 210,
+                // 5 个 small 按钮实测共 236px（编辑/停用/上移/下移/删除 各 44 + 间距），
+                // 原 210 会把「删除」裁在固定列右缘外（桌面与手机都点不到）。留 16px 内边距余量。
+                width: 260,
                 fixed: 'right',
                 render: (_: any, row: any) => (
-                  <Space size={4}>
+                  <Space size={4} wrap>
                     <Button type="link" size="small" onClick={() => { setEditingItem(row); itemForm.setFieldsValue(row); setItemModal(true); }}>
                       编辑
                     </Button>

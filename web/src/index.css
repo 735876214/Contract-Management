@@ -275,7 +275,8 @@ body {
   color: var(--cms-accent-amber);
 }
 
-/* 手机/平板：标签更窄，靠横向滚动容纳 */
+/* 手机/平板：标签更窄；手机（<768）由 `.is-mobile` 折叠为「当前标签 + 下拉」，
+   平板仍平铺、靠横向滚动容纳（标签条属页面外壳层，见 DESIGN.md §11） */
 .cms-tags-view.is-compact {
   gap: 3px;
   padding: 4px 8px;
@@ -605,6 +606,20 @@ body {
   .ant-table .ant-btn.ant-btn-sm {
     min-height: 40px;
     padding-block: 0;
+  }
+
+  /* 页签条的触控目标：关闭按钮原为 14×14、下拉按钮高 26px——手机上点「×」误触
+     等于直接关掉当前页（脏标签虽会拦一次，没改动过的页面直接消失）。页签条本身
+     只有 ~37px 高，放大到 28/34 是在条高与可点性之间的折中；桌面端保持原尺寸。 */
+  .cms-tags-view__close {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
+  .cms-tags-view__mobile-more {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
   }
 }
 

@@ -179,14 +179,19 @@ export default function TagsView() {
   if (isMobile) {
     const activeTab = tabs.find((t) => t.key === activeKey);
     const others = tabs.filter((t) => t.key !== activeKey);
+    // 刷新也在下拉里：触摸屏上的长按右键菜单不可发现，桌面能做的事手机不能缺
     const mobileItems: any[] = [
+      { key: 'refresh', label: '刷新当前页', disabled: !activeTab },
+      { type: 'divider' as const },
       ...others.map((t) => ({
         key: `switch:${t.key}`,
         label: `${t.title}${dirtyKeys.includes(t.key) ? ' •' : ''}`,
       })),
       ...(others.length ? [{ type: 'divider' as const }] : []),
-      { key: 'others', label: '关闭其他标签', disabled: closableCount === 0 },
-      { key: 'all', label: '关闭全部标签', disabled: closableCount === 0 },
+      // 没有可关闭的标签、或 activeKey 尚未登记（路由切换的首帧）时置灰，
+      // 避免出现「菜单项可点、点了什么都不发生」
+      { key: 'others', label: '关闭其他标签', disabled: closableCount === 0 || !activeTab },
+      { key: 'all', label: '关闭全部标签', disabled: closableCount === 0 || !activeTab },
     ];
     return (
       <div className="cms-tags-view is-compact is-mobile" role="tablist" aria-label="已打开的页面">
