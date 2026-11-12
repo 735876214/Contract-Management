@@ -12,7 +12,6 @@ import { materialRowsFromItems } from './register-materials';
 import { isRealDay, normalizeExtraction, taxRateFraction, type RegisterDraft } from './register-fields';
 import { buildRegisterMessages } from './register-prompt';
 import { assertPermission } from '../../common/utils/assert-permission';
-import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 
 /** 一次登记的解析结果：**不落库**，等人在前端确认后才写 */
 export interface RegisterParseResult {
@@ -193,7 +192,8 @@ export class RegisterService {
     const supplierName = draft.fields.find((f) => f.key === 'supplier.name')?.value;
     const code = draft.fields.find((f) => f.key === 'contract.code')?.value;
     if (supplierName) {
-      const hit = await this.prisma.supplier.findFirst({ where: { name: supplierName } });
+      // 按共享范围查找（scope=PROJECT 时不把别项目的私有供应商当成「已存在」）
+      const hit = await this.suppliers.findByName(String(supplierName), projectId);
       if (hit) {
         out.supplierId = hit.id;
         out.supplierName = hit.name;
@@ -247,8 +247,8 @@ export class RegisterService {
     //    （2026-10-20 审计 P1-6：原来在事务外建，合同失败会留下无合同的孤儿供应商）
     let supplierId: string | null = input?.supplierId ? String(input.supplierId) : null;
     if (supplierId) {
-      const hit = await this.prisma.supplier.findFirst({ where: { id: supplierId } });
-      if (!hit) throw new BadRequestException('选择的供应商不存在');
+      // 走供应商服务的存在性 + 共享范围校验（scope=PROJECT 时不能选别项目私有供应商）
+      await this.suppliers.findOne(supplierId);
     }
     const supplierName = str(s.name);
     const willCreateSupplier = !supplierId && !input?.skipSupplier && Boolean(supplierName);
@@ -262,6 +262,12 @@ export class RegisterService {
       );
     }
 
+    // 事务外先按共享范围找一次同名供应商：`scopeWhere` 要读系统参数，
+    // 事务内不得再走 sysParam（事务外连接，可能挂起）。
+    const visibleSupplier = willCreateSupplier && supplierName
+      ? await this.suppliers.findByName(supplierName, ctx.projectId)
+      : null;
+
     // 2) 供应商（新建时）+ 合同 + 3) 物资明细：同一个事务。
     // 不同事务时，物资行写到一半失败会留下「合同已建、明细只写了一半」的半成品，
     // 再点确认又会被合同编号唯一键拦下（物资明细永远补不上，只能人修库）。
@@ -269,9 +275,8 @@ export class RegisterService {
       async (tx) => {
         let supplierCreated = false;
         if (willCreateSupplier) {
-          const same = await tx.supplier.findFirst({ where: { name: supplierName } });
-          if (same) {
-            supplierId = same.id;
+          if (visibleSupplier) {
+            supplierId = visibleSupplier.id;
           } else {
             const created = await this.suppliers.create(
               {
@@ -305,7 +310,8 @@ export class RegisterService {
             paymentMode: str(c.paymentMode) || null,
             materialDescription: str(c.materialDescription) || null,
             remark: str(c.remark) || null,
-            execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING,
+            // 不写 execStatus：它是「已签章/已完已结」的权威事实，只能由签章/驳回/总结算维护；
+            // 文件登记出来的仍是草稿（无签章件），标成「执行中」会让工作台执行数虚高。
           },
           ctx.projectId,
           user,

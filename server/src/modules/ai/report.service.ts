@@ -6,6 +6,7 @@ import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/utils/money';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { paidPaymentWhere } from '../../constants/statuses';
+import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import { AiQuota } from './ai-quota';
 import { aiModelFor, type AiConfig } from './ai-config';
@@ -301,30 +302,58 @@ export class ReportService {
   }
 
   private async windowNumbers(projectId: string, from: Date, to: Date): Promise<WindowNumbers> {
+    /** 本地 `YYYY-MM`（付款只有账期、没有付款日时的兜底口径） */
+    const monthOf = (d: Date): string =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const [signed, settlements, payments, invoices, daily] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId, signDate: { gte: from, lte: to } },
-        select: { amount: true, changeAmount: true },
+        // parentContractId 决定取哪个金额字段：主合同取 amount，补充协议只能取带符号的 changeAmount
+        select: { amount: true, changeAmount: true, parentContractId: true },
       }),
+      /**
+       * 归期用**业务日期**而非 `createdAt`：结算按 `settleDate`（与台账/超结闸门同口径），
+       * 补录/搬月的历史单据按账期落到它真正所属的区间；按创建时间归期会让
+       * 「本期结算额」既漏（后补的单）又串（补的是上月账）。
+       */
       this.prisma.settlement.findMany({
-        where: { projectId, createdAt: { gte: from, lte: to }, ...notDraft },
+        where: { projectId, settleDate: { gte: from, lte: to }, ...notDraft },
         select: { amount: true, actualAmount: true },
       }),
+      /**
+       * 付款：有 `payDate` 按日期；只有账期（`payMonth`）的付款按月份纳入
+       * （付款记录的 payDate 非必填，只看 payDate 会把它们整批漏计，而台账/预警都算它们）。
+       */
       this.prisma.paymentRecord.findMany({
-        where: { projectId, ...paidPaymentWhere(), payDate: { gte: from, lte: to } },
+        where: {
+          projectId,
+          ...paidPaymentWhere(),
+          OR: [
+            { payDate: { gte: from, lte: to } },
+            { payDate: null, payMonth: { gte: monthOf(from), lte: monthOf(to) } },
+          ],
+        },
         select: { amount: true },
       }),
       this.prisma.invoice.findMany({
         where: { projectId, invoiceDate: { gte: from, lte: to } },
         select: { amountWithTax: true },
       }),
-      this.prisma.dailyReport.count({ where: { projectId, createdAt: { gte: from, lte: to } } }),
+      // 日报按**进场日期**（业务日期）归期，与结算生成/归档检查同一口径
+      this.prisma.dailyReport.count({ where: { projectId, entryDate: { gte: from, lte: to } } }),
     ]);
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
       round2(rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0));
     return {
       contractsSigned: signed.length,
-      contractsSignedAmount: sum(signed, (c) => Number(c.amount || 0) + Number(c.changeAmount || 0)),
+      /**
+       * 新签合同金额：主合同取 `amount`；补充协议**只取 `changeAmount`**（带符号增量）。
+       * 补充协议的 `amount` 是手填自由值（常是"剩余数量全价"），与 `changeAmount` 一起加
+       * 会重复计入 —— 与 `contract-chain.ts` 的链口径保持一致（2026-11-12 续审）。
+       */
+      contractsSignedAmount: sum(signed, (c) =>
+        c.parentContractId ? (c.changeAmount ?? 0) : (c.amount ?? 0),
+      ),
       settlementCount: settlements.length,
       settlementAmount: sum(settlements, (r) => r.actualAmount ?? r.amount),
       paymentCount: payments.length,
@@ -379,7 +408,7 @@ export class ReportService {
       },
       totals: {
         contracts: contracts.length,
-        executing: contracts.filter((c) => c.execStatus === 'EXECUTING').length,
+        executing: contracts.filter((c) => c.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
         contractAmount: stats.contractAmountTotal,
         settlementAmount: stats.settlementAmountTotal,
         paymentAmount: stats.paymentAmountTotal,

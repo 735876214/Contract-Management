@@ -85,6 +85,20 @@ export class SupplierService {
   }
 
   /**
+   * 按名称查找**当前项目可见**的供应商（受 `supplier.share.scope` 控制）。
+   *
+   * 供「AI 文件登记」等复用：`scope=PROJECT` 时不能按全局名称复用，
+   * 否则会把别项目的私有供应商（连同其开户行/账号）复用到本项目的合同上。
+   */
+  async findByName(name: string, projectId?: string) {
+    const n = String(name ?? '').trim();
+    if (!n) return null;
+    return this.prisma.supplier.findFirst({
+      where: { name: n, ...(await this.scopeWhere(projectId ?? requestContext.projectId)) },
+    });
+  }
+
+  /**
    * 新建供应商。`tx` 用于把「建供应商」并入调用方的事务（AI 文件登记：合同失败时
    * 不能留下孤儿供应商，2026-10-20 审计 P1-6），不传则走普通连接。
    */

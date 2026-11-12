@@ -190,15 +190,22 @@ export class FieldResolverService {
     invoiceAmountTotal: number;
     unpaidAmount: number;
   }> {
-    const contracts = await this.prisma.contract.findMany({
+    /**
+     * 合同金额合计**只按链根算一次**。
+     *
+     * 2026-11-12 续审 P1：原实现对每一行合同（含每份补充协议）都调
+     * `contractChainRows(c.id)` → `resolveChainAmounts(...).currentAmount` 再相加，
+     * 而补充协议算出来的「当前金额」与链根完全相同 —— 主合同 + N 份补充协议会被
+     * 重复计入 **N+1 次**，汇报材料里的「累计合同金额」成倍虚高。
+     * 改为一次取全项目合同行，按链根求和（同时消掉逐合同查库的 N+1）。
+     */
+    const chainRows = await this.prisma.contract.findMany({
       where: { projectId },
-      select: { id: true },
+      select: { id: true, parentContractId: true, amount: true, changeAmount: true },
     });
     let contractAmountTotal = 0;
-    for (const c of contracts) {
-      const rows = await contractChainRows(this.prisma, c.id);
-      if (!rows.length) continue;
-      const amount = resolveChainAmounts(rows, c.id).currentAmount;
+    for (const root of chainRows.filter((c) => !c.parentContractId)) {
+      const amount = resolveChainAmounts(chainRows as any, root.id).currentAmount;
       if (amount != null) contractAmountTotal += Number(amount) || 0;
     }
 
@@ -223,7 +230,7 @@ export class FieldResolverService {
     const invoiceAmountTotal = r2(sum(invoices, (r) => r.amountWithTax));
 
     return {
-      contractCount: contracts.length,
+      contractCount: chainRows.length,
       contractAmountTotal: r2(contractAmountTotal),
       settlementAmountTotal,
       paymentAmountTotal,
