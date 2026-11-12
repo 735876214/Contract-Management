@@ -8,6 +8,7 @@ import { dashboardApi } from '@/api/modules';
 import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { useTabRefresh } from '@/hooks/useTabs';
 import EmptyState from '@/components/EmptyState';
 import { TodoCard, DashboardNoticeModal } from './dashboardTodo';
 
@@ -24,6 +25,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const label = useDictStore((s) => s.label);
   const ensure = useDictStore((s) => s.ensure);
+  /** 发票作废/红冲等跨标签动作会 bump 本路径：缓存页不会重挂载，靠令牌重新取数 */
+  const tabRefresh = useTabRefresh('/dashboard');
 
   useEffect(() => {
     ensure(['contract_type']);
@@ -50,7 +53,7 @@ export default function Dashboard() {
         message.error(e?.message ? `工作台数据加载失败：${e.message}` : '工作台数据加载失败，请稍后重试');
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [tabRefresh]);
 
   const { ref: trendRef, size: trendSize } = useContainerWidth<HTMLDivElement>();
   const { ref: pieRef, size: pieSize } = useContainerWidth<HTMLDivElement>();

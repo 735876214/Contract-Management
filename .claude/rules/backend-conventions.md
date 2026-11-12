@@ -72,6 +72,12 @@
 
 ## 台账
 
+- **发票金额口径统一走 `countedInvoiceWhere()`**（业务口径 2026-11-12）：作废 `CANCELLED` / 红冲 `RED`
+  不计入任何发票金额列（台账「本月开票额」「开累发票金额」、履约开票比例、工作台累计发票额、AI 统计）；
+  **空状态历史票仍计入**。禁止裸写 `NOT: { statusCode: { in } }`——SQL 三值逻辑会静默漏掉 NULL 行；
+  查询里已有 `OR` 时必须用 `AND` 包裹（`computeLedgerAutoFields` 即此情形）。终态只能经
+  `POST /invoices/:id/cancel|red` 进入，通用 PUT 拒绝状态进出终态；终态**保留 `settlementId`** 关联。
+
 - **台账行与结算单 1:1**（业务口径 2026-10-16）：`SettlementLedger.settlementId`（**唯一键**）指向该行对应的结算单，
   由 `settlement.service.syncLedgerByContract()` 统一维护（结算单 create/update/remove 后自动调用；
   改造前这个函数**全仓没有调用点**，台账只能手动刷新，这正是"看不出关联"的根因）。

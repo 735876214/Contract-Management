@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntContext } from './helpers';
 import { ContractFulfillmentService } from '../src/modules/contract/contract-fulfillment.service';
-import { SETTLEMENT_STATUS, PAYMENT_STATUS, SITE_CONFIRM_STATUS } from '../src/constants/statuses';
+import { SETTLEMENT_STATUS, PAYMENT_STATUS, SITE_CONFIRM_STATUS, INVOICE_STATUS } from '../src/constants/statuses';
 
 /**
  * 集成测试 · 合同履约派生进度（业务口径 2026-10-18：零表派生）。
@@ -97,8 +97,16 @@ describe('集成 · 合同履约派生进度', () => {
     await ctx.prisma.paymentRecord.create({
       data: { projectId: project.id, contractId: contract.id, amount: 50, statusCode: PAYMENT_STATUS.FAILED },
     });
+    // 空状态发票仍计入（历史导入数据未填状态）
     await ctx.prisma.invoice.create({
       data: { projectId: project.id, contractId: contract.id, amountWithTax: 150 },
+    });
+    // 作废/红冲不计入「已开票」（业务口径 2026-11-12）
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, contractId: contract.id, amountWithTax: 999, statusCode: INVOICE_STATUS.CANCELLED },
+    });
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, contractId: contract.id, amountWithTax: 888, statusCode: INVOICE_STATUS.RED },
     });
 
     const r: any = await service.get(contract.id, project.id);
@@ -107,7 +115,7 @@ describe('集成 · 合同履约派生进度', () => {
     assert.equal(r.receivedQty, 40, '只算已确认日报行');
     assert.equal(r.settledAmount, 300, '草稿结算不计入');
     assert.equal(r.paidAmount, 200, '失败付款不计入');
-    assert.equal(r.invoicedAmount, 150);
+    assert.equal(r.invoicedAmount, 150, '作废/红冲不计入，空状态计入');
     assert.equal(r.receivedRatio, 0.4);
     assert.equal(r.settledRatio, Number((300 / 1100).toFixed(4)));
     assert.equal(r.paidVsSettledRatio, Number((200 / 300).toFixed(4)));

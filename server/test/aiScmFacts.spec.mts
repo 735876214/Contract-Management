@@ -67,6 +67,8 @@ function fixture(): ScmRows {
       { id: 'iv1', projectId: 'p1', statusCode: 'VERIFIED', amountWithTax: '200000.00' },
       // 红冲：不计入
       { id: 'iv2', projectId: 'p1', statusCode: 'RED', amountWithTax: '777777.00' },
+      // 作废：不计入
+      { id: 'iv3', projectId: 'p1', statusCode: 'CANCELLED', amountWithTax: '666666.00' },
     ],
     milestones: [
       // 真实库里 contractId 恒非空（外键 NOT NULL）：夹具必须一样，否则节点会被当成「无合同归属」跳过
@@ -82,6 +84,17 @@ function fixture(): ScmRows {
   };
 }
 
+test('buildScmFacts：空状态（历史未填）发票仍计入开票额', () => {
+  const rows = fixture();
+  rows.invoices = [
+    ...rows.invoices,
+    { id: 'iv-null', projectId: 'p1', statusCode: null, amountWithTax: '5000.00' },
+  ];
+  const facts = buildScmFacts(rows, AS_OF);
+  const p1 = facts.projects.find((p) => p.projectId === 'p1')!;
+  assert.equal(p1.invoicedYuan, 205000); // 200000 + 5000（null 计入）；RED/CANCELLED 不计
+});
+
 test('buildScmFacts：签约额按合同链聚合，补充协议只算 changeAmount', () => {
   const facts = buildScmFacts(fixture(), AS_OF);
   const p1 = facts.projects.find((p) => p.projectId === 'p1')!;
@@ -89,7 +102,7 @@ test('buildScmFacts：签约额按合同链聚合，补充协议只算 changeAmo
   assert.equal(p1.signedYuan, 1100000); // 100 万 + 10 万，而不是 + 99.9999 万
 });
 
-test('buildScmFacts：草稿合同/草稿结算/失败付款/红冲发票都不计入', () => {
+test('buildScmFacts：草稿合同/草稿结算/失败付款/红冲与作废发票都不计入', () => {
   const facts = buildScmFacts(fixture(), AS_OF);
   const p1 = facts.projects.find((p) => p.projectId === 'p1')!;
   const p2 = facts.projects.find((p) => p.projectId === 'p2')!;

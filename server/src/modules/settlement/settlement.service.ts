@@ -25,8 +25,8 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { assertSettlementProgress, assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
-// 总结算单状态常量（第 21 轮审计：不要再裸写 'SETTLED'）
-import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
+// 总结算单状态常量（第 21 轮审计：不要再裸写 'SETTLED'）；发票金额口径统一走 countedInvoiceWhere（作废/红冲不计入）
+import { FINAL_SETTLEMENT_STATUS, countedInvoiceWhere } from '../../constants/statuses';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
@@ -479,11 +479,19 @@ export class SettlementService {
        * ① **已挂到本行结算单**的发票全算 —— 精确到单据，与「结算账期」那串自由文本怎么写无关；
        * ② **未挂任何结算单**的，退回按「合同 + 月份」归集（兼容存量数据，也支撑"当月无结算单"的仅费用行）；
        * ⚠️ 已挂到**别的**结算单的发票一律不算 —— 它属于那一行的口径，两边都计会重复。
+       * ⚠️ 业务口径 2026-11-12：作废/红冲发票不计入「本月开票额」（`countedInvoiceWhere()`）；
+       * 历史/导入的空状态发票仍计入。这里必须用 `AND` 包裹：原条件本身就是 `OR`，
+       * 直接展开 `{ OR }` 会把两个条件互相覆盖。
        */
       this.prisma.invoice.findMany({
-        where: settlementId
-          ? { OR: [{ settlementId }, { contractId, settlementId: null }] }
-          : { contractId, settlementId: null },
+        where: {
+          AND: [
+            settlementId
+              ? { OR: [{ settlementId }, { contractId, settlementId: null }] }
+              : { contractId, settlementId: null },
+            countedInvoiceWhere(),
+          ],
+        },
         select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
       }),
       this.prisma.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
@@ -654,7 +662,11 @@ export class SettlementService {
     const contractIdList = contracts.map((c: any) => c.id);
     const [settlements, invoices, factoring, overdue] = await Promise.all([
       this.prisma.settlement.findMany({ where: { projectId }, select: { contractId: true, settleDate: true } }),
-      this.prisma.invoice.findMany({ where: { projectId }, select: { contractId: true, settlePeriod: true, invoiceDate: true } }),
+      // 作废/红冲发票不参与「合同 + 月份」组合发现：否则会凭空建出一个 0 金额的台账行
+      this.prisma.invoice.findMany({
+        where: { projectId, ...countedInvoiceWhere() },
+        select: { contractId: true, settlePeriod: true, invoiceDate: true },
+      }),
       contractIdList.length
         ? this.prisma.factoringCost.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
         : [],

@@ -24,7 +24,7 @@
 import { monthKey } from '../../../common/utils/settlement-period.ts';
 import {
   CONTRACT_STATUS,
-  INVOICE_STATUS,
+  isCountedInvoiceStatus,
   LEGACY_CONTRACT_STATUS_COMPLETED,
   PAYMENT_EXCLUDED_STATUSES,
   SETTLEMENT_STATUS,
@@ -169,10 +169,7 @@ function isCountedPayment(row: PaymentRow): boolean {
   return !PAYMENT_EXCLUDED_STATUSES.includes(row.statusCode as any);
 }
 
-/** 作废/红冲发票不参与票款比较 */
-function isCountedInvoice(row: InvoiceRow): boolean {
-  return row.statusCode !== INVOICE_STATUS.CANCELLED && row.statusCode !== INVOICE_STATUS.RED;
-}
+/** 作废/红冲发票不参与票款比较（与台账/AI 全景同一口径，见 statuses.ts 的 isCountedInvoiceStatus） */
 
 /** 合同是否处于「可以付款」的状态（已签章；兼容历史 `COMPLETED` 旧行） */
 function isPayableContract(row: ContractRow | undefined): boolean {
@@ -658,7 +655,7 @@ export function r4InvoiceMismatch(input: PaymentAnomalyInput, ctx: RuleContext):
   const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
   const settlements = new Map(cumulative.filter(isCountedSettlement).map((s) => [s.id, s]));
   const bySettlement = groupBy(
-    input.invoices.filter((i) => isCountedInvoice(i) && i.settlementId),
+    input.invoices.filter((i) => isCountedInvoiceStatus(i.statusCode) && i.settlementId),
     (i) => i.settlementId as string,
   );
 

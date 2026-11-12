@@ -5,7 +5,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/utils/money';
 import { assertPermission } from '../../common/utils/assert-permission';
-import { paidPaymentWhere } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 import { AiQuota } from './ai-quota';
@@ -335,8 +335,9 @@ export class ReportService {
         },
         select: { amount: true },
       }),
+      // 本期开票只统计有效发票（作废/红冲不计入，空状态历史票计入）
       this.prisma.invoice.findMany({
-        where: { projectId, invoiceDate: { gte: from, lte: to } },
+        where: { projectId, invoiceDate: { gte: from, lte: to }, ...countedInvoiceWhere() },
         select: { amountWithTax: true },
       }),
       // 日报按**进场日期**（业务日期）归期，与结算生成/归档检查同一口径

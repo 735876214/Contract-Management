@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
-import { paidPaymentWhere } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -67,7 +67,11 @@ export class LedgerService {
       this.prisma.dailyReport.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, entryDate: true } }),
       this.prisma.settlementLedger.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, settleMonth: true, monthSettleAmount: true } }),
       this.prisma.settlement.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, actualAmount: true } }),
-      this.prisma.invoice.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, amountWithTax: true } }),
+      // 作废/红冲发票不计入「开累发票金额」（业务口径 2026-11-12；空状态历史票仍计入）
+      this.prisma.invoice.findMany({
+        where: { contractId: { in: contractIds }, ...countedInvoiceWhere() },
+        select: { contractId: true, amountWithTax: true },
+      }),
       // 排除"不构成实际出资"的状态（付款失败/已退款）——与防超付闸门用**同一份**清单，
       // 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论
       this.prisma.paymentRecord.findMany({

@@ -326,6 +326,10 @@ export const invoiceApi = {
   remove: (id: string) => http.delete<any, any>(`/invoices/${id}`),
   checkNo: (no: string, excludeId?: string) => http.get<any, any>('/invoices/check-no', { params: { no, excludeId } }),
   verify: (id: string) => http.post<any, any>(`/invoices/${id}/verify`),
+  /** 作废（终态）：保留结算单关联，不计入台账/履约/工作台等金额口径 */
+  cancel: (id: string) => http.post<any, any>(`/invoices/${id}/cancel`),
+  /** 红冲（终态）：同上 */
+  red: (id: string) => http.post<any, any>(`/invoices/${id}/red`),
   // 批量识别：上传发票图片解码二维码 → 用户选合同后批量入台账
   recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
   batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),

@@ -28,6 +28,8 @@ import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useTabsStore } from '@/store/tabs';
+import { INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -81,6 +83,32 @@ function InvoiceList({
     refreshList();
   };
 
+  /** 终态变更会影响台账/合同台账/履约/工作台：同时唤醒被缓存的列表标签 */
+  const refreshRelated = () => {
+    const bump = useTabsStore.getState().bumpRefresh;
+    bump('/settlement/ledger');
+    bump('/contract/list');
+    bump('/dashboard');
+  };
+
+  /** 作废/红冲共用确认文案：明确「不可撤销 + 不再计入金额口径」 */
+  const confirmTerminal = (row: ModuleListRow, kind: 'cancel' | 'red') => {
+    const label = kind === 'cancel' ? '作废' : '红冲';
+    Modal.confirm({
+      title: `确认${label}该发票？`,
+      content: `${label}后不可撤销。该发票将不再计入结算台账「本月开票额」、合同台账「开累发票金额」、履约开票比例与工作台统计；与原结算单的关联会保留用于追溯。`,
+      okText: `确认${label}`,
+      okType: 'danger',
+      onOk: async () => {
+        if (kind === 'cancel') await invoiceApi.cancel(row.id);
+        else await invoiceApi.red(row.id);
+        message.success(`已${label}`);
+        refreshList();
+        refreshRelated();
+      },
+    });
+  };
+
   const handleRemove = (row: ModuleListRow) => {
     Modal.confirm({
       title: '确认删除该发票记录？',
@@ -99,7 +127,7 @@ function InvoiceList({
     { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
     { key: 'goodsCategory', label: '商品类别', control: 'select', options: dicts.goods_category ?? [] },
     { key: 'typeCode', label: '发票类型', control: 'select', options: dicts.invoice_type ?? [] },
-    { key: 'status', label: '状态', control: 'select', options: dicts.invoice_status ?? [] },
+    { key: 'statusCode', label: '状态', control: 'select', options: dicts.invoice_status ?? [] },
     { key: 'reviewStatus', label: '审核状态', control: 'select', options: dicts.invoice_review_status ?? [] },
     { key: 'invoiceNo', label: '发票号码', control: 'input' },
   ];
@@ -144,9 +172,16 @@ function InvoiceList({
         refreshKey={listRefresh + tabRefresh}
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
-        rowMenuItems={(row) => [
-          { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
-        ]}
+        rowMenuItems={(row) =>
+          // 作废/红冲是终态：终态行不再显示状态类动作（编辑/删除仍保留）
+          isInvoiceTerminalStatus((row as any).statusCode)
+            ? []
+            : [
+                { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
+                { key: 'cancel', label: '作废', danger: true, onClick: () => confirmTerminal(row, 'cancel') },
+                { key: 'red', label: '红冲', danger: true, onClick: () => confirmTerminal(row, 'red') },
+              ]
+        }
         toolbarLeft={
           <Space wrap size={8}>
             <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
@@ -198,6 +233,8 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
   const [noTimer, setNoTimer] = useState<any>(null);
   const editingId = (seed as any)?.id as string | undefined;
   const editing = seed as any | undefined;
+  /** 终态（作废/红冲）只能经列表行专用操作进入，编辑表单里锁定状态字段 */
+  const editingTerminal = isInvoiceTerminalStatus(editing?.statusCode);
 
   useEffect(() => {
     const load = async () => {
@@ -327,7 +364,19 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
           <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
-          <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="statusCode"
+              label="状态"
+              extra={editingTerminal ? '作废/红冲为终态，不能通过编辑修改；如需办理请用列表行上的专用操作' : undefined}
+            >
+              <DictSelect
+                typeCode="invoice_status"
+                disabled={editingTerminal}
+                excludeValues={editingTerminal ? [] : INVOICE_TERMINAL_STATUSES}
+              />
+            </Form.Item>
+          </Col>
           <Col xs={24}>
             <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
           </Col>

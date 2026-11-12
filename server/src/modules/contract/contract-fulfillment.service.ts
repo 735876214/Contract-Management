@@ -8,7 +8,7 @@ import {
   chainSettledTotal,
 } from '../../common/utils/contract-chain';
 import { deriveContractFulfillment } from '../../common/utils/contract-fulfillment';
-import { paidPaymentWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { SysParamService } from '../../common/services/sys-param.service';
 
 /**
@@ -19,7 +19,8 @@ import { SysParamService } from '../../common/services/sys-param.service';
  * - 已收数量 = 总日报 `settleQty` 合计（`settlement.require_confirmed` 开启时只算已确认行）；
  * - 已结算金额 = `chainSettledTotal()`（`actualAmount` 回退 `amount`，排除草稿）；
  * - 已付款 = `PaymentRecord` 合计，排除失败/退款（`paidPaymentWhere()`，空状态算有效付款）；
- * - 已开票 = `Invoice.amountWithTax` 合计（与台账「本月开票额」同口径，不排除状态）。
+ * - 已开票 = `Invoice.amountWithTax` 合计（与台账「本月开票额」同口径：**排除作废/红冲**，
+ *   空状态历史票计入 —— `countedInvoiceWhere()`）。
  *
  * ⚠️ 履约是汇总视角：**没有任何回写**，也不复制结算/付款/收货单据。
  */
@@ -66,7 +67,7 @@ export class ContractFulfillmentService {
         _sum: { amount: true },
       }),
       this.prisma.invoice.aggregate({
-        where: { projectId, contractId: { in: chainIds } },
+        where: { projectId, contractId: { in: chainIds }, ...countedInvoiceWhere() },
         _sum: { amountWithTax: true },
       }),
     ]);

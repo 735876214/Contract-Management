@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
-import { paidPaymentWhere } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
 
 /**
@@ -178,7 +178,7 @@ export class FieldResolverService {
    *   这里求和语义就是"能算出来的部分"，因此 null 直接跳过）；
    * - 累计结算：排除草稿 `DRAFT`，取 `actualAmount ?? amount`；
    * - 累计付款：`paidPaymentWhere()`（排除失败/退款）；
-   * - 累计开票：`amountWithTax`（含税，与台账「本月开票额」同口径）。
+   * - 累计开票：`amountWithTax`（含税，与台账「本月开票额」同口径；**排除作废/红冲**）。
    *
    * 公开给汇报材料（三期）复用：口径只允许有一份实现。
    */
@@ -218,7 +218,10 @@ export class FieldResolverService {
         where: { projectId, ...paidPaymentWhere() },
         select: { amount: true },
       }),
-      this.prisma.invoice.findMany({ where: { projectId }, select: { amountWithTax: true } }),
+      this.prisma.invoice.findMany({
+        where: { projectId, ...countedInvoiceWhere() },
+        select: { amountWithTax: true },
+      }),
     ]);
 
     const sum = (rows: any[], pick: (r: any) => unknown): number =>

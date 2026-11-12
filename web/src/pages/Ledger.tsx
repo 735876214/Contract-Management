@@ -18,6 +18,7 @@ import { supplierApi } from '@/api/business';
 import DictSelect from '@/components/DictSelect';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { useTabRefresh } from '@/hooks/useTabs';
 import { useDictStore } from '@/store/dict';
 
 const money = (v: any) =>
@@ -67,6 +68,8 @@ const renderCell = (key: string, v: any) => {
  */
 export default function Ledger() {
   const ensure = useDictStore((s) => s.ensure);
+  /** 发票作废/红冲等跨标签动作会 bump 本路径，缓存页必须重新取数（含顶部统计） */
+  const tabRefresh = useTabRefresh('/contract/list');
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -88,7 +91,7 @@ export default function Ledger() {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
     supplierApi.options().then((res: any) => setSuppliers(res || []));
     ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
-  }, []);
+  }, [tabRefresh]);
 
   /**
    * 大宽表冻结列（DESIGN.md §10.2）：**张数随容器宽度收敛**——
@@ -194,7 +197,7 @@ export default function Ledger() {
         fetcher={fetcher}
         extraFilters={extraFilters}
         extraColumns={tableColumns as any}
-        refreshKey={listRefresh}
+        refreshKey={listRefresh + tabRefresh}
         showOpColumn={false}
         emptyText="暂无合同台账数据"
         toolbarLeft={

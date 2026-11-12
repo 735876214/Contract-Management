@@ -13,7 +13,7 @@
 
 import {
   CONTRACT_STATUS,
-  INVOICE_STATUS,
+  isCountedInvoiceStatus,
   LEGACY_CONTRACT_STATUS_COMPLETED,
   PAYMENT_EXCLUDED_STATUSES,
   SETTLEMENT_STATUS,
@@ -40,11 +40,7 @@ const isCountedSettlement = (row: { statusCode?: string | null }): boolean =>
 const isCountedPayment = (row: { statusCode?: string | null }): boolean =>
   !PAYMENT_EXCLUDED_STATUSES.includes(String(row.statusCode ?? ''));
 
-/** 发票是否计入：作废（`CANCELLED`）与红冲（`RED`）不算 */
-const isCountedInvoice = (row: { statusCode?: string | null }): boolean => {
-  const s = String(row.statusCode ?? '');
-  return s !== INVOICE_STATUS.CANCELLED && s !== INVOICE_STATUS.RED;
-};
+/** 发票是否计入：作废（`CANCELLED`）与红冲（`RED`）不算（与台账同一口径，见 statuses.ts） */
 
 /**
  * 合同是否「已签」：`SIGNED` 或历史遗留 `COMPLETED`（`DRAFT`/`APPROVING` 未落地，不进全景）。
@@ -220,7 +216,7 @@ export function buildScmFacts(
 
   const invoicedByProject = new Map<string, Cents[]>();
   for (const row of rows.invoices) {
-    if (!isCountedInvoice(row)) continue;
+    if (!isCountedInvoiceStatus(row.statusCode)) continue;
     const cents = moneyToCents(row.amountWithTax);
     if (cents === null) continue;
     const list = invoicedByProject.get(row.projectId) ?? [];

@@ -4,7 +4,12 @@ import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS, loc
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
-import { DICT_TYPES, INVOICE_REVIEW_STATUS, INVOICE_STATUS } from '../../constants/statuses';
+import {
+  DICT_TYPES,
+  INVOICE_REVIEW_STATUS,
+  INVOICE_STATUS,
+  isInvoiceTerminalStatus,
+} from '../../constants/statuses';
 import { DictService } from '../dict/dict.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -190,9 +195,28 @@ export class InvoiceService {
     return created;
   }
 
+  /**
+   * 通用 PUT 不允许把状态**改入/改出**终态（作废/红冲）：
+   * 终态必须走列表行上的专用操作（`cancel()` / `red()`），它们会带台账联动与合法校验。
+   * 前端编辑表单会整包回传原 `statusCode`——与原值相等不算变更，照常放行。
+   */
+  private assertStatusTransition(beforeStatus: string | null, nextStatus: string | null) {
+    if (nextStatus === beforeStatus) return;
+    if (isInvoiceTerminalStatus(beforeStatus)) {
+      throw new BadRequestException('该发票已处于终态（作废/红冲），不能通过编辑修改状态');
+    }
+    if (isInvoiceTerminalStatus(nextStatus)) {
+      throw new BadRequestException('作废/红冲请使用发票列表行上的专用操作');
+    }
+  }
+
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
+    this.assertStatusTransition(
+      before.statusCode ?? null,
+      data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null),
+    );
     await this.validate({ ...before, ...data });
     if (data.contractId !== undefined) {
       await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
@@ -227,6 +251,42 @@ export class InvoiceService {
   }
 
   /**
+   * 作废 / 红冲：把发票置为**终态**（业务口径 2026-11-12）。
+   *
+   * 终态票不计入任何金额口径（`countedInvoiceWhere()`）：结算台账「本月开票额」、合同台账
+   * 「开累发票金额」、履约开票比例、工作台与 AI 统计。**保留 `settlementId` 关联**（审计可追溯），
+   * 只刷新该合同台账，不调用 `linkOrphansForContract`（状态变更不改归属，也不该顺带重挂其它孤儿票）。
+   *
+   * 合法规则：非终态（含历史空状态）均可作废/红冲；终态不可重复、不可互转、不可经通用 PUT 改出。
+   */
+  async cancel(id: string, projectId?: string) {
+    return this.markTerminal(id, INVOICE_STATUS.CANCELLED, projectId);
+  }
+
+  async red(id: string, projectId?: string) {
+    return this.markTerminal(id, INVOICE_STATUS.RED, projectId);
+  }
+
+  private async markTerminal(id: string, target: string, projectId?: string) {
+    const inv: any = await this.findOne(id, projectId);
+    const current = inv.statusCode ?? null;
+    if (isInvoiceTerminalStatus(current)) {
+      if (current === target) {
+        throw new BadRequestException(
+          target === INVOICE_STATUS.CANCELLED ? '该发票已作废，不能重复作废' : '该发票已红冲，不能重复红冲',
+        );
+      }
+      throw new BadRequestException('该发票已处于终态（作废/红冲），不能再变更状态');
+    }
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: { statusCode: target, version: { increment: 1 } },
+    });
+    await this.settlement.syncLedgerByContract(inv.contractId);
+    return updated;
+  }
+
+  /**
    * 发票「查验」：把「待查验」置为「已查验」——用于**登记核对**
    * （业务口径：录入/核对该发票的信息后标记为已查验）。
    *
@@ -235,6 +295,9 @@ export class InvoiceService {
    */
   async verify(id: string, projectId?: string) {
     const inv = await this.findOne(id, projectId);
+    if (isInvoiceTerminalStatus(inv.statusCode)) {
+      throw new BadRequestException('已作废/红冲的发票不能查验');
+    }
     return this.prisma.invoice.update({
       where: { id },
       data: {

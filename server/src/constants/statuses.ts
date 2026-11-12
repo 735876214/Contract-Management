@@ -106,6 +106,37 @@ export const INVOICE_STATUS = {
 } as const;
 export type InvoiceStatus = (typeof INVOICE_STATUS)[keyof typeof INVOICE_STATUS];
 
+/**
+ * **不计入金额口径**的发票状态：作废（`CANCELLED`）与红冲（`RED`）。
+ * 业务口径 2026-11-12：作废票与红冲票不属于「有效开票」；结算台账「本月开票额」、
+ * 合同台账「开累发票金额」、履约开票比例、工作台与 AI 统计全部排除。
+ *
+ * 单一事实源：DB 查询用 `countedInvoiceWhere()`，内存过滤用 `isCountedInvoiceStatus()`，
+ * 两边必须同源，否则同一张票在台账与 AI 里会给出相反结论。
+ */
+export const INVOICE_EXCLUDED_STATUSES: string[] = [INVOICE_STATUS.CANCELLED, INVOICE_STATUS.RED];
+
+/**
+ * Prisma 查询片段：**计入金额口径**的发票（与上面的排除清单同源）。
+ *
+ * ⚠️ 不要写成 `NOT: { statusCode: { in: INVOICE_EXCLUDED_STATUSES } }`：SQL 三值逻辑下
+ * `NULL NOT IN (...)` 结果是 UNKNOWN，历史导入/未填状态的发票会被**静默排除**。
+ * 与 `paidPaymentWhere()` 同口径，显式把 NULL 归入有效发票。
+ */
+export function countedInvoiceWhere(): { OR: any[] } {
+  return { OR: [{ statusCode: null }, { statusCode: { notIn: INVOICE_EXCLUDED_STATUSES } }] };
+}
+
+/** 是否**终态**（作废/红冲）：终态不可重复、不可互转，也不能经通用 PUT 改出 */
+export function isInvoiceTerminalStatus(statusCode: string | null | undefined): boolean {
+  return INVOICE_EXCLUDED_STATUSES.includes(String(statusCode ?? ''));
+}
+
+/** 内存谓词：与 `countedInvoiceWhere()` 同口径（`null` / 未填计入） */
+export function isCountedInvoiceStatus(statusCode: string | null | undefined): boolean {
+  return !isInvoiceTerminalStatus(statusCode);
+}
+
 /** 发票信息审核状态（dict `invoice_review_status`） */
 export const INVOICE_REVIEW_STATUS = {
   PENDING: 'PENDING',

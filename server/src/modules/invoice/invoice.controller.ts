@@ -88,6 +88,20 @@ export class InvoiceController {
     return this.service.verify(id, projectId);
   }
 
+  /** 作废（终态）：保留结算单关联，不计入任何金额口径。通用 PUT 拒绝状态进出终态 */
+  @RequirePermissions('invoice:edit')
+  @Post(':id/cancel')
+  cancel(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.cancel(id, projectId);
+  }
+
+  /** 红冲（终态）：保留结算单关联，不计入任何金额口径 */
+  @RequirePermissions('invoice:edit')
+  @Post(':id/red')
+  red(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.red(id, projectId);
+  }
+
   @RequirePermissions('invoice:edit')
   @Post('recognize')
   @UseInterceptors(FilesInterceptor('files', 20))

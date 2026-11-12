@@ -413,6 +413,8 @@
 | GET | `/invoices/:id` | 详情 | `invoice:view` |
 | POST / PUT / DELETE | `/invoices[/:id]` | CRUD | `invoice:edit` |
 | POST | `/invoices/:id/verify` | 标记为「已查验」（**登记核对**用：录入并核对该发票信息后手动标记；**不做验真**，不接第三方查验服务） | `invoice:edit` |
+| POST | `/invoices/:id/cancel` | 作废（终态）：保留 `settlementId` 关联用于追溯，但不计入台账开票额/履约开票比例/工作台与 AI 统计；已作废/红冲不可重复或互转 | `invoice:edit` |
+| POST | `/invoices/:id/red` | 红冲（终态）：口径同作废 | `invoice:edit` |
 | POST | `/invoices/recognize` | 发票 OCR/二维码识别 | `invoice:edit` |
 | POST | `/invoices/batch` | 批量登记 | `invoice:edit` |
 | POST | `/invoices/import` | 导入 Excel | `invoice:edit` |

@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num, localDayKey } from '../../common/utils/helpers';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { paidPaymentWhere, INVOICE_STATUS } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere, INVOICE_STATUS } from '../../constants/statuses';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
@@ -30,7 +30,8 @@ export class DashboardService {
       this.prisma.paymentRecord.findMany({
         where: { projectId, ...paidPaymentWhere() },
       }),
-      this.prisma.invoice.findMany({ where: { projectId } }),
+      // 作废/红冲发票不计入「累计开票额」（业务口径 2026-11-12；空状态历史票仍计入）
+      this.prisma.invoice.findMany({ where: { projectId, ...countedInvoiceWhere() } }),
       this.prisma.settlement.findMany({ where: { projectId } }),
     ]);
     const sumBy = (list: any[], f: string) => list.reduce((s, i: any) => s + (num(i[f]) || 0), 0);
@@ -87,7 +88,8 @@ export class DashboardService {
 
   async invoiceStats(projectId: string) {
     const [byType, byStatus] = await Promise.all([
-      this.prisma.invoice.groupBy({ by: ['typeCode'], where: { projectId }, _count: { _all: true }, _sum: { amountWithTax: true } }),
+      // 按类型汇总只统计有效发票（作废/红冲不计入金额与张数）；状态分布仍保留全部状态
+      this.prisma.invoice.groupBy({ by: ['typeCode'], where: { projectId, ...countedInvoiceWhere() }, _count: { _all: true }, _sum: { amountWithTax: true } }),
       this.prisma.invoice.groupBy({ by: ['statusCode'], where: { projectId }, _count: { _all: true } }),
     ]);
     return {
