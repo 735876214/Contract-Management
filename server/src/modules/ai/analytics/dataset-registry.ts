@@ -26,14 +26,14 @@ export interface AiDatasetDef {
   /** 期间归属字段（业务日期）；`null` = 累计/主数据，不做区间过滤 */
   periodField: string | null;
   reportSection: AiReportSectionId;
-  /** 实现进度：false = 已登记、未实现，用户不可见 */
+  /** 实现进度：false = 已登记、未实现，用户不可见（Phase 5 后全部为 true） */
   implemented: boolean;
   defaultSelected?: boolean;
 }
 
 /**
- * 27 个业务单据域。前 18 个是 v1 覆盖范围（`implemented: true`，采集实现随 Phase 2–4 落地）；
- * 后 9 个是新纳入的域（`implemented: false`，Phase 5 转为 true 后对用户可见）。
+ * 27 个业务单据域。全部 `implemented: true`（Phase 5 收口，2026-11-12）：
+ * 采集实现见 `dataset-collector.service.ts`，列定义见 `dataset-columns.ts`。
  */
 export const AI_DATASETS: readonly AiDatasetDef[] = [
   {
@@ -209,7 +209,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'repayment:view',
     periodField: 'signDate',
     reportSection: 'funds',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'final_settlement.summary',
@@ -218,7 +218,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'settlement:view',
     periodField: null,
     reportSection: 'settlements',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'payment_procedure.records',
@@ -227,7 +227,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'payment:view',
     periodField: 'createdAt',
     reportSection: 'settlements',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'contract.change_log',
@@ -236,7 +236,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'contract:view',
     periodField: 'createdAt',
     reportSection: 'contracts',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'material.base',
@@ -245,7 +245,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'material:view',
     periodField: null,
     reportSection: 'materials',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'material.contract',
@@ -254,7 +254,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'material:view',
     periodField: null,
     reportSection: 'materials',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'labor.auth',
@@ -263,7 +263,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'labor:view',
     periodField: null,
     reportSection: 'labor',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'labor.receiving_doc',
@@ -272,7 +272,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'labor:view',
     periodField: 'period',
     reportSection: 'labor',
-    implemented: false,
+    implemented: true,
   },
   {
     key: 'procurement.documents',
@@ -281,7 +281,7 @@ export const AI_DATASETS: readonly AiDatasetDef[] = [
     permission: 'contract:view',
     periodField: 'createdAt',
     reportSection: 'procurement',
-    implemented: false,
+    implemented: true,
   },
 ];
 

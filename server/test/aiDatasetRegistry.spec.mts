@@ -9,6 +9,7 @@ import {
   filterDatasets,
   limitDatasets,
 } from '../src/modules/ai/analytics/dataset-registry.ts';
+import { datasetColumnsOf } from '../src/modules/ai/analytics/dataset-columns.ts';
 import { AI_REPORT_SECTIONS } from '../src/modules/ai/analytics/analytics.types.ts';
 
 /**
@@ -34,21 +35,13 @@ describe('AI 经营数据助手 · 数据集注册表', () => {
     }
   });
 
-  it('实现进度：18 个 v1 域已实现、9 个新域待 Phase 5', () => {
-    assert.equal(IMPLEMENTED_DATASET_KEYS.size, 18);
-    assert.equal(AI_DATASETS.filter((d) => !d.implemented).length, 9);
-    for (const key of [
-      'repayment.agreement',
-      'final_settlement.summary',
-      'payment_procedure.records',
-      'contract.change_log',
-      'material.base',
-      'material.contract',
-      'labor.auth',
-      'labor.receiving_doc',
-      'procurement.documents',
-    ]) {
-      assert.equal(datasetByKey(key)?.implemented, false, `${key} 应留到 Phase 5`);
+  it('Phase 5 收口：27 个域全部已实现，且每个域都有 Excel 列定义', () => {
+    assert.equal(IMPLEMENTED_DATASET_KEYS.size, 27);
+    assert.equal(AI_DATASETS.filter((d) => !d.implemented).length, 0);
+    for (const d of AI_DATASETS) {
+      const cols = datasetColumnsOf(d.key);
+      assert.ok(cols.length > 0, `${d.key} 缺 Excel 列定义（工作簿/行级填充会空表）`);
+      assert.equal(new Set(cols).size, cols.length, `${d.key} 列名重复`);
     }
   });
 
@@ -63,14 +56,14 @@ describe('AI 经营数据助手 · 数据集注册表', () => {
     for (const key of DEFAULT_DATASET_KEYS) assert.ok(IMPLEMENTED_DATASET_KEYS.has(key));
   });
 
-  it('权限过滤：未实现的不暴露；无权限的进 denied 而不是静默消失', () => {
+  it('权限过滤：全部已实现；无权限的进 denied 而不是静默消失', () => {
     const all = filterDatasets(() => true);
-    assert.equal(all.visible.length, 18);
+    assert.equal(all.visible.length, 27);
     assert.equal(all.denied.length, 0);
 
     const none = filterDatasets(() => false);
     assert.equal(none.visible.length, 0);
-    assert.equal(none.denied.length, 18);
+    assert.equal(none.denied.length, 27);
 
     const onlyContract = filterDatasets((code) => code === 'contract:view');
     assert.ok(onlyContract.visible.every((d) => d.permission === 'contract:view'));

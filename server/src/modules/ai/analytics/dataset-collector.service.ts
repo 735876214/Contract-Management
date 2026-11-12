@@ -260,6 +260,15 @@ export class DatasetCollector {
       settlementsAll,
       paymentsAll,
       invoicesAll,
+      repayments,
+      finalSettlements,
+      paymentProcedures,
+      changeLogs,
+      materialBases,
+      contractMaterials,
+      laborAuths,
+      procurementDocs,
+      inspections,
     ] = await Promise.all([
       this.prisma.project.findMany({
         where: { id: { in: ids } },
@@ -392,6 +401,109 @@ export class DatasetCollector {
         by: ['projectId'],
         where: { projectId: { in: ids }, ...countedInvoiceWhere() },
         _sum: { amountWithTax: true },
+      }),
+      this.prisma.repaymentAgreement.findMany({
+        where: { projectId: { in: ids }, ...(range.from ? { signDate: { gte: range.from, lte: range.to } } : {}) },
+        select: {
+          projectId: true,
+          code: true,
+          material: true,
+          signDate: true,
+          settleAmount: true,
+          agreedDebtAmount: true,
+          paidBeforeSign: true,
+          paidAfterSign: true,
+          overdueUnpaid: true,
+          supplier: { select: { name: true } },
+          contract: { select: { code: true } },
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.finalSettlement.findMany({
+        where: { projectId: { in: ids } },
+        select: { projectId: true, code: true, statusCode: true, totalAmount: true, settledAt: true, createdAt: true, contract: { select: { code: true } } },
+        take: MAX_ROWS,
+      }),
+      this.prisma.paymentProcedure.findMany({
+        where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
+        select: {
+          projectId: true,
+          code: true,
+          settleCumAmount: true,
+          paidCumAmount: true,
+          unpaidAmount: true,
+          payDate: true,
+          statusCode: true,
+          supplier: { select: { name: true } },
+          contract: { select: { code: true } },
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.contractChangeLog.findMany({
+        where: { contract: { projectId: { in: ids } }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
+        select: {
+          field: true,
+          fieldLabel: true,
+          beforeValue: true,
+          afterValue: true,
+          operator: true,
+          createdAt: true,
+          contract: { select: { code: true, projectId: true } },
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.materialBase.findMany({
+        select: { name: true, spec: true, categoryLevel1: true, categoryLevel2: true, unit: true, isAsset: true, status: true },
+        take: MAX_ROWS,
+      }),
+      this.prisma.contractMaterial.findMany({
+        where: { contract: { projectId: { in: ids } } },
+        select: {
+          qty: true,
+          priceBeforeTax: true,
+          priceWithTax: true,
+          totalWithTax: true,
+          incomePrice: true,
+          stdPrice: true,
+          contract: { select: { code: true, projectId: true } },
+          materialBase: { select: { name: true, spec: true } },
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.laborAuthLedger.findMany({
+        where: { projectId: { in: ids } },
+        select: {
+          projectId: true,
+          subcontractorName: true,
+          legalPerson: true,
+          authorizedPerson: true,
+          authStartDate: true,
+          authEndDate: true,
+          status: true,
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.procurementTask.findMany({
+        where: { projectId: { in: ids } },
+        select: {
+          projectId: true,
+          taskNo: true,
+          type: true,
+          createdAt: true,
+          procurementNotice: { select: { procurementTime: true, publishedAt: true, createdAt: true } },
+          procurementDocument: { select: { procurementTime: true, publishedAt: true, createdAt: true } },
+          procurementPriceCompare: { select: { publishedAt: true, createdAt: true } },
+          preMeetingMinutes: { select: { meetingTime: true, createdAt: true } },
+          frameworkExplanation: { select: { publishedAt: true, createdAt: true } },
+          procurementResultReport: { select: { openTime: true, publishedAt: true, createdAt: true } },
+          evaluations: { select: { evaluatedAt: true, evaluator: true, conclusion: true }, take: 20 },
+        },
+        take: MAX_ROWS,
+      }),
+      this.prisma.inspectionReport.findMany({
+        where: { projectId: { in: ids } },
+        select: { projectId: true, unitName: true, inspectionTime: true, publishedAt: true, createdAt: true },
+        take: MAX_ROWS,
       }),
     ]);
 
@@ -755,6 +867,202 @@ export class DatasetCollector {
       }));
     datasets.push(
       ds('supplier.concentration', ['供应商', '合同链数', '签约额', '占比(%)'], supplierRows, `签约额前 ${supplierRows.length} 家供应商（累计口径）`),
+    );
+
+    // ---- Phase 5：补充业务单据域 ----
+    datasets.push(
+      ds(
+        'repayment.agreement',
+        [],
+        repayments.map((r) => ({
+          项目: projectLabel.get(r.projectId) ?? '',
+          协议编号: r.code,
+          供应单位: r.supplier?.name ?? '',
+          供应材料: r.material ?? '',
+          签订日期: r.signDate ? localDayKey(r.signDate) : null,
+          结算金额: r.settleAmount === null ? null : round2(Number(r.settleAmount)),
+          约定欠款: r.agreedDebtAmount === null ? null : round2(Number(r.agreedDebtAmount)),
+          签约前已付: r.paidBeforeSign === null ? null : round2(Number(r.paidBeforeSign)),
+          签约后已付: r.paidAfterSign === null ? null : round2(Number(r.paidAfterSign)),
+          逾期未付: r.overdueUnpaid === null ? null : round2(Number(r.overdueUnpaid)),
+        })),
+        `还款协议 ${repayments.length} 份`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'final_settlement.summary',
+        [],
+        finalSettlements.map((f) => ({
+          项目: projectLabel.get(f.projectId) ?? '',
+          合同编号: f.contract?.code ?? '',
+          单据编号: f.code ?? '',
+          状态: f.statusCode,
+          结算金额: f.totalAmount === null ? null : round2(Number(f.totalAmount)),
+          结算时间: f.settledAt ? localDayKey(f.settledAt) : null,
+        })),
+        `工作总结算 ${finalSettlements.length} 份（累计口径）`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'payment_procedure.records',
+        [],
+        paymentProcedures.map((p) => ({
+          项目: projectLabel.get(p.projectId) ?? '',
+          单据编号: p.code ?? '',
+          合同编号: p.contract?.code ?? '',
+          开累结算: p.settleCumAmount === null ? null : round2(Number(p.settleCumAmount)),
+          开累付款: p.paidCumAmount === null ? null : round2(Number(p.paidCumAmount)),
+          未付款: p.unpaidAmount === null ? null : round2(Number(p.unpaidAmount)),
+          付款时间: p.payDate ? localDayKey(p.payDate) : null,
+          状态: p.statusCode ?? '',
+        })),
+        `付款手续 ${paymentProcedures.length} 张`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'contract.change_log',
+        [],
+        changeLogs.map((c) => ({
+          项目: projectLabel.get(c.contract.projectId) ?? '',
+          合同编号: c.contract.code,
+          变更字段: c.fieldLabel || c.field,
+          变更前: c.beforeValue ?? '',
+          变更后: c.afterValue ?? '',
+          操作人: c.operator ?? '',
+          时间: localDayKey(c.createdAt),
+        })),
+        `合同变更 ${changeLogs.length} 条`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'material.base',
+        [],
+        materialBases.map((m) => ({
+          物资名称: m.name,
+          规格型号: m.spec,
+          一级分类: m.categoryLevel1 ?? '',
+          二级分类: m.categoryLevel2 ?? '',
+          单位: m.unit ?? '',
+          是否资产: m.isAsset ? '是' : '否',
+          状态: m.status === 1 ? '启用' : '停用',
+        })),
+        `物资主数据 ${materialBases.length} 条（全局主数据）`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'material.contract',
+        [],
+        contractMaterials.map((m) => ({
+          项目: projectLabel.get(m.contract.projectId) ?? '',
+          合同编号: m.contract.code,
+          物资名称: m.materialBase.name,
+          规格型号: m.materialBase.spec,
+          数量: m.qty === null ? null : round4(Number(m.qty)),
+          税前单价: m.priceBeforeTax === null ? null : round4(Number(m.priceBeforeTax)),
+          含税单价: m.priceWithTax === null ? null : round4(Number(m.priceWithTax)),
+          含税合价: m.totalWithTax === null ? null : round4(Number(m.totalWithTax)),
+          收入单价: m.incomePrice === null ? null : round4(Number(m.incomePrice)),
+          标准成本价: m.stdPrice === null ? null : round4(Number(m.stdPrice)),
+        })),
+        `合同物资清单 ${contractMaterials.length} 行`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'labor.auth',
+        [],
+        laborAuths.map((l) => ({
+          项目: projectLabel.get(l.projectId) ?? '',
+          分包商: l.subcontractorName,
+          法人代表: l.legalPerson ?? '',
+          授权材料员: l.authorizedPerson ?? '',
+          授权起: l.authStartDate ? localDayKey(l.authStartDate) : null,
+          授权止: l.authEndDate ? localDayKey(l.authEndDate) : null,
+          状态: l.status,
+        })),
+        `分包授权台账 ${laborAuths.length} 条（累计口径）`,
+      ),
+    );
+    datasets.push(
+      ds(
+        'labor.receiving_doc',
+        [],
+        laborDocs.map((d) => ({
+          项目: projectLabel.get(d.projectId) ?? '',
+          单据编号: d.docNo,
+          分包商: d.subcontractorName,
+          结算期: d.period,
+          状态: d.status,
+          明细数: d._count.details,
+        })),
+        `分包领用单据 ${laborDocs.length} 张`,
+      ),
+    );
+
+    const procurementRows: Array<Record<string, string | number | null>> = [];
+    const within = (d: Date | null | undefined): boolean => {
+      if (!range.from) return true;
+      if (!d) return false;
+      return d >= range.from && d <= range.to;
+    };
+    for (const t of procurementDocs) {
+      const 项目 = projectLabel.get(t.projectId) ?? '';
+      const add = (类型: string, date: Date | null | undefined, note: string): void => {
+        if (!within(date)) return;
+        procurementRows.push({
+          项目,
+          采购编号: t.taskNo,
+          文件类型: 类型,
+          日期: date ? localDayKey(date) : null,
+          说明: note,
+        });
+      };
+      if (t.procurementNotice) {
+        const n = t.procurementNotice;
+        add('采购公告', n.procurementTime ?? n.publishedAt ?? n.createdAt, '');
+      }
+      if (t.procurementDocument) {
+        const d = t.procurementDocument;
+        add('采购文件', d.procurementTime ?? d.publishedAt ?? d.createdAt, '');
+      }
+      if (t.procurementPriceCompare) {
+        const p = t.procurementPriceCompare;
+        add('价格对比', p.publishedAt ?? p.createdAt, '');
+      }
+      if (t.preMeetingMinutes) {
+        const m = t.preMeetingMinutes;
+        add('采前会纪要', m.meetingTime ?? m.createdAt, '');
+      }
+      if (t.frameworkExplanation) {
+        const f = t.frameworkExplanation;
+        add('框架协议事前说明', f.publishedAt ?? f.createdAt, '');
+      }
+      if (t.procurementResultReport) {
+        const r = t.procurementResultReport;
+        add('成交报告', r.openTime ?? r.publishedAt ?? r.createdAt, '');
+      }
+      for (const e of t.evaluations) {
+        add('评标记录', e.evaluatedAt ?? t.createdAt, `${e.evaluator ?? ''} ${e.conclusion ?? ''}`.trim());
+      }
+    }
+    for (const ins of inspections) {
+      const date = ins.inspectionTime ?? ins.publishedAt ?? ins.createdAt;
+      if (!within(date)) continue;
+      procurementRows.push({
+        项目: projectLabel.get(ins.projectId) ?? '',
+        采购编号: '',
+        文件类型: '考察报告',
+        日期: date ? localDayKey(date) : null,
+        说明: ins.unitName,
+      });
+    }
+    datasets.push(
+      ds('procurement.documents', [], procurementRows, `采购过程文件 ${procurementRows.length} 条`),
     );
 
     if (contracts.length >= 20000) warnings.push('合同行数达到 20000 上限，合同链汇总可能不完整');

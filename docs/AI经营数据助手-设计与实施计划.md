@@ -82,7 +82,7 @@ PostgreSQL：AiAnalyticsReport（报告正文 + 事实 JSON + 表格文件 key�
 
 新增零依赖 `ai/analytics/dataset-registry.ts`：key、中文名、说明、支持作用域、期间字段、读取权限、Excel 列定义、报告章节、默认选中、**`implemented`（实现进度）**。模型 prompt、权限过滤、前端下拉、报告章节、Excel 列共用这一份定义。
 
-**注册表一次列全所有业务单据域（27 个 key）**；`implemented: false` 的条目只在注册表内部与文档里可见，`GET /datasets` 与意图 prompt **只返回已实现的条目**（避免用户选到永远为空的数据集）。通知 / 导入任务 / 归档 / 字典属基础设施域，不进注册表；工作台 9 类待办/预警不单列数据集，由 `facts.risks` 复用 `todoCategories.ts` 派生。
+**注册表一次列全所有业务单据域（27 个 key，Phase 5 后全部 `implemented: true`）**；新增域的采集器与 `dataset-columns.ts` 列定义在 Phase 5 补齐（2026-11-12 已实施）。未实现条目的门控保留为演进机制：将来新增域先登记 `implemented: false`，实现后转 true，`GET /datasets` 与意图 prompt 只返回已实现的条目。通知 / 导入任务 / 归档 / 字典属基础设施域，不进注册表；工作台 9 类待办/预警不单列数据集，由 `facts.risks` 复用 `todoCategories.ts` 派生。
 
 | key | 中文名 | 期间字段 | 权限 | 复用现有口径/服务 | 报告章节 |
 |---|---|---|---|---|---|
@@ -413,7 +413,7 @@ DB 集成 spec：
 - 行级表格填充（表区识别 + 列映射 + 逐行写入 + 上限）。
 - 出口：xlsx 可打开且 sheet/汇总与报告一致；模板可用本项目/全部项目/期间字段回填；行级填充在一张项目对照表上真填成功；历史可下载表格；默认生成流程不产生多余 xlsx。
 
-### Phase 5：全模块覆盖与收口
+### Phase 5：全模块覆盖与收口（已实施 2026-11-12）
 
 - 把注册表里剩余数据集逐一转为 `implemented: true`：`repayment.agreement`、`final_settlement.summary`、
   `payment_procedure.records`、`contract.change_log`、`material.base`、`material.contract`、`labor.auth`、

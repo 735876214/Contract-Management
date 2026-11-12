@@ -46,7 +46,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
   it('注册表：只返回已实现且无权限的进 denied（超管全量）', async () => {
     const { jwt } = await makeUser([], true);
     const all = await service.listDatasets(jwt);
-    assert.equal(all.datasets.length, 18);
+    assert.equal(all.datasets.length, 27);
     assert.equal(all.deniedDatasets.length, 0);
     assert.equal(all.crossProjectAllowed, true);
 

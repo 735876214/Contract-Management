@@ -37,16 +37,16 @@ export const DATASET_COLUMNS: Record<string, readonly string[]> = {
   'finance.cost': ['类型', '项目', '合同编号', '期间', '金额'],
   'asset.flow': ['项目', '进场数量', '进场金额', '出场数量', '出场金额', '费用金额', '未知来源'],
   'supplier.concentration': ['供应商', '合同链数', '签约额', '占比(%)'],
-  // Phase 5 之前未实现的域
-  'repayment.agreement': [],
-  'final_settlement.summary': [],
-  'payment_procedure.records': [],
-  'contract.change_log': [],
-  'material.base': [],
-  'material.contract': [],
-  'labor.auth': [],
-  'labor.receiving_doc': [],
-  'procurement.documents': [],
+  // Phase 5：新增业务单据域
+  'repayment.agreement': ['项目', '协议编号', '供应单位', '供应材料', '签订日期', '结算金额', '约定欠款', '签约前已付', '签约后已付', '逾期未付'],
+  'final_settlement.summary': ['项目', '合同编号', '单据编号', '状态', '结算金额', '结算时间'],
+  'payment_procedure.records': ['项目', '单据编号', '合同编号', '开累结算', '开累付款', '未付款', '付款时间', '状态'],
+  'contract.change_log': ['项目', '合同编号', '变更字段', '变更前', '变更后', '操作人', '时间'],
+  'material.base': ['物资名称', '规格型号', '一级分类', '二级分类', '单位', '是否资产', '状态'],
+  'material.contract': ['项目', '合同编号', '物资名称', '规格型号', '数量', '税前单价', '含税单价', '含税合价', '收入单价', '标准成本价'],
+  'labor.auth': ['项目', '分包商', '法人代表', '授权材料员', '授权起', '授权止', '状态'],
+  'labor.receiving_doc': ['项目', '单据编号', '分包商', '结算期', '状态', '明细数'],
+  'procurement.documents': ['项目', '采购编号', '文件类型', '日期', '说明'],
 };
 
 export function datasetColumnsOf(key: string): readonly string[] {
