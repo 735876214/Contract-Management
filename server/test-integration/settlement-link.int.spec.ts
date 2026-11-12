@@ -152,4 +152,34 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     const updated: any = await settle.updateLedger(row.id, { isOnAccount: 'Y', version: 0 });
     assert.equal(updated?.isOnAccount, 'Y', '可写字段不受影响');
   });
+
+  it('⑦ 只改备注不清空手填的「本月开票额」；改月份才按系统值重算', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-7');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    // 无发票的月份：手填的本月开票额应被保留（与 createLedger 的「只补空值」口径一致）
+    const row: any = await settle.createLedger(
+      { contractId: contract.id, settleMonth: '2026-07', monthInvoiceAmount: 5000 },
+      project.id,
+    );
+    assert.equal(Number(row.monthInvoiceAmount), 5000, '系统算不出开票额时应保留手填值');
+
+    // 前端编辑表单会把 disabled 字段的值一起提交：只改备注不得把开票额抹成 0
+    const remarkOnly: any = await settle.updateLedger(
+      row.id,
+      { version: row.version, remark: '只改备注', monthInvoiceAmount: 5000 },
+      project.id,
+    );
+    assert.equal(Number(remarkOnly.monthInvoiceAmount), 5000, '只改备注不得清除手填的开票额');
+
+    // 换月份后旧月份的手填值不再适用：按新月份的系统值重算（该月无发票 → 0）
+    const moved: any = await settle.updateLedger(
+      row.id,
+      { version: remarkOnly.version, settleMonth: '2026-08', monthInvoiceAmount: 5000, remark: '换月' },
+      project.id,
+    );
+    assert.equal(moved.settleMonth, '2026-08');
+    assert.equal(Number(moved.monthInvoiceAmount), 0, '改月份后按新月份重算，不沿用旧月手填值');
+  });
 });

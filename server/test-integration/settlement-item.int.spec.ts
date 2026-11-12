@@ -194,4 +194,64 @@ describe('集成 · 清单项级结算明细 + 量级校验', () => {
     assert.ok(s?.id, '草稿超量不应被拦');
     assert.ok(!s?.overQtyWarning, '草稿不做量级校验，也不应带警示');
   });
+
+  it('⑥ 明细写入失败时单头回滚（不留「有单头、无明细」的孤儿结算单）', async () => {
+    const project = await makeProject(ctx.prisma, 'SITEM-6');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    await assert.rejects(
+      () =>
+        settle.create(
+          {
+            contractId: contract.id,
+            typeCode: 'PROGRESS',
+            statusCode: SETTLEMENT_STATUS.DRAFT,
+            amount: 1000,
+            settleDate: month(2026, 11),
+            // 不存在的物资 id → createMany 撞外键，明细写入失败
+            items: [{ materialBaseId: 'no-such-material-id', qty: 1, priceBeforeTax: 1, taxRatePct: 0 }],
+          },
+          project.id,
+        ),
+      () => true,
+      '明细外键失败应抛出',
+    );
+    assert.equal(
+      await ctx.prisma.settlement.count({ where: { contractId: contract.id } }),
+      0,
+      '明细写入失败后单头必须随事务回滚',
+    );
+  });
+
+  it('⑦ update 替换明细失败时原明细保留（单头与明细同一事务）', async () => {
+    const project = await makeProject(ctx.prisma, 'SITEM-7');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const base = await makeMaterialWithQty(project.id, contract.id, 1000, '事务物资');
+
+    const s: any = await settle.create(
+      {
+        contractId: contract.id,
+        typeCode: 'PROGRESS',
+        statusCode: SETTLEMENT_STATUS.DRAFT,
+        amount: 0,
+        settleDate: month(2026, 12),
+        items: [{ materialBaseId: base.id, qty: 5, priceBeforeTax: 100, taxRatePct: 13 }],
+      },
+      project.id,
+    );
+    await assert.rejects(
+      () =>
+        settle.update(s.id, {
+          version: 0,
+          items: [{ materialBaseId: 'no-such-material-id', qty: 1, priceBeforeTax: 1, taxRatePct: 0 }],
+        }),
+      () => true,
+      '替换成不存在的物资应抛出',
+    );
+    const rows = await ctx.prisma.settlementItem.findMany({ where: { settlementId: s.id } });
+    assert.equal(rows.length, 1, '替换失败必须回滚，原明细不能被删光');
+    assert.equal(rows[0].materialBaseId, base.id);
+  });
 });

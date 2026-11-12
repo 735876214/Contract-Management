@@ -242,7 +242,6 @@ export class SettlementService {
   }
 
   async create(data: any, projectId: string, tx?: TxClient) {
-    const db: any = tx || this.prisma;
     await this.lock.assertWritable(data.contractId, '新增结算单');
     await this.dict.validate('settlement_type', data.typeCode);
     await this.dict.validate('settlement_status', data.statusCode);
@@ -259,14 +258,26 @@ export class SettlementService {
     const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
     const qtyWarn =
       tx || this.isDraft(data.statusCode) ? {} : await this.checkOverSettlementQty(data.contractId, items);
-    const created: any = await db.settlement.create({
-      data: {
-        ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
-        amount: num(data.amount), deductAmount: num(data.deductAmount), actualAmount: num(actual),
-        settleDate: toDate(data.settleDate),
-      },
-    });
-    if (items.length) await this.syncItems(created.id, items, db);
+    const created: any = await (async () => {
+      /**
+       * 单头 + 明细必须同一事务落库：`syncItems` 是「先删后插」的 replace-all，
+       * 若 createMany 失败（如前端传了不存在的 materialBaseId 撞外键、数值超 Decimal 范围），
+       * 无事务时要么留下「有单头、无明细」的孤儿结算单，要么（update 路径）把原明细删光。
+       * 调用方已带 tx（如月度结算生成）时沿用它的连接，不再嵌套事务。
+       */
+      const write = async (db: any) => {
+        const row: any = await db.settlement.create({
+          data: {
+            ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
+            amount: num(data.amount), deductAmount: num(data.deductAmount), actualAmount: num(actual),
+            settleDate: toDate(data.settleDate),
+          },
+        });
+        if (items.length) await this.syncItems(row.id, items, db);
+        return row;
+      };
+      return tx ? write(tx) : this.prisma.$transaction((t) => write(t));
+    })();
     /**
      * 结算单 → 台账（业务口径 2026-10-16：一结算单对应一行台账）。
      * ⚠️ 只在**无外部事务**时刷新：`computeLedgerAutoFields` 走 `this.prisma`（事务外连接），
@@ -348,8 +359,12 @@ export class SettlementService {
         id,
       );
     }
-    const updated: any = await this.prisma.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
-    if (data.items) await this.syncItems(id, items, this.prisma);
+    // 单头与明细同一事务：明细 replace-all 失败时不能留下「单头已改、明细被删光」的半成品
+    const updated: any = await this.prisma.$transaction(async (t) => {
+      const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      if (data.items) await this.syncItems(id, items, t);
+      return row;
+    });
     // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷。
     // 同理也要**重算发票/收领单的关联**（改了月份后，旧关联按新月份解绑、当月未关联的补挂）。
     const affected = new Set<string>([before.contractId, updated.contractId].filter(Boolean) as string[]);
@@ -1107,9 +1122,13 @@ export class SettlementService {
           receiptOrders: contractReceipts.length,
         });
       } catch (e: any) {
-        // 并发下撞上"同合同同期唯一"：这与"已有结算单"是同一类结果，算跳过而不是报错
-        const isDup = e instanceof BadRequestException || e?.status === 400 || e?.getStatus?.() === 400;
-        if (isDup) {
+        /**
+         * 只有「同合同同期已有结算单」这一个 400 算跳过（并发下预检与写入之间的窗口）。
+         * ⚠️ 不能把所有 400 都当跳过：`create()` 里还有字典校验（如 `settlement_type`
+         * 没有 `PROGRESS` 取值）与归档锁，一并吞掉会让接口以 `created=0 / skipped=N`
+         * 正常返回，把配置错误伪装成「本期无可生成数据」。
+         */
+        if (e instanceof BadRequestException && String(e.message).includes('只允许一张结算单')) {
           skipped++;
           continue;
         }
@@ -1264,7 +1283,19 @@ export class SettlementService {
     const contractId = payload.contractId ?? old.contractId;
     const settleMonth = payload.settleMonth ?? old.settleMonth;
     if (contractId && settleMonth) {
-      Object.assign(payload, await this.computeLedgerAutoFields(contractId, settleMonth));
+      const auto: any = await this.computeLedgerAutoFields(contractId, settleMonth);
+      const monthChanged = contractId !== old.contractId || settleMonth !== old.settleMonth;
+      for (const [k, v] of Object.entries(auto)) {
+        /**
+         * 与 `createLedger` 同口径：**只补空值**，不无条件覆盖。
+         * 原实现 `Object.assign(payload, auto)` 会在「本月无发票」时把历史/导入数据里
+         * 手填的「本月开票额」抹成 0 —— 用户只改个备注，开票额就静默归零（与第 22 轮审计
+         * 在 create 上修过的是同一个坑，update 漏了）。
+         * 例外：三个纯派生列始终取系统值；改合同/改月份时旧月份的自动值不再适用，也一律取系统值。
+         */
+        const forced = k === 'monthSettleAmount' || k === 'settleCount' || k === 'settlementId' || monthChanged;
+        if (forced || payload[k] === undefined || payload[k] === null) payload[k] = v;
+      }
     }
     delete payload.version;
     // 唯一键预检：把月份/合同改成已存在的组合时，前端的 update 会撞 P2002 → 500，这里统一转 400
