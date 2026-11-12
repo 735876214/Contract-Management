@@ -27,6 +27,13 @@ import {
 } from './report-facts';
 import { buildReportMessages } from './report-prompt';
 import { templateSections } from './report-templates';
+import {
+  compareRange,
+  endOfDay,
+  localDayKey as YMD,
+  localMonthKey,
+  parseLocalDay,
+} from './common/period';
 
 export interface AiReportResult {
   kind: ReportKind;
@@ -58,10 +65,6 @@ export interface ExportInput {
   footer?: string;
 }
 
-const YMD = (d: Date): string => {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 const iso = (v: unknown): string | null => (v ? YMD(new Date(v as string)) : null);
 
 /** 区间内发生的量（不含项目累计） */
@@ -281,30 +284,25 @@ export class ReportService {
     const now = new Date();
     const parseDay = (v: string, label: string): Date => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException(`${label}格式应为 YYYY-MM-DD`);
-      const d = new Date(`${v}T00:00:00`);
-      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${label}不是有效日期：${v}`);
+      const d = parseLocalDay(v);
+      if (!d) throw new BadRequestException(`${label}不是有效日期：${v}`);
       return d;
     };
     const start = from ? parseDay(from, '开始日期') : new Date(now.getFullYear(), now.getMonth(), 1);
     const end = to ? parseDay(to, '结束日期') : now;
     if (start > end) throw new BadRequestException('开始日期不能晚于结束日期');
     // 含当天：结束日按 23:59:59.999 取
-    const endOfDay = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
-    return { from: start, to: endOfDay };
+    return { from: start, to: endOfDay(end) };
   }
 
   /** 对比期 = 紧邻本期之前、长度相同的一段（本期 10/1~10/19 → 上期 9/12~9/30） */
   private comparePeriod(from: Date, to: Date): { from: Date; to: Date } {
-    const spanMs = to.getTime() - from.getTime();
-    const cmpTo = new Date(from.getTime() - 1);
-    const cmpFrom = new Date(cmpTo.getTime() - spanMs);
-    return { from: cmpFrom, to: cmpTo };
+    return compareRange({ from, to }, 'mom') as { from: Date; to: Date };
   }
 
   private async windowNumbers(projectId: string, from: Date, to: Date): Promise<WindowNumbers> {
     /** 本地 `YYYY-MM`（付款只有账期、没有付款日时的兜底口径） */
-    const monthOf = (d: Date): string =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const monthOf = (d: Date): string => localMonthKey(d);
     const [signed, settlements, payments, invoices, daily] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId, signDate: { gte: from, lte: to } },

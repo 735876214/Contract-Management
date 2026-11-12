@@ -93,7 +93,7 @@ PostgreSQL：AiAnalyticsReport（报告正文 + 事实 JSON + 表格文件 key�
 | `settlement.detail` | 结算单清单 | `settleDate` | `settlement:view` | `notDraft` | 结算与资金 |
 | `settlement.ledger` | 结算台账 | `settleMonth` | `settlement:view` | `SettlementLedger`、`deriveLedgerAmounts` | 结算与资金 |
 | `payment.records` | 付款记录 | `payDate` | `payment:view` | `paidPaymentWhere()` | 结算与资金 |
-| `invoice.records` | 发票记录 | `invoiceDate` | `invoice:view` | `INVOICE_EXCLUDED_STATUSES` / `isCountedInvoice()`（排除 CANCELLED/RED） | 结算与资金 |
+| `invoice.records` | 发票记录 | `invoiceDate` | `invoice:view` | `countedInvoiceWhere()` / `isCountedInvoiceStatus()`（排除 CANCELLED/RED；新事实层经 `isCountedInvoice()`） | 结算与资金 |
 | `contract.fulfillment` | 履约进度 | `asOf` | `contract:view` | `deriveContractFulfillment`、`isMilestoneOverdue` | 履约进度 |
 | `cost.profit_loss` | 月度盈亏 | `period` | `cost:view` | `MonthlyProfitLoss(Detail)`、`weightedUnitPrice` | 成本与分包领用 |
 | `cost.labor_receiving` | 分包领用汇总 | `period` | `cost:view` | `LaborReceivingService`、`deriveReceivingRow` | 成本与分包领用 |
@@ -320,7 +320,7 @@ model AiAnalyticsReport {
 - `server/src/modules/ai/intent/intent.types.ts` / `intent-rules.ts` / `intent-prompt.ts` / `intent.service.ts`：意图草稿、规则解析、prompt、LLM 解析与退款。
 - `server/src/modules/ai/common/period.ts`：本地日期、preset、对比期（从 `ReportService` 抽出，含 `mom` / `yoy`）。
 - `server/src/modules/ai/common/contract-roots.ts`：链根解析（从 `scm-facts.ts` 提取，供新事实层复用）。
-- `server/src/modules/ai/common/invoice-facts.ts`：`isCountedInvoice()` 纯函数与有效发票金额聚合（AI 侧共用；业务页面各自在查询里过滤，不共享 where 函数）。
+- `server/src/modules/ai/common/invoice-facts.ts`：`isCountedInvoice()` 纯函数与有效发票金额聚合（AI 事实层共用；谓词来自 `statuses.ts` 的 `isCountedInvoiceStatus()`，DB 查询用 `countedInvoiceWhere()`）。
 
 ### 后端（修改）
 
@@ -332,7 +332,7 @@ model AiAnalyticsReport {
 - `server/src/modules/ai/field-resolver.service.ts`：`ResolveContext` 增加 scope/period；分派到 collector/既有服务。
 - `server/src/modules/ai/report.service.ts`：复用 `common/period.ts`；导出方法供历史重新导出。
 - `server/src/modules/ai/analysis/scm-facts.ts`：改用提取后的 `contract-roots.ts`（行为不变，spec 回归）。
-- `server/src/constants/statuses.ts`：新增 `INVOICE_EXCLUDED_STATUSES = [INVOICE_STATUS.CANCELLED, INVOICE_STATUS.RED]` 常量（与 `PAYMENT_EXCLUDED_STATUSES` 并列）。**不提供共享 where 函数**——各场景自行拼 `OR: [{ statusCode: null }, { statusCode: { notIn: INVOICE_EXCLUDED_STATUSES } }]`（`statusCode` 可空，`notIn` 的三值逻辑会静默漏掉 NULL 行）。
+- `server/src/constants/statuses.ts`：已落地（2026-11-12，commit `a3a77c2`）`INVOICE_EXCLUDED_STATUSES`、`countedInvoiceWhere()`（与 `paidPaymentWhere()` 同款，**显式纳入 NULL**——`statusCode` 可空，`NOT: { in }` 的三值逻辑会静默漏掉历史票）与内存谓词 `isCountedInvoiceStatus()`；六处金额聚合各自调用同一个 where 片段，**期间归属保持各场景现状**。
 - **口径修复（业务 2026-11-12 确认；commit `895fe56` 已修两项，勿重复做）**：
   - 发票两态排除：六处金额口径各自过滤——`FieldResolverService.projectStats`、`ReportService.windowNumbers`、
     `ledger.service.ts` 的 `cumInvoiceAmount`、`settlement.service.ts` 的 `computeLedgerAutoFields()`（本月开票额）、
@@ -389,7 +389,7 @@ DB 集成 spec：
 ### Phase 1：注册表 + 意图规则 + 数据模型 + 口径收口
 
 - 新模型 + 迁移 + `Project` 反引用；`common/period.ts`（含 `mom`/`yoy` 对比期）、`contract-roots.ts`、`invoice-facts.ts` 提取；`scm-facts.ts` 改为**委托共享函数**（行为不变，`aiScmFacts.spec.mts` 保持绿色）。
-- 发票两态：新增 `INVOICE_EXCLUDED_STATUSES`，六处金额口径**各自**过滤（AI `projectStats`/`windowNumbers`、台账 `cumInvoiceAmount` 与 `computeLedgerAutoFields()`、工作台 `overview()`、履约已开票），补回归断言；`895fe56` 已完成的两项（链口径新签金额、业务发生日归期）只补断言、不改代码。
+- 发票两态：`INVOICE_EXCLUDED_STATUSES` / `countedInvoiceWhere()` / `isCountedInvoiceStatus()` 已在 commit `a3a77c2` 落地，六处金额聚合各自调用（AI `projectStats`/`windowNumbers`、台账 `cumInvoiceAmount` 与 `computeLedgerAutoFields()`、工作台 `overview()`、履约已开票），回归断言见 `invoiceStatus.spec.mts` / `invoice-terminal.int.spec.ts`；`895fe56` 已完成的两项（链口径新签金额、业务发生日归期）只补断言、不改代码。
 - 注册表（27 key、`implemented` 门控）、意图类型/规则解析（含 compare）；`GET /datasets`、`POST /plan`（规则路径）。
 - 出口：迁移已应用且列已落地；`docStats` / `schemaDanglingRefs` 通过；`GET /datasets` 按权限过滤且只返回已实现条目；`POST /plan` 把「全部项目今年合同结算付款简报」解析为 `scope=all, this_year, 核心数据集, brief`，说「同比」时 `compare=yoy`；未知项进 warnings；六处发票口径回归绿；两个 build + `npm test` 绿。
 
@@ -427,7 +427,7 @@ DB 集成 spec：
 
 | 风险 | 对策 |
 |---|---|
-| **口径漂移** | 注册表 + **单轨委托**（`scm-facts.ts` 与 `dataset-facts.ts` 共用 `ai/common/*` 纯函数）；发票两态六处各自过滤、共享 `INVOICE_EXCLUDED_STATUSES` 常量；`aiAnalyticsParity.spec` 迁移期锁与 `buildScmFacts` 一致 |
+| **口径漂移** | 注册表 + **单轨委托**（`scm-facts.ts` 与 `dataset-facts.ts` 共用 `ai/common/*` 纯函数）；发票两态六处各自调用 `countedInvoiceWhere()`、内存过滤用 `isCountedInvoiceStatus()`；`aiAnalyticsParity.spec` 迁移期锁与 `buildScmFacts` 一致 |
 | **新旧报告数字变化** | 口径修复经业务确认；「口径说明」写明已签链、业务发生日、发票排除作废/红冲；回归断言锁定新口径，旧记录不追改（历史快照）；**台账/工作台/履约卡片的既有数字也会下降**，发布说明同步写明 |
 | **红冲的前提假设** | 业务确认「录红冲票时原票同步作废」；本期不建联动（见 §8），报告口径说明写明该前提，操作未同步作废时数字会偏高 |
 | **未实现数据集暴露** | 注册表 `implemented` 门控：`GET /datasets` 与意图 prompt 只返回已实现条目；Phase 5 出口要求全部转 true |

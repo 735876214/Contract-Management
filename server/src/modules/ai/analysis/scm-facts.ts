@@ -21,6 +21,7 @@ import {
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
 import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
+import { indexContractRows, resolveChainRoot } from '../common/contract-roots.ts';
 import { scanNumbers, stripNonData } from '../report-facts.ts';
 import {
   DEFAULT_SCM_TOLERANCES,
@@ -88,30 +89,14 @@ export function buildScmFacts(
   // 只有**已签**的补充协议才贡献增量：草稿/审批中的补充协议 `changeAmount` 已由服务端算好，
   // 直接加进签约额会让「还在走的变更」提前记进合同额（2026-10-23 审计）
   const signedChainRows = rows.contracts.filter((r) => isSignedContract(r));
-  const allById = new Map(rows.contracts.map((r) => [String(r.id), r]));
-  // 与 `contract-chain.ts` 的 `CHAIN_MAX_DEPTH` 同值（那边没导出）：防数据自指成环
-  const CHAIN_DEPTH_LIMIT = 8;
+  const contractIndex = indexContractRows(rows.contracts);
   /**
    * 上溯链根（在**全部合同行**里走，不能只在已签行里走）：只看已签行时，
    * 「父合同还没签、补充协议先签了」的补充协议会因父级不在集合里而**自成一链**，
    * 于是它自己的 `amount` 被当成一份独立合同的签约额（重复计量）
-   * （2026-10-23 审计 P2）。
+   * （2026-10-23 审计 P2）。实现统一在 `ai/common/contract-roots.ts`（断链/成环同一口径）。
    */
-  const resolveRoot = (id: string): { rootId: string; broken: boolean } => {
-    let cur = allById.get(id) ?? null;
-    for (let depth = 0; depth < CHAIN_DEPTH_LIMIT && cur; depth++) {
-      const parentId = cur.parentContractId ? String(cur.parentContractId) : '';
-      if (!parentId) return { rootId: String(cur.id), broken: false };
-      const parent = allById.get(parentId);
-      // 父合同不在取数集合里（数据被手工改坏 / 跨项目 / 已删除）：链是断的，不猜
-      if (!parent) return { rootId: String(cur.id), broken: true };
-      cur = parent;
-    }
-    // 追到深度上限还没找到链根：数据成环或层级异常。此时 `cur` 只是中途节点，
-    // 拿它当链根会把一条链拆成多条、金额重复计量，所以按「断链」处理
-    // （2026-10-23 复核 P3）
-    return { rootId: String(cur?.id ?? id), broken: true };
-  };
+  const resolveRoot = (id: string): { rootId: string; broken: boolean } => resolveChainRoot(contractIndex, id);
 
   /** 每条链有几行合同（链根 + 补充协议）：用来区分「有补充协议」与「单份合同」 */
   const rootRowCount = new Map<string, number>();
@@ -140,7 +125,7 @@ export function buildScmFacts(
     }
     if (seenRoots.has(rootId)) continue;
     seenRoots.add(rootId);
-    const rootRow = allById.get(rootId);
+    const rootRow = contractIndex.get(rootId);
     if (!rootRow) continue;
     // 链根没签：整条链都不算签约额（补充协议本身不是一份合同，不能单独计）
     if (!isSignedContract(rootRow)) {
