@@ -249,4 +249,136 @@ describe('集成 · 发票作废/红冲联动', () => {
     const redCount = stats.byStatus.find((r: any) => r.statusCode === INVOICE_STATUS.RED)?.count ?? 0;
     assert.ok(cancelledCount >= 1 && redCount >= 1, '状态分布要能看到作废/红冲张数');
   });
+
+  it('⑩ 录红冲票并关联原票：原票在同一事务里自动作废，两张票都不计入金额', async () => {
+    const { project, contract, settlement } = await setupContract('INV-RED-LINK');
+    const original: any = await makeInvoice(project.id, contract.id, { amountWithTax: 8800 });
+
+    const before = await ledgerRow(contract.id, '2026-09');
+    assert.equal(Number(before!.monthInvoiceAmount), 8800);
+
+    const red: any = await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+      amountWithTax: 8800,
+    });
+
+    const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+    const r = await ctx.prisma.invoice.findUnique({ where: { id: red.id } });
+    assert.equal(r!.redOfInvoiceId, original.id, '红冲票应指向原发票');
+    assert.equal(o!.statusCode, INVOICE_STATUS.CANCELLED, '原票应被自动作废');
+    assert.equal(o!.settlementId, settlement.id, '原票的结算单关联保留（审计可追溯）');
+
+    const after = await ledgerRow(contract.id, '2026-09');
+    assert.equal(Number(after!.monthInvoiceAmount), 0, '原票 + 红冲票都不计入本月开票额');
+    const ful: any = await fulfillment.get(contract.id, project.id);
+    assert.equal(Number(ful.invoicedAmount), 0);
+  });
+
+  it('⑪ 红冲关联的合法性：原票须有效、同项目同合同，红冲票状态必须是 RED', async () => {
+    const { project, contract } = await setupContract('INV-RED-GUARD');
+    const contract2 = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      supplierId: (await makeSupplier(ctx.prisma, project.id)).id,
+      amount: 5000,
+      status: 'SIGNED',
+    });
+
+    // 原票已作废 → 不能再作为红冲对象
+    const dead: any = await makeInvoice(project.id, contract.id);
+    await invoices.cancel(dead.id, project.id);
+    await assert.rejects(
+      () =>
+        makeInvoice(project.id, contract.id, {
+          statusCode: INVOICE_STATUS.RED,
+          redOfInvoiceId: dead.id,
+        }),
+      /不能再作为红冲对象/,
+    );
+
+    // 跨项目原票 → 视为不存在
+    const otherProject = await makeProject(ctx.prisma, 'INV-RED-XP');
+    const foreign: any = await ctx.prisma.invoice.create({
+      data: {
+        projectId: otherProject.id,
+        statusCode: INVOICE_STATUS.VERIFIED,
+        amountWithTax: 100,
+        invoiceNo: uniq('INV-XP').toUpperCase(),
+      } as any,
+    });
+    await assert.rejects(
+      () =>
+        makeInvoice(project.id, contract.id, {
+          statusCode: INVOICE_STATUS.RED,
+          redOfInvoiceId: foreign.id,
+        }),
+      /原发票不存在/,
+    );
+
+    // 非红冲票不能关联原票
+    const ok: any = await makeInvoice(project.id, contract.id);
+    await assert.rejects(
+      () =>
+        makeInvoice(project.id, contract.id, {
+          statusCode: INVOICE_STATUS.VERIFIED,
+          redOfInvoiceId: ok.id,
+        }),
+      /只有红冲票/,
+    );
+
+    // 原票与红冲票必须同合同
+    const other: any = await makeInvoice(project.id, contract2.id, { amountWithTax: 50 });
+    await assert.rejects(
+      () =>
+        makeInvoice(project.id, contract.id, {
+          statusCode: INVOICE_STATUS.RED,
+          redOfInvoiceId: other.id,
+        }),
+      /同一合同/,
+    );
+  });
+
+  it('⑫ 红冲关联创建后不可修改/解绑', async () => {
+    const { project, contract } = await setupContract('INV-RED-FIX');
+    const original: any = await makeInvoice(project.id, contract.id);
+    const red: any = await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+    });
+    const redRow = await ctx.prisma.invoice.findUnique({ where: { id: red.id } });
+    const other: any = await makeInvoice(project.id, contract.id, { amountWithTax: 1 });
+
+    await assert.rejects(
+      () =>
+        invoices.update(red.id, { redOfInvoiceId: null, version: redRow!.version }, project.id),
+      /不可修改/,
+    );
+    await assert.rejects(
+      () =>
+        invoices.update(red.id, { redOfInvoiceId: other.id, version: redRow!.version }, project.id),
+      /不可修改/,
+    );
+    // 原值回传 + 改备注放行（前端整包回传）
+    const kept: any = await invoices.update(
+      red.id,
+      { redOfInvoiceId: original.id, remark: '红冲票备注', version: redRow!.version },
+      project.id,
+    );
+    assert.equal(kept.remark, '红冲票备注');
+    assert.equal(kept.redOfInvoiceId, original.id);
+  });
+
+  it('⑬ 已有红冲票的原票不可删除；删红冲票不自动恢复原票', async () => {
+    const { project, contract } = await setupContract('INV-RED-DEL');
+    const original: any = await makeInvoice(project.id, contract.id);
+    const red: any = await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+    });
+
+    await assert.rejects(() => invoices.remove(original.id, project.id), /红冲票/);
+    await invoices.remove(red.id, project.id);
+    const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+    assert.equal(o!.statusCode, INVOICE_STATUS.CANCELLED, '删红冲票不自动恢复原票（避免静默复活金额）');
+  });
 });

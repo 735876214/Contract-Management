@@ -1002,6 +1002,10 @@ model Invoice {
   financeTransferStatus String? // dict: finance_transfer_status
   imageUrl              String?
   statusCode            String? // dict: invoice_status
+  /// 红冲票指向的**原发票**（业务口径 2026-11-12：录红冲票时原票同步作废）。
+  /// 仅红冲票（`statusCode = RED`）填写；服务端在同一事务里把原票置为 `CANCELLED`。
+  /// 删红冲票 → SetNull（原票保持已作废，**不自动恢复**）。
+  redOfInvoiceId        String?
   remark                String?
   createdAt             DateTime  @default(now())
   version               Int       @default(0) // 乐观锁版本号，更新时校验
@@ -1011,11 +1015,16 @@ model Invoice {
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
   /// 归属的结算单（SetNull：删结算单后发票保留，回到「未关联」）
   settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  /// 本票红冲的原发票（一张原票只会被红冲一次：服务端校验原票必须仍有效）
+  redOf      Invoice?  @relation("InvoiceRedFlush", fields: [redOfInvoiceId], references: [id], onDelete: SetNull)
+  /// 指向本票的红冲票（用于展示与完整性判断）
+  redInvoices Invoice[] @relation("InvoiceRedFlush")
 
   @@unique([projectId, invoiceNo])
   @@index([contractId])
   @@index([settlementId])
   @@index([settlePeriod])
+  @@index([redOfInvoiceId])
   @@index([projectId, createdAt])
 }
 

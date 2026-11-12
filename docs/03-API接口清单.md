@@ -415,6 +415,7 @@
 | POST | `/invoices/:id/verify` | 标记为「已查验」（**登记核对**用：录入并核对该发票信息后手动标记；**不做验真**，不接第三方查验服务） | `invoice:edit` |
 | POST | `/invoices/:id/cancel` | 作废（终态）：保留 `settlementId` 关联用于追溯，但不计入台账开票额/履约开票比例/工作台与 AI 统计；已作废/红冲不可重复或互转 | `invoice:edit` |
 | POST | `/invoices/:id/red` | 红冲（终态）：口径同作废 | `invoice:edit` |
+| POST / PUT | `/invoices[/:id]` | 新建/编辑可带 `redOfInvoiceId`（仅红冲票）：保存后在**同一事务**里把原票置为作废；原票须有效且同项目同合同，关联创建后不可修改/解绑；导出件含「红冲原发票」列 | `invoice:edit` |
 | POST | `/invoices/recognize` | 发票 OCR/二维码识别 | `invoice:edit` |
 | POST | `/invoices/batch` | 批量登记 | `invoice:edit` |
 | POST | `/invoices/import` | 导入 Excel | `invoice:edit` |

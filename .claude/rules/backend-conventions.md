@@ -77,6 +77,9 @@
   **空状态历史票仍计入**。禁止裸写 `NOT: { statusCode: { in } }`——SQL 三值逻辑会静默漏掉 NULL 行；
   查询里已有 `OR` 时必须用 `AND` 包裹（`computeLedgerAutoFields` 即此情形）。终态只能经
   `POST /invoices/:id/cancel|red` 进入，通用 PUT 拒绝状态进出终态；终态**保留 `settlementId`** 关联。
+  **红冲票与原票**：`Invoice.redOfInvoiceId` 自关联；新建红冲票（`statusCode = RED`）时若带原票 id，
+  服务端必须在**同一事务**里把原票置 `CANCELLED`（否则会出现「红冲票已入库、原票仍有效」的半成功，
+  两张票都计入金额口径）；原票须有效且同项目同合同，关联创建后不可改；删红冲票不恢复原票。
 
 - **台账行与结算单 1:1**（业务口径 2026-10-16）：`SettlementLedger.settlementId`（**唯一键**）指向该行对应的结算单，
   由 `settlement.service.syncLedgerByContract()` 统一维护（结算单 create/update/remove 后自动调用；

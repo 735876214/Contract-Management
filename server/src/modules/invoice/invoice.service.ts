@@ -25,7 +25,7 @@ const INVOICE_FIELDS = [
   'projectId', 'contractId', 'settlementId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
   'typeCode', 'invoiceDate', 'issuer', 'receiver', 'amountBeforeTax', 'taxRate',
   'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
-  'imageUrl', 'statusCode', 'remark',
+  'imageUrl', 'statusCode', 'redOfInvoiceId', 'remark',
 ];
 /**
  * update 白名单：**不含 projectId**。
@@ -67,6 +67,8 @@ export class InvoiceService {
         include: {
           contract: { select: { id: true, code: true, name: true, supplierId: true, supplier: { select: { id: true, name: true } } } },
           settlement: { select: { id: true, code: true, settleDate: true } },
+          redOf: { select: { id: true, invoiceNo: true } },
+          redInvoices: { select: { id: true, invoiceNo: true } },
         },
       }),
       this.prisma.invoice.count({ where }),
@@ -77,7 +79,12 @@ export class InvoiceService {
   async findOne(id: string, projectId?: string) {
     const inv = await this.prisma.invoice.findUnique({
       where: { id },
-      include: { contract: true, settlement: { select: { id: true, code: true, settleDate: true } } },
+      include: {
+        contract: true,
+        settlement: { select: { id: true, code: true, settleDate: true } },
+        redOf: { select: { id: true, invoiceNo: true, statusCode: true } },
+        redInvoices: { select: { id: true, invoiceNo: true, statusCode: true } },
+      },
     });
     if (!inv) throw new NotFoundException('发票不存在');
     // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目发票。
@@ -190,22 +197,83 @@ export class InvoiceService {
     }
     const link = await this.resolveSettlementId(payload, projectId);
     if (link !== undefined) payload.settlementId = link;
-    const created = await db.invoice.create({ data: payload });
+    /**
+     * 业务口径 2026-11-12：录红冲票时**原票同步作废**。
+     * 红冲票（状态 RED）可指定原发票；创建红冲票与作废原票必须在同一事务里，
+     * 否则会出现「红冲票已入库、原票仍有效」的半成功状态（两张票都会计入金额口径）。
+     */
+    const redLink = await this.resolveRedLink(payload, projectId);
+    if (redLink) payload.redOfInvoiceId = redLink.id;
+    const createAndVoid = async (exec: any) => {
+      const created = await exec.invoice.create({ data: payload });
+      if (redLink) {
+        await exec.invoice.update({
+          where: { id: redLink.id },
+          data: { statusCode: INVOICE_STATUS.CANCELLED, version: { increment: 1 } },
+        });
+      }
+      return created;
+    };
+    const created = tx
+      ? await createAndVoid(tx)
+      : redLink
+        ? await this.prisma.$transaction(createAndVoid, { timeout: 30000 })
+        : await createAndVoid(this.prisma);
     await this.syncLedger(payload.contractId, tx);
     return created;
+  }
+
+  /**
+   * 红冲票 ↔ 原票（业务口径 2026-11-12：录红冲票时原票同步作废）。
+   *
+   * 返回需要联动作废的原票行；未指定 / 未变化时返回 `null`。
+   * 规则：
+   * - 只有红冲票（`statusCode = RED`）才能关联原票；
+   * - 原票必须仍有效（未作废/未红冲），且与红冲票同项目（有合同时同合同）；
+   * - 关联创建后**不可修改/解绑**（换原票会让「谁作废了谁」失去审计意义）。
+   */
+  private async resolveRedLink(payload: any, projectId: string, before?: any): Promise<any | null> {
+    if (payload.redOfInvoiceId === undefined) return null;
+    const nextId = payload.redOfInvoiceId || null;
+    const beforeId = before?.redOfInvoiceId ?? null;
+    // 前端整包回传原值：不算变更，也不再校验（原票此时已是 CANCELLED，重校验会误报）
+    if (before && nextId === beforeId) return null;
+    if (before && beforeId && nextId !== beforeId) {
+      throw new BadRequestException('红冲关联创建后不可修改');
+    }
+    if (!nextId) return null;
+    const effectiveStatus = payload.statusCode !== undefined ? payload.statusCode : (before?.statusCode ?? null);
+    if (effectiveStatus !== INVOICE_STATUS.RED) {
+      throw new BadRequestException('只有红冲票（状态为红冲）才能关联原发票');
+    }
+    const original = await this.prisma.invoice.findFirst({ where: { id: nextId, projectId } });
+    if (!original) throw new NotFoundException('原发票不存在');
+    if (before && original.id === before.id) throw new BadRequestException('红冲票不能指向自身');
+    if (isInvoiceTerminalStatus(original.statusCode)) {
+      throw new BadRequestException('原发票已作废/红冲，不能再作为红冲对象');
+    }
+    const nextContractId = payload.contractId !== undefined ? payload.contractId : (before?.contractId ?? null);
+    if (original.contractId && nextContractId && original.contractId !== nextContractId) {
+      throw new BadRequestException('红冲票与原发票必须属于同一合同');
+    }
+    return original;
   }
 
   /**
    * 通用 PUT 不允许把状态**改入/改出**终态（作废/红冲）：
    * 终态必须走列表行上的专用操作（`cancel()` / `red()`），它们会带台账联动与合法校验。
    * 前端编辑表单会整包回传原 `statusCode`——与原值相等不算变更，照常放行。
+   *
+   * 例外：`allowRedWithLink`（编辑时同时指定了原发票）允许「非终态 → 红冲」，
+   * 因为「录红冲票 + 原票同步作废」是一次完整业务动作，必须由 `update` 一起完成。
    */
-  private assertStatusTransition(beforeStatus: string | null, nextStatus: string | null) {
+  private assertStatusTransition(beforeStatus: string | null, nextStatus: string | null, allowRedWithLink = false) {
     if (nextStatus === beforeStatus) return;
     if (isInvoiceTerminalStatus(beforeStatus)) {
       throw new BadRequestException('该发票已处于终态（作废/红冲），不能通过编辑修改状态');
     }
     if (isInvoiceTerminalStatus(nextStatus)) {
+      if (allowRedWithLink && nextStatus === INVOICE_STATUS.RED) return;
       throw new BadRequestException('作废/红冲请使用发票列表行上的专用操作');
     }
   }
@@ -213,10 +281,12 @@ export class InvoiceService {
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
-    this.assertStatusTransition(
-      before.statusCode ?? null,
-      data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null),
-    );
+    const nextStatus = data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null);
+    const linkChanged =
+      data.redOfInvoiceId !== undefined &&
+      !!data.redOfInvoiceId &&
+      data.redOfInvoiceId !== (before.redOfInvoiceId ?? null);
+    this.assertStatusTransition(before.statusCode ?? null, nextStatus, linkChanged);
     await this.validate({ ...before, ...data });
     if (data.contractId !== undefined) {
       await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
@@ -235,7 +305,21 @@ export class InvoiceService {
     delete payload.version;
     const link = await this.resolveSettlementId(payload, before.projectId, before);
     if (link !== undefined) payload.settlementId = link;
-    const updated = await this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const redLink = await this.resolveRedLink(payload, before.projectId, before);
+    if (redLink) payload.redOfInvoiceId = redLink.id;
+    const updateAndVoid = async (exec: any) => {
+      const updated = await exec.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      if (redLink) {
+        await exec.invoice.update({
+          where: { id: redLink.id },
+          data: { statusCode: INVOICE_STATUS.CANCELLED, version: { increment: 1 } },
+        });
+      }
+      return updated;
+    };
+    const updated = redLink
+      ? await this.prisma.$transaction(updateAndVoid, { timeout: 30000 })
+      : await updateAndVoid(this.prisma);
     // 合同可能被改到别的合同上 → 两个合同的开票额都要重算
     for (const cid of new Set([before.contractId, payload.contractId ?? before.contractId].filter(Boolean))) {
       await this.syncLedger(cid as string);
@@ -245,6 +329,10 @@ export class InvoiceService {
 
   async remove(id: string, projectId?: string) {
     const before: any = await this.findOne(id, projectId);
+    // 原票被红冲后是两张票的审计关系：删掉原票会让红冲票指向空，拒绝（先处理红冲票再删原票）
+    if ((before.redInvoices?.length ?? 0) > 0) {
+      throw new BadRequestException('该发票已有红冲票，不能删除原发票');
+    }
     await this.prisma.invoice.delete({ where: { id } });
     await this.syncLedger(before.contractId);
     return true;
@@ -407,6 +495,8 @@ export class InvoiceService {
       goodsCategoryName: goods[i.goodsCategory]?.name || '',
       settlePeriod: i.settlePeriod, issuer: i.issuer, invoiceDate: fmt(i.invoiceDate),
       invoiceCode: i.invoiceCode, invoiceNo: i.invoiceNo, amountBeforeTax: num(i.amountBeforeTax),
+      // 红冲票指向的原发票号码（业务口径 2026-11-12：录红冲票时原票同步作废）
+      redOfInvoiceNo: i.redOf?.invoiceNo || '',
       taxRate: num(i.taxRate), amountWithTax: num(i.amountWithTax), receiveDate: fmt(i.receiveDate),
       reviewStatusName: review[i.reviewStatus]?.name || '', responsiblePerson: i.responsiblePerson,
       financeTransferName: finance[i.financeTransferStatus]?.name || '', remark: i.remark,
@@ -427,6 +517,7 @@ export class InvoiceService {
         { header: '开票日期', key: 'invoiceDate', width: 110, type: 'center' },
         { header: '发票代码', key: 'invoiceCode', width: 140, type: 'center' },
         { header: '发票号码', key: 'invoiceNo', width: 140, type: 'center' },
+        { header: '红冲原发票', key: 'redOfInvoiceNo', width: 140, type: 'center' },
         { header: '税前金额', key: 'amountBeforeTax', width: 140, type: 'money' },
         { header: '税率', key: 'taxRate', width: 80, type: 'pct' },
         { header: '含税金额', key: 'amountWithTax', width: 140, type: 'money' },

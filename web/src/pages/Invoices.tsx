@@ -29,7 +29,7 @@ import ImportButton from '@/components/ImportButton';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { useTabsStore } from '@/store/tabs';
-import { INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
+import { INVOICE_STATUS, INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -96,7 +96,9 @@ function InvoiceList({
     const label = kind === 'cancel' ? '作废' : '红冲';
     Modal.confirm({
       title: `确认${label}该发票？`,
-      content: `${label}后不可撤销。该发票将不再计入结算台账「本月开票额」、合同台账「开累发票金额」、履约开票比例与工作台统计；与原结算单的关联会保留用于追溯。`,
+      content: `${label}后不可撤销。该发票将不再计入结算台账「本月开票额」、合同台账「开累发票金额」、履约开票比例与工作台统计；与原结算单的关联会保留用于追溯。${
+        kind === 'red' ? '若要登记红冲票并联动作废原发票，请在「收票登记」中把状态设为红冲并选择原发票。' : ''
+      }`,
       okText: `确认${label}`,
       okType: 'danger',
       onOk: async () => {
@@ -150,6 +152,18 @@ function InvoiceList({
     { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v: any) => v?.slice(0, 10) },
     { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
     { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
+    {
+      title: '红冲原发票',
+      dataIndex: ['redOf', 'invoiceNo'],
+      width: 160,
+      render: (v: any) => v || '-',
+    },
+    {
+      title: '已被红冲',
+      dataIndex: 'redInvoices',
+      width: 160,
+      render: (v: any[]) => (v?.length ? v.map((x) => x.invoiceNo || '(无号码)').join('、') : '-'),
+    },
     { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, align: 'right', render: money },
     { title: '税率', dataIndex: 'taxRate', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
     { title: '含税金额', dataIndex: 'amountWithTax', width: 140, align: 'right', render: money },
@@ -224,6 +238,10 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
   const [form] = Form.useForm();
   /** 结算单候选项依赖所选合同（结算单按「合同 + 月份」归属） */
   const formContractId = Form.useWatch('contractId', form);
+  /** 状态为红冲时显示「红冲原发票」并加载候选（原票会被服务端自动作废） */
+  const formStatus = Form.useWatch('statusCode', form);
+  const [redCandidates, setRedCandidates] = useState<any[]>([]);
+  const [redLoading, setRedLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -235,6 +253,34 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
   const editing = seed as any | undefined;
   /** 终态（作废/红冲）只能经列表行专用操作进入，编辑表单里锁定状态字段 */
   const editingTerminal = isInvoiceTerminalStatus(editing?.statusCode);
+  const isCreate = !editingId;
+  const statusIsRed = (formStatus ?? editing?.statusCode) === INVOICE_STATUS.RED;
+
+  /** 红冲原发票候选：同合同、未作废/未红冲；编辑中的红冲票要带上它已关联的原票（此时已 CANCELLED） */
+  useEffect(() => {
+    if (!formContractId || !statusIsRed) {
+      setRedCandidates([]);
+      return;
+    }
+    let alive = true;
+    setRedLoading(true);
+    invoiceApi
+      .list({ contractId: formContractId, pageSize: 500 })
+      .then((res: any) => {
+        if (!alive) return;
+        const list: any[] = res?.list || [];
+        setRedCandidates(
+          list.filter(
+            (x) => x.id !== editingId && (!isInvoiceTerminalStatus(x.statusCode) || x.id === editing?.redOfInvoiceId),
+          ),
+        );
+      })
+      .catch(() => alive && setRedCandidates([]))
+      .finally(() => alive && setRedLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [formContractId, statusIsRed, editingId, editing?.redOfInvoiceId]);
 
   useEffect(() => {
     const load = async () => {
@@ -368,15 +414,50 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
             <Form.Item
               name="statusCode"
               label="状态"
-              extra={editingTerminal ? '作废/红冲为终态，不能通过编辑修改；如需办理请用列表行上的专用操作' : undefined}
+              extra={
+                editingTerminal
+                  ? '作废/红冲为终态，不能通过编辑修改；如需办理请用列表行上的专用操作'
+                  : isCreate
+                    ? '选「红冲」可同时登记原发票：保存后原票自动作废'
+                    : undefined
+              }
             >
               <DictSelect
                 typeCode="invoice_status"
                 disabled={editingTerminal}
-                excludeValues={editingTerminal ? [] : INVOICE_TERMINAL_STATUSES}
+                excludeValues={
+                  editingTerminal ? [] : isCreate ? [INVOICE_STATUS.CANCELLED] : INVOICE_TERMINAL_STATUSES
+                }
               />
             </Form.Item>
           </Col>
+          {statusIsRed && (
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="redOfInvoiceId"
+                label="红冲原发票"
+                preserve={false}
+                extra={
+                  editing?.redOfInvoiceId
+                    ? '红冲关联创建后不可修改'
+                    : '选择后原发票将自动作废（同一事务）；留空表示只把本票标记为红冲'
+                }
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={redLoading}
+                  disabled={!!editing?.redOfInvoiceId}
+                  placeholder="选择被红冲的原发票（可选）"
+                  options={redCandidates.map((x) => ({
+                    value: x.id,
+                    label: `${x.invoiceNo || '(无号码)'}｜含税 ${x.amountWithTax ?? '-'}`,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+          )}
           <Col xs={24}>
             <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
           </Col>
