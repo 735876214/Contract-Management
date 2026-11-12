@@ -21,7 +21,10 @@
   是否计入结算量口径、发票与台账如何回退）尚未定义。澄清前**不要**擅自加 `min: 0` 拦截——
   那会把「退货」这条业务路径直接堵死；也不要把负数当成脏数据清洗掉。
   证据：`server/src/modules/receipt-order/`、`server/src/modules/daily-report/` 无负数校验，
-  `docs/audit-2026-11-12-续审.md` R6 行。
+  历史记录见 git log（2026-11-12 持续审计 R6，提交 `33d73cc`）。
+- **`dashboard/*` 接口是否加 `dashboard:view` 权限码**（2026-10-22 审计留档）：现状是
+  「已登录 + 项目成员即可访问」，泄露面仅同项目看板数据；种子角色（含 STAFF）都带该码，
+  但自定义角色可能没有，单方面加权限会误伤，**需产品先定口径**再改。
 
 ## 需外部条件（基础设施 / 凭据 / 他人配合就绪即可做）
 
@@ -30,11 +33,10 @@
   `npm run anomaly:export -- --project <id>` 导出 → 人工标注 `hit` → `npm run anomaly:score`
   （门槛不达标脚本退非 0）。标注纪律见 [docs/AI应用落地计划.md](docs/AI应用落地计划.md) §10，
   方法与命令见 [docs/AI应用评测报告-6-9-结算异常预警.md](docs/AI应用评测报告-6-9-结算异常预警.md) §6–§7.1。
+  真实数据到位后，顺带按 [docs/development.md](docs/development.md) §5.2 复核预警面板
+  **有数据时**的手机端排版（演示库样本为 0，目前只验证过空态；表结构已补 `scroll`）。
 - **LLM 措辞质量人工评分**：网关一直没配密钥，目前只验证了模板降级链路；配好密钥后补一次人工打分
   （结论是否点名到单据、动作是否可执行、有没有编数字）。
-- **NAS 部署的两条默认密码**：`DEFAULT_ADMIN_PASSWORD` 仍是 `admin123`、`POSTGRES_PASSWORD`
-  仍是 `cms123456`，需在 NAS 上修改，见 [docs/nas-upgrade-20261021.md](docs/nas-upgrade-20261021.md)
-  「待办（安全）」。
 - **HTTPS 部署**：NAS 反代 + 证书。当前 JWT 走 httpOnly Cookie，无 HTTPS 时既有安全面问题，
   也拿不到 `getUserMedia`（现场拍照）。见
   [docs/09-移动端可行性评估-375px实测.md](docs/09-移动端可行性评估-375px实测.md) §4 阶段 C。
@@ -49,6 +51,13 @@
    `manifest.webmanifest` + 最小 Service Worker（只缓存应用壳与静态资源，**不做业务数据离线写**，
    避免与 PostgreSQL 唯一事实源冲突）；收领单 / 日报加「拍照上传」
    （`accept="image/*" capture` 即可，无需 App）。HTTPS 见上方「需外部条件」。
+3. **前端补 `:edit` 权限门禁**（2026-10-22 审计留档，2026-11-12 复核计数）：后端 16 个
+   `:edit` 权限码里 15 个前端从未出现（只有 `contract:edit` 有用到），只读用户仍看到编辑按钮、
+   点击才 403（纯 UX 缺口，非安全）。改动涉及多数页面，需按
+   [docs/development.md](docs/development.md) §5.2 做真渲染验证。
+4. **`ProcurementTask.update()` 接入 `assertVersion`**（2026-10-22 审计留档）：表有 `version` 列
+   但更新不校验；`assertVersion` 对缺 `version` 的请求直接 400，而前端当前不传 →
+   必须前后端同步改（前端提交带 `version`，后端校验）；单边收紧会把编辑打成 400。
 
 ## 四域扩展（已收口，不再立项）
 

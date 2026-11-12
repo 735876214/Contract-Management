@@ -69,5 +69,8 @@ docker compose -p cms-backend --project-directory "$HOSTDIR" \
 
 ## 待办（安全）
 
+> **2026-10-22 已处理**：`DEFAULT_ADMIN_PASSWORD`、`POSTGRES_PASSWORD`、`JWT_SECRET` 三项均已换为随机值，
+> 写进宿主 `deploy/nas/.env`（gitignore），凭据记录在 `backups/` 的凭据文件里。以下为升级当日的原始记录。
+
 - `DEFAULT_ADMIN_PASSWORD` 仍是 `admin123`，管理员账号密码未改 → 建议尽快在系统里改。
 - `POSTGRES_PASSWORD` 仍是 `cms123456`（库不对外，风险有限）。
