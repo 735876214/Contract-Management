@@ -24,6 +24,8 @@
 │   └── 1730000000123-ef56ab78.png            # 分包证件、投标文件、单据模板、考察照片…
 ├── signed/                                   # 合同签章件（save sub='signed'）
 │   └── 1730000000456-cd34ef12.pdf
+├── ai-analytics/                             # AI 经营数据助手工作簿（sub='ai-analytics/<projectId>'）
+│   └── <projectId>/<标题>.xlsx
 └── import-errors/                            # 导入错误报告（固定文件名）
     └── import-errors-<taskId>.xlsx
 ```
@@ -40,6 +42,7 @@
 | `POST /api/files/upload`（通用上传） | `YYYY-MM/<自动名>`；内存接收后 `save()` | 返回 `{fileName,url,key,size}`，业务自行保存 url 或 key |
 | 合同签章 `POST /contracts/:id/sign` | `signed/<自动名>` | `Contract.signedFilePath = key` |
 | 导入错误报告 | `import-errors/import-errors-<taskId>.xlsx` | `ImportTask.errorFileUrl = url` |
+| 经营数据助手工作簿 `POST /ai/analytics/workbook` | `ai-analytics/<projectId>/<标题>.xlsx` | `AiAnalyticsReport.workbookKey = key`；下载走 `GET /ai/analytics/:id/workbook` |
 
 上传限制（2026-10-18 起）：单请求最多 10 个文件、单文件 ≤ 50MB（与 nginx 一致）；
 拒绝 `.html/.htm/.svg/.js/.mjs/.exe/.bat/.sh/.ps1/.php/.jsp/.jar` 等可执行/可脚本类型，
@@ -54,6 +57,7 @@
 | 合同签章件 | `Contract.signedFilePath` | `signed/<file>`；下载走 `/contracts/:id/signed-file` |
 | 收领单扫描件 | `ReceiptOrder.scanUrl` | 保存时归一为键 |
 | 单据模板 xlsx | `ContractTemplate.fileUrl` | 创建/更新归一为键；历史 URL 读取兼容 |
+| 经营数据助手工作簿 | `AiAnalyticsReport.workbookKey` | `ai-analytics/<projectId>/<标题>.xlsx`；删除记录只删 DB，文件留给存储审计 |
 
 **`/api/files/...` URL 或 JSON 内 URL**
 

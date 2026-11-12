@@ -110,6 +110,17 @@
 | `TaskViewModal.tsx` | `task{id,taskNo,status,stage}` `open` `onClose` | 任务查看（基本信息 + 总清单 + 已生成文档导出） |
 | `TotalListEditor.tsx` | 导出 `TotalListEditor`、`TotalListEditorContent`（`readOnly`/`embedded`）、`TotalListContentRef` | 总采购清单编辑器（15 列，物资必须选自基础库） |
 
+### 经营数据助手组件（`web/src/components/ai/analytics/`）
+
+| 组件 | Props（要点） | 说明 |
+|---|---|---|
+| `GeneratePanel.tsx` | `datasets` `defaultKeys` `projects` `crossProjectAllowed` `onSaved` | 生成页签：范围/期间/数据集/自然语言 → 意图预览 → 确定性报告；可勾选同时生成 xlsx；展示 `warnings` 与 `discardedNumbers` |
+| `HistoryPanel.tsx` | `projects` `refreshKey` | 历史页签：筛选/分页/详情抽屉/重新导出 Word·PDF/下载表格/删除；`refreshKey` 由生成页签保存后自增 |
+| `web/src/pages/AiAnalytics.tsx` | — | `/ai/analytics` 页面外壳（两个页签），加载注册表与项目列表 |
+
+数据来源统一走 `aiApi.analyticsDatasets / analyticsPlan / analyticsReport / analyticsWorkbook / analyticsWorkbookDownload / analyticsHistory / analyticsDetail / analyticsExport / analyticsRemove`；
+后端编排在 `server/src/modules/ai/analytics/`（`dataset-collector` / `dataset-facts` / `analytics-store` / `workbook-builder`）。
+
 ---
 
 ## 二、前端 · hooks
@@ -136,6 +147,7 @@
 ## 四、前端 · 常量与 API 模块
 
 - `constants/procurementWorkflow.ts`：采购类型、状态、状态颜色、阶段链 `buildStageChain`（**后端 `constants/procurementFlow.ts` 的镜像**）。
+- `api/modules.ts` 的 `aiApi.analytics*`：经营数据助手的注册表/意图/报告/工作簿/历史/导出/删除封装（类型 `AiAnalyticsDatasetsResult`、`AiAnalyticsIntent`、`AiAnalyticsReportResult`、`AiAnalyticsRecordSummary` 等）。
 - `constants/procurementVariables.ts`：采购变量体系（公共变量无前缀，模块专属用「模块名-变量名」；表格变量生成真实表格）。
 - `api/http.ts`：axios 实例（`baseURL=VITE_API_BASE||'/api'`，timeout 30s）。
   请求拦截注入 `Authorization: Bearer <cms_token>` 与 `x-project-id`；
