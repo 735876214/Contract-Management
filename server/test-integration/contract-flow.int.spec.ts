@@ -64,6 +64,16 @@ describe('集成 · 合同状态流转与任务联动', () => {
     const dl = await contract.signedFile(c.id);
     assert.ok((dl.buffer as Buffer).equals(pdf), '下载到的签章件应与上传内容逐字节一致');
 
+    // ②-2 重新签章只改签订日期（不传新文件）：沿用原签章件，不清空原件
+    const resigned = await contract.sign(c.id, null, '2026-01-20', '只改签订日期');
+    assert.equal(resigned.status, CONTRACT_STATUS.SIGNED);
+    assert.equal(resigned.signedFilePath, signed.signedFilePath, '未上传新文件时应沿用原签章件');
+    assert.equal(
+      new Date(resigned.signDate as any).toISOString().slice(0, 10),
+      '2026-01-20',
+      '签订日期应被更新',
+    );
+
     // ③ 驳回回起草
     await contract.rejectToDraft(c.id);
     const after = await ctx.prisma.contract.findUnique({ where: { id: c.id } });

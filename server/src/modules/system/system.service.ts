@@ -17,6 +17,9 @@ import { SysParamService } from '../../common/services/sys-param.service';
  */
 const USER_WRITABLE_FIELDS = ['username', 'realName', 'phone', 'email', 'status'];
 
+/** 角色主表可写字段（permissionIds 走关联表，单独处理） */
+const ROLE_WRITABLE_FIELDS = ['code', 'name', 'remark', 'status'];
+
 /** 出参统一剥掉 bcrypt 哈希：新增/修改/重置密码都不许把 `password` 回给前端 */
 function stripPassword<T extends Record<string, any> | null | undefined>(row: T): T {
   if (!row) return row;
@@ -113,20 +116,36 @@ export class SystemService {
   }
 
   async createRole(data: any) {
-    return this.prisma.role.create({ data });
+    /**
+     * 前端提交的是 `{ code, name, remark, permissionIds }`。
+     * 原来把整个 body 直接交给 `role.create({ data })`：`permissionIds` 不是 Role 的列，
+     * Prisma 抛 Unknown argument → **新增角色恒 500**；即使不报错，勾选的权限也不会落库。
+     */
+    const { permissionIds, ...rest } = data || {};
+    const payload = pickFields(rest, ROLE_WRITABLE_FIELDS, { label: '角色' });
+    return this.prisma.$transaction(async (tx) => {
+      const role = await tx.role.create({ data: payload });
+      if (Array.isArray(permissionIds) && permissionIds.length) {
+        await tx.rolePermission.createMany({
+          data: permissionIds.map((permissionId: string) => ({ roleId: role.id, permissionId })),
+        });
+      }
+      return role;
+    });
   }
 
   /** 改角色：权限关联与主表同事务（理由同 `updateUser`，失败时不能留下「权限被清空」的角色） */
   async updateRole(id: string, data: any) {
-    const { permissionIds, ...rest } = data;
+    const { permissionIds, ...rest } = data || {};
+    const payload = pickFields(rest, ROLE_WRITABLE_FIELDS, { label: '角色' });
     return this.prisma.$transaction(async (tx) => {
-      if (permissionIds) {
+      if (permissionIds !== undefined) {
         await tx.rolePermission.deleteMany({ where: { roleId: id } });
-        if (permissionIds.length) {
+        if (Array.isArray(permissionIds) && permissionIds.length) {
           await tx.rolePermission.createMany({ data: permissionIds.map((permissionId: string) => ({ roleId: id, permissionId })) });
         }
       }
-      return tx.role.update({ where: { id }, data: rest });
+      return tx.role.update({ where: { id }, data: payload });
     });
   }
 

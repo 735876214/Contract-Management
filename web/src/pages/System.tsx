@@ -48,14 +48,22 @@ function UsersTab() {
     form.resetFields();
     form.setFieldsValue({
       ...row,
-      roles: row.roles ? (Array.isArray(row.roles) ? row.roles : String(row.roles).split(',')) : [],
+      /**
+       * 后端返回的 `roles` 是 `UserRole[]`（{ roleId, role }），而角色下拉的 value 是**角色 id**。
+       * 直接回填对象会让 Select 显示成无匹配项，且保存时被原样提交——后端只认 `roleIds`，角色变更静默丢失。
+       */
+      roles: (Array.isArray(row.roles) ? row.roles : [])
+        .map((r: any) => (typeof r === 'string' ? r : r?.roleId || r?.role?.id))
+        .filter(Boolean),
     });
     setModal(true);
   };
 
   const submit = async () => {
     const values: any = await form.validateFields();
-    const payload = { ...values, roles: values.roles || [] };
+    // 服务端写入字段是 roleIds（updateUser 在事务里整体替换 userRole）；roles 只是本页 SELECT 的字段名
+    const { roles, ...rest } = values;
+    const payload = { ...rest, roleIds: roles || [] };
     if (editing) await systemApi.updateUser(editing.id, payload);
     else await systemApi.createUser(payload);
     message.success('保存成功');
@@ -92,7 +100,17 @@ function UsersTab() {
           { title: '手机', dataIndex: 'phone', width: 140 },
           { title: '邮箱', dataIndex: 'email', width: 200, ellipsis: true },
           { title: '状态', dataIndex: 'status', width: 90, render: STATUS_TAG },
-          { title: '角色', dataIndex: 'roleNames', width: 220, ellipsis: true },
+          {
+            title: '角色',
+            width: 220,
+            ellipsis: true,
+            // 后端没有 roleNames 字段（返回的是 roles[{ roleId, role }]），原来该列永远是空白
+            render: (_: any, row: any) =>
+              (Array.isArray(row.roles) ? row.roles : [])
+                .map((r: any) => r?.role?.name || r?.name || '')
+                .filter(Boolean)
+                .join('、') || '-',
+          },
           {
             title: '操作',
             width: 220,
@@ -179,13 +197,30 @@ function RolesTab() {
     setEditing(row);
     form.resetFields();
     form.setFieldsValue({ code: row.code, name: row.name, remark: row.remark });
-    setCheckedKeys(row.permissionIds || []);
+    /**
+     * 后端返回的是 `permissions: [{ permissionId, permission }]`，**没有** `permissionIds`。
+     * 原来读 `row.permissionIds || []` 会让树全部不勾选；保存时提交空数组 → 该角色权限被整体清空。
+     */
+    setCheckedKeys(
+      (Array.isArray(row.permissions) ? row.permissions : [])
+        .map((p: any) => p?.permissionId || p?.permission?.id)
+        .filter(Boolean),
+    );
     setModal(true);
   };
 
   const submit = async () => {
     const values: any = await form.validateFields();
-    const payload = { ...values, permissionIds: checkedKeys };
+    /**
+     * 树的分组节点 key 是**模块编码**（如 `contract`），只有叶子才是权限 id。
+     * 勾选叶子时 antd 会把父节点一并计入 checkedKeys —— 直接提交会拿模块编码当 permissionId
+     * 写关联表（外键失败 → 保存必报错）。这里只保留权限 id。
+     */
+    const validIds = new Set<string>(
+      permissions.flatMap((p: any) => (p.items || []).map((i: any) => String(i.id))),
+    );
+    const permissionIds = (checkedKeys as any[]).map((k) => String(k)).filter((k) => validIds.has(k));
+    const payload = { ...values, permissionIds };
     if (editing) await systemApi.updateRole(editing.id, payload);
     else await systemApi.createRole(payload);
     message.success('保存成功');
@@ -204,7 +239,12 @@ function RolesTab() {
           { title: '角色编码', dataIndex: 'code', width: 180 },
           { title: '名称', dataIndex: 'name', width: 180 },
           { title: '备注', dataIndex: 'remark', ellipsis: true },
-          { title: '权限数', dataIndex: 'permissionCount', width: 100, render: (v: any) => v ?? (editing?.permissionIds?.length || 0) },
+          {
+            title: '权限数',
+            width: 100,
+            // 后端没有 permissionCount 字段，按关联行计算（原来的 fallback 读的是 editing，行与行之间会串）
+            render: (_: any, row: any) => (Array.isArray(row.permissions) ? row.permissions.length : 0),
+          },
           {
             title: '操作',
             width: 160,

@@ -1604,20 +1604,27 @@ export class ContractService {
   async sign(id: string, file: any, signDate?: string, remark?: string, projectId?: string) {
     await this.assertContractInProject(id, projectId);
     await this.assertNotArchived(id, '签章');
-    if (!file) throw new BadRequestException('请上传签章合同文件');
-    await this.assertContractExists(id);
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    if (!ContractService.SIGNED_ALLOWED_EXT.includes(ext)) {
-      throw new BadRequestException('签章文件仅支持 PDF/JPG/PNG/DOCX 格式');
-    }
-    if (file.size > ContractService.SIGNED_MAX_SIZE) {
-      throw new BadRequestException('签章文件大小不能超过 20MB');
+    const existing = await this.assertContractExists(id);
+    /**
+     * 重新签章允许只改签订日期/备注而不换文件（前端亦是此口径）：已有签章件时沿用旧件。
+     * 首次签章必须上传文件，否则会得到「已签章但没有签章件原件」的合同（归档检查按 status 判签章）。
+     */
+    if (!file && !existing.signedFilePath) throw new BadRequestException('请上传签章合同文件');
+    let saved: { key: string } | null = null;
+    if (file) {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (!ContractService.SIGNED_ALLOWED_EXT.includes(ext)) {
+        throw new BadRequestException('签章文件仅支持 PDF/JPG/PNG/DOCX 格式');
+      }
+      if (file.size > ContractService.SIGNED_MAX_SIZE) {
+        throw new BadRequestException('签章文件大小不能超过 20MB');
+      }
+      // 落盘统一走 StorageService（相对键 `signed/<文件名>`；目录/命名/URL 规则都收在存储层）
+      saved = await this.storage.save(file.buffer, { sub: 'signed', ext });
     }
     if (!signDate) throw new BadRequestException('请选择签订日期');
     const chosen = new Date(signDate);
     if (Number.isNaN(chosen.getTime())) throw new BadRequestException('签订日期格式不正确');
-    // 落盘统一走 StorageService（相对键 `signed/<文件名>`；目录/命名/URL 规则都收在存储层）
-    const saved = await this.storage.save(file.buffer, { sub: 'signed', ext });
     /**
      * 冻结**签订时点的供应商信息快照**（业务口径 2026-10-15）：
      * 合同正文导出取快照而非当前主数据，否则供应商改名/换银行会改变历史合同的再导出内容。
@@ -1629,8 +1636,7 @@ export class ContractService {
       where: { id },
       data: {
         supplierSnapshot,
-        signedFilePath: saved.key,
-        signedFileName: file.originalname,
+        ...(saved ? { signedFilePath: saved.key, signedFileName: file.originalname } : {}),
         signDate: chosen, // 需求 2.3：覆盖合同主表签订日期
         signedDate: chosen, // 兼容历史展示逻辑
         signedAt: new Date(), // 签章操作时间

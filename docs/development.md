@@ -95,7 +95,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（79 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（14 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（15 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -264,6 +264,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `amount-guard.int.spec.ts` | 金额上限闸门：`BLOCK` 真的拦住超结/超付、`WARN` 放行、草稿豁免、**合同未填金额=无上限**、失败/退款不计入累计、**补充协议带符号增量进上限**（降价→上限下降拦住原本合法的单；增项→回升放行；求和用 `changeAmount` 而非手填 `amount`） |
 | `contract-flow.int.spec.ts` | 合同 草稿→审批中→签章→驳回 全链 + 采购任务状态联动 + 签章件落盘/下载 + 两条防误改规则（非主合同、阶段链未走完）· **合同子资源按 id 直达须校验项目归属**（跨项目详情/变更/扩展/草稿/发布/签章件 404、跨项目 `taskId` 400）· **已签章合同不得重新发布**（状态机不回退）· 草稿清单保存只能写本合同的行 |
 | `project-access.int.spec.ts` | **项目级访问控制（成员关系）**：非成员按 id 读详情/看成员名单/改删项目/增删成员一律 403，成员与超管按口径放行 · 成员管理只作用于 URL 指向的项目 |
+| `system-users.int.spec.ts` | **用户与角色维护**：角色新建/编辑时 `permissionIds` 真正落关联表且可整体替换 · 用户 `roleIds` 落关联表且可清空 · 用户名缺失 400（不再由 Prisma 抛 500） |
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
 | `tender-bidders.int.spec.ts` | 招标域：导入**双写**结构化投标单位与幂等、有评标记录的单位不被静默删除、勾选候选人=**定标**（WON+确认价）与取消回落、评标记录全量替换与三条校验、**定标行 → 发布 → 生成多份合同**（快照被篡改也不采信） |
 | `settlement-item.int.spec.ts` | **清单项级结算明细 + 量级校验**（业务 2026-10-17）：items 随结算单落库、综合单价/合价由服务端重算 · update 整体替换明细（replace-all）· 量级闸门（Σ明细量 + 历史已结 ≤ 合同链清单量）：**WARN 策略带 overQtyWarning、BLOCK 策略 400** · 链上无清单行的物资=**无上限不拦** · **草稿不校验量级**（提交时才拦） |
