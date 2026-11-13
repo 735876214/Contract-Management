@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   browserColumnStorage,
-  clearHiddenColumns,
+  clearHiddenColumnsByKey,
+  hasStoredPreference,
+  listColumnsMobileStorageKey,
+  listColumnsStorageKey,
+  mobileHiddenColumns,
   nextHiddenColumns,
-  readHiddenColumns,
-  writeHiddenColumns,
+  readHiddenColumnsByKey,
+  writeHiddenColumnsByKey,
 } from '@/utils/listColumns';
 
 /**
@@ -14,6 +18,11 @@ import {
  * 与 `ledger.columns.config`（服务端共享配置）是**两套语义**：台账页继续用它自己的服务端列设置。
  *
  * 用法：`const cols = useListColumns({ configKey, allKeys, lockedKeys: ['op'] })`
+ *
+ * **移动端列模板**（2026-11-12，docs/09 §4 阶段 B）：
+ * 传 `mobileDefaultKeys` + `narrow`（容器宽度 < 720）后，窄容器且**该模式下没存过偏好**时，
+ * 只显示预设列（受保护列永远显示）；一旦在窄容器里动过列设置，就听用户的。
+ * 移动端偏好存在**独立的存储键**（`@mobile` 后缀）——桌面上关掉列的偏好不会让手机端模板失效，反之亦然。
  */
 export interface UseListColumnsOptions {
   /** 存储键（不传 = 不启用列配置） */
@@ -22,10 +31,14 @@ export interface UseListColumnsOptions {
   allKeys: string[];
   /** 不可隐藏的列标识（如「操作」列） */
   lockedKeys?: string[];
+  /** 窄容器下的默认列集（4–6 列）；不传 = 不做移动端裁剪 */
+  mobileDefaultKeys?: string[];
+  /** 是否窄容器（由 `useContainerWidth` 的容器宽度决定，**不是视口**） */
+  narrow?: boolean;
 }
 
 export interface UseListColumnsResult {
-  /** 被隐藏的列标识 */
+  /** 实际应隐藏的列标识（窄容器未自定义时为移动端预设算出的隐藏集合） */
   hiddenKeys: string[];
   isHidden: (key: string) => boolean;
   /**
@@ -34,18 +47,46 @@ export interface UseListColumnsResult {
    * （这里不替调用方取反，是为了让「显式设置」也说得清）。受保护列 / 会清空表格的操作为无效操作，状态不变。
    */
   toggle: (key: string, hidden?: boolean) => void;
-  /** 恢复默认（全部可见） */
+  /** 恢复默认（全部可见；窄容器下即回到移动端预设） */
   reset: () => void;
   hiddenCount: number;
+  /** 当前模式下是否已有用户自定义偏好（移动端列模板据此决定要不要让位） */
+  customized: boolean;
 }
 
-export function useListColumns({ configKey, allKeys, lockedKeys = [] }: UseListColumnsOptions): UseListColumnsResult {
-  const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
+export function useListColumns({
+  configKey,
+  allKeys,
+  lockedKeys = [],
+  mobileDefaultKeys,
+  narrow = false,
+}: UseListColumnsOptions): UseListColumnsResult {
+  /**
+   * 预设与受保护列都可能由调用方写成内联字面量（引用每轮渲染都变），
+   * 用**值签名**参与 memo，避免 effect / 返回值抖动。
+   */
+  const mobileKeysSig = (mobileDefaultKeys ?? []).filter(Boolean).join('|');
+  const mobileKeys = useMemo(() => (mobileKeysSig ? mobileKeysSig.split('|') : []), [mobileKeysSig]);
+  const lockedKeysSig = lockedKeys.filter(Boolean).join('|');
+  const locked = useMemo(() => (lockedKeysSig ? lockedKeysSig.split('|') : []), [lockedKeysSig]);
 
-  // 首次挂载与 configKey 变化时从存储读取（configKey 为空则清空，避免串页）
+  /** 窄容器 + 有预设时才切到移动端存储键；桌面偏好完全不受影响 */
+  const mobileMode = !!configKey && narrow && mobileKeys.length > 0;
+  const storageKey = !configKey
+    ? ''
+    : mobileMode
+      ? listColumnsMobileStorageKey(configKey)
+      : listColumnsStorageKey(configKey);
+
+  const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
+  const [customized, setCustomized] = useState(false);
+
+  // 首次挂载 / 切换页面 / 宽窄模式切换时，从**对应存储键**读取
   useEffect(() => {
-    setHiddenKeys(readHiddenColumns(browserColumnStorage(), configKey ?? ''));
-  }, [configKey]);
+    const storage = browserColumnStorage();
+    setHiddenKeys(readHiddenColumnsByKey(storage, storageKey));
+    setCustomized(hasStoredPreference(storage, storageKey));
+  }, [storageKey]);
 
   // 列集合变化（如台账动态列）时剔除已不存在的列，避免隐藏集合无限膨胀
   const validKeys = useMemo(() => allKeys.filter((k) => k !== ''), [allKeys]);
@@ -53,29 +94,40 @@ export function useListColumns({ configKey, allKeys, lockedKeys = [] }: UseListC
     setHiddenKeys((prev) => {
       const kept = prev.filter((k) => validKeys.includes(k));
       if (kept.length === prev.length) return prev;
-      writeHiddenColumns(browserColumnStorage(), configKey ?? '', kept);
+      writeHiddenColumnsByKey(browserColumnStorage(), storageKey, kept);
       return kept;
     });
-  }, [configKey, validKeys]);
+  }, [storageKey, validKeys]);
 
-  const isHidden = useCallback((key: string) => hiddenKeys.includes(key), [hiddenKeys]);
+  /** 移动端预设算出的隐藏集合；`null` = 不启用（听用户或不做裁剪） */
+  const mobileHidden = useMemo(() => {
+    if (!mobileMode || customized) return null;
+    return mobileHiddenColumns(validKeys, mobileKeys, locked);
+  }, [mobileMode, customized, validKeys, mobileKeys, locked]);
+
+  const effectiveHidden = mobileHidden ?? hiddenKeys;
+
+  const isHidden = useCallback((key: string) => effectiveHidden.includes(key), [effectiveHidden]);
 
   const toggle = useCallback(
     (key: string, hidden?: boolean) => {
-      setHiddenKeys((prev) => {
-        const target = hidden === undefined ? !prev.includes(key) : hidden;
-        const updated = nextHiddenColumns(prev, key, target, validKeys, lockedKeys);
-        if (updated !== prev) writeHiddenColumns(browserColumnStorage(), configKey ?? '', updated);
-        return updated;
-      });
+      // 移动端预设生效时，第一次改动以「预设的可见集」为基线，避免用户取消勾选后其余列全冒出来
+      const base = customized ? hiddenKeys : effectiveHidden;
+      const target = hidden === undefined ? !base.includes(key) : hidden;
+      const updated = nextHiddenColumns(base, key, target, validKeys, locked);
+      if (updated === base) return;
+      writeHiddenColumnsByKey(browserColumnStorage(), storageKey, updated);
+      setHiddenKeys(updated);
+      setCustomized(true);
     },
-    [configKey, lockedKeys, validKeys],
+    [customized, hiddenKeys, effectiveHidden, storageKey, validKeys, locked],
   );
 
   const reset = useCallback(() => {
-    clearHiddenColumns(browserColumnStorage(), configKey ?? '');
+    clearHiddenColumnsByKey(browserColumnStorage(), storageKey);
     setHiddenKeys([]);
-  }, [configKey]);
+    setCustomized(false);
+  }, [storageKey]);
 
-  return { hiddenKeys, isHidden, toggle, reset, hiddenCount: hiddenKeys.length };
+  return { hiddenKeys: effectiveHidden, isHidden, toggle, reset, hiddenCount: effectiveHidden.length, customized };
 }

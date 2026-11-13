@@ -82,13 +82,14 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
 
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
-    { title: '供应商名称', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
-    { title: '合同名称', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
-    { title: '合同编号', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
+    { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
+    { title: '合同名称', key: 'contractName', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
+    { title: '合同编号', key: 'contractCode', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
     { title: '付款月份', dataIndex: 'payMonth', width: 110 },
     { title: '本月付款额', dataIndex: 'amount', width: 140, align: 'right', render: money },
     {
       title: '银行回单',
+      key: 'receipt',
       width: 100,
       render: (_v: any, r: any) =>
         r.receiptUrl ? (
@@ -107,6 +108,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
       extraFilters={extraFilters}
       extraColumns={extraColumns}
       refreshKey={listRefresh + tabRefresh}
+      mobileDefaultKeys={['supplier', 'contractCode', 'payMonth', 'amount']}
       onEdit={(row) => editorTab.openEdit(row.id, row)}
       onDelete={handleRemove}
       toolbarLeft={

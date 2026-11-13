@@ -35,6 +35,7 @@ import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useListColumns } from '@/hooks/useListColumns';
 import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
 import EmptyState from '@/components/EmptyState';
+import MobileCardList from '@/components/MobileCardList';
 
 /**
  * 采购六模块通用「标准列表页」（筛选区 + 工具栏 + 数据表格 + 分页）：
@@ -151,6 +152,15 @@ export interface ModuleListPageProps {
   /** 额外不可隐藏的列标识（「操作」列与无标识列总是保留） */
   columnConfigLockedKeys?: string[];
   /**
+   * **窄容器（<720px）默认列集**（docs/09 §4 阶段 B，2026-11-12）：
+   * 只列 4–6 个列标识（`key` 或 `dataIndex`）。窄容器且**移动端没存过列偏好**时只显示这些列；
+   * 桌面列不变，移动端偏好在独立键里（用户动过列设置后以用户为准）。
+   * ⚠️ generic 模式下列定义必须带 `key` 或 `dataIndex`，否则该列无法被移动端裁剪。
+   */
+  mobileDefaultKeys?: string[];
+  /** 窄容器下用**卡片视图**代替表格（仅最高频的 3 个页面开启，见 docs/09 §4） */
+  mobileCards?: boolean;
+  /**
    * 命中这些字段名时，筛选值变化**立即查询**（等价于点一次「查询」）。
    *
    * 用途：像「资金费用台账」这种"先选合同才加载"的页面 —— 选了合同还要用户再点一次查询
@@ -202,6 +212,8 @@ export default function ModuleListPage({
   emptyText,
   columnConfigKey,
   columnConfigLockedKeys,
+  mobileDefaultKeys,
+  mobileCards,
   autoSearchOnChange,
   onFilterChange,
   onFetched,
@@ -504,6 +516,8 @@ export default function ModuleListPage({
     configKey: effectiveColumnConfigKey,
     allKeys: columnKeys,
     lockedKeys: lockedColumnKeys,
+    mobileDefaultKeys,
+    narrow: containerSize.isNarrow,
   });
   // 直接过滤（不做 useMemo）：`columns` 每轮渲染都是新数组，若把 memo 依赖设为键签名，
   // 列内的 render/事件闭包会在依赖未变时滞留旧值（点「查看」调用旧 handler 这类隐性 bug）。
@@ -629,30 +643,48 @@ export default function ModuleListPage({
         </Space>
       </div>
 
-      {/* 3. 数据表格 + 分页 */}
-      <Table<ModuleListRow>
-        size={containerSize.isNarrow ? 'small' : 'middle'}
-        rowKey="id"
-        columns={visibleColumns}
-        dataSource={rows}
-        loading={loading}
-        scroll={{ x: 'max-content' }}
-        {...(tableSummary ? { summary: () => tableSummary } : {})}
-        locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showQuickJumper: true,
-          pageSizeOptions: [10, 20, 50, 100],
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p);
-            setPageSize(ps);
-          },
-          showTotal: () => `共 ${total} 条`,
-        }}
-      />
+      {/* 3. 数据表格 + 分页（窄容器下高频页可切卡片视图，docs/09 §4 阶段 B） */}
+      {containerSize.isNarrow && mobileCards ? (
+        <MobileCardList<ModuleListRow>
+          rows={rows}
+          columns={visibleColumns}
+          loading={loading}
+          emptyText={emptyText ?? '暂无数据'}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: (p, ps) => {
+              setPage(ps !== pageSize ? 1 : p);
+              setPageSize(ps);
+            },
+          }}
+        />
+      ) : (
+        <Table<ModuleListRow>
+          size={containerSize.isNarrow ? 'small' : 'middle'}
+          rowKey="id"
+          columns={visibleColumns}
+          dataSource={rows}
+          loading={loading}
+          scroll={{ x: 'max-content' }}
+          {...(tableSummary ? { summary: () => tableSummary } : {})}
+          locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (p, ps) => {
+              setPage(ps !== pageSize ? 1 : p);
+              setPageSize(ps);
+            },
+            showTotal: () => `共 ${total} 条`,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -195,8 +195,8 @@ function ContractMaterialsList() {
     { title: '合同编号', dataIndex: 'contractCode', width: 200, fixed: 'left', render: (v: any) => v || '-' },
     { title: '合同名称', dataIndex: 'contractName', width: 200, ellipsis: true, render: (v: any) => v || '-' },
     { title: '供应商名称', dataIndex: 'supplierName', width: 170, ellipsis: true, render: (v: any) => v || '-' },
-    { title: '物资名称', width: 180, render: (_: any, r: any) => r.materialBase?.name || '-' },
-    { title: '规格型号', width: 150, render: (_: any, r: any) => r.materialBase?.spec || '-' },
+    { title: '物资名称', key: 'materialName', width: 180, render: (_: any, r: any) => r.materialBase?.name || '-' },
+    { title: '规格型号', key: 'spec', width: 150, render: (_: any, r: any) => r.materialBase?.spec || '-' },
     { title: '计量单位', dataIndex: 'unit', width: 100 },
     { title: '暂定数量', dataIndex: 'qty', width: 120, align: 'right' as const, render: (v: any) => fmtNum(v) },
     { title: '税前单价', dataIndex: 'priceBeforeTax', width: 130, align: 'right' as const, render: (v: any) => fmtNum(v, 2) },
@@ -239,6 +239,7 @@ function ContractMaterialsList() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh}
+        mobileDefaultKeys={['contractCode', 'contractName', 'materialName', 'qty', 'totalWithTax']}
         emptyText={contractId ? '当前合同暂无物资清单，可「从物资库派生」或「添加物资」' : '暂无合同物资清单数据'}
         rowEditable={() => !!contractId}
         rowDeletable={() => !!contractId}

@@ -16,6 +16,16 @@ export const LIST_COLUMNS_STORAGE_VERSION = '_v1';
 export const listColumnsStorageKey = (configKey: string): string =>
   `${LIST_COLUMNS_STORAGE_PREFIX}${configKey}${LIST_COLUMNS_STORAGE_VERSION}`;
 
+/**
+ * **移动端**列配置的存储键（同一页面、另一份偏好）。
+ *
+ * 为什么与桌面分开：手机上的列选择是"窄屏下我关心哪几列"，桌面是"宽屏下我看哪些列"；
+ * 共用一份键会让桌面关掉 30 列之后，手机上的移动端列模板被当成"用户已自定义"而失效
+ * （反之亦然）。两份偏好互不影响，桌面列永远不变。
+ */
+export const listColumnsMobileStorageKey = (configKey: string): string =>
+  `${LIST_COLUMNS_STORAGE_PREFIX}${configKey}@mobile${LIST_COLUMNS_STORAGE_VERSION}`;
+
 /** 取列的稳定标识：优先 `key`，退回 `dataIndex`（antd 两处都可能出现），都没有则空串（= 不可配置） */
 export function columnKeyOf(col: { key?: unknown; dataIndex?: unknown } | null | undefined): string {
   const k = col?.key ?? col?.dataIndex;
@@ -43,9 +53,18 @@ export function readHiddenColumns(
   storage: ColumnStorageLike | null | undefined,
   configKey: string,
 ): string[] {
-  if (!storage || !configKey) return [];
+  if (!configKey) return [];
+  return readHiddenColumnsByKey(storage, listColumnsStorageKey(configKey));
+}
+
+/** 同 `readHiddenColumns`，但直接收**完整存储键**（桌面 / 移动端两份偏好的共用实现） */
+export function readHiddenColumnsByKey(
+  storage: ColumnStorageLike | null | undefined,
+  storageKey: string,
+): string[] {
+  if (!storage || !storageKey) return [];
   try {
-    const raw = storage.getItem(listColumnsStorageKey(configKey));
+    const raw = storage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     const hidden = Array.isArray(parsed) ? parsed : parsed?.hidden;
@@ -61,10 +80,20 @@ export function writeHiddenColumns(
   configKey: string,
   hidden: string[],
 ): void {
-  if (!storage || !configKey) return;
+  if (!configKey) return;
+  writeHiddenColumnsByKey(storage, listColumnsStorageKey(configKey), hidden);
+}
+
+/** 同 `writeHiddenColumns`，但直接收**完整存储键** */
+export function writeHiddenColumnsByKey(
+  storage: ColumnStorageLike | null | undefined,
+  storageKey: string,
+  hidden: string[],
+): void {
+  if (!storage || !storageKey) return;
   try {
-    if (!hidden.length) storage.removeItem(listColumnsStorageKey(configKey));
-    else storage.setItem(listColumnsStorageKey(configKey), JSON.stringify({ hidden }));
+    if (!hidden.length) storage.removeItem(storageKey);
+    else storage.setItem(storageKey, JSON.stringify({ hidden }));
   } catch {
     /* 存储不可写（配额/隐私模式）不该影响列表渲染 */
   }
@@ -72,9 +101,18 @@ export function writeHiddenColumns(
 
 /** 清除某页的列配置（恢复默认全显） */
 export function clearHiddenColumns(storage: ColumnStorageLike | null | undefined, configKey: string): void {
-  if (!storage || !configKey) return;
+  if (!configKey) return;
+  clearHiddenColumnsByKey(storage, listColumnsStorageKey(configKey));
+}
+
+/** 同 `clearHiddenColumns`，但直接收**完整存储键** */
+export function clearHiddenColumnsByKey(
+  storage: ColumnStorageLike | null | undefined,
+  storageKey: string,
+): void {
+  if (!storage || !storageKey) return;
   try {
-    storage.removeItem(listColumnsStorageKey(configKey));
+    storage.removeItem(storageKey);
   } catch {
     /* 同上 */
   }
@@ -120,4 +158,43 @@ export function filterVisibleColumns<T extends { key?: unknown; dataIndex?: unkn
     if (locked.has(k)) return true;
     return !hiddenSet.has(k);
   });
+}
+
+/**
+ * 存储里是否已存在该键的列偏好。
+ *
+ * 与 `readHiddenColumns` 的区别：后者把"没存过"和"存过但值为空"都读成 `[]`；
+ * 移动端列模板需要区分这两种情况——**没存过 = 用预设**，**存过（哪怕是空数组）= 听用户的**。
+ */
+export function hasStoredPreference(
+  storage: ColumnStorageLike | null | undefined,
+  storageKey: string,
+): boolean {
+  if (!storage || !storageKey) return false;
+  try {
+    return storage.getItem(storageKey) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 移动端（窄容器）默认列集：返回应隐藏的列标识。
+ *
+ * - 预设为空 / 全都不在当前列里 → 返回空数组（= 不启用，保持全部可见）；
+ * - 受保护列（如「操作」）永远保留；
+ * - 无标识的列本就不在 `allKeys` 里，由 `filterVisibleColumns` 始终保留。
+ */
+export function mobileHiddenColumns(
+  allKeys: string[],
+  presetKeys: string[] | null | undefined,
+  lockedKeys: string[] = [],
+): string[] {
+  const all = (allKeys || []).filter((k) => k !== '');
+  const preset = new Set((presetKeys || []).filter((k) => k !== ''));
+  if (!preset.size) return [];
+  const locked = new Set(lockedKeys);
+  const kept = new Set(all.filter((k) => preset.has(k) || locked.has(k)));
+  if (!kept.size) return [];
+  return all.filter((k) => !kept.has(k));
 }

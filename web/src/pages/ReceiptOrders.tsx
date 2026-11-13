@@ -13,12 +13,22 @@ import { fileApi } from '@/api/auth';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import { DictTag } from '@/components/DictSelect';
+import MobileCardList from '@/components/MobileCardList';
 import { toFileUrl, toStorageKey } from '@/utils/templateFile';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/daily/receipt';
+
+/**
+ * 手机端（窄容器 <720px）列模板 + 卡片视图（docs/09 §4 阶段 B）：
+ * 12 列在手机上要横滑 5.6 屏，这里只留「编号 / 日期 / 供应 / 领用 / 状态 + 操作」。
+ * 桌面列完全不变；本页无列设置，窄容器下总是用这套预设。
+ */
+const MOBILE_DEFAULT_KEYS = ['orderNo', 'orderDate', 'supplierName', 'receivingUnitName', 'status', 'op'];
 
 /** 数字格式化 */
 const fmtNum = (v: any, digits = 4) =>
@@ -274,6 +284,7 @@ const DETAIL_COLUMNS = (
 export default function ReceiptOrders() {
   // -------- 列表视图 --------
   const { loading, list, search, reload, pagination } = useTable<any>((p) => receiptOrderApi.list(p));
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
   const [filterForm] = Form.useForm();
 
   /**
@@ -718,8 +729,81 @@ export default function ReceiptOrders() {
 
   // ==================== 列表视图 ====================
 
+  /**
+   * 列表列（表格与手机卡片**共用同一份定义**：卡片按列取值，不会出现"表格改了、卡片没跟上"）。
+   * 每列都带 `key`，移动端列模板才能按标识裁剪（`dataIndex` 亦可，但 `key` 更稳）。
+   */
+  const listColumns: any[] = [
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
+    { title: '收领单编号', dataIndex: 'orderNo', key: 'orderNo', width: 180, fixed: 'left' },
+    { title: '日期', dataIndex: 'orderDate', key: 'orderDate', width: 120, render: (v: any) => (v ? String(v).slice(0, 10) : '-') },
+    {
+      title: '供应单位', dataIndex: 'supplierName', key: 'supplierName', width: 210, ellipsis: true,
+      render: (v: any, row: any) => (
+        <Space size={4}>
+          <span>{v || '-'}</span>
+          {row.supplierType && (
+            <Tag color="blue">{SUPPLIER_TABS.find((t) => t.key === row.supplierType)?.label || row.supplierType}</Tag>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '领用单位', dataIndex: 'receivingUnitName', key: 'receivingUnitName', width: 210, ellipsis: true,
+      render: (v: any, row: any) => (
+        <Space size={4}>
+          <span>{v || '-'}</span>
+          {row.receivingUnitType && (
+            <Tag color="purple">{RECEIVING_TABS.find((t) => t.key === row.receivingUnitType)?.label || row.receivingUnitType}</Tag>
+          )}
+        </Space>
+      ),
+    },
+    // 物资合同编号快照已不在列表展示（业务 2026-10-17）
+    {
+      title: '结算单', dataIndex: 'settlementId', key: 'settlementId', width: 150,
+      // 未挂结算单的收领单：仍会被「生成本期结算」抓到（按物资合同 + 期间归集），故显示为「未关联」
+      render: (_v: any, row: any) =>
+        row.settlement
+          ? `${row.settlement.settleDate ? String(row.settlement.settleDate).slice(0, 7) : ''}${row.settlement.code ? ` ${row.settlement.code}` : ''}`.trim()
+          : '未关联',
+    },
+    { title: '供应分包合同', dataIndex: 'supplySubcontractName', key: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
+    { title: '分包合同', dataIndex: 'subcontractName', key: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
+    { title: '领料人', dataIndex: 'receiver', key: 'receiver', width: 110, render: (v: any) => v || '-' },
+    {
+      title: '附件', dataIndex: 'scanUrl', key: 'scanUrl', width: 110,
+      render: (v: any, row: any) =>
+        v ? (
+          <a href={toFileUrl(v)} target="_blank" rel="noreferrer">
+            <PaperClipOutlined /> {row.scanFileName || '附件'}
+          </a>
+        ) : (
+          '-'
+        ),
+    },
+    {
+      title: '状态', dataIndex: 'status', key: 'status', width: 100,
+      render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
+    },
+    {
+      title: '操作', key: 'op', width: 160, fixed: 'right',
+      render: (_: any, row: any) => (
+        <Space size={2}>
+          <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
+          <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
+            <Button type="link" size="small" danger>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+  const mobileHidden = mobileHiddenColumns(listColumns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleListColumns = containerSize.isNarrow ? filterVisibleColumns(listColumns, mobileHidden) : listColumns;
+
   if (!isEdit) {
     return (
+      <div ref={cqRef} className="cq">
       <Card
         title="收领单"
         extra={
@@ -780,80 +864,27 @@ export default function ReceiptOrders() {
           </Form.Item>
         </Form>
 
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={list}
-          pagination={pagination}
-          scroll={{ x: 1500 }}
-          locale={{ emptyText: '暂无数据...' }}
-          columns={[
-            { title: '序号', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
-            { title: '收领单编号', dataIndex: 'orderNo', width: 180, fixed: 'left' },
-            { title: '日期', dataIndex: 'orderDate', width: 120, render: (v: any) => (v ? String(v).slice(0, 10) : '-') },
-            {
-              title: '供应单位', dataIndex: 'supplierName', width: 210, ellipsis: true,
-              render: (v: any, row: any) => (
-                <Space size={4}>
-                  <span>{v || '-'}</span>
-                  {row.supplierType && (
-                    <Tag color="blue">{SUPPLIER_TABS.find((t) => t.key === row.supplierType)?.label || row.supplierType}</Tag>
-                  )}
-                </Space>
-              ),
-            },
-            {
-              title: '领用单位', dataIndex: 'receivingUnitName', width: 210, ellipsis: true,
-              render: (v: any, row: any) => (
-                <Space size={4}>
-                  <span>{v || '-'}</span>
-                  {row.receivingUnitType && (
-                    <Tag color="purple">{RECEIVING_TABS.find((t) => t.key === row.receivingUnitType)?.label || row.receivingUnitType}</Tag>
-                  )}
-                </Space>
-              ),
-            },
-            // 物资合同编号快照已不在列表展示（业务 2026-10-17）
-            {
-              title: '结算单', dataIndex: 'settlementId', width: 150,
-              // 未挂结算单的收领单：仍会被「生成本期结算」抓到（按物资合同 + 期间归集），故显示为「未关联」
-              render: (_v: any, row: any) =>
-                row.settlement
-                  ? `${row.settlement.settleDate ? String(row.settlement.settleDate).slice(0, 7) : ''}${row.settlement.code ? ` ${row.settlement.code}` : ''}`.trim()
-                  : '未关联',
-            },
-            { title: '供应分包合同', dataIndex: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
-            { title: '分包合同', dataIndex: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
-            { title: '领料人', dataIndex: 'receiver', width: 110, render: (v: any) => v || '-' },
-            {
-              title: '附件', dataIndex: 'scanUrl', width: 110,
-              render: (v: any, row: any) =>
-                v ? (
-                  <a href={toFileUrl(v)} target="_blank" rel="noreferrer">
-                    <PaperClipOutlined /> {row.scanFileName || '附件'}
-                  </a>
-                ) : (
-                  '-'
-                ),
-            },
-            {
-              title: '状态', dataIndex: 'status', width: 100,
-              render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
-            },
-            {
-              title: '操作', width: 160, fixed: 'right',
-              render: (_: any, row: any) => (
-                <Space size={2}>
-                  <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
-                  <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-          ]}
-        />
+        {containerSize.isNarrow ? (
+          <MobileCardList
+            rows={list}
+            columns={visibleListColumns}
+            loading={loading}
+            pagination={pagination}
+            emptyText="暂无数据..."
+          />
+        ) : (
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={list}
+            pagination={pagination}
+            scroll={{ x: 1500 }}
+            locale={{ emptyText: '暂无数据...' }}
+            columns={visibleListColumns}
+          />
+        )}
       </Card>
+      </div>
     );
   }
 

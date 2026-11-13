@@ -6,7 +6,10 @@ import {
   clearHiddenColumns,
   columnKeyOf,
   filterVisibleColumns,
+  hasStoredPreference,
+  listColumnsMobileStorageKey,
   listColumnsStorageKey,
+  mobileHiddenColumns,
   nextHiddenColumns,
   readHiddenColumns,
   writeHiddenColumns,
@@ -152,5 +155,45 @@ describe('filterVisibleColumns：列过滤', () => {
   it('空隐藏集合 / 空列数组 安全', () => {
     assert.equal(filterVisibleColumns(cols, []).length, cols.length);
     assert.deepEqual(filterVisibleColumns([], ['a']), []);
+  });
+});
+
+describe('移动端列模板（docs/09 §4 阶段 B）', () => {
+  it('移动端偏好存独立键（桌面与手机互不影响）', () => {
+    assert.equal(
+      listColumnsMobileStorageKey('invoice.list'),
+      `cms.list-cols.invoice.list@mobile${LIST_COLUMNS_STORAGE_VERSION}`,
+    );
+    assert.notEqual(listColumnsMobileStorageKey('invoice.list'), listColumnsStorageKey('invoice.list'));
+  });
+
+  it('mobileHiddenColumns：只保留预设列与受保护列，其余隐藏', () => {
+    const all = ['code', 'contract', 'supplier', 'amount', 'remark', 'op'];
+    assert.deepEqual(mobileHiddenColumns(all, ['code', 'amount'], ['op']), ['contract', 'supplier', 'remark']);
+    // 受保护列即使不在预设里也保留
+    assert.deepEqual(mobileHiddenColumns(all, ['code'], ['op']), ['contract', 'supplier', 'amount', 'remark']);
+  });
+
+  it('预设为空 / 与当前列完全不交集 → 空数组（= 不启用，保持全部可见）', () => {
+    const all = ['a', 'b'];
+    assert.deepEqual(mobileHiddenColumns(all, []), []);
+    assert.deepEqual(mobileHiddenColumns(all, undefined), []);
+    assert.deepEqual(mobileHiddenColumns(all, ['不存在']), []);
+    // 只有受保护列命中时也视为无法裁剪
+    assert.deepEqual(mobileHiddenColumns(all, ['不存在'], ['a']), ['b']);
+    assert.deepEqual(mobileHiddenColumns([], ['a']), []);
+  });
+
+  it('hasStoredPreference：没存过 = false；存过（即使值为空）= true', () => {
+    assert.equal(hasStoredPreference(fakeStorage(), listColumnsStorageKey('x')), false);
+    assert.equal(
+      hasStoredPreference(
+        fakeStorage({ [listColumnsStorageKey('x')]: JSON.stringify({ hidden: [] }) }),
+        listColumnsStorageKey('x'),
+      ),
+      true,
+    );
+    assert.equal(hasStoredPreference(null, listColumnsStorageKey('x')), false);
+    assert.equal(hasStoredPreference(fakeStorage(), ''), false);
   });
 });

@@ -6,6 +6,8 @@ import { dailyApi, contractApi, supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
@@ -76,8 +78,14 @@ const FIELDS: F[] = [
   { key: 'stdAmount', label: '标准合价', kind: 'money', width: 140 },
 ];
 
-// ==================== 计量单位（展示用：编码 → 字典名称） ====================
+/**
+ * 手机端（窄容器 <720px）默认列集（docs/09 §4 阶段 B）：
+ * 43 列的宽表在手机上要横滑 16.9 屏，这里只留「合同 / 物资 / 数量 / 金额 / 确认状态」。
+ * 桌面列完全不变；本页是纯展示页（无列设置），故窄容器下总是用这套预设。
+ */
+const MOBILE_DEFAULT_KEYS = ['contractId', 'materialName', 'settleQty', 'amountAfterTax', 'confirmStatusCode'];
 
+// ==================== 计量单位（展示用：编码 → 字典名称） ====================
 let unitDictCache: { value: string; label: string }[] | null = null;
 async function loadUnitDict(): Promise<{ value: string; label: string }[]> {
   if (unitDictCache) return unitDictCache;
@@ -96,6 +104,7 @@ export default function DailyReports() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [unitDict, setUnitDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
   const tabRefresh = useTabRefresh('/daily/report');
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
   const { loading, list, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
 
   useEffect(() => {
@@ -143,8 +152,12 @@ export default function DailyReports() {
     return base;
   });
 
+  const mobileHidden = mobileHiddenColumns(columns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleColumns = containerSize.isNarrow ? filterVisibleColumns(columns, mobileHidden) : columns;
+
   return (
-    <Card
+    <div ref={cqRef} className="cq">
+      <Card
       title="总日报"
       extra={
         <Space wrap>
@@ -184,8 +197,9 @@ export default function DailyReports() {
         dataSource={list}
         pagination={pagination}
         scroll={{ x: 3300 }}
-        columns={columns as any}
+        columns={visibleColumns as any}
       />
     </Card>
+    </div>
   );
 }

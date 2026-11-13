@@ -199,6 +199,9 @@ export default function Ledger() {
         extraColumns={tableColumns as any}
         refreshKey={listRefresh + tabRefresh}
         showOpColumn={false}
+        /* 手机端（窄容器）：只留「编号 / 名称 / 供应商 / 金额 / 执行情况」，并用卡片展示 */
+        mobileDefaultKeys={['contractCode', 'contractName', 'supplierName', 'currentAmount', 'execStatus']}
+        mobileCards
         emptyText="暂无合同台账数据"
         toolbarLeft={
           <Space wrap size={8}>

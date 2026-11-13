@@ -195,8 +195,8 @@ function SettlementsTab({
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
     { title: '结算单编号', dataIndex: 'code', width: 160, fixed: 'left' },
-    { title: '合同', width: 260, render: (_v: any, r: any) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
-    { title: '供应商', width: 220, render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
+    { title: '合同', key: 'contract', width: 260, render: (_v: any, r: any) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
+    { title: '供应商', key: 'supplier', width: 220, render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
     { title: '结算类型', dataIndex: 'typeCode', width: 110, render: (v: any) => <DictTag typeCode="settlement_type" value={v} /> },
     { title: '结算金额', dataIndex: 'amount', width: 140, align: 'right', render: money },
     { title: '扣款金额', dataIndex: 'deductAmount', width: 140, align: 'right', render: money },
@@ -230,6 +230,8 @@ function SettlementsTab({
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
+        mobileDefaultKeys={['code', 'contract', 'actualAmount', 'settleDate', 'statusCode']}
+        mobileCards
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row: ModuleListRow & { statusCode?: string }) =>
@@ -618,9 +620,9 @@ function LedgerTab({
 
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
-    { title: '供应商名称', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
-    { title: '合同名称', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
-    { title: '合同编号', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
+    { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
+    { title: '合同名称', key: 'contractName', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
+    { title: '合同编号', key: 'contractCode', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
     { title: '结算月份（账期）', dataIndex: 'settleMonth', width: 110 },
     { title: '本月结算额', dataIndex: 'monthSettleAmount', width: 130, align: 'right', render: money },
     { title: '本月开票额', dataIndex: 'monthInvoiceAmount', width: 130, align: 'right', render: money },
@@ -645,6 +647,7 @@ function LedgerTab({
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
+        mobileDefaultKeys={['supplier', 'contractName', 'settleMonth', 'monthSettleAmount', 'monthInvoiceAmount']}
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         toolbarLeft={

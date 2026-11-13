@@ -136,7 +136,7 @@ function InvoiceList({
 
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
-    { title: '序号', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
     { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v: any) => <DictTag typeCode="goods_category" value={v} /> },
     { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
     {
@@ -184,6 +184,7 @@ function InvoiceList({
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
+        mobileDefaultKeys={['invoiceNo', 'issuer', 'invoiceDate', 'amountWithTax', 'statusCode']}
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row) =>

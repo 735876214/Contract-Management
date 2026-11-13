@@ -10,6 +10,8 @@ import { supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -33,6 +35,13 @@ const STATUS_QTY_KEYS: [string, string][] = [
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/daily/asset';
 
+/**
+ * 手机端（窄容器 <720px）默认列集（docs/09 §4 阶段 B）：
+ * 29 列在手机上要横滑 10.5 屏，这里只留「日期 / 来源 / 名称 / 数量 / 总额 + 操作」。
+ * 桌面列完全不变（本页无列设置，窄容器下总是用这套预设）。
+ */
+const MOBILE_DEFAULT_KEYS = ['date', 'sourceCode', 'name', 'qty', 'totalAmount', 'op'];
+
 export default function Assets() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
@@ -52,6 +61,7 @@ export default function Assets() {
 function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
   const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
 
   // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
@@ -70,7 +80,7 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any[] = [
-    { title: '序号', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
     { title: '日期', dataIndex: 'date', width: 110, fixed: 'left', render: (v: any) => v?.slice(0, 10) },
     { title: '来源', dataIndex: 'sourceCode', width: 110, fixed: 'left', render: (v: any) => <DictTag typeCode="asset_ledger_source" value={v} /> },
     { title: '资产类别（一级）', dataIndex: 'categoryL1Code', width: 140, render: (v: any) => <DictTag typeCode="asset_category_l1" value={v} /> },
@@ -96,6 +106,7 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
     { title: '调出进场金额', dataIndex: 'transferOutAmount', width: 130, align: 'right' as const, render: money },
     {
       title: '操作',
+      key: 'op',
       width: 130,
       fixed: 'right' as const,
       render: (_: any, row: any) => (
@@ -109,7 +120,11 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
     },
   ];
 
+  const mobileHidden = mobileHiddenColumns(columns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleColumns = containerSize.isNarrow ? filterVisibleColumns(columns, mobileHidden) : columns;
+
   return (
+    <div ref={cqRef} className="cq">
     <Card title="资产管理台账">
       <Alert
         type="info"
@@ -178,9 +193,10 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
         dataSource={list}
         pagination={pagination}
         scroll={{ x: 2600 }}
-        columns={columns}
+        columns={visibleColumns}
       />
     </Card>
+    </div>
   );
 }
 

@@ -68,9 +68,9 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
 
   const extraColumns: any[] = [
     { title: '单据编号', dataIndex: 'code', width: 200, fixed: 'left' },
-    { title: '供应商名称', width: 220, render: (_v: any, r: any) => r.supplier?.name || r.contract?.supplier?.name || '-' },
-    { title: '合同编号', width: 170, render: (_v: any, r: any) => r.contract?.code || '-' },
-    { title: '合同名称', width: 240, ellipsis: true, render: (_v: any, r: any) => r.contract?.name || '-' },
+    { title: '供应商名称', key: 'supplier', width: 220, render: (_v: any, r: any) => r.supplier?.name || r.contract?.supplier?.name || '-' },
+    { title: '合同编号', key: 'contractCode', width: 170, render: (_v: any, r: any) => r.contract?.code || '-' },
+    { title: '合同名称', key: 'contractName', width: 240, ellipsis: true, render: (_v: any, r: any) => r.contract?.name || '-' },
     { title: '开累结算金额', dataIndex: 'settleCumAmount', width: 150, align: 'right', render: money },
     { title: '开累付款金额', dataIndex: 'paidCumAmount', width: 150, align: 'right', render: money },
     {
@@ -96,6 +96,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
       extraFilters={extraFilters}
       extraColumns={extraColumns}
       refreshKey={listRefresh + tabRefresh}
+      mobileDefaultKeys={['code', 'supplier', 'contractCode', 'settleCumAmount', 'paidCumAmount', 'unpaidAmount']}
       onEdit={(row) => editorTab.openEdit(row.id, row)}
       onDelete={handleRemove}
       rowMenuItems={(row: ModuleListRow) => [
