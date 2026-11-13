@@ -480,4 +480,26 @@ describe('集成 · 发票作废/红冲联动', () => {
     const row = await ctx.prisma.invoice.findUnique({ where: { id: inv.id } });
     assert.equal(row!.redOfInvoiceId, null);
   });
+
+  it('⑲ 通用 PUT 不放行「非终态 → 红冲」（红冲只能新建票时建立关联）', async () => {
+    const { project, contract } = await setupContract('INV-RED-PUT');
+    const original: any = await makeInvoice(project.id, contract.id);
+    const draft: any = await makeInvoice(project.id, contract.id, { amountWithTax: 1 });
+
+    await assert.rejects(
+      () =>
+        invoices.update(
+          draft.id,
+          {
+            statusCode: INVOICE_STATUS.RED,
+            redOfInvoiceId: original.id,
+            version: draft.version,
+          },
+          project.id,
+        ),
+      /专用操作/,
+    );
+    const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+    assert.notEqual(o!.statusCode, INVOICE_STATUS.CANCELLED, '被拒绝的请求不能顺手作废原票');
+  });
 });

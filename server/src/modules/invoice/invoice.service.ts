@@ -174,8 +174,12 @@ export class InvoiceService {
     }
   }
 
+  /**
+   * 新建发票。⚠️ `create` / `batchCreate` / `import` **有意不收紧终态**：
+   * 历史数据/导入允许直接落 `CANCELLED`/`RED`（导入路径还经 `tx` 复用本方法）；
+   * 只有交互式 `PUT` 被 `assertStatusTransition` 拦在终态之外。别把这里的宽松当漏网收紧。
+   */
   async create(data: any, projectId: string, tx?: TxClient) {
-    const db: any = tx || this.prisma;
     await this.validate(data);
     // 引用合同必须属于当前项目（防跨项目串数据）。导入路径的合同由 plan 阶段按项目解析，故只兜交互式写入。
     if (!tx) await this.scope.assertContractInProject(data.contractId, projectId, '关联合同');
@@ -207,22 +211,9 @@ export class InvoiceService {
      */
     const redLink = await this.resolveRedLink(payload, projectId);
     if (redLink) payload.redOfInvoiceId = redLink.id;
-    const createAndVoid = async (exec: any) => {
+    const createAndVoid = async (exec: TxClient | PrismaClient) => {
       const created = await exec.invoice.create({ data: payload });
-      if (redLink) {
-        /**
-         * 原子作废原票：条件更新校验「原票仍有效」。
-         * 校验与写入之间存在并发窗口（两个用户同时录红冲票 / 另一人先作废原票），
-         * 无条件 update 会让**同一张原票被红冲两次**；count 不为 1 时抛错由事务整体回滚。
-         */
-        const voided = await exec.invoice.updateMany({
-          where: { id: redLink.id, ...countedInvoiceWhere() },
-          data: { statusCode: INVOICE_STATUS.CANCELLED, version: { increment: 1 } },
-        });
-        if (voided.count !== 1) {
-          throw new BadRequestException('原发票已作废/红冲，不能再作为红冲对象');
-        }
-      }
+      if (redLink) await this.voidOriginal(exec, redLink.id);
       return created;
     };
     const created = tx
@@ -259,9 +250,7 @@ export class InvoiceService {
       const linked = await this.prisma.invoice.findFirst({ where: { id: beforeId, projectId } });
       if (!linked) throw new NotFoundException('原发票不存在');
       const nextContractId = payload.contractId !== undefined ? payload.contractId : (before?.contractId ?? null);
-      if (linked.contractId && nextContractId && linked.contractId !== nextContractId) {
-        throw new BadRequestException('红冲票与原发票必须属于同一合同');
-      }
+      this.assertRedSameContract(linked, nextContractId);
       return null;
     }
     if (!nextId) return null;
@@ -276,27 +265,44 @@ export class InvoiceService {
       throw new BadRequestException('原发票已作废/红冲，不能再作为红冲对象');
     }
     const nextContractId = payload.contractId !== undefined ? payload.contractId : (before?.contractId ?? null);
-    if (original.contractId && nextContractId && original.contractId !== nextContractId) {
+    this.assertRedSameContract(original, nextContractId);
+    return original;
+  }
+
+  /** 红冲票与原票必须同合同（任一方未挂合同时不拦） */
+  private assertRedSameContract(linked: any, contractId: string | null): void {
+    if (linked.contractId && contractId && linked.contractId !== contractId) {
       throw new BadRequestException('红冲票与原发票必须属于同一合同');
     }
-    return original;
+  }
+
+  /**
+   * 在事务客户端里**原子作废原票**：条件更新校验「原票仍有效」。
+   * 校验与写入之间存在并发窗口（两个用户同时录红冲票 / 另一人先作废原票），
+   * 无条件 update 会让同一张原票被红冲两次；count 不为 1 时抛错由事务整体回滚。
+   */
+  private async voidOriginal(exec: TxClient | PrismaClient, originalId: string): Promise<void> {
+    const voided = await exec.invoice.updateMany({
+      where: { id: originalId, ...countedInvoiceWhere() },
+      data: { statusCode: INVOICE_STATUS.CANCELLED, version: { increment: 1 } },
+    });
+    if (voided.count !== 1) {
+      throw new BadRequestException('原发票已作废/红冲，不能再作为红冲对象');
+    }
   }
 
   /**
    * 通用 PUT 不允许把状态**改入/改出**终态（作废/红冲）：
    * 终态必须走列表行上的专用操作（`cancel()` / `red()`），它们会带台账联动与合法校验。
    * 前端编辑表单会整包回传原 `statusCode`——与原值相等不算变更，照常放行。
-   *
-   * 例外：`allowRedWithLink`（编辑时同时指定了原发票）允许「非终态 → 红冲」，
-   * 因为「录红冲票 + 原票同步作废」是一次完整业务动作，必须由 `update` 一起完成。
+   * （红冲票与原票的关联只在**新建**时建立；编辑态前端已排除 RED，PUT 不再放行「非终态 → 红冲」。）
    */
-  private assertStatusTransition(beforeStatus: string | null, nextStatus: string | null, allowRedWithLink = false) {
+  private assertStatusTransition(beforeStatus: string | null, nextStatus: string | null) {
     if (nextStatus === beforeStatus) return;
     if (isInvoiceTerminalStatus(beforeStatus)) {
       throw new BadRequestException('该发票已处于终态（作废/红冲），不能通过编辑修改状态');
     }
     if (isInvoiceTerminalStatus(nextStatus)) {
-      if (allowRedWithLink && nextStatus === INVOICE_STATUS.RED) return;
       throw new BadRequestException('作废/红冲请使用发票列表行上的专用操作');
     }
   }
@@ -313,11 +319,7 @@ export class InvoiceService {
       throw new BadRequestException('该发票已被红冲，不能更换合同（红冲票与原发票必须同合同）');
     }
     const nextStatus = data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null);
-    const linkChanged =
-      data.redOfInvoiceId !== undefined &&
-      !!data.redOfInvoiceId &&
-      data.redOfInvoiceId !== (before.redOfInvoiceId ?? null);
-    this.assertStatusTransition(before.statusCode ?? null, nextStatus, linkChanged);
+    this.assertStatusTransition(before.statusCode ?? null, nextStatus);
     await this.validate({ ...before, ...data });
     if (data.contractId !== undefined) {
       await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
@@ -340,18 +342,9 @@ export class InvoiceService {
     if (link !== undefined) payload.settlementId = link;
     const redLink = await this.resolveRedLink(payload, before.projectId, before);
     if (redLink) payload.redOfInvoiceId = redLink.id;
-    const updateAndVoid = async (exec: any) => {
+    const updateAndVoid = async (exec: TxClient | PrismaClient) => {
       const updated = await exec.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
-      if (redLink) {
-        // 原子作废原票（同 create：条件更新 + count 校验，防并发双红冲）
-        const voided = await exec.invoice.updateMany({
-          where: { id: redLink.id, ...countedInvoiceWhere() },
-          data: { statusCode: INVOICE_STATUS.CANCELLED, version: { increment: 1 } },
-        });
-        if (voided.count !== 1) {
-          throw new BadRequestException('原发票已作废/红冲，不能再作为红冲对象');
-        }
-      }
+      if (redLink) await this.voidOriginal(exec, redLink.id);
       return updated;
     };
     const updated = redLink

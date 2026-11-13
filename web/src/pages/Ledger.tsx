@@ -19,6 +19,7 @@ import DictSelect from '@/components/DictSelect';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useTabRefresh } from '@/hooks/useTabs';
+import { LIST_PATHS } from '@/constants/listPaths';
 import { useDictStore } from '@/store/dict';
 
 const money = (v: any) =>
@@ -69,7 +70,7 @@ const renderCell = (key: string, v: any) => {
 export default function Ledger() {
   const ensure = useDictStore((s) => s.ensure);
   /** 发票作废/红冲等跨标签动作会 bump 本路径，缓存页必须重新取数（含顶部统计） */
-  const tabRefresh = useTabRefresh('/contract/list');
+  const tabRefresh = useTabRefresh(LIST_PATHS.contractLedger);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);

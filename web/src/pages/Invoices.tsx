@@ -30,12 +30,13 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { useTabsStore } from '@/store/tabs';
 import { INVOICE_STATUS, INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
+import { LIST_PATHS } from '@/constants/listPaths';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 /** 列表与「收票登记/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
-const LIST_PATH = '/invoice';
+const LIST_PATH = LIST_PATHS.invoice;
 
 /** 发票管理（问题四：统一标准列表页规约） */
 export default function Invoices() {
@@ -86,9 +87,9 @@ function InvoiceList({
   /** 终态变更会影响台账/合同台账/履约/工作台：同时唤醒被缓存的列表标签 */
   const refreshRelated = () => {
     const bump = useTabsStore.getState().bumpRefresh;
-    bump('/settlement/ledger');
-    bump('/contract/list');
-    bump('/dashboard');
+    bump(LIST_PATHS.settlementLedger);
+    bump(LIST_PATHS.contractLedger);
+    bump(LIST_PATHS.dashboard);
   };
 
   /** 作废/红冲共用确认文案：明确「不可撤销 + 不再计入金额口径」 */
@@ -267,11 +268,24 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
     }
     let alive = true;
     setRedLoading(true);
-    invoiceApi
-      .list({ contractId: formContractId, pageSize: 500 })
-      .then((res: any) => {
-        if (!alive) return;
+    /**
+     * 列表接口单页上限 500（同文件顶部的同款坑）：原票可能排在很后面，
+     * 只拉一页会让较早日期的发票从下拉里静默消失 → 按 total 继续翻页（上限 20 页防失控）。
+     */
+    const loadAll = async (): Promise<any[]> => {
+      const pageSize = 500;
+      const all: any[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const res: any = await invoiceApi.list({ contractId: formContractId, page, pageSize });
         const list: any[] = res?.list || [];
+        all.push(...list);
+        if (list.length < pageSize || all.length >= Number(res?.total ?? all.length)) break;
+      }
+      return all;
+    };
+    loadAll()
+      .then((list) => {
+        if (!alive) return;
         setRedCandidates(
           list.filter(
             (x) => x.id !== editingId && (!isInvoiceTerminalStatus(x.statusCode) || x.id === editing?.redOfInvoiceId),

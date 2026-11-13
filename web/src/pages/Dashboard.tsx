@@ -9,6 +9,7 @@ import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useTabRefresh } from '@/hooks/useTabs';
+import { LIST_PATHS } from '@/constants/listPaths';
 import EmptyState from '@/components/EmptyState';
 import { TodoCard, DashboardNoticeModal } from './dashboardTodo';
 
@@ -26,7 +27,7 @@ export default function Dashboard() {
   const label = useDictStore((s) => s.label);
   const ensure = useDictStore((s) => s.ensure);
   /** 发票作废/红冲等跨标签动作会 bump 本路径：缓存页不会重挂载，靠令牌重新取数 */
-  const tabRefresh = useTabRefresh('/dashboard');
+  const tabRefresh = useTabRefresh(LIST_PATHS.dashboard);
 
   useEffect(() => {
     ensure(['contract_type']);

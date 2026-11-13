@@ -41,8 +41,6 @@ const isCountedSettlement = (row: { statusCode?: string | null }): boolean =>
 const isCountedPayment = (row: { statusCode?: string | null }): boolean =>
   !PAYMENT_EXCLUDED_STATUSES.includes(String(row.statusCode ?? ''));
 
-/** 发票是否计入：作废（`CANCELLED`）与红冲（`RED`）不算（与台账同一口径，见 statuses.ts） */
-
 /**
  * 合同是否「已签」：`SIGNED` 或历史遗留 `COMPLETED`（`DRAFT`/`APPROVING` 未落地，不进全景）。
  * 注意字段名——合同用 `status`，结算/付款/发票用 `statusCode`。

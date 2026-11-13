@@ -95,7 +95,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（88 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（21 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（22 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -285,6 +285,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `settlement-item.int.spec.ts` | **清单项级结算明细 + 量级校验**（业务 2026-10-17）：items 随结算单落库、综合单价/合价由服务端重算 · update 整体替换明细（replace-all）· 量级闸门（Σ明细量 + 历史已结 ≤ 合同链清单量）：**WARN 策略带 overQtyWarning、BLOCK 策略 400** · 链上无清单行的物资=**无上限不拦** · **草稿不校验量级**（提交时才拦） |
 | `template-management.int.spec.ts` | **三套模板管理语义**（2026-10-18）：合同模板新建接受 Y/N 归一、编辑生成新版本且**停用真的生效**、过期 version 409、**删除整条版本链** · 采购模板 `keyword/moduleType/status` 筛选与 `{list,total}` 分页形态、非法状态 400、同类型覆盖写版本快照、停用后不出现在 `status=1` 查询 · 单据模板**历史 `/api/files/` URL 入库归一为相对键**并能读盘渲染、`.docx`/损坏/不存在文件一律 400 |
 | `anomaly-payment.int.spec.ts` | **结算/付款异常预警的真库口径**（2026-10-23 审计补测，落地计划 §4.5 承诺项）：清单量按**合同链根**归集（结算挂母合同、明细跨补充协议）· 按补充协议**下钻时服务端展开整条链**（不得因收窄合同把链切断）· 付款按**链根**归集（结算挂母合同、付款记补充协议不得报超付）· 真超付时事实为**链级累计口径** · 区间上界取**当日末刻**（库里 14:30 的付款不得漏判） |
+| `cost-labor-receiving.int.spec.ts` | **分包领用数据准确性**（2026-11-13 审计修复）：**只认领用单位=分包商**（供应侧分包商不重复计入，防串户虚增）· 平均单价取**截至本期末**加权均价（后期补录不追溯改写历史期）· 单价**只读**（客户端回传不生效）· **未填实收 ≠ 0**（不建数量桶、不参与加权）· `options().periods` 供月度盈亏「新增」· 重新抓取按新价重算盈亏金额 |
 
 ```bash
 # 1) 准备一个**专用测试库**（库名必须含 test 或 int，否则测试拒绝启动——防误连开发/生产库）
