@@ -430,4 +430,54 @@ describe('集成 · 发票作废/红冲联动', () => {
     const after = await ledgerRow(contract.id, '2026-09');
     assert.equal(Number(after!.monthInvoiceAmount), 0, '原票作废后原合同台账应刷新为 0');
   });
+
+  it('⑯ 换合同不变量不能被「省略 redOfInvoiceId」绕过', async () => {
+    const { project, contract } = await setupContract('INV-RED-SKIP');
+    const contract2 = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      supplierId: (await makeSupplier(ctx.prisma, project.id)).id,
+      amount: 5000,
+      status: 'SIGNED',
+    });
+    const original: any = await makeInvoice(project.id, contract.id);
+    const red: any = await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+    });
+    const redRow = await ctx.prisma.invoice.findUnique({ where: { id: red.id } });
+
+    // 请求里**不带** redOfInvoiceId：仍需按已有关联校验同合同（回归：早退曾绕过校验）
+    await assert.rejects(
+      () => invoices.update(red.id, { contractId: contract2.id, version: redRow!.version }, project.id),
+      /同一合同/,
+    );
+  });
+
+  it('⑰ 已被红冲的原票不能更换合同', async () => {
+    const { project, contract } = await setupContract('INV-RED-ORIG-MOVE');
+    const contract2 = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      supplierId: (await makeSupplier(ctx.prisma, project.id)).id,
+      amount: 5000,
+      status: 'SIGNED',
+    });
+    const original: any = await makeInvoice(project.id, contract.id);
+    await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+    });
+    const origRow = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+
+    await assert.rejects(
+      () => invoices.update(original.id, { contractId: contract2.id, version: origRow!.version }, project.id),
+      /已被红冲/,
+    );
+  });
+
+  it('⑱ 原票字段空串归一为 null（不触发外键 500）', async () => {
+    const { project, contract } = await setupContract('INV-RED-EMPTY');
+    const inv: any = await makeInvoice(project.id, contract.id, { redOfInvoiceId: '' });
+    const row = await ctx.prisma.invoice.findUnique({ where: { id: inv.id } });
+    assert.equal(row!.redOfInvoiceId, null);
+  });
 });

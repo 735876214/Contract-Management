@@ -256,6 +256,8 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
   const editingTerminal = isInvoiceTerminalStatus(editing?.statusCode);
   const isCreate = !editingId;
   const statusIsRed = (formStatus ?? editing?.statusCode) === INVOICE_STATUS.RED;
+  /** 红冲关系两侧都不能换合同：红冲票（有原票）与原票（已有红冲票） */
+  const contractLocked = !!editing?.redOfInvoiceId || (editing?.redInvoices?.length ?? 0) > 0;
 
   /** 红冲原发票候选：同合同、未作废/未红冲；编辑中的红冲票要带上它已关联的原票（此时已 CANCELLED） */
   useEffect(() => {
@@ -376,14 +378,20 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
               name="contractId"
               label="关联合同"
               rules={[{ required: true }]}
-              extra={editing?.redOfInvoiceId ? '已关联原发票的红冲票不能换合同（与原票同合同）' : undefined}
+              extra={
+                editing?.redOfInvoiceId
+                  ? '已关联原发票的红冲票不能换合同（与原票同合同）'
+                  : (editing?.redInvoices?.length ?? 0) > 0
+                    ? '该发票已被红冲，不能更换合同（红冲票与原票必须同合同）'
+                    : undefined
+              }
             >
               <Select
                 showSearch
                 optionFilterProp="label"
                 allowClear
                 placeholder="请选择合同"
-                disabled={!!editing?.redOfInvoiceId}
+                disabled={contractLocked}
                 options={contractOptions}
               />
             </Form.Item>

@@ -184,6 +184,8 @@ export class InvoiceService {
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
     }
     const payload: any = { ...pickFields(data, INVOICE_FIELDS, { label: '发票' }), projectId };
+    // 空串不是合法的原票外键：归一为 null（否则落库触发外键错误 → 500）
+    if (payload.redOfInvoiceId === '') payload.redOfInvoiceId = null;
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -245,17 +247,16 @@ export class InvoiceService {
    * - 关联创建后**不可修改/解绑**（换原票会让「谁作废了谁」失去审计意义）。
    */
   private async resolveRedLink(payload: any, projectId: string, before?: any): Promise<any | null> {
-    if (payload.redOfInvoiceId === undefined) return null;
-    const nextId = payload.redOfInvoiceId || null;
     const beforeId = before?.redOfInvoiceId ?? null;
+    // 未传字段 = 沿用原关联（编辑保存不一定整包回传）；空串归一为 null
+    const nextId = payload.redOfInvoiceId !== undefined ? (payload.redOfInvoiceId || null) : beforeId;
     if (before && beforeId && nextId !== beforeId) {
       throw new BadRequestException('红冲关联创建后不可修改');
     }
-    // 前端整包回传原值：不算变更，也不再触发联动作废（原票此时已是 CANCELLED）；
-    // 但仍要守住「同合同」不变量——否则可以把已关联的红冲票改到别的合同上。
-    if (before && nextId === beforeId) {
-      if (!nextId) return null;
-      const linked = await this.prisma.invoice.findFirst({ where: { id: nextId, projectId } });
+    // 已有关联：不再次触发作废（原票此时已是 CANCELLED），但**无论请求是否带该字段**
+    // 都要守住「同合同」不变量——否则 `PUT { contractId }`（省略 redOfInvoiceId）就能把红冲票换到别的合同。
+    if (before && beforeId) {
+      const linked = await this.prisma.invoice.findFirst({ where: { id: beforeId, projectId } });
       if (!linked) throw new NotFoundException('原发票不存在');
       const nextContractId = payload.contractId !== undefined ? payload.contractId : (before?.contractId ?? null);
       if (linked.contractId && nextContractId && linked.contractId !== nextContractId) {
@@ -303,6 +304,14 @@ export class InvoiceService {
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
     assertVersion(before, data);
+    // 原票侧同合同不变量：已被红冲的原票不能换合同（红冲票仍指向它，换了就跨合同）
+    if (
+      (before.redInvoices?.length ?? 0) > 0 &&
+      data.contractId !== undefined &&
+      (data.contractId ?? null) !== (before.contractId ?? null)
+    ) {
+      throw new BadRequestException('该发票已被红冲，不能更换合同（红冲票与原发票必须同合同）');
+    }
     const nextStatus = data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null);
     const linkChanged =
       data.redOfInvoiceId !== undefined &&
@@ -318,6 +327,8 @@ export class InvoiceService {
       if (exists) throw new BadRequestException(`发票号码 ${data.invoiceNo} 在当前项目中已存在`);
     }
     const payload: any = pickFields(data, INVOICE_UPDATE_FIELDS, { label: '发票' });
+    // 空串不是合法的原票外键：归一为 null（否则落库触发外键错误 → 500）
+    if (payload.redOfInvoiceId === '') payload.redOfInvoiceId = null;
     ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
