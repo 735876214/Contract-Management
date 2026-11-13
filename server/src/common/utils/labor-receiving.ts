@@ -100,6 +100,27 @@ export function deriveReceivingRow(input: DeriveReceivingInput): DerivedReceivin
   return { netQty, usedCum, actualUse, deductPrice, designSubtotal, saveOver, deductAmount, actualLossRate };
 }
 
+/** 领用单位类型：分包商（与收领单 `receivingUnitType` 的取值一致） */
+export const RECEIVING_UNIT_SUBCONTRACTOR = 'SUBCONTRACTOR';
+
+/**
+ * 分包单位领用口径的收领单过滤条件：**只认领用侧**（`receivingUnitId` = 该分包商）。
+ *
+ * ⚠️ 不能把 `subcontractorId` 也 OR 进来：该字段是「供应单位/领用单位选分包商时」都会写，
+ * 当分包商 A 向分包商 B 供货时，一张单的 `subcontractorId=A`、`receivingUnitId=B`——
+ * 用 OR 会把它同时算进 A、B 两份领用（串户虚增）。A 在这张单里是供应方，不是领用方。
+ *
+ * 收领单明细清单（`ReceiptOrderService.subcontractorMaterials`）、领用月度汇总、
+ * 月度盈亏分析三处必须共用这一个条件，否则「同一组数」会再次漂移。
+ */
+export function laborReceivingReceiptWhere(projectId: string, laborAuthId: string) {
+  return {
+    projectId,
+    receivingUnitType: RECEIVING_UNIT_SUBCONTRACTOR,
+    receivingUnitId: laborAuthId,
+  };
+}
+
 /**
  * 平均单价 = Σ税前总价 ÷ Σ数量（图三口径：来自该分包单位有价格的材料的平均单价）。
  * 聚合输入为空（无记录/Σ数量 0）→ null。

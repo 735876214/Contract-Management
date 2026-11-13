@@ -365,10 +365,9 @@ export class MonthlyProfitLossService {
         const key = `${auth.id}\u0001${s.materialName}\u0002${s.spec ?? ''}`;
         const m = manual?.get(key);
         const saveOverQty = s.saveOverQty;
-        const saveOverAmount =
-          m?.saveOverAmount !== undefined && m?.saveOverAmount !== null
-            ? num(m.saveOverAmount)
-            : amountOf(saveOverQty, s.unitPrice);
+        // 盈亏金额是 qty × price 的派生列（前端也只读展示）：
+        // 重新抓取后单价/数量可能已变，必须按新值重算——沿用旧金额会让快照内部自相矛盾。
+        const saveOverAmount = amountOf(saveOverQty, s.unitPrice);
         rows.push({
           profitLossId,
           sortOrder: sort++,

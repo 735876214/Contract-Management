@@ -5,12 +5,14 @@ import { costApi } from '@/api/modules';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import { withToken } from '@/utils/download';
 
 /**
  * 成本管理 · 分包单位领用汇总（**单据化**：一单 = 分包单位 × 结算期）。
  * 列表页列单据；「新增单据」选分包单位+结算期后进编辑器按表样填报。
- * **本期领用/平均单价自动**（收领单明细按结算期聚合，只读）；退库/盘点/设计量开累/损耗率手填；
+ * **本期领用/平均单价自动**（收领单明细按结算期聚合；平均单价取截至本期末的加权均价，只读）；
+ * 退库/盘点/设计量开累/损耗率手填；
  * 劳务合同名称为单据级字段。导出 Excel = 盘点表 + 月度汇总 + 节超分析三 sheet（CSCEC 表样）。
  */
 const LIST_PATH = '/cost/labor-receiving';
@@ -25,6 +27,7 @@ export default function CostLaborReceiving() {
 
 function DocList() {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('cost:edit');
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
@@ -71,15 +74,18 @@ function DocList() {
       extraColumns={extraColumns}
       refreshKey={listRefresh + tabRefresh}
       emptyText="暂无领用单据"
+      editPermission="cost:edit"
       onEdit={(row) => editorTab.openEdit(row.id, row)}
       onDelete={handleRemove}
       toolbarLeft={
-        <CreateDocButton
-          onCreated={(id, seed) => {
-            refreshList();
-            editorTab.openEdit(id, seed);
-          }}
-        />
+        canEdit ? (
+          <CreateDocButton
+            onCreated={(id, seed) => {
+              refreshList();
+              editorTab.openEdit(id, seed);
+            }}
+          />
+        ) : null
       }
     />
   );
@@ -163,7 +169,6 @@ interface DetailRow {
   unit: string | null;
   receivedQty: number | null;
   unitPrice: number | null;
-  priceOverridden: boolean;
   designQtyCum: number | null;
   lossRate: number | null;
   returnQty: number | null;
@@ -215,8 +220,8 @@ function DocEditor({ id }: { id: string }) {
         remark: doc?.remark,
         status: doc?.status,
         version: doc?.version,
-        // 整批提交：未 dirty 行原样回传（保持行内值），dirty 行带本地修改
-        details: rows.map((r: any) => ({ ...r, key: undefined, _dirty: undefined })),
+        // 整批提交：平均单价由服务端聚合（只读），不随保存上送
+        details: rows.map(({ unitPrice: _unitPrice, ...r }: any) => ({ ...r, key: undefined, _dirty: undefined })),
       });
       setDoc(res);
       setRows(res.details || []);
@@ -248,17 +253,7 @@ function DocEditor({ id }: { id: string }) {
         title: '单价(元)',
         dataIndex: 'unitPrice',
         width: 120,
-        render: (v: number | null, r: DetailRow) => (
-          <InputNumber
-            size="small"
-            style={{ width: '100%' }}
-            min={0}
-            precision={2}
-            value={v}
-            title={r.priceOverridden ? '已手改，刷新领用时保留' : '平均单价 = Σ税前总价 ÷ Σ数量（自动）'}
-            onChange={(val) => patchRow(r.key, { unitPrice: val ?? undefined, priceOverridden: val != null })}
-          />
-        ),
+        render: (v: number | null) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })),
       },
       {
         title: '上期末累计',

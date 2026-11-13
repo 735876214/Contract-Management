@@ -16,6 +16,7 @@ import { ContractLockService } from '../../common/services/contract-lock.service
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { projectWhere } from '../../common/utils/project-scope';
+import { laborReceivingReceiptWhere } from '../../common/utils/labor-receiving';
 
 
 /** 明细中需要按 Decimal 落库的数值字段 */
@@ -477,19 +478,14 @@ export class ReceiptOrderService {
   /**
    * 分包商在本项目**领用过的所有材料**（领用单位=分包商时，明细清单的数据源）。
    * ⚠️ 口径与「分包单位领用月度汇总 / 月度盈亏分析」**同源**（业务 2026-10-17：三处是同一组数）
-   * ——即 `labor-receiving.service.aggregateReceipts()` 的同一查询：
-   * 收领单 `receivingUnitType='SUBCONTRACTOR'` 且分包商出现在供应侧（subcontractorId）
-   * 或领用侧（receivingUnitId）。按「材料名+规格」去重（与汇总行键同口径），
-   * 骨架字段取最近一条明细，数量列留空手填。
+   * ——共用 `laborReceivingReceiptWhere()`：只认**领用单位**=该分包商，不认供应侧。
+   * 分包商向项目供货时它是供应方，不是领用方，不能算进它的领用（否则两份领用串户虚增）。
+   * 按「材料名+规格」去重（与汇总行键同口径），骨架字段取最近一条明细，数量列留空手填。
    */
   async subcontractorMaterials(subcontractorId: string, projectId: string) {
     if (!subcontractorId) throw new BadRequestException('缺少分包商 ID');
     const orders = await this.prisma.receiptOrder.findMany({
-      where: {
-        projectId,
-        receivingUnitType: 'SUBCONTRACTOR',
-        OR: [{ subcontractorId }, { receivingUnitId: subcontractorId }],
-      },
+      where: laborReceivingReceiptWhere(projectId, subcontractorId),
       orderBy: { orderDate: 'desc' },
       select: {
         id: true, orderDate: true,

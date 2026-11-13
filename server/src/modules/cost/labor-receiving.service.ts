@@ -5,6 +5,7 @@ import { pickFields } from '../../common/pick-fields';
 import {
   averageUnitPrice,
   deriveReceivingRow,
+  laborReceivingReceiptWhere,
   type DeriveReceivingInput,
 } from '../../common/utils/labor-receiving';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
@@ -13,30 +14,49 @@ import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
  * 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位 × 结算期）。
  *
  * - 头表 `LaborReceivingDoc`（docNo 自动生成、劳务合同名称、状态）；明细行 `LaborReceivingSummary`
- *   挂 `docId`（落库的只有手填字段：退库/盘点/设计量开累/损耗率/手改单价/备注）。
+ *   挂 `docId`（落库的只有手填字段：退库/盘点/设计量开累/损耗率/备注）。
  * - **本期领用数量与平均单价每次读取时从收领单明细实时聚合**（按 `laborAuthId` 关联 +
- *   orderDate 落在该结算期），「上期末累计」按期链式推出（首期 0）——与单据化前口径一致。
+ *   收领单**领用单位** = 该分包商；平均单价取**截至该期末**的加权均价，后续期补录不会追溯
+ *   改写已生成期）——「上期末累计」按期链式推出（首期 0）。
+ * - **平均单价只读**：落库行不保存单价，客户端回传的 `unitPrice` 一律忽略。
  * - 派生列全部走 `deriveReceivingRow()`，不许就地写算式。
  */
 
-/** 明细行可写字段（自动聚合字段不接受直传） */
+/** 明细行可写字段（自动聚合字段不接受直传；平均单价由收领单聚合派生，故不在白名单） */
 const DETAIL_FIELDS = [
   'materialName', 'spec', 'unit',
-  'unitPrice', 'designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty', 'remark',
+  'designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty', 'remark',
 ];
 
 @Injectable()
 export class LaborReceivingService {
   constructor(private prisma: PrismaClient) {}
 
-  /** 分包单位下拉（分包授权台账） */
+  /** 分包单位下拉（分包授权台账）+ 已有单据的结算期列表（月度盈亏「新增」用） */
   async options(projectId: string) {
-    const subcontractors = await this.prisma.laborAuthLedger.findMany({
-      where: { projectId },
-      select: { id: true, subcontractorName: true },
-      orderBy: { subcontractorName: 'asc' },
-    });
-    return { subcontractors };
+    const [subcontractors, docs, summaries] = await Promise.all([
+      this.prisma.laborAuthLedger.findMany({
+        where: { projectId },
+        select: { id: true, subcontractorName: true },
+        orderBy: { subcontractorName: 'asc' },
+      }),
+      this.prisma.laborReceivingDoc.findMany({
+        where: { projectId },
+        distinct: ['period'],
+        select: { period: true },
+      }),
+      // 兼容单据化之前直接落 Summary 的历史数据（若有）
+      this.prisma.laborReceivingSummary.findMany({
+        where: { projectId },
+        distinct: ['period'],
+        select: { period: true },
+      }),
+    ]);
+    const periods = Array.from(new Set([...docs, ...summaries].map((p) => p.period)))
+      .filter(Boolean)
+      .sort()
+      .reverse();
+    return { subcontractors, periods };
   }
 
   // ==================== 单据 ====================
@@ -177,10 +197,9 @@ export class LaborReceivingService {
     if (!String(d?.materialName || '').trim()) throw new BadRequestException('物资名称不能为空');
     const row: any = pickFields(d, DETAIL_FIELDS, { label: '领用明细行' });
     row.spec = String(row.spec ?? '').trim();
-    ['unitPrice', 'designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty'].forEach((f) => {
+    ['designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty'].forEach((f) => {
       if (row[f] !== undefined) row[f] = num(row[f]);
     });
-    if (row.unitPrice !== undefined) row.priceOverridden = num(row.unitPrice) != null;
     const where = {
       docId_materialName_spec: { docId: doc.id, materialName: row.materialName, spec: row.spec },
     } as any;
@@ -262,6 +281,7 @@ export class LaborReceivingService {
     const history = allHistory.filter((r) => String(r.period) < period);
     const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, period);
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
+    const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
     const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec)));
     const keys = new Set<string>([...periodRows.keys(), ...savedKeys]);
     const list: any[] = [];
@@ -271,10 +291,8 @@ export class LaborReceivingService {
       const savedRow = saved.find((r) => rowKey(r.materialName, r.spec) === key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
-      const unitPrice =
-        savedRow?.priceOverridden && savedRow.unitPrice != null
-          ? Number(savedRow.unitPrice)
-          : agg.avgPriceByKey.get(key) ?? (savedRow?.unitPrice != null ? Number(savedRow.unitPrice) : null);
+      // 平均单价只读：截至该期末的加权均价（后续期补录不追溯改写历史期）
+      const unitPrice = avgPriceByKey.get(key) ?? null;
       const input: DeriveReceivingInput = {
         prevCum: prevCumByMat.get(key) ?? 0,
         receivedQty,
@@ -296,7 +314,6 @@ export class LaborReceivingService {
         unit: auto?.unit ?? savedRow?.unit ?? null,
         receivedQty, // 本期领用（自动，只读）
         unitPrice,
-        priceOverridden: savedRow?.priceOverridden ?? false,
         designQtyCum: input.designQtyCum,
         lossRate: input.lossRate,
         returnQty: input.returnQty,
@@ -458,6 +475,7 @@ export class LaborReceivingService {
     });
     const prevCumByMat = this.buildPrevCumMap(saved, agg.receivedByPeriod, period);
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
+    const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
     const savedPeriodRows = saved.filter((r) => r.period === period);
     // 本期的行键统一用**两段键**（材料 + 规格）：自动聚合桶与已存行同形状，
     // 含期的三段键只用于查「上期末累计」，不能混进 rows/keys（否则 parseRowKey 会把期间当材料名）
@@ -469,10 +487,8 @@ export class LaborReceivingService {
       const savedRow = savedByMat.get(key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
-      const unitPrice =
-        savedRow?.priceOverridden && savedRow.unitPrice != null
-          ? Number(savedRow.unitPrice)
-          : agg.avgPriceByKey.get(key) ?? (savedRow?.unitPrice != null ? Number(savedRow.unitPrice) : null);
+      // 平均单价只读：截至该期末的加权均价（后续期补录不追溯改写历史期）
+      const unitPrice = avgPriceByKey.get(key) ?? null;
       const derived = deriveReceivingRow({
         prevCum: prevCumByMat.get(key) ?? 0,
         receivedQty,
@@ -514,51 +530,77 @@ export class LaborReceivingService {
   /**
    * 收领单明细聚合（按 `laborAuthId` 关联——不按名称）：
    * - `receivedByPeriod`：期标签 → (材料key → 本期领用数量/单位)；
-   * - `avgPriceByKey`：材料key → 全期间平均单价（Σ税前总价 ÷ Σ数量）。
+   * - `priceByPeriod`：期标签 → (材料key → Σ税前总价 / Σ数量)，由 `avgPriceThrough()` 按目标期累加。
+   *
+   * ⚠️ 只认**领用单位 = 该分包商**的收领单（见 `laborReceivingReceiptWhere()`）：
+   * 分包商出现在供应侧时它是供货方，不是领用方，不能算进它的领用。
    */
   private async aggregateReceipts(projectId: string, laborAuthId: string, startDay: number) {
     const orders = await this.prisma.receiptOrder.findMany({
-      where: {
-        projectId,
-        receivingUnitType: 'SUBCONTRACTOR',
-        // 分包单位在收领单上可能出现在两侧：供应单位（subcontractorId）或领用单位（receivingUnitId）
-        OR: [{ subcontractorId: laborAuthId }, { receivingUnitId: laborAuthId }],
-      },
+      where: laborReceivingReceiptWhere(projectId, laborAuthId),
       select: {
         id: true, orderDate: true,
         details: { select: { materialName: true, specModel: true, unit: true, receivedQty: true, priceBeforeTax: true } },
       },
     });
     const receivedByPeriod = new Map<string, Map<string, { qty: number; unit: string | null }>>();
-    const priceAgg = new Map<string, { total: number; qty: number; unit: string | null }>();
+    const priceByPeriod = new Map<string, Map<string, { total: number; qty: number; unit: string | null }>>();
     for (const o of orders) {
       const period = o.orderDate ? periodKeyOf(startDay, o.orderDate) : null;
       if (!period) continue;
       let bucket = receivedByPeriod.get(period);
       if (!bucket) receivedByPeriod.set(period, (bucket = new Map()));
+      let priceBucket = priceByPeriod.get(period);
+      if (!priceBucket) priceByPeriod.set(period, (priceBucket = new Map()));
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
         const key = rowKey(name, d.specModel || '');
-        const qty = num(d.receivedQty) ?? 0;
+        // 未填实收 ≠ 0（三态契约）：不参与数量桶，也不参与加权平均
+        const qty = num(d.receivedQty);
+        if (qty == null) continue;
         const price = num(d.priceBeforeTax);
         const hit = bucket.get(key);
         if (hit) hit.qty += qty;
         else bucket.set(key, { qty, unit: d.unit ?? null });
         if (price != null) {
-          const p = priceAgg.get(key) ?? { total: 0, qty: 0, unit: d.unit ?? null };
+          const p = priceBucket.get(key) ?? { total: 0, qty: 0, unit: d.unit ?? null };
           p.total += qty * price;
           p.qty += qty;
-          priceAgg.set(key, p);
+          priceBucket.set(key, p);
         }
       }
     }
-    const avgPriceByKey = new Map<string, number>();
-    for (const [key, p] of priceAgg) {
-      const avg = averageUnitPrice(p.total, p.qty);
-      if (avg != null) avgPriceByKey.set(key, avg);
+    return { receivedByPeriod, priceByPeriod };
+  }
+
+  /**
+   * 截至 `throughPeriod`（含）的材料平均单价：只累加 ≤ 该期的收领单。
+   *
+   * 为什么不是「全期间」：后期补录的收领单会把已生成期的单价、扣款**追溯改写**，
+   * 与「单据一经生成口径不变」相抵。用截至本期累计既保留历史稳定性，又比只看本期更稳
+   * （本期没有有价领用的材料仍能取到历史均价）。
+   */
+  private avgPriceThrough(
+    priceByPeriod: Map<string, Map<string, { total: number; qty: number }>>,
+    throughPeriod: string,
+  ): Map<string, number> {
+    const totals = new Map<string, { total: number; qty: number }>();
+    for (const [period, byKey] of priceByPeriod) {
+      if (period > throughPeriod) continue;
+      for (const [key, p] of byKey) {
+        const acc = totals.get(key) ?? { total: 0, qty: 0 };
+        acc.total += p.total;
+        acc.qty += p.qty;
+        totals.set(key, acc);
+      }
     }
-    return { receivedByPeriod, avgPriceByKey };
+    const out = new Map<string, number>();
+    for (const [key, p] of totals) {
+      const avg = averageUnitPrice(p.total, p.qty);
+      if (avg != null) out.set(key, avg);
+    }
+    return out;
   }
 
   /**
