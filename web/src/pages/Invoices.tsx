@@ -371,8 +371,20 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
             <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择合同" options={contractOptions} />
+            <Form.Item
+              name="contractId"
+              label="关联合同"
+              rules={[{ required: true }]}
+              extra={editing?.redOfInvoiceId ? '已关联原发票的红冲票不能换合同（与原票同合同）' : undefined}
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                allowClear
+                placeholder="请选择合同"
+                disabled={!!editing?.redOfInvoiceId}
+                options={contractOptions}
+              />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>

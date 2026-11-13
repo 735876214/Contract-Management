@@ -141,7 +141,7 @@ export interface AiAnalyticsFacts {
   version: 1;
   generatedAt: string;
   asOf: string;
-  scope: { mode: string; label: string; projects: Array<{ id: string; code: string; name: string }>; projectCount: number };
+  scope: { mode: AiScopeMode; label: string; projects: Array<{ id: string; code: string; name: string }>; projectCount: number };
   period: { from: string | null; to: string; label: string; preset: string };
   compareMode: AiCompareMode;
   comparePeriod: { from: string | null; to: string; label: string; mode: 'mom' | 'yoy' } | null;

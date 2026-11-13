@@ -152,4 +152,15 @@ describe('AI 经营数据助手 · 规则意图', () => {
     assert.deepEqual(explicit.intent.datasets, ['contract.summary'], '前端显式数据集整体替换模型结果');
     assert.equal(explicit.intent.reportKind, 'brief', '未被前端覆盖的字段沿用模型');
   });
+
+  it('模型给出未知数据集/关注点：丢弃并进 warnings（不静默）', () => {
+    const { patch, warnings } = normalizeModelIntent({
+      datasets: ['contract.summary', 'nope.key'],
+      focus: ['payment_risk', 'nope_focus'],
+    });
+    assert.deepEqual(patch.datasets, ['contract.summary']);
+    assert.deepEqual(patch.focus, ['payment_risk']);
+    assert.ok(warnings.some((w) => w.includes('nope.key')));
+    assert.ok(warnings.some((w) => w.includes('nope_focus')));
+  });
 });

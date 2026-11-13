@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { AnalyticsService, type AnalyticsReportInput } from './analytics.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -18,10 +18,14 @@ import type { AiAnalyticsPlanInput } from '../intent/intent.types';
 export class AnalyticsController {
   constructor(private service: AnalyticsService) {}
 
-  /** 按用户权限过滤的数据集注册表（只含已实现条目） */
+  /** 按用户权限过滤的数据集注册表（只含已实现条目）；`scope` 仅做取值校验，权限过滤不因 scope 收窄 */
   @RequirePermissions('ai:view')
   @Get('datasets')
-  datasets(@CurrentUser() user: JwtUser) {
+  datasets(@Query('scope') scope: string | undefined, @CurrentUser() user: JwtUser) {
+    const s = String(scope ?? '').trim();
+    if (s && !['current', 'selected', 'all'].includes(s)) {
+      throw new BadRequestException(`未知的 scope：${s}`);
+    }
     return this.service.listDatasets(user);
   }
 

@@ -10,7 +10,7 @@
  */
 
 import { round2 } from '../../../common/utils/money.ts';
-import { auditNumbers } from '../report-facts.ts';
+import { auditNumbers, numbersInText } from '../report-facts.ts';
 import {
   AI_DATASETS,
   datasetByKey,
@@ -23,11 +23,16 @@ import {
   type AiAnalyticsTotals,
   type AiCollectedDataset,
   type AiCompareMode,
+  type AiDetailLevel,
+  type AiFocus,
   type AiReportKind,
+  type AiReportSectionId,
+  type AiScopeMode,
 } from './analytics.types.ts';
 
 export interface AnalyticsFactsInput {
   scopeLabel: string;
+  scopeMode: AiScopeMode;
   projects: Array<{ id: string; code: string; name: string }>;
   period: { from: string | null; to: string; label: string; preset: string };
   compareMode: AiCompareMode;
@@ -41,8 +46,8 @@ export interface AnalyticsFactsInput {
   generatedAt: string;
 }
 
-/** 指标中文名（表格与事实包共用） */
-const TOTAL_LABELS: Array<[keyof AiAnalyticsTotals, string]> = [
+/** 指标中文名（表格、工作簿与事实包共用） */
+export const AI_TOTAL_LABELS: Array<[keyof AiAnalyticsTotals, string]> = [
   ['projectCount', '项目数'],
   ['contractCount', '新签合同数'],
   ['signedYuan', '新签合同金额'],
@@ -143,7 +148,7 @@ export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFact
     generatedAt: input.generatedAt,
     asOf: input.asOf,
     scope: {
-      mode: 'scope',
+      mode: input.scopeMode,
       label: input.scopeLabel,
       projects: input.projects,
       projectCount: input.projects.length,
@@ -199,7 +204,53 @@ export interface ReportNarrativeOptions {
   narratives?: Record<string, string>;
   /** 模型建议（3~6 条），显示在报告最后一节 */
   advice?: string[];
+  /** 章节显示顺序（按报告类型；未列出的按注册表顺序排在后面） */
+  sectionOrder?: AiReportSectionId[];
+  /** 明细程度：summary 只出各数据集摘要（不铺表格）；detail 表格放宽到 50 行；both/缺省 20 行 */
+  detail?: AiDetailLevel;
+  /** 关注点：显示在报告头部，并让对应风险排在前面 */
+  focus?: AiFocus[];
 }
+
+/** 报告类型 → 章节顺序（brief 更像给领导的一页纸；project 把履约提前） */
+const REPORT_KIND_ORDER: Record<AiReportKind, AiReportSectionId[]> = {
+  monthly: ['overview', 'contracts', 'settlements', 'funds', 'cost', 'daily', 'risks', 'advice'],
+  brief: ['overview', 'contracts', 'settlements', 'funds', 'supplier', 'risks', 'advice'],
+  project: ['overview', 'fulfillment', 'contracts', 'daily', 'assets', 'risks', 'advice'],
+  comparison: ['overview', 'contracts', 'settlements', 'funds', 'supplier', 'risks', 'advice'],
+  custom: ['overview', 'projects', 'contracts', 'fulfillment', 'settlements', 'funds', 'cost', 'labor', 'procurement', 'daily', 'assets', 'materials', 'supplier', 'risks', 'advice'],
+};
+
+/** 意图 → 报告展示选项（reportKind 决定章节顺序；detail/focus 影响表格与风险排序） */
+export function reportPresentation(intent: {
+  reportKind: AiReportKind;
+  detail: AiDetailLevel;
+  focus: AiFocus[];
+}): ReportNarrativeOptions {
+  return {
+    sectionOrder: REPORT_KIND_ORDER[intent.reportKind] ?? REPORT_KIND_ORDER.custom,
+    detail: intent.detail,
+    focus: intent.focus,
+  };
+}
+
+const FOCUS_LABELS: Record<AiFocus, string> = {
+  payment_risk: '付款风险',
+  invoice_gap: '开票缺口',
+  cost_overrun: '成本超支',
+  schedule: '进度与履约',
+  supplier_concentration: '供应商集中度',
+  procurement: '采购执行',
+  asset: '资产进出场',
+};
+
+/** 风险码 → 关注点（用于按 focus 把相关风险排前面） */
+const RISK_FOCUS: Record<string, AiFocus> = {
+  OVERPAID: 'payment_risk',
+  INVOICE_GAP: 'invoice_gap',
+  COMPARE_DROP: 'payment_risk',
+  NO_DAILY: 'schedule',
+};
 
 export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: ReportNarrativeOptions = {}): string {
   const lines: string[] = [];
@@ -212,6 +263,9 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
     ? `${facts.compareMode === 'yoy' ? '同比' : '环比'}（${facts.comparePeriod.label}）`
     : '未启用';
   lines.push(`> 对比：${cmp}`);
+  if (options.focus?.length) {
+    lines.push(`> 关注点：${options.focus.map((f) => FOCUS_LABELS[f] ?? f).join('、')}`);
+  }
   lines.push('');
 
   // 一、总览
@@ -219,7 +273,7 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
   lines.push('');
   lines.push(facts.compareTotals ? '| 指标 | 本期 | 对比期 | 变化 |' : '| 指标 | 本期 |');
   lines.push(facts.compareTotals ? '| --- | --- | --- | --- |' : '| --- | --- |');
-  for (const [key, label] of TOTAL_LABELS) {
+  for (const [key, label] of AI_TOTAL_LABELS) {
     const now = Number(facts.totals[key]);
     if (facts.compareTotals) {
       const prev = Number(facts.compareTotals[key]);
@@ -236,8 +290,9 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
     lines.push('');
   }
 
-  // 二、项目对照（按签约额取前 20）
-  const projects = [...facts.byProject].sort((a, b) => b.signedYuan - a.signedYuan).slice(0, TABLE_ROWS_IN_REPORT);
+  // 二、项目对照（按签约额取前 20；多出的项目汇总为「其余 N 个项目合计」，避免截断后数字对不上）
+  const allProjects = [...facts.byProject].sort((a, b) => b.signedYuan - a.signedYuan);
+  const projects = allProjects.slice(0, TABLE_ROWS_IN_REPORT);
   lines.push('## 二、项目对照');
   lines.push('');
   if (!projects.length) {
@@ -250,6 +305,14 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
         `| ${p.code} ${p.name} | ${p.contractCount} | ${fmtYuan(p.signedYuan)} | ${fmtYuan(p.settledYuan)} | ${fmtYuan(p.paidYuan)} | ${fmtYuan(p.invoicedYuan)} | ${fmtYuan(p.uninvoicedYuan)} |`,
       );
     }
+    const rest = allProjects.slice(TABLE_ROWS_IN_REPORT);
+    if (rest.length) {
+      const sum = (pick: (p: AiAnalyticsProjectFact) => number): number =>
+        round2(rest.reduce((s, p) => s + pick(p), 0));
+      lines.push(
+        `| 其余 ${rest.length} 个项目合计 | ${rest.reduce((s, p) => s + p.contractCount, 0)} | ${fmtYuan(sum((p) => p.signedYuan))} | ${fmtYuan(sum((p) => p.settledYuan))} | ${fmtYuan(sum((p) => p.paidYuan))} | ${fmtYuan(sum((p) => p.invoicedYuan))} | ${fmtYuan(sum((p) => p.uninvoicedYuan))} |`,
+      );
+    }
   }
   lines.push('');
 
@@ -260,23 +323,31 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
     list.push(d);
     sections.set(d.section, list);
   }
+  const order = options.sectionOrder ?? [];
+  const rank = (id: string): number => {
+    const i = order.indexOf(id as AiReportSectionId);
+    return i >= 0 ? i : order.length + [...sections.keys()].indexOf(id);
+  };
+  const orderedSections = [...sections.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
   let sectionNo = 2;
-  for (const [section, list] of sections) {
+  for (const [section, list] of orderedSections) {
     lines.push(`## ${CN_NUM[sectionNo] ?? String(sectionNo + 1)}、${AI_SECTION_TITLES[section]}`);
     lines.push('');
     for (const d of list) {
       lines.push(`### ${d.label}`);
       lines.push('');
       lines.push(`- ${d.summary}`);
-      if (d.rows.length) {
-        const shown = d.rows.slice(0, TABLE_ROWS_IN_REPORT);
+      // 明细程度：summary 不铺表格；detail 放宽到 50 行；both/缺省 20 行
+      if (d.rows.length && options.detail !== 'summary') {
+        const maxRows = options.detail === 'detail' ? 50 : TABLE_ROWS_IN_REPORT;
+        const shown = d.rows.slice(0, maxRows);
         lines.push('');
         lines.push(...renderTable(d.columns, shown));
         if (d.truncated || d.totalRows > shown.length) {
           lines.push('');
           lines.push(`> 共 ${d.totalRows} 行，报告显示前 ${shown.length} 行（完整数据见导出的表格）。`);
         }
-      } else {
+      } else if (!d.rows.length) {
         lines.push('- 未取到数据（数据缺口，不是 0）');
       }
       lines.push('');
@@ -294,7 +365,9 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
   if (!facts.risks.length && !facts.warnings.length) {
     lines.push('- 程序未发现可判定的异常，但仍需关注数据完整性（未填金额、未开票、未验收等不体现在本报告）');
   } else {
-    for (const r of facts.risks) {
+    const focusSet = new Set(options.focus ?? []);
+    const score = (r: AiAnalyticsFacts['risks'][number]): number => (focusSet.has(RISK_FOCUS[r.code]) ? 1 : 0);
+    for (const r of [...facts.risks].sort((a, b) => score(b) - score(a))) {
       const tag = r.level === 'RED' ? '【高】' : r.level === 'YELLOW' ? '【中】' : '【提示】';
       lines.push(`- ${tag}${r.text}`);
     }
@@ -335,8 +408,13 @@ const sanitizeNarrativeText = (raw: string): string =>
  * 对账不通过 → **整份模型叙述丢弃**、输出确定性报告，并返回 `discarded` 供前端展示；
  * 模型叙述只追加在对应章节里，表格与汇总仍由程序生成，模型无法改写数字。
  */
-export function buildNarratedReport(facts: AiAnalyticsFacts, raw: unknown): NarratedReportResult {
-  const deterministic = (): string => analyticsFactsToMarkdown(facts);
+export function buildNarratedReport(
+  facts: AiAnalyticsFacts,
+  raw: unknown,
+  extraText?: string | null,
+  presentation: ReportNarrativeOptions = {},
+): NarratedReportResult {
+  const deterministic = (): string => analyticsFactsToMarkdown(facts, presentation);
   if (!raw || typeof raw !== 'object') {
     return { markdown: deterministic(), discarded: [], accepted: false, warnings: ['模型返回的叙述不是对象，已输出确定性报告'] };
   }
@@ -357,7 +435,10 @@ export function buildNarratedReport(facts: AiAnalyticsFacts, raw: unknown): Narr
   if (!combined.trim()) {
     return { markdown: deterministic(), discarded: [], accepted: false, warnings: ['模型没有返回可用的叙述，已输出确定性报告'] };
   }
-  const audit = auditNumbers(combined, analyticsFactNumbers(facts));
+  // 用户备注里的数字也放行（计划 §2.3：auditNumbers 含 notes 里的数字），
+  // 否则模型复述「按 500 万元口径」会被误判编造并整段丢弃。
+  const allowed = [...analyticsFactNumbers(facts), ...numbersInText(extraText)];
+  const audit = auditNumbers(combined, allowed);
   if (audit.unknown.length) {
     return {
       markdown: deterministic(),
@@ -369,7 +450,7 @@ export function buildNarratedReport(facts: AiAnalyticsFacts, raw: unknown): Narr
     };
   }
   return {
-    markdown: analyticsFactsToMarkdown(facts, { narratives, advice }),
+    markdown: analyticsFactsToMarkdown(facts, { ...presentation, narratives, advice }),
     discarded: [],
     accepted: true,
     warnings: [],

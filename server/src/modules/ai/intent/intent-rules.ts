@@ -74,12 +74,29 @@ export function normalizeModelIntent(raw: unknown): { patch: ModelIntentPatch; w
   const groupBy = pickEnum(obj.groupBy, AI_GROUP_BYS);
   if (groupBy) patch.groupBy = groupBy;
   if (Array.isArray(obj.datasets)) {
-    const keys = [...new Set(obj.datasets.map((k: unknown) => String(k ?? '').trim()))].filter((k) => !!datasetByKey(k));
-    if (keys.length) patch.datasets = keys;
+    const keys: string[] = [];
+    const rejected: string[] = [];
+    for (const rawKey of obj.datasets) {
+      const k = String(rawKey ?? '').trim();
+      if (!k) continue;
+      if (datasetByKey(k)) keys.push(k);
+      else rejected.push(k);
+    }
+    const deduped = [...new Set(keys)];
+    if (deduped.length) patch.datasets = deduped;
+    if (rejected.length) warnings.push(`忽略模型给出的未知数据集：${[...new Set(rejected)].join('、')}`);
   }
   if (Array.isArray(obj.focus)) {
-    const focus = [...new Set(obj.focus.map((f: unknown) => pickEnum(f, AI_FOCUSES)).filter((f): f is AiFocus => !!f))];
-    if (focus.length) patch.focus = focus;
+    const focus: AiFocus[] = [];
+    const rejected: string[] = [];
+    for (const rawFocus of obj.focus) {
+      const picked = pickEnum(rawFocus, AI_FOCUSES);
+      if (picked) focus.push(picked);
+      else rejected.push(String(rawFocus ?? ''));
+    }
+    const deduped = [...new Set(focus)];
+    if (deduped.length) patch.focus = deduped;
+    if (rejected.length) warnings.push(`忽略模型给出的未知关注点：${[...new Set(rejected)].join('、')}`);
   }
   if (obj.outputs && typeof obj.outputs === 'object') {
     const outputs: { report?: boolean; workbook?: boolean } = {};

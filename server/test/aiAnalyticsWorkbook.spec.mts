@@ -33,6 +33,7 @@ const dataset = (key: string, rows: Array<Record<string, string | number | null>
 const facts = () =>
   buildAnalyticsFacts({
     scopeLabel: '当前项目',
+    scopeMode: 'current' as const,
     projects: [{ id: 'p1', code: 'P-1', name: '甲项目' }],
     period: { from: '2026-01-01', to: '2026-11-12', label: '2026-01-01 ~ 2026-11-12', preset: 'this_year' },
     compareMode: 'mom',

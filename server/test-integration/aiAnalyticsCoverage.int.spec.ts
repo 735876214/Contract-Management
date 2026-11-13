@@ -2,6 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
 import { DatasetCollector } from '../src/modules/ai/analytics/dataset-collector.service';
+import { ScmService } from '../src/modules/ai/analysis/scm.service';
 
 /**
  * 集成 · AI 经营数据助手（Phase 5）：新增 9 个业务单据域都有真实取数。
@@ -100,5 +101,48 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
     }
     assert.ok(rowsOf('material.base') >= 1, 'material.base 应包含刚建的主数据');
     assert.equal(collected.datasets.length, 27, '27 个数据集应全部产出结构（未选的由上层过滤）');
+  });
+
+  it('累计口径与供应链全景事实层（buildScmFacts）逐项一致', async () => {
+    const project = await makeProject(ctx.prisma, 'ANA-PARITY');
+    const main = await makeContract(ctx.prisma, { projectId: project.id, amount: 100000, status: 'SIGNED' });
+    await ctx.prisma.contract.update({ where: { id: main.id }, data: { signDate: new Date() } as any });
+    const supp = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      isSupplement: 'Y',
+      parentContractId: main.id,
+      amount: 999999,
+      changeAmount: 5000,
+      status: 'SIGNED',
+    });
+    await ctx.prisma.contract.update({ where: { id: supp.id }, data: { signDate: new Date() } as any });
+    await ctx.prisma.settlement.create({
+      data: { projectId: project.id, contractId: main.id, amount: 60000, actualAmount: 60000, settleDate: new Date(), statusCode: 'CONFIRMED' } as any,
+    });
+    await ctx.prisma.paymentRecord.create({
+      data: { projectId: project.id, contractId: main.id, amount: 40000, payDate: new Date(), statusCode: 'PAID' } as any,
+    });
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, contractId: main.id, invoiceNo: uniq('INV-P'), amountWithTax: 30000, invoiceDate: new Date(), statusCode: 'VERIFIED' } as any,
+    });
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, contractId: main.id, invoiceNo: uniq('INV-X'), amountWithTax: 99999, invoiceDate: new Date(), statusCode: 'CANCELLED' } as any,
+    });
+
+    const collected = await collector.collect(
+      [{ id: project.id, code: project.code, name: project.name }],
+      { from: null, to: new Date(2026, 11, 31, 23, 59, 59, 999) },
+      null,
+    );
+    const scm = ctx.get<ScmService>(ScmService);
+    const res = await scm.panorama(
+      { projectIds: project.id, narrative: '0' },
+      { userId: 'parity', username: 'parity', realName: 'parity', isSuperAdmin: true, permissions: ['contract:view'] } as any,
+    );
+    const totals = collected.totals;
+    assert.equal(totals.signedYuan, res.facts.totals.signedYuan, '签约额（合同链、只算已签）');
+    assert.equal(totals.settledYuan, res.facts.totals.settledYuan, '结算额（排除草稿）');
+    assert.equal(totals.paidYuan, res.facts.totals.paidYuan, '付款额（排除失败/退款）');
+    assert.equal(totals.invoicedYuan, res.facts.totals.invoicedYuan, '开票额（排除作废/红冲）');
   });
 });

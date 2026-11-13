@@ -106,4 +106,27 @@ describe('集成 · AI 经营数据助手 工作簿与行级填充', () => {
     assert.ok(String(outSheet.getCell(2, 1).value).includes(project.code));
     assert.equal(outSheet.getCell(2, 3).value, 120000);
   });
+
+  it('行级填充同样受数据集读取权限约束：无 material:view 不能导出合同物资清单', async () => {
+    const { project, jwt } = await setup();
+    const book = new ExcelJS.Workbook();
+    const ws = book.addWorksheet('明细');
+    ws.getRow(1).values = ['项目', '物资名称'];
+    const buffer = Buffer.from(await book.xlsx.writeBuffer());
+    await assert.rejects(
+      () =>
+        ai.fillTable(
+          {
+            buffer,
+            originalname: 'deny.xlsx',
+            mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: buffer.length,
+          },
+          { datasetKey: 'material.contract', sheet: '明细', headerRow: '1', startRow: '2', columns: JSON.stringify([{ col: 1, source: '项目' }]) },
+          { projectId: project.id, scope: { mode: 'current', projectIds: [project.id] } },
+          jwt,
+        ),
+      /读取权限/,
+    );
+  });
 });

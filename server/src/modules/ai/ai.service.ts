@@ -11,7 +11,8 @@ import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, filterFieldsByPermissi
 import { FormCandidate, FormCell, detectTableRegions, scanWorkbook, type FormTableRegion } from './form-scan';
 import { FieldResolverService, type ResolveContext } from './field-resolver.service';
 import { DatasetCollector } from './analytics/dataset-collector.service';
-import { AI_DATASETS, filterDatasets } from './analytics/dataset-registry';
+import { filterDatasets } from './analytics/dataset-registry';
+import { datasetByKey } from './analytics/dataset-registry';
 import { datasetColumnsOf } from './analytics/dataset-columns';
 import { endOfDay, parseLocalDay } from './common/period';
 import { chatJson, LlmError, type LlmMessage } from './llm-client';
@@ -462,8 +463,13 @@ export class AiService {
     const { buffer, fileName } = this.assertUpload(file, cfg);
 
     const datasetKey = String(body?.datasetKey ?? '').trim();
-    const def = AI_DATASETS.find((d) => d.key === datasetKey);
+    const def = datasetByKey(datasetKey);
     if (!def || !def.implemented) throw new BadRequestException('数据集不存在或尚未实现');
+    // 与 forms/inspect 同一道权限闸：ai:use ≠ 该业务域的读取权限。
+    // 否则只有 ai:use 的岗位可以上传空表 + 自选数据集，把 finance/material 等域整表导出。
+    if (!this.canReader(user)(def.permission)) {
+      throw new ForbiddenException(`没有该数据集的读取权限（需要 ${def.permission}）`);
+    }
     const allowedColumns = new Set(datasetColumnsOf(datasetKey));
     if (!allowedColumns.size) throw new BadRequestException('该数据集暂不支持行级填充');
 

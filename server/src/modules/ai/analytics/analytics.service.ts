@@ -12,7 +12,7 @@ import { AiSettingService } from '../ai-setting.service';
 import { AiQuota } from '../ai-quota';
 import { chatJson, LlmError } from '../llm-client';
 import { aiModelFor } from '../ai-config';
-import type { AiAnalyticsIntent, AiAnalyticsPlanResult } from './analytics.types';
+import type { AiAnalyticsFacts, AiAnalyticsIntent, AiAnalyticsPlanResult } from './analytics.types';
 import { DatasetCollector } from './dataset-collector.service';
 import { AnalyticsStore } from './analytics-store.service';
 import { ReportService } from '../report.service';
@@ -22,6 +22,7 @@ import {
   analyticsTitle,
   buildAnalyticsFacts,
   buildNarratedReport,
+  reportPresentation,
 } from './dataset-facts';
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt';
 import { buildAnalyticsWorkbookModel } from './workbook-builder';
@@ -145,6 +146,10 @@ export class AnalyticsService {
     warnings.push(...parsed.warnings);
 
     let intent: AiAnalyticsIntent = parsed.intent;
+    if (intent.groupBy !== 'project') {
+      // 当前只能按项目汇总：显式提示已忽略，避免「选了分组但报告没变」的静默误导
+      warnings.push(`当前仅支持按项目汇总，已忽略分组维度：${intent.groupBy}`);
+    }
     const scope = intent.scope.mode;
     let projects = allowed;
 
@@ -154,6 +159,9 @@ export class AnalyticsService {
       projects = [cur];
     } else if (scope === 'selected') {
       const wantedIds = Array.isArray(body?.scope?.projectIds) ? [...new Set(body!.scope!.projectIds!.filter(Boolean))] : [];
+      if (wantedIds.length > MAX_PROJECTS) {
+        throw new BadRequestException(`显式选择的项目不能超过 ${MAX_PROJECTS} 个`);
+      }
       const mentions = (intent.scope.mentions ?? []).filter(Boolean);
       const allowedIds = new Set(allowed.map((p) => p.id));
       const unmatchedIds = wantedIds.filter((id) => !allowedIds.has(id));
@@ -170,6 +178,9 @@ export class AnalyticsService {
       }
       if (!merged.length) {
         throw new BadRequestException('没有匹配到有权限的项目：请先在项目选择器里选择项目，或改用「全部项目」');
+      }
+      if (merged.length > MAX_PROJECTS) {
+        throw new BadRequestException(`匹配到的项目超过 ${MAX_PROJECTS} 个，请缩小范围`);
       }
       projects = merged;
       intent = { ...intent, scope: { mode: 'selected', mentions: merged.map((p) => p.name) } };
@@ -248,8 +259,20 @@ export class AnalyticsService {
     const collected = await this.collector.collect(plan.projects, range, cmpRange);
     const scopeLabel = this.scopeLabel(intent, plan.projects);
     const periodLabel = rangeLabel(range);
+    // 参照期无数据 → 对比期置 null（计划 §2.3：显示 `-`，不当作下降 100%）
+    const ref = collected.compareTotals;
+    const refHasData =
+      !!ref &&
+      (ref.contractCount > 0 ||
+        ref.settledYuan !== 0 ||
+        ref.paidYuan !== 0 ||
+        ref.invoicedYuan !== 0 ||
+        ref.dailyReports > 0 ||
+        ref.procurementTasks > 0);
+    const effectiveCompare = cmpRange && intent.compare !== 'none' && refHasData ? cmpRange : null;
     const facts = buildAnalyticsFacts({
       scopeLabel,
+      scopeMode: intent.scope.mode,
       projects: plan.projects,
       period: {
         from: range.from ? localDayKey(range.from) : null,
@@ -257,18 +280,17 @@ export class AnalyticsService {
         label: periodLabel,
         preset: intent.period.preset,
       },
-      compareMode: intent.compare,
-      comparePeriod:
-        cmpRange && intent.compare !== 'none'
-          ? {
-              from: cmpRange.from ? localDayKey(cmpRange.from) : null,
-              to: localDayKey(cmpRange.to),
-              label: rangeLabel(cmpRange),
-              mode: intent.compare,
-            }
-          : null,
+      compareMode: effectiveCompare ? intent.compare : 'none',
+      comparePeriod: effectiveCompare
+        ? {
+            from: effectiveCompare.from ? localDayKey(effectiveCompare.from) : null,
+            to: localDayKey(effectiveCompare.to),
+            label: rangeLabel(effectiveCompare),
+            mode: intent.compare as 'mom' | 'yoy',
+          }
+        : null,
       totals: collected.totals,
-      compareTotals: collected.compareTotals,
+      compareTotals: effectiveCompare ? collected.compareTotals : null,
       byProject: collected.byProject,
       // 只保留用户选择的数据集（采集器按全量构建，报告/工作簿/历史都只该出现所选）
       datasets: collected.datasets.filter((d) => intent.datasets.includes(d.key)),
@@ -307,7 +329,8 @@ export class AnalyticsService {
     const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
 
     const warnings = [...facts.warnings];
-    let markdown = analyticsFactsToMarkdown(facts);
+    const presentation = reportPresentation(intent);
+    let markdown = analyticsFactsToMarkdown(facts, presentation);
     let discardedNumbers: string[] = [];
     let reportSource: 'template' | 'llm' = 'template';
     let usage: { promptTokens?: number; completionTokens?: number } | null = null;
@@ -328,15 +351,17 @@ export class AnalyticsService {
           buildAnalyticsNarrativeMessages(facts, intent.notes),
           true,
         );
-        const narrated = buildNarratedReport(facts, res.data);
+        const narrated = buildNarratedReport(facts, res.data, intent.notes, presentation);
         markdown = narrated.markdown;
         discardedNumbers = narrated.discarded;
         warnings.push(...narrated.warnings);
         if (narrated.accepted) reportSource = 'llm';
+        // 整段叙述因对账失败被丢弃 → 按计划 §2.6 退还共享配额（用户拿到的仍是确定性报告）
+        if (!narrated.accepted) this.quota.refund(userId);
         usage = res.usage ?? null;
       } catch (e) {
-        // 意图与叙述共享一次配额：意图也没成功消费时退还，否则保留（已有一次成功调用）
-        if (plan.source === 'rules') this.quota.refund(userId);
+        // 叙述失败也退还共享配额（意图调用无论成败，本次都没有产出模型叙述）
+        this.quota.refund(userId);
         const msg = e instanceof LlmError ? e.message : String((e as any)?.message || e);
         warnings.push(`AI 叙述失败，已输出确定性报告：${msg}`);
       }
@@ -349,30 +374,23 @@ export class AnalyticsService {
     let id: string | null = null;
     let persisted = true;
     try {
-      const row = await this.store.create({
-        projectId,
-        createdBy: user?.userId ?? null,
-        createdByName: user?.realName ?? user?.username ?? null,
-        title,
-        rawText: intent.rawText ?? null,
-        intentJson: intent,
-        scopeJson: facts.scope,
-        datasetKeys: intent.datasets,
-        factsJson: factsForStore,
-        warningsJson: warnings,
-        unknownNumbersJson: [],
-        discardedNumbersJson: discardedNumbers,
-        scopeMode: intent.scope.mode,
-        projectCount: plan.projects.length,
-        periodFrom: range.from,
-        periodTo: range.to,
-        periodLabel,
-        compareMode: intent.compare,
-        narrative: reportSource === 'llm',
-        source: reportSource,
-        markdown,
-        hasReport: true,
-      });
+      const row = await this.store.create(
+        this.recordPayload({
+          projectId,
+          user,
+          plan,
+          facts,
+          range,
+          periodLabel,
+          title,
+          warnings,
+          factsForStore,
+          source: reportSource,
+          markdown,
+          hasReport: true,
+          discardedNumbers,
+        }),
+      );
       id = row.id;
     } catch {
       persisted = false;
@@ -398,6 +416,63 @@ export class AnalyticsService {
       source: reportSource,
       usage,
       factNumbers: analyticsFactNumbers(facts),
+    };
+  }
+
+  /** 当前用户仍可读的数据集 key 集合（历史记录复核权限用） */
+  private allowedDatasetKeys(user: JwtUser): ReadonlySet<string> {
+    return new Set(filterDatasets(this.can(user)).visible.map((d) => d.key));
+  }
+
+  /** 记录落库的公共字段（报告与工作簿共用，避免两份 20+ 字段手拼漂移） */
+  private recordPayload(input: {
+    projectId: string;
+    user: JwtUser;
+    plan: AiAnalyticsPlanResult;
+    facts: AiAnalyticsFacts;
+    range: DayRange;
+    periodLabel: string;
+    title: string;
+    warnings: string[];
+    factsForStore: unknown;
+    source: 'template' | 'llm';
+    markdown: string | null;
+    hasReport: boolean;
+    unknownNumbers?: string[];
+    discardedNumbers?: string[];
+    workbook?: { key: string; name: string; size: number };
+  }) {
+    return {
+      projectId: input.projectId,
+      createdBy: input.user?.userId ?? null,
+      createdByName: input.user?.realName ?? input.user?.username ?? null,
+      title: input.title,
+      rawText: input.plan.intent.rawText ?? null,
+      intentJson: input.plan.intent,
+      scopeJson: input.facts.scope,
+      datasetKeys: input.plan.intent.datasets,
+      factsJson: input.factsForStore,
+      warningsJson: input.warnings,
+      unknownNumbersJson: input.unknownNumbers ?? [],
+      discardedNumbersJson: input.discardedNumbers ?? [],
+      scopeMode: input.plan.intent.scope.mode,
+      projectCount: input.plan.projects.length,
+      periodFrom: input.range.from,
+      periodTo: input.range.to,
+      periodLabel: input.periodLabel,
+      compareMode: input.plan.intent.compare,
+      narrative: input.source === 'llm',
+      source: input.source,
+      markdown: input.markdown,
+      hasReport: input.hasReport,
+      ...(input.workbook
+        ? {
+            workbookKey: input.workbook.key,
+            workbookName: input.workbook.name,
+            workbookSize: input.workbook.size,
+            hasWorkbook: true,
+          }
+        : {}),
     };
   }
 
@@ -428,12 +503,23 @@ export class AnalyticsService {
     const title = String(body?.title || analyticsTitle(plan.intent.reportKind, scopeLabel, periodLabel)).slice(0, 60);
 
     const buffer = await this.styled.withWorkbook(async (wb) => {
+      // 工作簿总单元格上限（计划 §2.4 B）：逐 sheet 扣预算，超出即截断并在表头说明
+      let cellBudget = 200_000;
       for (const sheet of model) {
+        const cols = Math.max(1, sheet.columns.length);
+        const maxDataRows = Math.max(0, Math.floor(cellBudget / cols) - 1);
+        const rows = sheet.rows.slice(0, maxDataRows);
+        const note =
+          rows.length < sheet.rows.length
+            ? [sheet.note, `超出工作簿 20 万单元格上限，已截断至 ${rows.length} 行`].filter(Boolean).join('；')
+            : sheet.note;
+        cellBudget -= (rows.length + 1) * cols;
+
         const ws = wb.addWorksheet(sheet.name);
         let headerRow = 1;
-        if (sheet.note) {
+        if (note) {
           const noteCell = ws.getCell(1, 1);
-          noteCell.value = sheet.note;
+          noteCell.value = note;
           noteCell.font = { italic: true, size: 10, color: { argb: 'FF666666' } };
           if (sheet.columns.length > 1) ws.mergeCells(1, 1, 1, sheet.columns.length);
           headerRow = 2;
@@ -444,10 +530,10 @@ export class AnalyticsService {
         sheet.columns.forEach((col, i) => {
           ws.getColumn(i + 1).width = Math.min(32, Math.max(10, col.length * 2 + 6));
         });
-        if (!sheet.rows.length) {
+        if (!rows.length) {
           ws.getCell(headerRow + 1, 1).value = '无数据';
         }
-        sheet.rows.forEach((row, r) => {
+        rows.forEach((row, r) => {
           sheet.columns.forEach((col, c) => {
             const raw = row[col];
             // 数据一律写字符串/数值，不生成公式（以 = + - @ 开头的文本强制按文本落库）
@@ -472,32 +558,23 @@ export class AnalyticsService {
         await this.store.attachWorkbook(body.reportId, user, { key: saved.key, name: fileName, size: saved.size });
         id = body.reportId;
       } else {
-        const row = await this.store.create({
-          projectId,
-          createdBy: user?.userId ?? null,
-          createdByName: user?.realName ?? user?.username ?? null,
-          title,
-          rawText: plan.intent.rawText ?? null,
-          intentJson: plan.intent,
-          scopeJson: facts.scope,
-          datasetKeys: plan.intent.datasets,
-          factsJson: factsForStore,
-          warningsJson: warnings,
-          scopeMode: plan.intent.scope.mode,
-          projectCount: plan.projects.length,
-          periodFrom: range.from,
-          periodTo: range.to,
-          periodLabel,
-          compareMode: plan.intent.compare,
-          narrative: false,
-          source: 'template',
-          markdown: null,
-          hasReport: false,
-          workbookKey: saved.key,
-          workbookName: fileName,
-          workbookSize: saved.size,
-          hasWorkbook: true,
-        });
+        const row = await this.store.create(
+          this.recordPayload({
+            projectId,
+            user,
+            plan,
+            facts,
+            range,
+            periodLabel,
+            title,
+            warnings,
+            factsForStore,
+            source: 'template',
+            markdown: null,
+            hasReport: false,
+            workbook: { key: saved.key, name: fileName, size: saved.size },
+          }),
+        );
         id = row.id;
       }
     } catch {
@@ -518,14 +595,14 @@ export class AnalyticsService {
 
   /** 下载存档工作簿（只按记录 key 读取；不接受客户端传入路径） */
   async workbookFile(id: string, user: JwtUser) {
-    const row = await this.store.detail(id, user);
+    const row = await this.store.detail(id, user, this.allowedDatasetKeys(user));
     if (!row.workbookKey) throw new NotFoundException('该记录没有表格文件');
     const buffer = await this.storage.read(row.workbookKey);
     return { buffer, fileName: row.workbookName || 'analytics.xlsx' };
   }
 
   detail(id: string, user: JwtUser) {
-    return this.store.detail(id, user);
+    return this.store.detail(id, user, this.allowedDatasetKeys(user));
   }
 
   remove(id: string, user: JwtUser) {
@@ -534,7 +611,7 @@ export class AnalyticsService {
 
   /** 用**存档 Markdown** 重新排版导出，不重新取数 */
   async exportRecord(id: string, format: string | undefined, user: JwtUser) {
-    const row = await this.store.detail(id, user);
+    const row = await this.store.detail(id, user, this.allowedDatasetKeys(user));
     const markdown = String(row.markdown ?? '').trim();
     if (!markdown) throw new NotFoundException('该记录没有报告正文，无法导出');
     const isPdf = String(format || 'docx').toLowerCase() === 'pdf';

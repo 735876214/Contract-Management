@@ -104,6 +104,22 @@ describe('集成 · AI 经营数据助手 报告与历史', () => {
     assert.ok(res.markdown.includes(project.code), '报告应包含项目编号');
     assert.equal(res.source, 'template');
 
+    // 参照期无数据 → 对比期置 null（显示 `-`，不当作下降 100%）
+    const compareReport = await service.report(
+      {
+        scope: { mode: 'current' },
+        period: { preset: 'this_year' },
+        compare: 'mom',
+        datasets: ['contract.summary'],
+        narrative: false,
+      },
+      project.id,
+      jwt,
+    );
+    assert.equal(compareReport.facts.comparePeriod, null);
+    assert.equal(compareReport.facts.compareTotals, null);
+    if (compareReport.id) await service.remove(compareReport.id, jwt);
+
     const mine = await service.list(jwt, {});
     assert.equal(mine.total, 1);
     assert.equal(mine.list[0].id, res.id);
@@ -116,6 +132,10 @@ describe('集成 · AI 经营数据助手 报告与历史', () => {
     // projectId 是可选筛选：别的项目筛不到
     const otherProject = await makeProject(ctx.prisma, 'ANA-RPT2');
     assert.equal((await service.list(jwt, { projectId: otherProject.id })).total, 0);
+
+    // 数据集权限被收回 → 存档记录也不可再读（计划 §2.5「权限被收回后历史也看不到」）
+    const revoked = { ...jwt, permissions: jwt.permissions.filter((p) => p !== 'invoice:view') } as JwtUser;
+    await assert.rejects(() => service.detail(res.id!, revoked), /记录不存在/);
 
     await service.remove(res.id!, jwt);
     await assert.rejects(() => service.detail(res.id!, jwt), /记录不存在/);

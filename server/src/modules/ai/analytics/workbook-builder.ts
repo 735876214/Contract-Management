@@ -8,7 +8,8 @@
  * - 数据一律写字符串/数值，**不生成公式**（防注入）。
  */
 
-import type { AiAnalyticsFacts, AiAnalyticsTotals } from './analytics.types.ts';
+import type { AiAnalyticsFacts } from './analytics.types.ts';
+import { AI_TOTAL_LABELS } from './dataset-facts.ts';
 
 export interface AnalyticsSheetModel {
   name: string;
@@ -17,19 +18,6 @@ export interface AnalyticsSheetModel {
   /** 截断提示（写在首行下方或 sheet 末尾，由写出层决定） */
   note?: string;
 }
-
-const TOTAL_LABELS: Array<[keyof AiAnalyticsTotals, string]> = [
-  ['projectCount', '项目数'],
-  ['contractCount', '新签合同数'],
-  ['signedYuan', '新签合同金额'],
-  ['settledYuan', '结算金额'],
-  ['paidYuan', '付款金额'],
-  ['invoicedYuan', '开票金额'],
-  ['unpaidYuan', '应付未付'],
-  ['uninvoicedYuan', '已结未开票'],
-  ['dailyReports', '日报条数'],
-  ['procurementTasks', '采购任务数'],
-];
 
 /** Excel sheet 名净化：非法字符替换、去空白、31 字符上限、同簿重名加序号 */
 export function sanitizeSheetName(raw: string, used: Set<string> = new Set()): string {
@@ -55,7 +43,7 @@ export function buildAnalyticsWorkbookModel(facts: AiAnalyticsFacts): AnalyticsS
   const sheets: AnalyticsSheetModel[] = [];
 
   const overview: Array<Record<string, string | number | null>> = [];
-  for (const [key, label] of TOTAL_LABELS) {
+  for (const [key, label] of AI_TOTAL_LABELS) {
     const now = Number(facts.totals[key]);
     if (facts.compareTotals) {
       const prev = Number(facts.compareTotals[key]);

@@ -525,6 +525,8 @@ export class DatasetCollector {
     const chainSumByProject = new Map<string, { sum: number; hasUnknown: boolean }>();
     for (const c of contracts) {
       if (c.parentContractId) continue;
+      // 签约额只算**已签**链（与 scm-facts / 台账「已签合同」同口径；草稿/审批中不是承诺）
+      if (!isSigned(c)) continue;
       const hit = chainSumByProject.get(c.projectId) ?? { sum: 0, hasUnknown: false };
       const v = rootAmount.get(c.id);
       if (v === null || v === undefined) hit.hasUnknown = true;
@@ -845,6 +847,8 @@ export class DatasetCollector {
     const supplierMap = new Map<string | null, { name: string; amount: number; chains: number }>();
     for (const c of contracts) {
       if (c.parentContractId) continue;
+      // 供应商集中度按「签约额」：未签合同不计入（否则草稿会把集中度算偏）
+      if (!isSigned(c)) continue;
       const v = rootAmount.get(c.id);
       if (v === null || v === undefined) continue;
       const hit = supplierMap.get(c.supplierId ?? null) ?? {

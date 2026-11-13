@@ -157,11 +157,19 @@ export class AnalyticsStore {
     });
   }
 
-  /** 详情（本人或超管）；非创建人 404，不泄露存在性 */
-  async detail(id: string, user: JwtUser) {
+  /**
+   * 详情（本人或超管）；非创建人 404，不泄露存在性。
+   * `allowedDatasetKeys`（可选）：调用方传入当前用户仍可读的数据集集合；
+   * 历史里任一数据集已被收回权限 → 同样按 404 处理（计划 §2.5：权限被收回后历史也看不到）。
+   */
+  async detail(id: string, user: JwtUser, allowedDatasetKeys?: ReadonlySet<string>) {
     const row = await this.prisma.aiAnalyticsReport.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('记录不存在');
     if (!user?.isSuperAdmin && row.createdBy !== user?.userId) throw new NotFoundException('记录不存在');
+    if (allowedDatasetKeys && Array.isArray(row.datasetKeys)) {
+      const revoked = row.datasetKeys.filter((k) => !allowedDatasetKeys.has(k));
+      if (revoked.length) throw new NotFoundException('记录不存在');
+    }
     return row;
   }
 

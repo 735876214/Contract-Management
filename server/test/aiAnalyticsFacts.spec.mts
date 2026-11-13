@@ -6,6 +6,7 @@ import {
   analyticsTitle,
   buildAnalyticsFacts,
   buildNarratedReport,
+  reportPresentation,
 } from '../src/modules/ai/analytics/dataset-facts.ts';
 import type {
   AiAnalyticsTotals,
@@ -43,6 +44,7 @@ const dataset = (key: string, rows: Array<Record<string, string | number | null>
 describe('AI 经营数据助手 · 事实包与报告', () => {
   const input = () => ({
     scopeLabel: '全部项目（2 个）',
+    scopeMode: 'all' as const,
     projects: [
       { id: 'p1', code: 'P-1', name: '甲项目' },
       { id: 'p2', code: 'P-2', name: '乙项目' },
@@ -162,5 +164,70 @@ describe('AI 经营数据助手 · 事实包与报告', () => {
       assert.ok(res.markdown.includes('## 一、经营总览'));
       assert.ok(res.warnings.length > 0);
     }
+  });
+
+  it('备注（notes）里的数字放行；不放行时该数字被判编造', () => {
+    const facts = buildAnalyticsFacts(input());
+    const ok = buildNarratedReport(
+      facts,
+      { sections: { overview: '按备注 12345 元口径执行。' } },
+      '备注：12345 元',
+    );
+    assert.equal(ok.accepted, true);
+    const bad = buildNarratedReport(facts, { sections: { overview: '按备注 12345 元口径执行。' } });
+    assert.equal(bad.accepted, false);
+    assert.ok(bad.discarded.some((d) => d.includes('12345')));
+  });
+
+  it('reportKind 决定章节顺序；detail=summary 不铺数据集表格', () => {
+    const facts = buildAnalyticsFacts({
+      ...input(),
+      datasets: [
+        dataset('contract.summary', [{ 项目: 'P-1 甲项目', 金额: 80000 }]),
+        dataset('contract.fulfillment', [{ 项目: 'P-1 甲项目', 金额: 1 }]),
+      ],
+    });
+    const projectMd = analyticsFactsToMarkdown(
+      facts,
+      reportPresentation({ reportKind: 'project', detail: 'both', focus: [] }),
+    );
+    assert.ok(projectMd.indexOf('履约进度') < projectMd.indexOf('合同情况'), 'project 简报应把履约提前');
+
+    const summaryMd = analyticsFactsToMarkdown(
+      facts,
+      reportPresentation({ reportKind: 'custom', detail: 'summary', focus: [] }),
+    );
+    assert.ok(summaryMd.includes('- 示例汇总'), '摘要行保留');
+    assert.ok(!summaryMd.includes('| 项目 | 金额 |'), 'summary 不铺数据集表格');
+  });
+
+  it('focus 影响风险排序与报告头部', () => {
+    const facts = buildAnalyticsFacts(input());
+    const md = analyticsFactsToMarkdown(
+      facts,
+      reportPresentation({ reportKind: 'custom', detail: 'both', focus: ['invoice_gap'] }),
+    );
+    assert.ok(md.includes('关注点：开票缺口'));
+    assert.ok(md.indexOf('开票落后于结算') < md.indexOf('付款超过结算'), '关注的发票风险应排在前面');
+  });
+
+  it('项目超过 20 个时补「其余 N 个项目合计」行', () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      projectId: `p${i}`,
+      code: `P-${i}`,
+      name: `项目${i}`,
+      contractCount: 1,
+      signedYuan: 1000 + i,
+      settledYuan: 0,
+      paidYuan: 0,
+      invoicedYuan: 0,
+      unpaidYuan: 0,
+      uninvoicedYuan: 0,
+      dailyReports: 0,
+      procurementTasks: 0,
+    }));
+    const facts = buildAnalyticsFacts({ ...input(), byProject: many });
+    const md = analyticsFactsToMarkdown(facts);
+    assert.ok(md.includes('其余 1 个项目合计'));
   });
 });

@@ -118,4 +118,24 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     assert.deepEqual(res.deniedDatasets, ['invoice.records']);
     assert.deepEqual(res.intent.datasets, ['contract.summary']);
   });
+
+  it('显式多选超过 50 个项目 → 400（不静默截断）', async () => {
+    const project = await makeProject(ctx.prisma, 'ANA-LIMIT');
+    const { jwt } = await makeUser(['ai:use', 'contract:view', 'dashboard:view']);
+    await join(project.id, jwt.userId);
+    const ids = Array.from({ length: 51 }, (_, i) => `not-a-project-${i}`);
+    await assert.rejects(
+      () => service.plan({ scope: { mode: 'selected', projectIds: ids } }, project.id, jwt),
+      /不能超过 50 个/,
+    );
+  });
+
+  it('未实现的分组维度：保留意图但明确提示已忽略', async () => {
+    const project = await makeProject(ctx.prisma, 'ANA-GROUP');
+    const { jwt } = await makeUser(['ai:use', 'contract:view']);
+    await join(project.id, jwt.userId);
+    const res = await service.plan({ text: '合同汇总', groupBy: 'month' }, project.id, jwt);
+    assert.equal(res.intent.groupBy, 'month');
+    assert.ok(res.warnings.some((w) => w.includes('已忽略分组维度')));
+  });
 });
