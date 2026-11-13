@@ -119,11 +119,12 @@ export function rangeLabel(range: DayRange): string {
   return `${localDayKey(range.from)} ~ ${localDayKey(range.to)}`;
 }
 
-/** 区间是否包含某业务日期（`null` 日期不落任何区间——与 DB 的 gte/lte 同口径） */
+/** 区间是否包含某业务日期（`null` 日期：累计至今时计入，限定期间时不计——与 DB 的 gte/lte 同口径） */
 export function inRange(v: Date | string | null | undefined, range: DayRange): boolean {
-  if (!v) return false;
+  if (!v) return range.from === null;
+  if (!range.from) return true;
   const d = v instanceof Date ? v : new Date(v);
   if (Number.isNaN(d.getTime())) return false;
-  if (range.from && d < range.from) return false;
+  if (d < range.from) return false;
   return d <= range.to;
 }

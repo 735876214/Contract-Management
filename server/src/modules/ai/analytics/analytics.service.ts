@@ -256,7 +256,7 @@ export class AnalyticsService {
   /** 报告与工作簿共用：取数 → 事实包（同一份数字，不允许两条链路各算一遍） */
   private async prepareFacts(plan: AiAnalyticsPlanResult, range: DayRange, cmpRange: DayRange | null) {
     const intent = plan.intent;
-    const collected = await this.collector.collect(plan.projects, range, cmpRange);
+    const collected = await this.collector.collect(plan.projects, range, cmpRange, plan.intent.datasets);
     const scopeLabel = this.scopeLabel(intent, plan.projects);
     const periodLabel = rangeLabel(range);
     // 参照期无数据 → 对比期置 null（计划 §2.3：显示 `-`，不当作下降 100%）

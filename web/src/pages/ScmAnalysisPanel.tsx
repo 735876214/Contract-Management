@@ -20,6 +20,7 @@ import { aiApi, type AiScmProjectFacts, type AiScmResult, type AiScmSupplierFact
 import { projectApi } from '@/api/business';
 import EmptyState from '@/components/EmptyState';
 import ReportMarkdown from '@/components/ReportMarkdown';
+import { MIME_DOCX, MIME_PDF, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 
 const { Text } = Typography;
 
@@ -81,23 +82,8 @@ export default function ScmAnalysisPanel() {
         title: '供应链运营全景',
         format,
       });
-      const blob = new Blob([res.data], {
-        type:
-          format === 'pdf'
-            ? 'application/pdf'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
-      const cd = (res.headers && (res.headers['content-disposition'] as string)) || '';
-      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : `供应链运营全景.${format}`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const blob = new Blob([res.data], { type: format === 'pdf' ? MIME_PDF : MIME_DOCX });
+      downloadBlob(blob, fileNameFromDisposition(res.headers, `供应链运营全景.${format}`));
     } catch {
       // 拦截器已弹错
     } finally {

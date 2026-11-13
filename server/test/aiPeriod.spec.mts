@@ -81,6 +81,10 @@ describe('AI 经营数据助手 · 期间原语', () => {
     assert.equal(inRange(null, range), false);
     assert.equal(inRange(new Date(2026, 10, 12, 23, 59), range), true);
     assert.equal(inRange(new Date(2026, 9, 31), range), false);
+    // 累计至今（无起点）：空日期也计入；限定期间则不计——与采集器的历史行口径一致
+    const all = resolvePresetPeriod('all', NOW)!;
+    assert.equal(inRange(null, all), true);
+    assert.equal(inRange(new Date(2020, 0, 1), all), true);
   });
 
   it('日期串解析：必须是 YYYY-MM-DD，非法返回 null', () => {

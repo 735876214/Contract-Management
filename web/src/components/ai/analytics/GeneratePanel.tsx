@@ -34,6 +34,7 @@ import {
   type AiScopeMode,
 } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
+import { MIME_DOCX, MIME_PDF, MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 
 const { Text, Paragraph } = Typography;
 
@@ -165,23 +166,8 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
     setExporting(format);
     try {
       const res = await aiApi.analyticsExport(result.id, format);
-      const blob = new Blob([res.data], {
-        type:
-          format === 'pdf'
-            ? 'application/pdf'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
-      const cd = (res.headers && (res.headers['content-disposition'] as string)) || '';
-      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : `${result.title}.${format}`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const blob = new Blob([res.data], { type: format === 'pdf' ? MIME_PDF : MIME_DOCX });
+      downloadBlob(blob, fileNameFromDisposition(res.headers, `${result.title}.${format}`));
     } catch {
       // 拦截器已弹错
     } finally {
@@ -193,20 +179,8 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
     if (!result?.id) return;
     try {
       const res = await aiApi.analyticsWorkbookDownload(result.id);
-      const blob = new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const cd = (res.headers && (res.headers['content-disposition'] as string)) || '';
-      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : workbookInfo?.fileName || `${result.title}.xlsx`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const blob = new Blob([res.data], { type: MIME_XLSX });
+      downloadBlob(blob, fileNameFromDisposition(res.headers, workbookInfo?.fileName || `${result.title}.xlsx`));
     } catch {
       // 拦截器已弹错
     }

@@ -18,6 +18,8 @@ import {
 import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { aiApi, type AiReportDelta, type AiReportResult } from '@/api/modules';
+import ReportMarkdown from '@/components/ReportMarkdown';
+import { MIME_DOCX, MIME_PDF, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -28,65 +30,6 @@ function pctText(d: AiReportDelta): string {
     : `${d.pct > 0 ? '+' : ''}${d.pct.toFixed(2)}%（上期 ${d.prev} → 本期 ${d.now}）`;
 }
 
-/** 行内 `**加粗**` → <strong>（不引 markdown 依赖：材料只用到这一种行内语法） */
-function inline(text: string, keyPrefix: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((seg, i) => {
-    const m = /^\*\*([^*]+)\*\*$/.exec(seg);
-    return m ? <strong key={`${keyPrefix}-${i}`}>{m[1]}</strong> : <Fragment key={`${keyPrefix}-${i}`}>{seg}</Fragment>;
-  });
-}
-
-/**
- * 极简 Markdown 渲染：标题 / 无序列表 / 段落 / 行内加粗。
- * 不引 react-markdown —— 汇报材料只用得到这几种语法，多一个依赖不划算。
- */
-function MiniMarkdown({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let list: string[] = [];
-  const flush = () => {
-    if (!list.length) return;
-    const items = list;
-    list = [];
-    blocks.push(
-      <ul key={`ul-${blocks.length}`} style={{ margin: '4px 0 12px', paddingLeft: 20 }}>
-        {items.map((t, i) => (
-          <li key={i}>{inline(t, `li-${blocks.length}-${i}`)}</li>
-        ))}
-      </ul>,
-    );
-  };
-  for (const raw of String(text || '').split('\n')) {
-    const line = raw.trimEnd();
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (h) {
-      flush();
-      const level = h[1].length;
-      blocks.push(
-        <Title key={`h-${blocks.length}`} level={level <= 2 ? 4 : 5} style={{ marginTop: 16, marginBottom: 8 }}>
-          {inline(h[2], `h-${blocks.length}`)}
-        </Title>,
-      );
-      continue;
-    }
-    const li = /^[-*]\s+(.*)$/.exec(line);
-    if (li) {
-      list.push(li[1]);
-      continue;
-    }
-    flush();
-    blocks.push(
-      <Paragraph key={`p-${blocks.length}`} style={{ marginBottom: 8 }}>
-        {inline(line, `p-${blocks.length}`)}
-      </Paragraph>,
-    );
-  }
-  flush();
-  return <>{blocks}</>;
-}
 const { RangePicker } = DatePicker;
 const { TextArea } = Input;
 
@@ -134,7 +77,6 @@ export default function AiReportPanel() {
     }
   };
 
-  /** 导出：Word 与 PDF 都走同一个接口，只是 `format` 不同；页眉/页脚留空时后端走默认值 */
   const exportFile = async (format: 'docx' | 'pdf') => {
     if (!result) return;
     setExporting(format);
@@ -146,23 +88,8 @@ export default function AiReportPanel() {
         footer: footer.trim() || undefined,
         format,
       });
-      const blob = new Blob([res.data], {
-        type:
-          format === 'pdf'
-            ? 'application/pdf'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      });
-      const cd = res.headers?.['content-disposition'] || '';
-      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : `汇报材料.${format}`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const blob = new Blob([res.data], { type: format === 'pdf' ? MIME_PDF : MIME_DOCX });
+      downloadBlob(blob, fileNameFromDisposition(res.headers, `汇报材料.${format}`));
     } catch {
       // 拦截器已弹错
     } finally {
@@ -285,7 +212,7 @@ export default function AiReportPanel() {
               overflow: 'auto',
             }}
           >
-            <MiniMarkdown text={result.markdown} />
+            <ReportMarkdown text={result.markdown} />
           </div>
 
           {result.missingSections.length > 0 && (

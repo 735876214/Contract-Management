@@ -15,7 +15,7 @@ import { summarizeAssetFlow } from '../../../common/utils/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots';
 import { datasetColumnsOf } from './dataset-columns';
-import { localDayKey, localMonthKey, type DayRange } from '../common/period';
+import { inRange, localDayKey, localMonthKey, type DayRange } from '../common/period';
 import type {
   AiAnalyticsProjectFact,
   AiAnalyticsTotals,
@@ -40,14 +40,6 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const inRange = (v: Date | string | null | undefined, range: DayRange): boolean => {
-  if (!v) return Boolean(range.from === null);
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(d.getTime())) return false;
-  if (range.from && d < range.from) return false;
-  return d <= range.to;
-};
-
 const monthBetween = (range: DayRange): { gte: string; lte: string } | null =>
   range.from ? { gte: localMonthKey(range.from), lte: localMonthKey(range.to) } : null;
 
@@ -58,17 +50,15 @@ const isSigned = (c: { status?: string | null }): boolean => {
 
 const ds = (
   key: string,
-  columns: string[],
   rows: Array<Record<string, string | number | null>>,
   summary: string,
 ): AiCollectedDataset => {
   const total = rows.length;
   const capped = rows.slice(0, MAX_ROWS);
-  // 列定义以 `dataset-columns.ts` 为单一事实源（工作簿/行级填充/前端映射共用）
-  const shared = datasetColumnsOf(key);
   return {
     key,
-    columns: shared.length ? [...shared] : columns,
+    // 列定义以 `dataset-columns.ts` 为单一事实源（工作簿/行级填充/前端映射共用）
+    columns: [...datasetColumnsOf(key)],
     rows: capped,
     totalRows: total,
     truncated: total > capped.length,
@@ -234,10 +224,17 @@ export class DatasetCollector {
     projects: Array<{ id: string; code: string; name: string }>,
     range: DayRange,
     compare: DayRange | null,
+    selectedKeys?: readonly string[],
   ): Promise<CollectedAnalytics> {
     const ids = projects.map((p) => p.id);
     const monthRange = monthBetween(range);
     const gated = await this.requireConfirmed();
+
+    // 按所选数据集裁剪查询：核心汇总（合同/结算/付款/发票/日报）始终需要；明细查询按需执行。
+    const wanted = selectedKeys?.length ? new Set(selectedKeys) : null;
+    const need = (...keys: string[]): boolean => !wanted || keys.some((k) => wanted.has(k));
+    const q = (keys: string[], fn: () => Promise<any[]>): Promise<any[]> =>
+      need(...keys) ? fn() : Promise.resolve([]);
 
     const [
       projectsRows,
@@ -292,12 +289,12 @@ export class DatasetCollector {
         },
         take: 20000,
       }),
-      this.prisma.settlement.findMany({
+      q(["settlement.summary","settlement.detail"], () => this.prisma.settlement.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { settleDate: { gte: range.from, lte: range.to } } : {}), ...notDraft },
         select: { projectId: true, contractId: true, code: true, amount: true, actualAmount: true, settleDate: true, statusCode: true, contract: { select: { code: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.paymentRecord.findMany({
+      })),
+      q(["payment.records"], () => this.prisma.paymentRecord.findMany({
         where: {
           projectId: { in: ids },
           AND: [
@@ -309,13 +306,13 @@ export class DatasetCollector {
         },
         select: { projectId: true, contractId: true, amount: true, payDate: true, payMonth: true, statusCode: true, contract: { select: { code: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.invoice.findMany({
+      })),
+      q(["invoice.records"], () => this.prisma.invoice.findMany({
         where: { projectId: { in: ids }, ...countedInvoiceWhere(), ...(range.from ? { invoiceDate: { gte: range.from, lte: range.to } } : {}) },
         select: { projectId: true, contractId: true, amountWithTax: true, invoiceDate: true, statusCode: true, contract: { select: { code: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.dailyReport.groupBy({
+      })),
+      q(["daily.report"], () => (this.prisma.dailyReport.groupBy as any)({
         by: ['projectId'],
         where: {
           projectId: { in: ids },
@@ -324,8 +321,8 @@ export class DatasetCollector {
         },
         _count: { _all: true },
         _sum: { settleQty: true, amountAfterTax: true },
-      }),
-      this.prisma.settlementLedger.findMany({
+      })),
+      q(["settlement.ledger"], () => this.prisma.settlementLedger.findMany({
         where: { projectId: { in: ids }, ...(monthRange ? { settleMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: {
           projectId: true,
@@ -337,72 +334,72 @@ export class DatasetCollector {
           contract: { select: { code: true } },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.procurementTask.findMany({
+      })),
+      q(["procurement.task"], () => this.prisma.procurementTask.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
         select: { projectId: true, taskNo: true, type: true, status: true },
         take: MAX_ROWS,
-      }),
-      this.prisma.procurementBidder.findMany({
+      })),
+      q(["procurement.result"], () => this.prisma.procurementBidder.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { task: { createdAt: { gte: range.from, lte: range.to } } } : {}) },
         select: { projectId: true, bidderName: true, status: true, finalPreTaxTotal: true, task: { select: { taskNo: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.receiptOrder.findMany({
+      })),
+      q(["receipt.order"], () => this.prisma.receiptOrder.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { orderDate: { gte: range.from, lte: range.to } } : {}) },
         select: { projectId: true, orderNo: true, orderDate: true, supplierName: true, status: true, _count: { select: { details: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.monthlyProfitLoss.findMany({
+      })),
+      q(["cost.profit_loss"], () => this.prisma.monthlyProfitLoss.findMany({
         where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: { projectId: true, period: true, sixSavingsAmount: true, totalDeductAmount: true, _count: { select: { details: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.laborReceivingDoc.findMany({
+      })),
+      q(["cost.labor_receiving","labor.receiving_doc"], () => this.prisma.laborReceivingDoc.findMany({
         where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: { projectId: true, docNo: true, subcontractorName: true, period: true, status: true, _count: { select: { details: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.factoringCost.findMany({
+      })),
+      q(["finance.cost"], () => this.prisma.factoringCost.findMany({
         where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
         select: { financingDate: true, totalCost: true, settlementMonth: true, contract: { select: { code: true, projectId: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.overdueInterest.findMany({
+      })),
+      q(["finance.cost"], () => this.prisma.overdueInterest.findMany({
         where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: { settlementMonth: true, overdueInterest: true, contract: { select: { code: true, projectId: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.assetLedger.findMany({
+      })),
+      q(["asset.flow"], () => this.prisma.assetLedger.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}) },
         select: { projectId: true, sourceCode: true, qty: true, totalAmount: true },
         take: MAX_ROWS,
-      }),
-      this.prisma.contractMaterial.findMany({
+      })),
+      q(["contract.fulfillment"], () => this.prisma.contractMaterial.findMany({
         where: { contract: { projectId: { in: ids } } },
         select: { qty: true, contract: { select: { projectId: true } } },
         take: 20000,
-      }),
-      this.prisma.dailyReport.groupBy({
+      })),
+      q(["contract.fulfillment"], () => (this.prisma.dailyReport.groupBy as any)({
         by: ['projectId'],
         where: { projectId: { in: ids }, ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}) },
         _sum: { settleQty: true },
-      }),
-      this.prisma.settlement.findMany({
+      })),
+      q(["contract.fulfillment"], () => this.prisma.settlement.findMany({
         where: { projectId: { in: ids }, ...notDraft },
         select: { projectId: true, amount: true, actualAmount: true },
-      }),
-      this.prisma.paymentRecord.groupBy({
+      })),
+      q(["contract.fulfillment"], () => (this.prisma.paymentRecord.groupBy as any)({
         by: ['projectId'],
         where: { projectId: { in: ids }, ...paidPaymentWhere() },
         _sum: { amount: true },
-      }),
-      this.prisma.invoice.groupBy({
+      })),
+      q(["contract.fulfillment"], () => (this.prisma.invoice.groupBy as any)({
         by: ['projectId'],
         where: { projectId: { in: ids }, ...countedInvoiceWhere() },
         _sum: { amountWithTax: true },
-      }),
-      this.prisma.repaymentAgreement.findMany({
+      })),
+      q(["repayment.agreement"], () => this.prisma.repaymentAgreement.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { signDate: { gte: range.from, lte: range.to } } : {}) },
         select: {
           projectId: true,
@@ -418,13 +415,13 @@ export class DatasetCollector {
           contract: { select: { code: true } },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.finalSettlement.findMany({
+      })),
+      q(["final_settlement.summary"], () => this.prisma.finalSettlement.findMany({
         where: { projectId: { in: ids } },
         select: { projectId: true, code: true, statusCode: true, totalAmount: true, settledAt: true, createdAt: true, contract: { select: { code: true } } },
         take: MAX_ROWS,
-      }),
-      this.prisma.paymentProcedure.findMany({
+      })),
+      q(["payment_procedure.records"], () => this.prisma.paymentProcedure.findMany({
         where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
         select: {
           projectId: true,
@@ -438,8 +435,8 @@ export class DatasetCollector {
           contract: { select: { code: true } },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.contractChangeLog.findMany({
+      })),
+      q(["contract.change_log"], () => this.prisma.contractChangeLog.findMany({
         where: { contract: { projectId: { in: ids } }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
         select: {
           field: true,
@@ -451,12 +448,12 @@ export class DatasetCollector {
           contract: { select: { code: true, projectId: true } },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.materialBase.findMany({
+      })),
+      q(["material.base"], () => this.prisma.materialBase.findMany({
         select: { name: true, spec: true, categoryLevel1: true, categoryLevel2: true, unit: true, isAsset: true, status: true },
         take: MAX_ROWS,
-      }),
-      this.prisma.contractMaterial.findMany({
+      })),
+      q(["material.contract"], () => this.prisma.contractMaterial.findMany({
         where: { contract: { projectId: { in: ids } } },
         select: {
           qty: true,
@@ -469,8 +466,8 @@ export class DatasetCollector {
           materialBase: { select: { name: true, spec: true } },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.laborAuthLedger.findMany({
+      })),
+      q(["labor.auth"], () => this.prisma.laborAuthLedger.findMany({
         where: { projectId: { in: ids } },
         select: {
           projectId: true,
@@ -482,8 +479,8 @@ export class DatasetCollector {
           status: true,
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.procurementTask.findMany({
+      })),
+      q(["procurement.documents"], () => this.prisma.procurementTask.findMany({
         where: { projectId: { in: ids } },
         select: {
           projectId: true,
@@ -499,16 +496,16 @@ export class DatasetCollector {
           evaluations: { select: { evaluatedAt: true, evaluator: true, conclusion: true }, take: 20 },
         },
         take: MAX_ROWS,
-      }),
-      this.prisma.inspectionReport.findMany({
+      })),
+      q(["procurement.documents"], () => this.prisma.inspectionReport.findMany({
         where: { projectId: { in: ids } },
         select: { projectId: true, unitName: true, inspectionTime: true, publishedAt: true, createdAt: true },
         take: MAX_ROWS,
-      }),
+      })),
     ]);
 
     const warnings: string[] = [];
-    const projectLabel = new Map(projectsRows.map((p) => [p.id, `${p.code} ${p.name}`]));
+    const projectLabel = new Map<string, string>(projectsRows.map((p) => [String(p.id), `${p.code} ${p.name}`]));
 
     // ---- 合同链：链根当前金额（全部合同行参与解析，不能只看已签行） ----
     const chainIndex = indexContractRows(contracts);
@@ -553,9 +550,15 @@ export class DatasetCollector {
     for (const s of settlementsAll) {
       settledAllByProject.set(s.projectId, round2((settledAllByProject.get(s.projectId) ?? 0) + Number(s.actualAmount ?? s.amount ?? 0)));
     }
-    const dailyAllByProject = new Map(dailyAll.map((d) => [d.projectId, round4(num(d._sum.settleQty) ?? 0)]));
-    const paidAllByProject = new Map(paymentsAll.map((p) => [p.projectId, round2(num(p._sum.amount) ?? 0)]));
-    const invoicedAllByProject = new Map(invoicesAll.map((i) => [i.projectId, round2(num(i._sum.amountWithTax) ?? 0)]));
+    const dailyAllByProject = new Map<string, number>(
+      dailyAll.map((d) => [String(d.projectId), round4(num(d._sum.settleQty) ?? 0)]),
+    );
+    const paidAllByProject = new Map<string, number>(
+      paymentsAll.map((p) => [String(p.projectId), round2(num(p._sum.amount) ?? 0)]),
+    );
+    const invoicedAllByProject = new Map<string, number>(
+      invoicesAll.map((i) => [String(i.projectId), round2(num(i._sum.amountWithTax) ?? 0)]),
+    );
 
     // ---- 数据集 ----
     const datasets: AiCollectedDataset[] = [];
@@ -564,7 +567,6 @@ export class DatasetCollector {
     datasets.push(
       ds(
         'project.base',
-        ['项目', '简称', '项目经理', '开始日期', '结束日期'],
         orderedProjects.map((p) => ({
           项目: `${p.code} ${p.name}`,
           简称: p.nameAbbr ?? '',
@@ -572,8 +574,7 @@ export class DatasetCollector {
           开始日期: p.startDate ? localDayKey(p.startDate) : null,
           结束日期: p.endDate ? localDayKey(p.endDate) : null,
         })),
-        `共 ${orderedProjects.length} 个项目`,
-      ),
+        `共 ${orderedProjects.length} 个项目`),
     );
 
     const signed = contracts.filter((c) => c.status === CONTRACT_STATUS.SIGNED || c.status === LEGACY_CONTRACT_STATUS_COMPLETED);
@@ -592,15 +593,12 @@ export class DatasetCollector {
     datasets.push(
       ds(
         'contract.summary',
-        ['项目', '本期新签合同', '本期新签金额', '链金额合计', '执行中合同'],
         summaryRows,
-        `本期新签 ${periodSigned.length} 份，金额 ${fmtYuan(periodSigned.reduce((s, c) => s + Number((c.parentContractId ? c.changeAmount : c.amount) ?? 0), 0))} 元（链金额合计含存量合同）`,
-      ),
+        `本期新签 ${periodSigned.length} 份，金额 ${fmtYuan(periodSigned.reduce((s, c) => s + Number((c.parentContractId ? c.changeAmount : c.amount) ?? 0), 0))} 元（链金额合计含存量合同）`),
     );
     datasets.push(
       ds(
         'contract.detail',
-        ['项目', '合同编号', '合同名称', '供应商', '签约日期', '链当前金额', '执行状态'],
         periodSigned.map((c) => ({
           项目: projectLabel.get(c.projectId) ?? '',
           合同编号: c.code,
@@ -610,15 +608,13 @@ export class DatasetCollector {
           链当前金额: chainAmountOf(c.id),
           执行状态: c.execStatus ?? '',
         })),
-        `本期新签合同 ${periodSigned.length} 份`,
-      ),
+        `本期新签合同 ${periodSigned.length} 份`),
     );
 
     const settlementRows = settlements;
     datasets.push(
       ds(
         'settlement.summary',
-        ['项目', '结算单数', '结算金额'],
         orderedProjects.map((p) => {
           const rows = settlementRows.filter((s) => s.projectId === p.id);
           return {
@@ -627,13 +623,11 @@ export class DatasetCollector {
             结算金额: round2(rows.reduce((s, r) => s + Number(r.actualAmount ?? r.amount ?? 0), 0)),
           };
         }),
-        `本期结算 ${settlementRows.length} 张，金额 ${fmtYuan(settlementRows.reduce((s, r) => s + Number(r.actualAmount ?? r.amount ?? 0), 0))} 元（已排除草稿）`,
-      ),
+        `本期结算 ${settlementRows.length} 张，金额 ${fmtYuan(settlementRows.reduce((s, r) => s + Number(r.actualAmount ?? r.amount ?? 0), 0))} 元（已排除草稿）`),
     );
     datasets.push(
       ds(
         'settlement.detail',
-        ['项目', '合同编号', '单据编号', '结算日期', '结算金额', '状态'],
         settlementRows.map((s) => ({
           项目: projectLabel.get(s.projectId) ?? '',
           合同编号: s.contract?.code ?? '',
@@ -642,13 +636,11 @@ export class DatasetCollector {
           结算金额: round2(Number(s.actualAmount ?? s.amount ?? 0)),
           状态: s.statusCode ?? '',
         })),
-        `本期结算单 ${settlementRows.length} 张`,
-      ),
+        `本期结算单 ${settlementRows.length} 张`),
     );
     datasets.push(
       ds(
         'settlement.ledger',
-        ['项目', '合同编号', '结算月份', '本月结算额', '本月开票额', '保理贴息', '逾期利息'],
         ledgerRows.map((l) => ({
           项目: projectLabel.get(l.projectId) ?? '',
           合同编号: l.contract?.code ?? '',
@@ -658,13 +650,11 @@ export class DatasetCollector {
           保理贴息: l.factoringDiscount === null ? null : round2(Number(l.factoringDiscount)),
           逾期利息: l.overdueInterest === null ? null : round2(Number(l.overdueInterest)),
         })),
-        `台账 ${ledgerRows.length} 行`,
-      ),
+        `台账 ${ledgerRows.length} 行`),
     );
     datasets.push(
       ds(
         'payment.records',
-        ['项目', '合同编号', '付款日', '付款月份', '金额', '状态'],
         payments.map((p) => ({
           项目: projectLabel.get(p.projectId) ?? '',
           合同编号: p.contract?.code ?? '',
@@ -673,13 +663,11 @@ export class DatasetCollector {
           金额: round2(Number(p.amount ?? 0)),
           状态: p.statusCode ?? '',
         })),
-        `本期付款 ${payments.length} 笔，金额 ${fmtYuan(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0))} 元（排除失败/退款）`,
-      ),
+        `本期付款 ${payments.length} 笔，金额 ${fmtYuan(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0))} 元（排除失败/退款）`),
     );
     datasets.push(
       ds(
         'invoice.records',
-        ['项目', '合同编号', '开票日期', '含税金额', '状态'],
         invoices.map((i) => ({
           项目: projectLabel.get(i.projectId) ?? '',
           合同编号: i.contract?.code ?? '',
@@ -687,8 +675,7 @@ export class DatasetCollector {
           含税金额: round2(Number(i.amountWithTax ?? 0)),
           状态: i.statusCode ?? '',
         })),
-        `本期开票 ${invoices.length} 张，金额 ${fmtYuan(invoices.reduce((s, i) => s + Number(i.amountWithTax ?? 0), 0))} 元（排除作废/红冲）`,
-      ),
+        `本期开票 ${invoices.length} 张，金额 ${fmtYuan(invoices.reduce((s, i) => s + Number(i.amountWithTax ?? 0), 0))} 元（排除作废/红冲）`),
     );
 
     const fulfillmentRows = orderedProjects.map((p) => {
@@ -720,16 +707,13 @@ export class DatasetCollector {
     datasets.push(
       ds(
         'contract.fulfillment',
-        ['项目', '合同当前金额', '已收数量', '已结算', '已付款', '已开票', '已收比例(%)', '已结比例(%)', '已付占比(%)', '开票比例(%)'],
         fulfillmentRows,
-        `履约进度为累计口径（合同金额按合同链；已收 = 总日报已确认行）`,
-      ),
+        `履约进度为累计口径（合同金额按合同链；已收 = 总日报已确认行）`),
     );
 
     datasets.push(
       ds(
         'cost.profit_loss',
-        ['项目', '结算期', '六项降本创效', '劳务计价累计扣款', '明细行数'],
         profitLosses.map((r) => ({
           项目: projectLabel.get(r.projectId) ?? '',
           结算期: r.period,
@@ -737,13 +721,11 @@ export class DatasetCollector {
           劳务计价累计扣款: r.totalDeductAmount === null ? null : round2(Number(r.totalDeductAmount)),
           明细行数: r._count.details,
         })),
-        `月度盈亏 ${profitLosses.length} 条`,
-      ),
+        `月度盈亏 ${profitLosses.length} 条`),
     );
     datasets.push(
       ds(
         'cost.labor_receiving',
-        ['项目', '单据编号', '分包商', '结算期', '状态', '明细数'],
         laborDocs.map((d) => ({
           项目: projectLabel.get(d.projectId) ?? '',
           单据编号: d.docNo,
@@ -752,21 +734,17 @@ export class DatasetCollector {
           状态: d.status,
           明细数: d._count.details,
         })),
-        `分包领用单据 ${laborDocs.length} 张`,
-      ),
+        `分包领用单据 ${laborDocs.length} 张`),
     );
     datasets.push(
       ds(
         'procurement.task',
-        ['项目', '采购编号', '类型', '状态'],
         tasks.map((t) => ({ 项目: projectLabel.get(t.projectId) ?? '', 采购编号: t.taskNo, 类型: t.type, 状态: t.status })),
-        `采购任务 ${tasks.length} 个`,
-      ),
+        `采购任务 ${tasks.length} 个`),
     );
     datasets.push(
       ds(
         'procurement.result',
-        ['项目', '采购编号', '投标单位', '状态', '最终确认价'],
         bidders.map((b) => ({
           项目: projectLabel.get(b.projectId) ?? '',
           采购编号: b.task?.taskNo ?? '',
@@ -774,26 +752,22 @@ export class DatasetCollector {
           状态: b.status,
           最终确认价: b.finalPreTaxTotal === null ? null : round2(Number(b.finalPreTaxTotal)),
         })),
-        `投标/成交单位 ${bidders.length} 家`,
-      ),
+        `投标/成交单位 ${bidders.length} 家`),
     );
     datasets.push(
       ds(
         'daily.report',
-        ['项目', '日报条数', '结算量合计', '含税金额合计'],
         dailyGroups.map((d) => ({
           项目: projectLabel.get(d.projectId) ?? '',
           日报条数: d._count._all,
           结算量合计: round4(num(d._sum.settleQty) ?? 0),
           含税金额合计: round2(num(d._sum.amountAfterTax) ?? 0),
         })),
-        `本期日报 ${dailyGroups.reduce((s, d) => s + d._count._all, 0)} 条${gated ? '（只含已确认行）' : ''}`,
-      ),
+        `本期日报 ${dailyGroups.reduce((s, d) => s + d._count._all, 0)} 条${gated ? '（只含已确认行）' : ''}`),
     );
     datasets.push(
       ds(
         'receipt.order',
-        ['项目', '收领单号', '日期', '供应单位', '状态', '明细数'],
         receipts.map((r) => ({
           项目: projectLabel.get(r.projectId) ?? '',
           收领单号: r.orderNo,
@@ -802,8 +776,7 @@ export class DatasetCollector {
           状态: r.status,
           明细数: r._count.details,
         })),
-        `本期收领单 ${receipts.length} 张`,
-      ),
+        `本期收领单 ${receipts.length} 张`),
     );
     const financeRows = [
       ...factoring.map((f) => ({
@@ -822,12 +795,11 @@ export class DatasetCollector {
       })),
     ];
     datasets.push(
-      ds('finance.cost', ['类型', '项目', '合同编号', '期间', '金额'], financeRows, `保理/逾期费用 ${financeRows.length} 行`),
+      ds('finance.cost', financeRows, `保理/逾期费用 ${financeRows.length} 行`),
     );
     datasets.push(
       ds(
         'asset.flow',
-        ['项目', '进场数量', '进场金额', '出场数量', '出场金额', '费用金额', '未知来源'],
         orderedProjects.map((p) => {
           const summary = summarizeAssetFlow(assets.filter((a) => a.projectId === p.id));
           return {
@@ -840,8 +812,7 @@ export class DatasetCollector {
             未知来源: summary.unknownQty,
           };
         }),
-        `资产进出场 ${assets.length} 行（费用行只计金额、不混入数量）`,
-      ),
+        `资产进出场 ${assets.length} 行（费用行只计金额、不混入数量）`),
     );
 
     const supplierMap = new Map<string | null, { name: string; amount: number; chains: number }>();
@@ -870,14 +841,13 @@ export class DatasetCollector {
         占比: supplierTotal > 0 ? round2((s.amount / supplierTotal) * 100) : null,
       }));
     datasets.push(
-      ds('supplier.concentration', ['供应商', '合同链数', '签约额', '占比(%)'], supplierRows, `签约额前 ${supplierRows.length} 家供应商（累计口径）`),
+      ds('supplier.concentration', supplierRows, `签约额前 ${supplierRows.length} 家供应商（累计口径）`),
     );
 
     // ---- Phase 5：补充业务单据域 ----
     datasets.push(
       ds(
         'repayment.agreement',
-        [],
         repayments.map((r) => ({
           项目: projectLabel.get(r.projectId) ?? '',
           协议编号: r.code,
@@ -890,13 +860,11 @@ export class DatasetCollector {
           签约后已付: r.paidAfterSign === null ? null : round2(Number(r.paidAfterSign)),
           逾期未付: r.overdueUnpaid === null ? null : round2(Number(r.overdueUnpaid)),
         })),
-        `还款协议 ${repayments.length} 份`,
-      ),
+        `还款协议 ${repayments.length} 份`),
     );
     datasets.push(
       ds(
         'final_settlement.summary',
-        [],
         finalSettlements.map((f) => ({
           项目: projectLabel.get(f.projectId) ?? '',
           合同编号: f.contract?.code ?? '',
@@ -905,13 +873,11 @@ export class DatasetCollector {
           结算金额: f.totalAmount === null ? null : round2(Number(f.totalAmount)),
           结算时间: f.settledAt ? localDayKey(f.settledAt) : null,
         })),
-        `工作总结算 ${finalSettlements.length} 份（累计口径）`,
-      ),
+        `工作总结算 ${finalSettlements.length} 份（累计口径）`),
     );
     datasets.push(
       ds(
         'payment_procedure.records',
-        [],
         paymentProcedures.map((p) => ({
           项目: projectLabel.get(p.projectId) ?? '',
           单据编号: p.code ?? '',
@@ -922,13 +888,11 @@ export class DatasetCollector {
           付款时间: p.payDate ? localDayKey(p.payDate) : null,
           状态: p.statusCode ?? '',
         })),
-        `付款手续 ${paymentProcedures.length} 张`,
-      ),
+        `付款手续 ${paymentProcedures.length} 张`),
     );
     datasets.push(
       ds(
         'contract.change_log',
-        [],
         changeLogs.map((c) => ({
           项目: projectLabel.get(c.contract.projectId) ?? '',
           合同编号: c.contract.code,
@@ -938,13 +902,11 @@ export class DatasetCollector {
           操作人: c.operator ?? '',
           时间: localDayKey(c.createdAt),
         })),
-        `合同变更 ${changeLogs.length} 条`,
-      ),
+        `合同变更 ${changeLogs.length} 条`),
     );
     datasets.push(
       ds(
         'material.base',
-        [],
         materialBases.map((m) => ({
           物资名称: m.name,
           规格型号: m.spec,
@@ -954,13 +916,11 @@ export class DatasetCollector {
           是否资产: m.isAsset ? '是' : '否',
           状态: m.status === 1 ? '启用' : '停用',
         })),
-        `物资主数据 ${materialBases.length} 条（全局主数据）`,
-      ),
+        `物资主数据 ${materialBases.length} 条（全局主数据）`),
     );
     datasets.push(
       ds(
         'material.contract',
-        [],
         contractMaterials.map((m) => ({
           项目: projectLabel.get(m.contract.projectId) ?? '',
           合同编号: m.contract.code,
@@ -973,13 +933,11 @@ export class DatasetCollector {
           收入单价: m.incomePrice === null ? null : round4(Number(m.incomePrice)),
           标准成本价: m.stdPrice === null ? null : round4(Number(m.stdPrice)),
         })),
-        `合同物资清单 ${contractMaterials.length} 行`,
-      ),
+        `合同物资清单 ${contractMaterials.length} 行`),
     );
     datasets.push(
       ds(
         'labor.auth',
-        [],
         laborAuths.map((l) => ({
           项目: projectLabel.get(l.projectId) ?? '',
           分包商: l.subcontractorName,
@@ -989,13 +947,11 @@ export class DatasetCollector {
           授权止: l.authEndDate ? localDayKey(l.authEndDate) : null,
           状态: l.status,
         })),
-        `分包授权台账 ${laborAuths.length} 条（累计口径）`,
-      ),
+        `分包授权台账 ${laborAuths.length} 条（累计口径）`),
     );
     datasets.push(
       ds(
         'labor.receiving_doc',
-        [],
         laborDocs.map((d) => ({
           项目: projectLabel.get(d.projectId) ?? '',
           单据编号: d.docNo,
@@ -1004,20 +960,14 @@ export class DatasetCollector {
           状态: d.status,
           明细数: d._count.details,
         })),
-        `分包领用单据 ${laborDocs.length} 张`,
-      ),
+        `分包领用单据 ${laborDocs.length} 张`),
     );
 
     const procurementRows: Array<Record<string, string | number | null>> = [];
-    const within = (d: Date | null | undefined): boolean => {
-      if (!range.from) return true;
-      if (!d) return false;
-      return d >= range.from && d <= range.to;
-    };
     for (const t of procurementDocs) {
       const 项目 = projectLabel.get(t.projectId) ?? '';
       const add = (类型: string, date: Date | null | undefined, note: string): void => {
-        if (!within(date)) return;
+        if (!inRange(date, range)) return;
         procurementRows.push({
           项目,
           采购编号: t.taskNo,
@@ -1056,7 +1006,7 @@ export class DatasetCollector {
     }
     for (const ins of inspections) {
       const date = ins.inspectionTime ?? ins.publishedAt ?? ins.createdAt;
-      if (!within(date)) continue;
+      if (!inRange(date, range)) continue;
       procurementRows.push({
         项目: projectLabel.get(ins.projectId) ?? '',
         采购编号: '',
@@ -1066,7 +1016,7 @@ export class DatasetCollector {
       });
     }
     datasets.push(
-      ds('procurement.documents', [], procurementRows, `采购过程文件 ${procurementRows.length} 条`),
+      ds('procurement.documents', procurementRows, `采购过程文件 ${procurementRows.length} 条`),
     );
 
     if (contracts.length >= 20000) warnings.push('合同行数达到 20000 上限，合同链汇总可能不完整');
