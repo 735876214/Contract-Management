@@ -2,8 +2,9 @@
 # 这样 NAS 部署时无需源码，直接 `docker compose pull` 预构建镜像即可（首次也一样）。
 # 触发：push 到 main / 打 v* 标签 / PR（仅验证可构建，不推送）/ 手动 Run workflow。
 #
-# 两个 job（2026-10 新增 test 门禁）：test（单测 + 前后端构建）→ build（镜像构建推送，needs: test）
-#   → 单测或类型检查失败时**不发布新镜像**，避免带病镜像进 NAS。
+# 三个门禁 job（2026-11-13 按模块拆分）：server（迁移门禁 + 单测 + 集成测试 + 构建）、
+# web（类型检查 + 构建）并行执行 → 聚合 job `test`（保留原必需 check 名）→ build（镜像构建推送，needs: test）
+#   → 任一门禁失败时**不发布新镜像**，避免带病镜像进 NAS。
 #
 # 提速与稳定性要点（2026-09-14 修订）：
 #   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
@@ -40,18 +41,22 @@ env:
   IMAGE_NAME: cms-single
 
 jobs:
-  # 单测 + 类型/构建门禁（P3：此前 CI 只构建镜像，不跑单测）
-  # - 与镜像构建解耦，先行执行；build job 依赖本 job，测试红则不发布新镜像。
-  # - Node 24：`.spec.mts` 依赖 Node≥22.18 默认开启的「类型擦除」直接加载 .mts/.ts
-  #   （同理，本地开发亦是 v24，保持与开发者一致）；node:20 会直接报无法识别 .mts。
-  # - 用 npm 而非 pnpm：2026-10 起仓库统一为 npm（package-lock.json + `npm ci`），
-  #   镜像构建（deploy/single/Dockerfile.single）走同一套，避免「CI 能过、镜像装不出依赖」；
-  #   pnpm-lock.yaml 与 packageManager 字段已移除（原锁文件已过期）。
-  # - 2026-10-14 新增两道**迁移门禁 + 一套 DB 集成测试**（评审意见 #1/#5），故本 job 需要 postgres：
-  #   ① `prisma migrate diff --exit-code`：改了 schema 却没生成迁移 → 直接红（这才是"强制用迁移"）；
-  #   ② `server/test/noDbPush.spec.mts`（在 npm test 内，无需 DB）：可执行配置里禁止出现 `db push`；
-  #   ③ `npm run test:int`：真库上跑金额闸门 / 合同状态流转 / 导入两阶段（纯函数套件仍是无 DB 的 `npm test`）。
-  test:
+  # 2026-11-13：单个 test job 拆成 server / web 两个并行 job（模块级独立反馈），
+  # 再用同名聚合 job `test` 收口——分支保护若引用名为 test 的必需 check，改名会阻断合并，
+  # 故保留 `test` 作为聚合门（只做占位，真正的断言在 server / web）。
+  #
+  # server job 的门禁：
+  # - **提交自洽**：check-import-integrity 只扫已入库文件——干净检出里 import 不到未跟踪文件，
+  #   这正是「页面提交了未跟踪 hook」那类 HEAD 不自洽的拦截点；
+  # - 迁移门禁 `prisma migrate diff --exit-code`：改了 schema 却没生成迁移 → 直接红；
+  # - `noDbPush.spec.mts`（在 npm test 内，无需 DB）：可执行配置里禁止出现 `db push`；
+  # - `npm test`（无 DB）+ `npm run test:int`（真库）；
+  # - `nest build`。
+  # web job 只有 `tsc --noEmit && vite build`，与后端互不拖累。
+  #
+  # Node 24：`.spec.mts` 依赖 Node≥22.18 的「类型擦除」直接加载 .mts/.ts；node:20 会直接报无法识别。
+  # 包管理统一 npm（package-lock.json + `npm ci --legacy-peer-deps`），与镜像构建同一套。
+  server:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -82,9 +87,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            server/package-lock.json
-            web/package-lock.json
+          cache-dependency-path: server/package-lock.json
+
+      - name: 提交自洽（已入库文件的 import 完整性）
+        run: node scripts/check-import-integrity.mjs
 
       - name: Install server dependencies
         working-directory: server
@@ -121,6 +127,19 @@ jobs:
         working-directory: server
         run: npm run build
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
       - name: Install web dependencies
         working-directory: web
         run: npm ci --legacy-peer-deps --no-audit --no-fund
@@ -128,6 +147,14 @@ jobs:
       - name: Frontend build（tsc --noEmit && vite build）
         working-directory: web
         run: npm run build
+
+  # 聚合门：保持名为 `test` 的必需 check 不消失；真正的断言在 server / web。
+  test:
+    needs: [server, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总
+        run: echo "server 与 web 均通过"
 
   build:
     needs: test

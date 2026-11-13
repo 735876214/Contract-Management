@@ -53,6 +53,13 @@ data-drill/
 # 构建/测试临时目录（曾被误提交，见 a255be6）
 .tmpbuild/
 
+# 并行开发：每任务一棵 git worktree（本机生成，不入库）
+.worktrees/
+# 模块级验收的临时 tsconfig、锁文件与临时上传目录
+web/tsconfig.verify.json
+server/.verify.lock
+.tmp-uploads/
+
 # NAS 部署运行态：宿主 compose 副本含 JWT_SECRET，备份含数据库，均不入库
 deploy/nas/docker-compose.yml
 backups/
