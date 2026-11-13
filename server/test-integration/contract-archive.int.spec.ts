@@ -4,6 +4,7 @@ import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntCont
 import { ContractService } from '../src/modules/contract/contract.service';
 import { SettlementService } from '../src/modules/settlement/settlement.service';
 import { ReceiptOrderService } from '../src/modules/receipt-order/receipt-order.service';
+import { DailyReportService } from '../src/modules/daily-report/daily-report.service';
 import { SysParamService } from '../src/common/services/sys-param.service';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, SETTLEMENT_STATUS } from '../src/constants/statuses';
 
@@ -16,6 +17,7 @@ describe('集成 · 合同归档锁定', () => {
   let contracts: ContractService;
   let settle: SettlementService;
   let receipts: ReceiptOrderService;
+  let dailyReports: DailyReportService;
   let sysParam: SysParamService;
 
   before(async () => {
@@ -23,6 +25,7 @@ describe('集成 · 合同归档锁定', () => {
     contracts = ctx.get<ContractService>(ContractService);
     settle = ctx.get<SettlementService>(SettlementService);
     receipts = ctx.get<ReceiptOrderService>(ReceiptOrderService);
+    dailyReports = ctx.get<DailyReportService>(DailyReportService);
     sysParam = ctx.get<SysParamService>(SysParamService);
   });
   after(async () => {
@@ -91,6 +94,20 @@ describe('集成 · 合同归档锁定', () => {
         ),
       /合同已归档/,
     );
+
+    // 现场确认/驳回也是写操作：归档后必须被拦。
+    // 日报行由 DB 直建（绕过 create 的写锁），专门验证 confirmOne / confirmMany 这两个入口
+    const daily = await ctx.prisma.dailyReport.create({
+      data: {
+        projectId: project.id,
+        contractId: contract.id,
+        entryDate: new Date(2026, 8, 11),
+        settleQty: 1,
+        confirmStatusCode: 'PENDING',
+      },
+    });
+    await assert.rejects(() => dailyReports.confirmOne(daily.id, 'CONFIRM', project.id), /合同已归档/);
+    await assert.rejects(() => dailyReports.confirmMany([daily.id], 'CONFIRM', project.id), /合同已归档/);
 
     // 读取/详情仍可用
     const read: any = await contracts.findOne(contract.id);

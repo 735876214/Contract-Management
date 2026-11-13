@@ -145,6 +145,8 @@ export class DailyReportService {
   async confirmOne(id: string, action: string, projectId: string, user?: JwtUser, remark?: string) {
     const row = await this.prisma.dailyReport.findFirst({ where: { id, projectId } });
     if (!row) throw new NotFoundException('日报不存在');
+    // 归档锁定：确认/驳回也会改变结算量口径（已确认行才进结算），属于写操作
+    await this.assertContractWritable(row.contractId, '确认/驳回现场记录');
     const target = assertSiteConfirmable(row.confirmStatusCode, action);
     return this.prisma.dailyReport.update({
       where: { id },
@@ -171,6 +173,10 @@ export class DailyReportService {
     const rows = await this.prisma.dailyReport.findMany({ where: { id: { in: list }, projectId } });
     if (rows.length !== list.length) {
       throw new BadRequestException('部分现场记录不存在或不属于当前项目');
+    }
+    // 归档锁定：逐合同校验（同一批可能跨合同），任一已归档则整批拒绝——与 create/update/remove 同口径
+    for (const cid of new Set(rows.map((r) => r.contractId).filter(Boolean))) {
+      await this.assertContractWritable(cid as string, '确认/驳回现场记录');
     }
     const targets = rows.map((r) => assertSiteConfirmable(r.confirmStatusCode, action));
     const operator = user?.realName || user?.username || null;

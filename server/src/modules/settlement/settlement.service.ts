@@ -270,6 +270,10 @@ export class SettlementService {
        * 调用方已带 tx（如月度结算生成）时沿用它的连接，不再嵌套事务。
        */
       const write = async (db: any) => {
+        // 并发防重：先取「合同 + 结算期」事务级咨询锁，再在锁内复查同期唯一。
+        // 外层预检只负责给出可读错误；真正的原子性在这里（见 lockSettlementPeriod）。
+        await this.lockSettlementPeriod(db, data.contractId, data.settleDate);
+        await this.assertMonthUniqueForContract(data.contractId, data.settleDate, undefined, db);
         const row: any = await db.settlement.create({
           data: {
             ...pickFields(data, SETTLE_FIELDS, { label: '结算单' }), projectId,
@@ -368,6 +372,29 @@ export class SettlementService {
     }
     // 单头与明细同一事务：明细 replace-all 失败时不能留下「单头已改、明细被删光」的半成品
     const updated: any = await this.prisma.$transaction(async (t) => {
+      // 并发防重：旧期与新期都加锁（排序后获取）。改合同/改日期时两把都要，
+      // 否则「A→B」与「B→A」两个方向并发会各自通过预检。
+      const lockKeys = [
+        await this.settlementPeriodLockKey(t, before.contractId, before.settleDate),
+        await this.settlementPeriodLockKey(t, effectiveContractId, payload.settleDate ?? before.settleDate),
+      ].filter(Boolean) as string[];
+      await this.lockKeys(t, lockKeys);
+      await this.assertMonthUniqueForContract(
+        effectiveContractId,
+        payload.settleDate ?? before.settleDate,
+        id,
+        t,
+      );
+      /**
+       * 换合同：原来挂在本单上的发票/收领单属于**旧合同**，必须解绑。
+       * 不解除会同时污染两边台账：旧合同的发票因 `settlementId` 非空不再计入旧行，
+       * 新合同的台账却按 `settlementId` 把它算进「本月开票额」（一出一进，凭空串账）。
+       * 提交后由下方 affected 循环重新挂载（各自按自己的合同 + 结算期）。
+       */
+      if (payload.contractId && payload.contractId !== before.contractId) {
+        await t.invoice.updateMany({ where: { settlementId: id }, data: { settlementId: null } });
+        await t.receiptOrder.updateMany({ where: { settlementId: id }, data: { settlementId: null } });
+      }
       const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
       if (data.items) await this.syncItems(id, items, t);
       return row;
@@ -487,7 +514,9 @@ export class SettlementService {
         where: {
           AND: [
             settlementId
-              ? { OR: [{ settlementId }, { contractId, settlementId: null }] }
+              ? // 已挂本行的发票必须同时属于本合同：结算单改过合同后遗留的旧关联
+                // 不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
+                { OR: [{ settlementId, contractId }, { contractId, settlementId: null }] }
               : { contractId, settlementId: null },
             countedInvoiceWhere(),
           ],
@@ -527,6 +556,41 @@ export class SettlementService {
   }
 
   /**
+   * 事务级咨询锁：把「同一合同 + 同一结算期」的建单/改期串行化。
+   *
+   * `Settlement.settleDate` 是日期、结算期由项目起始日派生，**无法直接建唯一索引**；
+   * 并发下「先查后写」的两个请求会同时通过预检、各插一张同期结算单，
+   * 而台账 `monthSettleAmount` 会把两张相加（`settlementId` 却只挂一张）→ 结算额翻倍。
+   *
+   * 必须在**写入所在的同一事务**内调用：`pg_advisory_xact_lock` 随事务提交/回滚自动释放。
+   */
+  private async lockSettlementPeriod(db: any, contractId: string | null | undefined, settleDate: unknown) {
+    const key = await this.settlementPeriodLockKey(db, contractId, settleDate);
+    if (key) await this.lockKeys(db, [key]);
+  }
+
+  private async settlementPeriodLockKey(
+    db: any,
+    contractId: string | null | undefined,
+    settleDate: unknown,
+  ): Promise<string | null> {
+    if (!contractId || !settleDate) return null;
+    const owner = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    const startDay = owner ? await this.startDayOf(owner.projectId, db) : 1;
+    const period = periodKeyOf(startDay, settleDate as any);
+    return period ? `${contractId}|${period}` : null;
+  }
+
+  /** 按排序后的键逐把加锁：同一事务要锁「旧期 + 新期」时，顺序一致才不会互相等待成死锁 */
+  private async lockKeys(db: any, keys: string[]) {
+    for (const key of [...new Set(keys)].sort()) {
+      // pg_advisory_xact_lock 返回 void，Prisma 无法反序列化 void 列；
+      // 用子查询只 SELECT 常量，锁仍由内层函数获取
+      await db.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('settlement-period'), hashtext(${key})) AS lock_id) AS l`;
+    }
+  }
+
+  /**
    * **同合同同月只允许一张结算单**（业务口径 2026-10-16）。
    *
    * 起因：台账已改为"一结算单对应一行台账"（`SettlementLedger.settlementId`），
@@ -538,6 +602,7 @@ export class SettlementService {
     contractId: string | null | undefined,
     settleDate: unknown,
     excludeId?: string,
+    db: any = this.prisma,
   ) {
     if (!contractId || !settleDate) return;
     /**
@@ -546,11 +611,11 @@ export class SettlementService {
      * 原来按自然月查重会让「10/28」和「11/20」两张单都通过校验 —— 同一期出现两张结算单，
      * 而发票/台账的「本月开票额」「本月结算额」都是按行（合同 × 账期）归集的，无从分摊。
      */
-    const owner = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
-    const startDay = owner ? await this.startDayOf(owner.projectId) : 1;
+    const owner = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    const startDay = owner ? await this.startDayOf(owner.projectId, db) : 1;
     const period = periodKeyOf(startDay, settleDate);
     if (!period) return;
-    const same = await this.prisma.settlement.findMany({
+    const same = await db.settlement.findMany({
       where: { contractId, ...(excludeId ? { id: { not: excludeId } } : {}) },
       select: { id: true, code: true, settleDate: true },
     });
@@ -843,14 +908,15 @@ export class SettlementService {
     // ① 解绑：挂在某张结算单上、但不在它的结算期内的行（改过 settleDate 之后会留下这种）
     const linkedInv: any[] = await db.invoice.findMany({
       where: { settlementId: { in: linkedIds } },
-      select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true },
+      select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, contractId: true },
     });
     const staleInv = linkedInv
       .filter((i: any) => {
         const sid = i.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, invoiceDate(i));
-        return period && own && own !== period;
+        // 结算期不符，或发票根本不属于本合同（结算单换过合同后留下的陈旧关联）→ 解绑
+        return Boolean(period && own && own !== period) || i.contractId !== contractId;
       })
       .map((i: any) => i.id);
     let detached = 0;
@@ -859,14 +925,15 @@ export class SettlementService {
     }
     const linkedRo: any[] = await db.receiptOrder.findMany({
       where: { settlementId: { in: linkedIds } },
-      select: { id: true, settlementId: true, orderDate: true },
+      select: { id: true, settlementId: true, orderDate: true, materialContractId: true },
     });
     const staleRo = linkedRo
       .filter((r: any) => {
         const sid = r.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, r.orderDate);
-        return period && own && own !== period;
+        // 同发票：结算期不符或收领单不属于本合同 → 解绑
+        return Boolean(period && own && own !== period) || r.materialContractId !== contractId;
       })
       .map((r: any) => r.id);
     if (staleRo.length) {
@@ -1042,7 +1109,8 @@ export class SettlementService {
     let skippedInvalidPriceRows = 0;
     const warnings: string[] = [];
     const createdItems: any[] = [];
-    for (const [contractId, list] of rowsByContract) {
+    // 按 contractId 排序后再逐合同加锁：并发两次生成若处理顺序相反，事务级咨询锁会互相等待成死锁
+    for (const [contractId, list] of [...rowsByContract.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       // 已归档合同不再生成结算单（归档前已要求结算收口；这里只防手工触发）
       if (await this.lock.isArchived(contractId)) {
         skippedArchived++;

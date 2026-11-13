@@ -182,4 +182,37 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     assert.equal(moved.settleMonth, '2026-08');
     assert.equal(Number(moved.monthInvoiceAmount), 0, '改月份后按新月份重算，不沿用旧月手填值');
   });
+
+  it('⑧ 结算单换合同 → 旧合同发票解绑，两边台账开票额不串账', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-8');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const a = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const b = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const s: any = await settle.create(
+      { contractId: a.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 8000, settleDate: month(2026, 6) },
+      project.id,
+    );
+    // 模拟已按「合同 + 月份」自动挂到该结算单的发票
+    const inv = await ctx.prisma.invoice.create({
+      data: {
+        projectId: project.id,
+        contractId: a.id,
+        settlementId: s.id,
+        settlePeriod: '2026-06',
+        amountWithTax: 5000,
+        statusCode: 'VERIFIED',
+      },
+    });
+
+    await settle.update(s.id, { contractId: b.id, version: 0 });
+
+    const moved = await ctx.prisma.invoice.findUnique({ where: { id: inv.id } });
+    assert.equal(moved!.settlementId, null, '换合同后旧合同的发票必须解绑');
+
+    const rowA = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: a.id, settleMonth: '2026-06' } });
+    const rowB = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: b.id, settleMonth: '2026-06' } });
+    assert.equal(Number(rowB!.monthInvoiceAmount), 0, '新合同台账不得凭空多出旧合同的开票额');
+    assert.equal(Number(rowA!.monthInvoiceAmount), 5000, '旧合同按「合同 + 月份」回退归集，开票额不丢');
+  });
 });

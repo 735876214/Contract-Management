@@ -955,8 +955,9 @@ model FinalSettlement {
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
   items    FinalSettlementItem[]
 
+  /// 一个合同只允许一张总结算单（业务口径）：并发 generate 的「先查后写」靠这条唯一键兜底
+  @@unique([projectId, contractId])
   @@unique([projectId, code])
-  @@index([projectId, contractId])
   @@index([statusCode])
 }
 
