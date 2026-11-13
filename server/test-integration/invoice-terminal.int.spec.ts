@@ -381,4 +381,53 @@ describe('集成 · 发票作废/红冲联动', () => {
     const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
     assert.equal(o!.statusCode, INVOICE_STATUS.CANCELLED, '删红冲票不自动恢复原票（避免静默复活金额）');
   });
+
+  it('⑭ 已关联原票的红冲票不能改到别的合同（同合同不变量）', async () => {
+    const { project, contract } = await setupContract('INV-RED-MOVE');
+    const contract2 = await makeContract(ctx.prisma, {
+      projectId: project.id,
+      supplierId: (await makeSupplier(ctx.prisma, project.id)).id,
+      amount: 5000,
+      status: 'SIGNED',
+    });
+    const original: any = await makeInvoice(project.id, contract.id);
+    const red: any = await makeInvoice(project.id, contract.id, {
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+    });
+    const row = await ctx.prisma.invoice.findUnique({ where: { id: red.id } });
+
+    await assert.rejects(
+      () =>
+        invoices.update(
+          red.id,
+          { contractId: contract2.id, redOfInvoiceId: original.id, version: row!.version },
+          project.id,
+        ),
+      /同一合同/,
+    );
+  });
+
+  it('⑮ 红冲票未填合同、原票有合同：原票作废后台账仍会刷新', async () => {
+    const { project, contract } = await setupContract('INV-RED-NOCT');
+    const original: any = await makeInvoice(project.id, contract.id, { amountWithTax: 8800 });
+    const before = await ledgerRow(contract.id, '2026-09');
+    assert.equal(Number(before!.monthInvoiceAmount), 8800);
+
+    // API 允许发票不挂合同；此时必须按**原票**的合同刷新台账，否则「本月开票额」停在旧值
+    const red: any = await makeInvoice(project.id, null as any, {
+      contractId: null,
+      statusCode: INVOICE_STATUS.RED,
+      redOfInvoiceId: original.id,
+      settlePeriod: null,
+      invoiceDate: null,
+      amountWithTax: 8800,
+    });
+    const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+    assert.equal(o!.statusCode, INVOICE_STATUS.CANCELLED);
+    assert.equal(red.contractId, null);
+
+    const after = await ledgerRow(contract.id, '2026-09');
+    assert.equal(Number(after!.monthInvoiceAmount), 0, '原票作废后原合同台账应刷新为 0');
+  });
 });

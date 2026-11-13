@@ -80,6 +80,9 @@
   **红冲票与原票**：`Invoice.redOfInvoiceId` 自关联；新建红冲票（`statusCode = RED`）时若带原票 id，
   服务端必须在**同一事务**里把原票置 `CANCELLED`（否则会出现「红冲票已入库、原票仍有效」的半成功，
   两张票都计入金额口径）；原票须有效且同项目同合同，关联创建后不可改；删红冲票不恢复原票。
+  ⚠️ 作废原票必须用**条件更新**（`updateMany({ where: { id, ...countedInvoiceWhere() } })` + `count === 1` 校验）：
+  校验与写入之间的并发窗口会让同一张原票被红冲两次；`markTerminal()` 同样用条件更新避免「响应说已作废、
+  库里却是红冲」的假成功。
 
 - **台账行与结算单 1:1**（业务口径 2026-10-16）：`SettlementLedger.settlementId`（**唯一键**）指向该行对应的结算单，
   由 `settlement.service.syncLedgerByContract()` 统一维护（结算单 create/update/remove 后自动调用；
