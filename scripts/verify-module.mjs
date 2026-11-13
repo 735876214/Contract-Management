@@ -15,7 +15,7 @@
  * 退出码：0 全绿 / 1 有步骤失败 / 2 环境或守卫失败
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, readFileSync, unlinkSync, writeSync, closeSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, openSync, readFileSync, statSync, unlinkSync, writeSync, closeSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -34,7 +34,7 @@ const has = (name) => argv.includes(`--${name}`);
 const base = opt('base', 'origin/main');
 const fast = has('fast');
 const intMode = opt('int', 'auto'); // auto | all | none
-const isolateSchema = has('isolate');
+const isolateSchema = has('isolate') || argv.includes('--isolate=schema');
 
 function die(msg, code = 2) {
   console.error(`[verify] ${msg}`);
@@ -84,13 +84,24 @@ const needsInt =
   (intMode === 'auto' &&
     (schemaChanged || serverChanged.some((f) => INT_RELEVANT.test(f) || f.startsWith('server/test-integration/'))));
 
-if ((schemaChanged || needsInt) && !/^cms_(int_)?wt_/.test(dbNameOf(env.DATABASE_URL))) {
+const devDb = dbNameOf(env.DATABASE_URL);
+const wtSlug = devDb.replace(/^cms_(int_)?wt_/, '');
+// 集成测试必须跑在独立的 int 库上：helpers.assertTestDatabase() 要求库名含 test/int
+const intDb = `cms_int_wt_${wtSlug}`;
+const shadowDb = `cms_shadow_wt_${wtSlug}`;
+const urlFor = (db, schema = 'public') => {
+  const u = new URL(env.DATABASE_URL);
+  u.pathname = `/${db}`;
+  u.searchParams.set('schema', schema);
+  return u.toString();
+};
+
+if ((schemaChanged || needsInt) && !/^cms_(int_)?wt_/.test(devDb)) {
   die(
-    `拒绝在非 worktree 库上验收：DATABASE_URL 指向「${dbNameOf(env.DATABASE_URL) || '(空)'}」。\n` +
+    `拒绝在非 worktree 库上验收：DATABASE_URL 指向「${devDb || '(空)'}」。\n` +
       `先执行 scripts/new-task-worktree.mjs 生成独立库，或在 .env 里把库名改成 cms_wt_* / cms_int_wt_*。`,
   );
 }
-const shadowDb = dbNameOf(env.DATABASE_URL).replace(/^cms_/, 'cms_shadow_');
 
 // ---- 步骤执行 ----
 const results = [];
@@ -161,7 +172,7 @@ if (serverChanged.length) {
 // 4) schema 迁移完整性
 if (schemaChanged) {
   step('迁移完整性（migrate diff --exit-code，本树影子库）', () => {
-    const shadowUrl = `postgresql://${PG_USER}:cms123456@localhost:15432/${shadowDb}?schema=public`;
+    const shadowUrl = urlFor(shadowDb);
     const exists = spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', 'postgres', '-tAc',
       `SELECT 1 FROM pg_database WHERE datname='${shadowDb}'`], { encoding: 'utf8' });
     if (exists.stdout.trim() !== '1') {
@@ -179,17 +190,17 @@ if (needsInt && intMode !== 'none') {
     const lockPath = path.join(root, 'server', '.verify.lock');
     const release = acquireLock(lockPath);
     try {
-      let testUrl = env.DATABASE_URL;
-      let schemaToDrop = null;
-      if (isolateSchema) {
-        const runId = `verify_${Date.now().toString(36)}_${process.pid}`;
-        schemaToDrop = runId;
-        testUrl = testUrl.replace(/schema=[^&]*/, `schema=${runId}`);
-        const created = spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', dbNameOf(testUrl), '-tAc',
+      const exists = spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', 'postgres', '-tAc',
+        `SELECT 1 FROM pg_database WHERE datname='${intDb}'`], { encoding: 'utf8' });
+      if (exists.stdout.trim() !== '1') {
+        die(`集成测试库 ${intDb} 不存在；先运行 scripts/new-task-worktree.mjs（幂等）`);
+      }
+      const runId = isolateSchema ? `verify_${Date.now().toString(36)}_${process.pid}` : null;
+      const testUrl = urlFor(intDb, runId || 'public');
+      if (runId) {
+        const created = spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', intDb, '-tAc',
           `CREATE SCHEMA "${runId}"`], { encoding: 'utf8' });
         if (created.status !== 0) die(`建 schema 失败：${(created.stderr || '').trim()}`);
-      } else {
-        testUrl = testUrl.replace(/schema=[^&]*/, 'schema=public');
       }
       const testEnv = { DATABASE_URL: testUrl, JWT_SECRET: env.JWT_SECRET || 'cms-int-test-secret',
         UPLOAD_DIR: env.UPLOAD_DIR && env.UPLOAD_DIR.includes('.tmp-uploads') ? env.UPLOAD_DIR : mkdtempSync(path.join(tmpdir(), 'cms-int-uploads-')) };
@@ -199,9 +210,9 @@ if (needsInt && intMode !== 'none') {
       const specs = selectIntSpecs(changed);
       const ok = run(NPM, ['run', 'test:int:run', '--', ...specs], { cwd: path.join(root, 'server'), env: testEnv });
 
-      if (isolateSchema && schemaToDrop) {
-        spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', dbNameOf(testUrl), '-tAc',
-          `DROP SCHEMA IF EXISTS "${schemaToDrop}" CASCADE`], { encoding: 'utf8' });
+      if (runId) {
+        spawnSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', PG_USER, '-d', intDb, '-tAc',
+          `DROP SCHEMA IF EXISTS "${runId}" CASCADE`], { encoding: 'utf8' });
       }
       return ok;
     } finally {
@@ -221,19 +232,25 @@ function acquireLock(lockPath) {
     } catch {
       try {
         const st = JSON.parse(readFileSync(lockPath, 'utf8'));
-        if (Date.now() - Number(st.at) > staleMs) { unlinkSync(lockPath); continue; }
-      } catch { /* 无法解析也按陈旧处理 */ unlinkSync(lockPath); continue; }
-      die(`另一个 verify 正在本树运行（${lockPath}）。如确认无进程，删除该文件后重试。`);
+        if (Date.now() - Number(st.at) > staleMs) {
+          console.warn(`  [verify] 接管陈旧锁（${lockPath}）`);
+          unlinkSync(lockPath);
+          continue;
+        }
+        if (Date.now() - statSync(lockPath).mtimeMs > staleMs) { unlinkSync(lockPath); continue; }
+      } catch { /* 无法解析或读取，按陈旧处理 */ try { unlinkSync(lockPath); } catch { /* ignore */ } continue; }
+      die(`另一个 verify 正在本树运行（${lockPath}）。超过 30 分钟无活动的陈旧锁会自动接管。`);
     }
   }
   die(`无法获取锁 ${lockPath}`);
 }
 
 function selectIntSpecs(files) {
-  const all = git(['ls-files', 'test-integration/'])
+  const all = git(['ls-files', 'server/test-integration/*.int.spec.ts'])
     .split('\n')
     .filter((f) => f.endsWith('.int.spec.ts'))
     .map((f) => f.replace(/^server\//, ''));
+  if (!all.length) die('未扫描到任何 int spec（目录结构可能已变），拒绝用空参数跑 node --test');
   const direct = files.filter((f) => f.startsWith('server/test-integration/') && f.endsWith('.int.spec.ts'))
     .map((f) => f.replace(/^server\//, ''));
   const tokens = new Set();
