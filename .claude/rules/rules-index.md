@@ -14,6 +14,7 @@
 | 导入 / 模板与占位符 | [import-and-templates.md](import-and-templates.md) | 两阶段「全成功或全失败」· 心跳回收 · 幂等去重（**命中后不得再 execute**）· 占位符只认 `{{}}` · **种子模板有两处** |
 | 前端页面·组件·样式·路由 | [frontend-conventions.md](frontend-conventions.md) | `perm()` 工厂 · 视觉只改 token 层 · **断点两层：外壳看视口 / 组件看容器** · 列显隐两条路 · 菜单权威在后端 · 多页签与编辑器页签 |
 | 测试 / 改金额·状态·导入 | [testing.md](testing.md) | 两套测试分工（改金额/状态/导入**必跑 `test:int`**）· `.mts` 三条硬约束 · 新增 spec 要同步 docs/development.md §5 清单与计数 |
+| **并行开发 / 多任务同时改代码** | [parallel-development.md](parallel-development.md) | **每任务一棵 worktree** · 每树独立库与端口 · `verify-module` 的覆盖边界 · **提交自洽检查（C2：提交了未跟踪引用）** · 分支+PR（不直推 main）· docStats 冲突热点 · 集成测试禁止全库计数 |
 
 ## 最高频 5 条
 

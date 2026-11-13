@@ -464,3 +464,70 @@ bash scripts/nas-deploy.sh
   ② 断言"控制台无报错"时要先**过滤 `chrome-extension://` 噪音**（headless 的 Edge 里挂了扩展，
   会持续抛 `siteHostMap` 异常，否则全站每一步都"失败"）。
 
+## 10. 并行开发与模块级验收（多任务同时改代码）
+
+> 完整约定见 [.claude/rules/parallel-development.md](../.claude/rules/parallel-development.md)。
+> 起因：多个模块审查对话共用一个工作区时，B 的全局验收会被 A 的未提交改动弄红
+> （真实记录：某会话 `test:int` 42 个失败全部来自另一处未提交的 `settlement.service.ts`），
+> 且提交了引用未跟踪文件的代码会让 HEAD 不自洽。
+
+### 10.1 每任务一棵 worktree
+
+```powershell
+docker compose -f docker-compose.dev.yml up -d postgres   # 只起共享数据库
+node scripts/new-task-worktree.mjs <slug> --port 3111      # 建树/建库/写 env/装依赖
+cd .worktrees/<slug>; node scripts/verify-module.mjs       # 模块级验收
+node scripts/remove-task-worktree.mjs <slug> [--yes]       # 清理（先解 junction）
+```
+
+- 树在 `<主仓>/.worktrees/<slug>`，分支 `<type>/<slug>`，从 `origin/main` 切出；`.worktrees/` 已 gitignore。
+- 三只库按 slug 分开：`cms_wt_*` / `cms_int_wt_*` / `cms_shadow_wt_*`。
+  `verify-module` 有守卫：`DATABASE_URL` 不是 `*_wt_*` 库直接 exit 2。
+- 端口：后端 `31xx`、前端 `51xx`（脚本默认 `--port` 与 `--port+2000`）。
+
+### 10.2 worktree 的跑法（宿主机，不走容器）
+
+dev 容器挂的是**主树**的 `./server` / `./web`，服务不了 worktree：
+
+```powershell
+cd .worktrees/<slug>/server; $env:PORT=3111; npm run start:dev
+cd .worktrees/<slug>/web;    $env:VITE_PROXY_TARGET="http://localhost:3111"; npm run dev -- --port 5111
+```
+
+宿主机 watch 能感知文件变更，**不需要** §9 的 `restart server`（旧 dist 坑只属于容器命名卷）。
+
+### 10.3 `verify-module` 覆盖什么
+
+| 改动 | 执行 |
+|---|---|
+| 总是 | `check-import-integrity`（只扫**已入库**文件） |
+| `web/**` | 全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 子集 tsc |
+| `server/**` | `nest build` + **全量** `npm test` |
+| schema/迁移 | `migrate diff --exit-code`（本树影子库） |
+| 金额/状态/导入 | `migrate deploy` + 选中的 int spec（`--test-concurrency=4`） |
+
+**边界**：`nest build` / `tsc` 是整程序编译，无法只编一个模块；verify 收窄的是**测试与数据库范围**，
+不是类型检查范围。真实渲染与 E2E 仍按 §5.2。
+
+### 10.4 提交自洽（提交前必跑）
+
+```powershell
+node scripts/check-import-integrity.mjs
+```
+
+`tsc` / `vite` 会把**未跟踪文件**一起编进依赖图，所以"工作树 build 绿"证明不了"提交是完整的"。
+检查器只认 `git ls-files` 的已入库文件，目标缺失或未入库即报错（CI 的 `server` job 也会跑）。
+
+### 10.5 分支与合并
+
+- 任务在分支上完成 → 推分支 + PR；`main` 只经合并进入（并行时直推 main 会 race）。
+- 推送只走 SSH，见 §9。
+- 已知冲突热点：`CLAUDE.md` §2/§4 与 `docs/development.md` §5/§5.1 的**全局计数行**
+  （`docStats.spec.mts` 锁定）。合并前先 rebase，解决原则 = 合并后计数等于实际文件数。
+
+### 10.6 禁用项
+
+- **禁止在 worktree 里 `git clean -xdf`**：会穿透 junction 删主树 `node_modules`。
+- **不要用 `git stash` 在多会话间搬改动**：stash 栈共享，可能抽走/弹出别人的内容。
+- 集成测试**禁止"全库计数"断言**，一律按自己的 `projectId` 或唯一前缀计数。
+

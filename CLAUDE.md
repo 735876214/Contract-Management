@@ -80,7 +80,8 @@ cd server && npm run test:int  # DB 集成测试（22 个 spec，改金额/状�
    必须 `docker compose -f docker-compose.dev.yml restart server`（不是 `up -d`）。
 4. 改过 `schema.prisma` 必须生成并应用迁移，并复查列已落地。
 5. 改前端 UI 时**真渲染核一眼**（Edge headless + CDP，见 development.md §5.2）。
-6. 修完再验收到通过才完工；完成后按惯例**自动提交并推送（SSH）**。
+6. 修完再验收到通过才完工；**在任务分支上**提交并推送分支，走 PR 合入 `main`（并行开发时不要直推 `main`，
+   见 [.claude/rules/parallel-development.md](.claude/rules/parallel-development.md)）。
 
 ## 6. 文档索引
 
@@ -88,7 +89,7 @@ cd server && npm run test:int  # DB 集成测试（22 个 spec，改金额/状�
 |---|---|
 | [.claude/rules/rules-index.md](.claude/rules/rules-index.md) | **规则索引（改动前先查）**：按改动场景路由到细则文件 + 最高频 5 条 |
 | [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md) | **已定的产品口径**（业务决策登记，不要重新提议） |
-| [.claude/rules/](.claude/rules/) 其余 | 细则：`backend-conventions` / `procurement-and-tender` / `import-and-templates` / `frontend-conventions` / `testing` |
+| [.claude/rules/](.claude/rules/) 其余 | 细则：`backend-conventions` / `procurement-and-tender` / `import-and-templates` / `frontend-conventions` / `testing` / **`parallel-development`（多任务并行时必读）** |
 | [DESIGN.md](DESIGN.md) | 视觉规则、设计 token、组件样式约定 |
 | [TODO.md](TODO.md) | 剩余任务（只列未完成项，完成即删条目） |
 | [docs/project-overview.md](docs/project-overview.md) / [architecture.md](docs/architecture.md) / [user-guide.md](docs/user-guide.md) | 项目说明 / 架构与数据流 / 使用说明 |
