@@ -9,6 +9,7 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 
 const money = (v: any) =>
   v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,6 +44,7 @@ export default function FinanceFactoring() {
 
 function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('finance:edit');
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [contractId, setContractId] = useState('');
   const [totals, setTotals] = useState<any>({});
@@ -132,18 +134,21 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
             </Table.Summary.Row>
           </Table.Summary>
         }
+        editPermission="finance:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         toolbarLeft={
           <Space wrap size={8}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              disabled={!contractId}
-              onClick={() => editorTab.openCreate()}
-            >
-              新增记录
-            </Button>
+            {canEdit && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                disabled={!contractId}
+                onClick={() => editorTab.openCreate()}
+              >
+                新增记录
+              </Button>
+            )}
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}

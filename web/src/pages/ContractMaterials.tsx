@@ -9,6 +9,7 @@ import { contractApi, supplierApi } from '@/api/business';
 import ImportButton from '@/components/ImportButton';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
@@ -36,6 +37,7 @@ export default function ContractMaterials() {
 
 function ContractMaterialsList() {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('material:edit');
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [contractId, setContractId] = useState<string>();
@@ -243,9 +245,11 @@ function ContractMaterialsList() {
         emptyText={contractId ? '当前合同暂无物资清单，可「从物资库派生」或「添加物资」' : '暂无合同物资清单数据'}
         rowEditable={() => !!contractId}
         rowDeletable={() => !!contractId}
+        editPermission="material:edit"
         onEdit={(row) => openEdit(row)}
         onDelete={removeRow}
         rowMenuItems={(row) => {
+          if (!canEdit) return [];
           const rows = listRef.current;
           const index = rows.findIndex((r) => r.id === row.id);
           return [
@@ -283,15 +287,17 @@ function ContractMaterialsList() {
               onChange={(v) => { setContractId(v); refreshList(); }}
               options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
             />
-            <ImportButton
-              moduleName="合同物资清单"
-              templateUrl={contractMaterialApi.templateUrl()}
-              uploadUrl={contractId ? contractMaterialApi.importUrl(contractId) : ''}
-              validateUrl={contractId ? contractMaterialApi.validateUrl(contractId) : ''}
-              disabled={!contractId}
-              onDone={refreshList}
-              extraHint="物资名称 + 规格型号须与物资基础库一致。"
-            />
+            {canEdit && (
+              <ImportButton
+                moduleName="合同物资清单"
+                templateUrl={contractMaterialApi.templateUrl()}
+                uploadUrl={contractId ? contractMaterialApi.importUrl(contractId) : ''}
+                validateUrl={contractId ? contractMaterialApi.validateUrl(contractId) : ''}
+                disabled={!contractId}
+                onDone={refreshList}
+                extraHint="物资名称 + 规格型号须与物资基础库一致。"
+              />
+            )}
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}
@@ -306,16 +312,20 @@ function ContractMaterialsList() {
             >
               导出 CSV
             </Button>
-            <Button
-              icon={<SwapOutlined />}
-              disabled={!contractId}
-              onClick={() => { setDeriveIds([]); loadBases(''); setDeriveOpen(true); }}
-            >
-              从物资库派生
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!contractId} onClick={() => openEdit()}>
-              添加物资
-            </Button>
+            {canEdit && (
+              <>
+                <Button
+                  icon={<SwapOutlined />}
+                  disabled={!contractId}
+                  onClick={() => { setDeriveIds([]); loadBases(''); setDeriveOpen(true); }}
+                >
+                  从物资库派生
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} disabled={!contractId} onClick={() => openEdit()}>
+                  添加物资
+                </Button>
+              </>
+            )}
           </Space>
         }
       />

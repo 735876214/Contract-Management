@@ -5,6 +5,7 @@ import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons'
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
@@ -37,6 +38,7 @@ export default function Suppliers() {
 function SupplierList() {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
+  const canEdit = usePermission('supplier:edit');
   const { loading, list, search, reload, pagination } = useTable<any>((p) => supplierApi.list(p));
 
   // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
@@ -51,11 +53,15 @@ function SupplierList() {
       title="供应商库"
       extra={
         <Space>
-          <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} validateUrl={supplierApi.validateUrl()} onDone={reload} />
+          {canEdit && (
+            <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} validateUrl={supplierApi.validateUrl()} onDone={reload} />
+          )}
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(supplierApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-            新增供应商
-          </Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              新增供应商
+            </Button>
+          )}
         </Space>
       }
     >
@@ -99,17 +105,18 @@ function SupplierList() {
             title: '操作',
             width: 220,
             fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
-                <Button type="link" size="small" onClick={async () => { await supplierApi.toggle(row.id); reload(); }}>
-                  {row.status === 1 ? '停用' : '启用'}
-                </Button>
-                <Popconfirm title="被合同引用时不可删除" onConfirm={async () => { await supplierApi.remove(row.id); message.success('已删除'); reload(); }}>
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
+            render: (_, row) =>
+              canEdit ? (
+                <Space size={4}>
+                  <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
+                  <Button type="link" size="small" onClick={async () => { await supplierApi.toggle(row.id); reload(); }}>
+                    {row.status === 1 ? '停用' : '启用'}
+                  </Button>
+                  <Popconfirm title="被合同引用时不可删除" onConfirm={async () => { await supplierApi.remove(row.id); message.success('已删除'); reload(); }}>
+                    <Button type="link" size="small" danger>删除</Button>
+                  </Popconfirm>
+                </Space>
+              ) : null,
           },
         ]}
       />

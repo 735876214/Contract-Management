@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { usePermission } from '@/hooks/usePermission';
 import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
@@ -90,6 +91,7 @@ export const VARIABLES = VARIABLE_GROUPS.flatMap((g) => g.items.map((i) => i.key
  * 类型常量在 `@/constants/clauseTypes`（本文件 re-export 以兼容旧引用）。
  */
 export default function Clauses() {
+  const canEdit = usePermission('template:edit');
   const [clauses, setClauses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string | undefined>();
@@ -148,9 +150,11 @@ export default function Clauses() {
               onChange={(v) => setFilterType(v)}
               options={CLAUSE_TYPE_OPTIONS}
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
-              新增条款
-            </Button>
+            {canEdit && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
+                新增条款
+              </Button>
+            )}
           </Space>
         }
       >
@@ -176,14 +180,15 @@ export default function Clauses() {
               title: '操作',
               width: 140,
               fixed: 'right',
-              render: (_, row) => (
-                <Space size={4}>
-                  <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                  <Popconfirm title="确认删除该条款？" onConfirm={() => remove(row.id)}>
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                </Space>
-              ),
+              render: (_, row) =>
+                canEdit ? (
+                  <Space size={4}>
+                    <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
+                    <Popconfirm title="确认删除该条款？" onConfirm={() => remove(row.id)}>
+                      <Button type="link" size="small" danger>删除</Button>
+                    </Popconfirm>
+                  </Space>
+                ) : null,
             },
           ]}
         />

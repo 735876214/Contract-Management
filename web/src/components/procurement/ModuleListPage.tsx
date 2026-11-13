@@ -33,6 +33,7 @@ import { procurementTaskApi } from '@/api/modules';
 import { taskTypeLabel, taskTypeTone } from '@/constants/procurementWorkflow';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useListColumns } from '@/hooks/useListColumns';
+import { usePermission } from '@/hooks/usePermission';
 import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
 import EmptyState from '@/components/EmptyState';
 import MobileCardList from '@/components/MobileCardList';
@@ -161,6 +162,12 @@ export interface ModuleListPageProps {
   /** 窄容器下用**卡片视图**代替表格（仅最高频的 3 个页面开启，见 docs/09 §4） */
   mobileCards?: boolean;
   /**
+   * 行编辑/删除所需的权限码（2026-11-13）：无该权限时**不渲染**「编辑 / 删除」（含「更多」里的项），
+   * 只保留查看。数组表示任一命中即放行（与后端 `@RequirePermissions` 的 OR 语义一致）。
+   * 不传 = 不做前端门禁（后端仍会 403 兜底）。
+   */
+  editPermission?: string | string[];
+  /**
    * 命中这些字段名时，筛选值变化**立即查询**（等价于点一次「查询」）。
    *
    * 用途：像「资金费用台账」这种"先选合同才加载"的页面 —— 选了合同还要用户再点一次查询
@@ -214,6 +221,7 @@ export default function ModuleListPage({
   columnConfigLockedKeys,
   mobileDefaultKeys,
   mobileCards,
+  editPermission,
   autoSearchOnChange,
   onFilterChange,
   onFetched,
@@ -226,6 +234,13 @@ export default function ModuleListPage({
    * 列宽用 `Col flex`（CSS 值）而不是 `xs/md/lg` 断点 prop：断点 prop 是视口驱动的，改不动。
    */
   const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  /**
+   * 行编辑/删除的前端门禁（2026-11-13）：无权限时只保留「查看」，
+   * 「更多」里也不再出现编辑/删除项（后端 403 仍是最后防线）。
+   */
+  const canEditRow = usePermission(editPermission);
+  const effectiveOnEdit = canEditRow ? onEdit : undefined;
+  const effectiveOnDelete = canEditRow ? onDelete : undefined;
   // 容器宽度未知（首帧）时按 4 列渲染，避免先窄后宽闪一下
   const perRow = Math.min(
     PER_ROW_MAX,
@@ -450,21 +465,21 @@ export default function ModuleListPage({
           onClick?: () => void;
           children?: { key: string; label: ReactNode; disabled?: boolean; danger?: boolean; onClick?: () => void }[];
         }[] = [];
-        if (onEdit) {
+        if (effectiveOnEdit) {
           moreItems.push({
             key: 'edit',
             label: '编辑',
             disabled: !editable,
-            onClick: () => onEdit(row),
+            onClick: () => effectiveOnEdit(row),
           });
         }
-        if (onDelete) {
+        if (effectiveOnDelete) {
           moreItems.push({
             key: 'delete',
             label: '删除',
             danger: true,
             disabled: !deletable,
-            onClick: () => onDelete(row),
+            onClick: () => effectiveOnDelete(row),
           });
         }
         moreItems.push(...(rowMenuItems?.(row) ?? []));
@@ -472,11 +487,11 @@ export default function ModuleListPage({
         // 已完成显示「查看」（进入任务查看弹窗）；generic 模式保持「查看」
         const published = isModuleMode && moduleStatusOf(row).value === 'PUBLISHED';
         const primary =
-          published || !onEdit
+          published || !effectiveOnEdit
             ? onView
               ? { label: '查看', onClick: () => onView(row) }
               : null
-            : { label: '编辑', onClick: () => onEdit(row) };
+            : { label: '编辑', onClick: () => effectiveOnEdit(row) };
         return (
           <Space size={4}>
             {primary && (

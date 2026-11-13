@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePermission } from '@/hooks/usePermission';
 import {
   Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Select,
   Checkbox,
@@ -29,6 +30,7 @@ interface ContractTemplateRow {
 }
 
 export default function Templates() {
+  const canEdit = usePermission('template:edit');
   const { loading, list, params, search, reload, pagination } = useTable<ContractTemplateRow>(
     (p) => templateApi.list({ ...p, includeHistory: params.includeHistory }),
   );
@@ -162,10 +164,14 @@ export default function Templates() {
       render: (_, row) => (
         <Space size={4}>
           <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => openVersions(row)}>版本</Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>
-          <Popconfirm title="删除后该模板所有版本将被移除" onConfirm={async () => { await templateApi.remove(row.id); message.success('已删除'); reload(); }}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
+          {canEdit && (
+            <>
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>
+              <Popconfirm title="删除后该模板所有版本将被移除" onConfirm={async () => { await templateApi.remove(row.id); message.success('已删除'); reload(); }}>
+                <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+              </Popconfirm>
+            </>
+          )}
         </Space>
       ),
     },
@@ -177,7 +183,9 @@ export default function Templates() {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增模板</Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增模板</Button>
+          )}
         </Space>
       }
     >

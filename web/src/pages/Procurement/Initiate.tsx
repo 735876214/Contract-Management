@@ -24,6 +24,7 @@ import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, { type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import {
   BASIC_EDITABLE_STATUSES,
   PROCUREMENT_TASK_TYPES,
@@ -52,6 +53,8 @@ interface TaskRow {
   purpose: string;
   status: string;
   stage: number;
+  /** 乐观锁（服务端 2026-11-13 起强制回传；缺失/过期 409） */
+  version?: number;
   preMeetingRequired: boolean;
   estimatedAmountWan?: number;
   totalListId: string | null;
@@ -77,6 +80,7 @@ const LIST_PATH = '/procurement/initiate';
  */
 export default function Initiate() {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('contract:edit');
   const isEditor = editorTab.isEditor;
   /** 「继续编辑」时由列表页递过来的整行 */
   const seedRow = (editorTab.seed as { row?: TaskRow } | undefined)?.row;
@@ -87,9 +91,14 @@ export default function Initiate() {
 
   /** 新建三步流程状态：0 基本信息 / 1 编制总采购清单 / 2 技术质量·验收·付款 */
   const [createStep, setCreateStep] = useState(0);
-  const [createdTask, setCreatedTask] = useState<{ id: string; taskNo: string; status: string; stage: number } | null>(
-    null,
-  );
+  const [createdTask, setCreatedTask] = useState<{
+    id: string;
+    taskNo: string;
+    status: string;
+    stage: number;
+    /** 乐观锁：每次保存后用服务端返回值刷新（publish 也会 bump） */
+    version: number;
+  } | null>(null);
   /** 第二步（编制总采购清单）内容区动作引用 */
   const contentRef = useRef<TotalListContentRef | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -134,11 +143,17 @@ export default function Initiate() {
       taskNo: seedRow.taskNo,
       status: seedRow.status,
       stage: seedRow.stage,
+      version: seedRow.version ?? 0,
     });
     procurementTaskApi
       .detail(seedRow.id)
       .then((d: any) => {
         const task = d?.data ?? d;
+        // 详情返回的 version 最权威（列表行可能来自旧缓存，没有 version 字段）
+        if (typeof task?.version === 'number') {
+          setCreatedTask((prev) => (prev ? { ...prev, version: task.version } : prev));
+          setEditing((prev) => (prev ? { ...prev, version: task.version } : prev));
+        }
         form.setFieldsValue({
           type: seedRow.type,
           content: seedRow.content,
@@ -172,18 +187,30 @@ export default function Initiate() {
     try {
       if (editing) {
         // 编辑态：保存基本信息（含采购品类）后进入第二步
-        await procurementTaskApi.update(editing.id, {
+        const saved: any = await procurementTaskApi.update(editing.id, {
           content: values.content,
           purpose: values.purpose,
           procurementCategory: values.procurementCategory || null,
+          // 乐观锁：带上最近一次服务端返回的 version（详情接口会刷新它）
+          version: createdTask?.version ?? editing.version,
         });
+        const savedVersion = (saved?.data ?? saved)?.version;
+        if (typeof savedVersion === 'number') {
+          setCreatedTask((prev) => (prev ? { ...prev, version: savedVersion } : prev));
+          setEditing((prev) => (prev ? { ...prev, version: savedVersion } : prev));
+        }
         message.success('基本信息已保存，请继续编制总采购清单');
         setCreateStep(1);
       } else if (createdTask) {
         // 已创建过（从第二步返回第一步再前进）：不重复创建，仅同步采购品类
-        await procurementTaskApi.update(createdTask.id, {
+        const saved: any = await procurementTaskApi.update(createdTask.id, {
           procurementCategory: values.procurementCategory || null,
+          version: createdTask.version,
         });
+        const savedVersion = (saved?.data ?? saved)?.version;
+        if (typeof savedVersion === 'number') {
+          setCreatedTask((prev) => (prev ? { ...prev, version: savedVersion } : prev));
+        }
         setCreateStep(1);
       } else {
         // 第一步：创建任务后进入第二步（编制总采购清单）
@@ -199,6 +226,7 @@ export default function Initiate() {
           taskNo: task.taskNo,
           status: task.status ?? 'NOT_STARTED',
           stage: task.stage ?? 0,
+          version: task.version ?? 0,
         });
         // 任务已落库：标签标题从「新建」换成带编号的（用户一眼知道在处理哪一个）
         editorTab.setTitle(`采购发起 · ${task.taskNo}`);
@@ -240,6 +268,7 @@ export default function Initiate() {
         qualityClauseId: values.qualityClauseId || null,
         acceptanceClauseId: values.acceptanceClauseId || null,
         paymentClauseId: values.paymentClauseId || null,
+        version: createdTask.version,
       });
       await procurementTaskApi.publish(createdTask.id);
       message.success('采购任务已发布，条款已随任务固化（快照）');
@@ -469,10 +498,13 @@ export default function Initiate() {
         extraFilters={extraFilters as never}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
         actionBeforeSearch={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-            任务发起
-          </Button>
+          canEdit ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              任务发起
+            </Button>
+          ) : null
         }
         onView={handleViewRow}
         onDelete={handleRemove}
@@ -487,7 +519,7 @@ export default function Initiate() {
             {
               key: 'continue',
               label: '继续编辑',
-              disabled: !basicEditable,
+              disabled: !basicEditable || !canEdit,
               onClick: () => editorTab.openEdit(row.id, { row: row as unknown as TaskRow }),
             },
             // 问题二：已完成任务提供各模块 Word 文档导出子菜单

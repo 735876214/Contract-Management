@@ -678,6 +678,7 @@ export default function PreMeetingMinutes() {
           </span>
         }
         refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}

@@ -776,6 +776,7 @@ export default function FrameworkExplanation() {
           </span>
         }
         refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}

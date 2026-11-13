@@ -14,6 +14,7 @@ import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { usePermission } from '@/hooks/usePermission';
 import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import { DictTag } from '@/components/DictSelect';
 import MobileCardList from '@/components/MobileCardList';
@@ -285,6 +286,7 @@ export default function ReceiptOrders() {
   // -------- 列表视图 --------
   const { loading, list, search, reload, pagination } = useTable<any>((p) => receiptOrderApi.list(p));
   const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const canEdit = usePermission('receipt:edit');
   const [filterForm] = Form.useForm();
 
   /**
@@ -811,14 +813,15 @@ export default function ReceiptOrders() {
     },
     {
       title: '操作', key: 'op', width: 160, fixed: 'right',
-      render: (_: any, row: any) => (
-        <Space size={2}>
-          <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
-          <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
-            <Button type="link" size="small" danger>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_: any, row: any) =>
+        canEdit ? (
+          <Space size={2}>
+            <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
+            <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
+              <Button type="link" size="small" danger>删除</Button>
+            </Popconfirm>
+          </Space>
+        ) : null,
     },
   ];
   const mobileHidden = mobileHiddenColumns(listColumns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
@@ -832,7 +835,9 @@ export default function ReceiptOrders() {
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增收领单</Button>
+            {canEdit && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增收领单</Button>
+            )}
           </Space>
         }
       >

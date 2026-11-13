@@ -28,6 +28,7 @@ import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import { useTabsStore } from '@/store/tabs';
 import { INVOICE_STATUS, INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 import { LIST_PATHS } from '@/constants/listPaths';
@@ -74,6 +75,7 @@ function InvoiceList({
 }) {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
+  const canEdit = usePermission('invoice:edit');
   const [batchOpen, setBatchOpen] = useState(false);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
@@ -186,11 +188,12 @@ function InvoiceList({
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
         mobileDefaultKeys={['invoiceNo', 'issuer', 'invoiceDate', 'amountWithTax', 'statusCode']}
+        editPermission="invoice:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row) =>
           // 作废/红冲是终态：终态行不再显示状态类动作（编辑/删除仍保留）
-          isInvoiceTerminalStatus((row as any).statusCode)
+          !canEdit || isInvoiceTerminalStatus((row as any).statusCode)
             ? []
             : [
                 { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
@@ -200,21 +203,27 @@ function InvoiceList({
         }
         toolbarLeft={
           <Space wrap size={8}>
-            <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
-              批量识别
-            </Button>
-            <ImportButton
-              moduleName="发票台账"
-              templateUrl={invoiceApi.templateUrl()}
-              uploadUrl={invoiceApi.importUrl()} validateUrl={invoiceApi.validateUrl()}
-              onDone={refreshList}
-            />
+            {canEdit && (
+              <>
+                <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
+                  批量识别
+                </Button>
+                <ImportButton
+                  moduleName="发票台账"
+                  templateUrl={invoiceApi.templateUrl()}
+                  uploadUrl={invoiceApi.importUrl()} validateUrl={invoiceApi.validateUrl()}
+                  onDone={refreshList}
+                />
+              </>
+            )}
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
               导出
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-              收票登记
-            </Button>
+            {canEdit && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+                收票登记
+              </Button>
+            )}
           </Space>
         }
       />

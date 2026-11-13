@@ -11,6 +11,7 @@ import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { usePermission } from '@/hooks/usePermission';
 import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
@@ -62,6 +63,7 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
   const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const canEdit = usePermission('asset:edit');
   const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
 
   // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
@@ -109,14 +111,15 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
       key: 'op',
       width: 130,
       fixed: 'right' as const,
-      render: (_: any, row: any) => (
-        <Space size={4}>
-          <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
-          <Popconfirm title="确认删除？" onConfirm={async () => { await assetApi.remove(row.id); message.success('已删除'); reload(); }}>
-            <Button type="link" size="small" danger>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_: any, row: any) =>
+        canEdit ? (
+          <Space size={4}>
+            <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
+            <Popconfirm title="确认删除？" onConfirm={async () => { await assetApi.remove(row.id); message.success('已删除'); reload(); }}>
+              <Button type="link" size="small" danger>删除</Button>
+            </Popconfirm>
+          </Space>
+        ) : null,
     },
   ];
 
@@ -181,9 +184,13 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
-          <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} uploadUrl={assetApi.importUrl()} validateUrl={assetApi.validateUrl()} onDone={reload} />
+          {canEdit && (
+            <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} uploadUrl={assetApi.importUrl()} validateUrl={assetApi.validateUrl()} onDone={reload} />
+          )}
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(assetApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增台账</Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增台账</Button>
+          )}
         </Space>
       </div>
 

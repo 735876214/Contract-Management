@@ -5,6 +5,7 @@ import { costApi } from '@/api/modules';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import { withToken } from '@/utils/download';
 
 /**
@@ -28,6 +29,7 @@ export default function CostProfitLoss() {
 
 function ProfitList() {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('cost:edit');
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [listRefresh, setListRefresh] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -81,17 +83,20 @@ function ProfitList() {
       extraColumns={extraColumns}
       refreshKey={listRefresh + tabRefresh}
       emptyText="暂无月度盈亏分析记录"
+      editPermission="cost:edit"
       onEdit={(row) => editorTab.openEdit(row.id, row)}
       onDelete={handleRemove}
       toolbarLeft={
-        <CreateButton
-          creating={creating}
-          setCreating={setCreating}
-          onCreated={(id, seed) => {
-            refreshList();
-            editorTab.openEdit(id, seed);
-          }}
-        />
+        canEdit ? (
+          <CreateButton
+            creating={creating}
+            setCreating={setCreating}
+            onCreated={(id, seed) => {
+              refreshList();
+              editorTab.openEdit(id, seed);
+            }}
+          />
+        ) : null
       }
     />
   );

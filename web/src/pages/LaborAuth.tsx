@@ -14,6 +14,7 @@ import { contractApi, laborApi } from '@/api/business';
 import { fileApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
@@ -88,6 +89,7 @@ export default function LaborAuth() {
 function LaborAuthList() {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
+  const canEdit = usePermission('labor:edit');
   const { loading, list, search, reload, pagination } = useTable<any>((p) => laborApi.list(p));
   const [filterForm] = Form.useForm();
 
@@ -116,7 +118,9 @@ function LaborAuthList() {
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增授权委托书</Button>
+            {canEdit && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增授权委托书</Button>
+            )}
             <Button icon={<DownloadOutlined />} onClick={() => window.open(withToken(laborApi.exportWorkbookUrl()))}>导出 Excel</Button>
           </Space>
         }
@@ -177,13 +181,17 @@ function LaborAuthList() {
               render: (_: any, row: any) => (
                 <Space size={2}>
                   <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetail(row)}>详情</Button>
-                  <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
-                  <Popconfirm
-                    title="删除后不可恢复，确认删除该分包商？"
-                    onConfirm={async () => { await laborApi.remove(row.id); message.success('已删除'); reload(); }}
-                  >
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
+                  {canEdit && (
+                    <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
+                  )}
+                  {canEdit && (
+                    <Popconfirm
+                      title="删除后不可恢复，确认删除该分包商？"
+                      onConfirm={async () => { await laborApi.remove(row.id); message.success('已删除'); reload(); }}
+                    >
+                      <Button type="link" size="small" danger>删除</Button>
+                    </Popconfirm>
+                  )}
                 </Space>
               ),
             },

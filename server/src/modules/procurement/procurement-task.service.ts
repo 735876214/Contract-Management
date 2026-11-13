@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 type JsonValue = Prisma.JsonValue;
-import { paginate, buildResult, num, localDayKey } from '../../common/utils/helpers';
+import { paginate, buildResult, num, localDayKey, assertVersion } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
   ImportTemplateService,
@@ -152,6 +152,8 @@ interface TaskRow {
   purpose: string | null;
   status: string;
   stage: number;
+  /** 乐观锁（2026-11-13）：列表/详情都回传，前端更新时必须带回 */
+  version: number;
   preMeetingRequired: boolean;
   totalListId: string | null;
   procurementCategory: string | null;
@@ -428,10 +430,15 @@ export class ProcurementTaskService {
       qualityClauseId?: string | null;
       paymentClauseId?: string | null;
       acceptanceClauseId?: string | null;
+      /** 乐观锁：列表/详情带回的版本号（缺失或过期一律 409） */
+      version?: number;
     },
   ) {
     const current = await this.taskOf(id);
     if (!current) throw new NotFoundException('采购任务不存在');
+    // 乐观锁（2026-11-13）：表有 version 列但更新不校验 —— 两人同时编辑会静默覆盖。
+    // `assertVersion` 强制要求回传 version（缺失 409），与其它业务表同一套语义。
+    assertVersion(current, data);
     const editableStatuses: readonly string[] = [TASK_STATUS.NOT_STARTED, TASK_STATUS.LIST_EDITING];
     if (!editableStatuses.includes(current.status)) {
       throw new BadRequestException('任务已进入后续流程，基本信息不可修改');
@@ -488,7 +495,10 @@ export class ProcurementTaskService {
       Object.assign(patch, clauseInput, snapshots);
     }
 
-    const updated = await this.prisma.procurementTask.update({ where: { id }, data: patch });
+    const updated = await this.prisma.procurementTask.update({
+      where: { id },
+      data: { ...patch, version: { increment: 1 } },
+    });
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
   }
 
@@ -2457,6 +2467,8 @@ export class ProcurementTaskService {
       status: r.status,
       statusLabel: TASK_STATUS_LABELS[r.status] ?? r.status,
       stage: r.stage,
+      /** 乐观锁：更新时原样回传（`assertVersion` 强制要求，缺失即 409） */
+      version: r.version,
       preMeetingRequired: r.preMeetingRequired,
       totalListId: r.totalListId,
       contractId,

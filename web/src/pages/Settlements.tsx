@@ -27,6 +27,7 @@ import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -103,6 +104,7 @@ function SettlementsTab({
 }) {
   const editorTab = useEditorTab(ORDER_LIST_PATH);
   const tabRefresh = useTabRefresh(ORDER_LIST_PATH);
+  const canEdit = usePermission('settlement:edit');
   const [listRefresh, setListRefresh] = useState(0);
   /** 上一期（未生成）的抓取情况，用于顶部提示（业务口径 2026-10-16：手动按钮 + 未生成提示） */
   const [pending, setPending] = useState<any>(null);
@@ -217,9 +219,11 @@ function SettlementsTab({
           message={`上一期（${pending.month}）还有 ${pending.pendingContracts} 个合同的结算单未生成`}
           description={`结算期 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)}，期间有 ${pending.dailyRowCount ?? pending.orderCount} 条尚未纳入结算的总日报行。`}
           action={
-            <Button size="small" type="primary" onClick={() => doGenerate()}>
-              立即生成
-            </Button>
+            canEdit ? (
+              <Button size="small" type="primary" onClick={() => doGenerate()}>
+                立即生成
+              </Button>
+            ) : null
           }
         />
       )}
@@ -232,6 +236,7 @@ function SettlementsTab({
         refreshKey={listRefresh + tabRefresh}
         mobileDefaultKeys={['code', 'contract', 'actualAmount', 'settleDate', 'statusCode']}
         mobileCards
+        editPermission="settlement:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         rowMenuItems={(row: ModuleListRow & { statusCode?: string }) =>
@@ -253,13 +258,17 @@ function SettlementsTab({
         }
         toolbarLeft={
           <Space wrap size={8}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-              新增结算单
-            </Button>
-            {/* 手动生成本期结算：仓库不引入调度器（定时任务需另立决策），故做成按钮 + 顶部未生成提示 */}
-            <Button icon={<ThunderboltOutlined />} onClick={() => doGenerate()}>
-              生成本期结算
-            </Button>
+            {canEdit && (
+              <>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+                  新增结算单
+                </Button>
+                {/* 手动生成本期结算：仓库不引入调度器（定时任务需另立决策），故做成按钮 + 顶部未生成提示 */}
+                <Button icon={<ThunderboltOutlined />} onClick={() => doGenerate()}>
+                  生成本期结算
+                </Button>
+              </>
+            )}
           </Space>
         }
       />
@@ -583,6 +592,7 @@ function LedgerTab({
 }) {
   const editorTab = useEditorTab(LEDGER_LIST_PATH);
   const tabRefresh = useTabRefresh(LEDGER_LIST_PATH);
+  const canEdit = usePermission('settlement:edit');
   const [refreshing, setRefreshing] = useState(false);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
@@ -648,26 +658,33 @@ function LedgerTab({
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
         mobileDefaultKeys={['supplier', 'contractName', 'settleMonth', 'monthSettleAmount', 'monthInvoiceAmount']}
+        editPermission="settlement:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
         toolbarLeft={
           <Space wrap size={8}>
-            <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>
-              自动生成台账
-            </Button>
-            <ImportButton
-              moduleName="结算台账"
-              templateUrl={settlementApi.ledgerTemplateUrl()}
-              uploadUrl={settlementApi.ledgerImportUrl()} validateUrl={settlementApi.ledgerValidateUrl()}
-              allowUpsert
-              onDone={refreshList}
-            />
+            {canEdit && (
+              <>
+                <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>
+                  自动生成台账
+                </Button>
+                <ImportButton
+                  moduleName="结算台账"
+                  templateUrl={settlementApi.ledgerTemplateUrl()}
+                  uploadUrl={settlementApi.ledgerImportUrl()} validateUrl={settlementApi.ledgerValidateUrl()}
+                  allowUpsert
+                  onDone={refreshList}
+                />
+              </>
+            )}
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>
               导出台账
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-              新增台账
-            </Button>
+            {canEdit && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+                新增台账
+              </Button>
+            )}
           </Space>
         }
       />

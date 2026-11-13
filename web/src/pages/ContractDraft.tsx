@@ -32,6 +32,7 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 import { useAuthStore } from '@/store/auth';
 import { useTabsStore } from '@/store/tabs';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import MaterialPoolTab from '@/components/contract/MaterialPoolTab';
 import ContractItemTab from '@/components/contract/ContractItemTab';
@@ -64,6 +65,7 @@ const LIST_PATH = '/contract/draft';
  */
 export default function ContractDraft() {
   const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('contract:edit');
   const isCreate = editorTab.editorId === 'new';
   const recordId = editorTab.editorId && editorTab.editorId !== 'new' ? editorTab.editorId : null;
 
@@ -386,12 +388,15 @@ export default function ContractDraft() {
         extraColumns={extraColumns}
         emptyText="暂无合同草稿"
         refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
         onEdit={(row) => editorTab.openEdit(row.id, {})}
         onDelete={handleRemove}
         toolbarLeft={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-            新增合同
-          </Button>
+          canEdit ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              新增合同
+            </Button>
+          ) : null
         }
       />
 

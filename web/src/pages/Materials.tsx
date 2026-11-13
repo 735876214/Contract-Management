@@ -6,6 +6,7 @@ import { materialApi } from '@/api/modules';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 
@@ -29,6 +30,7 @@ function MaterialList() {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
   const { loading, list, params, search, reload, pagination } = useTable<any>((p) => materialApi.list(p));
+  const canEdit = usePermission('material:edit');
   // 物资一二级分类（需求 2.2）：一级 material_category、二级 material_type（extField1 关联一级 code）
   const [catL1, setCatL1] = useState<any[]>([]);
   const [catL2, setCatL2] = useState<any[]>([]);
@@ -48,9 +50,13 @@ function MaterialList() {
       title="物资基础库"
       extra={
         <Space>
-          <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} validateUrl={materialApi.validateUrl()} onDone={reload} />
+          {canEdit && (
+            <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} validateUrl={materialApi.validateUrl()} onDone={reload} />
+          )}
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(materialApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增物资</Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增物资</Button>
+          )}
         </Space>
       }
     >
@@ -111,36 +117,37 @@ function MaterialList() {
             title: '操作',
             width: 220,
             fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
-                <Popconfirm
-                  title={row.refCount > 0 ? `该物资已被 ${row.refCount} 条合同清单引用，删除会破坏历史合同数据，建议改为停用。仍要删除吗？` : '确认删除该物资？'}
-                  okButtonProps={{ danger: row.refCount > 0 }}
-                  onConfirm={async () => {
-                    try {
-                      await materialApi.remove(row.id);
-                      message.success('已删除');
+            render: (_, row) =>
+              canEdit ? (
+                <Space size={4}>
+                  <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
+                  <Popconfirm
+                    title={row.refCount > 0 ? `该物资已被 ${row.refCount} 条合同清单引用，删除会破坏历史合同数据，建议改为停用。仍要删除吗？` : '确认删除该物资？'}
+                    okButtonProps={{ danger: row.refCount > 0 }}
+                    onConfirm={async () => {
+                      try {
+                        await materialApi.remove(row.id);
+                        message.success('已删除');
+                        reload();
+                      } catch { /* 后端已提示引用阻止 */ }
+                    }}
+                  >
+                    <Button type="link" size="small" danger>删除</Button>
+                  </Popconfirm>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={row.status === 1 ? <StopOutlined /> : <CheckCircleOutlined />}
+                    onClick={async () => {
+                      await materialApi.toggle(row.id);
+                      message.success(row.status === 1 ? '已停用（历史合同数据保留）' : '已启用');
                       reload();
-                    } catch { /* 后端已提示引用阻止 */ }
-                  }}
-                >
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={row.status === 1 ? <StopOutlined /> : <CheckCircleOutlined />}
-                  onClick={async () => {
-                    await materialApi.toggle(row.id);
-                    message.success(row.status === 1 ? '已停用（历史合同数据保留）' : '已启用');
-                    reload();
-                  }}
-                >
-                  {row.status === 1 ? '停用' : '启用'}
-                </Button>
-              </Space>
-            ),
+                    }}
+                  >
+                    {row.status === 1 ? '停用' : '启用'}
+                  </Button>
+                </Space>
+              ) : null,
           },
         ]}
       />

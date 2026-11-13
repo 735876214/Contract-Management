@@ -8,10 +8,13 @@ import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeft
 import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { usePermission } from '@/hooks/usePermission';
 
 const COLORS = ['blue', 'green', 'red', 'orange', 'gold', 'cyan', 'purple', 'magenta', 'volcano', 'geekblue', 'default'];
 
 export default function Dict() {
+  /** 字典写入：后端是 `dict:edit` **或** `system:config` 任一即可（OR 语义，见 dict.controller） */
+  const canEdit = usePermission(['dict:edit', 'system:config']);
   const [types, setTypes] = useState<any[]>([]);
   const [typeKeyword, setTypeKeyword] = useState('');
   const [currentType, setCurrentType] = useState<any>(null);
@@ -131,18 +134,20 @@ export default function Dict() {
         <Card
           title="字典类型"
           extra={
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingType(null);
-                typeForm.resetFields();
-                setTypeModal(true);
-              }}
-            >
-              新增
-            </Button>
+            canEdit ? (
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setEditingType(null);
+                  typeForm.resetFields();
+                  setTypeModal(true);
+                }}
+              >
+                新增
+              </Button>
+            ) : null
           }
         >
           <Input.Search placeholder="搜索编码/名称" allowClear onSearch={loadTypes} onChange={(e) => setTypeKeyword(e.target.value)} style={{ marginBottom: 12 }} />
@@ -169,18 +174,20 @@ export default function Dict() {
                 </Tooltip>
                 <Space size={4}>
                   <Tag>{t.itemCount ?? 0}</Tag>
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingType(t);
-                      typeForm.setFieldsValue(t);
-                      setTypeModal(true);
-                    }}
-                  >
-                    编辑
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingType(t);
+                        typeForm.setFieldsValue(t);
+                        setTypeModal(true);
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  )}
                 </Space>
               </div>
             ))}
@@ -205,6 +212,7 @@ export default function Dict() {
               <Button icon={<ReloadOutlined />} onClick={() => currentType && loadItems(currentType.code)} disabled={!currentType}>
                 刷新
               </Button>
+              {canEdit && (
               <Button
                 icon={<ImportOutlined />}
                 disabled={!currentType}
@@ -266,6 +274,7 @@ export default function Dict() {
               >
                 导入
               </Button>
+              )}
               <Button
                 icon={<ExportOutlined />}
                 disabled={!currentType}
@@ -273,19 +282,21 @@ export default function Dict() {
               >
                 导出
               </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                disabled={!currentType}
-                onClick={() => {
-                  setEditingItem(null);
-                  itemForm.resetFields();
-                  itemForm.setFieldsValue({ status: 1, sortOrder: items.length + 1 });
-                  setItemModal(true);
-                }}
-              >
-                新增字典项
-              </Button>
+              {canEdit && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  disabled={!currentType}
+                  onClick={() => {
+                    setEditingItem(null);
+                    itemForm.resetFields();
+                    itemForm.setFieldsValue({ status: 1, sortOrder: items.length + 1 });
+                    setItemModal(true);
+                  }}
+                >
+                  新增字典项
+                </Button>
+              )}
             </Space>
           }
         >
@@ -325,30 +336,31 @@ export default function Dict() {
                 // 原 210 会把「删除」裁在固定列右缘外（桌面与手机都点不到）。留 16px 内边距余量。
                 width: 260,
                 fixed: 'right',
-                render: (_: any, row: any) => (
-                  <Space size={4} wrap>
-                    <Button type="link" size="small" onClick={() => { setEditingItem(row); itemForm.setFieldsValue(row); setItemModal(true); }}>
-                      编辑
-                    </Button>
-                    <Button type="link" size="small" onClick={() => toggleItem(row)}>
-                      {row.status === 1 ? '停用' : '启用'}
-                    </Button>
-                    <Button type="link" size="small" onClick={() => move(row, -1)}>
-                      上移
-                    </Button>
-                    <Button type="link" size="small" onClick={() => move(row, 1)}>
-                      下移
-                    </Button>
-                    <Popconfirm
-                      title="确认删除该字典项？被业务数据引用时不可删除"
-                      onConfirm={() => removeItem(row)}
-                    >
-                      <Button type="link" size="small" danger>
-                        删除
+                render: (_: any, row: any) =>
+                  canEdit ? (
+                    <Space size={4} wrap>
+                      <Button type="link" size="small" onClick={() => { setEditingItem(row); itemForm.setFieldsValue(row); setItemModal(true); }}>
+                        编辑
                       </Button>
-                    </Popconfirm>
-                  </Space>
-                ),
+                      <Button type="link" size="small" onClick={() => toggleItem(row)}>
+                        {row.status === 1 ? '停用' : '启用'}
+                      </Button>
+                      <Button type="link" size="small" onClick={() => move(row, -1)}>
+                        上移
+                      </Button>
+                      <Button type="link" size="small" onClick={() => move(row, 1)}>
+                        下移
+                      </Button>
+                      <Popconfirm
+                        title="确认删除该字典项？被业务数据引用时不可删除"
+                        onConfirm={() => removeItem(row)}
+                      >
+                        <Button type="link" size="small" danger>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  ) : null,
               },
             ]}
           />

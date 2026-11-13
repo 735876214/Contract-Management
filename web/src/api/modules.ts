@@ -47,6 +47,8 @@ export const procurementTaskApi = {
       qualityClauseId?: string | null;
       acceptanceClauseId?: string | null;
       paymentClauseId?: string | null;
+      /** 乐观锁：列表/详情带回的 version（服务端 `assertVersion` 强制校验） */
+      version?: number;
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */

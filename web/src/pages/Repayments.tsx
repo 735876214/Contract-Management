@@ -20,6 +20,7 @@ import { supplierApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 
 const money = (v: any) =>
   v == null || v === '' ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
@@ -47,6 +48,7 @@ export default function Repayments() {
 function RepaymentList({ suppliers }: { suppliers: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
+  const canEdit = usePermission('repayment:edit');
   const [queryForm] = Form.useForm();
   const { loading, list, pagination, search, reload } = useTable<any>((p) => repaymentApi.list(p));
 
@@ -63,9 +65,11 @@ function RepaymentList({ suppliers }: { suppliers: any[] }) {
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(repaymentApi.exportUrl()))}>
             导出
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-            新增协议
-          </Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              新增协议
+            </Button>
+          )}
         </Space>
       }
     >
@@ -127,21 +131,22 @@ function RepaymentList({ suppliers }: { suppliers: any[] }) {
             title: '操作',
             width: 160,
             fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id)}>编辑</Button>
-                <Popconfirm
-                  title="确认删除该协议？"
-                  onConfirm={async () => {
-                    await repaymentApi.remove(row.id);
-                    message.success('已删除');
-                    reload();
-                  }}
-                >
-                  <Button type="link" size="small" danger>删除</Button>
-                </Popconfirm>
-              </Space>
-            ),
+            render: (_, row) =>
+              canEdit ? (
+                <Space size={4}>
+                  <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id)}>编辑</Button>
+                  <Popconfirm
+                    title="确认删除该协议？"
+                    onConfirm={async () => {
+                      await repaymentApi.remove(row.id);
+                      message.success('已删除');
+                      reload();
+                    }}
+                  >
+                    <Button type="link" size="small" danger>删除</Button>
+                  </Popconfirm>
+                </Space>
+              ) : null,
           },
         ]}
       />

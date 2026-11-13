@@ -105,7 +105,7 @@
 
 | 组件 | Props（要点） | 说明 |
 |---|---|---|
-| `ModuleListPage.tsx` | `moduleKey` `mode('module'\|'generic')` `fetcher` `baseParams?` `extraFilters?` `extraColumns?` `toolbarLeft?` `actionBeforeSearch?` `refreshKey?` `onView/onEdit/rowEditable/onDelete/rowDeletable/rowMenuItems` `showOpColumn?` `emptyText?` `columnConfigKey?` `columnConfigLockedKeys?` `mobileDefaultKeys?` `mobileCards?` | 采购六模块通用标准列表页；导出 `moduleStatusOf`、`useModuleDelete`。**列设置**：传 `columnConfigKey` 即启用（module 模式自动取 `procurement.<moduleKey>`），偏好存 **localStorage**（每浏览器）；「操作」列与 module 模式的「采购编号」列不可隐藏。**移动端（窄容器 <720）**：`mobileDefaultKeys` 预置 4–6 列（未自定义时生效），`mobileCards` 用卡片视图代替表格（docs/09 §4 阶段 B） |
+| `ModuleListPage.tsx` | `moduleKey` `mode('module'\|'generic')` `fetcher` `baseParams?` `extraFilters?` `extraColumns?` `toolbarLeft?` `actionBeforeSearch?` `refreshKey?` `onView/onEdit/rowEditable/onDelete/rowDeletable/rowMenuItems` `showOpColumn?` `emptyText?` `columnConfigKey?` `columnConfigLockedKeys?` `mobileDefaultKeys?` `mobileCards?` `editPermission?` | 采购六模块通用标准列表页；导出 `moduleStatusOf`、`useModuleDelete`。**列设置**：传 `columnConfigKey` 即启用（module 模式自动取 `procurement.<moduleKey>`），偏好存 **localStorage**（每浏览器）；「操作」列与 module 模式的「采购编号」列不可隐藏。**移动端（窄容器 <720）**：`mobileDefaultKeys` 预置 4–6 列（未自定义时生效），`mobileCards` 用卡片视图代替表格（docs/09 §4 阶段 B）。**权限门禁**：`editPermission` 无权限时不渲染行内「编辑/删除」（数组为 OR 语义；后端 403 仍是最后防线） |
 | `ModuleDetailCard.tsx` | `title` `taskNo` `content` `statusLabel` `statusColor` `publishedAt` `extraDescriptions` `docHtml` `docLoading` `actions` | 只读详情卡片；含 `useModuleDetailDoc(...)` |
 | `TaskViewModal.tsx` | `task{id,taskNo,status,stage}` `open` `onClose` | 任务查看（基本信息 + 总清单 + 已生成文档导出） |
 | `TotalListEditor.tsx` | 导出 `TotalListEditor`、`TotalListEditorContent`（`readOnly`/`embedded`）、`TotalListContentRef` | 总采购清单编辑器（15 列，物资必须选自基础库） |
@@ -129,6 +129,7 @@
 |---|---|---|
 | `useTable<T>` | `(fetcher, defaultParams?) → { loading, list, total, params, setParams, search(extra), reload, pagination }` | 通用列表查询（默认 `page/pageSize=20`）；内部去抖动与丢弃过期响应 |
 | `useListColumns` | `({ configKey?, allKeys, lockedKeys?, mobileDefaultKeys?, narrow? }) → { hiddenKeys, isHidden, toggle, reset, hiddenCount, customized }` | 列表页**列显隐**偏好，按 `configKey` 存 localStorage（每浏览器，不落库）；纯逻辑在 `utils/listColumns.ts`（可单测）。**移动端列模板**：`narrow`（容器宽度 <720）+ `mobileDefaultKeys` 时，未自定义则只显示预设列；移动端偏好存独立键（`@mobile` 后缀），桌面偏好不受影响。与 `ledger.columns.config`（服务端共享配置）**语义不同**，勿混用 |
+| `usePermission` | `usePermission(codeOrCodes?) → boolean` | **操作级**权限判断（2026-11-13「只读用户仍看到编辑按钮」修复）：`'x:edit'` 或 `['dict:edit','system:config']`（任一命中，与后端 `@RequirePermissions` 的 OR 语义一致）；不传 = true；超管恒 true。与 `RequirePermission`（路由级）分工：一个决定能不能进页面，一个决定按钮显不显示；后端 403 为最后防线 |
 | `MobileCardList.tsx` | `rows` `columns` `rowKey?` `loading?` `pagination?` `emptyText?` `onCardClick?` | 窄容器列表的**卡片视图**：按已渲染列定义逐列取值/格式化，与表格共用同一份列；「操作」列（`key: 'op'`）渲染在卡片底部。仅用于 docs/09 §4 阶段 B 指定的 3 个最高频页 |
 
 （Sider 的 `useMenuData/useMenuSearch/useBreadcrumb` 见上。）

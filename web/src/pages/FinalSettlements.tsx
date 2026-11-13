@@ -6,6 +6,7 @@ import { finalSettlementApi } from '@/api/modules';
 import { fileApi } from '@/api/auth';
 import { contractApi } from '@/api/business';
 import { DictTag } from '@/components/DictSelect';
+import { usePermission } from '@/hooks/usePermission';
 
 const money = (v: any) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
 
@@ -20,6 +21,7 @@ const money = (v: any) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-C
  */
 export default function FinalSettlements() {
   const [form] = Form.useForm();
+  const canEdit = usePermission('settlement:edit');
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(false);
@@ -104,16 +106,18 @@ export default function FinalSettlements() {
             load(v);
           }}
         />
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => {
-            form.resetFields();
-            setModal(true);
-          }}
-        >
-          生成总结算单
-        </Button>
+        {canEdit && (
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              form.resetFields();
+              setModal(true);
+            }}
+          >
+            生成总结算单
+          </Button>
+        )}
       </Space>
 
       <Table
@@ -175,15 +179,17 @@ export default function FinalSettlements() {
             fixed: 'right',
             render: (_v: any, row: any) => (
               <Space size={4} wrap>
-                <Upload
-                  showUploadList={false}
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  beforeUpload={(file) => uploadAttachment(row, file as File)}
-                >
-                  <Button type="link" size="small" icon={<UploadOutlined />} loading={uploadingId === row.id}>
-                    {row.attachmentUrl ? '重传附件' : '上传附件'}
-                  </Button>
-                </Upload>
+                {canEdit && (
+                  <Upload
+                    showUploadList={false}
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    beforeUpload={(file) => uploadAttachment(row, file as File)}
+                  >
+                    <Button type="link" size="small" icon={<UploadOutlined />} loading={uploadingId === row.id}>
+                      {row.attachmentUrl ? '重传附件' : '上传附件'}
+                    </Button>
+                  </Upload>
+                )}
                 <Button
                   type="link"
                   size="small"
@@ -192,24 +198,28 @@ export default function FinalSettlements() {
                 >
                   导出
                 </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => {
-                    setEditing(row);
-                    form.setFieldsValue({ remark: row.remark });
-                  }}
-                >
-                  备注
-                </Button>
-                <Popconfirm
-                  title="确认删除该总结算单？已结算的单据删除后，合同的「已完已结」会一并回退。"
-                  onConfirm={() => remove(row)}
-                >
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                    删除
-                  </Button>
-                </Popconfirm>
+                {canEdit && (
+                  <>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => {
+                        setEditing(row);
+                        form.setFieldsValue({ remark: row.remark });
+                      }}
+                    >
+                      备注
+                    </Button>
+                    <Popconfirm
+                      title="确认删除该总结算单？已结算的单据删除后，合同的「已完已结」会一并回退。"
+                      onConfirm={() => remove(row)}
+                    >
+                      <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </>
+                )}
               </Space>
             ),
           },
