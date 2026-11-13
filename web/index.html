@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>企业合同管理系统</title>
+    <!-- PWA（docs/09 §4 阶段 C）：可安装到主屏幕 + 离线应用壳；业务数据不走缓存，见 public/sw.js -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#cc785c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="合同管理" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <!-- 自托管 Web 字体（生成物）：思源宋体 400（中文衬线标题）+ Inter（拉丁正文）。见 DESIGN.md §4 -->
     <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>

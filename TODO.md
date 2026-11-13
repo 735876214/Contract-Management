@@ -43,15 +43,11 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-1. **移动端阶段 C：PWA 与现场能力**（[docs/09](docs/09-移动端可行性评估-375px实测.md) §4）：
-   `manifest.webmanifest` + 最小 Service Worker（只缓存应用壳与静态资源，**不做业务数据离线写**，
-   避免与 PostgreSQL 唯一事实源冲突）；收领单 / 日报加「拍照上传」
-   （`accept="image/*" capture` 即可，无需 App）。HTTPS 见上方「需外部条件」。
-2. **前端补 `:edit` 权限门禁**（2026-10-22 审计留档，2026-11-12 复核计数）：后端 16 个
+1. **前端补 `:edit` 权限门禁**（2026-10-22 审计留档，2026-11-12 复核计数）：后端 16 个
    `:edit` 权限码里 15 个前端从未出现（只有 `contract:edit` 有用到），只读用户仍看到编辑按钮、
    点击才 403（纯 UX 缺口，非安全）。改动涉及多数页面，需按
    [docs/development.md](docs/development.md) §5.2 做真渲染验证。
-3. **`ProcurementTask.update()` 接入 `assertVersion`**（2026-10-22 审计留档）：表有 `version` 列
+2. **`ProcurementTask.update()` 接入 `assertVersion`**（2026-10-22 审计留档）：表有 `version` 列
    但更新不校验；`assertVersion` 对缺 `version` 的请求直接 400，而前端当前不传 →
    必须前后端同步改（前端提交带 `version`，后端校验）；单边收紧会把编辑打成 400。
 

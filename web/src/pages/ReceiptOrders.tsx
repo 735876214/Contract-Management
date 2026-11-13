@@ -4,7 +4,7 @@ import {
   Row, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
+  ArrowLeftOutlined, CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
   SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -631,6 +631,29 @@ export default function ReceiptOrders() {
     message.success('已删除所选明细行');
   };
 
+  /**
+   * 收领单扫描件上传：**文件选择与拍照上传共用**（docs/09 §4 阶段 C）。
+   * 手机端走 `capture="environment"` 直接调起后置摄像头（`accept="image/*"`），
+   * 无需原生 App；落库统一存 `StorageService` 相对键。
+   */
+  const uploadScan = async (options: any) => {
+    setUploadingScan(true);
+    try {
+      const arr = await fileApi.upload([options.file as File]);
+      // 落库统一存相对存储键（上传接口同时返回 url 与 key）
+      headerForm.setFieldsValue({
+        scanUrl: arr?.[0]?.key || toStorageKey(arr?.[0]?.url),
+        scanFileName: arr?.[0]?.fileName,
+      });
+      message.success(`「${arr?.[0]?.fileName}」上传成功`);
+      options.onSuccess?.(arr?.[0]);
+    } catch (e) {
+      options.onError?.(e);
+    } finally {
+      setUploadingScan(false);
+    }
+  };
+
   const submit = async () => {
     const values = await headerForm.validateFields();
     if (!details.length) return message.warning('请先带出物资明细');
@@ -1079,26 +1102,23 @@ export default function ReceiptOrders() {
             multiple={false}
             showUploadList={false}
             accept=".jpg,.jpeg,.png,.pdf"
-            customRequest={async (options: any) => {
-              setUploadingScan(true);
-              try {
-                const arr = await fileApi.upload([options.file as File]);
-                // 落库统一存相对存储键（上传接口同时返回 url 与 key）
-                headerForm.setFieldsValue({
-                  scanUrl: arr?.[0]?.key || toStorageKey(arr?.[0]?.url),
-                  scanFileName: arr?.[0]?.fileName,
-                });
-                message.success(`「${arr?.[0]?.fileName}」上传成功`);
-                options.onSuccess?.(arr?.[0]);
-              } catch (e) {
-                options.onError?.(e);
-              } finally {
-                setUploadingScan(false);
-              }
-            }}
+            customRequest={uploadScan}
           >
             <Button icon={<UploadOutlined />} loading={uploadingScan}>
               {watchScanUrl ? '重新上传' : '上传扫描件'}
+            </Button>
+          </Upload>
+          {/* 现场拍照：`capture="environment"` 直接调起后置摄像头（手机无需安装 App）；桌面浏览器退化为普通选图 */}
+          <Upload
+            name="files"
+            multiple={false}
+            showUploadList={false}
+            accept="image/*"
+            capture="environment"
+            customRequest={uploadScan}
+          >
+            <Button icon={<CameraOutlined />} loading={uploadingScan}>
+              拍照上传
             </Button>
           </Upload>
           {watchScanUrl ? (
@@ -1115,7 +1135,7 @@ export default function ReceiptOrders() {
               </Popconfirm>
             </Space>
           ) : (
-            <span style={{ color: 'var(--cms-muted-soft)' }}>未上传（jpg/png/pdf；项目资料归档时归入「5.物资结算/收领单」）</span>
+            <span style={{ color: 'var(--cms-muted-soft)' }}>未上传（jpg/png/pdf；手机可直接拍照；项目资料归档时归入「5.物资结算/收领单」）</span>
           )}
         </Space>
       </Card>

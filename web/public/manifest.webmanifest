@@ -1,0 +1,17 @@
+{
+  "name": "企业合同管理系统",
+  "short_name": "合同管理",
+  "description": "项目 → 供应商 → 采购 → 合同 → 日报/收领单 → 结算付款 → 发票 → 台账",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf9f5",
+  "theme_color": "#cc785c",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
