@@ -1002,7 +1002,8 @@ export class ProcurementTaskService {
       if (preMeetingRequired !== task.preMeetingRequired) {
         await this.prisma.procurementTask.update({
           where: { id: taskId },
-          data: { preMeetingRequired },
+          // 写入即 bump：与 update() 的乐观锁语义保持一致（否则并发编辑时版本号不反映这次写入）
+          data: { preMeetingRequired, version: { increment: 1 } },
         });
       }
     }

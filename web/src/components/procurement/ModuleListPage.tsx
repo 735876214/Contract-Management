@@ -133,8 +133,12 @@ export interface ModuleListPageProps {
   onDelete?: (row: ModuleListRow) => void;
   /** 行是否可删除的判定（控制「更多 → 删除」是否禁用；默认已进入合同阶段不可删） */
   rowDeletable?: (row: ModuleListRow) => boolean;
-  /** 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单 */
-  rowMenuItems?: (row: ModuleListRow) => {
+  /**
+   * 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单。
+   * `ctx.canEdit` = 当前用户在本页是否有编辑权限（来自 `editPermission`）：**写操作必须用它门禁**，
+   * 只读项（查看/导出/下载）不要门禁。
+   */
+  rowMenuItems?: (row: ModuleListRow, ctx: { canEdit: boolean }) => {
     key: string;
     label: ReactNode;
     disabled?: boolean;
@@ -482,7 +486,7 @@ export default function ModuleListPage({
             onClick: () => effectiveOnDelete(row),
           });
         }
-        moreItems.push(...(rowMenuItems?.(row) ?? []));
+        moreItems.push(...(rowMenuItems?.(row, { canEdit: canEditRow }) ?? []));
         // 问题一：module 模式首按钮按模块状态切换——未填写/编辑中显示「编辑」（直接进编辑界面），
         // 已完成显示「查看」（进入任务查看弹窗）；generic 模式保持「查看」
         const published = isModuleMode && moduleStatusOf(row).value === 'PUBLISHED';

@@ -9,6 +9,7 @@ import DocTemplateExcelField from '@/components/templates/DocTemplateExcelField'
 import DocVariablePanel from '@/components/templates/DocVariablePanel';
 import { PAYMENT_DOC_VAR_GROUPS, FINAL_SETTLEMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
 import { toFileUrl } from '@/utils/templateFile';
+import { usePermission } from '@/hooks/usePermission';
 
 /**
  * **分类 → 变量面板**：只给**已接生成路径**的分类提供变量清单
@@ -37,6 +38,8 @@ export default function DocTemplates() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [categories, setCategories] = useState<DictOption[]>([]);
+  /** 写操作门禁（后端模板接口为 template:edit；这里只是不显示按钮，后端仍兜底 403） */
+  const canEdit = usePermission('template:edit');
 
   const fetchList = async () => {
     const v = filterForm.getFieldsValue();
@@ -116,7 +119,9 @@ export default function DocTemplates() {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchList}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增单据模板</Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增单据模板</Button>
+          )}
         </Space>
       }
     >
@@ -186,18 +191,21 @@ export default function DocTemplates() {
             title: '操作',
             width: 150,
             fixed: 'right',
-            render: (_v: any, row: any) => (
-              <Space size={4}>
-                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-                  编辑
-                </Button>
-                <Popconfirm title="确认删除该单据模板？" onConfirm={() => remove(row)}>
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                    删除
+            render: (_v: any, row: any) =>
+              canEdit ? (
+                <Space size={4}>
+                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
+                    编辑
                   </Button>
-                </Popconfirm>
-              </Space>
-            ),
+                  <Popconfirm title="确认删除该单据模板？" onConfirm={() => remove(row)}>
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ) : (
+                '-'
+              ),
           },
         ]}
       />

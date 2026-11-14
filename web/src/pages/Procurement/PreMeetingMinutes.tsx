@@ -683,7 +683,7 @@ export default function PreMeetingMinutes() {
         onEdit={editRow}
         onDelete={handleDeleteModule}
         emptyText="暂无数据（仅「单项采购」类型且预计采购金额 ≥ 100 万元的采购任务才生成采前会会议纪要）"
-        rowMenuItems={(row) => {
+        rowMenuItems={(row, { canEdit }) => {
           const published = moduleStatusOf(row).value === 'PUBLISHED';
           return published
             ? [
@@ -696,7 +696,7 @@ export default function PreMeetingMinutes() {
                   ),
                   onClick: () => handleRowExport(row),
                 },
-                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+                ...(canEdit ? [{ key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) }] : []),
               ]
             : [];
         }}

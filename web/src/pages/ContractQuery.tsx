@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
-import { useAuthStore } from '@/store/auth';
+import { usePermission } from '@/hooks/usePermission';
 import { DictTag } from '@/components/DictSelect';
 import SupplementDraft from '@/components/contract/SupplementDraft';
 import { withToken } from '../utils/download';
@@ -284,11 +284,13 @@ export default function ContractQuery() {
         extraColumns={extraColumns}
         refreshKey={listRefresh}
         emptyText="暂无合同数据"
+        editPermission="contract:edit"
         onView={(row) => openDetail(row.id)}
-        rowMenuItems={(row: ModuleListRow) => {
+        rowMenuItems={(row: ModuleListRow, { canEdit }) => {
           const r = row as any;
-          // 归档合同是单向终态：签章/驳回/补充协议/归档入口全部隐藏（读取/导出仍可用）
-          const locked = !!r.archivedAt;
+          // 归档合同是单向终态：签章/驳回/补充协议/归档入口全部隐藏（读取/导出仍可用）；
+          // 无 contract:edit 的只读用户同样不显示这些写操作
+          const locked = !!r.archivedAt || !canEdit;
           return [
           ...(!locked
             ? [
@@ -663,7 +665,7 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
 
 /** 履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际时间线；逾期派生标红 */
 function MilestoneCard({ contractId, archived }: { contractId: string; archived: boolean }) {
-  const canEdit = useAuthStore((s) => s.hasPermission('contract:edit')) && !archived;
+  const canEdit = usePermission('contract:edit') && !archived;
   const [rows, setRows] = useState<any[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [form] = Form.useForm();

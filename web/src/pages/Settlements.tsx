@@ -177,7 +177,7 @@ function SettlementsTab({
       cancelText: '取消',
       onOk: async () => {
         try {
-          await settlementApi.reject(row.id);
+          await settlementApi.reject(row.id, row.version);
           message.success('已驳回回填，结算单回到「草稿」');
           refreshList();
         } catch (e: any) {
@@ -239,9 +239,10 @@ function SettlementsTab({
         editPermission="settlement:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
-        rowMenuItems={(row: ModuleListRow & { statusCode?: string }) =>
-          // 任务 7：仅已提交的结算单可驳回回填（generic 模式下行即结算单记录）
-          row.statusCode !== 'DRAFT'
+        rowMenuItems={(row: ModuleListRow & { statusCode?: string }, { canEdit }) =>
+          // 任务 7：仅已提交的结算单可驳回回填（generic 模式下行即结算单记录）；
+          // 驳回是 settlement:edit 写操作，只读用户不显示
+          canEdit && row.statusCode !== 'DRAFT'
             ? [
                 {
                   key: 'reject',

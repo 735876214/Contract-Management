@@ -167,8 +167,8 @@ export class SettlementController {
   /** 任务 7：结算驳回 → 回填（纯状态回退） */
   @RequirePermissions('settlement:edit')
   @Post(':id/reject')
-  reject(@Param('id') id: string, @ProjectId() projectId: string) {
-    return this.service.reject(id, projectId);
+  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: any = {}) {
+    return this.service.reject(id, projectId, body?.version);
   }
 
   @RequirePermissions('settlement:edit')

@@ -110,16 +110,20 @@ function ProjectList() {
             title: '操作',
             width: 200,
             fixed: 'right',
-            render: (_, row) =>
-              canEdit ? (
-                <Space size={4}>
-                  <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
-                  <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
-                  <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); useAuthStore.getState().refreshProjects().catch(() => undefined); reload(); }}>
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                </Space>
-              ) : null,
+            render: (_, row) => (
+              <Space size={4}>
+                {/* 查看成员是只读能力：只读用户也要能看；编辑/删除才受 project:edit 门禁 */}
+                <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
+                {canEdit && (
+                  <>
+                    <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
+                    <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); useAuthStore.getState().refreshProjects().catch(() => undefined); reload(); }}>
+                      <Button type="link" size="small" danger>删除</Button>
+                    </Popconfirm>
+                  </>
+                )}
+              </Space>
+            ),
           },
         ]}
       />

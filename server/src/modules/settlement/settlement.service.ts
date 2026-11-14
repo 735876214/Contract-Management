@@ -438,8 +438,10 @@ export class SettlementService {
    * 任务 7：结算驳回 → 回填（回退到「草稿」状态，可重新编辑提交）。
    * 纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
    */
-  async reject(id: string, projectId?: string) {
+  async reject(id: string, projectId?: string, version?: number) {
     const before: any = await this.findOne(id, projectId);
+    // 与 update 同语义：前端带回列表/详情里的 version 时必须一致（并发编辑 → 409）
+    if (version !== undefined) assertVersion(before, { version });
     await this.lock.assertWritable(before.contractId, '驳回结算单');
     // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
     assertSettlementRejectable(before.statusCode);
@@ -514,9 +516,10 @@ export class SettlementService {
         where: {
           AND: [
             settlementId
-              ? // 已挂本行的发票必须同时属于本合同：结算单改过合同后遗留的旧关联
-                // 不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
-                { OR: [{ settlementId, contractId }, { contractId, settlementId: null }] }
+              ? // 已挂本行的发票必须同时属于本合同（或历史/手填时**未挂合同**的发票——
+                // `assertLinkable` 在合同为空时放行，不能因为本次防御把这类票静默漏计）；
+                // 结算单改过合同后遗留的旧关联不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
+                { OR: [{ settlementId, OR: [{ contractId }, { contractId: null }] }, { contractId, settlementId: null }] }
               : { contractId, settlementId: null },
             countedInvoiceWhere(),
           ],
@@ -915,13 +918,19 @@ export class SettlementService {
         const sid = i.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, invoiceDate(i));
-        // 结算期不符，或发票根本不属于本合同（结算单换过合同后留下的陈旧关联）→ 解绑
-        return Boolean(period && own && own !== period) || i.contractId !== contractId;
+        // 结算期不符，或发票属于**别的**合同（结算单换过合同后留下的陈旧关联）→ 解绑。
+        // ⚠️ `contractId` 可空（历史/手填发票）：空合同的已挂发票不能因本合同刷新被误解绑。
+        return Boolean(period && own && own !== period) || Boolean(i.contractId && i.contractId !== contractId);
       })
       .map((i: any) => i.id);
     let detached = 0;
     if (staleInv.length) {
-      detached += (await db.invoice.updateMany({ where: { id: { in: staleInv } }, data: { settlementId: null } })).count;
+      detached += (
+        await db.invoice.updateMany({
+          where: { id: { in: staleInv }, projectId: contract.projectId },
+          data: { settlementId: null },
+        })
+      ).count;
     }
     const linkedRo: any[] = await db.receiptOrder.findMany({
       where: { settlementId: { in: linkedIds } },
@@ -932,12 +941,18 @@ export class SettlementService {
         const sid = r.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, r.orderDate);
-        // 同发票：结算期不符或收领单不属于本合同 → 解绑
-        return Boolean(period && own && own !== period) || r.materialContractId !== contractId;
+        // 同发票：结算期不符或收领单不属于本合同 → 解绑；
+        // `materialContractId` 可空（历史/手工单）的已挂收领单不能因本合同刷新被误解绑
+        return Boolean(period && own && own !== period) || Boolean(r.materialContractId && r.materialContractId !== contractId);
       })
       .map((r: any) => r.id);
     if (staleRo.length) {
-      detached += (await db.receiptOrder.updateMany({ where: { id: { in: staleRo } }, data: { settlementId: null } })).count;
+      detached += (
+        await db.receiptOrder.updateMany({
+          where: { id: { in: staleRo }, projectId: contract.projectId },
+          data: { settlementId: null },
+        })
+      ).count;
     }
 
     // ② 挂载：未关联 + 与本合同同期
