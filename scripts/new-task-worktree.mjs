@@ -139,6 +139,9 @@ const setKey = (src, key, value) => {
 };
 env = setKey(env, 'DATABASE_URL', url(dbs.dev, '&connection_limit=4&pool_timeout=20'));
 env = setKey(env, 'PORT', String(port));
+// .env.example 里的默认 JWT_SECRET 会被 jwt.strategy 的 fail-fast 拒绝，导致本树 test:int 无法启动；
+// 每树写一个确定性的测试密钥（生产/开发容器仍由 compose 注入真实值）
+env = setKey(env, 'JWT_SECRET', `wt-test-${slug}-secret-do-not-use-in-prod`);
 env = setKey(env, 'UPLOAD_DIR', path.join(wtPath, '.tmp-uploads').replace(/\\/g, '/'));
 env = `# 由 scripts/new-task-worktree.mjs 生成（slug=${slug}）\n${env}`;
 writeFileSync(envPath, env);
