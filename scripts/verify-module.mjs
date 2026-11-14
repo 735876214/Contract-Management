@@ -188,8 +188,11 @@ if (schemaChanged) {
     if (exists.stdout.trim() !== '1') {
       die(`影子库 ${shadowDb} 不存在；先运行 scripts/new-task-worktree.mjs（幂等）`);
     }
+    // Windows 的 .cmd 经 shell 启动时，URL 里的 `&connection_limit=...` 会被 cmd 当成命令分隔符；
+    // 加双引号让整段 URL 作为一个参数传给 Prisma。
+    const shadowArg = WIN ? `"${shadowUrl}"` : shadowUrl;
     return npx(['prisma', 'migrate', 'diff', '--from-migrations', 'prisma/migrations',
-      '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code', '--shadow-database-url', shadowUrl],
+      '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code', '--shadow-database-url', shadowArg],
       { cwd: path.join(root, 'server') });
   });
 }
@@ -212,7 +215,14 @@ if (needsInt && intMode !== 'none') {
           `CREATE SCHEMA "${runId}"`], { encoding: 'utf8' });
         if (created.status !== 0) die(`建 schema 失败：${(created.stderr || '').trim()}`);
       }
-      const testEnv = { DATABASE_URL: testUrl, JWT_SECRET: env.JWT_SECRET || 'cms-int-test-secret',
+      // JWT_SECRET：工作树 .env 可能仍是模板占位值（jwt.strategy 会 fail-fast 拒绝），
+      // 集成测试统一用固定测试密钥，避免「命令手动跑能过、verify 里 30s 后整文件失败」。
+      const envSecret = env.JWT_SECRET || '';
+      const jwtSecret =
+        !envSecret || envSecret === 'cms-super-secret-key' || envSecret.startsWith('change-me')
+          ? 'cms-int-test-secret'
+          : envSecret;
+      const testEnv = { DATABASE_URL: testUrl, JWT_SECRET: jwtSecret,
         UPLOAD_DIR: env.UPLOAD_DIR && env.UPLOAD_DIR.includes('.tmp-uploads') ? env.UPLOAD_DIR : mkdtempSync(path.join(tmpdir(), 'cms-int-uploads-')) };
 
       if (!npx(['prisma', 'migrate', 'deploy'], { cwd: path.join(root, 'server'), env: testEnv })) return false;
@@ -255,7 +265,9 @@ function acquireLock(lockPath) {
   die(`无法获取锁 ${lockPath}`);
 }
 
-function selectIntSpecs(files) {
+function selectIntSpecs(changedFiles) {
+  // 调用方传的是 Set（改动集），这里统一成数组——Set 没有 .filter
+  const files = [...new Set(changedFiles)];
   const all = git(['ls-files', 'server/test-integration/*.int.spec.ts'])
     .split('\n')
     .filter((f) => f.endsWith('.int.spec.ts'))

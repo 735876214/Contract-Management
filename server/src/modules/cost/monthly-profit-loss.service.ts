@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { buildResult, num, paginate, assertVersion } from '../../common/utils/helpers';
+import { round2, round4 } from '../../common/utils/money';
+import { periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
 import { pickFields } from '../../common/pick-fields';
 import { weightedUnitPrice } from '../../common/utils/labor-receiving';
 import { LaborReceivingService } from './labor-receiving.service';
@@ -9,16 +11,14 @@ import { LaborReceivingService } from './labor-receiving.service';
  * 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账 ProfitLossAnalysis）。
  *
  * **一个月一条记录**：新建时把当期各分包单位「甲供材节超分析」行**快照**成明细行
- * （单价/数量冻结，历史表样不随后续改单变化）；责任人/劳务计价已扣/备注及各数量列可手改；
- * 「重新抓取」重算快照并按 laborAuthId+材料+规格 回填手填项。
+ * （单价/数量冻结，历史表样不随后续改单变化）；只有责任人/劳务计价已扣/备注可手改
+ * （业务口径：数量与单价是快照，不是手填项）；「重新抓取」重算快照并按 laborAuthId+材料+规格 回填手填项。
  * 汇总表不落库——导出时由明细行按材料**跨队加权汇总**（`weightedUnitPrice`）。
  */
 
 const HEADER_FIELDS = ['period', 'sixSavingsAmount', 'totalDeductAmount', 'remark'];
-const DETAIL_EDITABLE = [
-  'owner', 'unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty',
-  'actualUseQty', 'stockQty', 'saveOverQty', 'deductAmount', 'remark',
-];
+/** 明细手填字段：只有这三项（数量/单价/金额都是快照派生物，见 product-decisions §成本管理） */
+const DETAIL_EDITABLE = ['owner', 'deductAmount', 'remark'];
 
 @Injectable()
 export class MonthlyProfitLossService {
@@ -135,9 +135,7 @@ export class MonthlyProfitLossService {
           });
           if (!owned) continue;
           const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
-          (['unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty', 'actualUseQty', 'stockQty', 'saveOverQty', 'deductAmount'] as const).forEach((f) => {
-            if (row[f] !== undefined) row[f] = num(row[f]);
-          });
+          if (row.deductAmount !== undefined) row.deductAmount = num(row.deductAmount);
           // 盈亏金额联动（未被显式改写时）：盈亏数量 × 单价
           await this.recalcDetailAmount(d.id, row, tx);
         }
@@ -172,6 +170,18 @@ export class MonthlyProfitLossService {
   }
 
   // ==================== 导出（封面 + 明细 + 汇总三 sheet） ====================
+
+  /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
+  async exportMeta(id: string, projectId?: string) {
+    const rec = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({
+        where: { id },
+        select: { projectId: true, period: true },
+      }),
+      projectId,
+    );
+    return { fileName: `降本、创效、主材盈亏分析表-${rec.period || id}.xlsx` };
+  }
 
   async exportWorkbook(id: string, projectId: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
@@ -290,10 +300,13 @@ export class MonthlyProfitLossService {
     let r3 = 4;
     let seq3 = 1;
     const allSums = { theory: 0, actual: 0, stock: 0 };
+    // 合计是否「每一行都有值」：部分队缺值时不能把已知行相加后冒充合计（三态契约）
+    const allKnown = { theory: true, actual: true, stock: true };
     for (const [, list] of byMat) {
       const sum = (f: string) => list.reduce((s, x) => s + (Number(x[f]) || 0), 0);
+      // 任一行未填 → 合计 null（未知 ≠ 0；只加已知行会低估）
       const nullableSum = (f: string) =>
-        list.every((x) => x[f] == null) ? null : sum(f);
+        list.some((x) => x[f] == null) ? null : sum(f);
       const qty = nullableSum('entryQty');
       const theory = nullableSum('theoryUseQty');
       const actual = nullableSum('actualUseQty');
@@ -310,9 +323,9 @@ export class MonthlyProfitLossService {
       };
       const price = weightedUnitPrice(list.map((x) => ({ qty: pickQty(x), unitPrice: x.unitPrice })));
       const first = list[0];
-      if (theory != null) allSums.theory += theory;
-      if (actual != null) allSums.actual += actual;
-      if (stock != null) allSums.stock += stock;
+      if (theory != null) allSums.theory += theory; else allKnown.theory = false;
+      if (actual != null) allSums.actual += actual; else allKnown.actual = false;
+      if (stock != null) allSums.stock += stock; else allKnown.stock = false;
       ws3.getRow(r3).values = [
         seq3++, first.materialName, first.unit ?? '', price,
         qty, amountOf(qty, price),
@@ -320,7 +333,7 @@ export class MonthlyProfitLossService {
         actual, amountOf(actual, price),
         stock, amountOf(stock, price),
         saveOver, amountOf(saveOver, price),
-        saveOver != null && theory ? round2(saveOver / theory) : null,
+        saveOver != null && theory ? round4(saveOver / theory) : null,
         list.map((x) => x.remark).filter(Boolean).join('；'),
       ];
       r3 += 1;
@@ -332,7 +345,7 @@ export class MonthlyProfitLossService {
     ws3.getRow(r3).font = { bold: true };
     ws3.getRow(r3 + 1).values = ['劳务计价累计扣款金额', '元', '', '', '', '', '', '', '', '', '', '', '', round2(Number(totalDeduct) || 0), '', ''];
     ws3.getRow(r3 + 1).font = { bold: true };
-    ws3.getRow(r3 + 2).values = ['非自拌混凝土原材合计', '', '', '', '', '', '', '', round2(allSums.actual), '', '', '', '', '', '', ''];
+    ws3.getRow(r3 + 2).values = ['非自拌混凝土原材合计', '', '', '', '', '', '', '', allKnown.actual ? round2(allSums.actual) : null, '', '', '', '', '', '', ''];
     ws3.getRow(r3 + 2).font = { bold: true };
     ws3.getRow(r3 + 4).values = ['进场量/实际库存量/实际消耗量统计截止至' + periodLabel + '1日 11:00'];
     ws3.getRow(r3 + 6).values = ['制表人：', '', '物资部经理：', '', '工程部经理：', '', '合约部经理：', '', '商务经理：', '', '项目经理：'];
@@ -386,7 +399,7 @@ export class MonthlyProfitLossService {
           stockQty: s.stockQty,
           saveOverQty,
           saveOverAmount,
-          saveRate: saveOverQty != null && s.theoryUseQty ? round2(saveOverQty / s.theoryUseQty) : null,
+          saveRate: saveOverQty != null && s.theoryUseQty ? round4(saveOverQty / s.theoryUseQty) : null,
           deductAmount: m?.deductAmount ?? null,
           remark: m?.remark ?? s.remark ?? '',
         });
@@ -407,7 +420,7 @@ export class MonthlyProfitLossService {
         data.saveOverAmount = qty != null ? amountOf(qty, price) : null;
         // 节超率联动
         const theory = row.theoryUseQty !== undefined ? num(row.theoryUseQty) : (cur.theoryUseQty != null ? Number(cur.theoryUseQty) : null);
-        data.saveRate = qty != null && theory ? round2(qty / theory) : null;
+        data.saveRate = qty != null && theory ? round4(qty / theory) : null;
       }
     }
     await db.monthlyProfitLossDetail.update({ where: { id: detailId }, data });
@@ -460,14 +473,4 @@ function amountOf(qty: unknown, price: unknown): number | null {
   const p = Number(price);
   if (!Number.isFinite(p)) return null;
   return round2(q * p);
-}
-
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
-}
-
-/** 'YYYY-MM' → 'YYYY年M月'；认不出原样返回 */
-function periodLabelOf(period: string): string {
-  const m = String(period).match(/^(\d{4})-(\d{2})$/);
-  return m ? `${m[1]}年${Number(m[2])}月` : period;
 }
