@@ -38,8 +38,12 @@ export { SettlementService } from './settlement.service';
 - 新的跨域只读查询按 `<域>-queries.ts` 放进 `server/src/query/`，通过 `server/src/query/index.ts` 导出；
   函数只读、不带事务、每个都显式带 `projectId`。
 - AI 分两类：
-  - **只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）**不得依赖业务模块**，
-    数据直接在 ai 内查询或走 `query/`；
+  - **只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）**不得依赖业务模块**；
+  - **窗口事实统一走 `server/src/query/ai-fact-queries.ts`**：合同链、结算、付款、发票、
+    项目范围、日报/采购计数由 `load*Facts()` 提供，口径（排除草稿结算、排除失败/退款付款、
+    作废/红冲发票不计入）只在这一处维护。`field-resolver` / `report` / `dataset-collector` /
+    `scm` 已接入；**不要再在 AI service 里手写这几张表的同一套 where**。
+    数据集明细查询（工作簿逐行取数）仍留在 `dataset-collector` 内，因为它们字段各异、不复用。
   - `ai/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
     名称拼接、字典校验），**允许**依赖业务模块公开入口，不要"优化"掉。
 

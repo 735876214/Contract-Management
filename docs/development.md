@@ -173,7 +173,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/milestone.spec.mts` | **履约节点逾期派生**（四域扩展按需项 2026-10-18）：到期日当天不逾期、过期未完成=逾期 · DONE/SKIPPED 不逾期 · 无/非法 planDate 不逾期 |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
-  | `test/invoiceStatus.spec.mts` | **发票终态口径锁**（业务口径 2026-11-12：作废 `CANCELLED` / 红冲 `RED` 不计入金额口径）：排除清单常量、`countedInvoiceWhere()` 显式纳入 NULL（禁止 `NOT: { in }`）、内存谓词同口径、前后端镜像一致 · 源码扫描六处金额聚合都接了过滤、AI 两处私有谓词已收敛 |
+  | `test/invoiceStatus.spec.mts` | **发票终态口径锁**（业务口径 2026-11-12：作废 `CANCELLED` / 红冲 `RED` 不计入金额口径）：排除清单常量、`countedInvoiceWhere()` 显式纳入 NULL（禁止 `NOT: { in }`）、内存谓词同口径、前后端镜像一致 · 源码扫描各金额聚合都接了过滤（含 `query/ai-fact-queries.ts` 的 `loadInvoiceFacts` 统一口径）、AI 两处私有谓词已收敛 |
   | `test/aiDatasetRegistry.spec.mts` | **AI 经营数据助手数据集注册表**（2026-11-12 评审：27 个业务单据域单一事实源）：key 唯一 · **27 个域全部已实现**且每个域有 Excel 列定义 · 默认选中 4 个且必须是已实现 · 权限过滤无权限进 `denied` 而非静默消失 · 最多 8 个去重截断并回报截断数 |
   | `test/aiIntent.spec.mts` | **AI 经营数据助手的规则意图**（Phase 1 唯一解析路径）：自然语言 → scope / period preset / datasets / focus / reportKind / outputs · 同比与环比**单选**、累计至今归一 `none` · 前端 `datasets` 非空**整体替换**文本命中（不做并集），其余字段逐字段覆盖 · 未知数据集/关注点/范围丢弃并进 `warnings` · 自定义期间缺日期回落本月 · 超 8 个截断 · 默认只出报告、提到表格才带工作簿 · `rawText`≤2000 / `notes`≤300 |
   | `test/aiPeriod.spec.mts` | **AI 经营数据助手的期间原语**：本月/上月/本季度/今年/年初至今/近 30·90 天按本地日计算 · 累计至今没有起点 · 自定义期间按**本地零点**解析并含结束日、缺日期/倒置返回 null · 环比 = 紧邻本期之前等长段、同比 = 起止各回退一年 · `none` 与累计至今的对比期一律 null（展示 `-`，不当作下降 100%）· 空业务日期不落任何区间 |
@@ -546,7 +546,9 @@ node scripts/check-import-integrity.mjs
 [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 
 **跨域读取层**：`server/src/query/` 是唯一允许散写跨域只读查询的地方。`archive` 的 11 个域读取已收敛到
-`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的只读子域
-（`analytics` / `anomaly` / `analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
+`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的窗口事实
+（合同链 / 结算 / 付款 / 发票 / 项目范围 / 日报与采购计数）统一走 `query/ai-fact-queries.ts`，
+`field-resolver` / `report` / `dataset-collector` / `scm` 已接入；AI 只读子域（`analytics` / `anomaly` /
+`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
 两类规则都由 `check-module-boundaries` 锁定。
 

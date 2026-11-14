@@ -6,3 +6,4 @@
  * 边界由 `scripts/check-module-boundaries.mjs` 锁定。
  */
 export * from './archive-queries';
+export * from './ai-fact-queries';
