@@ -148,7 +148,9 @@ if (webChanged.length) {
       const cfg = {
         extends: './tsconfig.json',
         compilerOptions: { noEmit: true, incremental: false },
-        include: webChanged.map((f) => f.replace(/^web\//, '')),
+        // 必须带上 src 下的环境声明（vite-env.d.ts 声明 import.meta.env），
+        // 否则子集检查会把 `Property 'env' does not exist on type 'ImportMeta'` 误报成模块错误。
+        include: ['src/**/*.d.ts', ...webChanged.map((f) => f.replace(/^web\//, ''))],
         references: [],
       };
       writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
