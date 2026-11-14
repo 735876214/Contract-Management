@@ -256,6 +256,7 @@ function acquireLock(lockPath) {
 }
 
 function selectIntSpecs(files) {
+  files = [...files]; // 调用方传的是 Set（changed），统一成数组再用 filter
   const all = git(['ls-files', 'server/test-integration/*.int.spec.ts'])
     .split('\n')
     .filter((f) => f.endsWith('.int.spec.ts'))
