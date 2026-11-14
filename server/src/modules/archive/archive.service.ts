@@ -5,9 +5,20 @@ import { ZipArchive as Archiver } from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { StorageService } from '../../common/services/storage.service';
 import { localDayKey } from '../../common/utils/helpers';
-import { notDraft } from '../../common/utils/contract-chain';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { ARCHIVE_CATEGORIES, ARCHIVE_CATEGORY_BY_KEY } from '../../constants/archiveCategories';
+import {
+  archiveContracts,
+  archiveContractsWithFinance,
+  archiveFinalSettlements,
+  archiveInvoiceImages,
+  archiveLaborAuthLedgers,
+  archiveLaborReceivingDocs,
+  archiveMonthlyProfitLoss,
+  archiveMonthlySettlementDates,
+  archiveProject,
+  archiveReceiptScans,
+} from '../../query';
 import { LedgerService } from '../ledger';
 import { SettlementService } from '../settlement';
 import { InvoiceService } from '../invoice';
@@ -66,7 +77,7 @@ export class ArchiveService {
 
   /** 目录树（前端归档页）：每目录的文件数与明细 */
   async entries(projectId: string) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const project = await archiveProject(this.prisma, projectId);
     if (!project) throw new NotFoundException('项目不存在');
     // 目录树只需要「路径 + 文件名」：不生成任何 Excel Buffer（大项目上全量导出会拖慢页面、抬高内存）
     const files = await this.collectAll(projectId, project.nameAbbr, project.name, {
@@ -89,7 +100,7 @@ export class ArchiveService {
 
   /** 打包下载；`scope=all` 或某分类 key */
   async download(projectId: string, scope: string | undefined, res: any) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const project = await archiveProject(this.prisma, projectId);
     if (!project) throw new NotFoundException('项目不存在');
     const root = projectRootOf(project.nameAbbr, project.name);
     const startDay = startDayOf(project.settlementStartDate);
@@ -182,13 +193,7 @@ export class ArchiveService {
       switch (cat.key) {
         case 'contract': {
           push(cat.dir, '合同台账.xlsx', { buffer: await buf(() => this.ledgerService.export(projectId)) });
-          const contracts = await this.prisma.contract.findMany({
-            where: { projectId },
-            select: {
-              id: true, code: true, signedFilePath: true, signedFileName: true,
-              attachments: { select: { fileName: true, url: true } },
-            },
-          });
+          const contracts = await archiveContracts(this.prisma, projectId);
           for (const c of contracts) {
             if (c.signedFilePath) {
               push(cat.dir, prefixedFileName(c.code || '合同', c.signedFileName || '签章合同.pdf'), {
@@ -209,20 +214,11 @@ export class ArchiveService {
           push(cat.dir, '资产台账.xlsx', { buffer: await buf(async () => Buffer.from((await this.assetService.export(projectId) as any).buffer as unknown as ArrayBuffer)) });
           break;
         case 'receipt-scan': {
-          const orders = await this.prisma.receiptOrder.findMany({
-            where: { projectId, scanUrl: { not: null } },
-            select: {
-              id: true, scanUrl: true, scanFileName: true, orderDate: true, settlementId: true,
-              materialContractNo: true,
-              details: { select: { materialName: true }, take: 1 },
-              supplier: { select: { name: true } },
-              settlement: { select: { settleDate: true } },
-            },
-          });
+          const orders = await archiveReceiptScans(this.prisma, projectId);
           for (const o of orders) {
-            const supplier = o.supplier?.name || '-';
-            const material = o.details[0]?.materialName || o.materialContractNo || '-';
-            const period = this.periodOf(o.settlement?.settleDate ?? o.orderDate, startDay);
+            const supplier = o.supplierName || '-';
+            const material = o.materialName || o.materialContractNo || '-';
+            const period = this.periodOf(o.settleDate ?? o.orderDate, startDay);
             const parts = { supplier, material, period, docName: '收领单' };
             // 只有 jpg/png 能嵌进 PDF；docx/gif/webp/bmp 会回退原样打包，命名必须保留真实扩展名
             const name = o.scanFileName || o.scanUrl!;
@@ -235,21 +231,17 @@ export class ArchiveService {
           break;
         }
         case 'settle-monthly': {
-          const settlements = await this.prisma.settlement.findMany({
-            // `notDraft`（不是 `NOT: {statusCode:'DRAFT'}`）：statusCode 可空，
-            // NOT 会连带排除 NULL → 归档包漏掉 NULL 状态的结算单（第 21 轮审计）
-            where: { projectId, ...notDraft },
-            select: { settleDate: true },
-          });
+          // 非草稿结算单的结算日期（`notDraft` 口径在 query 层统一维护）
+          const settleDates = await archiveMonthlySettlementDates(this.prisma, projectId);
           // 账期目录：`2026.1` → `2026年1月`（需求原例；`sanitizeSegment` 清掉 Date.toString 的非法字符之外，
           // 这里必须在收集期就转成中文月——Date.toString 含 `:` 等字符，靠清洗会出现 "Sat_Feb_28_2026" 这种目录）
           // 每期目录只导**该期**的台账行（settleMonth = 期末所在月，与台账月份派生同口径）；
           // 此前每期都塞同一份全项目台账，归档内容张冠李戴。
           const byPeriod = new Map<string, string>(); // 目录名 → settleMonth
-          for (const s of settlements) {
-            if (!s.settleDate) continue;
+          for (const settleDate of settleDates) {
+            if (!settleDate) continue;
             // 结算期标签必须走「结算起始日」口径（periodKeyOf），自然月在下期起始日 ≠ 1 时会整体错一个月
-            const settleMonth = periodKeyOf(startDay, s.settleDate);
+            const settleMonth = periodKeyOf(startDay, settleDate);
             if (!settleMonth) continue;
             const dir = periodDirOf(settleMonth);
             if (!byPeriod.has(dir)) byPeriod.set(dir, settleMonth);
@@ -262,18 +254,12 @@ export class ArchiveService {
           break;
         }
         case 'settle-final': {
-          const finals = await this.prisma.finalSettlement.findMany({
-            where: { projectId },
-            select: {
-              id: true, code: true, attachmentUrl: true, attachmentName: true,
-              contract: { select: { id: true, name: true, supplier: { select: { name: true } } } },
-            },
-          });
+          const finals = await archiveFinalSettlements(this.prisma, projectId);
           for (const f of finals) {
-            const supplier = f.contract?.supplier?.name || '-';
-            const contractName = f.contract?.name || f.code || '-';
+            const supplier = f.supplierName || '-';
+            const contractName = f.contractName || f.code || '-';
             push(cat.dir, `${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}-总结算书.xlsx`, {
-              buffer: await buf(() => this.settlementService.exportComplianceSheet(f.contract.id, projectId)),
+              buffer: await buf(() => this.settlementService.exportComplianceSheet(f.contractId, projectId)),
             });
             if (f.attachmentUrl) {
               push(cat.dir, prefixedFileName(`${sanitizeSegment(supplier)}-${sanitizeSegment(contractName)}`, f.attachmentName || '总结算书附件'), {
@@ -286,10 +272,7 @@ export class ArchiveService {
         case 'sub-receiving': {
           // 分包单位领用月度汇总（2026-10-17 第三批替换旧手工台账）：
           // 分包单位领用**单据**（一单 = 分包单位×结算期）：按单导出三表工作簿
-          const docs = await this.prisma.laborReceivingDoc.findMany({
-            where: { projectId },
-            orderBy: [{ period: 'asc' }, { subcontractorName: 'asc' }],
-          });
+          const docs = await archiveLaborReceivingDocs(this.prisma, projectId);
           for (const d of docs) {
             push(`${cat.dir}/${sanitizeSegment(d.subcontractorName)}`, `盘点领用表-${this.periodLabelOfPeriod(d.period)}.xlsx`, {
               buffer: await buf(() => this.laborReceivingService.exportWorkbook(d.id)),
@@ -302,16 +285,10 @@ export class ArchiveService {
           break;
         case 'invoice': {
           push(cat.dir, '发票台账.xlsx', { buffer: await buf(() => this.invoiceService.export(projectId)) });
-          const invoices = await this.prisma.invoice.findMany({
-            where: { projectId, imageUrl: { not: null } },
-            select: {
-              id: true, imageUrl: true, issuer: true, settlePeriod: true,
-              contract: { select: { id: true, name: true, supplier: { select: { name: true } } } },
-            },
-          });
+          const invoices = await archiveInvoiceImages(this.prisma, projectId);
           for (const i of invoices) {
-            const supplier = i.contract?.supplier?.name || i.issuer || '-';
-            const material = i.contract?.name || '-';
+            const supplier = i.supplierName || i.issuer || '-';
+            const material = i.contractName || '-';
             const key = this.keyOf(i.imageUrl!);
             const parts = { supplier, material, period: i.settlePeriod, docName: '发票汇总' };
             const pdfable = this.isPdfableImage(key);
@@ -324,11 +301,7 @@ export class ArchiveService {
         }
         case 'profit-loss': {
           // 月度盈亏分析（2026-10-17 第三批替换原手工台账）：一月一条，导出三 sheet 工作簿
-          const records = await this.prisma.monthlyProfitLoss.findMany({
-            where: { projectId },
-            orderBy: { period: 'asc' },
-            select: { id: true, period: true },
-          });
+          const records = await archiveMonthlyProfitLoss(this.prisma, projectId);
           for (const rec of records) {
             const label = periodDirOf(rec.period);
             push(cat.dir, `降本、创效、主材盈亏分析表-${label}.xlsx`, {
@@ -338,18 +311,13 @@ export class ArchiveService {
           break;
         }
         case 'finance-fund': {
-          const contracts = await this.prisma.contract.findMany({
-            where: { projectId },
-            select: { id: true, code: true, name: true, supplier: { select: { name: true } } },
-          });
+          const contracts = await archiveContractsWithFinance(this.prisma, projectId);
           for (const c of contracts) {
-            const factoring = await this.prisma.factoringCost.count({ where: { contractId: c.id } });
-            const overdue = await this.prisma.overdueInterest.count({ where: { contractId: c.id } });
-            const label = `${sanitizeSegment(c.supplier?.name || '-')}-${sanitizeSegment(c.name || c.code)}`;
-            if (factoring > 0) {
+            const label = `${sanitizeSegment(c.supplierName || '-')}-${sanitizeSegment(c.name || c.code)}`;
+            if (c.factoringCount > 0) {
               push(cat.dir, `保理费用-${label}.xlsx`, { buffer: await buf(() => this.factoringBuffer(c.id)) });
             }
-            if (overdue > 0) {
+            if (c.overdueCount > 0) {
               push(cat.dir, `逾期利息-${label}.xlsx`, { buffer: await buf(() => this.overdueBuffer(c.id)) });
             }
           }
@@ -357,10 +325,7 @@ export class ArchiveService {
         }
         case 'labor-auth': {
           push(cat.dir, '分包授权台账.xlsx', { buffer: await buf(() => this.laborAuthBuffer(projectId)) });
-          const scs = await this.prisma.laborAuthLedger.findMany({
-            where: { projectId },
-            select: { id: true, subcontractorName: true, signedAuthFile: true },
-          });
+          const scs = await archiveLaborAuthLedgers(this.prisma, projectId);
           for (const sc of scs) {
             if (sc.signedAuthFile) {
               push(cat.dir, prefixedFileName(sc.subcontractorName, '授权委托书' + extOf(sc.signedAuthFile)), {

@@ -18,6 +18,10 @@
 
 - **乐观锁**：业务表多有 `version Int`，更新时用 `helpers.assertVersion(old, data)`（不一致抛 409）。
 - **写字段白名单**：service 用 `common/pick-fields.ts` 的 `pickFields` 过滤未知字段，防前端字段漂移 500。
+- **跨域只读查询走 `server/src/query/`**：`archive` 等聚合器**不得**在 service 里散写
+  `prisma.<任意模型>`，统一走 `query/<域>-queries.ts`（只读、无事务、显式带 `projectId`）；
+  由 `scripts/check-module-boundaries.mjs` 锁定。AI 的只读子域同样不得依赖业务模块，
+  `ai/register.service.ts` 的写路径是刻意例外。见 [module-boundaries.md](module-boundaries.md)。
 - **日志必须脱敏（白名单）**：操作日志拦截器把「请求参数 + 变更前后快照」整体写入 `OperationLog`
   （日志页仅需 `system:user` 权限即可查看），**凭据/银行账号/证件号/联系方式不得明文入库**。
   规则集中在 `common/utils/mask.ts`（`slimSecrets()` 深拷贝后按键名打码，**不改原对象**——入参可能是
