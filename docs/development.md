@@ -543,3 +543,8 @@ node scripts/check-import-integrity.mjs
 新增跨模块符号时，**同时**加进该模块 `index.ts`。完整约定见
 [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 
+**跨域读取层**：`server/src/query/` 是唯一允许散写跨域只读查询的地方。`archive` 的 11 个域读取已收敛到
+`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的只读子域
+（`analytics` / `anomaly` / `analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
+两类规则都由 `check-module-boundaries` 锁定。
+

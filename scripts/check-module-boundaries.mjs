@@ -23,6 +23,22 @@ const quiet = process.argv.includes('--quiet');
 /** 横切基础设施：允许任何模块深层引用（守卫/装饰器） */
 const INFRA_MODULES = new Set(['auth']);
 
+/** 只读查询层：跨域直查只允许出现在这里 */
+const QUERY_LAYER = 'server/src/query/';
+
+/** 归档是聚合器，但跨域读取必须走 query/，不得自己 prisma.<模型> */
+const ARCHIVE_DIR = 'server/src/modules/archive/';
+
+/**
+ * AI 的只读子域：只允许读、不允许依赖业务模块。
+ * `ai/register.service.ts` 是刻意的写路径（复用 ContractService/SupplierService 的校验），不在名单内。
+ */
+const AI_READ_ONLY_DIRS = [
+  'server/src/modules/ai/analytics/',
+  'server/src/modules/ai/anomaly/',
+  'server/src/modules/ai/analysis/',
+];
+
 /** fan-out 超过该值的模块会在输出里标为聚合器（仅供参考，不是错误） */
 const AGGREGATOR_FANOUT = 5;
 
@@ -55,12 +71,27 @@ function resolve(fromFile, spec) {
 
 const files = tracked.filter((f) => f.startsWith(MODULES_DIR) && isTs(f) && !f.endsWith('/index.ts'));
 const violations = [];
+const readViolations = [];
 const edges = new Map(); // module -> Set<module>
 
 for (const file of files) {
   const fromMod = moduleOf(file);
   if (!fromMod) continue;
   const src = readFileSync(path.join(root, file), 'utf8');
+
+  // 归档：跨域读取必须走 server/src/query/*
+  if (file.startsWith(ARCHIVE_DIR)) {
+    const m = /\bprisma\.[A-Za-z]\w*/.exec(src);
+    if (m) {
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `archive 不得直接查表（命中 ${m[0]}），改走 server/src/query/ 的只读查询`,
+      });
+    }
+  }
+
+  const aiReadOnly = AI_READ_ONLY_DIRS.some((d) => file.startsWith(d));
   for (const m of src.matchAll(IMPORT_RE)) {
     const spec = m[1] || m[2];
     const target = resolve(file, spec);
@@ -72,6 +103,17 @@ for (const file of files) {
     edges.get(fromMod).add(toMod);
 
     if (INFRA_MODULES.has(toMod)) continue;
+
+    // AI 只读子域不得依赖业务模块（读数据走 Prisma / 查询层，写数据走 register 的显式白名单）
+    if (aiReadOnly) {
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `AI 只读子域不得依赖业务模块（${fromMod} -> ${toMod}）；需要数据请在 ai 内直接查询或用 server/src/query/`,
+      });
+      continue;
+    }
+
     const isPublicEntry = target === `${MODULES_DIR}${toMod}/index.ts`;
     if (!isPublicEntry) {
       violations.push({
@@ -128,7 +170,7 @@ const aggregators = [...edges]
   .filter(([, s]) => s.size > AGGREGATOR_FANOUT)
   .sort((a, b) => b[1].size - a[1].size);
 
-if (!violations.length && !cycles.length) {
+if (!violations.length && !readViolations.length && !cycles.length) {
   if (!quiet) {
     const msg = [`[module-boundaries] OK：${files.length} 个模块内文件，无越界 import、无模块环`];
     if (aggregators.length) {
@@ -144,6 +186,11 @@ if (cycles.length) {
   console.error('[module-boundaries] 模块级循环依赖：');
   for (const c of cycles) console.error(`  - ${c.join(' ↔ ')}`);
   console.error('  修法：把共享部分下沉到 common/，或改为依赖公开入口的单向调用。\n');
+}
+if (readViolations.length) {
+  console.error('[module-boundaries] 读取边界违规：');
+  for (const v of readViolations) console.error(`  ${v.file}:${v.line}  ${v.rule}`);
+  console.error('');
 }
 if (violations.length) {
   console.error(`[module-boundaries] ${violations.length} 处越界 import（必须走公开入口 <module>/index.ts）：\n`);

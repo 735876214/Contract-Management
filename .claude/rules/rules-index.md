@@ -15,7 +15,7 @@
 | 前端页面·组件·样式·路由 | [frontend-conventions.md](frontend-conventions.md) | `perm()` 工厂 · 视觉只改 token 层 · **断点两层：外壳看视口 / 组件看容器** · 列显隐两条路 · 菜单权威在后端 · 多页签与编辑器页签 |
 | 测试 / 改金额·状态·导入 | [testing.md](testing.md) | 两套测试分工（改金额/状态/导入**必跑 `test:int`**）· `.mts` 三条硬约束 · 新增 spec 要同步 docs/development.md §5 清单与计数 |
 | **并行开发 / 多任务同时改代码** | [parallel-development.md](parallel-development.md) | **每任务一棵 worktree** · 每树独立库与端口 · `verify-module` 的覆盖边界 · **提交自洽检查（C2：提交了未跟踪引用）** · 分支+PR（不直推 main）· docStats 冲突热点 · 集成测试禁止全库计数 |
-| **跨模块调用 / 新增后端模块** | [module-boundaries.md](module-boundaries.md) | **跨模块只走 `<module>/index.ts`**（`auth` 守卫例外）· 不写 `export *` · 不允许模块环 · `archive`/`ai` 是刻意聚合器 · 动态 import 也受检 |
+| **跨模块调用 / 新增后端模块 / 跨域读取** | [module-boundaries.md](module-boundaries.md) | **跨模块只走 `<module>/index.ts`**（`auth` 守卫例外）· 不写 `export *` · 不允许模块环 · **跨域只读查询走 `server/src/query/`** · AI 只读子域不得依赖业务模块 · `archive`/`ai` 是刻意聚合器 · 动态 import 也受检 |
 
 ## 最高频 5 条
 
