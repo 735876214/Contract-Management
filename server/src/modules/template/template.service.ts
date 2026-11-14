@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, fmtDate, num, assertVersion } from '../../common/utils/helpers';
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {

@@ -89,7 +89,7 @@ cd server && npm run test:int  # DB 集成测试（22 个 spec，改金额/状�
 |---|---|
 | [.claude/rules/rules-index.md](.claude/rules/rules-index.md) | **规则索引（改动前先查）**：按改动场景路由到细则文件 + 最高频 5 条 |
 | [.claude/rules/product-decisions.md](.claude/rules/product-decisions.md) | **已定的产品口径**（业务决策登记，不要重新提议） |
-| [.claude/rules/](.claude/rules/) 其余 | 细则：`backend-conventions` / `procurement-and-tender` / `import-and-templates` / `frontend-conventions` / `testing` / **`parallel-development`（多任务并行时必读）** |
+| [.claude/rules/](.claude/rules/) 其余 | 细则：`backend-conventions` / `procurement-and-tender` / `import-and-templates` / `frontend-conventions` / `testing` / **`parallel-development`（多任务并行时必读）** / **`module-boundaries`（跨模块调用前必读）** |
 | [DESIGN.md](DESIGN.md) | 视觉规则、设计 token、组件样式约定 |
 | [TODO.md](TODO.md) | 剩余任务（只列未完成项，完成即删条目） |
 | [docs/project-overview.md](docs/project-overview.md) / [architecture.md](docs/architecture.md) / [user-guide.md](docs/user-guide.md) | 项目说明 / 架构与数据流 / 使用说明 |

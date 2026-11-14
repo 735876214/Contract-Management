@@ -4,7 +4,7 @@ import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers'
 import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { calcLedgerCompliance } from './ledger-compliance';

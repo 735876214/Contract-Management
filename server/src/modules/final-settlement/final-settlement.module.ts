@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { FinalSettlementService } from './final-settlement.service';
 import { FinalSettlementController } from './final-settlement.controller';
-import { ContractModule } from '../contract/contract.module';
-import { DocTemplateModule } from '../doc-template/doc-template.module';
+import { ContractModule } from '../contract';
+import { DocTemplateModule } from '../doc-template';
 
 /**
  * 总结算单。

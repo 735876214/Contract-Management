@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MaterialController } from './material.controller';
 import { MaterialService } from './material.service';
-import { DictModule } from '../dict/dict.module';
-import { SettlementModule } from '../settlement/settlement.module';
+import { DictModule } from '../dict';
+import { SettlementModule } from '../settlement';
 
 @Module({
   imports: [DictModule, SettlementModule],

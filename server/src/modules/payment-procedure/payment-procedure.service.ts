@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';

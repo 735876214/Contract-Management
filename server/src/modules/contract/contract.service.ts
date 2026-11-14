@@ -6,7 +6,7 @@ import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common
 import { round4 } from '../../common/utils/money';
 import { projectWhere } from '../../common/utils/project-scope';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -17,7 +17,7 @@ import { collectArchiveBlockers } from '../../common/utils/contract-archive';
 import { chainSettledTotal, contractChainIds } from '../../common/utils/contract-chain';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { MaterialService } from '../material/material.service';
+import { MaterialService } from '../material';
 import { assertContractRejectable } from '../../constants/workflowGuards';
 import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
@@ -37,7 +37,7 @@ import {
   SITE_CONFIRM_STATUS,
 } from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
-import { TemplateService } from '../template/template.service';
+import { TemplateService } from '../template';
 import HTMLtoDOCX from 'html-to-docx';
 import { patchDocx } from '../../common/utils/docx-patch';
 

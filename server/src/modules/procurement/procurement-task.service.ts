@@ -7,7 +7,7 @@ import {
   ImportTemplateService,
   TemplateColumn,
 } from '../../common/services/import-template.service';
-import { ContractService } from '../contract/contract.service';
+import { ContractService } from '../contract';
 import {
   TOTAL_LIST,
   PRE_MEETING,
@@ -35,7 +35,7 @@ import {
 } from '../../constants/procurementFlow';
 import { assertResultReportRejectable } from '../../constants/workflowGuards';
 import { BIDDER_STATUS, CONTRACT_STATUS, DICT_TYPES, MODULE_RECORD_STATUS } from '../../constants/statuses';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { resolveClauseSnapshot, CLAUSE_TYPE_LABELS, type ClauseSnapshot } from './clause-snapshot';
 

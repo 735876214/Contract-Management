@@ -4,11 +4,11 @@ import { paginate, buildResult, num, assertVersion, localDayKey } from '../../co
 import { notDraft } from '../../common/utils/contract-chain';
 import { round2 } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
-import { ContractService } from '../contract/contract.service';
+import { DictService } from '../dict';
+import { ContractService } from '../contract';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { requestContext } from '../../common/services/request-context';
-import { DocTemplateService } from '../doc-template/doc-template.service';
+import { DocTemplateService } from '../doc-template';
 import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import {

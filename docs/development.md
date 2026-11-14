@@ -500,7 +500,7 @@ cd .worktrees/<slug>/web;    $env:VITE_PROXY_TARGET="http://localhost:3111"; npm
 
 | 改动 | 执行 |
 |---|---|
-| 总是 | `check-import-integrity`（只扫**已入库**文件） |
+| 总是 | `check-import-integrity`（已入库文件）+ `check-module-boundaries`（跨模块只走公开入口、无环） |
 | `web/**` | 全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test` |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |
@@ -530,4 +530,16 @@ node scripts/check-import-integrity.mjs
 - **禁止在 worktree 里 `git clean -xdf`**：会穿透 junction 删主树 `node_modules`。
 - **不要用 `git stash` 在多会话间搬改动**：stash 栈共享，可能抽走/弹出别人的内容。
 - 集成测试**禁止"全库计数"断言**，一律按自己的 `projectId` 或唯一前缀计数。
+
+### 10.7 模块边界（跨模块只走公开入口）
+
+`scripts/check-module-boundaries.mjs`（秒级）锁定：
+
+- 模块之间只能 `from '../<module>'`，即 `<module>/index.ts` 公开入口；
+  直接引 `.module` / `.service` / 内部工具文件 = 越界（`auth` 守卫按基础设施白名单例外）；
+- 模块级依赖图不允许出现环（Tarjan SCC，当前 0）；
+- `archive` / `ai` 是刻意的聚合器，fan-out 大会被标注，但仍须走公开入口。
+
+新增跨模块符号时，**同时**加进该模块 `index.ts`。完整约定见
+[.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 

@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { pickFields } from '../../common/pick-fields';
 import { assertVersion } from '../../common/utils/helpers';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { buildPaymentDocValues } from './doc-template-vars';
 import { renderTemplateExcel } from './doc-excel';
 import { isExcelTemplateFileName, normalizeDocTemplateFileKey } from './doc-template-file';

@@ -5,7 +5,7 @@ import { round4 } from '../../common/utils/money';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
