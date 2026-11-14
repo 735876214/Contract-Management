@@ -7,7 +7,7 @@ import RichTextEditor from '@/components/RichTextEditor';
 // 条款类型常量抽到零依赖文件（`server/test/clauseSelection.spec.mts` 要直接加载它锁
 // "四个槽位 ↔ 四种条款类型"的对应关系；.tsx 进不了 .mts，见该常量文件的注释）
 import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
-export { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL }; // 兼容旧引用（Contracts.tsx 从本页 import）
+export { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL }; // 兼容旧引用；新代码请直接从 @/constants/clauseTypes 取
 
 /** 模板/条款内容可用变量占位符（按类别分组，供「插入变量」面板展示与搜索） */
 export interface VarItem {

@@ -251,10 +251,11 @@ function LedgerList() {
         extraColumns={tableColumns as any}
         refreshKey={listRefresh + tabRefresh}
         onView={(row) => openDetail(row as any)}
-        rowMenuItems={(row: ModuleListRow) => {
+        editPermission="contract:edit"
+        rowMenuItems={(row: ModuleListRow, ctx) => {
           const r = row as any;
-          // 无编辑权限时只保留「查看」（后端仍会 403 兜底）
-          if (!canEdit) return [];
+          // 写操作统一用组件给出的 canEdit（与 editPermission 同源），避免页面另起一套门禁
+          if (!ctx.canEdit) return [];
           // 归档是单向终态：编辑/删除都禁用，与合并前的维护页口径一致
           const archived = !!r.archivedAt;
           return [

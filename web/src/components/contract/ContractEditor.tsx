@@ -28,7 +28,7 @@ import { useEditorTab } from '@/hooks/useTabs';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useAuthStore } from '@/store/auth';
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
-import { CLAUSE_TYPE_LABEL } from '@/pages/Clauses';
+import { CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
 
 /**
  * 合同编辑器（列表 + 编辑器是同一路由的两种形态：`?editor=new|<id>`）。

@@ -13,9 +13,9 @@ import {
   Tag,
   message,
 } from 'antd';
-import dayjs from 'dayjs';
 import { contractApi } from '@/api/business';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import { usePermission } from '@/hooks/usePermission';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 
 /**
@@ -42,6 +42,9 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
   const [loading, setLoading] = useState(false);
   const [supOpen, setSupOpen] = useState(false);
   const [supForm] = Form.useForm();
+  /** 写入口门禁：只读用户与已归档合同不得发起「新增补充协议」（后端仍有 `contract:edit` 403 兜底） */
+  const canEdit = usePermission('contract:edit');
+  const canWrite = canEdit && !!detail && !detail.archivedAt;
 
   useEffect(() => {
     if (!open || !contractId) {
@@ -66,7 +69,7 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
   }, [open, contractId]);
 
   const openSupplement = async () => {
-    if (!detail) return;
+    if (!detail || !canWrite) return;
     const res: any = await contractApi.nextSupplementCode(detail.id);
     supForm.setFieldsValue({
       code: res.code,
@@ -77,7 +80,7 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
   };
 
   const createSupplement = async () => {
-    if (!detail) return;
+    if (!detail || !canWrite) return;
     const v = await supForm.validateFields();
     await contractApi.create({
       ...v,
@@ -147,9 +150,18 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
                     <Tag key={s.id} color="blue">{s.code}</Tag>
                   ))}
                 </Space>
-                <Button type="primary" size="small" style={{ marginLeft: 8 }} onClick={openSupplement}>
-                  新增补充协议
-                </Button>
+                {canEdit && (
+                  <Button
+                    type="primary"
+                    size="small"
+                    style={{ marginLeft: 8 }}
+                    disabled={!!detail.archivedAt}
+                    title={detail.archivedAt ? '合同已归档，不能新增补充协议' : undefined}
+                    onClick={openSupplement}
+                  >
+                    新增补充协议
+                  </Button>
+                )}
               </div>
             )}
           </>
