@@ -851,7 +851,12 @@ export class SettlementService {
       select: { id: true, projectId: true, contractId: true, settleDate: true, code: true },
     });
     if (!s || s.projectId !== projectId) throw new NotFoundException('结算单不存在');
-    if (opts.contractId && s.contractId && s.contractId !== opts.contractId) {
+    // 合同必须**完全一致**：一贯为 null（无合同单据 ↔ 无合同结算单）才放行。
+    // 一边有合同、一边没有同样拒绝——否则发票会挂到别合同的结算单上，
+    // 台账按 `{ settlementId, contractId }` 归集时它就会从本合同的开票额里消失。
+    const mineContract = opts.contractId ?? null;
+    const settlementContract = s.contractId ?? null;
+    if (mineContract !== settlementContract) {
       throw new BadRequestException(`该结算单不属于本${opts.label}的合同，无法关联。`);
     }
     const startDay = await this.startDayOf(projectId);
@@ -1421,7 +1426,17 @@ export class SettlementService {
   }
 
   async removeLedger(id: string, projectId?: string) {
-    await this.ledgerOne(id, projectId);
+    const row = await this.ledgerOne(id, projectId);
+    /**
+     * 已关联结算单的行由 `syncLedgerByContract()` 自动维护（台账行与结算单 1:1）：
+     * 直接删掉会让结算单丢了 `ledgerEntry`，下次刷新又被重建——"删了又回来"比报错更让人困惑。
+     * 仅费用行（`settlementId = null`）仍可手工删除。
+     */
+    if (row.settlementId) {
+      throw new BadRequestException(
+        '该台账行对应的结算单仍在（台账行与结算单 1:1），不能直接删除；请先处理结算单，或使用「刷新台账」重算。',
+      );
+    }
     await this.prisma.settlementLedger.delete({ where: { id } });
     return true;
   }
