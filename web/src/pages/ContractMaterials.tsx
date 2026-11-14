@@ -7,6 +7,7 @@ import { PlusOutlined, ExportOutlined, SwapOutlined, ArrowUpOutlined, ArrowDownO
 import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
@@ -288,7 +289,7 @@ function ContractMaterialsList() {
               onChange={(v) => { setContractId(v); refreshList(); }}
               options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
             />
-            {canEdit && (
+            <Can code="material:edit">
               <ImportButton
                 moduleName="合同物资清单"
                 templateUrl={contractMaterialApi.templateUrl()}
@@ -298,7 +299,7 @@ function ContractMaterialsList() {
                 onDone={refreshList}
                 extraHint="物资名称 + 规格型号须与物资基础库一致。"
               />
-            )}
+            </Can>
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}
@@ -313,7 +314,7 @@ function ContractMaterialsList() {
             >
               导出 CSV
             </Button>
-            {canEdit && (
+            <Can code="material:edit">
               <>
                 <Button
                   icon={<SwapOutlined />}
@@ -326,7 +327,7 @@ function ContractMaterialsList() {
                   添加物资
                 </Button>
               </>
-            )}
+            </Can>
           </Space>
         }
       />

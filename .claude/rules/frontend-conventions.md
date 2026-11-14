@@ -15,6 +15,10 @@
   `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；改菜单结构后递增 `Sider/utils/storage.ts` 的缓存键版本。
   ⚠️ 兜底 `menuConfig.ts` 必须与 `MENU_TREE` **逐项同序**：`routePermissionParity.spec.mts` 用 deepEqual 锁定
   （含 label / icon / permission），只改一处会让 `npm test` 变红。
+- **操作级权限渲染统一用 `<Can>`**（2026-11-14）：页面里「有权限才显示」的按钮一律写成
+  `<Can code="invoice:edit">…</Can>`（`web/src/components/Can.tsx`；数组为 OR 语义，超管恒真，
+  可传 `fallback`）；需要把权限用于**逻辑判断**（`disabled`、三元、菜单项）时仍用
+  `usePermission()`，不要把判断硬塞进组件。后端 `@RequirePermissions` 始终是最终边界。
 - **旧扁平路径改为重定向保号**：旧路径（`/projects`、`/ledger`、`/daily` …）通过 `<Navigate replace />`
   跳到 Sider 新规范路径；`/contracts`（原合同编辑页）已并入「合同管理 → 合同台账」（业务 2026-11-14），
   现为保号重定向并保留查询串（`/contracts?editor=<id>` → `/contract/list?editor=<id>`）。

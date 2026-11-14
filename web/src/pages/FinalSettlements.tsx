@@ -6,7 +6,7 @@ import { finalSettlementApi } from '@/api/modules';
 import { fileApi } from '@/api/auth';
 import { contractApi } from '@/api/business';
 import { DictTag } from '@/components/DictSelect';
-import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 
 const money = (v: any) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
 
@@ -21,7 +21,6 @@ const money = (v: any) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-C
  */
 export default function FinalSettlements() {
   const [form] = Form.useForm();
-  const canEdit = usePermission('settlement:edit');
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(false);
@@ -106,7 +105,7 @@ export default function FinalSettlements() {
             load(v);
           }}
         />
-        {canEdit && (
+        <Can code="settlement:edit">
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -117,7 +116,7 @@ export default function FinalSettlements() {
           >
             生成总结算单
           </Button>
-        )}
+        </Can>
       </Space>
 
       <Table
@@ -179,7 +178,7 @@ export default function FinalSettlements() {
             fixed: 'right',
             render: (_v: any, row: any) => (
               <Space size={4} wrap>
-                {canEdit && (
+                <Can code="settlement:edit">
                   <Upload
                     showUploadList={false}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
@@ -189,7 +188,7 @@ export default function FinalSettlements() {
                       {row.attachmentUrl ? '重传附件' : '上传附件'}
                     </Button>
                   </Upload>
-                )}
+                </Can>
                 <Button
                   type="link"
                   size="small"
@@ -198,7 +197,7 @@ export default function FinalSettlements() {
                 >
                   导出
                 </Button>
-                {canEdit && (
+                <Can code="settlement:edit">
                   <>
                     <Button
                       type="link"
@@ -219,7 +218,7 @@ export default function FinalSettlements() {
                       </Button>
                     </Popconfirm>
                   </>
-                )}
+                </Can>
               </Space>
             ),
           },

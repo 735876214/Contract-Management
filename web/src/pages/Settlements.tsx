@@ -26,6 +26,7 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import EditorTabPage from '@/components/editor/EditorTabPage';
+import Can from '@/components/Can';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 
@@ -259,7 +260,7 @@ function SettlementsTab({
         }
         toolbarLeft={
           <Space wrap size={8}>
-            {canEdit && (
+            <Can code="settlement:edit">
               <>
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                   新增结算单
@@ -269,7 +270,7 @@ function SettlementsTab({
                   生成本期结算
                 </Button>
               </>
-            )}
+            </Can>
           </Space>
         }
       />
@@ -593,7 +594,6 @@ function LedgerTab({
 }) {
   const editorTab = useEditorTab(LEDGER_LIST_PATH);
   const tabRefresh = useTabRefresh(LEDGER_LIST_PATH);
-  const canEdit = usePermission('settlement:edit');
   const [refreshing, setRefreshing] = useState(false);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
@@ -664,7 +664,7 @@ function LedgerTab({
         onDelete={handleRemove}
         toolbarLeft={
           <Space wrap size={8}>
-            {canEdit && (
+            <Can code="settlement:edit">
               <>
                 <Button type="primary" ghost loading={refreshing} onClick={doRefresh}>
                   自动生成台账
@@ -677,15 +677,15 @@ function LedgerTab({
                   onDone={refreshList}
                 />
               </>
-            )}
+            </Can>
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(settlementApi.exportLedgerUrl()))}>
               导出台账
             </Button>
-            {canEdit && (
+            <Can code="settlement:edit">
               <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                 新增台账
               </Button>
-            )}
+            </Can>
           </Space>
         }
       />

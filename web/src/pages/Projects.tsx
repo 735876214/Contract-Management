@@ -7,9 +7,9 @@ import { projectApi } from '@/api/business';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
@@ -26,7 +26,6 @@ export default function Projects() {
 function ProjectList() {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
-  const canEdit = usePermission('project:edit');
   const { loading, list, search, reload, pagination } = useTable<any>((p) => projectApi.list(p));
   const [memberDrawer, setMemberDrawer] = useState(false);
   const [current, setCurrent] = useState<any>(null);
@@ -61,14 +60,14 @@ function ProjectList() {
       title="项目管理"
       extra={
         <Space>
-          {canEdit && (
+          <Can code="project:edit">
             <ImportButton moduleName="项目信息" templateUrl={projectApi.templateUrl()} uploadUrl={projectApi.importUrl()} validateUrl={projectApi.validateUrl()} onDone={reload} />
-          )}
-          {canEdit && (
+          </Can>
+          <Can code="project:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新建项目
             </Button>
-          )}
+          </Can>
         </Space>
       }
     >
@@ -114,14 +113,14 @@ function ProjectList() {
               <Space size={4}>
                 {/* 查看成员是只读能力：只读用户也要能看；编辑/删除才受 project:edit 门禁 */}
                 <Button type="link" size="small" onClick={() => openMembers(row)}>成员</Button>
-                {canEdit && (
+                <Can code="project:edit">
                   <>
                     <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
                     <Popconfirm title="确认删除？有业务数据时不可删除" onConfirm={async () => { await projectApi.remove(row.id); message.success('已删除'); useAuthStore.getState().refreshProjects().catch(() => undefined); reload(); }}>
                       <Button type="link" size="small" danger>删除</Button>
                     </Popconfirm>
                   </>
-                )}
+                </Can>
               </Space>
             ),
           },
