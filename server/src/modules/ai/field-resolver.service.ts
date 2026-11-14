@@ -2,9 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
-import { paidPaymentWhere, countedInvoiceWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
-import { notDraft } from '../../common/utils/contract-chain';
+import { SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { ASSET_IN_SOURCES } from '../../common/utils/asset-flow';
+import {
+  loadContractChainFacts,
+  loadInvoiceFacts,
+  loadPaymentFacts,
+  loadSettlementFacts,
+} from '../../query';
 import { DatasetCollector } from './analytics/dataset-collector.service';
 import { endOfDay, localMonthKey, parseLocalDay } from './common/period';
 
@@ -289,10 +294,7 @@ export class FieldResolverService {
      * 重复计入 **N+1 次**，汇报材料里的「累计合同金额」成倍虚高。
      * 改为一次取全项目合同行，按链根求和（同时消掉逐合同查库的 N+1）。
      */
-    const chainRows = await this.prisma.contract.findMany({
-      where: { projectId },
-      select: { id: true, parentContractId: true, amount: true, changeAmount: true },
-    });
+    const chainRows = await loadContractChainFacts(this.prisma, [projectId]);
     let contractAmountTotal = 0;
     for (const root of chainRows.filter((c) => !c.parentContractId)) {
       const amount = resolveChainAmounts(chainRows as any, root.id).currentAmount;
@@ -300,18 +302,9 @@ export class FieldResolverService {
     }
 
     const [settlements, payments, invoices] = await Promise.all([
-      this.prisma.settlement.findMany({
-        where: { projectId, ...notDraft },
-        select: { amount: true, actualAmount: true },
-      }),
-      this.prisma.paymentRecord.findMany({
-        where: { projectId, ...paidPaymentWhere() },
-        select: { amount: true },
-      }),
-      this.prisma.invoice.findMany({
-        where: { projectId, ...countedInvoiceWhere() },
-        select: { amountWithTax: true },
-      }),
+      loadSettlementFacts(this.prisma, [projectId], { excludeDraft: true }),
+      loadPaymentFacts(this.prisma, [projectId], { excludeFailed: true }),
+      loadInvoiceFacts(this.prisma, [projectId], { excludeTerminal: true }),
     ]);
 
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
