@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { FinanceController } from './finance.controller';
-import { SettlementModule } from '../settlement/settlement.module';
-import { ContractModule } from '../contract/contract.module';
+import { SettlementModule } from '../settlement';
+import { ContractModule } from '../contract';
 import { FinanceService } from './finance.service';
 
 /**

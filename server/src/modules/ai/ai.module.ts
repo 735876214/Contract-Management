@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ContractModule } from '../contract/contract.module';
-import { SupplierModule } from '../supplier/supplier.module';
+import { ContractModule } from '../contract';
+import { SupplierModule } from '../supplier';
 import { AiController } from './ai.controller';
 import { AiQuota } from './ai-quota';
 import { AiService } from './ai.service';

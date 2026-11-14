@@ -9,9 +9,9 @@ import {
 } from '../../constants/statuses';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/utils/money';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
-import { SettlementService } from '../settlement/settlement.service';
+import { SettlementService } from '../settlement';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';

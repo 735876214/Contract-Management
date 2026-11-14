@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { ContractService } from '../contract/contract.service';
-import { SupplierService } from '../supplier/supplier.service';
+import { ContractService } from '../contract';
+import { SupplierService } from '../supplier';
 import { AiQuota } from './ai-quota';
 import { aiModelFor, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';

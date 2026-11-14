@@ -5,8 +5,8 @@ import { num, assertVersion, assertYearMonth } from '../../common/utils/helpers'
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
-import { SettlementService } from '../settlement/settlement.service';
-import { ContractService } from '../contract/contract.service';
+import { SettlementService } from '../settlement';
+import { ContractService } from '../contract';
 import { paymentModeViolation } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {

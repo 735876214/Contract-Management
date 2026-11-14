@@ -11,12 +11,12 @@ import {
   countedInvoiceWhere,
   isInvoiceTerminalStatus,
 } from '../../constants/statuses';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { recognizeInvoiceImage } from './invoice-recognizer';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
-import { SettlementService } from '../settlement/settlement.service';
+import { SettlementService } from '../settlement';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';

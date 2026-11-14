@@ -9,8 +9,8 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { DictService } from '../dict/dict.service';
-import { SettlementService } from '../settlement/settlement.service';
+import { DictService } from '../dict';
+import { SettlementService } from '../settlement';
 
 const BASE_FIELDS = [
   'name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode',

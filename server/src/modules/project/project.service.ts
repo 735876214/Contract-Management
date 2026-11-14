@@ -6,7 +6,7 @@ import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ProjectAccessService } from '../../common/services/project-access.service';
 
 const PROJECT_FIELDS = [

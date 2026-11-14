@@ -8,17 +8,17 @@ import { localDayKey } from '../../common/utils/helpers';
 import { notDraft } from '../../common/utils/contract-chain';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { ARCHIVE_CATEGORIES, ARCHIVE_CATEGORY_BY_KEY } from '../../constants/archiveCategories';
-import { LedgerService } from '../ledger/ledger.service';
-import { SettlementService } from '../settlement/settlement.service';
-import { InvoiceService } from '../invoice/invoice.service';
-import { PaymentService } from '../payment/payment.service';
-import { AssetService } from '../asset/asset.service';
-import { DailyReportService } from '../daily-report/daily-report.service';
-import { RepaymentService } from '../repayment/repayment.service';
-import { FinanceService } from '../finance/finance.service';
-import { CostService } from '../cost/cost.service';
-import { MonthlyProfitLossService } from '../cost/monthly-profit-loss.service';
-import { LaborReceivingService } from '../cost/labor-receiving.service';
+import { LedgerService } from '../ledger';
+import { SettlementService } from '../settlement';
+import { InvoiceService } from '../invoice';
+import { PaymentService } from '../payment';
+import { AssetService } from '../asset';
+import { DailyReportService } from '../daily-report';
+import { RepaymentService } from '../repayment';
+import { FinanceService } from '../finance';
+import { CostService } from '../cost';
+import { MonthlyProfitLossService } from '../cost';
+import { LaborReceivingService } from '../cost';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import {
   type ArchiveFile,
@@ -443,7 +443,7 @@ export class ArchiveService {
 
   /** 劳务台账 Excel（占位：批次 B 末尾由 labor.service.export 实现，见下） */
   private async laborAuthExport(projectId: string): Promise<Buffer> {
-    const { exportLaborAuthWorkbook } = await import('../labor/labor-excel');
+    const { exportLaborAuthWorkbook } = await import('../labor');
     return exportLaborAuthWorkbook(this.prisma, projectId, this.storage);
   }
 }

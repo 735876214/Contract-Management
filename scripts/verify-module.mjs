@@ -139,6 +139,14 @@ step('提交自洽（已入库文件的 import 完整性）', () =>
   }).status === 0,
 );
 
+// 1.5) 模块边界
+step('模块边界（跨模块只走公开入口 + 无环）', () =>
+  spawnSync(process.execPath, [path.join(root, 'scripts/check-module-boundaries.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  }).status === 0,
+);
+
 // 2) web
 if (webChanged.length) {
   const onlyPages = webChanged.every((f) => f.startsWith('web/src/pages/'));

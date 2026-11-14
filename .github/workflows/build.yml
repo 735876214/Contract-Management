@@ -92,6 +92,9 @@ jobs:
       - name: 提交自洽（已入库文件的 import 完整性）
         run: node scripts/check-import-integrity.mjs
 
+      - name: 模块边界（跨模块只走公开入口）
+        run: node scripts/check-module-boundaries.mjs
+
       - name: Install server dependencies
         working-directory: server
         run: npm ci --legacy-peer-deps --no-audit --no-fund

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { InvoiceService } from './invoice.service';
 import { InvoiceController } from './invoice.controller';
-import { SettlementModule } from '../settlement/settlement.module';
+import { SettlementModule } from '../settlement';
 
 /**
  * `SettlementModule`：发票要挂到结算单上（业务口径 2026-10-16「发票与结算单对应」），
