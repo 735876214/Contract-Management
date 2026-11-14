@@ -157,10 +157,14 @@ describe('AI 经营数据助手 · 规则意图', () => {
     const { patch, warnings } = normalizeModelIntent({
       datasets: ['contract.summary', 'nope.key'],
       focus: ['payment_risk', 'nope_focus'],
+      period: { preset: 'next_century' },
+      scope: { mode: 'galaxy' },
     });
     assert.deepEqual(patch.datasets, ['contract.summary']);
     assert.deepEqual(patch.focus, ['payment_risk']);
     assert.ok(warnings.some((w) => w.includes('nope.key')));
     assert.ok(warnings.some((w) => w.includes('nope_focus')));
+    assert.ok(warnings.some((w) => w.includes('期间')));
+    assert.ok(warnings.some((w) => w.includes('范围')));
   });
 });

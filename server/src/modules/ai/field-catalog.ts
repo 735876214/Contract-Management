@@ -17,8 +17,20 @@
 /** 值类型：决定格式化方式（金额 2 位小数、比例 ×100、日期 YYYY-MM-DD） */
 export type AiFieldType = 'text' | 'date' | 'money' | 'number' | 'percent' | 'dict';
 
-/** 取值作用域：project 只需项目上下文；contract/supplier 需要对应 id；period = 期间发生额；cross = 跨项目聚合 */
-export type AiFieldScope = 'project' | 'contract' | 'supplier' | 'stats' | 'period' | 'cross';
+/** 取值作用域：project 只需项目上下文；contract/supplier 需要对应 id；period = 期间发生额；cross = 跨项目聚合；
+ *  ledger/cost/procurement/asset/daily = 各业务域的期间/累计标量 */
+export type AiFieldScope =
+  | 'project'
+  | 'contract'
+  | 'supplier'
+  | 'stats'
+  | 'period'
+  | 'cross'
+  | 'ledger'
+  | 'cost'
+  | 'procurement'
+  | 'asset'
+  | 'daily';
 
 export interface AiFieldDef {
   /** 稳定键：`<域>.<字段>`，作为模型的输出契约，**不要改名**（改名会让历史映射失效） */
@@ -102,6 +114,17 @@ export const AI_FIELD_CATALOG: readonly AiFieldDef[] = [
   { key: 'cross.invoiceAmount', label: '汇总开票额(元)', type: 'money', scope: 'cross' },
   { key: 'cross.unpaidAmount', label: '汇总应付未付(元)', type: 'money', scope: 'cross' },
   { key: 'cross.uninvoicedAmount', label: '汇总已结未开票(元)', type: 'money', scope: 'cross' },
+
+  // ---------- 台账 / 成本 / 采购 / 资产 / 日报 关键标量 ----------
+  { key: 'ledger.settleMonthCount', label: '台账行数', type: 'number', scope: 'ledger' },
+  { key: 'ledger.cumPurchaseAmount', label: '开累采购额(元)', type: 'money', scope: 'ledger' },
+  { key: 'cost.profitLossCount', label: '月度盈亏记录数', type: 'number', scope: 'cost' },
+  { key: 'cost.sixSavingsAmount', label: '六项降本创效合计(元)', type: 'money', scope: 'cost' },
+  { key: 'procurement.taskCount', label: '采购任务数量', type: 'number', scope: 'procurement' },
+  { key: 'asset.originalTotalAmount', label: '资产原值总额(元)', type: 'money', scope: 'asset' },
+  { key: 'asset.inQty', label: '本期资产进场数量', type: 'number', scope: 'asset' },
+  { key: 'daily.reportCount', label: '总日报条数', type: 'number', scope: 'daily' },
+  { key: 'daily.confirmedReportCount', label: '已确认总日报条数', type: 'number', scope: 'daily' },
 ] as const;
 
 const FIELD_MAP = new Map(AI_FIELD_CATALOG.map((f) => [f.key, f]));
@@ -149,6 +172,11 @@ export const SCOPE_READ_PERMISSION: Record<AiFieldScope, string> = {
   period: 'contract:view',
   // 跨项目汇总比单项目敏感：与统计报表同权限（dashboard:view）
   cross: 'dashboard:view',
+  ledger: 'ledger:view',
+  cost: 'cost:view',
+  procurement: 'contract:view',
+  asset: 'asset:view',
+  daily: 'daily:view',
 };
 
 /**

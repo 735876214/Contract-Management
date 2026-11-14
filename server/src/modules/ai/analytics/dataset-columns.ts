@@ -29,7 +29,7 @@ export const DATASET_COLUMNS: Record<string, readonly string[]> = {
     '开票比例(%)',
   ],
   'cost.profit_loss': ['项目', '结算期', '六项降本创效', '劳务计价累计扣款', '明细行数'],
-  'cost.labor_receiving': ['项目', '单据编号', '分包商', '结算期', '状态', '明细数'],
+  'cost.labor_receiving': ['项目', '分包商', '结算期', '物资名称', '规格型号', '单位', '平均单价', '退库数量', '本期盘点', '设计量开累', '损耗率(%)'],
   'procurement.task': ['项目', '采购编号', '类型', '状态'],
   'procurement.result': ['项目', '采购编号', '投标单位', '状态', '最终确认价'],
   'daily.report': ['项目', '日报条数', '结算量合计', '含税金额合计'],

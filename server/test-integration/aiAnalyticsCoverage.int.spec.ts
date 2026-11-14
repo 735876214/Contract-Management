@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
 import { DatasetCollector } from '../src/modules/ai/analytics/dataset-collector.service';
 import { ScmService } from '../src/modules/ai/analysis/scm.service';
+import { FieldResolverService } from '../src/modules/ai/field-resolver.service';
 
 /**
  * 集成 · AI 经营数据助手（Phase 5）：新增 9 个业务单据域都有真实取数。
@@ -61,6 +62,26 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
         subcontractorName: labor.subcontractorName, period: '2026-11',
       } as any,
     });
+    await ctx.prisma.laborReceivingSummary.create({
+      data: {
+        projectId: project.id,
+        docId: (await ctx.prisma.laborReceivingDoc.findFirst({
+          where: { projectId: project.id, laborAuthId: labor.id },
+          select: { id: true },
+        }))!.id,
+        laborAuthId: labor.id,
+        subcontractorName: labor.subcontractorName,
+        period: '2026-11',
+        materialName: '钢筋',
+        spec: 'HRB400',
+        unit: 't',
+        unitPrice: 4000,
+        returnQty: 1,
+        stockTakeQty: 2,
+        designQtyCum: 10,
+        lossRate: 2.5,
+      } as any,
+    });
     const task = await ctx.prisma.procurementTask.create({
       data: { projectId: project.id, taskNo: uniq('PROC').toUpperCase(), type: 'SINGLE', content: '覆盖测试' } as any,
     });
@@ -79,6 +100,12 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
     await ctx.prisma.inspectionReport.create({
       data: { projectId: project.id, unitName: uniq('考察单位'), inspectionTime: new Date() } as any,
     });
+    await ctx.prisma.dailyReport.create({
+      data: { projectId: project.id, contractId: contract.id, entryDate: new Date(), settleQty: 1, confirmStatusCode: 'CONFIRMED' } as any,
+    });
+    await ctx.prisma.assetLedger.create({
+      data: { projectId: project.id, date: new Date(), sourceCode: 'PURCHASE', qty: 2, originalTotal: 100 } as any,
+    });
 
     const collected = await collector.collect(
       [{ id: project.id, code: project.code, name: project.name }],
@@ -94,13 +121,48 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
       ['material.contract', 1],
       ['labor.auth', 1],
       ['labor.receiving_doc', 1],
+      ['cost.labor_receiving', 1],
       ['procurement.documents', 3], // 公告 + 评标 + 考察
     ];
     for (const [key, min] of expectations) {
       assert.ok(rowsOf(key) >= min, `${key} 取数为空（期望 ≥${min} 行，实际 ${rowsOf(key)}）`);
     }
+    // 列定义 ↔ 行键必须逐字一致（否则工作簿/行级填充整列空白）
+    for (const d of collected.datasets) {
+      const cols = new Set(d.columns);
+      for (const row of d.rows) {
+        for (const key of Object.keys(row)) {
+          assert.ok(cols.has(key), `${d.key} 行键「${key}」不在列定义中`);
+        }
+      }
+    }
     assert.ok(rowsOf('material.base') >= 1, 'material.base 应包含刚建的主数据');
     assert.equal(collected.datasets.length, 27, '27 个数据集应全部产出结构（未选的由上层过滤）');
+
+    // 业务域标量（台账/成本/采购/资产/日报）也能取到值
+    const resolver = ctx.get<FieldResolverService>(FieldResolverService);
+    const values = await resolver.resolve(
+      [
+        'ledger.settleMonthCount',
+        'cost.profitLossCount',
+        'procurement.taskCount',
+        'asset.originalTotalAmount',
+        'asset.inQty',
+        'daily.reportCount',
+        'daily.confirmedReportCount',
+      ],
+      {
+        projectId: project.id,
+        scope: { mode: 'current', projectIds: [project.id] },
+        period: { from: '2026-01-01', to: '2026-12-31' },
+      },
+    );
+    assert.equal(values['procurement.taskCount'], '1');
+    assert.equal(values['asset.originalTotalAmount'], '100.00');
+    assert.equal(values['asset.inQty'], '2');
+    assert.equal(values['daily.reportCount'], '1');
+    assert.equal(values['daily.confirmedReportCount'], '1');
+    assert.equal(values['ledger.settleMonthCount'], '0');
   });
 
   it('累计口径与供应链全景事实层（buildScmFacts）逐项一致', async () => {

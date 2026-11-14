@@ -104,6 +104,17 @@ export function normalizeModelIntent(raw: unknown): { patch: ModelIntentPatch; w
     if (typeof obj.outputs.workbook === 'boolean') outputs.workbook = obj.outputs.workbook;
     if (Object.keys(outputs).length) patch.outputs = outputs;
   }
+  const warnEnum = (value: unknown, allowed: readonly string[], label: string): void => {
+    if (value != null && !pickEnum(value, allowed)) {
+      warnings.push(`忽略模型给出的未知${label}：${String(value)}`);
+    }
+  };
+  warnEnum(obj.scope?.mode, AI_SCOPE_MODES, '范围');
+  warnEnum(obj.period?.preset, AI_PERIOD_PRESETS, '期间');
+  warnEnum(obj.compare, AI_COMPARE_MODES, '对比方式');
+  warnEnum(obj.reportKind, AI_REPORT_KINDS, '报告类型');
+  warnEnum(obj.detail, AI_DETAIL_LEVELS, '明细程度');
+  warnEnum(obj.groupBy, AI_GROUP_BYS, '分组维度');
   return { patch, warnings };
 }
 

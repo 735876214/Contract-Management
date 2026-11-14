@@ -10,6 +10,7 @@
  */
 
 import { round2 } from '../../../common/utils/money.ts';
+import { formatYuan as fmtYuan, changeRateText } from '../common/format.ts';
 import { auditNumbers, numbersInText } from '../report-facts.ts';
 import {
   AI_DATASETS,
@@ -127,6 +128,7 @@ export function buildAnalyticsRisks(
 /** 事实包构建（纯函数）：补注册表元信息、数据缺口提醒与风险 */
 export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFacts {
   const warnings = [...input.warnings];
+  const dataGaps: string[] = [];
   const datasets: AiAnalyticsDatasetFact[] = [];
   for (const key of AI_DATASETS.map((d) => d.key)) {
     const collected = input.datasets.find((d) => d.key === key);
@@ -140,7 +142,11 @@ export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFact
       empty: collected.rows.length === 0,
     };
     datasets.push(fact);
-    if (fact.empty) warnings.push(`数据集「${def.label}」在所选范围没有数据`);
+    if (fact.empty) {
+      const msg = `数据集「${def.label}」在所选范围没有数据`;
+      warnings.push(msg);
+      dataGaps.push(msg);
+    }
   }
 
   return {
@@ -160,6 +166,7 @@ export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFact
     compareTotals: input.compareTotals,
     byProject: input.byProject,
     datasets,
+    dataGaps,
     risks: buildAnalyticsRisks(
       input.totals,
       input.compareTotals,
@@ -170,18 +177,9 @@ export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFact
   };
 }
 
-const fmtYuan = (n: number): string =>
-  Number(n).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 const fmtPct = (v: number | null): string => (v === null ? '—' : `${v}%`);
 
-const deltaText = (now: number, prev: number | null): string => {
-  if (prev === null) return '—';
-  if (prev === 0) return now === 0 ? '0%' : '—';
-  const pct = round2(((now - prev) / prev) * 100);
-  const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct}%`;
-};
+const deltaText = (now: number, prev: number | null): string => changeRateText(now, prev, { sign: true });
 
 const TABLE_ROWS_IN_REPORT = 20;
 const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];

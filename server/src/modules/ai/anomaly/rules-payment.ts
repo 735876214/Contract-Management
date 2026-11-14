@@ -168,8 +168,6 @@ function isCountedPayment(row: PaymentRow): boolean {
   return !PAYMENT_EXCLUDED_STATUSES.includes(row.statusCode as any);
 }
 
-/** 作废/红冲发票不参与票款比较（与台账/AI 全景同一口径，见 statuses.ts 的 isCountedInvoiceStatus） */
-
 /** 合同是否处于「可以付款」的状态（已签章；兼容历史 `COMPLETED` 旧行） */
 function isPayableContract(row: ContractRow | undefined): boolean {
   if (!row) return false;

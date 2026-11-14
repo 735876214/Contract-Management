@@ -35,6 +35,7 @@ import {
 } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
 import { MIME_DOCX, MIME_PDF, MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
+import { DEFAULT_MAX_DATASETS, SCOPE_LABEL } from './constants';
 
 const { Text, Paragraph } = Typography;
 
@@ -58,13 +59,13 @@ const KIND_OPTIONS = [
   { value: 'custom', label: '经营数据报告' },
 ];
 
-const SCOPE_LABEL: Record<AiScopeMode, string> = { current: '当前项目', selected: '多选项目', all: '全部项目' };
-
 export interface GeneratePanelProps {
   datasets: AiAnalyticsDatasetMeta[];
   defaultKeys: string[];
   projects: Array<{ id: string; code: string; name: string }>;
   crossProjectAllowed: boolean;
+  /** 后端注册表返回的最大可选数据集数（默认 8） */
+  maxDatasets?: number;
   /** 生成成功后通知历史页签刷新 */
   onSaved: () => void;
 }
@@ -73,7 +74,14 @@ export interface GeneratePanelProps {
  * 生成页签（Phase 2）：范围/期间/数据集/自然语言 → 意图预览 → 确定性报告。
  * 数由程序算、排版由程序生成；本阶段不调用模型（`source='template'`）。
  */
-export default function GeneratePanel({ datasets, defaultKeys, projects, crossProjectAllowed, onSaved }: GeneratePanelProps) {
+export default function GeneratePanel({
+  datasets,
+  defaultKeys,
+  projects,
+  crossProjectAllowed,
+  maxDatasets = DEFAULT_MAX_DATASETS,
+  onSaved,
+}: GeneratePanelProps) {
   const [scopeMode, setScopeMode] = useState<AiScopeMode>('current');
   const [projectIds, setProjectIds] = useState<string[]>([]);
   const [preset, setPreset] = useState<AiPeriodPreset>('this_month');
@@ -93,26 +101,33 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
   const [exporting, setExporting] = useState<'docx' | 'pdf' | null>(null);
   const [plan, setPlan] = useState<AiAnalyticsPlanResult | null>(null);
   const [result, setResult] = useState<AiAnalyticsReportResult | null>(null);
+  /** 只有用户真正动过的字段才发给后端，未动的留给自然语言解析（计划 §2.2 逐字段覆盖） */
+  const [touched, setTouched] = useState({ scope: false, period: false, compare: false, datasets: false });
+  const mark = (key: keyof typeof touched) => setTouched((t) => ({ ...t, [key]: true }));
 
   const labelByKey = useMemo(() => new Map(datasets.map((d) => [d.key, d.label])), [datasets]);
 
   const body = (): Record<string, unknown> => {
     const b: Record<string, unknown> = {
       text: text.trim() || undefined,
-      scope: { mode: scopeMode, projectIds: scopeMode === 'selected' ? projectIds : undefined },
-      period:
-        preset === 'custom'
-          ? customRange
-            ? { preset: 'custom', from: customRange[0].format('YYYY-MM-DD'), to: customRange[1].format('YYYY-MM-DD') }
-            : { preset }
-          : { preset },
-      datasets: selectedKeys.length ? selectedKeys : undefined,
-      compare,
       notes: notes.trim() || undefined,
       reportKind,
       detail,
       narrative,
     };
+    if (touched.scope || scopeMode === 'selected') {
+      b.scope = { mode: scopeMode, projectIds: scopeMode === 'selected' ? projectIds : undefined };
+    }
+    if (touched.period) {
+      b.period =
+        preset === 'custom'
+          ? customRange
+            ? { preset: 'custom', from: customRange[0].format('YYYY-MM-DD'), to: customRange[1].format('YYYY-MM-DD') }
+            : { preset }
+          : { preset };
+    }
+    if (touched.datasets && selectedKeys.length) b.datasets = selectedKeys;
+    if (touched.compare) b.compare = compare;
     return b;
   };
 
@@ -198,7 +213,10 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
                 <Segmented
                   block
                   value={scopeMode}
-                  onChange={(v) => setScopeMode(v as AiScopeMode)}
+                  onChange={(v) => {
+                    setScopeMode(v as AiScopeMode);
+                    mark('scope');
+                  }}
                   options={[
                     { value: 'current', label: '当前项目' },
                     { value: 'selected', label: '多选项目', disabled: !crossProjectAllowed },
@@ -222,7 +240,10 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
                     maxTagCount="responsive"
                     placeholder="选择要汇总的项目"
                     value={projectIds}
-                    onChange={setProjectIds}
+                    onChange={(v) => {
+                      setProjectIds(v);
+                      mark('scope');
+                    }}
                     options={projects.map((p) => ({ value: p.id, label: `${p.name}（${p.code}）` }))}
                   />
                 </Form.Item>
@@ -234,13 +255,19 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
                   <Select
                     style={{ width: 140 }}
                     value={preset}
-                    onChange={setPreset}
+                    onChange={(v) => {
+                      setPreset(v);
+                      mark('period');
+                    }}
                     options={PRESET_OPTIONS}
                   />
                   {preset === 'custom' && (
                     <DatePicker.RangePicker
                       value={customRange}
-                      onChange={(v) => setCustomRange(v as [Dayjs, Dayjs] | null)}
+                      onChange={(v) => {
+                        setCustomRange(v as [Dayjs, Dayjs] | null);
+                        mark('period');
+                      }}
                     />
                   )}
                 </Space>
@@ -248,7 +275,13 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
             </Col>
             <Col xs={24} lg={12} xl={8}>
               <Form.Item label="对比">
-                <Radio.Group value={compare} onChange={(e) => setCompare(e.target.value)}>
+                <Radio.Group
+                  value={compare}
+                  onChange={(e) => {
+                    setCompare(e.target.value);
+                    mark('compare');
+                  }}
+                >
                   <Radio.Button value="mom">环比</Radio.Button>
                   <Radio.Button value="yoy">同比</Radio.Button>
                   <Radio.Button value="none">不对比</Radio.Button>
@@ -257,10 +290,13 @@ export default function GeneratePanel({ datasets, defaultKeys, projects, crossPr
             </Col>
           </Row>
 
-          <Form.Item label={`数据集（最多 8 个，已选 ${selectedKeys.length}）`}>
+          <Form.Item label={`数据集（最多 ${maxDatasets} 个，已选 ${selectedKeys.length}）`}>
             <Checkbox.Group
               value={selectedKeys}
-              onChange={(v) => setSelectedKeys(v as string[])}
+              onChange={(v) => {
+                setSelectedKeys(v as string[]);
+                mark('datasets');
+              }}
               options={datasets.map((d) => ({
                 value: d.key,
                 label: (

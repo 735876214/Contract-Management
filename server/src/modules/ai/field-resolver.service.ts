@@ -2,10 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
-import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
+import { ASSET_IN_SOURCES } from '../../common/utils/asset-flow';
 import { DatasetCollector } from './analytics/dataset-collector.service';
-import { endOfDay, parseLocalDay } from './common/period';
+import { endOfDay, localMonthKey, parseLocalDay } from './common/period';
 
 /**
  * AI 字段取值器：把「字段目录里的 key」翻译成**当前项目/合同下的真实值**。
@@ -207,6 +208,55 @@ export class FieldResolverService {
         put('cross.unpaidAmount', money(totals.unpaidYuan));
         put('cross.uninvoicedAmount', money(totals.uninvoicedYuan));
       }
+
+      // 注意：下面的业务域标量不依赖 period/cross 字段，单独判断
+    }
+
+    // ---------- 台账 / 成本 / 采购 / 资产 / 日报 标量 ----------
+    const domainKeys = [...wanted].filter((k) => /^(ledger|cost|procurement|asset|daily)\./.test(k));
+    if (domainKeys.length) {
+      const ids = ctx.scope?.projectIds?.length ? ctx.scope.projectIds : [ctx.projectId];
+      const now = new Date();
+      const from = parseLocalDay(ctx.period?.from) ?? new Date(now.getFullYear(), now.getMonth(), 1);
+        const toEnd = endOfDay(parseLocalDay(ctx.period?.to) ?? now);
+        const monthRange = { gte: localMonthKey(from), lte: localMonthKey(toEnd) };
+        const dateRange = { gte: from, lte: toEnd };
+        const [ledgerCount, ledgerCum, plCount, plSavings, taskCount, assetTotal, assetIn, dailyCount, dailyConfirmed] =
+          await Promise.all([
+            this.prisma.settlementLedger.count({ where: { projectId: { in: ids }, settleMonth: monthRange } }),
+            this.prisma.settlementLedger.aggregate({
+              _sum: { cumPurchaseAmount: true },
+              where: { projectId: { in: ids }, settleMonth: monthRange },
+            }),
+            this.prisma.monthlyProfitLoss.count({ where: { projectId: { in: ids }, period: monthRange } }),
+            this.prisma.monthlyProfitLoss.aggregate({
+              _sum: { sixSavingsAmount: true },
+              where: { projectId: { in: ids }, period: monthRange },
+            }),
+            this.prisma.procurementTask.count({ where: { projectId: { in: ids }, createdAt: dateRange } }),
+            this.prisma.assetLedger.aggregate({ _sum: { originalTotal: true }, where: { projectId: { in: ids } } }),
+            this.prisma.assetLedger.aggregate({
+              _sum: { qty: true },
+              where: { projectId: { in: ids }, sourceCode: { in: [...ASSET_IN_SOURCES] }, date: dateRange },
+            }),
+            this.prisma.dailyReport.count({ where: { projectId: { in: ids }, entryDate: dateRange } }),
+            this.prisma.dailyReport.count({
+              where: { projectId: { in: ids }, confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED, entryDate: dateRange },
+            }),
+          ]);
+        const qtyText = (v: unknown): string => {
+          const n = Number(v);
+          return Number.isFinite(n) ? String(Math.round(n * 10000) / 10000) : '';
+        };
+        put('ledger.settleMonthCount', count(ledgerCount));
+        put('ledger.cumPurchaseAmount', money(ledgerCum._sum.cumPurchaseAmount));
+        put('cost.profitLossCount', count(plCount));
+        put('cost.sixSavingsAmount', money(plSavings._sum.sixSavingsAmount));
+        put('procurement.taskCount', count(taskCount));
+        put('asset.originalTotalAmount', money(assetTotal._sum.originalTotal));
+        put('asset.inQty', qtyText(assetIn._sum.qty));
+        put('daily.reportCount', count(dailyCount));
+        put('daily.confirmedReportCount', count(dailyConfirmed));
     }
 
     return out;
