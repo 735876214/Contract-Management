@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenMenu } from '../src/constants/menuTree.ts';
+import { MENU_TREE, flattenMenu } from '../src/constants/menuTree.ts';
+import { MENU_CONFIG } from '../../web/src/components/Sider/menuConfig.ts';
 import {
   ROUTE_PERMISSIONS,
   ROUTE_PERMISSION_EXCEPTIONS,
@@ -100,5 +101,18 @@ describe('路由权限守卫 ↔ 菜单一致性（漂移锁）', () => {
       Object.keys(ROUTE_PERMISSIONS).length >= 20,
       `ROUTE_PERMISSIONS 条目过少（${Object.keys(ROUTE_PERMISSIONS).length}），可能被误删`,
     );
+  });
+});
+
+/**
+ * 前端兜底菜单 ↔ 后端权威菜单「漂移锁」。
+ *
+ * 背景：`/api/menu` 失败时前端回退到 `Sider/menuConfig.ts`。这份配置长期靠手工同步，
+ * 曾出现「后端有、兜底没有」（用户以为功能被砍）与「兜底缺 permission」（无权限者也看到入口）。
+ * 顺序同样要对齐：兜底态下层级/顺序与正式态不一致会让排障时误判菜单出了问题。
+ */
+describe('前端兜底菜单 ↔ 后端权威菜单（漂移锁）', () => {
+  it('MENU_CONFIG 与 MENU_TREE 逐项同序（key / label / icon / path / permission / children）', () => {
+    assert.deepEqual(MENU_CONFIG, MENU_TREE);
   });
 });

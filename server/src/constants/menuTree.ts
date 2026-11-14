@@ -8,7 +8,8 @@
  * 约定：
  * - `permission` 为对应模块的查看权限码；无权限的项（含子级全部无权限的分组）整体隐藏；
  * - 改菜单结构后需递增前端 `Sider/utils/storage.ts` 的缓存键版本；
- * - 新增图标须在 `Sider/utils/helper.tsx` 的 ICON_MAP 注册。
+ * - 新增图标须在 `Sider/utils/iconHelper.tsx` 的 ICON_MAP 注册；
+ * - 前端兜底 `Sider/menuConfig.ts` 必须与本文件**逐项同序**（`routePermissionParity.spec.mts` 锁定）。
  */
 
 /** 菜单项结构（icon 为图标名字符串，前端动态映射） */
@@ -51,14 +52,14 @@ export const MENU_TREE: MenuNode[] = [
       // 需求 2.2：新增「合同查询」二级菜单（已发布/正式合同，含导出 Word）
       { key: 'contract-query', label: '合同查询', icon: 'SearchOutlined', path: '/contract/query', permission: 'contract:view' },
       { key: 'contract-list', label: '合同台账', icon: 'UnorderedListOutlined', path: '/contract/list', permission: 'contract:view' },
-      // 合同台账维护（业务 2026-10-17 补回菜单入口）：/contracts 的列表+编辑器页签，承接起草页「继续编辑」
-      { key: 'contract-edit', label: '合同台账维护', icon: 'EditOutlined', path: '/contracts', permission: 'contract:view' },
+      // 合同台账维护（/contracts）已并入本条（业务 2026-11-14）：台账列表同时承载增删改，
+      // 编辑器由同一路径的 `?editor=<id>` 打开；`/contracts` 仅保号重定向。
       { key: 'contract-material', label: '合同物资清单', icon: 'AppstoreOutlined', path: '/contract/material', permission: 'material:view' },
     ],
   },
   {
     key: 'daily',
-    label: '日报管理',
+    label: '现场管理',
     icon: 'CalendarOutlined',
     children: [
       { key: 'daily-report', label: '总日报', icon: 'FileExcelOutlined', path: '/daily/report', permission: 'daily:view' },
@@ -87,41 +88,50 @@ export const MENU_TREE: MenuNode[] = [
   },
   { key: 'invoice', label: '发票管理', icon: 'FileInvoiceOutlined', path: '/invoice', permission: 'invoice:view' },
   { key: 'repayment', label: '还款协议', icon: 'FileProtectOutlined', path: '/repayment', permission: 'repayment:view' },
-  // 分包管理（附件需求 2026-10-17 新增一级模块；原「劳务管理」统一改名 2026-10-17）：分包授权台账
-  {
-    key: 'labor',
-    label: '分包管理',
-    icon: 'TeamOutlined',
-    children: [
-      { key: 'labor-auth', label: '分包授权台账', icon: 'SolutionOutlined', path: '/labor/auth', permission: 'labor:view' },
-    ],
-  },
-  // 成本管理（附件需求 2026-10-17 新增一级模块）：分包领用汇总 + 盈亏分析
+  // 分包与成本管理（业务 2026-11-14 合并）：原「分包管理」只有 1 个子项，合并进「成本管理」，
+  // 分包授权台账排首位；子项权限码保持 labor:view / cost:view 不变。
   {
     key: 'cost',
-    label: '成本管理',
+    label: '分包与成本管理',
     icon: 'FundProjectionScreenOutlined',
     children: [
+      { key: 'labor-auth', label: '分包授权台账', icon: 'SolutionOutlined', path: '/labor/auth', permission: 'labor:view' },
       { key: 'cost-labor-receiving', label: '分包单位领用汇总', icon: 'CalculatorOutlined', path: '/cost/labor-receiving', permission: 'cost:view' },
       { key: 'cost-profit-loss', label: '盈亏分析', icon: 'PieChartOutlined', path: '/cost/profit-loss', permission: 'cost:view' },
     ],
   },
   { key: 'message', label: '消息中心', icon: 'BellOutlined', path: '/message' },
-  // AI 助手（2026-10-19）：上传文件自动登记 / 模版自动填报 / 自动生成汇报材料
-  { key: 'ai', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
-  // 结算/付款异常预警（课题 6-9，2026-10-23）：独立入口而非 AI 助手的页签——
-  // 它是财务月度核对的常驻动作，埋进页签会找不到；权限沿用 ai:view（不新增权限码，免迁移 seed）
-  { key: 'ai-anomaly', label: '结算异常预警', icon: 'SafetyOutlined', path: '/ai/anomaly', permission: 'ai:view' },
-  // 异常报价与价差预警（课题 3-9，2026-10-24）：采购定标前的价差/围标核对入口。
-  // 权限同样沿用 ai:view（不新增权限码，免迁移 seed）；报价与控制价的可见性由
-  // 接口内 contract:view 二次校验兜底。
-  { key: 'ai-quote', label: '报价异常预警', icon: 'AuditOutlined', path: '/ai/quote', permission: 'ai:view' },
-  { key: 'ai-fulfillment', label: '履约偏差预警', icon: 'AuditOutlined', path: '/ai/fulfillment', permission: 'ai:view' },
-  // 供应链运营全景（课题 7-11，2026-10-25）：跨项目汇报材料入口。
-  // 沿用 ai:view 进页面；跨项目看数由接口内 dashboard:view 二次校验兜底（只有一个项目权限时会被拒）。
-  { key: 'ai-analysis', label: '供应链全景', icon: 'BarChartOutlined', path: '/ai/analysis', permission: 'ai:view' },
-  // 经营数据助手（2026-11-12）：按需范围/期间/数据集生成可导出的确定性报告，历史留痕
-  { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
+  // AI 能力（业务 2026-11-14 收进两个分组）：原先 6 个入口全部平铺在一级，顶层被撑到 20 项。
+  // 「AI 助手」放生产工具，「智能分析」放核对/汇报类只读分析；权限码统一 ai:view，不新增。
+  {
+    key: 'ai',
+    label: 'AI 助手',
+    icon: 'RobotOutlined',
+    children: [
+      // AI 助手（2026-10-19）：上传文件自动登记 / 模版自动填报 / 自动生成汇报材料
+      { key: 'ai-assistant', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
+      // 经营数据助手（2026-11-12）：按需范围/期间/数据集生成可导出的确定性报告，历史留痕
+      { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
+    ],
+  },
+  {
+    key: 'ai-insight',
+    label: '智能分析',
+    icon: 'BarChartOutlined',
+    children: [
+      // 结算/付款异常预警（课题 6-9，2026-10-23）：独立入口而非 AI 助手的页签——
+      // 它是财务月度核对的常驻动作，埋进页签会找不到；权限沿用 ai:view（不新增权限码，免迁移 seed）
+      { key: 'ai-anomaly', label: '结算异常预警', icon: 'SafetyOutlined', path: '/ai/anomaly', permission: 'ai:view' },
+      // 异常报价与价差预警（课题 3-9，2026-10-24）：采购定标前的价差/围标核对入口。
+      // 权限同样沿用 ai:view（不新增权限码，免迁移 seed）；报价与控制价的可见性由
+      // 接口内 contract:view 二次校验兜底。
+      { key: 'ai-quote', label: '报价异常预警', icon: 'AuditOutlined', path: '/ai/quote', permission: 'ai:view' },
+      { key: 'ai-fulfillment', label: '履约偏差预警', icon: 'AuditOutlined', path: '/ai/fulfillment', permission: 'ai:view' },
+      // 供应链运营全景（课题 7-11，2026-10-25）：跨项目汇报材料入口。
+      // 沿用 ai:view 进页面；跨项目看数由接口内 dashboard:view 二次校验兜底（只有一个项目权限时会被拒）。
+      { key: 'ai-analysis', label: '供应链全景', icon: 'BarChartOutlined', path: '/ai/analysis', permission: 'ai:view' },
+    ],
+  },
   { key: 'statistics', label: '统计报表', icon: 'BarChartOutlined', path: '/statistics', permission: 'dashboard:view' },
   // 项目资料归档（附件需求 2026-10-17）：按需求目录树一键打包 ZIP
   { key: 'archive', label: '项目资料归档', icon: 'FolderOpenOutlined', path: '/archive', permission: 'archive:view' },

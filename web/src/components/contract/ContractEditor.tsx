@@ -1,27 +1,42 @@
-import { sanitizeHtml } from '@/utils/sanitizeHtml';
-
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import {
-  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Tabs,
-  Descriptions, InputNumber, DatePicker, Row, Col, Alert, Spin, Select, Typography, Tooltip,
+  Alert,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Descriptions,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Tabs,
+  Typography,
+  message,
 } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { contractApi, supplierApi, projectApi, materialApi } from '@/api/business';
-import { useTable } from '@/hooks/useTable';
-import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { contractApi, materialApi, projectApi, supplierApi, templateApi } from '@/api/business';
 import EditorTabPage from '@/components/editor/EditorTabPage';
-import ImportButton from '@/components/ImportButton';
-import { useAuthStore } from '@/store/auth';
-import DictSelect, { DictTag } from '@/components/DictSelect';
+import DictSelect from '@/components/DictSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentModes';
-import { templateApi } from '@/api/business';
-import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from './Clauses';
+import { LIST_PATHS } from '@/constants/listPaths';
+import { useEditorTab } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { useAuthStore } from '@/store/auth';
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+import { CLAUSE_TYPE_LABEL } from '@/pages/Clauses';
 
-const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
+/**
+ * 合同编辑器（列表 + 编辑器是同一路由的两种形态：`?editor=new|<id>`）。
+ *
+ * 由原 `pages/Contracts.tsx` 迁入（业务 2026-11-14 合并「合同台账」与「合同台账维护」）：
+ * 台账列表与编辑器共用 `/contract/list`，`listPath` 用于编辑器页签与列表刷新令牌，
+ * 不传时取 `LIST_PATHS.contractLedger`。
+ */
 
 /** 需求 2.3：四种条款类型对应的合同表单字段 */
 const CLAUSE_FIELDS: { type: string; field: string }[] = [
@@ -31,238 +46,14 @@ const CLAUSE_FIELDS: { type: string; field: string }[] = [
   { type: 'acceptance', field: 'acceptanceClauseId' },
 ];
 
-/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`） */
-const LIST_PATH = '/contracts';
-
-export default function Contracts() {
-  const editorTab = useEditorTab(LIST_PATH);
-  // 需求 2.1：合同起草页「继续编辑」携带 ?edit=<id> 跳入 → 打开编辑器页签
-  const [searchParams, setSearchParams] = useSearchParams();
-  const editParam = searchParams.get('edit');
-  useEffect(() => {
-    if (!editParam) return;
-    let alive = true;
-    contractApi
-      .detail(editParam)
-      .then((res: any) => {
-        if (alive && res) editorTab.openEdit(res.id, res);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (alive) setSearchParams({}, { replace: true });
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editParam]);
-
-  if (editorTab.isEditor) {
-    return <ContractEditor seed={editorTab.seed} />;
-  }
-  return <ContractList />;
-}
-
-function ContractList() {
-  const editorTab = useEditorTab(LIST_PATH);
-  const tabRefresh = useTabRefresh(LIST_PATH);
-  const { loading, list, total, params, search, reload, pagination } = useTable<any>((p) => contractApi.list(p));
-  const [detail, setDetail] = useState<any>(null);
-  const [changes, setChanges] = useState<any[]>([]);
-  const [supModal, setSupModal] = useState(false);
-  const [supForm] = Form.useForm();
-
-  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
-  useEffect(() => {
-    if (tabRefresh) reload();
-  }, [tabRefresh, reload]);
-
-  const openDetail = async (row: any) => {
-    const res: any = await contractApi.detail(row.id);
-    setDetail(res);
-    const ch: any = await contractApi.changes(row.id);
-    setChanges(ch || []);
-  };
-
-  const openEdit = async (row: any) => {
-    // 编辑取全量（含 ext），seed 递给编辑器页签
-    const res: any = await contractApi.detail(row.id);
-    editorTab.openEdit(row.id, res);
-  };
-
-  return (
-    <Card
-      title="合同管理"
-      extra={
-        <Space>
-          <ImportButton moduleName="合同台账" templateUrl={contractApi.templateUrl()} uploadUrl={contractApi.importUrl()} validateUrl={contractApi.validateUrl()} onDone={reload} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
-            新建合同
-          </Button>
-        </Space>
-      }
-    >
-      <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
-        <Form.Item name="keyword"><Input placeholder="合同编号/名称" allowClear prefix={<SearchOutlined />} /></Form.Item>
-        <Form.Item name="typeCode"><DictSelect typeCode="contract_type" placeholder="合同类型" /></Form.Item>
-        <Form.Item name="execStatus"><DictSelect typeCode="contract_execution_status" placeholder="执行情况" /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
-      </Form>
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={list}
-        pagination={pagination}
-        scroll={{ x: 1500 }}
-        columns={[
-          { title: '合同编号', dataIndex: 'code', width: 160, fixed: 'left' },
-          { title: '合同名称', dataIndex: 'name', width: 240 },
-          { title: '合同类型', dataIndex: 'typeCode', width: 130, render: (v) => <DictTag typeCode="contract_type" value={v} /> },
-          { title: '供应商', width: 220, render: (_, row) => row.supplier?.name || '-' },
-          { title: '合同额', dataIndex: 'amount', width: 140, render: money },
-          { title: '税率', dataIndex: 'taxRate', width: 90, render: (v) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-          { title: '签订日期', dataIndex: 'signDate', width: 120, render: (v) => v?.slice(0, 10) },
-          { title: '执行情况', dataIndex: 'execStatus', width: 120, render: (v) => <DictTag typeCode="contract_execution_status" value={v} /> },
-          {
-            title: '操作',
-            width: 200,
-            fixed: 'right',
-            render: (_, row) => (
-              <Space size={4}>
-                <Button type="link" size="small" onClick={() => openDetail(row)}>详情</Button>
-                {row.archivedAt ? (
-                  <Tooltip title="合同已归档（单向），不能修改或删除">
-                    <Button type="link" size="small" disabled>编辑</Button>
-                  </Tooltip>
-                ) : (
-                  <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-                )}
-                {!row.archivedAt && (
-                  <Popconfirm title="确认删除该合同？（存在下游单据或补充协议时会被服务端拒绝，请改为归档；仅物资清单等随合同级联删除）" onConfirm={async () => { await contractApi.remove(row.id); message.success('已删除'); reload(); }}>
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                )}
-              </Space>
-            ),
-          },
-        ]}
-      />
-
-      <Modal
-        title="合同详情"
-        width={720}
-        centered
-        open={!!detail}
-        onCancel={() => setDetail(null)}
-        footer={null}
-        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
-      >
-        {detail ? (
-          <>
-            <Tabs
-            items={[
-              {
-                key: 'info',
-                label: '合同信息',
-                children: <ContractDetailInfo detail={detail} />,
-              },
-              {
-                key: 'changes',
-                label: `变更记录（${changes.length}）`,
-                children: (
-                  <Table
-                  scroll={{ x: 'max-content' }}
-                    rowKey="id"
-                    size="small"
-                    dataSource={changes}
-                    pagination={false}
-                    columns={[
-                      { title: '字段', dataIndex: 'fieldLabel' },
-                      { title: '变更前', dataIndex: 'beforeValue' },
-                      { title: '变更后', dataIndex: 'afterValue' },
-                      // 窄容器收起次要列（见 styles/containers.css §2）
-                      { title: '操作人', dataIndex: 'operator', className: 'col-secondary' },
-                      { title: '时间', dataIndex: 'createdAt', className: 'col-secondary', render: (v) => v?.slice(0, 19).replace('T', ' ') },
-                    ]}
-                  />
-                ),
-              },
-            ]}
-          />
-          {detail.isSupplement !== 'Y' && (
-            <div style={{ marginTop: 16 }}>
-              <Space wrap>
-                {detail.supplements?.map((s: any) => (
-                  <Tag key={s.id} color="blue">{s.code}</Tag>
-                ))}
-              </Space>
-              <Button
-                type="primary"
-                size="small"
-                style={{ marginLeft: 8 }}
-                onClick={async () => {
-                  const res: any = await contractApi.nextSupplementCode(detail.id);
-                  supForm.setFieldsValue({
-                    code: res.code,
-                    name: `${res.parentName}补充协议`,
-                    supplementTypeCode: undefined,
-                  });
-                  setSupModal(true);
-                }}
-              >
-                新增补充协议
-              </Button>
-            </div>
-          )}
-          </>
-        ) : (
-          <Spin />
-        )}
-      </Modal>
-
-      {/* 新增补充协议：详情弹窗内发起的向导型动作（创建草稿），保留弹窗形态（业务 2026-10-17） */}
-      <Modal
-        title="新增补充协议"
-        open={supModal}
-        onOk={async () => {
-          const v = await supForm.validateFields();
-          await contractApi.create({
-            ...v,
-            signDate: v.signDate ? v.signDate.format('YYYY-MM-DD') : null,
-            isSupplement: 'Y',
-            parentContractId: detail.id,
-            typeCode: detail.typeCode,
-            supplierId: detail.supplierId,
-          });
-          message.success('补充协议已创建');
-          setSupModal(false);
-          supForm.resetFields();
-          const res: any = await contractApi.detail(detail.id);
-          setDetail(res);
-          reload();
-        }}
-        onCancel={() => setSupModal(false)}
-        destroyOnHidden
-      >
-        <Form form={supForm} layout="vertical">
-          <Form.Item name="code" label="补充协议编号（自动生成，可微调）" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="name" label="协议名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="supplementTypeCode" label="补充协议类型" rules={[{ required: true, message: '请选择补充协议类型' }]}>
-            <DictSelect typeCode="supplement_agreement_type" />
-          </Form.Item>
-          <Form.Item name="signDate" label="签订日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-        </Form>
-      </Modal>
-    </Card>
-  );
-}
-
-function ContractEditor({ seed }: { seed: unknown }) {
-  const editorTab = useEditorTab(LIST_PATH);
+export default function ContractEditor({
+  seed,
+  listPath = LIST_PATHS.contractLedger,
+}: {
+  seed: unknown;
+  listPath?: string;
+}) {
+  const editorTab = useEditorTab(listPath);
   const [form] = Form.useForm();
   const [extForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -430,7 +221,7 @@ function ContractEditor({ seed }: { seed: unknown }) {
 
   return (
     <EditorTabPage
-      listPath={LIST_PATH}
+      listPath={listPath}
       title={editing ? '编辑合同' : '新建合同'}
       saving={saving}
       dirty={dirty}
@@ -747,44 +538,6 @@ function ContractEditor({ seed }: { seed: unknown }) {
         </Space>
       </Modal>
     </EditorTabPage>
-  );
-}
-
-/** 合同详情弹窗正文：列数按弹窗容器宽度降级（DESIGN.md §10.2） */
-function ContractDetailInfo({ detail }: { detail: any }) {
-  const { ref, size } = useContainerWidth<HTMLDivElement>();
-  return (
-    <div ref={ref} className="cq">
-      <Descriptions column={size.isNarrow ? 1 : 2} size="small" bordered>
-        <Descriptions.Item label="合同编号">{detail.code}</Descriptions.Item>
-        <Descriptions.Item label="合同名称">{detail.name}</Descriptions.Item>
-        <Descriptions.Item label="合同类型"><DictTag typeCode="contract_type" value={detail.typeCode} /></Descriptions.Item>
-        <Descriptions.Item label="合同子类型"><DictTag typeCode="contract_sub_type" value={detail.subTypeCode} /></Descriptions.Item>
-        {detail.codeAbbrUsed && <Descriptions.Item label="编号项目简称">{detail.codeAbbrUsed}</Descriptions.Item>}
-        {detail.parentContractId && (
-          <Descriptions.Item label="父合同" span={size.isNarrow ? 1 : 2}>
-            {detail.parentContract ? `${detail.parentContract.code} ${detail.parentContract.name}` : '-'}
-          </Descriptions.Item>
-        )}
-        <Descriptions.Item label="供应商">{detail.supplier?.name || '-'}</Descriptions.Item>
-        <Descriptions.Item label="法人">{detail.supplier?.legalPerson || '-'}</Descriptions.Item>
-        <Descriptions.Item label="授权人">{detail.supplier?.contractAuthPerson || '-'}</Descriptions.Item>
-        <Descriptions.Item label="联系人">{detail.supplier?.contactName || '-'}</Descriptions.Item>
-        <Descriptions.Item label="联系人电话">{detail.supplier?.contactPhone || '-'}</Descriptions.Item>
-        <Descriptions.Item label="合同额">{money(detail.amount)}</Descriptions.Item>
-        <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
-        <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
-        <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
-        <Descriptions.Item label="备注" span={size.isNarrow ? 1 : 2}>{detail.remark || '-'}</Descriptions.Item>
-        {detail.attachments?.length ? (
-          <Descriptions.Item label="附件" span={size.isNarrow ? 1 : 2}>
-            {detail.attachments.map((a: any) => (
-              <Tag key={a.id}><a href={a.url} target="_blank" rel="noreferrer">{a.fileName}</a></Tag>
-            ))}
-          </Descriptions.Item>
-        ) : null}
-      </Descriptions>
-    </div>
   );
 }
 

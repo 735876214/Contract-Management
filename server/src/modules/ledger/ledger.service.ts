@@ -166,6 +166,8 @@ export class LedgerService {
         id: c.id,
         index: idx + 1,
         contractCode: c.code,
+        // 归档为单向终态（业务 2026-10-18）：合并后的台账列表据此禁用「编辑 / 删除」
+        archivedAt: c.archivedAt,
         financeCode: ext.financeCode,
         supplierName: sup.name,
         materialNames,

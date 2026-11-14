@@ -226,7 +226,9 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 `ledger.service.ts` 以 **Contract 为主表**，批量 join `Supplier`/`ContractExt`，
 聚合 `SettlementLedger`/`Invoice`/`PaymentRecord`/`DailyReport` 的汇总值，
 再计算**合规性问题**（如未签先进场、时间倒挂、时间不完整）与各项占比、按年汇总。
-结果经 `GET /ledger/contracts` 返回 36 列固定顺序视图，列显隐存 `sys_param: ledger.columns.config`。
+结果经 `GET /ledger/contracts` 返回 43 列固定顺序视图（其中 2 列默认隐藏），列显隐存 `sys_param: ledger.columns.config`。
+该列表同时是合同主数据的维护入口（业务 2026-11-14 合并「合同台账维护」）：行内带 `id` 与 `archivedAt`，
+编辑器经 `GET /contracts/:id` 取全量后打开，列表 DTO 不参与保存（乐观锁 `version` 来自 detail）。
 
 ## 9. 导入数据流
 
@@ -279,7 +281,8 @@ web/src/
   菜单带权限但有意不守卫的路径登记在 `ROUTE_PERMISSION_EXCEPTIONS`（现有 `/dashboard`）。
   注意：路由守卫只是体验层，**安全边界仍在后端** `@RequirePermissions` + `PermissionsGuard`。
 - **旧扁平路径改为重定向保号**（`<Navigate replace />`），不再重复渲染同一组件；
-  `/contracts`（旧合同编辑页）无新菜单入口，保留为真实路由。
+  `/contracts`（旧合同编辑页）已并入「合同管理 → 合同台账」（业务 2026-11-14），
+  现为保号重定向并保留查询串（`/contracts?editor=<id>` → `/contract/list?editor=<id>`）。
 
 ## 11. 部署拓扑
 

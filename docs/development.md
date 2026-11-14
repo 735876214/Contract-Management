@@ -267,7 +267,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 |
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |
 | `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计（**作废/红冲排除、空状态计入**）· 跨项目 404 |
-| `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额**（条件更新 + `count` 校验，防并发双红冲；红冲票未填合同时按原票合同刷台账） · **红冲票与原票两侧都不能换合同（请求省略 `redOfInvoiceId` 也不能绕过同合同校验）** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
+| `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额**（条件更新 + `count` 校验，防并发双红冲；红冲票未填合同时按原票合同刷台账） · 通用 PUT 不放行「非终态 → 红冲」（红冲只能新建票时建立关联） · **红冲票与原票两侧都不能换合同（请求省略 `redOfInvoiceId` 也不能绕过同合同校验）** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
 | `aiAnalyticsPlan.int.spec.ts` | **AI 经营数据助手（Phase 1）权限与意图**：注册表只返回已实现且有权限的条目、无权限进 `denied`（超管全量）· `scope=current` 必须是成员项目 · `scope=all` 需 `dashboard:view` 且返回成员项目集合 · `scope=selected` 忽略无权/未知项目并提示、`mentions` 回写匹配到的项目名 · 无权数据集被剔除（`deniedDatasets`） |
 | `aiAnalyticsStore.int.spec.ts` | **AI 经营数据助手（Phase 2）报告与历史**：确定性报告落库（合同链 = 主合同 + 补充协议 `changeAmount`、草稿结算/失败付款/红冲发票不计入、日报条数）· 历史默认本人全部、非创建人 404、`projectId` 可选筛选 · 删除后不可再取 |
 | `aiAnalyticsWorkbook.int.spec.ts` | **AI 经营数据助手（Phase 4）工作簿与行级填充**：多 sheet 工作簿落库/下载（合法 xlsx、`hasReport`+`hasWorkbook` 同记录）· 行级填充按列映射写入数据集行（插行复制样式、数值列落 number、公式前缀文本化、行数上限） |
@@ -358,7 +358,8 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - [ ] **④ 前端构建**：涉及前端改动时确认 `vite build` 通过（`npm run build` 已含）。
 - [ ] **⑤ 采购工作流改动**：同步改后端 `constants/procurementFlow.ts` 与前端 `constants/procurementWorkflow.ts`，
       并跑 `cd server && npm run test` 确认一致性锁通过。
-- [ ] **⑥ 菜单改动**：改后端 `menu.service.ts` 的 `MENU_TREE`（权威来源）；
+- [ ] **⑥ 菜单改动**：改后端 `constants/menuTree.ts` 的 `MENU_TREE`（权威来源）；
+      前端兜底 `Sider/menuConfig.ts` **逐项同序**同步（`routePermissionParity.spec.mts` 用 deepEqual 锁定）；
       icon 在 `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；递增 `Sider/utils/storage.ts` 缓存键版本。
 - [ ] **⑦ 导入改动**：确认「全成功或全失败」与 >1000 行异步路径仍成立；跑 `npm run test:int`
       （`import-two-phase.int.spec.ts` 会在真库上验证「零写入」与并发去重）。

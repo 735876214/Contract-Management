@@ -10,11 +10,14 @@
   `permission`，必须在 `ROUTE_PERMISSIONS` 登记**同一权限码**——`routePermissionParity.spec.mts` 会校验，
   且**守卫不得比菜单更严**（否则出现「菜单可见、点进去 403」）。有意不守卫的路径登记进
   `ROUTE_PERMISSION_EXCEPTIONS`（现有 `/dashboard`，默认落地页）。
-- **菜单权威来源是后端** `GET /api/menu`（`server/src/modules/system/menu.service.ts` 的 `MENU_TREE`）——
+- **菜单权威来源是后端** `GET /api/menu`（数据在 `server/src/constants/menuTree.ts` 的 `MENU_TREE`）——
   只改前端 `Sider/menuConfig.ts` 无效（它只是接口失败时的兜底）。新增图标要在
   `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；改菜单结构后递增 `Sider/utils/storage.ts` 的缓存键版本。
+  ⚠️ 兜底 `menuConfig.ts` 必须与 `MENU_TREE` **逐项同序**：`routePermissionParity.spec.mts` 用 deepEqual 锁定
+  （含 label / icon / permission），只改一处会让 `npm test` 变红。
 - **旧扁平路径改为重定向保号**：旧路径（`/projects`、`/ledger`、`/daily` …）通过 `<Navigate replace />`
-  跳到 Sider 新规范路径；例外：`/contracts`（合同编辑页）保留为真实路由，去留待业务确认。
+  跳到 Sider 新规范路径；`/contracts`（原合同编辑页）已并入「合同管理 → 合同台账」（业务 2026-11-14），
+  现为保号重定向并保留查询串（`/contracts?editor=<id>` → `/contract/list?editor=<id>`）。
 
 ## 视觉 token（换肤只改一处）
 
