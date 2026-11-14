@@ -17,6 +17,9 @@ import { withToken } from '@/utils/download';
  */
 const LIST_PATH = '/cost/labor-receiving';
 
+/** 与后端 `LABOR_RECEIVING_DOC_STATUS` 镜像（非字典驱动，只有两态） */
+const DOC_STATUS = { DRAFT: 'DRAFT', COMPLETED: 'COMPLETED' } as const;
+
 export default function CostLaborReceiving() {
   const editorTab = useEditorTab(LIST_PATH);
   if (editorTab.isEditor && editorTab.editorId && editorTab.editorId !== 'new') {
@@ -59,7 +62,7 @@ function DocList() {
       title: '状态',
       dataIndex: 'status',
       width: 90,
-      render: (v: string) => (v === 'COMPLETED' ? <Tag color="green">已完成</Tag> : <Tag>草稿</Tag>),
+      render: (v: string) => (v === DOC_STATUS.COMPLETED ? <Tag color="green">已完成</Tag> : <Tag>草稿</Tag>),
     },
     { title: '明细行数', dataIndex: 'detailCount', width: 90, align: 'right' as const, className: 'col-secondary' },
     { title: '备注', dataIndex: 'remark', width: 140, ellipsis: true, render: (v: any) => v || '-', className: 'col-secondary' },
@@ -96,18 +99,15 @@ function CreateDocButton({ onCreated }: { onCreated: (id: string, seed: any) => 
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const [subcontractors, setSubcontractors] = useState<any[]>([]);
-  const [existing, setExisting] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
   const openDialog = async () => {
     setOpen(true);
     form.resetFields();
-    const [opts, docs]: any[] = await Promise.all([
-      costApi.laborReceiving.options(),
-      costApi.laborReceiving.listDocs({ pageSize: 500 }),
-    ]);
+    // 同分包单位同期的防重在后端 createDoc 内（这里不再拉 500 条列表做前端预判——
+    // 超过 500 条会静默漏判，反而让人以为可以创建）
+    const opts: any = await costApi.laborReceiving.options();
     setSubcontractors(opts?.subcontractors || []);
-    setExisting(new Set((docs?.list || []).map((d: any) => `${d.laborAuthId}|${d.period}`)));
   };
 
   const doCreate = async () => {
@@ -236,7 +236,7 @@ function DocEditor({ id }: { id: string }) {
       title: '标记为已完成？',
       content: '完成后单据仍可编辑。',
       onOk: async () => {
-        await costApi.laborReceiving.updateDoc(id, { status: 'COMPLETED', version: doc?.version });
+        await costApi.laborReceiving.updateDoc(id, { status: DOC_STATUS.COMPLETED, version: doc?.version });
         message.success('已标记完成');
         load();
       },
@@ -349,14 +349,14 @@ function DocEditor({ id }: { id: string }) {
     <EditorTabPage
       listPath={LIST_PATH}
       title={doc ? `领用单据 ${doc.docNo}` : '领用单据'}
-      titleExtra={doc?.status === 'COMPLETED' ? <Tag color="green">已完成</Tag> : <Tag>草稿</Tag>}
+      titleExtra={doc?.status === DOC_STATUS.COMPLETED ? <Tag color="green">已完成</Tag> : <Tag>草稿</Tag>}
       saving={saving}
       dirty={rows.some((r: any) => r._dirty) || !!doc?._headDirty}
       closeOnSave={false}
       onSave={save}
       footerExtra={
         <Space wrap>
-          {doc?.status !== 'COMPLETED' && (
+          {doc?.status !== DOC_STATUS.COMPLETED && (
             <Button onClick={markComplete} disabled={!doc}>
               标记完成
             </Button>

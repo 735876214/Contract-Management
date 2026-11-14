@@ -242,7 +242,7 @@ model LaborReceivingDoc {
   subcontractorName  String // 分包商名称（快照）
   period             String // 结算期标签 'YYYY-MM'
   contractName       String? // 劳务合同名称（图2 表头；单据级）
-  status             String    @default("DRAFT") // dict subcontractor_status：DRAFT / COMPLETED
+  status             String    @default("DRAFT") // 常量 LABOR_RECEIVING_DOC_STATUS：DRAFT / COMPLETED（非字典驱动）
   remark             String?
   createdBy          String?
   createdAt          DateTime  @default(now())

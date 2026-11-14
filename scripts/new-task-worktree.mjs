@@ -14,6 +14,7 @@
  * - 幂等：树/库已存在时只补齐 env，不重复建。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -140,6 +141,14 @@ const setKey = (src, key, value) => {
 env = setKey(env, 'DATABASE_URL', url(dbs.dev, '&connection_limit=4&pool_timeout=20'));
 env = setKey(env, 'PORT', String(port));
 env = setKey(env, 'UPLOAD_DIR', path.join(wtPath, '.tmp-uploads').replace(/\\/g, '/'));
+/**
+ * JWT_SECRET：模板里的 `cms-super-secret-key` 会被 `jwt.strategy.ts` 当作占位值拒绝，
+ * 工作树后端（以及 verify 的集成测试）会在启动期直接失败。模板是弱密钥时改写成随机值。
+ */
+const envSecret = /^JWT_SECRET="?([^"\n]*)"?$/m.exec(env)?.[1] || '';
+if (!envSecret || envSecret === 'cms-super-secret-key' || envSecret.startsWith('change-me')) {
+  env = setKey(env, 'JWT_SECRET', randomBytes(32).toString('base64'));
+}
 env = `# 由 scripts/new-task-worktree.mjs 生成（slug=${slug}）\n${env}`;
 writeFileSync(envPath, env);
 mkdirSync(path.join(wtPath, '.tmp-uploads'), { recursive: true });
