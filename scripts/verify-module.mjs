@@ -265,9 +265,8 @@ function acquireLock(lockPath) {
   die(`无法获取锁 ${lockPath}`);
 }
 
-function selectIntSpecs(changedFiles) {
-  // 调用方传的是 Set（改动集），这里统一成数组——Set 没有 .filter
-  const files = [...new Set(changedFiles)];
+function selectIntSpecs(files) {
+  files = [...files]; // 调用方传的是 Set（changed），统一成数组再用 filter
   const all = git(['ls-files', 'server/test-integration/*.int.spec.ts'])
     .split('\n')
     .filter((f) => f.endsWith('.int.spec.ts'))

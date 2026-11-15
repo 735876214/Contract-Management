@@ -21,6 +21,7 @@ import { DownloadOutlined, InboxOutlined, ReloadOutlined, ThunderboltOutlined } 
 import type { Dayjs } from 'dayjs';
 import { aiApi, type AiInspectCandidate, type AiInspectResult } from '@/api/modules';
 import { contractApi, projectApi, supplierApi } from '@/api/business';
+import { MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 
 const { Dragger } = Upload;
 const { Text, Paragraph } = Typography;
@@ -40,10 +41,11 @@ const PURPOSE_LABEL: Record<string, string> = {
   register: '文件登记',
   report: '汇报材料',
   anomaly: '异常预警',
+  intent: '意图解析',
 };
 
 /**
- * 「已启用」标签旁的模型提示：把四个用途各自实际生效的模型摊开。
+ * 「已启用」标签旁的模型提示：把五个用途各自实际生效的模型摊开。
  *
  * 为什么要摊开：`/api/ai/status` 的 `model` 只是**全局默认**，各用途可能在设置页单独
  * 指定过、也可能被 `AI_MODEL_<用途>` 覆盖，光看全局名会误判成本页用的是哪个模型。
@@ -205,16 +207,7 @@ function FillPanel() {
       const blob = res.data as Blob;
       const filled = Number(res.headers?.['x-ai-filled'] ?? 0);
       const skipped = Number(res.headers?.['x-ai-skipped'] ?? 0);
-      const fileName = decodeURIComponent(
-        String(res.headers?.['content-disposition'] || '').replace(/^.*filename\*=UTF-8''/, '') ||
-          'ai-filled.xlsx',
-      );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(new Blob([blob], { type: MIME_XLSX }), fileNameFromDisposition(res.headers, 'ai-filled.xlsx'));
       message.success(`已回填 ${filled} 处${skipped ? `，跳过 ${skipped} 处（公式/合并格）` : ''}`);
     } catch {
       // 拦截器已提示
@@ -264,16 +257,10 @@ function FillPanel() {
       const filledRows = Number(res.headers?.['x-ai-filled-rows'] ?? 0);
       const skipped = Number(res.headers?.['x-ai-skipped'] ?? 0);
       const truncated = String(res.headers?.['x-ai-truncated'] ?? '') === '1';
-      const fileName = decodeURIComponent(
-        String(res.headers?.['content-disposition'] || '').replace(/^.*filename\*=UTF-8''/, '') ||
-          'ai-filled-table.xlsx',
+      downloadBlob(
+        new Blob([res.data as Blob], { type: MIME_XLSX }),
+        fileNameFromDisposition(res.headers, 'ai-filled-table.xlsx'),
       );
-      const url = URL.createObjectURL(res.data as Blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
       message.success(`已写入 ${filledRows} 行${skipped ? `，跳过 ${skipped} 空值/合并格` : ''}${truncated ? '（超出 2000 行已截断）' : ''}`);
     } catch {
       // 拦截器已提示

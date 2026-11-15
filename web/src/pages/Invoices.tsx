@@ -26,6 +26,7 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
@@ -203,7 +204,7 @@ function InvoiceList({
         }
         toolbarLeft={
           <Space wrap size={8}>
-            {canEdit && (
+            <Can code="invoice:edit">
               <>
                 <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
                   批量识别
@@ -215,15 +216,15 @@ function InvoiceList({
                   onDone={refreshList}
                 />
               </>
-            )}
+            </Can>
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
               导出
             </Button>
-            {canEdit && (
+            <Can code="invoice:edit">
               <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                 收票登记
               </Button>
-            )}
+            </Can>
           </Space>
         }
       />

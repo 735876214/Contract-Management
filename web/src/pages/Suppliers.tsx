@@ -9,6 +9,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 
 const FIELDS = [
   ['legalPerson', '法人姓名'],
@@ -53,15 +54,15 @@ function SupplierList() {
       title="供应商库"
       extra={
         <Space>
-          {canEdit && (
+          <Can code="supplier:edit">
             <ImportButton moduleName="供应商信息" templateUrl={supplierApi.templateUrl()} uploadUrl={supplierApi.importUrl()} validateUrl={supplierApi.validateUrl()} onDone={reload} />
-          )}
+          </Can>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(supplierApi.exportUrl()))}>导出</Button>
-          {canEdit && (
+          <Can code="supplier:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新增供应商
             </Button>
-          )}
+          </Can>
         </Space>
       }
     >

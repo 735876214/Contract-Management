@@ -20,6 +20,7 @@ import { DictTag } from '@/components/DictSelect';
 import MobileCardList from '@/components/MobileCardList';
 import { toFileUrl, toStorageKey } from '@/utils/templateFile';
 import EditorTabPage from '@/components/editor/EditorTabPage';
+import Can from '@/components/Can';
 
 /** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/daily/receipt';
@@ -835,9 +836,9 @@ export default function ReceiptOrders() {
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            {canEdit && (
+            <Can code="receipt:edit">
               <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增收领单</Button>
-            )}
+            </Can>
           </Space>
         }
       >

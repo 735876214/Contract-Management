@@ -263,13 +263,17 @@ export default function Initiate() {
     ]);
     setPublishing(true);
     try {
-      await procurementTaskApi.update(createdTask.id, {
+      const saved: any = await procurementTaskApi.update(createdTask.id, {
         technicalClauseId: values.technicalClauseId || null,
         qualityClauseId: values.qualityClauseId || null,
         acceptanceClauseId: values.acceptanceClauseId || null,
         paymentClauseId: values.paymentClauseId || null,
         version: createdTask.version,
       });
+      const savedVersion = (saved?.data ?? saved)?.version;
+      if (typeof savedVersion === 'number') {
+        setCreatedTask((prev) => (prev ? { ...prev, version: savedVersion } : prev));
+      }
       await procurementTaskApi.publish(createdTask.id);
       message.success('采购任务已发布，条款已随任务固化（快照）');
       setDirty(false);

@@ -441,7 +441,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/ledger/contracts` | 台账数据（36 列，批量聚合 + 合规性问题计算） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/contracts` | 台账数据（43 列，批量聚合 + 合规性问题计算；行内带 `archivedAt` 供列表禁用编辑/删除） | `ledger:view` 或 `contract:view` |
 | GET | `/ledger/columns` | 列配置（默认显隐） | `ledger:view` 或 `contract:view` |
 | PUT | `/ledger/columns` | 保存列显隐配置（存 `sys_param: ledger.columns.config`） | `ledger:view` 或 `contract:view` |
 | GET | `/ledger/summary` | 台账汇总指标（合同额/结算/付款/发票） | `ledger:view` 或 `contract:view` |

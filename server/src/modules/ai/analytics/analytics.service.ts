@@ -27,6 +27,7 @@ import {
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt';
 import { buildAnalyticsWorkbookModel } from './workbook-builder';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod, type DayRange } from '../common/period';
+import { projectScopeWhere } from '../common/project-scope';
 import { AI_SECTION_TITLES } from './analytics.types';
 
 export interface AnalyticsReportInput extends AiAnalyticsPlanInput {
@@ -66,13 +67,8 @@ export class AnalyticsService {
 
   /** 用户有权限的项目（超管不受成员关系限制） */
   private async allowedProjects(user: JwtUser): Promise<Array<{ id: string; code: string; name: string; nameAbbr: string | null }>> {
-    const where: any = {};
-    if (!user?.isSuperAdmin) {
-      if (!user?.userId) throw new BadRequestException('缺少用户身份，无法校验项目权限');
-      where.members = { some: { userId: user.userId } };
-    }
     return this.prisma.project.findMany({
-      where,
+      where: projectScopeWhere(user),
       select: { id: true, code: true, name: true, nameAbbr: true },
       orderBy: { code: 'asc' },
       take: 500,
@@ -307,16 +303,22 @@ export class AnalyticsService {
    */
   async report(body: AnalyticsReportInput, projectId: string, user: JwtUser) {
     const cfg = await this.setting.resolve();
-    const wantsNarrative = cfg.enabled && body?.narrative !== false;
     const userId = user?.userId || user?.username || 'anonymous';
-    if (wantsNarrative) this.quota.consume(userId, cfg.hourlyLimitPerUser);
+    const hasText = Boolean(String(body?.text ?? '').trim());
+    const wantsNarrative = cfg.enabled && body?.narrative !== false;
+    // 意图解析也可能调用模型（有自然语言时）：即使 narrative=false，只要 AI 启用就先占一次配额，
+    // 保证「report 的意图 + 叙述共享一次配额」，不会出现免费的意图调用。
+    const needsQuota = cfg.enabled && (wantsNarrative || hasText);
+    if (needsQuota) this.quota.consume(userId, cfg.hourlyLimitPerUser);
     let plan: AiAnalyticsPlanResult;
     try {
       plan = await this.plan(body || {}, projectId, user, { consumeQuota: false });
     } catch (e) {
-      if (wantsNarrative) this.quota.refund(userId);
+      if (needsQuota) this.quota.refund(userId);
       throw e;
     }
+    // 不写叙述时，若意图模型也没成功（回落规则），这次没有成功调用 → 退还
+    if (!wantsNarrative && hasText && plan.source === 'rules') this.quota.refund(userId);
     const intent = plan.intent;
     const now = new Date();
     const range = resolvePresetPeriod(intent.period.preset, now, {

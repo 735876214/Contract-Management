@@ -2,7 +2,7 @@
  * 附件/文件链接的协议白名单（第 8 轮审计新增）。
  *
  * 为什么需要：附件的 `url` 是**前端直接放进 `href`** 的字符串——
- * `web/src/pages/Contracts.tsx` 的附件列表就是 `<a href={a.url}>`，
+ * `web/src/components/contract/ContractDetailModal.tsx` 的附件列表就是 `<a href={a.url}>`，
  * `LaborAuth.tsx` 的 `href={detail.signedAuthFile}` 同理。
  * 后端过去只判非空就落库，于是有写权限的人存一条
  * `javascript:fetch('/api/auth/profile')…` 就能在任何打开该详情页的人

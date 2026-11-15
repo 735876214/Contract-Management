@@ -16,12 +16,15 @@ import { useAuthStore } from '@/store/auth';
  * 超级管理员恒为 true（由 `hasPermission` 实现）。
  */
 export function usePermission(codes?: string | string[] | null): boolean {
-  const hasPermission = useAuthStore((s) => s.hasPermission);
+  // ⚠️ 必须订阅 permissions/user 本身，而不是只取 `hasPermission` 函数引用（它稳定不变）：
+  // 否则登录/切换账号/刷新权限后组件不重渲染，按钮会停在旧权限上。
+  const isSuperAdmin = useAuthStore((s) => !!s.user?.isSuperAdmin);
+  const permissions = useAuthStore((s) => s.permissions);
   if (!codes) return true;
   const list = Array.isArray(codes) ? codes : [codes];
   const valid = list.filter(Boolean);
   if (!valid.length) return true;
-  return valid.some((code) => hasPermission(code));
+  return isSuperAdmin || valid.some((code) => permissions.includes(code));
 }
 
 export default usePermission;

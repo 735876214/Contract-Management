@@ -10,8 +10,8 @@ import type { AiAnalyticsPlanInput } from '../intent/intent.types';
 /**
  * AI 经营数据助手（`/api/ai/analytics`）。
  *
- * 读用 `ai:view`、写/生成用 `ai:use`；DELETE 记录（Phase 2）也用 `ai:use`。
- * Phase 1 只有两个端点：数据集注册表与规则意图预览。
+ * 读用 `ai:view`、写/生成用 `ai:use`；DELETE 记录也用 `ai:use`。
+ * 端点：数据集注册表 / 意图预览 / 报告 / 工作簿 / 历史 / 详情 / 导出 / 工作簿下载 / 删除。
  */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('ai/analytics')

@@ -7,13 +7,15 @@ import { PlusOutlined, ExportOutlined, SwapOutlined, ArrowUpOutlined, ArrowDownO
 import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
+import { LIST_PATHS } from '@/constants/listPaths';
 
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
-const LIST_PATH = '/contract/materials';
+const LIST_PATH = LIST_PATHS.contractMaterial;
 
 /** 前端实时计算（与服务端同口径：4 位小数） */
 const round4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
@@ -287,7 +289,7 @@ function ContractMaterialsList() {
               onChange={(v) => { setContractId(v); refreshList(); }}
               options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
             />
-            {canEdit && (
+            <Can code="material:edit">
               <ImportButton
                 moduleName="合同物资清单"
                 templateUrl={contractMaterialApi.templateUrl()}
@@ -297,7 +299,7 @@ function ContractMaterialsList() {
                 onDone={refreshList}
                 extraHint="物资名称 + 规格型号须与物资基础库一致。"
               />
-            )}
+            </Can>
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}
@@ -312,7 +314,7 @@ function ContractMaterialsList() {
             >
               导出 CSV
             </Button>
-            {canEdit && (
+            <Can code="material:edit">
               <>
                 <Button
                   icon={<SwapOutlined />}
@@ -325,7 +327,7 @@ function ContractMaterialsList() {
                   添加物资
                 </Button>
               </>
-            )}
+            </Can>
           </Space>
         }
       />

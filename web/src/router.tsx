@@ -17,7 +17,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Dict = lazy(() => import('@/pages/Dict'));
 const Projects = lazy(() => import('@/pages/Projects'));
 const Suppliers = lazy(() => import('@/pages/Suppliers'));
-const Contracts = lazy(() => import('@/pages/Contracts'));
 const Templates = lazy(() => import('@/pages/Templates'));
 const DailyReports = lazy(() => import('@/pages/DailyReports'));
 const ReceiptOrders = lazy(() => import('@/pages/ReceiptOrders'));
@@ -74,6 +73,15 @@ const ProcurementFrameworkExplanation = lazy(() => import('@/pages/Procurement/F
 function perm(path: string, element: ReactNode): ReactNode {
   const codes = routePermissionCodes(path);
   return codes.length ? <RequirePermission codes={codes}>{element}</RequirePermission> : element;
+}
+
+/**
+ * 旧合同编辑页 `/contracts` 已并入「合同管理 → 合同台账」（业务 2026-11-14）。
+ * 保号重定向并**保留查询串**：旧书签 `/contracts?editor=<id>` 仍能打开该合同的编辑器。
+ */
+function LegacyContractsRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: '/contract/list', search }} replace />;
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -197,7 +205,6 @@ export const routes: RouteObject[] = [
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：
       // URL 仍然可用（书签不失效），但不再重复维护两套路由映射，也不再重复打包同一页面。
-      // `/contracts` 为真实路由（菜单「合同管理 → 合同台账维护」，业务 2026-10-17 补回入口）。
       { path: 'dict', element: <Navigate to="/system/dict" replace /> },
       { path: 'projects', element: <Navigate to="/base/project" replace /> },
       { path: 'suppliers', element: <Navigate to="/base/supplier" replace /> },
@@ -218,10 +225,9 @@ export const routes: RouteObject[] = [
       { path: 'repayments', element: <Navigate to="/repayment" replace /> },
       { path: 'messages', element: <Navigate to="/message" replace /> },
       { path: 'reports', element: <Navigate to="/statistics" replace /> },
-      // `contracts` 为旧合同编辑页（合同台账维护，业务 2026-10-17 补回菜单入口）。
-      // routePermissions 已登记 '/contracts' → 必须走 perm()（此前裸渲染，直接输 URL 的
-      // 无权限用户会看到整页 403 报错而非标准无权限页）。
-      { path: 'contracts', element: perm('/contracts', <Contracts />) },
+      // `contracts` 为旧合同编辑页，已并入「合同管理 → 合同台账」（业务 2026-11-14）：
+      // 保号重定向并保留查询串（见 LegacyContractsRedirect）。
+      { path: 'contracts', element: <LegacyContractsRedirect /> },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },

@@ -18,6 +18,7 @@ export default function AiAnalyticsPage() {
   const [datasets, setDatasets] = useState<AiAnalyticsDatasetMeta[]>([]);
   const [defaultKeys, setDefaultKeys] = useState<string[]>([]);
   const [crossProjectAllowed, setCrossProjectAllowed] = useState(false);
+  const [maxDatasets, setMaxDatasets] = useState(8);
   const [projects, setProjects] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -31,6 +32,7 @@ export default function AiAnalyticsPage() {
         setDatasets(ds?.datasets || []);
         setDefaultKeys(ds?.defaultKeys || []);
         setCrossProjectAllowed(!!ds?.crossProjectAllowed);
+        if (Number(ds?.maxDatasets) > 0) setMaxDatasets(Number(ds.maxDatasets));
         const list = projectRes?.list || projectRes?.items || projectRes || [];
         setProjects(
           (Array.isArray(list) ? list : []).map((p: any) => ({
@@ -72,6 +74,7 @@ export default function AiAnalyticsPage() {
                       defaultKeys={defaultKeys}
                       projects={projects}
                       crossProjectAllowed={crossProjectAllowed}
+                      maxDatasets={maxDatasets}
                       onSaved={() => setRefreshKey((k) => k + 1)}
                     />
                   </div>

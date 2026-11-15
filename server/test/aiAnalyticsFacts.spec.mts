@@ -80,6 +80,7 @@ describe('AI 经营数据助手 · 事实包与报告', () => {
     assert.equal(facts.datasets[0].section, 'contracts');
     assert.equal(facts.datasets[1].empty, true);
     assert.ok(facts.warnings.some((w) => w.includes('发票记录')));
+    assert.ok(facts.dataGaps.some((w) => w.includes('发票记录')), '空数据集同时进 dataGaps');
     const codes = facts.risks.map((r) => r.code);
     assert.ok(codes.includes('OVERPAID'), '付款超过结算应报高风险');
     assert.ok(codes.includes('INVOICE_GAP'), '开票缺口 ≥20 个百分点应报中风险');

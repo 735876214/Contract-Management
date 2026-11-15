@@ -16,6 +16,7 @@ import { SysParamService } from '../../../common/services/sys-param.service';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots';
 import { datasetColumnsOf } from './dataset-columns';
 import { inRange, localDayKey, localMonthKey, type DayRange } from '../common/period';
+import { formatYuan as fmtYuan } from '../common/format';
 import type {
   AiAnalyticsProjectFact,
   AiAnalyticsTotals,
@@ -85,7 +86,9 @@ export class DatasetCollector {
     return String(v).toLowerCase() !== 'false';
   }
 
-  /** 当前期间的核心指标（逐项目 → 汇总；与对比期完全同口径） */
+  /** 当前期间的核心指标（逐项目 → 汇总；与对比期完全同口径）。
+   *  与 `buildScmFacts` 的累计口径由 `aiAnalyticsCoverage.int.spec.ts` 的 parity 断言锁定；
+   *  期间切片无法直接复用累计事实层，故在此实现并在该 spec 保证数字一致。 */
   private async projectCore(
     projects: Array<{ id: string; code: string; name: string }>,
     range: DayRange,
@@ -249,6 +252,7 @@ export class DatasetCollector {
       receipts,
       profitLosses,
       laborDocs,
+      laborSummaries,
       factoring,
       overdue,
       assets,
@@ -355,9 +359,26 @@ export class DatasetCollector {
         select: { projectId: true, period: true, sixSavingsAmount: true, totalDeductAmount: true, _count: { select: { details: true } } },
         take: MAX_ROWS,
       })),
-      q(["cost.labor_receiving","labor.receiving_doc"], () => this.prisma.laborReceivingDoc.findMany({
+      q(["labor.receiving_doc"], () => this.prisma.laborReceivingDoc.findMany({
         where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: { projectId: true, docNo: true, subcontractorName: true, period: true, status: true, _count: { select: { details: true } } },
+        take: MAX_ROWS,
+      })),
+      q(["cost.labor_receiving"], () => this.prisma.laborReceivingSummary.findMany({
+        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
+        select: {
+          projectId: true,
+          subcontractorName: true,
+          period: true,
+          materialName: true,
+          spec: true,
+          unit: true,
+          unitPrice: true,
+          returnQty: true,
+          stockTakeQty: true,
+          designQtyCum: true,
+          lossRate: true,
+        },
         take: MAX_ROWS,
       })),
       q(["finance.cost"], () => this.prisma.factoringCost.findMany({
@@ -698,10 +719,10 @@ export class DatasetCollector {
         已结算: settledAllByProject.get(p.id) ?? 0,
         已付款: paidAllByProject.get(p.id) ?? 0,
         已开票: invoicedAllByProject.get(p.id) ?? 0,
-        已收比例: pct(f.receivedRatio),
-        已结比例: pct(f.settledRatio),
-        已付占比: pct(f.paidVsSettledRatio),
-        开票比例: pct(f.invoiceRatio),
+        '已收比例(%)': pct(f.receivedRatio),
+        '已结比例(%)': pct(f.settledRatio),
+        '已付占比(%)': pct(f.paidVsSettledRatio),
+        '开票比例(%)': pct(f.invoiceRatio),
       };
     });
     datasets.push(
@@ -726,15 +747,21 @@ export class DatasetCollector {
     datasets.push(
       ds(
         'cost.labor_receiving',
-        laborDocs.map((d) => ({
-          项目: projectLabel.get(d.projectId) ?? '',
-          单据编号: d.docNo,
-          分包商: d.subcontractorName,
-          结算期: d.period,
-          状态: d.status,
-          明细数: d._count.details,
+        laborSummaries.map((s) => ({
+          项目: projectLabel.get(s.projectId) ?? '',
+          分包商: s.subcontractorName,
+          结算期: s.period,
+          物资名称: s.materialName,
+          规格型号: s.spec,
+          单位: s.unit ?? '',
+          平均单价: s.unitPrice === null ? null : round4(Number(s.unitPrice)),
+          退库数量: s.returnQty === null ? null : round4(Number(s.returnQty)),
+          本期盘点: s.stockTakeQty === null ? null : round4(Number(s.stockTakeQty)),
+          设计量开累: s.designQtyCum === null ? null : round4(Number(s.designQtyCum)),
+          '损耗率(%)': s.lossRate === null ? null : round2(Number(s.lossRate)),
         })),
-        `分包领用单据 ${laborDocs.length} 张`),
+        `分包领用明细 ${laborSummaries.length} 行（分包单位 × 结算期 × 材料）`,
+      ),
     );
     datasets.push(
       ds(
@@ -838,7 +865,7 @@ export class DatasetCollector {
         供应商: s.name,
         合同链数: s.chains,
         签约额: s.amount,
-        占比: supplierTotal > 0 ? round2((s.amount / supplierTotal) * 100) : null,
+        '占比(%)': supplierTotal > 0 ? round2((s.amount / supplierTotal) * 100) : null,
       }));
     datasets.push(
       ds('supplier.concentration', supplierRows, `签约额前 ${supplierRows.length} 家供应商（累计口径）`),
@@ -1033,5 +1060,3 @@ export class DatasetCollector {
   }
 }
 
-const fmtYuan = (n: number): string =>
-  Number(n).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

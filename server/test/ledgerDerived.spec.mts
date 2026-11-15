@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deriveLedgerAmounts,
+  deriveTaxSplit,
+  chainContractTotal,
   isFilledNumber,
   ratioPctOrNull,
 } from '../src/common/utils/ledger-derived.ts';
@@ -138,5 +140,32 @@ describe('台账派生口径的两个小工具', () => {
     assert.equal(ratioPctOrNull(5, 0), null);
     assert.equal(ratioPctOrNull(5, 10), 50);
     assert.equal(ratioPctOrNull(0, 10), 0);
+  });
+});
+
+describe('台账税率拆分与合同额合计（链口径）', () => {
+  it('税率未填 → 税前/进项税都是 null（不兜成 0%）；显式 0 照常参与计算', () => {
+    assert.deepEqual(deriveTaxSplit(113000, null), { beforeTax: null, inputTax: null });
+    assert.deepEqual(deriveTaxSplit(113000, ''), { beforeTax: null, inputTax: null });
+    assert.deepEqual(deriveTaxSplit(113000, 0), { beforeTax: 113000, inputTax: 0 });
+    assert.deepEqual(deriveTaxSplit(113000, 0.13), { beforeTax: 100000, inputTax: 13000 });
+  });
+
+  it('合同额合计：补充协议行不计入（每条链只计一次）', () => {
+    // 主合同 100 万 + 补充协议 changeAmount +5 万 → 主合同行 currentAmount 105 万；
+    // 补充协议行即便填了自由 amount 20 万，也不得再相加
+    const total = chainContractTotal([
+      { currentAmount: 1050000, isSupplement: false },
+      { currentAmount: 1050000, isSupplement: true },
+    ]);
+    assert.equal(total, 1050000, '链金额只取主合同行一次');
+    assert.equal(
+      chainContractTotal([
+        { currentAmount: null, isSupplement: false },
+        { currentAmount: null, isSupplement: true },
+      ]),
+      0,
+      '主合同未填金额按未知处理（不计入），但也不能报错',
+    );
   });
 });

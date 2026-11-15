@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
 import { assertPermission } from '../../common/utils/assert-permission';
+import { projectScopeWhere } from './common/project-scope';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
@@ -11,8 +12,7 @@ import { AI_FIELD_CATALOG, aiFieldByKey, availableFields, filterFieldsByPermissi
 import { FormCandidate, FormCell, detectTableRegions, scanWorkbook, type FormTableRegion } from './form-scan';
 import { FieldResolverService, type ResolveContext } from './field-resolver.service';
 import { DatasetCollector } from './analytics/dataset-collector.service';
-import { filterDatasets } from './analytics/dataset-registry';
-import { datasetByKey } from './analytics/dataset-registry';
+import { filterDatasets, datasetByKey } from './analytics/dataset-registry';
 import { datasetColumnsOf } from './analytics/dataset-columns';
 import { endOfDay, parseLocalDay } from './common/period';
 import { chatJson, LlmError, type LlmMessage } from './llm-client';
@@ -123,12 +123,10 @@ export class AiService {
     if (!ctx.period?.from || !ctx.period?.to) {
       throw new BadRequestException('跨项目填报需要选择期间（开始与结束日期）');
     }
-    const where: any = {};
-    if (!user?.isSuperAdmin) {
-      if (!user?.userId) throw new BadRequestException('缺少用户身份，无法校验项目权限');
-      where.members = { some: { userId: user.userId } };
-    }
-    const allowed = await this.prisma.project.findMany({ where, select: { id: true } });
+    const allowed = await this.prisma.project.findMany({
+      where: projectScopeWhere(user),
+      select: { id: true },
+    });
     const allowedIds = allowed.map((p) => p.id);
     const wanted = mode === 'selected' ? (ctx.scope?.projectIds ?? []) : allowedIds;
     const ids = wanted.filter((id) => allowedIds.includes(id));

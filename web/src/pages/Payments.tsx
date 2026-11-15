@@ -22,7 +22,7 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 import dayjs from 'dayjs';
 
 const money = (v: number) =>
@@ -59,7 +59,6 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
   /** 编辑器标签保存后会 bump 这个令牌 → 本（被缓存的）列表标签重新取数 */
   const tabRefresh = useTabRefresh(LIST_PATH);
-  const canEdit = usePermission('payment:edit');
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
@@ -116,7 +115,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
       onDelete={handleRemove}
       toolbarLeft={
         <Space wrap size={8}>
-          {canEdit && (
+          <Can code="payment:edit">
             <ImportButton
               moduleName="付款台账"
               templateUrl={paymentApi.recordsTemplateUrl()}
@@ -124,15 +123,15 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
               validateUrl={paymentApi.recordsValidateUrl()}
               onDone={refreshList}
             />
-          )}
+          </Can>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(paymentApi.exportRecordsUrl()))}>
             导出台账
           </Button>
-          {canEdit && (
+          <Can code="payment:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新增台账
             </Button>
-          )}
+          </Can>
         </Space>
       }
     />

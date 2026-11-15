@@ -11,7 +11,7 @@ import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 
 const money = (v: any) =>
   v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -44,7 +44,6 @@ export default function FinanceOverdue() {
 
 function OverdueList({ contractOptions }: { contractOptions: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
-  const canEdit = usePermission('finance:edit');
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [contractId, setContractId] = useState('');
   const [stats, setStats] = useState<any>({});
@@ -210,7 +209,7 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
         onDelete={handleRemove}
         toolbarLeft={
           <Space wrap size={8}>
-            {canEdit && (
+            <Can code="finance:edit">
               <>
                 <Button
                   type="primary"
@@ -226,7 +225,7 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
                   手动新增行
                 </Button>
               </>
-            )}
+            </Can>
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}
