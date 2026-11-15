@@ -244,6 +244,12 @@ export class SettlementService {
   }
 
   async create(data: any, projectId: string, tx?: TxClient) {
+    /**
+     * 状态缺省为**草稿**：`Settlement.statusCode` 可空，而 `isDraft(null)` 会把空状态当草稿
+     * 跳过防超结闸门、`notDraft` 又把 NULL 当非草稿计入累计/审定 —— 两边相反，
+     * 不传状态就能"不计闸门但计入已结"。新写入一律落一个明确状态，NULL 只留给历史数据。
+     */
+    data = { ...data, statusCode: data.statusCode ?? SETTLEMENT_STATUS.DRAFT };
     await this.lock.assertWritable(data.contractId, '新增结算单');
     // 引用合同必须属于当前项目（防 projectId=A、contractId=B 的跨项目串数据）
     await this.scope.assertContractInProject(data.contractId, projectId, '合同');
@@ -302,6 +308,9 @@ export class SettlementService {
 
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
+    // 显式传 null = "不改状态"：空状态会让 isDraft / notDraft 给出相反结论，新写入不允许落 NULL
+    data = { ...data };
+    if (data.statusCode === null) delete data.statusCode;
     assertVersion(before, data);
     await this.lock.assertWritable(before.contractId, '修改结算单');
     if (data.contractId) {
@@ -827,7 +836,9 @@ export class SettlementService {
     const list: any[] = await this.prisma.settlement.findMany({
       where: { contractId },
       select: { id: true, settleDate: true },
-      orderBy: { createdAt: 'asc' },
+      // ⚠️ 必须与 computeLedgerAutoFields / linkOrphansForContract 同一选单规则（settleDate desc, id desc）：
+      // 历史同期多张时，自动挂发票的那张要与台账认的那张是同一张，否则发票不计入本月开票额（P1-4）
+      orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
     });
     return list.find((s) => periodKeyOf(startDay, s.settleDate) === want)?.id ?? null;
   }
@@ -1327,6 +1338,8 @@ export class SettlementService {
    */
   async createLedger(data: any, projectId: string, tx?: TxClient, opts?: { fromImport?: boolean }) {
     const db: any = tx || this.prisma;
+    // 归档锁定：台账也是结算域的写入口（与结算单 create/update/remove 同口径）
+    await this.lock.assertWritable(data.contractId, '新增结算台账');
     if (!opts?.fromImport) this.assertLedgerWritable(data);
     // 结算月份同样按字符串精确匹配（台账按月列、自动抓取结算单/开票额都按它），格式错会静默对不上
     assertYearMonth(data.settleMonth, '结算月份');
@@ -1378,6 +1391,24 @@ export class SettlementService {
 
   async updateLedger(id: string, data: any, projectId?: string) {
     const old = await this.ledgerOne(id, projectId);
+    // 归档锁定：与原合同、目标合同都要校验（改合同时两边都受影响）
+    await this.lock.assertWritable(old.contractId, '修改结算台账');
+    if (data.contractId && data.contractId !== old.contractId) {
+      await this.lock.assertWritable(data.contractId, '修改结算台账');
+    }
+    /**
+     * 已挂结算单的行是**自动维护的 1:1 行**：改它的合同/月份会让结算单失去 `ledgerEntry`、
+     * 旧合同该月行不再刷新（与 removeLedger 的 400 同一个理由）。要调整先处理结算单。
+     */
+    if (old.settlementId && (data.contractId !== undefined || data.settleMonth !== undefined)) {
+      const changingContract = data.contractId !== undefined && data.contractId !== old.contractId;
+      const changingMonth = data.settleMonth !== undefined && data.settleMonth !== old.settleMonth;
+      if (changingContract || changingMonth) {
+        throw new BadRequestException(
+          '该台账行由结算单自动维护（台账行与结算单 1:1），不能改合同或结算月份；请先处理对应结算单，或使用「刷新台账」重算。',
+        );
+      }
+    }
     assertVersion(old, data);
     await this.assertLedgerWritable(data);
     assertYearMonth(data.settleMonth, '结算月份');
@@ -1427,6 +1458,8 @@ export class SettlementService {
 
   async removeLedger(id: string, projectId?: string) {
     const row = await this.ledgerOne(id, projectId);
+    // 归档锁定：台账删除同样属于结算域的写操作
+    await this.lock.assertWritable(row.contractId, '删除结算台账');
     /**
      * 已关联结算单的行由 `syncLedgerByContract()` 自动维护（台账行与结算单 1:1）：
      * 直接删掉会让结算单丢了 `ledgerEntry`，下次刷新又被重建——"删了又回来"比报错更让人困惑。
