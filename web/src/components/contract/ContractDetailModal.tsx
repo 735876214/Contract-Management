@@ -3,6 +3,7 @@ import {
   Button,
   DatePicker,
   Descriptions,
+  Empty,
   Form,
   Input,
   Modal,
@@ -14,6 +15,7 @@ import {
   message,
 } from 'antd';
 import { contractApi } from '@/api/business';
+import Can from '@/components/Can';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import { usePermission } from '@/hooks/usePermission';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
@@ -28,15 +30,15 @@ import { useContainerWidth } from '@/hooks/useContainerWidth';
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
 
 export interface ContractDetailModalProps {
-  /** 要查看的合同 id；为空时不发请求 */
+  /** 要查看的合同 id；为 null 时弹窗关闭（打开状态由它派生，避免两个状态各说各话） */
   contractId?: string | null;
-  open: boolean;
   onClose: () => void;
   /** 新增补充协议成功后的回调（列表需要重新取数） */
   onChanged?: () => void;
 }
 
-export default function ContractDetailModal({ contractId, open, onClose, onChanged }: ContractDetailModalProps) {
+export default function ContractDetailModal({ contractId, onClose, onChanged }: ContractDetailModalProps) {
+  const open = !!contractId;
   const [detail, setDetail] = useState<any>(null);
   const [changes, setChanges] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +49,7 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
   const canWrite = canEdit && !!detail && !detail.archivedAt;
 
   useEffect(() => {
-    if (!open || !contractId) {
+    if (!contractId) {
       setDetail(null);
       setChanges([]);
       return;
@@ -66,7 +68,7 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
     return () => {
       alive = false;
     };
-  }, [open, contractId]);
+  }, [contractId]);
 
   const openSupplement = async () => {
     if (!detail || !canWrite) return;
@@ -109,9 +111,9 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
         footer={null}
         styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
       >
-        {loading || !detail ? (
+        {loading ? (
           <Spin />
-        ) : (
+        ) : detail ? (
           <>
             <Tabs
               items={[
@@ -150,7 +152,7 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
                     <Tag key={s.id} color="blue">{s.code}</Tag>
                   ))}
                 </Space>
-                {canEdit && (
+                <Can code="contract:edit">
                   <Button
                     type="primary"
                     size="small"
@@ -161,10 +163,12 @@ export default function ContractDetailModal({ contractId, open, onClose, onChang
                   >
                     新增补充协议
                   </Button>
-                )}
+                </Can>
               </div>
             )}
           </>
+        ) : (
+          <Empty description="暂无合同数据" />
         )}
       </Modal>
 

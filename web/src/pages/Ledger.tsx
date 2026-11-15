@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -19,10 +20,10 @@ import DictSelect from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
 import ContractEditor from '@/components/contract/ContractEditor';
 import ContractDetailModal from '@/components/contract/ContractDetailModal';
+import Can from '@/components/Can';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { usePermission } from '@/hooks/usePermission';
 import { LIST_PATHS } from '@/constants/listPaths';
 import { useDictStore } from '@/store/dict';
 
@@ -77,7 +78,7 @@ const renderCell = (key: string, v: any) => {
 export default function Ledger() {
   const editorTab = useEditorTab(LIST_PATHS.contractLedger);
   if (editorTab.isEditor) {
-    return <ContractEditor seed={editorTab.seed} listPath={LIST_PATHS.contractLedger} />;
+    return <ContractEditor seed={editorTab.seed} />;
   }
   return <LedgerList />;
 }
@@ -85,9 +86,7 @@ export default function Ledger() {
 function LedgerList() {
   const ensure = useDictStore((s) => s.ensure);
   const editorTab = useEditorTab(LIST_PATHS.contractLedger);
-  const canEdit = usePermission('contract:edit');
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
   /** 发票作废/红冲等跨标签动作会 bump 本路径，缓存页必须重新取数（含顶部统计） */
   const tabRefresh = useTabRefresh(LIST_PATHS.contractLedger);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -96,6 +95,32 @@ function LedgerList() {
   const [colModal, setColModal] = useState(false);
   const [colChecked, setColChecked] = useState<string[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
+
+  /**
+   * 旧合同编辑深链：起草页「继续编辑」曾用 `/contracts?edit=<id>`（/contracts 已保号重定向到本页）。
+   * 取到详情后转成编辑器页签 `?editor=<id>`，再清掉 `edit` 参数。
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editParam = searchParams.get('edit');
+  useEffect(() => {
+    if (!editParam) return;
+    let alive = true;
+    contractApi
+      .detail(editParam)
+      .then((res: any) => {
+        if (!alive) return;
+        // 先清掉 edit 参数，再导航到 ?editor=<id>：顺序反了会被「清参数」覆盖回列表
+        setSearchParams({}, { replace: true });
+        if (res) editorTab.openEdit(res.id, res);
+      })
+      .catch(() => {
+        if (alive) setSearchParams({}, { replace: true });
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam]);
 
   /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
   const fetcher = useMemo(
@@ -107,11 +132,16 @@ function LedgerList() {
     [],
   );
 
+  /** 顶部统计卡（不走列表接口，增删改后需单独重取） */
+  const loadSummary = useCallback(() => {
+    ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
+  }, []);
+
   useEffect(() => {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
     supplierApi.options().then((res: any) => setSuppliers(res || []));
-    ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
-  }, [tabRefresh]);
+    loadSummary();
+  }, [tabRefresh, loadSummary]);
 
   /**
    * 大宽表冻结列（DESIGN.md §10.2）：**张数随容器宽度收敛**——
@@ -162,12 +192,11 @@ function LedgerList() {
   /** 台账行增删改后：列表与顶部统计卡都要重取（统计卡不走列表接口） */
   const refreshAll = useCallback(() => {
     setListRefresh((k) => k + 1);
-    ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
-  }, []);
+    loadSummary();
+  }, [loadSummary]);
 
   const openDetail = (row: any) => {
     setDetailId(row.id);
-    setDetailOpen(true);
   };
 
   /** 编辑取全量（含 ext / version）；列表 DTO 是拍平的展示字段，不参与保存 */
@@ -280,12 +309,12 @@ function LedgerList() {
         emptyText="暂无合同台账数据"
         toolbarLeft={
           <Space wrap size={8}>
-            {canEdit && (
+            <Can code="contract:edit">
               <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                 新建合同
               </Button>
-            )}
-            {canEdit && (
+            </Can>
+            <Can code="contract:edit">
               <ImportButton
                 moduleName="合同台账"
                 templateUrl={contractApi.templateUrl()}
@@ -293,7 +322,7 @@ function LedgerList() {
                 validateUrl={contractApi.validateUrl()}
                 onDone={refreshAll}
               />
-            )}
+            </Can>
             <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(ledgerApi.exportUrl()))}>
               导出
             </Button>
@@ -306,8 +335,7 @@ function LedgerList() {
 
       <ContractDetailModal
         contractId={detailId}
-        open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={() => setDetailId(null)}
         onChanged={refreshAll}
       />
 

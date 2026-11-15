@@ -76,7 +76,7 @@ export const MENU_CONFIG: MenuItem[] = [
     label: 'AI 助手',
     icon: 'RobotOutlined',
     children: [
-      { key: 'ai-assistant', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
+      { key: 'ai-assistant', label: '文件登记与填报', icon: 'EditOutlined', path: '/ai/assistant', permission: 'ai:view' },
       { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
     ],
   },

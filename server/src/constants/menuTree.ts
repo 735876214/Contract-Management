@@ -108,8 +108,9 @@ export const MENU_TREE: MenuNode[] = [
     label: 'AI 助手',
     icon: 'RobotOutlined',
     children: [
-      // AI 助手（2026-10-19）：上传文件自动登记 / 模版自动填报 / 自动生成汇报材料
-      { key: 'ai-assistant', label: 'AI 助手', icon: 'RobotOutlined', path: '/ai/assistant', permission: 'ai:view' },
+      // 文件登记与填报（2026-10-19）：上传文件自动登记 / 模版自动填报 / 自动生成汇报材料。
+      // 标签刻意不与分组同名（否则侧栏出现「AI 助手 > AI 助手」），图标也用 EditOutlined 区分。
+      { key: 'ai-assistant', label: '文件登记与填报', icon: 'EditOutlined', path: '/ai/assistant', permission: 'ai:view' },
       // 经营数据助手（2026-11-12）：按需范围/期间/数据集生成可导出的确定性报告，历史留痕
       { key: 'ai-analytics', label: '经营数据助手', icon: 'BarChartOutlined', path: '/ai/analytics', permission: 'ai:view' },
     ],
