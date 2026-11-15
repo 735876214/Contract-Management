@@ -177,6 +177,9 @@ if (webChanged.length) {
       }
     });
   } else {
+    if (fast && !onlyPages) {
+      console.log('  [verify] --fast 只在「改动全在 web/src/pages」时生效，本次退回全量 build');
+    }
     step('web build（tsc --noEmit && vite build）', () => run(NPM, ['run', 'build'], { cwd: path.join(root, 'web') }));
   }
 }

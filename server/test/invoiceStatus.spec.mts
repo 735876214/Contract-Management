@@ -106,6 +106,19 @@ describe('发票终态口径（作废/红冲）', () => {
         `${file} 调用 loadInvoiceFacts 时未显式 excludeTerminal: true（作废/红冲会混入）`,
       );
     }
+
+    // 窗口事实必须完全走 query 层：这两个文件里出现 prisma.invoice 就是绕过口径
+    // （dataset-collector 的明细行查询是域特有的，不在本条约束内）
+    for (const file of [
+      '../src/modules/ai/field-resolver.service.ts',
+      '../src/modules/ai/report.service.ts',
+    ]) {
+      const src = read(file);
+      assert.ok(
+        !src.includes('prisma.invoice'),
+        `${file} 直接出现 prisma.invoice —— 发票口径必须走 query 层的 loadInvoiceFacts`,
+      );
+    }
   });
 
   it('AI 两处私有谓词已收敛到共享实现', () => {

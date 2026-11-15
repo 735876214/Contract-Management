@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import { localDayKey } from '../../common/utils/helpers';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { projectScopeWhere } from './common/project-scope';
+import { loadProjectScope } from '../../query';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { AiQuota } from './ai-quota';
@@ -123,10 +124,7 @@ export class AiService {
     if (!ctx.period?.from || !ctx.period?.to) {
       throw new BadRequestException('跨项目填报需要选择期间（开始与结束日期）');
     }
-    const allowed = await this.prisma.project.findMany({
-      where: projectScopeWhere(user),
-      select: { id: true },
-    });
+    const allowed = await loadProjectScope(this.prisma, { memberWhere: projectScopeWhere(user) });
     const allowedIds = allowed.map((p) => p.id);
     const wanted = mode === 'selected' ? (ctx.scope?.projectIds ?? []) : allowedIds;
     const ids = wanted.filter((id) => allowedIds.includes(id));
