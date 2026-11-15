@@ -93,3 +93,33 @@ export function deriveLedgerAmounts(input: LedgerDerivedInput): LedgerDerivedFie
     amountFilled,
   };
 }
+
+/**
+ * 含税金额 → 税前 / 进项税额（台账「开累税前结算金额」「开累进项税额」的单一实现）。
+ *
+ * 税率未填（NULL / 空串）→ 两列都返回 `null`（"未知"不兜成 0%，与其余派生列的三态一致）；
+ * **显式填 `0` 是真实的 0%**，照常算出"税前 = 含税、税额 = 0"。
+ */
+export function deriveTaxSplit(
+  amountWithTax: number,
+  taxRate: unknown,
+): { beforeTax: number | null; inputTax: number | null } {
+  if (!isFilledNumber(taxRate)) return { beforeTax: null, inputTax: null };
+  const denominator = 1 + Number(taxRate);
+  if (!Number.isFinite(denominator) || denominator === 0) return { beforeTax: null, inputTax: null };
+  const total = round2(amountWithTax);
+  const beforeTax = round2(total / denominator);
+  return { beforeTax, inputTax: round2(total - beforeTax) };
+}
+
+/**
+ * 项目「合同额」合计：**每条合同链只计一次**（取主合同行上的链金额 `currentAmount`）。
+ *
+ * ⚠️ 补充协议行的 `amount` 是手填自由值（涨价/降价时常填"剩余数量的全价"），逐行相加会**重复计入**；
+ * 补充协议的影响已经包含在主合同的 `currentAmount`（主合同 + Σ changeAmount）里。
+ */
+export function chainContractTotal(
+  rows: Array<{ currentAmount: number | null; isSupplement: boolean }>,
+): number {
+  return round2(rows.reduce((s, r) => s + (r.isSupplement ? 0 : Number(r.currentAmount) || 0), 0));
+}

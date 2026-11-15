@@ -507,7 +507,7 @@ export default function Document() {
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}
-        rowMenuItems={(row) => {
+        rowMenuItems={(row, { canEdit }) => {
           const published = moduleStatusOf(row).value === 'PUBLISHED';
           return published
             ? [
@@ -520,7 +520,7 @@ export default function Document() {
                   ),
                   onClick: () => handleRowExport(row),
                 },
-                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+                ...(canEdit ? [{ key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) }] : []),
               ]
             : [];
         }}

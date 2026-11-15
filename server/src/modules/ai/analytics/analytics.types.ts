@@ -149,6 +149,8 @@ export interface AiAnalyticsFacts {
   compareTotals: AiAnalyticsTotals | null;
   byProject: AiAnalyticsProjectFact[];
   datasets: AiAnalyticsDatasetFact[];
+  /** 数据缺口（无数据的数据集/期间），与 warnings 分开供前端分类展示 */
+  dataGaps: string[];
   risks: Array<{ code: string; level: 'RED' | 'YELLOW' | 'INFO'; text: string }>;
   warnings: string[];
 }

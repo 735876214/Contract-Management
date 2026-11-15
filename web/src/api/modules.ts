@@ -47,8 +47,8 @@ export const procurementTaskApi = {
       qualityClauseId?: string | null;
       acceptanceClauseId?: string | null;
       paymentClauseId?: string | null;
-      /** 乐观锁：列表/详情带回的 version（服务端 `assertVersion` 强制校验） */
-      version?: number;
+      /** 乐观锁：列表/详情带回的 version（服务端 `assertVersion` 强制校验）——**必填**，缺失即 409 */
+      version: number;
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */
@@ -242,7 +242,7 @@ export const settlementApi = {
   create: (data: any) => http.post<any, any>('/settlements', data),
   update: (id: string, data: any) => http.put<any, any>(`/settlements/${id}`, data),
   // 任务 7：结算驳回 → 回填
-  reject: (id: string) => http.post<any, any>(`/settlements/${id}/reject`),
+  reject: (id: string, version?: number) => http.post<any, any>(`/settlements/${id}/reject`, { version }),
   remove: (id: string) => http.delete<any, any>(`/settlements/${id}`),
   ledger: (params?: any) => http.get<any, any>('/settlements/ledger', { params }),
   ledgerDetail: (id: string) => http.get<any, any>(`/settlements/ledger/${id}`),

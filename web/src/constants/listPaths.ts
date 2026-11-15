@@ -8,5 +8,6 @@ export const LIST_PATHS = {
   invoice: '/invoice',
   settlementLedger: '/settlement/ledger',
   contractLedger: '/contract/list',
+  contractMaterial: '/contract/material',
   dashboard: '/dashboard',
 } as const;

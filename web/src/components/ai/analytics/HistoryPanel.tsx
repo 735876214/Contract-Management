@@ -25,11 +25,10 @@ import {
 } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
 import { MIME_DOCX, MIME_PDF, MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
+import { COMPARE_LABEL, SCOPE_LABEL } from './constants';
 
 const { Text } = Typography;
 
-const SCOPE_LABEL: Record<string, string> = { current: '当前项目', selected: '多选项目', all: '全部项目' };
-const COMPARE_LABEL: Record<string, string> = { none: '不对比', mom: '环比', yoy: '同比' };
 
 export interface HistoryPanelProps {
   projects: Array<{ id: string; code: string; name: string }>;

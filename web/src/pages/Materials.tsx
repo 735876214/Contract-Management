@@ -9,6 +9,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
 
 const YES_NO = [
   { label: '是', value: true },
@@ -50,13 +51,13 @@ function MaterialList() {
       title="物资基础库"
       extra={
         <Space>
-          {canEdit && (
+          <Can code="material:edit">
             <ImportButton moduleName="物资基础库" templateUrl={materialApi.templateUrl()} uploadUrl={materialApi.importUrl()} validateUrl={materialApi.validateUrl()} onDone={reload} />
-          )}
+          </Can>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(materialApi.exportUrl()))}>导出</Button>
-          {canEdit && (
+          <Can code="material:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增物资</Button>
-          )}
+          </Can>
         </Space>
       }
     >

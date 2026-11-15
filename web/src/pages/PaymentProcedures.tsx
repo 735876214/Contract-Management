@@ -8,7 +8,7 @@ import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
@@ -46,7 +46,6 @@ export default function PaymentProcedures() {
 function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
-  const canEdit = usePermission('payment:edit');
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
@@ -112,11 +111,11 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
       ]}
       toolbarLeft={
         <Space wrap size={8}>
-          {canEdit && (
+          <Can code="payment:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               编制付款手续
             </Button>
-          )}
+          </Can>
         </Space>
       }
     />
