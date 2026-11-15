@@ -59,7 +59,7 @@ dev 容器挂的是主树的 `./server` / `./web`，**服务不了 worktree**，
 
 | 改动 | verify 会做什么 |
 |---|---|
-| 总是 | `check-import-integrity`（已入库文件） |
+| 总是 | `check-import-integrity`（已入库文件）+ `check-module-boundaries`（跨模块只走公开入口、无环） |
 | `web/**` | 默认全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 临时 tsconfig 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test`（关键词筛会漏 parity/docStats） |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |

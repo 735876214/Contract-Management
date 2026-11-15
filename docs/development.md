@@ -506,7 +506,7 @@ cd .worktrees/<slug>/web;    $env:VITE_PROXY_TARGET="http://localhost:3111"; npm
 | `web/**` | 全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test` |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |
-| 金额/状态/导入 | `migrate deploy` + 选中的 int spec（`--test-concurrency=4`） |
+| 金额/状态/导入 | `migrate deploy` + 选中的 int spec（`--test-concurrency=2`） |
 
 **边界**：`nest build` / `tsc` 是整程序编译，无法只编一个模块；verify 收窄的是**测试与数据库范围**，
 不是类型检查范围。真实渲染与 E2E 仍按 §5.2。

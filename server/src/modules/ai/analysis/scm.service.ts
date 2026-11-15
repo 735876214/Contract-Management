@@ -18,6 +18,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
+import { projectScopeWhere } from '../common/project-scope';
 import {
   loadContractChainFacts,
   loadInvoiceFacts,
@@ -287,13 +288,10 @@ export class ScmService {
     // 项目隔离（铁律 3）：`projectIds` 是**客户端可控参数**，路由也没接 `@ProjectId()`，
     // 所以这里必须自己按成员关系收口——否则任何持 `ai:view`+`contract:view` 的人
     // 传别人的项目 id 就能读走签约/付款/开票金额（IDOR）。
-    if (user && !user.isSuperAdmin && !user.userId) {
-      throw new BadRequestException('缺少用户身份，无法校验项目权限');
-    }
+    // 成员条件与 `ai/common/project-scope.ts` 同一实现（缺 userId 时抛 400）
     const projects = await loadProjectScope(this.prisma, {
       ids: wanted,
-      userId: user?.userId,
-      isSuperAdmin: user?.isSuperAdmin,
+      memberWhere: user ? projectScopeWhere(user) : {},
     });
 
     if (!projects.length) {
@@ -314,9 +312,9 @@ export class ScmService {
 
     const [contracts, settlements, payments, invoices, milestones] = await Promise.all([
       loadContractChainFacts(this.prisma, ids),
-      loadSettlementFacts(this.prisma, ids),
-      loadPaymentFacts(this.prisma, ids),
-      loadInvoiceFacts(this.prisma, ids),
+      loadSettlementFacts(this.prisma, ids, { excludeDraft: false }),
+      loadPaymentFacts(this.prisma, ids, { excludeFailed: false }),
+      loadInvoiceFacts(this.prisma, ids, { excludeTerminal: false }),
       loadMilestoneFacts(this.prisma, ids),
     ]);
 
