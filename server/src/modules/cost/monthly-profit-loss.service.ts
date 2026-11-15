@@ -157,7 +157,13 @@ export class MonthlyProfitLossService {
       projectId,
     );
     const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
-    const manual = new Map(old.map((d) => [`${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}`, d]));
+    // 手填项按「分包单位 + 材料 + 规格 + 单位」回填：单位不同是两条快照行
+    const manual = new Map(
+      old.map((d) => [
+        `${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}\u0003${d.unit ?? ''}`,
+        d,
+      ]),
+    );
     /**
      * 删旧 + 生成新明细必须在同一事务里（第 6 轮审计）：
      * 原来是「先删空再插」，中途失败会把这一期的明细整片清空且无法恢复。
@@ -290,10 +296,10 @@ export class MonthlyProfitLossService {
     ];
     ws3.getRow(3).font = { bold: true };
     ws3.getRow(3).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
-    // 按材料名称+规格合并（跨劳务队）
+    // 按材料名称+规格+单位合并（跨劳务队）；单位不同不能合并数量
     const byMat = new Map<string, any[]>();
     for (const d of details) {
-      const key = `${d.materialName}\u0001${d.spec ?? ''}`;
+      const key = `${d.materialName}\u0001${d.spec ?? ''}\u0001${d.unit ?? ''}`;
       if (!byMat.has(key)) byMat.set(key, []);
       byMat.get(key)!.push(d);
     }
@@ -375,7 +381,7 @@ export class MonthlyProfitLossService {
     for (const auth of auths) {
       const snapshot = await this.laborReceiving.periodSnapshotRows(auth.id, period, projectId);
       for (const s of snapshot) {
-        const key = `${auth.id}\u0001${s.materialName}\u0002${s.spec ?? ''}`;
+        const key = `${auth.id}\u0001${s.materialName}\u0002${s.spec ?? ''}\u0003${s.unit ?? ''}`;
         const m = manual?.get(key);
         const saveOverQty = s.saveOverQty;
         // 盈亏金额是 qty × price 的派生列（前端也只读展示）：
