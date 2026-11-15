@@ -110,16 +110,19 @@ export class ReceiptOrderService {
         ? data.materialContractId || null
         : (fallback?.materialContractId ?? null);
     const date = data.orderDate !== undefined ? data.orderDate : fallback?.orderDate;
-    if (data.settlementId !== undefined) {
-      if (!data.settlementId) return null; // 显式解绑
-      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
-      return data.settlementId;
-    }
     // 2026-10-18 业务流审计：改了物资合同或日期时，旧的自动匹配可能已违反「同合同同期」——
     // 必须按新合同/新日期重算（显式传 settlementId 的人工指定仍优先）。current 只在
     // 合同与日期都未变时才保留。
     const contractChanged = data.materialContractId !== undefined && data.materialContractId !== fallback?.materialContractId;
     const dateChanged = data.orderDate !== undefined && new Date(data.orderDate ?? 0).getTime() !== new Date(fallback?.orderDate ?? 0).getTime();
+    if (data.settlementId !== undefined) {
+      if (!data.settlementId) return null; // 显式解绑
+      // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
+      // 重新跑严格同合同校验会 400，导致整张单据存不了
+      if (current === data.settlementId && !contractChanged && !dateChanged) return current;
+      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
+      return data.settlementId;
+    }
     if (current && !contractChanged && !dateChanged) return current;
     return this.settlement.findSettlementIdFor(contractId, date);
   }
