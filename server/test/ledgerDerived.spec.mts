@@ -151,18 +151,27 @@ describe('台账税率拆分与合同额合计（链口径）', () => {
     assert.deepEqual(deriveTaxSplit(113000, 0.13), { beforeTax: 100000, inputTax: 13000 });
   });
 
-  it('合同额合计：补充协议行不计入（每条链只计一次）', () => {
+  it('合同额合计：同一链只计一次（按链根，不看 isSupplement 标志）', () => {
     // 主合同 100 万 + 补充协议 changeAmount +5 万 → 主合同行 currentAmount 105 万；
     // 补充协议行即便填了自由 amount 20 万，也不得再相加
     const total = chainContractTotal([
-      { currentAmount: 1050000, isSupplement: false },
-      { currentAmount: 1050000, isSupplement: true },
+      { id: 'main', rootId: 'main', currentAmount: 1050000 },
+      { id: 'sup', rootId: 'main', currentAmount: 1050000 },
     ]);
-    assert.equal(total, 1050000, '链金额只取主合同行一次');
+    assert.equal(total, 1050000, '链金额只取一次');
+    // 即使 isSupplement 标志缺失（历史/导入不一致），只要有 parentContractId 就归到同一个 root
     assert.equal(
       chainContractTotal([
-        { currentAmount: null, isSupplement: false },
-        { currentAmount: null, isSupplement: true },
+        { id: 'main', rootId: 'main', currentAmount: 1050000 },
+        { id: 'sup-broken-flag', rootId: 'main', currentAmount: 1050000 },
+      ]),
+      1050000,
+      '判据只看链根，标志漂移不会重复计入',
+    );
+    assert.equal(
+      chainContractTotal([
+        { id: 'a', rootId: null, currentAmount: null },
+        { id: 'b', rootId: 'b', currentAmount: null },
       ]),
       0,
       '主合同未填金额按未知处理（不计入），但也不能报错',

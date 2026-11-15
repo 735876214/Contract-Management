@@ -62,7 +62,14 @@ describe('集成 · 台账派生金额口径', () => {
       data: { ...base, statusCode: SETTLEMENT_STATUS.DRAFT, actualAmount: 300000, settleDate: new Date(2026, 8, 15) },
     });
     await ctx.prisma.settlement.create({
-      data: { ...base, statusCode: SETTLEMENT_STATUS.CONFIRMED, actualAmount: 100000, settleDate: new Date(2026, 7, 15) },
+      data: {
+        ...base,
+        statusCode: SETTLEMENT_STATUS.CONFIRMED,
+        amount: 120000,
+        deductAmount: 20000,
+        actualAmount: 100000,
+        settleDate: new Date(2026, 7, 15),
+      },
     });
     // 历史行：actualAmount 为空、amount 有值 → 回退 amount（与 chainSettledTotal 同口径）
     await ctx.prisma.settlement.create({
@@ -78,6 +85,11 @@ describe('集成 · 台账派生金额口径', () => {
     const res: any = await ledger.findAll({}, project.id);
     const row = res.list.find((r: any) => r.id === contract.id);
     assert.equal(row.auditedSettleAmount, 150000, '草稿 30 万不计入；已确认 10 万 + 历史 5 万 = 15 万');
+    assert.equal(
+      row.settleReduceAmount,
+      20000,
+      '审减额 = 送审（12 万 + 5 万）− 审定（10 万 + 5 万）= 2 万；不能拿含草稿的开累相减',
+    );
   });
 
   it('税率未填 → 税前/进项税留空；显式 13% 正常拆分', async () => {
