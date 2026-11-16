@@ -15,7 +15,7 @@
  * 退出码：0 全绿 / 1 有步骤失败 / 2 环境或守卫失败
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, openSync, readFileSync, statSync, unlinkSync, writeSync, closeSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, unlinkSync, writeSync, closeSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -124,6 +124,8 @@ function step(name, fn) {
 const WIN = process.platform === 'win32';
 /** Windows 下 .cmd 必须经 shell 启动（Node 对 .cmd 的 spawn 做了限制） */
 const needsShell = (cmd) => WIN && /\.(cmd|bat)$/i.test(cmd);
+/** 经 shell 启动时参数是不转义的（DEP0190），含 `&` 的 URL 必须自己加引号，否则被 cmd 当命令分隔符 */
+const q = (s) => (WIN ? `"${s}"` : s);
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, {
@@ -180,7 +182,13 @@ if (webChanged.length) {
     if (fast && !onlyPages) {
       console.log('  [verify] --fast 只在「改动全在 web/src/pages」时生效，本次退回全量 build');
     }
-    step('web build（tsc --noEmit && vite build）', () => run(NPM, ['run', 'build'], { cwd: path.join(root, 'web') }));
+    step('web build（tsc --noEmit && vite build）', () => {
+      // Windows 沙箱下 vite/esbuild 删除系统 TEMP 里的临时文件会被拒（Access is denied），
+      // 把 TEMP 指到工程内目录（docs/development.md §9 的既有做法）。
+      const tmpDir = path.join(root, 'web', 'node_modules', '.tmp');
+      mkdirSync(tmpDir, { recursive: true });
+      return run(NPM, ['run', 'build'], { cwd: path.join(root, 'web'), env: { TEMP: tmpDir, TMP: tmpDir } });
+    });
   }
 }
 
@@ -199,11 +207,8 @@ if (schemaChanged) {
     if (exists.stdout.trim() !== '1') {
       die(`影子库 ${shadowDb} 不存在；先运行 scripts/new-task-worktree.mjs（幂等）`);
     }
-    // Windows 的 .cmd 经 shell 启动时，URL 里的 `&connection_limit=...` 会被 cmd 当成命令分隔符；
-    // 加双引号让整段 URL 作为一个参数传给 Prisma。
-    const shadowArg = WIN ? `"${shadowUrl}"` : shadowUrl;
     return npx(['prisma', 'migrate', 'diff', '--from-migrations', 'prisma/migrations',
-      '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code', '--shadow-database-url', shadowArg],
+      '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code', '--shadow-database-url', q(shadowUrl)],
       { cwd: path.join(root, 'server') });
   });
 }
@@ -236,7 +241,7 @@ if (needsInt && intMode !== 'none') {
 
       if (!npx(['prisma', 'migrate', 'deploy'], { cwd: path.join(root, 'server'), env: testEnv })) return false;
 
-      const specs = selectIntSpecs([...changed]);
+      const specs = intMode === 'all' ? allIntSpecs() : selectIntSpecs([...changed]);
       // 直接 spawn node（不经 npm.cmd / cmd.exe）：Windows 下 `shell: true` 启动的
       // npm 会让 node:test 的子进程在继承 stdio 时整批无输出失败；同一命令直跑 node 稳定通过。
       const ok = run(
@@ -285,17 +290,23 @@ function acquireLock(lockPath) {
   die(`无法获取锁 ${lockPath}`);
 }
 
-function selectIntSpecs(input) {
-  const files = [...input]; // 调用方传的是 Set（changed），统一成数组再用 filter
+function allIntSpecs() {
   const all = git(['ls-files', 'server/test-integration/*.int.spec.ts'])
     .split('\n')
     .filter((f) => f.endsWith('.int.spec.ts'))
     .map((f) => f.replace(/^server\//, ''));
   if (!all.length) die('未扫描到任何 int spec（目录结构可能已变），拒绝用空参数跑 node --test');
-  const direct = files.filter((f) => f.startsWith('server/test-integration/') && f.endsWith('.int.spec.ts'))
+  return all;
+}
+
+function selectIntSpecs(files) {
+  // 调用方传的是 Set（changed），统一转数组，避免 .filter is not a function
+  const list = Array.from(files || []);
+  const all = allIntSpecs();
+  const direct = list.filter((f) => f.startsWith('server/test-integration/') && f.endsWith('.int.spec.ts'))
     .map((f) => f.replace(/^server\//, ''));
   const tokens = new Set();
-  for (const f of files) {
+  for (const f of list) {
     const m = /server\/src\/modules\/([^/]+)\//.exec(f);
     if (m) tokens.add(m[1].replace(/-/g, ''));
     const b = path.basename(f).replace(/\.[^.]+$/, '');
