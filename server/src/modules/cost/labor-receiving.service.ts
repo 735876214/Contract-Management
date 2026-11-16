@@ -13,7 +13,7 @@ import {
   parseLaborRowKey,
   type DeriveReceivingInput,
 } from '../../common/utils/labor-receiving';
-import { periodKeyOf, startDayOf, periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
+import { periodKeyOf, startDayOf, periodLabel } from '../../common/utils/settlement-period';
 
 /**
  * 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位 × 结算期）。
@@ -383,7 +383,7 @@ export class LaborReceivingService {
     );
     const rows: any[] = await this.mergeDocRows(doc);
     const project = await this.prisma.project.findUnique({ where: { id: doc.projectId } });
-    const periodLabel = periodLabelOf(doc.period);
+    const periodLabelText = periodLabel(doc.period);
 
     const wb = new ExcelJS.Workbook();
 
@@ -399,7 +399,7 @@ export class LaborReceivingService {
     ws1.getCell('A2').alignment = { horizontal: 'center' };
     ws1.getCell('E2').value = '表格编号';
     ws1.getCell('F2').value = 'CSCEC-SW-B40807';
-    ws1.getRow(3).values = ['项目名称', project?.name ?? '', `${periodLabel}1日11时`];
+    ws1.getRow(3).values = ['项目名称', project?.name ?? '', `${periodLabelText}1日11时`];
     ws1.getRow(4).values = ['劳务队名称', doc.subcontractorName];
     ws1.getRow(5).values = ['序号', '物资名称', '规格型号', '单位', '本月库存', '备注'];
     ws1.getRow(5).font = { bold: true };
@@ -426,7 +426,7 @@ export class LaborReceivingService {
     ws2.getCell('A2').alignment = { horizontal: 'center' };
     ws2.getCell('G2').value = '表格编号';
     ws2.getCell('H2').value = 'CSCEC-SW-B40805';
-    ws2.getRow(3).values = ['项目名称', project?.name ?? '', '', `${periodLabel}`, '', ''];
+    ws2.getRow(3).values = ['项目名称', project?.name ?? '', '', `${periodLabelText}`, '', ''];
     ws2.getRow(4).values = ['劳务队名称', doc.subcontractorName, '', '劳务合同名称', doc.contractName ?? '', ''];
     ws2.getRow(5).values = ['序号', '物资名称', '规格型号', '单位', '上期末累计-数量', '本期领用数量', '本期退库数量', '净领数量', '备注'];
     ws2.getRow(5).font = { bold: true };
@@ -439,7 +439,7 @@ export class LaborReceivingService {
     let foot2 = rows.length + 7;
     ws2.getRow(foot2).values = ['合计'];
     ws2.getRow(foot2 + 2).values = [
-      `以上数据为分包商 ${doc.subcontractorName} 在 ${periodLabel} 期间与本项目部发生的所有领用业务。`,
+      `以上数据为分包商 ${doc.subcontractorName} 在 ${periodLabelText} 期间与本项目部发生的所有领用业务。`,
     ];
     ws2.getRow(foot2 + 4).values = ['分包商名称（盖章）', '', '项目部级', '', '审签栏', '日期'];
     ws2.getRow(foot2 + 5).values = ['', '', '', '材料工程师', '', ''];
@@ -454,7 +454,7 @@ export class LaborReceivingService {
     ws3.getCell('A1').value = '甲方供应材料节超统计表';
     ws3.getCell('A1').font = { size: 16, bold: true };
     ws3.getCell('A1').alignment = { horizontal: 'center' };
-    ws3.getRow(2).values = [`日期：${periodLabel}1日`];
+    ws3.getRow(2).values = [`日期：${periodLabelText}1日`];
     ws3.getRow(3).values = ['工程名称', project?.name ?? '', '', '合同编号', doc.contractName ?? ''];
     ws3.getRow(4).values = ['劳务单位', doc.subcontractorName];
     ws3.getRow(5).values = [
