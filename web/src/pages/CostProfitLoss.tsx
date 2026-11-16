@@ -11,7 +11,8 @@ import { withToken } from '@/utils/download';
 /**
  * 成本管理 · 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账）。
  * **一个月一条记录**：新建时选结算期 → 服务端把当期各分包单位「甲供材节超分析」行快照成明细；
- * 责任人/劳务计价已扣/备注及数量列可手改；「重新抓取」重算快照（手填项按 分包单位+材料+规格 回填）。
+ * 快照的单价/数量冻结（只读），只有责任人/劳务计价已扣/备注可手改；「重新抓取」重算快照
+ * （手填项按 分包单位+材料+规格 回填）。
  * 导出 xlsx 三 sheet：封面 / 明细表 / 汇总表（按材料跨队加权汇总）。
  */
 const LIST_PATH = '/cost/profit-loss';
@@ -244,9 +245,7 @@ function ProfitEditor({ id }: { id: string }) {
         title: '单价',
         dataIndex: 'unitPrice',
         width: 110,
-        render: (v: number | null, d: any) => (
-          <InputNumber size="small" style={{ width: '100%' }} min={0} precision={2} value={v} onChange={(val) => patchDetail(d.id, { unitPrice: val })} />
-        ),
+        render: (v: number | null) => money(v),
       },
       {
         title: '进场量',

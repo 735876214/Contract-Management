@@ -2,13 +2,15 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
+import { round2 } from '../../common/utils/money';
+import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
 import {
   averageUnitPrice,
   deriveReceivingRow,
   laborReceivingReceiptWhere,
   type DeriveReceivingInput,
 } from '../../common/utils/labor-receiving';
-import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
+import { periodKeyOf, startDayOf, periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
 
 /**
  * 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位 × 结算期）。
@@ -119,7 +121,15 @@ export class LaborReceivingService {
         });
         return this.serializeDoc(created);
       } catch (e: any) {
-        if (e?.code !== 'P2002' || attempt === 2) throw e;
+        if (e?.code !== 'P2002') throw e;
+        if (attempt === 2) {
+          // 并发下也可能是「同分包单位同期」被别人抢先建了：给出可读原因，而不是 Prisma 原文
+          const dupNow = await this.prisma.laborReceivingDoc.findUnique({
+            where: { projectId_laborAuthId_period: { projectId, laborAuthId, period } },
+          });
+          if (dupNow) throw new BadRequestException(`该分包单位 ${period} 期已有领用单据（${dupNow.docNo}）`);
+          throw new BadRequestException('单据编号生成失败，请稍后重试');
+        }
       }
     }
     throw new BadRequestException('单据编号生成失败，请稍后重试');
@@ -155,6 +165,9 @@ export class LaborReceivingService {
     const payload: any = pickFields(data, ['contractName', 'status', 'remark'], { label: '领用单据' });
     if (payload.contractName !== undefined) {
       payload.contractName = String(payload.contractName || '').trim() || null;
+    }
+    if (payload.status !== undefined && !Object.values(LABOR_RECEIVING_DOC_STATUS).includes(payload.status)) {
+      throw new BadRequestException('单据状态不合法（仅支持 DRAFT / COMPLETED）');
     }
     payload.version = doc.version + 1;
     /**
@@ -194,8 +207,10 @@ export class LaborReceivingService {
     /** 事务客户端：与头记录更新同生共死 */
     db: any = this.prisma,
   ) {
-    if (!String(d?.materialName || '').trim()) throw new BadRequestException('物资名称不能为空');
     const row: any = pickFields(d, DETAIL_FIELDS, { label: '领用明细行' });
+    // 与聚合侧同一规范化：不 trim 会让「钢筋」与「钢筋 」拆成两行（唯一键按名称+规格）
+    row.materialName = String(row.materialName ?? '').trim();
+    if (!row.materialName) throw new BadRequestException('物资名称不能为空');
     row.spec = String(row.spec ?? '').trim();
     ['designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty'].forEach((f) => {
       if (row[f] !== undefined) row[f] = num(row[f]);
@@ -326,6 +341,18 @@ export class LaborReceivingService {
   }
 
   // ==================== 导出（三张 sheet：盘点 / 月度汇总 / 节超分析，按表样） ====================
+
+  /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
+  async exportMeta(docId: string, projectId?: string) {
+    const doc = this.assertDocInProject(
+      await this.prisma.laborReceivingDoc.findUnique({
+        where: { id: docId },
+        select: { projectId: true, subcontractorName: true, period: true },
+      }),
+      projectId,
+    );
+    return { fileName: `${doc.subcontractorName || '分包单位'}-${doc.period || ''}-盘点领用表.xlsx` };
+  }
 
   async exportWorkbook(docId: string, projectId?: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
@@ -670,14 +697,4 @@ function rowKey(materialName: string, spec: string): string {
 function parseRowKey(key: string): { materialName: string; spec: string } {
   const idx = key.indexOf('\u0001');
   return idx < 0 ? { materialName: key, spec: '' } : { materialName: key.slice(0, idx), spec: key.slice(idx + 1) };
-}
-
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
-}
-
-/** 'YYYY-MM' → 'YYYY年M月'；认不出原样返回 */
-function periodLabelOf(period: string): string {
-  const m = String(period).match(/^(\d{4})-(\d{2})$/);
-  return m ? `${m[1]}年${Number(m[2])}月` : period;
 }

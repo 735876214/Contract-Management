@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { BadRequestException } from '@nestjs/common';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';
 import { LaborReceivingService } from '../src/modules/cost/labor-receiving.service';
 import { MonthlyProfitLossService } from '../src/modules/cost/monthly-profit-loss.service';
@@ -175,5 +176,58 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     assert.equal(next.unitPrice, 200);
     assert.notEqual(next.saveOverAmount, oldAmount);
     assert.equal(next.saveOverAmount, Number((Number(next.saveOverQty) * 200).toFixed(2)));
+  });
+
+  it('盈亏快照冻结：单价/数量不可手改，只有责任人/劳务计价已扣/备注生效', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-FROZEN');
+    const auth = await makeAuth(project.id, '冻结分包商');
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 10), receivingUnitId: auth.id, materialName: '砂浆', receivedQty: 10, priceBeforeTax: 50 });
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    await labor.updateDoc(doc.id, {
+      version: doc.version,
+      details: [{ materialName: '砂浆', spec: '', designQtyCum: 8 }],
+    }, project.id);
+
+    const created: any = await profit.create({ period: '2026-10' }, project.id, { userId: 'int' });
+    const snapshot = created.details.find((d: any) => d.materialName === '砂浆');
+    assert.ok(snapshot, '应生成砂浆快照');
+
+    const updated: any = await profit.update(created.id, {
+      version: created.version,
+      details: [{
+        id: snapshot.id,
+        unitPrice: 999, // 快照列：必须被忽略
+        entryQty: 999, // 快照列：必须被忽略
+        owner: '张三',
+        deductAmount: 12.5,
+        remark: '已核',
+      }],
+    }, project.id);
+    const row = updated.details.find((d: any) => d.id === snapshot.id);
+    assert.equal(row.unitPrice, 50, '单价是快照，不允许手改');
+    assert.equal(row.entryQty, snapshot.entryQty, '进场量是快照，不允许手改');
+    assert.equal(row.owner, '张三');
+    assert.equal(row.deductAmount, 12.5);
+    assert.equal(row.remark, '已核');
+  });
+
+  it('单据状态只接受 DRAFT/COMPLETED；材料名保存时 trim', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-STATUS');
+    const auth = await makeAuth(project.id, '状态分包商');
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+
+    await assert.rejects(
+      () => labor.updateDoc(doc.id, { version: doc.version, status: 'BOGUS' }, project.id),
+      (e: any) => e instanceof BadRequestException,
+      '非法状态必须 400，不能靠 pickFields 静默落库',
+    );
+
+    const saved = await labor.updateDoc(doc.id, {
+      version: doc.version,
+      status: 'COMPLETED',
+      details: [{ materialName: '  砂浆  ', spec: 'M5', returnQty: 1 }],
+    }, project.id);
+    assert.equal(saved.status, 'COMPLETED');
+    assert.ok(rowOf(saved.details, '砂浆'), '材料名应 trim 后落库，并按 trim 后的键取到');
   });
 });

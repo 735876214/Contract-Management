@@ -5,6 +5,5 @@
  * `scripts/check-module-boundaries.mjs` 判为越界（`auth` 守卫按基础设施白名单例外）。
  */
 export { CostModule } from './cost.module';
-export { CostService } from './cost.service';
 export { LaborReceivingService } from './labor-receiving.service';
 export { MonthlyProfitLossService } from './monthly-profit-loss.service';

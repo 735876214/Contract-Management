@@ -194,6 +194,18 @@ export const SUBCONTRACTOR_STATUS = {
 export type SubcontractorStatus = (typeof SUBCONTRACTOR_STATUS)[keyof typeof SUBCONTRACTOR_STATUS];
 
 /**
+ * 分包单位领用单据状态（**非字典驱动**：单据只有草稿/完成两态，不提供可配置项）。
+ * ⚠️ 与 `LaborAuthLedger.status` 的 `SUBCONTRACTOR_STATUS` 不是同一套：后者是委托书流程，
+ * 这里是领用单据的编辑状态。前端镜像在 `web/src/pages/CostLaborReceiving.tsx`。
+ */
+export const LABOR_RECEIVING_DOC_STATUS = {
+  DRAFT: 'DRAFT',
+  COMPLETED: 'COMPLETED',
+} as const;
+export type LaborReceivingDocStatus =
+  (typeof LABOR_RECEIVING_DOC_STATUS)[keyof typeof LABOR_RECEIVING_DOC_STATUS];
+
+/**
  * 投标 / 响应单位状态（dict `bidder_status`，招标域）。
  * 其中 `WON` **由服务端驱动**：在成交报告里勾选「拟推荐成交候选人」即中标，取消勾选回落到
  * 入围/已递交（判据是纯函数 `bidderStatusWhenNotWon()`，见 `constants/procurementFlow.ts`）；

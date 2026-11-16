@@ -1,6 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { CostService } from './cost.service';
 import { LaborReceivingService } from './labor-receiving.service';
 import { MonthlyProfitLossService } from './monthly-profit-loss.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -17,7 +16,6 @@ import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 @Controller('cost')
 export class CostController {
   constructor(
-    private service: CostService,
     private laborReceiving: LaborReceivingService,
     private monthlyProfitLoss: MonthlyProfitLossService,
   ) {}
@@ -70,13 +68,9 @@ export class CostController {
   @Get('labor-receiving/docs/:id/export')
   async laborReceivingExport(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
     const buf = await this.laborReceiving.exportWorkbook(id, projectId);
-    const doc = await this.laborReceiving['prisma'].laborReceivingDoc.findUnique({
-      where: { id },
-      select: { docNo: true, subcontractorName: true, period: true },
-    });
-    const name = `${doc?.subcontractorName ?? '分包单位'}-${doc?.period ?? ''}-盘点领用表.xlsx`;
+    const { fileName } = await this.laborReceiving.exportMeta(id, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     res.end(buf);
   }
 
@@ -125,13 +119,9 @@ export class CostController {
   @Get('monthly-profit-loss/:id/export')
   async exportMonthlyProfitLoss(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
     const buf = await this.monthlyProfitLoss.exportWorkbook(id, projectId);
-    const rec = await this.monthlyProfitLoss['prisma'].monthlyProfitLoss.findUnique({
-      where: { id },
-      select: { period: true },
-    });
-    const name = `降本、创效、主材盈亏分析表-${rec?.period ?? id}.xlsx`;
+    const { fileName } = await this.monthlyProfitLoss.exportMeta(id, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     res.end(buf);
   }
 }
