@@ -16,7 +16,7 @@ import {
   payableDateOf,
   OverdueRowInput,
 } from './overdue-calculator';
-import { summarizeOverdue, interestOf } from '../../common/utils/overdue-summary';
+import { summarizeOverdue, interestOf, buildOverdueStats } from '../../common/utils/overdue-summary';
 
 /**
  * 内存分页切片（保理费用 / 逾期利息共用）。
@@ -342,7 +342,7 @@ export class FinanceService {
   // ==================== 逾期利息台账 ====================
 
   /** 重算并持久化整个合同的逾期利息台账（任何增删改后调用） */
-  private async recalcOverdue(contractId: string) {
+  private async recalcOverdue(contractId: string, asOfDate: Date = new Date()) {
     const params = await this.contractParams(contractId);
     const rows = await this.prisma.overdueInterest.findMany({
       where: { contractId },
@@ -362,7 +362,14 @@ export class FinanceService {
       isSettlementPeriod: r.isSettlementPeriod,
       periodSeq: r.periodSeq,
     }));
-    const { derived, stats } = recalculate(input, { monthlyRate: params.monthlyRate, graceDays: params.graceDays });
+    // 基准日只在 service 边界取一次并显式注入规则层；同一个请求内的重算/统计不依赖多个「今天」。
+    // 派生列仍然会在读取时停留在上次重算日（见 listOverdue 注释），本次先统一口径，不改写入时机。
+    const { derived, stats } = recalculate(input, {
+      monthlyRate: params.monthlyRate,
+      graceDays: params.graceDays,
+      asOfDate,
+      interestCapRatio: params.interestCapRatio,
+    });
     // 持久化派生字段（顺序与查询一致）
     const ordered = await this.prisma.overdueInterest.findMany({
       where: { contractId },
@@ -404,26 +411,12 @@ export class FinanceService {
     // 汇总口径与逾期利息引擎（recalculate().stats）**共用一份实现**，避免两处「上期开累」规则漂移；
     // 注意 where 里可能带 settlementMonth：筛选视图只汇总被筛出的行（范围由调用方决定，汇总规则不变）
     const summary = summarizeOverdue(rows, (r) => interestOf(r));
-    const capAmount = round(summary.totalMaterial * params.interestCapRatio, 2);
     return {
       contract: params,
       list: pageSlice(rows.map((r: any) => ({ ...r, supplierName })), query),
       total: rows.length,
-      stats: {
-        totalMaterial: summary.totalMaterial,
-        totalPayment: summary.totalPayment,
-        currentCumulative: summary.currentCumulative,
-        capRatio: params.interestCapRatio,
-        capAmount,
-        capUsage: capAmount ? round((summary.currentCumulative / capAmount) * 100, 2) : 0,
-        interestRatio: summary.totalMaterial
-          ? round((summary.currentCumulative / summary.totalMaterial) * 100, 2)
-          : 0,
-        prevCumulative: summary.prevCumulative,
-        currentSettlement: summary.currentSettlement,
-        cumulativeByMonth: summary.cumulativeByMonth,
-        currentMonth: summary.currentMonth,
-      },
+      // stats 构造与 recalculate() 共用 buildOverdueStats：cap/占比不会再有两份公式
+      stats: buildOverdueStats(summary, params.interestCapRatio),
     };
   }
 

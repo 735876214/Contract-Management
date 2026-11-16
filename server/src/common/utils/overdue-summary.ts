@@ -14,13 +14,20 @@
  *
  * 注：**筛选范围**（列表接口支持按 `settlementMonth` 过滤）不属于本模块职责——
  * 调用方决定传入哪些行，本模块只负责"如何汇总这些行"。
+ *
+ * 舍入与月份排序已下沉到 `common/calc`：这里不再保留私有 `Math.round(v*100)/100`（浮点尾差）
+ * 与原生字符串 `.sort()`（`2026-10` 会排在 `2026-9` 前）。
  */
+import { round2 } from '../calc/money.ts';
+import { num } from '../calc/numeric.ts';
+import { canonicalMonthKey, compareMonthKey } from '../calc/index.ts';
 
-const round2 = (v: number): number => Math.round(v * 100) / 100;
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+/** 空月份仍像旧实现一样排最前；其余月份走统一 compareMonthKey（不能用 `'2026-10' < '2026-9'`） */
+const compareMonthAsc = (a: string, b: string): number => {
+  if (a === b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  return compareMonthKey(a, b);
 };
 
 export interface OverdueSummaryRow {
@@ -49,6 +56,36 @@ export interface OverdueSummaryStats {
   currentSettlement: number;
 }
 
+/** 引擎 stats 与列表 stats 的**同一形状**：别名 totalInterest + 上限展示字段集中一处计算 */
+export interface OverdueStats extends OverdueSummaryStats {
+  /** 开累利息别名（引擎旧字段名，保留兼容） */
+  totalInterest: number;
+  /** 合同上限比例 */
+  capRatio: number;
+  /** 上限金额 = 材料款合计 × 上限比例 */
+  capAmount: number;
+  /** 上限使用率（%） */
+  capUsage: number;
+  /** 利息占材料款比例（%） */
+  interestRatio: number;
+}
+
+/** 由统一汇总结果构造完整 stats：避免列表接口自己再算一遍 cap/占比 */
+export function buildOverdueStats(summary: OverdueSummaryStats, capRatio = 0): OverdueStats {
+  const ratio = Number.isFinite(Number(capRatio)) ? Number(capRatio) : 0;
+  const capAmount = round2(summary.totalMaterial * ratio) || 0;
+  return {
+    ...summary,
+    totalInterest: summary.currentCumulative,
+    capRatio: ratio,
+    capAmount,
+    capUsage: capAmount ? round2((summary.currentCumulative / capAmount) * 100) || 0 : 0,
+    interestRatio: summary.totalMaterial
+      ? round2((summary.currentCumulative / summary.totalMaterial) * 100) || 0
+      : 0,
+  };
+}
+
 /** 单行计息额：作废（waived）按 0 计 */
 export const interestOf = (row: OverdueSummaryRow, value?: unknown): number => {
   if (row?.waived) return 0;
@@ -71,12 +108,13 @@ export function summarizeOverdue(
   const totalPayment =
     round2(list.reduce((a, r) => a + ((num(r?.paymentAmount) ?? 0) > 0 ? num(r.paymentAmount)! : 0), 0)) || 0;
 
-  // 按结算月累计（月份的遍历顺序为字符串升序，即时间升序）
-  const months = Array.from(new Set(list.map((r) => String(r?.settlementMonth ?? '')))).sort();
+  // 按结算月累计：月份先归一再排序（`2026-9` → `2026-09`，空月份仍归 '' 以兼容存量数据）
+  const monthOf = (r: OverdueSummaryRow) => canonicalMonthKey(r?.settlementMonth) ?? '';
+  const months = Array.from(new Set(list.map(monthOf))).sort(compareMonthAsc);
   const cumulativeByMonth: Record<string, number> = {};
   const interestByMonth = new Map<string, number>();
   list.forEach((r, i) => {
-    const m = String(r?.settlementMonth ?? '');
+    const m = monthOf(r);
     interestByMonth.set(m, round2((interestByMonth.get(m) ?? 0) + interestOfRow(r, i)) || 0);
   });
   let cum = 0;
@@ -88,9 +126,9 @@ export function summarizeOverdue(
   const currentCumulative = currentMonth ? cumulativeByMonth[currentMonth] : 0;
 
   // 上期开累：当前结算月「首行」的手工期初优先；为空则取"当前月之前最近一个月"的开累（无则 0）
-  const firstRowOfCurrentMonth = list.find((r) => String(r?.settlementMonth ?? '') === currentMonth);
+  const firstRowOfCurrentMonth = list.find((r) => monthOf(r) === currentMonth);
   const manual = num(firstRowOfCurrentMonth?.prevCumulative);
-  const beforeMonths = months.filter((m) => m < currentMonth);
+  const beforeMonths = months.filter((m) => compareMonthAsc(m, currentMonth) < 0);
   const prevCumulative =
     manual ?? (beforeMonths.length ? cumulativeByMonth[beforeMonths[beforeMonths.length - 1]] : 0);
 
