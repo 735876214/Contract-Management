@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, deriveTaxSplit, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
+import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { DictService } from '../dict';
@@ -138,14 +139,14 @@ export class LedgerService {
 
       // 开累结算金额：结算台账「本月结算额」之和
       const cumSettleAmount = (ledgerMap[c.id] || []).reduce((s, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
-      // 审定结算额：非草稿结算单的实际结算金额（缺失时回退合同额，与 chainSettledTotal 同口径）
+      // 审定/送审金额来源优先级统一在 calc 层声明：actual ?? amount / amount ?? actual，
+      // 避免审减额两端口径漂移（与台账自动抓取、合同链取数同一原语）
       const auditedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (num(x.actualAmount ?? x.amount) || 0),
+        (s, x: any) => s + (settlementAmountOf(x, 'actual') || 0),
         0,
       );
-      // 送审结算额（同口径、非草稿）：审减额 = 送审 − 审定，两边必须同一口径
       const submittedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (num(x.amount ?? x.actualAmount) || 0),
+        (s, x: any) => s + (settlementAmountOf(x, 'submitted') || 0),
         0,
       );
       // 开累税前结算金额 / 进项税：税率未填 → 两列都留 null（不要兜成 0%），显式 0 参与计算
@@ -155,16 +156,14 @@ export class LedgerService {
       const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
       const cumPaidAmount = (payMap[c.id] || []).reduce((s, p: any) => s + (num(p.amount) || 0), 0);
 
-      // 每年结算金额 / 每年付款金额
-      const yearSettle: Record<string, number> = {};
-      (ledgerMap[c.id] || []).forEach((l: any) => {
-        const y = (l.settleMonth || '').slice(0, 4);
-        if (y) yearSettle[y] = Number(((yearSettle[y] || 0) + (num(l.monthSettleAmount) || 0)).toFixed(2));
+      // 每年结算金额 / 每年付款金额：月份归一 + 分组求和统一走 calc，年份键按时间升序
+      const yearSettle = groupSumByYear(ledgerMap[c.id] || [], {
+        monthOf: (l: any) => l.settleMonth,
+        amountOf: (l: any) => l.monthSettleAmount,
       });
-      const yearPaid: Record<string, number> = {};
-      (payMap[c.id] || []).forEach((p: any) => {
-        const y = (p.payMonth || '').slice(0, 4);
-        if (y) yearPaid[y] = Number(((yearPaid[y] || 0) + (num(p.amount) || 0)).toFixed(2));
+      const yearPaid = groupSumByYear(payMap[c.id] || [], {
+        monthOf: (p: any) => p.payMonth,
+        amountOf: (p: any) => p.amount,
       });
 
       /**

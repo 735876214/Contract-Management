@@ -3,5 +3,6 @@ export * from './money.ts';
 export * from './numeric.ts';
 export * from './rate.ts';
 export * from './amounts.ts';
+export * from './aggregate.ts';
 export * from './time.ts';
 export * from './format.ts';

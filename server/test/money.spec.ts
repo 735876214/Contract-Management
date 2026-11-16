@@ -6,12 +6,18 @@ import {
   calcPriceWithTax,
   calcRateNullable,
   calcTotalWithTax,
+  canonicalMonthKey,
   compareMonthKey,
+  groupSumByMonth,
+  groupSumByYear,
+  monthSequence,
   fmtAmount,
   fmtRate,
   parseMonthKey,
   pctToRate,
   rateToPct,
+  settlementAmountOf,
+  sortMonthKeys,
   sumRounded,
 } from '../src/common/calc/index.ts';
 
@@ -124,5 +130,55 @@ describe('共享计算原语 golden case', () => {
     assert.equal(fmtAmount(1234.5), '1,234.50');
     assert.equal(fmtAmount(null), '');
     assert.equal(fmtRate(12.345), '12.35%');
+  });
+});
+
+describe('统一月度聚合原语', () => {
+  it('自由文本月份归一后再排序，`2026-10` 不再排在 `2026-9` 前', () => {
+    assert.equal(canonicalMonthKey('2026-9'), '2026-09');
+    assert.equal(canonicalMonthKey('2026年9月'), '2026-09');
+    assert.equal(canonicalMonthKey('202609'), '2026-09');
+    assert.equal(canonicalMonthKey('abc'), null);
+    assert.deepEqual(['2026-10', '2026-9', '2026-01'].map(canonicalMonthKey).sort(compareMonthKey), [
+      '2026-01',
+      '2026-09',
+      '2026-10',
+    ]);
+    assert.deepEqual(sortMonthKeys(['', '2026-10', '2026-09'], true), ['', '2026-09', '2026-10']);
+  });
+
+  it('同月不同合同/材料进入同一分组；金额按 Decimal 字符串求和并收敛精度', () => {
+    const rows = [
+      { contract: 'A', material: '水泥', month: '2026-09', amount: '0.1' },
+      { contract: 'A', material: '钢材', month: '2026-9', amount: '0.2' },
+      { contract: 'B', material: '水泥', month: '2026/09', amount: '1.005' },
+      { contract: 'B', material: '钢材', month: 'bad', amount: 999 },
+    ];
+    assert.deepEqual(
+      groupSumByMonth(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount }),
+      { '2026-09': 1.31 },
+    );
+    // 未知月份可显式保留，但不会混进正常月份
+    assert.deepEqual(
+      groupSumByMonth(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount, keepUnknown: true }),
+      { '2026-09': 1.31, '': 999 },
+    );
+    assert.deepEqual(
+      groupSumByYear(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount }),
+      { '2026': 1.31 },
+    );
+  });
+
+  it('近 N 个月序列按本地月份生成（跨年不跳月）', () => {
+    assert.deepEqual(monthSequence(new Date(2026, 0, 31), 3), ['2025-11', '2025-12', '2026-01']);
+    assert.deepEqual(monthSequence('invalid', 0), []);
+  });
+
+  it('结算金额来源优先级：审定与送审分别声明，空串不当成缺失', () => {
+    assert.equal(settlementAmountOf({ actualAmount: '10.5', amount: 99 }, 'actual'), 10.5);
+    assert.equal(settlementAmountOf({ actualAmount: '10.5', amount: 99 }, 'submitted'), 99);
+    assert.equal(settlementAmountOf({ actualAmount: null, amount: '2.675' }), 2.675);
+    assert.equal(settlementAmountOf({ actualAmount: 0, amount: 99 }), 0);
+    assert.equal(settlementAmountOf({ actualAmount: '', amount: 99 }), null);
   });
 });
