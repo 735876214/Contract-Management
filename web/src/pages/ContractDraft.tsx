@@ -97,7 +97,7 @@ export default function ContractDraft() {
   /** 起草编辑器里的未保存改动（关闭页签时确认） */
   const [dirty, setDirty] = useState(false);
   // 需求修正2：合同税率实时值（状态提升，Tab2 物料税率实时绑定）
-  const watchTaxRate = Form.useWatch('taxRate', basicForm);
+  const watchTaxRate = Form.useWatch('taxRatePct', basicForm);
   const contractTaxPct =
     watchTaxRate == null || watchTaxRate === '' ? null : Number(watchTaxRate);
 
@@ -181,8 +181,8 @@ export default function ContractDraft() {
           materialDescription: detail.materialDescription,
           templateId: detail.templateId,
           signDate: detail.signDate ? dayjs(detail.signDate) : null,
-          // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
-          taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
+          // 合同级税率：全站单轨百分数（13 = 13%），直接回填
+          taxRatePct: detail.taxRatePct != null ? Number(detail.taxRatePct) : null,
           // 条款选择回显（业务口径 2026-10-16）
           technicalClauseId: detail.technicalClauseId,
           qualityClauseId: detail.qualityClauseId,
@@ -209,8 +209,8 @@ export default function ContractDraft() {
         materialDescription: values.materialDescription,
         templateId: values.templateId,
         signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
-        // 合同级税率：用户填 13 → 后端按小数 0.13 存储；保存后 Tab2 所有物料税率自动同步
-        taxRate: values.taxRate != null && values.taxRate !== '' ? Number(values.taxRate) / 100 : null,
+        // 合同级税率：单轨百分数，用户填 13 → 存 13；保存后 Tab2 所有物料税率自动同步
+        taxRatePct: values.taxRatePct != null && values.taxRatePct !== '' ? Number(values.taxRatePct) : null,
         // 条款选择（业务口径 2026-10-16）：Contract 的 4 个条款外键
         technicalClauseId: values.technicalClauseId || null,
         qualityClauseId: values.qualityClauseId || null,
@@ -225,7 +225,7 @@ export default function ContractDraft() {
         code: detail.code,
         name: detail.name,
         signDate: detail.signDate ? dayjs(detail.signDate) : null,
-        taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
+        taxRatePct: detail.taxRatePct != null ? Number(detail.taxRatePct) : null,
       });
       if (!silent) message.success('已保存');
       // 需求修正3：基础信息变更后需重新预览确认，发布按钮重新禁用
@@ -571,7 +571,7 @@ export default function ContractDraft() {
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item
-                      name="taxRate"
+                      name="taxRatePct"
                       label="合同税率(%)"
                       extra="整个合同的统一税率（如 13 表示 13%）。保存后 Tab2 合同清单所有物料税率自动同步为该值（只读）"
                     >

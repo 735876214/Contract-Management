@@ -9,7 +9,7 @@
  * - 未填金额是**未知**，不兜成 0 参与比例（空值跳过，单列数据缺口）。
  */
 
-import { round2 } from '../../../common/utils/money.ts';
+import { round2 } from '../../../common/calc/money.ts';
 import { formatYuan as fmtYuan, changeRateText } from '../common/format.ts';
 import { auditNumbers, numbersInText } from '../report-facts.ts';
 import {

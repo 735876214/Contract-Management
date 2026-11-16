@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { fmtDate } from '../../common/calc/time';
+import { paginate, buildResult } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, deriveTaxSplit, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
@@ -124,7 +126,7 @@ export class LedgerService {
     let rows = contracts.map((c: any, idx: number) => {
       const sup: any = c.supplier || {};
       const ext: any = c.ext || {};
-      const taxRate = num(c.taxRate);
+      const taxRate = num(c.taxRatePct);
       /** 合同额：未填（NULL/空串）时留 `null`，**不要**当成 0 —— 见 ledger-derived.ts 的口径说明 */
       // 「是否已填」与全站同一判定（显式 0 算已填，空串/空白算未填）
       const amountFilled = isFilledNumber(c.amount);
@@ -150,7 +152,7 @@ export class LedgerService {
         0,
       );
       // 开累税前结算金额 / 进项税：税率未填 → 两列都留 null（不要兜成 0%），显式 0 参与计算
-      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRate);
+      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRatePct);
       const cumSettleBeforeTax = taxSplit.beforeTax;
       const cumInputTax = taxSplit.inputTax;
       const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
@@ -197,7 +199,8 @@ export class LedgerService {
         contactPhone: sup.contactPhone,
         amount, // 本行合同额；null = 未填（前端显示 '-'、导出留白）
         currentAmount, // 合同当前金额（链口径）：比例与欠款的分母
-        taxRate,
+        taxRate, // 前端展示键（百分数口径）
+        taxRatePct: taxRate, // 导出列键，与全站税率单轨字段名一致
         currentPayRatio: num(ext.currentPayRatio),
         paymentMethod: payMethodMap[c.paymentMethodCode]?.name || c.paymentMethodCode || '',
         isSupplement: yesNoMap[c.isSupplement]?.name || c.isSupplement || '',
@@ -387,7 +390,7 @@ export class LedgerService {
         { header: '联系人', key: 'contactName', width: 90, type: 'center' },
         { header: '联系电话', key: 'contactPhone', width: 120, type: 'center' },
         { header: '合同额', key: 'amount', width: 130, type: 'money' },
-        { header: '税率', key: 'taxRate', width: 70, type: 'pct' },
+        { header: '税率', key: 'taxRatePct', width: 70, type: 'pctVal' },
         { header: '当前合同付款比例', key: 'currentPayRatio', width: 140, type: 'pct' },
         { header: '合同约定付款方式', key: 'paymentMethod', width: 160, type: 'center' },
         { header: '是否补充协议', key: 'isSupplement', width: 110, type: 'center' },

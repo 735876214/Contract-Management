@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { amountToChineseCapital, round, round2, round4 } from '../src/common/utils/money.ts';
+import { amountToChineseCapital, round, round2, round4 } from '../src/common/calc/money.ts';
 import {
   calcAmount,
   calcPriceWithTax,
@@ -14,8 +14,6 @@ import {
   fmtAmount,
   fmtRate,
   parseMonthKey,
-  pctToRate,
-  rateToPct,
   settlementAmountOf,
   sortMonthKeys,
   sumRounded,
@@ -103,10 +101,10 @@ describe('共享计算原语 golden case', () => {
     // 要做到 Excel 的十进制精确乘法，需要后续切换到整数分运算，不能在本层私自改口径。
   });
 
-  it('税率单位互转显式进行，不再用 >1 猜口径', () => {
-    assert.equal(rateToPct(0.13), 13);
-    assert.equal(rateToPct(null), null);
-    assert.equal(pctToRate(13), 0.13);
+  it('税率单轨百分数：含税公式直接吃 13（=13%），不再有小数↔百分数双轨', () => {
+    assert.equal(calcPriceWithTax(100, 13), 113);
+    assert.equal(calcPriceWithTax(100, 9), 109);
+    assert.equal(calcPriceWithTax(100, null), null);
   });
 
   it('比率零分母策略：占比返回 0，差额比率返回 null', () => {

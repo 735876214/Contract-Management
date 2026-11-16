@@ -58,7 +58,7 @@ const FIELDS: F[] = [
   { key: 'settleQty', label: '结算数量', kind: 'number', width: 110 },
   { key: 'isWeighed', label: '是否过磅', kind: 'dict', dict: 'yes_no', width: 100 },
   { key: 'priceBeforeTax', label: '单价/元(税前)', kind: 'number', width: 130 },
-  { key: 'taxRate', label: '税率', kind: 'number', width: 90 },
+  { key: 'taxRatePct', label: '税率(%)', kind: 'number', width: 90 },
   { key: 'priceAfterTax', label: '单价/元(税后)', kind: 'number', width: 130 },
   { key: 'amountBeforeTax', label: '金额/元(税前)', kind: 'money', width: 140 },
   { key: 'amountAfterTax', label: '金额/元(税后)', kind: 'money', width: 140 },

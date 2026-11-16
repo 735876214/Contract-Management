@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, fmtDate, num, assertVersion } from '../../common/utils/helpers';
-import { amountToChineseCapital } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { fmtDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { amountToChineseCapital } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
@@ -305,7 +307,7 @@ export class TemplateService {
       parseSupplierSnapshot((contract as any).supplierSnapshot),
       pickSupplierSnapshot((contract as any).supplier) as unknown as Record<string, string>,
     );
-    const taxRate = num(contract.taxRate);
+    const taxRatePct = num(contract.taxRatePct);
 
     // 模板变量中配置了默认值的，作为兜底值（系统值与手工填写值优先）
     const varDefaults: Record<string, any> = {};
@@ -328,7 +330,7 @@ export class TemplateService {
       合同子类型: (contract as any).subTypeCode || '',
       合同额: num(contract.amount) ?? 0,
       合同额大写: amountToChineseCapital(capitalBase),
-      税率: taxRate !== null ? `${(taxRate * 100).toFixed(2)}%` : '',
+      税率: taxRatePct !== null ? `${taxRatePct.toFixed(2)}%` : '',
       签订日期: fmtDate(contract.signDate) || '',
       合同约定付款方式: payMap[contract.paymentMethodCode]?.name || contract.paymentMethodCode || '',
       项目名称: (contract as any).project?.name || '',

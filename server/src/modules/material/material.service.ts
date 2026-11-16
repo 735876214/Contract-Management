@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
-import { rateToPct } from '../../common/calc/rate';
 import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -103,8 +103,8 @@ export class MaterialService {
   private async resolveTaxRate(contract: any, taxRatePct: any): Promise<number | null> {
     const raw = num(taxRatePct);
     if (raw !== null) return raw;
-    const contractRate = num(contract?.taxRate);
-    return rateToPct(contractRate);
+    // 合同税率单轨百分数，直接继承无需换算
+    return num(contract?.taxRatePct);
   }
 
   /** 业态编码 → 名称（导出表头用） */

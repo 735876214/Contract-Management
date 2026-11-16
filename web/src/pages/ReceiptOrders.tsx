@@ -45,8 +45,8 @@ import {
 } from '../../../server/src/common/calc/amounts.ts';
 
 /** 综合单价 = 税前单价 × (1 + 税率/100)，统一 4 位精度 */
-const calcPriceWithTax = (priceBeforeTax?: number | null, taxRate?: number | null) =>
-  calcPriceWithTaxShared(priceBeforeTax, taxRate, 4);
+const calcPriceWithTax = (priceBeforeTax?: number | null, taxRatePct?: number | null) =>
+  calcPriceWithTaxShared(priceBeforeTax, taxRatePct, 4);
 /** 综合总价 = 实收数量 × 综合单价，收领单总价口径为 2 位精度 */
 const calcTotal = (priceWithTax?: number | null, receivedQty?: number | null) =>
   calcTotalShared(priceWithTax, receivedQty, 2);
@@ -552,7 +552,7 @@ export default function ReceiptOrders() {
         deliveryQty: d.deliveryQty == null ? null : Number(d.deliveryQty),
         receivedQty: d.receivedQty == null ? null : Number(d.receivedQty),
         priceBeforeTax: d.priceBeforeTax == null ? null : Number(d.priceBeforeTax),
-        taxRate: d.taxRate == null ? null : Number(d.taxRate),
+        taxRatePct: d.taxRatePct == null ? null : Number(d.taxRatePct),
         priceWithTax: d.priceWithTax == null ? null : Number(d.priceWithTax),
         totalPrice: d.totalPrice == null ? null : Number(d.totalPrice),
       }));
@@ -622,7 +622,7 @@ export default function ReceiptOrders() {
       prev.map((r) => {
         if (r.key !== key) return r;
         const next = { ...r, [field]: value };
-        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, next.taxRate);
+        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, next.taxRatePct);
         next.priceWithTax = priceWithTax;
         next.totalPrice = calcTotal(priceWithTax, next.receivedQty);
         return next;
@@ -680,7 +680,7 @@ export default function ReceiptOrders() {
         deliveryQty: d.deliveryQty,
         receivedQty: d.receivedQty,
         priceBeforeTax: d.priceBeforeTax,
-        taxRate: d.taxRate,
+        taxRatePct: d.taxRatePct,
         usagePart: d.usagePart,
         custodian: d.custodian,
         brand: d.brand,

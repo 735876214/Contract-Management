@@ -304,7 +304,7 @@ export default function ContractEditor({ seed }: { seed: unknown }) {
                       <Form.Item name="amount" label="合同额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
+                      <Form.Item name="taxRatePct" label="税率(%)"><InputNumber style={{ width: '100%' }} min={0} max={100} step={0.01} precision={2} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
                       <Form.Item name="paymentMethodCode" label="合同约定付款方式"><DictSelect typeCode="payment_method" /></Form.Item>

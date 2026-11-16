@@ -9,7 +9,7 @@ import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
 import { looksLikeContract } from './docx-text';
 import { chatJson, LlmError } from './llm-client';
 import { materialRowsFromItems } from './register-materials';
-import { isRealDay, normalizeExtraction, taxRateFraction, type RegisterDraft } from './register-fields';
+import { isRealDay, normalizeExtraction, taxRatePctValue, type RegisterDraft } from './register-fields';
 import { buildRegisterMessages } from './register-prompt';
 import { assertPermission } from '../../common/utils/assert-permission';
 
@@ -238,10 +238,9 @@ export class RegisterService {
     if (signDate && !isRealDay(signDate)) {
       throw new BadRequestException('签订日期不是有效日期（应为 YYYY-MM-DD，例如 2026-02-28）');
     }
-    const taxRatePct = num(c.taxRatePct);
-    const rate = taxRateFraction(taxRatePct);
+    const rate = taxRatePctValue(num(c.taxRatePct));
     if (rate.error) throw new BadRequestException(rate.error);
-    const taxRate = rate.value;
+    const taxRatePct = rate.value;
 
     // 1) 供应商：前端已选 → 校验存在；否则按名字复用，缺的**在事务里**新建
     //    （2026-10-20 审计 P1-6：原来在事务外建，合同失败会留下无合同的孤儿供应商）
@@ -306,7 +305,7 @@ export class RegisterService {
             supplierId,
             signDate: signDate || null,
             amount,
-            taxRate,
+            taxRatePct,
             paymentMode: str(c.paymentMode) || null,
             materialDescription: str(c.materialDescription) || null,
             remark: str(c.remark) || null,

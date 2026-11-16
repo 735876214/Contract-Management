@@ -9,7 +9,7 @@
  * 并由 `server/test/contractFulfillment.spec.mts` 直接加载锁定。
  */
 
-import { round2, round4 } from './money.ts';
+import { round2, round4 } from '../calc/money.ts';
 
 export interface FulfillmentInput {
   /** 合同当前金额（合同链：主合同 + Σ 补充协议 changeAmount）；未填 → null */

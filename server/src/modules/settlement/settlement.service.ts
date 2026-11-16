@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
-import { round2 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { toDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { round2 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
   canonicalMonthKey,
@@ -1098,7 +1100,7 @@ export class SettlementService {
         receiptNo: true,
         settleQty: true,
         priceBeforeTax: true,
-        taxRate: true,
+        taxRatePct: true,
         priceAfterTax: true,
         amountBeforeTax: true,
         amountAfterTax: true,

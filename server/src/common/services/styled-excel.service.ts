@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { CSCEC_LOGO_PNG_BASE64 } from './cscec-logo.base64';
 import { sanitizeSheetName } from '../utils/excel-sheet';
+import { round2 } from '../calc/money';
 
 /**
  * 中建项目管理表格样式导出服务
@@ -11,12 +12,12 @@ import { sanitizeSheetName } from '../utils/excel-sheet';
  * - 第二行：表格标题（居中、加粗、大于正文字号）
  * - 表头：浅灰 F0F0F0 底色、加粗、居中、细边框
  * - 正文：细边框；金额 2 位小数右对齐、数量 4 位小数右对齐、日期 YYYY-MM-DD、布尔/枚举居中
- * - 合计行：浅灰底色、加粗、SUBTOTAL(109) 公式（支持筛选汇总）
+ * - 合计行：浅灰底色、加粗、服务端求和写入数值（不写 Excel 公式，保证导出→导入闭环不丢合计）
  * - 打印：A4 横向、每页重复标题行、所有列一页宽
  * - 下拉：数据验证引用隐藏「选项」工作表，支持用户在字典中自定义扩展
  */
 
-export type StyledColType = 'text' | 'center' | 'money' | 'qty' | 'pct' | 'int';
+export type StyledColType = 'text' | 'center' | 'money' | 'qty' | 'pct' | 'pctVal' | 'int';
 
 export interface StyledColumn {
   header: string;
@@ -51,7 +52,10 @@ export interface StyledTableOptions {
 const NUMFMT: Record<string, string> = {
   money: '#,##0.00',
   qty: '0.0000',
+  // pct：值仍是小数（0.13 → 13.00%），给付款比例等历史小数列用
   pct: '0.00%',
+  // pctVal：值本身已是百分数（13 → 13.00%），税率单轨后用这个，避免 13 被显示成 1300%
+  pctVal: '0.00"%"',
   int: '0',
 };
 
@@ -163,7 +167,7 @@ export class StyledExcelService {
       opts.columns.forEach((c, ci) => {
         const cell = row.getCell(ci + 1);
         const raw = r[c.key];
-        const isNum = c.type === 'money' || c.type === 'qty' || c.type === 'pct' || c.type === 'int';
+        const isNum = c.type === 'money' || c.type === 'qty' || c.type === 'pct' || c.type === 'pctVal' || c.type === 'int';
         if (raw === null || raw === undefined || raw === '') {
           cell.value = null; // 空值显示为空白
         } else if (isNum) {
@@ -200,8 +204,14 @@ export class StyledExcelService {
           cell.value = opts.totalsValues[c.key];
           if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
         } else if (opts.totalsKeys.includes(c.key) && opts.rows.length > 0) {
-          const L = colLetter(ci + 1);
-          cell.value = { formula: `SUBTOTAL(109,${L}${dataStart}:${L}${dataEnd})` };
+          // 服务端算好合计写入数值，不再写 SUBTOTAL 公式：
+          // ExcelJS 写的公式没有缓存值，导出的 xlsx 用别的工具读（或再导入本系统）时合计列读到的是
+          // 公式对象而非数字，导出→改→导回闭环会静默丢合计。逐行求和后 round2 统一金额精度。
+          const total = opts.rows.reduce((acc, row) => {
+            const n = Number(row?.[c.key]);
+            return acc + (Number.isFinite(n) ? n : 0);
+          }, 0);
+          cell.value = round2(total);
           if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
         }
       });

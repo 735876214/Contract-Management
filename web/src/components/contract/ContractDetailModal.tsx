@@ -237,7 +237,7 @@ function ContractDetailInfo({ detail }: { detail: any }) {
         <Descriptions.Item label="联系人">{detail.supplier?.contactName || '-'}</Descriptions.Item>
         <Descriptions.Item label="联系人电话">{detail.supplier?.contactPhone || '-'}</Descriptions.Item>
         <Descriptions.Item label="合同额">{money(detail.amount)}</Descriptions.Item>
-        <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="税率">{detail.taxRatePct != null ? `${Number(detail.taxRatePct).toFixed(2)}%` : '-'}</Descriptions.Item>
         <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
         <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
         <Descriptions.Item label="备注" span={size.isNarrow ? 1 : 2}>{detail.remark || '-'}</Descriptions.Item>

@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 type JsonValue = Prisma.JsonValue;
-import { paginate, buildResult, num, localDayKey, assertVersion } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { localDayKey } from '../../common/calc/time';
+import { round2 } from '../../common/calc/money';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
   ImportTemplateService,
@@ -132,9 +135,8 @@ export function priceCompareStageIndex(task: { type: string; preMeetingRequired:
   return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === PRICE_COMPARE.key);
 }
 
-/** 元 → 万元（保留 2 位小数） */
-const toWan = (yuan: number): number =>
-  Math.round(((yuan || 0) / 10000 + Number.EPSILON) * 100) / 100;
+/** 元 → 万元（保留 2 位小数，统一舍入原语） */
+const toWan = (yuan: number): number => round2((yuan || 0) / 10000);
 
 // 状态码的单一事实源：任务状态见 `constants/procurementFlow.ts` 的 TASK_STATUS、
 // 模块记录状态见 `constants/statuses.ts` 的 MODULE_RECORD_STATUS（此前本文件自造 STATUS_* 两份，已去除）。
@@ -834,8 +836,8 @@ export class ProcurementTaskService {
               contract.id,
               totalItems.map((it) => ({
                 materialBaseId: it.materialBaseId,
-                qty: it.qty,
-                priceBeforeTax: it.planPrice,
+                qty: num(it.qty),
+                priceBeforeTax: num(it.planPrice),
                 unit: it.unit,
               })),
             );
@@ -1018,32 +1020,20 @@ export class ProcurementTaskService {
     };
   }
 
-  private serializeItem(i: {
-    id: string;
-    materialBaseId: string;
-    materialName: string;
-    spec: string;
-    unit: string;
-    qty: number | null;
-    incomePrice: number | null;
-    stdCost: number | null;
-    marketPrice: number | null;
-    infoPrice: number | null;
-    planPrice: number | null;
-    sortOrder: number;
-  }) {
+  // Decimal 字段统一 num() 归一为 number 再出接口，避免 Prisma.Decimal 对象直接序列化
+  private serializeItem(i: any) {
     return {
       id: i.id,
       materialBaseId: i.materialBaseId,
       materialName: i.materialName,
       spec: i.spec,
       unit: i.unit,
-      qty: i.qty,
-      incomePrice: i.incomePrice,
-      stdCost: i.stdCost,
-      marketPrice: i.marketPrice,
-      infoPrice: i.infoPrice,
-      planPrice: i.planPrice,
+      qty: num(i.qty),
+      incomePrice: num(i.incomePrice),
+      stdCost: num(i.stdCost),
+      marketPrice: num(i.marketPrice),
+      infoPrice: num(i.infoPrice),
+      planPrice: num(i.planPrice),
       sortOrder: i.sortOrder,
     };
   }
@@ -1057,7 +1047,7 @@ export class ProcurementTaskService {
       where: { taskId },
       select: { qty: true, planPrice: true },
     });
-    return items.reduce((sum, i) => sum + (i.planPrice ?? 0) * (i.qty ?? 0), 0);
+    return items.reduce((sum, i) => sum + (num(i.planPrice) ?? 0) * (num(i.qty) ?? 0), 0);
   }
 
   /** 批量计算预计采购金额（元），key = taskId（列表页避免 N+1 查询） */
@@ -1069,7 +1059,7 @@ export class ProcurementTaskService {
       select: { taskId: true, qty: true, planPrice: true },
     });
     for (const it of items) {
-      map.set(it.taskId, (map.get(it.taskId) ?? 0) + (it.planPrice ?? 0) * (it.qty ?? 0));
+      map.set(it.taskId, (map.get(it.taskId) ?? 0) + (num(it.planPrice) ?? 0) * (num(it.qty) ?? 0));
     }
     return map;
   }
@@ -1707,20 +1697,12 @@ export class ProcurementTaskService {
     return this.serializeDocument(saved);
   }
 
-  private serializeDocument(r: {
-    id: string;
-    taskId: string;
-    procurementTime: Date | null;
-    responseDeposit: number | null;
-    quoteDescription: string | null;
-    publishedAt: Date | null;
-    updatedAt: Date;
-  }) {
+  private serializeDocument(r: any) {
     return {
       id: r.id,
       taskId: r.taskId,
       procurementTime: r.procurementTime,
-      responseDeposit: r.responseDeposit,
+      responseDeposit: num(r.responseDeposit),
       quoteDescription: r.quoteDescription ?? '',
       publishedAt: r.publishedAt,
       updatedAt: r.updatedAt,

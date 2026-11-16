@@ -9,7 +9,7 @@ import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined }
 import { contractApi, templateApi } from '@/api/business';
 import { dailyApi } from '@/api/modules';
 import RichTextEditor from '@/components/RichTextEditor';
-import { amountToChineseCapital } from '@/utils/money';
+import { amountToChineseCapital } from '../../../../server/src/common/calc/money.ts';
 import { DictTag } from '@/components/DictSelect';
 
 const SUPP_TYPES = [

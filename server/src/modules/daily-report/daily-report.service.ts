@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
-import { round4 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { toDate, localDayKey } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { round4 } from '../../common/calc/money';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
+import { periodMonthKey } from '../../common/calc/time';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { DictService } from '../dict';
@@ -18,7 +21,7 @@ import {
 import { JwtUser } from '../../common/decorators/user.decorator';
 
 const DECIMAL_FIELDS = [
-  'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRate', 'priceAfterTax',
+  'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRatePct', 'priceAfterTax',
   'amountBeforeTax', 'amountAfterTax', 'incomePrice', 'incomeAmount', 'stdPrice', 'stdAmount',
 ];
 
@@ -356,8 +359,10 @@ export class DailyReportService {
       const reduceAmount = stdPrice !== null && priceAfterTax !== null ? Math.round((stdPrice - priceAfterTax) * 100) / 100 : null;
       const reduceRatio = stdPrice && reduceAmount !== null ? Math.round((reduceAmount / stdPrice) * 10000) / 10000 : null;
       return {
+        // 账期导出为可往返数值：写 `2026年8月` 时导入端 Number() 得 NaN → 账期被清空。
+        // 拆成「账期/年=2026」「账期/月=8」两列纯数字，导出→导入闭环不再丢月份。
         periodYear: r.periodYear ? String(r.periodYear) : '',
-        periodMonth: r.periodMonth ? `${r.periodYear}年${r.periodMonth}月` : '',
+        periodMonth: r.periodMonth ? String(r.periodMonth) : '',
         entryDate: fmt(r.entryDate),
         exitDate: fmt(r.exitDate),
         isAssetName: yesNo[r.isAsset]?.name || '',
@@ -374,7 +379,7 @@ export class DailyReportService {
         weighQty: num(r.weighQty), deductQty: num(r.deductQty), settleQty: num(r.settleQty),
         isWeighedName: yesNo[r.isWeighed]?.name || '',
         noAcceptReason: r.noAcceptReason,
-        priceBeforeTax: round4(r.priceBeforeTax), taxRate: num(r.taxRate), priceAfterTax,
+        priceBeforeTax: round4(r.priceBeforeTax), taxRatePct: num(r.taxRatePct), priceAfterTax,
         amountBeforeTax: num(r.amountBeforeTax), amountAfterTax: num(r.amountAfterTax),
         stdPrice,
         reduceAmount, reduceRatio,
@@ -413,7 +418,7 @@ export class DailyReportService {
         { header: '是否过磅', key: 'isWeighedName', width: 80, type: 'center' },
         { header: '未云筑验收原因', key: 'noAcceptReason', width: 130 },
         { header: '单价/元（税前）', key: 'priceBeforeTax', width: 120, type: 'qty' },
-        { header: '税率', key: 'taxRate', width: 70, type: 'pct' },
+        { header: '税率', key: 'taxRatePct', width: 70, type: 'pctVal' },
         { header: '单价/元（税后）', key: 'priceAfterTax', width: 120, type: 'qty' },
         { header: '金额/元（税前）', key: 'amountBeforeTax', width: 130, type: 'money' },
         { header: '金额/元（税后）', key: 'amountAfterTax', width: 130, type: 'money' },
@@ -500,9 +505,16 @@ export class DailyReportService {
           if (!base) throw new RowError(`关联校验失败：物资基础库中不存在「${materialName} / ${spec}」，请先维护物资基础库`, '物资名称');
           materialBaseId = base.id;
         }
+        // 账期解析：优先「账期/年」+「账期/月」两列纯数字；也兼容旧导出的 `2026年8月`、
+        // `2026-08` 等自由文本（统一走 periodMonthKey 归一），避免 Number('2026年8月')=NaN 丢月份。
+        const monthKey = periodMonthKey(
+          r['账期'] || (r['账期/年'] != null && r['账期/月'] != null
+            ? `${r['账期/年']}-${r['账期/月']}`
+            : null),
+        );
         const data: any = {
-          periodYear: Number(r['账期/年']) || null,
-          periodMonth: Number(r['账期/月']) || null,
+          periodYear: monthKey ? Number(monthKey.slice(0, 4)) : null,
+          periodMonth: monthKey ? Number(monthKey.slice(5, 7)) : null,
           entryDate: dateOf(r['进场日期'], '进场日期'),
           exitDate: dateOf(r['出场日期'], '出场日期'),
           contractId: contract?.id,
@@ -527,7 +539,7 @@ export class DailyReportService {
           isWeighed: codeOf(yesNo, r['是否过磅'], '是否过磅'),
           noAcceptReason: r['未云筑验收原因'] || null,
           priceBeforeTax: num(r['单价/元(税前)']),
-          taxRate: num(r['税率']),
+          taxRatePct: num(r['税率']),
           priceAfterTax: num(r['单价/元(税后)']),
           amountBeforeTax: num(r['金额/元(税前)']),
           amountAfterTax: num(r['金额/元(税后)']),

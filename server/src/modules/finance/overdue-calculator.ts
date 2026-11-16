@@ -12,7 +12,7 @@
  * 8. 逾期起始日期 = 应付款日期 + 宽限天数 + 1。
  */
 
-import { round } from '../../common/utils/money';
+import { round } from '../../common/calc/money';
 import { buildOverdueStats, summarizeOverdue } from '../../common/utils/overdue-summary';
 import { modeTranchesOf } from '../../common/utils/pay-ratio';
 

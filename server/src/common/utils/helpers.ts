@@ -1,13 +1,4 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { fmtDate, localDayKey, monthKey, toDate, yearOf } from '../calc/time.ts';
-import { num, sum } from '../calc/numeric.ts';
-import { ratio } from '../calc/rate.ts';
-
-/**
- * 纯计算原语统一从 `common/calc/` 再导出，兼容老代码的 `@/common/utils/helpers` 导入路径。
- * 口径说明（本地时区、Decimal 字符串、半值远离零）见 calc/ 下各文件的注释。
- */
-export { fmtDate, localDayKey, monthKey, num, ratio, sum, toDate, yearOf };
 
 /**
  * 分页参数处理。

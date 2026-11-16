@@ -2,10 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import { checkFileUrl } from '../../common/utils/safe-url';
-import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
-import { round4 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { fmtDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { round2 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
-import { rateToPct } from '../../common/calc/rate';
 import { projectWhere } from '../../common/utils/project-scope';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
@@ -45,7 +46,7 @@ import { patchDocx } from '../../common/utils/docx-patch';
 
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
-  'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRate',
+  'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRatePct',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   // 付款安排（100 / 3382 / M65_1 / M65_3 / CUSTOM）：业务口径 2026-10-16「创建合同时二选一」，
   // 取值校验见 assertPaymentMode()，定义与「当前生效比例」的派生见 common/utils/pay-ratio.ts
@@ -93,7 +94,7 @@ const FIELD_LABELS: Record<string, string> = {
   supplierId: '供应商',
   signDate: '签订日期',
   amount: '合同额',
-  taxRate: '税率',
+  taxRatePct: '税率',
   paymentMethodCode: '合同约定付款方式',
   isFramework: '是否框架协议',
   isSupplement: '是否补充协议',
@@ -158,7 +159,7 @@ export class ContractService {
       // 起草/物资/结算页就把整项目合同（含金额）全量拉进浏览器。500 与列表页
       // paginate 的上限同口径，超出部分靠 keyword 搜（前端是远程搜索）。
       take: 500,
-      select: { id: true, code: true, name: true, supplierId: true, amount: true, taxRate: true, typeCode: true },
+      select: { id: true, code: true, name: true, supplierId: true, amount: true, taxRatePct: true, typeCode: true },
     });
   }
 
@@ -266,7 +267,7 @@ export class ContractService {
 
     const hasAnyDownstream =
       receiptsTotal + settlements.length + finals.length + invoiceCount + paymentCount + dailyRows.length > 0;
-    const unpaidAmount = Math.round(((settledAmount - (num(paidSum._sum.amount) ?? 0)) + Number.EPSILON) * 100) / 100;
+    const unpaidAmount = round2(settledAmount - (num(paidSum._sum.amount) ?? 0));
 
     const result = collectArchiveBlockers({
       signed: c.status === CONTRACT_STATUS.SIGNED,
@@ -600,16 +601,15 @@ export class ContractService {
   // ==================== 合同起草：合同清单（Tab2，草稿明细） ====================
 
   /**
-   * 合同级税率（需求修正2）：Tab2 合同清单物料税率统一来源于合同主表 taxRate
-   * 存储规范：Contract.taxRate 为小数（0.13 = 13%），物料 taxRatePct 为百分比数值（13）
+   * 合同级税率（需求修正2）：Tab2 合同清单物料税率统一来源于合同主表。
+   * 全站税率单轨为百分数（13 = 13%），合同主表字段已改名 taxRatePct，无需再换算。
    */
   private async contractTaxPct(contractId: string): Promise<number | null> {
     const contract = await this.prisma.contract.findUnique({
       where: { id: contractId },
-      select: { taxRate: true },
+      select: { taxRatePct: true },
     });
-    const frac = contract?.taxRate != null ? Number(contract.taxRate) : null;
-    return rateToPct(frac);
+    return contract?.taxRatePct != null ? num(contract.taxRatePct) : null;
   }
 
   /** 合同税率变更后：Tab2 合同清单所有物料税率同步更新，并按税前单价/数量重算含税金额 */
@@ -682,9 +682,8 @@ export class ContractService {
     if (!Array.isArray(materialBaseIds) || !materialBaseIds.length) {
       throw new BadRequestException('请先在「物料编码清单」中勾选物资');
     }
-    // 需求修正2：新增行预填合同税率（物料税率实时绑定合同税率）
-    const frac = contract.taxRate != null ? Number(contract.taxRate) : null;
-    const contractPct = rateToPct(frac);
+    // 需求修正2：新增行预填合同税率（物料税率实时绑定合同税率，单轨百分数）
+    const contractPct = contract.taxRatePct != null ? num(contract.taxRatePct) : null;
     const pool = await this.prisma.contractMaterialPool.findMany({
       where: { contractId, materialBaseId: { in: materialBaseIds } },
       orderBy: { sortOrder: 'asc' },
@@ -1197,7 +1196,7 @@ export class ContractService {
     }
 
     const { attachments, ext, ...rest } = data;
-    this.assertAmountAndRate(data.amount, data.taxRate);
+    this.assertAmountAndRate(data.amount, data.taxRatePct);
     const safeAttachments = this.safeAttachments(attachments);
     const contract = await db.contract.create({
       data: {
@@ -1213,7 +1212,7 @@ export class ContractService {
         status: CONTRACT_STATUS.DRAFT,
         signDate: data.signDate ? new Date(data.signDate) : null,
         amount: num(data.amount),
-        taxRate: num(data.taxRate),
+        taxRatePct: num(data.taxRatePct),
         createdBy: user?.userId,
       },
     });
@@ -1298,7 +1297,7 @@ export class ContractService {
     ) {
       throw new BadRequestException('合同已签章，不允许直接更换供应商；请通过合同变更流程处理');
     }
-    this.assertAmountAndRate(data.amount, data.taxRate);
+    this.assertAmountAndRate(data.amount, data.taxRatePct);
     const safeAttachments = this.safeAttachments(attachments);
     const contract = await this.prisma.contract.update({
       where: { id },
@@ -1310,7 +1309,7 @@ export class ContractService {
          * （例如只改付款安排）把合同额/税率**静默清空**。显式传 `null` 仍然是"清空"（业务上要能改回空）。
          */
         ...(data.amount !== undefined ? { amount: num(data.amount) } : {}),
-        ...(data.taxRate !== undefined ? { taxRate: num(data.taxRate) } : {}),
+        ...(data.taxRatePct !== undefined ? { taxRatePct: num(data.taxRatePct) } : {}),
         version: { increment: 1 },
       },
     });
@@ -1318,7 +1317,7 @@ export class ContractService {
     // 付款安排 / 执行情况（execStatus）变更后重算「当前生效比例」
     await this.syncPayRatio(id);
     // 需求修正2：合同税率变更 → Tab2 合同清单所有物料税率同步更新并重算金额
-    if (data.taxRate !== undefined) {
+    if (data.taxRatePct !== undefined) {
       await this.syncDraftTaxFromContract(id);
     }
     if (Array.isArray(attachments)) {
@@ -1485,21 +1484,22 @@ export class ContractService {
    * 合同金额与税率的**服务端**校验（第 8 轮审计）。
    *
    * 原来只有前端 `InputNumber min/max` 挡着，`create`/`update` 直接 `num(data.amount)`，
-   * 而 `num()` 只做 Number.isFinite 兜底 → 绕过界面 POST `amount: -1`、`taxRate: 50` 都能入库，
+   * 而 `num()` 只做 Number.isFinite 兜底 → 绕过界面 POST `amount: -1`、`taxRatePct: 500` 都能入库，
    * 随后台账金额、付款比例、月度盈亏、预警全部按错值派生（且很难回溯是哪条合同污染的）。
    */
-  private assertAmountAndRate(amount: unknown, taxRate: unknown): void {
+  private assertAmountAndRate(amount: unknown, taxRatePct: unknown): void {
     if (amount !== undefined && amount !== null && amount !== '') {
       const amt = num(amount);
       if (amt === null) throw new BadRequestException(`合同金额不是有效数字：${String(amount)}`);
       if (amt < 0) throw new BadRequestException('合同金额不能为负数');
     }
-    if (taxRate !== undefined && taxRate !== null && taxRate !== '') {
-      const rate = num(taxRate);
-      if (rate === null) throw new BadRequestException(`税率不是有效数字：${String(taxRate)}`);
-      if (rate < 0 || rate > 1) {
+    if (taxRatePct !== undefined && taxRatePct !== null && taxRatePct !== '') {
+      const rate = num(taxRatePct);
+      if (rate === null) throw new BadRequestException(`税率不是有效数字：${String(taxRatePct)}`);
+      // 税率全站单轨百分数（13 = 13%）；0.13 会被当成 0.13%，是旧小数口径误填，直接拒绝。
+      if (rate < 0 || rate > 100) {
         throw new BadRequestException(
-          `税率请填小数（0.13 表示 13%），取值范围 0~1；收到 ${String(taxRate)}。手里若是百分数请先除以 100`,
+          `税率请填百分数（13 表示 13%），取值范围 0~100；收到 ${String(taxRatePct)}`,
         );
       }
     }
@@ -1758,11 +1758,9 @@ export class ContractService {
         }
         const amount = num(r['合同额']);
         if (amount === null) throw new RowError('合同额为必填数字', '合同额');
-        // 口径由**列名**决定，不靠数值猜（第 4 轮审计）：税率(%) 是百分数（13 = 13%），
-        // 税率 是小数（0.13 = 13%）。旧写法 	axRaw > 1 ? taxRaw/100 : taxRaw 把 1%（=1）
-        // 存成 1（=100%）、0.5% 存成 0.5（=50%），台账「税前金额」直接错成含税额的一半。
-        const pctRaw = num(r['税率(%)']);
-        const fracRaw = num(r['税率']);
+        // 税率单轨百分数（13 = 13%）：模板列「税率(%)」直接落库，不再有「税率」小数双轨入口，
+        // 也不靠 `>1 ? /100` 猜口径（那会把 1% 存成 100%、0.5% 存成 50%）。
+        const taxRatePct = num(r['税率(%)']);
         return {
           code,
           name: r['合同名称'] || code,
@@ -1770,7 +1768,7 @@ export class ContractService {
           supplierId: supplier.id,
           signDate: r['签订日期'] || null,
           amount,
-          taxRate: pctRaw !== null ? round4(pctRaw / 100) : fracRaw !== null ? round4(fracRaw) : null,
+          taxRatePct,
           remark: r['备注'] || null,
         };
       },

@@ -97,7 +97,7 @@ describe('集成 · 台账派生金额口径', () => {
     const supplier = await makeSupplier(ctx.prisma, project.id);
     const noTax = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 1000000 });
     const taxed = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 1000000 });
-    await ctx.prisma.contract.update({ where: { id: taxed.id }, data: { taxRate: 0.13 } });
+    await ctx.prisma.contract.update({ where: { id: taxed.id }, data: { taxRatePct: 13 } });
     for (const c of [noTax, taxed]) {
       await ctx.prisma.settlementLedger.create({
         data: { projectId: project.id, contractId: c.id, settleMonth: '2026-09', monthSettleAmount: 113000 },

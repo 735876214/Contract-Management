@@ -13,7 +13,7 @@ import {
   CONTRACT_STAGE_STATUSES,
   buildStageChain,
 } from '../../web/src/constants/procurementWorkflow.ts';
-import { amountToChineseCapital as feAmountToChineseCapital } from '../../web/src/utils/money.ts';
+import { amountToChineseCapital as feAmountToChineseCapital } from '../src/common/calc/money.ts';
 import {
   calcAmount as feCalcAmount,
   round2 as feRound2,

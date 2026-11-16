@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 // 合同状态 code 的事实源在 ./statuses.ts（2026-10-17 解除 .mts 零依赖限制后，
 // 本文件可直接 import——nest build / ts-node 会在 emit 时把 .ts 后缀改写为 .js）
 import { CONTRACT_STATUS } from './statuses.ts';
+import { num as numOrNull } from '../common/calc/numeric.ts';
 
 // 合同状态 → 采购任务状态的映射用 CONTRACT_STATUS 常量（不再裸写状态码字面量）；
 // 两侧漂移由 `server/test/statusCodes.spec.mts` 与 `frontendChainParity.spec.mts` 锁定。
@@ -289,12 +290,6 @@ const BIDDER_SHORTLISTED = 'SHORTLISTED';
 const BIDDER_SUBMITTED = 'SUBMITTED';
 /** 导入表里「是/否」两列的字面值（导入原样存字符串，不转布尔） */
 const YES = '是';
-
-const numOrNull = (v: unknown): number | null => {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
 
 /**
  * 取消中标（在第二轮报价表取消勾选）后，该单位回落到什么状态：
