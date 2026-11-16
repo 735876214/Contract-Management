@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -96,31 +95,6 @@ function LedgerList() {
   const [colChecked, setColChecked] = useState<string[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
 
-  /**
-   * 旧合同编辑深链：起草页「继续编辑」曾用 `/contracts?edit=<id>`（/contracts 已保号重定向到本页）。
-   * 取到详情后转成编辑器页签 `?editor=<id>`，再清掉 `edit` 参数。
-   */
-  const [searchParams, setSearchParams] = useSearchParams();
-  const editParam = searchParams.get('edit');
-  useEffect(() => {
-    if (!editParam) return;
-    let alive = true;
-    contractApi
-      .detail(editParam)
-      .then((res: any) => {
-        if (!alive) return;
-        // 先清掉 edit 参数，再导航到 ?editor=<id>：顺序反了会被「清参数」覆盖回列表
-        setSearchParams({}, { replace: true });
-        if (res) editorTab.openEdit(res.id, res);
-      })
-      .catch(() => {
-        if (alive) setSearchParams({}, { replace: true });
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editParam]);
 
   /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
   const fetcher = useMemo(

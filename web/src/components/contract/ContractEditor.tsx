@@ -34,8 +34,7 @@ import { CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
  * 合同编辑器（列表 + 编辑器是同一路由的两种形态：`?editor=new|<id>`）。
  *
  * 由原 `pages/Contracts.tsx` 迁入（业务 2026-11-14 合并「合同台账」与「合同台账维护」）：
- * 台账列表与编辑器共用 `/contract/list`，`listPath` 用于编辑器页签与列表刷新令牌，
- * 不传时取 `LIST_PATHS.contractLedger`。
+ * 台账列表与编辑器共用 `/contract/list`，编辑器页签与列表刷新令牌都用 `LIST_PATHS.contractLedger`。
  */
 
 /** 需求 2.3：四种条款类型对应的合同表单字段 */
