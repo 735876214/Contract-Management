@@ -63,7 +63,7 @@ dev 容器挂的是主树的 `./server` / `./web`，**服务不了 worktree**，
 | `web/**` | 默认全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 临时 tsconfig 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test`（关键词筛会漏 parity/docStats） |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |
-| 金额/状态/导入/关联 | `migrate deploy` + 选中的 int spec（`--test-concurrency=2`） |
+| 金额/状态/导入/关联 | `migrate deploy` + int spec（`--int auto` 按改动选集、`--int all` 跑全量；`--test-concurrency=2`，只对本树 `*_wt_*` 库） |
 
 - **覆盖边界**：`nest build` / `tsc` 是整程序编译，没有真正的"只编这个模块"；
   verify 能做的是**把测试与数据库范围收窄**，不能把类型检查收窄（`--fast` 例外，且仅限 pages）。
@@ -132,4 +132,7 @@ node scripts/remove-task-worktree.mjs <slug> --yes    # 连库一起删（不可
 | `migrate diff` 报影子库错误 | 用 `new-task-worktree` 重建（幂等），确保 `cms_shadow_wt_*` 存在 |
 | prisma 模型类型缺失/旧字段 | 该树 `node_modules` 串了：删掉重装 + `npx prisma generate` |
 | verify 说 `DATABASE_URL` 不合法 | 该树没有 `.env` 或指向了 `cms`/`cms_int`；重跑建树脚本补齐 |
+| **int 全部文件级 `test failed` 且无任何子进程输出** | 该树 `JWT_SECRET` 是占位值（`cms-super-secret-key` / `change-me-*`），`jwt.strategy` fail-fast 在 boot 阶段直接退出，`node --test` 只会报文件级失败。用 `new-task-worktree` 重建（会写非占位密钥） |
+| verify 的 web build 报 `esbuild ... Access is denied`（Windows） | 沙箱下 vite 删系统 TEMP 被拒；`verify-module` 已把 `TEMP/TMP` 指到 `web/node_modules/.tmp`，旧脚本先更新 |
+| `migrate diff` 后冒出 `'connection_limit' 不是内部或外部命令` | URL 里的 `&` 被 cmd 当命令分隔符；`verify-module` 已在 Windows 下给 `--shadow-database-url` 加引号 |
 | 合并后 `docStats` 红 | 按 §7：计数改成实际文件数 |
