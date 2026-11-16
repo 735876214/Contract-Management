@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（88 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（23 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（89 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（24 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -181,6 +181,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiAnalyticsFacts.spec.mts` | **AI 经营数据助手 · 事实包与确定性报告**（Phase 2）+ **模型叙述对账**（Phase 3）：注册表元信息回填、空数据集进 `warnings`（不是 0）· 风险由程序判定（付款超结算=高、开票缺口≥20pp=中、环比下降≥50%=中）· Markdown 固定小节与口径说明（合同链/业务发生日/发票两态/未填≠0）· 无对比期不显示变化列 · `analyticsFactNumbers` 放行总览/项目/风险文案里的数字 · 标题 ≤60 字 · 模型叙述按稳定章节 ID 追加、剥离标题/表格、编造数字**整段丢弃**并退回确定性报告、空/非对象结果不空窗 |
   | `test/aiAnalyticsWorkbook.spec.mts` | **AI 经营数据助手 · 多 sheet 工作簿模型**（Phase 4）：sheet 名净化（非法字符/31 字符/重名加序号）· 总览（本期/对比期/变化）· 项目对照（按签约额倒序）· 每个数据集一张 sheet + 截断说明 · 风险与提示（等级 + 数据提醒） |
   | `test/aiFieldCatalogScope.spec.mts` | **AI 填表字段目录 · 期间/跨项目作用域**（Phase 4）：字段键唯一、period/cross 字段齐备 · 金额/比例标签带单位 · 跨项目上下文不出现 contract/supplier、单项目不出现 cross · 权限映射 period=contract:view / cross=dashboard:view 且无权限进 denied |
+  | `test/aiAnalyticsOptionsParity.spec.mts` | **AI 经营数据助手 · 前端选项与后端枚举 parity**：期间预设 / 报告类型的下拉取值集合与 `AI_PERIOD_PRESETS` / `AI_REPORT_KINDS` 完全一致、无重复、无空文案（防「界面能选、服务端归一掉」的静默降级） |
   | `test/aiAnalyticsParity.spec.mts` | **经营数据助手 · 注册表与列定义 parity**（Phase 5）：27 个域 key 集合完全相等（无遗漏/孤儿）· 每域列名非空不重复 · 关键列口径列名稳定（本月开票额/开票比例/逾期未付/文件类型） |
   | `test/noDbPush.spec.mts` | **迁移纪律**：可执行配置（package.json/CI/compose/Dockerfile/scripts）里禁止 `prisma db push`（剥注释避免误报） |
   | `test/storageBoundary.spec.mts` | **文件 I/O 边界**：`server/src` 里除 `StorageService` 外不得出现 `fs.` 调用 |
@@ -269,9 +270,10 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |
 | `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计（**作废/红冲排除、空状态计入**）· 跨项目 404 |
 | `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额**（条件更新 + `count` 校验，防并发双红冲；红冲票未填合同时按原票合同刷台账） · 通用 PUT 不放行「非终态 → 红冲」（红冲只能新建票时建立关联） · **红冲票与原票两侧都不能换合同（请求省略 `redOfInvoiceId` 也不能绕过同合同校验）** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
+| `aiAnalyticsAccess.int.spec.ts` | **AI 经营数据助手 · 访问矩阵**：创建人可见、同项目非创建人 404、超管默认只看本人且 `all=1` 看全部 · 数据集权限被收回后存档记录 404 · DELETE 缺 `ai:use` 403、有权限可删 |
 | `aiAnalyticsPlan.int.spec.ts` | **AI 经营数据助手（Phase 1）权限与意图**：注册表只返回已实现且有权限的条目、无权限进 `denied`（超管全量）· `scope=current` 必须是成员项目 · `scope=all` 需 `dashboard:view` 且返回成员项目集合 · `scope=selected` 忽略无权/未知项目并提示、`mentions` 回写匹配到的项目名 · 无权数据集被剔除（`deniedDatasets`） |
 | `aiAnalyticsStore.int.spec.ts` | **AI 经营数据助手（Phase 2）报告与历史**：确定性报告落库（合同链 = 主合同 + 补充协议 `changeAmount`、草稿结算/失败付款/红冲发票不计入、日报条数）· 历史默认本人全部、非创建人 404、`projectId` 可选筛选 · 删除后不可再取 |
-| `aiAnalyticsWorkbook.int.spec.ts` | **AI 经营数据助手（Phase 4）工作簿与行级填充**：多 sheet 工作簿落库/下载（合法 xlsx、`hasReport`+`hasWorkbook` 同记录）· 行级填充按列映射写入数据集行（插行复制样式、数值列落 number、公式前缀文本化、行数上限） |
+| `aiAnalyticsWorkbook.int.spec.ts` | **AI 经营数据助手（Phase 4）工作簿与行级填充**：多 sheet 工作簿落库/下载（合法 xlsx、`hasReport`+`hasWorkbook` 同记录；**带 `reportId` 时忽略请求 body，只用存档事实快照**）· 行级填充按列映射写入数据集行（插行复制样式、数值列落 number、公式前缀文本化、行数上限） |
 | `aiAnalyticsCoverage.int.spec.ts` | **AI 经营数据助手（Phase 5）全模块数据集覆盖**：还款协议/总结算/付款手续/合同变更/物资主数据与合同清单/分包授权与领用单据/采购过程文件（公告、评标、考察）逐一造数并断言取数行数 · 采集器一次产出 27 个数据集结构 |
 | `contract-archive.int.spec.ts` | **合同归档锁定**（业务口径 2026-10-18，单向）：未签章/草稿结算阻断 · 下游收口后可归档 · 归档后合同/结算/收领单写入口 400、读取仍可用 · 不可重复归档 |
 | `contract-milestone.int.spec.ts` | **合同履约节点**（四域扩展按需项 2026-10-18）：CRUD 全链与 overdue 派生 · 跨项目 404 · 非法状态 400 · 归档合同禁止写 · 逾期节点进工作台 OVERDUE_MILESTONE 组 |

@@ -56,7 +56,57 @@ const isFilled = (v: unknown): boolean => {
 
 const round2 = (n: number) => Number((Number(n) || 0).toFixed(2));
 
-const CHAIN_MAX_DEPTH = 8;
+/** 最大上溯深度（防数据自指成环）；链根解析与金额计算共用同一上限 */
+export const CHAIN_MAX_DEPTH = 8;
+
+/** 链解析所需的最小合同行形状 */
+export interface ContractChainRowLike {
+  id: string;
+  parentContractId?: string | null;
+}
+
+export interface ChainRootResult {
+  /** 能到达时是链根 id；断链时是**最后一个可达节点** */
+  rootId: string;
+  /** 父级不在集合里（数据被改坏 / 跨项目 / 已删除）或超过深度上限 */
+  broken: boolean;
+}
+
+/** 按 id 建索引（取数一次，链解析在内存里走） */
+export function indexContractRows<T extends ContractChainRowLike>(rows: readonly T[]): Map<string, T> {
+  return new Map(rows.map((r) => [String(r.id), r]));
+}
+
+/**
+ * 沿 `parentContractId` 上溯链根（防环）。
+ * `rowsById` 必须是**全部合同行**，不能只传已签行——否则父级未签的补充协议会自成一链。
+ */
+export function resolveChainRoot<T extends ContractChainRowLike>(
+  rowsById: Map<string, T>,
+  id: string,
+): ChainRootResult {
+  let cur: T | null = rowsById.get(String(id)) ?? null;
+  for (let depth = 0; depth < CHAIN_MAX_DEPTH && cur; depth++) {
+    const parentId = cur.parentContractId ? String(cur.parentContractId) : '';
+    if (!parentId) return { rootId: String(cur.id), broken: false };
+    const parent = rowsById.get(parentId);
+    if (!parent) return { rootId: String(cur.id), broken: true };
+    cur = parent;
+  }
+  return { rootId: String(cur?.id ?? id), broken: true };
+}
+
+/** 每条链有几行合同（链根 + 补充协议）：区分「有补充协议」与「单份合同」 */
+export function chainRowCountByRoot<T extends ContractChainRowLike>(rows: readonly T[]): Map<string, number> {
+  const index = indexContractRows(rows);
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    const { rootId, broken } = resolveChainRoot(index, String(row.id));
+    if (broken) continue;
+    out.set(rootId, (out.get(rootId) ?? 0) + 1);
+  }
+  return out;
+}
 
 /**
  * 由**已取出的合同行集合**算链金额。调用方一次查全（项目内全部合同）后在内存算，
@@ -75,23 +125,18 @@ export function resolveChainAmounts(rows: ContractChainRow[], contractId: string
     currentAmount: null,
   };
   const byId = new Map(rows.map((r) => [String(r.id), r]));
-  let id = String(contractId ?? '');
+  const id = String(contractId ?? '');
   if (!id || !byId.has(id)) return empty;
 
-  // 上溯到链根（防环）
-  let root = byId.get(id)!;
-  for (let depth = 0; depth < CHAIN_MAX_DEPTH; depth++) {
-    const parentId = root.parentContractId ? String(root.parentContractId) : '';
-    if (!parentId || !byId.has(parentId)) break;
-    root = byId.get(parentId)!;
-  }
-  const rootId = String(root.id);
+  // 上溯到链根（防环；断链时停在最后一个可达节点，与旧行为一致）
+  const rootId = resolveChainRoot(byId, id).rootId;
 
   const supplements = rows.filter((r) => String(r.parentContractId ?? '') === rootId);
   const supplementTotal = round2(
     supplements.reduce((s, r) => s + (isFilled(r.changeAmount) ? Number(r.changeAmount) : 0), 0),
   );
-  const mainAmount = isFilled(root.amount) ? round2(Number(root.amount)) : null;
+  const rootRow = byId.get(rootId)!;
+  const mainAmount = isFilled(rootRow.amount) ? round2(Number(rootRow.amount)) : null;
 
   return {
     rootId,

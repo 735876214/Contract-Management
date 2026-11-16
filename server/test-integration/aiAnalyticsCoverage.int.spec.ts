@@ -206,5 +206,9 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
     assert.equal(totals.settledYuan, res.facts.totals.settledYuan, '结算额（排除草稿）');
     assert.equal(totals.paidYuan, res.facts.totals.paidYuan, '付款额（排除失败/退款）');
     assert.equal(totals.invoicedYuan, res.facts.totals.invoicedYuan, '开票额（排除作废/红冲）');
+    assert.equal(totals.contractCount, res.facts.totals.contractCount, '合同数按链计（母合同 + 补充协议算一条）');
+    const projectFact = collected.byProject.find((p) => p.projectId === project.id);
+    const scmProject = res.facts.projects.find((p) => p.projectId === project.id);
+    assert.equal(projectFact?.contractCount, scmProject?.contractCount, '逐项目合同数同口径');
   });
 });

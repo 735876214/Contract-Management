@@ -21,6 +21,7 @@ import {
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
 import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
+import { formatYuan as fmtYuan, formatPct as fmtPct } from '../common/format.ts';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots.ts';
 import { scanNumbers, stripNonData } from '../report-facts.ts';
 import {
@@ -395,11 +396,6 @@ function buildRisks(
 
   return risks;
 }
-
-const fmtYuan = (n: number): string =>
-  n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const fmtPct = (v: number | null): string => (v === null ? '—' : `${v}%`);
 
 /**
  * 确定性全景报告（AI 不可用 / 数字对账失败时的兜底，也是 prompt 的结构骨架）。

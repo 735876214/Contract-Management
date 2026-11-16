@@ -11,10 +11,11 @@ import {
   paidPaymentWhere,
 } from '../../../constants/statuses';
 import { deriveContractFulfillment } from '../../../common/utils/contract-fulfillment';
-import { summarizeAssetFlow } from '../../../common/utils/asset-flow';
+import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../common/utils/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots';
 import { datasetColumnsOf } from './dataset-columns';
+import { datasetByKey } from './dataset-registry';
 import { inRange, localDayKey, localMonthKey, type DayRange } from '../common/period';
 import { formatYuan as fmtYuan } from '../common/format';
 import type {
@@ -47,6 +48,17 @@ const monthBetween = (range: DayRange): { gte: string; lte: string } | null =>
 const isSigned = (c: { status?: string | null }): boolean => {
   const s = String(c.status ?? '');
   return s === CONTRACT_STATUS.SIGNED || s === LEGACY_CONTRACT_STATUS_COMPLETED;
+};
+
+/** 应付未付 / 已结未开票：项目行与合计行共用同一算式（未填≠0 由上层保证） */
+const withDerivedAmounts = <
+  T extends { settledYuan: number; paidYuan: number; invoicedYuan: number; unpaidYuan: number; uninvoicedYuan: number },
+>(
+  row: T,
+): T => {
+  row.unpaidYuan = round2(row.settledYuan - row.paidYuan);
+  row.uninvoicedYuan = round2(row.settledYuan - row.invoicedYuan);
+  return row;
 };
 
 const ds = (
@@ -95,7 +107,9 @@ export class DatasetCollector {
   ): Promise<AiAnalyticsProjectFact[]> {
     const ids = projects.map((p) => p.id);
     const gated = await this.requireConfirmed();
-    const [contracts, settlements, payments, invoices, daily, tasks] = await Promise.all([
+    const monthRange = monthBetween(range);
+    const [contracts, settlements, payments, invoices, daily, tasks, profitLosses, factoring, overdue, assets] =
+      await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId: { in: ids } },
         select: { id: true, projectId: true, parentContractId: true, amount: true, changeAmount: true, signDate: true, status: true },
@@ -134,6 +148,26 @@ export class DatasetCollector {
         where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
         _count: { _all: true },
       }),
+      this.prisma.monthlyProfitLoss.findMany({
+        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
+        select: { projectId: true, sixSavingsAmount: true },
+      }),
+      this.prisma.factoringCost.findMany({
+        where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
+        select: { totalCost: true, contract: { select: { projectId: true } } },
+      }),
+      this.prisma.overdueInterest.findMany({
+        where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
+        select: { overdueInterest: true, contract: { select: { projectId: true } } },
+      }),
+      this.prisma.assetLedger.findMany({
+        where: {
+          projectId: { in: ids },
+          sourceCode: { in: [...ASSET_IN_SOURCES] },
+          ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}),
+        },
+        select: { projectId: true, totalAmount: true },
+      }),
     ]);
 
     const map = new Map<string, AiAnalyticsProjectFact>();
@@ -149,6 +183,10 @@ export class DatasetCollector {
         invoicedYuan: 0,
         unpaidYuan: 0,
         uninvoicedYuan: 0,
+        overdueYuan: 0,
+        costSavingsYuan: 0,
+        assetInYuan: 0,
+        financeCostYuan: 0,
         dailyReports: 0,
         procurementTasks: 0,
       });
@@ -157,7 +195,8 @@ export class DatasetCollector {
       if (!isSigned(c) || !inRange(c.signDate, range)) continue;
       const row = map.get(c.projectId);
       if (!row) continue;
-      row.contractCount += 1;
+      // 合同数按**链**计（母合同 + 补充协议算一条），与 buildScmFacts 的 contractCount 同口径
+      if (!c.parentContractId) row.contractCount += 1;
       row.signedYuan = round2(row.signedYuan + Number((c.parentContractId ? c.changeAmount : c.amount) ?? 0));
     }
     for (const s of settlements) {
@@ -180,12 +219,23 @@ export class DatasetCollector {
       const row = map.get(t.projectId);
       if (row) row.procurementTasks = t._count._all;
     }
-    const list = [...map.values()];
-    for (const row of list) {
-      row.unpaidYuan = round2(row.settledYuan - row.paidYuan);
-      row.uninvoicedYuan = round2(row.settledYuan - row.invoicedYuan);
+    for (const p of profitLosses) {
+      const row = map.get(p.projectId);
+      if (row) row.costSavingsYuan = round2(row.costSavingsYuan + Number(p.sixSavingsAmount ?? 0));
     }
-    return list;
+    for (const f of factoring) {
+      const row = map.get(f.contract.projectId);
+      if (row) row.financeCostYuan = round2(row.financeCostYuan + Number(f.totalCost ?? 0));
+    }
+    for (const o of overdue) {
+      const row = map.get(o.contract.projectId);
+      if (row) row.overdueYuan = round2(row.overdueYuan + Number(o.overdueInterest ?? 0));
+    }
+    for (const a of assets) {
+      const row = map.get(a.projectId);
+      if (row) row.assetInYuan = round2(row.assetInYuan + Number(a.totalAmount ?? 0));
+    }
+    return [...map.values()].map(withDerivedAmounts);
   }
 
   private sumTotals(byProject: AiAnalyticsProjectFact[]): AiAnalyticsTotals {
@@ -198,6 +248,10 @@ export class DatasetCollector {
       invoicedYuan: 0,
       unpaidYuan: 0,
       uninvoicedYuan: 0,
+      overdueYuan: 0,
+      costSavingsYuan: 0,
+      assetInYuan: 0,
+      financeCostYuan: 0,
       dailyReports: 0,
       procurementTasks: 0,
     };
@@ -207,12 +261,14 @@ export class DatasetCollector {
       t.settledYuan = round2(t.settledYuan + p.settledYuan);
       t.paidYuan = round2(t.paidYuan + p.paidYuan);
       t.invoicedYuan = round2(t.invoicedYuan + p.invoicedYuan);
+      t.overdueYuan = round2(t.overdueYuan + p.overdueYuan);
+      t.costSavingsYuan = round2(t.costSavingsYuan + p.costSavingsYuan);
+      t.assetInYuan = round2(t.assetInYuan + p.assetInYuan);
+      t.financeCostYuan = round2(t.financeCostYuan + p.financeCostYuan);
       t.dailyReports += p.dailyReports;
       t.procurementTasks += p.procurementTasks;
     }
-    t.unpaidYuan = round2(t.settledYuan - t.paidYuan);
-    t.uninvoicedYuan = round2(t.settledYuan - t.invoicedYuan);
-    return t;
+    return withDerivedAmounts(t);
   }
 
   /** 供填报取值复用：项目集合 × 期间的窗口口径（与报告同一实现） */
@@ -1048,6 +1104,11 @@ export class DatasetCollector {
 
     if (contracts.length >= 20000) warnings.push('合同行数达到 20000 上限，合同链汇总可能不完整');
     if (materials.length >= 20000) warnings.push('合同清单行数达到 20000 上限，履约清单量可能不完整');
+    for (const d of datasets) {
+      if (!d.truncated) continue;
+      const label = datasetByKey(d.key)?.label ?? d.key;
+      warnings.push(`数据集「${label}」超过 ${MAX_ROWS} 行，已截断至前 ${MAX_ROWS} 行`);
+    }
 
     return {
       datasets,

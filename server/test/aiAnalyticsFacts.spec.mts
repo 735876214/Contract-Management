@@ -22,6 +22,10 @@ const totals = (over: Partial<AiAnalyticsTotals> = {}): AiAnalyticsTotals => ({
   invoicedYuan: 20000,
   unpaidYuan: -10000,
   uninvoicedYuan: 40000,
+  overdueYuan: 0,
+  costSavingsYuan: 0,
+  assetInYuan: 0,
+  financeCostYuan: 0,
   dailyReports: 5,
   procurementTasks: 2,
   ...over,
@@ -57,11 +61,15 @@ describe('AI 经营数据助手 · 事实包与报告', () => {
     byProject: [
       {
         projectId: 'p1', code: 'P-1', name: '甲项目', contractCount: 2, signedYuan: 80000, settledYuan: 50000,
-        paidYuan: 60000, invoicedYuan: 20000, unpaidYuan: -10000, uninvoicedYuan: 30000, dailyReports: 3, procurementTasks: 1,
+        paidYuan: 60000, invoicedYuan: 20000, unpaidYuan: -10000, uninvoicedYuan: 30000,
+        overdueYuan: 0, costSavingsYuan: 0, assetInYuan: 0, financeCostYuan: 0,
+        dailyReports: 3, procurementTasks: 1,
       },
       {
         projectId: 'p2', code: 'P-2', name: '乙项目', contractCount: 1, signedYuan: 20000, settledYuan: 10000,
-        paidYuan: 10000, invoicedYuan: 0, unpaidYuan: 0, uninvoicedYuan: 10000, dailyReports: 2, procurementTasks: 1,
+        paidYuan: 10000, invoicedYuan: 0, unpaidYuan: 0, uninvoicedYuan: 10000,
+        overdueYuan: 0, costSavingsYuan: 0, assetInYuan: 0, financeCostYuan: 0,
+        dailyReports: 2, procurementTasks: 1,
       },
     ],
     datasets: [
@@ -224,6 +232,10 @@ describe('AI 经营数据助手 · 事实包与报告', () => {
       invoicedYuan: 0,
       unpaidYuan: 0,
       uninvoicedYuan: 0,
+      overdueYuan: 0,
+      costSavingsYuan: 0,
+      assetInYuan: 0,
+      financeCostYuan: 0,
       dailyReports: 0,
       procurementTasks: 0,
     }));

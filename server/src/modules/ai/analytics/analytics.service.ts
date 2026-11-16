@@ -142,10 +142,6 @@ export class AnalyticsService {
     warnings.push(...parsed.warnings);
 
     let intent: AiAnalyticsIntent = parsed.intent;
-    if (intent.groupBy !== 'project') {
-      // 当前只能按项目汇总：显式提示已忽略，避免「选了分组但报告没变」的静默误导
-      warnings.push(`当前仅支持按项目汇总，已忽略分组维度：${intent.groupBy}`);
-    }
     const scope = intent.scope.mode;
     let projects = allowed;
 
@@ -462,7 +458,7 @@ export class AnalyticsService {
       periodFrom: input.range.from,
       periodTo: input.range.to,
       periodLabel: input.periodLabel,
-      compareMode: input.plan.intent.compare,
+      compareMode: input.facts.compareMode,
       narrative: input.source === 'llm',
       source: input.source,
       markdown: input.markdown,
@@ -483,34 +479,23 @@ export class AnalyticsService {
   }
 
   /**
-   * 多 sheet 工作簿（确定性、不调模型、不扣配额）：与报告共用同一份事实包。
-   * `reportId` 给了就挂到已有报告记录上；否则新建一条「仅表格」记录。
+   * 事实包 → 多 sheet xlsx（确定性，不调模型）。
+   * 20 万单元格预算在这里统一扣减，截断信息同时写进表头和返回的 warnings。
    */
-  async workbook(
-    body: AnalyticsReportInput & { reportId?: string },
-    projectId: string,
-    user: JwtUser,
-  ) {
-    assertPermission(user, 'ai:use', '生成经营数据表格需要「使用 AI 助手」权限');
-    const plan = await this.plan(body || {}, projectId, user, { consumeQuota: false, useIntentLlm: false });
-    const now = new Date();
-    const range = resolvePresetPeriod(plan.intent.period.preset, now, {
-      from: plan.intent.period.from,
-      to: plan.intent.period.to,
-    });
-    if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
-    const cmpRange = compareRange(range, plan.intent.compare);
-    const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
+  private async workbookBuffer(facts: AiAnalyticsFacts) {
     const model = buildAnalyticsWorkbookModel(facts);
-    const title = String(body?.title || analyticsTitle(plan.intent.reportKind, scopeLabel, periodLabel)).slice(0, 60);
-
+    const truncated: string[] = [];
     const buffer = await this.styled.withWorkbook(async (wb) => {
-      // 工作簿总单元格上限（计划 §2.4 B）：逐 sheet 扣预算，超出即截断并在表头说明
       let cellBudget = 200_000;
       for (const sheet of model) {
         const cols = Math.max(1, sheet.columns.length);
         const maxDataRows = Math.max(0, Math.floor(cellBudget / cols) - 1);
         const rows = sheet.rows.slice(0, maxDataRows);
+        if (rows.length < sheet.rows.length) {
+          truncated.push(
+            `工作表「${sheet.name}」超出工作簿 20 万单元格上限，已截断至 ${rows.length} 行`,
+          );
+        }
         const note =
           rows.length < sheet.rows.length
             ? [sheet.note, `超出工作簿 20 万单元格上限，已截断至 ${rows.length} 行`].filter(Boolean).join('；')
@@ -546,39 +531,59 @@ export class AnalyticsService {
         });
       }
     });
+    return { buffer, model, truncated };
+  }
+
+  /**
+   * 多 sheet 工作簿（确定性、不调模型、不扣配额）：与报告共用同一份事实包。
+   * `reportId` 给了就挂到已有报告记录上；否则新建一条「仅表格」记录。
+   */
+  async workbook(
+    body: AnalyticsReportInput & { reportId?: string },
+    projectId: string,
+    user: JwtUser,
+  ) {
+    assertPermission(user, 'ai:use', '生成经营数据表格需要「使用 AI 助手」权限');
+    if (body?.reportId) return this.workbookFromRecord(String(body.reportId), user);
+    const plan = await this.plan(body || {}, projectId, user, { consumeQuota: false, useIntentLlm: false });
+    const now = new Date();
+    const range = resolvePresetPeriod(plan.intent.period.preset, now, {
+      from: plan.intent.period.from,
+      to: plan.intent.period.to,
+    });
+    if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
+    const cmpRange = compareRange(range, plan.intent.compare);
+    const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
+    const title = String(body?.title || analyticsTitle(plan.intent.reportKind, scopeLabel, periodLabel)).slice(0, 60);
+    const { buffer, model, truncated } = await this.workbookBuffer(facts);
 
     const fileName = `${title}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
     const saved = await this.storage.save(buffer, { sub: `ai-analytics/${projectId}`, ext: '.xlsx', name: fileName });
-    const warnings = [...facts.warnings];
+    const warnings = [...facts.warnings, ...truncated];
     const factsForStore = {
       ...facts,
       datasets: facts.datasets.map((d) => ({ ...d, rows: d.rows.slice(0, 200) })),
     };
     let id: string;
     try {
-      if (body?.reportId) {
-        await this.store.attachWorkbook(body.reportId, user, { key: saved.key, name: fileName, size: saved.size });
-        id = body.reportId;
-      } else {
-        const row = await this.store.create(
-          this.recordPayload({
-            projectId,
-            user,
-            plan,
-            facts,
-            range,
-            periodLabel,
-            title,
-            warnings,
-            factsForStore,
-            source: 'template',
-            markdown: null,
-            hasReport: false,
-            workbook: { key: saved.key, name: fileName, size: saved.size },
-          }),
-        );
-        id = row.id;
-      }
+      const row = await this.store.create(
+        this.recordPayload({
+          projectId,
+          user,
+          plan,
+          facts,
+          range,
+          periodLabel,
+          title,
+          warnings,
+          factsForStore,
+          source: 'template',
+          markdown: null,
+          hasReport: false,
+          workbook: { key: saved.key, name: fileName, size: saved.size },
+        }),
+      );
+      id = row.id;
     } catch {
       // DB 失败时把刚写的文件删掉，避免留下无主孤儿
       await this.storage.remove(saved.key).catch(() => undefined);
@@ -591,7 +596,34 @@ export class AnalyticsService {
       size: saved.size,
       sheets: model.map((s) => s.name),
       warnings,
-      reportId: body?.reportId ?? null,
+      reportId: null,
+    };
+  }
+
+  /**
+   * 从**已存档的报告记录**生成工作簿：不重新解析意图、不重新取数。
+   * 这样工作簿里的数字与历史 Markdown / factsJson 严格同源；
+   * 数据集权限由 `detail()` 再复核一次（权限被收回后同样 404）。
+   */
+  private async workbookFromRecord(reportId: string, user: JwtUser) {
+    const row = await this.store.detail(reportId, user, this.allowedDatasetKeys(user));
+    const facts = row.factsJson as unknown as AiAnalyticsFacts | null;
+    if (!facts || !Array.isArray(facts.datasets)) {
+      throw new BadRequestException('该记录没有可用的事实快照，请重新生成报告');
+    }
+    const title = String(row.title || '经营数据表格').slice(0, 60);
+    const { buffer, model, truncated } = await this.workbookBuffer(facts);
+    const fileName = `${title}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
+    const saved = await this.storage.save(buffer, { sub: `ai-analytics/${row.projectId}`, ext: '.xlsx', name: fileName });
+    const storedWarnings = Array.isArray(row.warningsJson) ? (row.warningsJson as string[]) : facts.warnings;
+    await this.store.attachWorkbook(reportId, user, { key: saved.key, name: fileName, size: saved.size });
+    return {
+      id: reportId,
+      fileName,
+      size: saved.size,
+      sheets: model.map((s) => s.name),
+      warnings: [...storedWarnings, ...truncated],
+      reportId,
     };
   }
 
@@ -608,6 +640,8 @@ export class AnalyticsService {
   }
 
   remove(id: string, user: JwtUser) {
+    // 控制器已有 ai:use 守卫；service 再校验一次，避免被其他内部调用绕过
+    assertPermission(user, 'ai:use', '删除经营数据记录需要「使用 AI 助手」权限');
     return this.store.remove(id, user);
   }
 

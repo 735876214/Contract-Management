@@ -10,7 +10,7 @@
  */
 
 import { round2 } from '../../../common/utils/money.ts';
-import { formatYuan as fmtYuan, changeRateText } from '../common/format.ts';
+import { formatYuan as fmtYuan, formatPct as fmtPct, changeRateText } from '../common/format.ts';
 import { auditNumbers, numbersInText } from '../report-facts.ts';
 import {
   AI_DATASETS,
@@ -57,6 +57,10 @@ export const AI_TOTAL_LABELS: Array<[keyof AiAnalyticsTotals, string]> = [
   ['invoicedYuan', '开票金额'],
   ['unpaidYuan', '应付未付'],
   ['uninvoicedYuan', '已结未开票'],
+  ['overdueYuan', '逾期利息'],
+  ['costSavingsYuan', '六项降本创效'],
+  ['assetInYuan', '资产进场金额'],
+  ['financeCostYuan', '保理费用'],
   ['dailyReports', '日报条数'],
   ['procurementTasks', '采购任务数'],
 ];
@@ -176,8 +180,6 @@ export function buildAnalyticsFacts(input: AnalyticsFactsInput): AiAnalyticsFact
     warnings: dedupe(warnings),
   };
 }
-
-const fmtPct = (v: number | null): string => (v === null ? '—' : `${v}%`);
 
 const deltaText = (now: number, prev: number | null): string => changeRateText(now, prev, { sign: true });
 

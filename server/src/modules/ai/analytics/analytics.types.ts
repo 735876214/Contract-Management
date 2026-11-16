@@ -25,7 +25,8 @@ export type AiScopeMode = 'current' | 'selected' | 'all';
 
 export type AiReportKind = 'monthly' | 'project' | 'brief' | 'custom' | 'comparison';
 
-export type AiGroupBy = 'project' | 'month' | 'supplier' | 'contract';
+/** 分组维度：当前只支持按项目汇总（其余维度不暴露，避免「可选但无效」的假选项） */
+export type AiGroupBy = 'project';
 
 export type AiDetailLevel = 'summary' | 'detail' | 'both';
 
@@ -116,6 +117,14 @@ export interface AiAnalyticsTotals {
   invoicedYuan: number;
   unpaidYuan: number;
   uninvoicedYuan: number;
+  /** 逾期利息（资金费用域） */
+  overdueYuan: number;
+  /** 六项降本创效（成本域） */
+  costSavingsYuan: number;
+  /** 进场金额（资产域；费用行只计金额、不混入数量） */
+  assetInYuan: number;
+  /** 保理费用（资金费用域） */
+  financeCostYuan: number;
   dailyReports: number;
   procurementTasks: number;
 }
@@ -132,6 +141,10 @@ export interface AiAnalyticsProjectFact {
   invoicedYuan: number;
   unpaidYuan: number;
   uninvoicedYuan: number;
+  overdueYuan: number;
+  costSavingsYuan: number;
+  assetInYuan: number;
+  financeCostYuan: number;
   dailyReports: number;
   procurementTasks: number;
 }
@@ -177,7 +190,7 @@ export const AI_PERIOD_PRESETS: readonly AiPeriodPreset[] = [
 export const AI_COMPARE_MODES: readonly AiCompareMode[] = ['none', 'mom', 'yoy'];
 export const AI_SCOPE_MODES: readonly AiScopeMode[] = ['current', 'selected', 'all'];
 export const AI_REPORT_KINDS: readonly AiReportKind[] = ['monthly', 'project', 'brief', 'custom', 'comparison'];
-export const AI_GROUP_BYS: readonly AiGroupBy[] = ['project', 'month', 'supplier', 'contract'];
+export const AI_GROUP_BYS: readonly AiGroupBy[] = ['project'];
 export const AI_DETAIL_LEVELS: readonly AiDetailLevel[] = ['summary', 'detail', 'both'];
 export const AI_FOCUSES: readonly AiFocus[] = [
   'payment_risk',

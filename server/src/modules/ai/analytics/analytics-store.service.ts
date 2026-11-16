@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { JwtUser } from '../../../common/decorators/user.decorator';
+import { endOfDay, parseLocalDay } from '../common/period';
 
 export interface CreateAnalyticsReportInput {
   projectId: string;
@@ -110,8 +111,10 @@ export class AnalyticsStore {
     if (query?.keyword) where.title = { contains: String(query.keyword), mode: 'insensitive' };
     if (query?.from || query?.to) {
       where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(`${query.from}T00:00:00`);
-      if (query.to) where.createdAt.lte = new Date(`${query.to}T23:59:59.999`);
+      const from = parseLocalDay(query.from);
+      const to = parseLocalDay(query.to);
+      if (from) where.createdAt.gte = from;
+      if (to) where.createdAt.lte = endOfDay(to);
     }
 
     const [total, list] = await Promise.all([
