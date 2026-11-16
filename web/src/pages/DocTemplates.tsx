@@ -9,6 +9,7 @@ import DocTemplateExcelField from '@/components/templates/DocTemplateExcelField'
 import DocVariablePanel from '@/components/templates/DocVariablePanel';
 import { PAYMENT_DOC_VAR_GROUPS, FINAL_SETTLEMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
 import { toFileUrl } from '@/utils/templateFile';
+import Can from '@/components/Can';
 
 /**
  * **分类 → 变量面板**：只给**已接生成路径**的分类提供变量清单
@@ -116,7 +117,9 @@ export default function DocTemplates() {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchList}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增单据模板</Button>
+          <Can code="template:edit">
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增单据模板</Button>
+          </Can>
         </Space>
       }
     >
@@ -187,16 +190,18 @@ export default function DocTemplates() {
             width: 150,
             fixed: 'right',
             render: (_v: any, row: any) => (
-              <Space size={4}>
-                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
-                  编辑
-                </Button>
-                <Popconfirm title="确认删除该单据模板？" onConfirm={() => remove(row)}>
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                    删除
+              <Can code="template:edit" fallback="-">
+                <Space size={4}>
+                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>
+                    编辑
                   </Button>
-                </Popconfirm>
-              </Space>
+                  <Popconfirm title="确认删除该单据模板？" onConfirm={() => remove(row)}>
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              </Can>
             ),
           },
         ]}

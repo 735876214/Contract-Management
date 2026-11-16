@@ -4,10 +4,11 @@ import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag
 import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
 import RichTextEditor from '@/components/RichTextEditor';
+import Can from '@/components/Can';
 // 条款类型常量抽到零依赖文件（`server/test/clauseSelection.spec.mts` 要直接加载它锁
 // "四个槽位 ↔ 四种条款类型"的对应关系；.tsx 进不了 .mts，见该常量文件的注释）
 import { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
-export { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL }; // 兼容旧引用（Contracts.tsx 从本页 import）
+export { CLAUSE_TYPE_OPTIONS, CLAUSE_TYPE_LABEL }; // 兼容旧引用；新代码请直接从 @/constants/clauseTypes 取
 
 /** 模板/条款内容可用变量占位符（按类别分组，供「插入变量」面板展示与搜索） */
 export interface VarItem {
@@ -150,11 +151,11 @@ export default function Clauses() {
               onChange={(v) => setFilterType(v)}
               options={CLAUSE_TYPE_OPTIONS}
             />
-            {canEdit && (
+            <Can code="template:edit">
               <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
                 新增条款
               </Button>
-            )}
+            </Can>
           </Space>
         }
       >

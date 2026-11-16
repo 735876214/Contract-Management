@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
-import { deriveLedgerAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
-import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
+import { deriveLedgerAmounts, deriveTaxSplit, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
+import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
@@ -66,7 +66,11 @@ export class LedgerService {
       }),
       this.prisma.dailyReport.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, entryDate: true } }),
       this.prisma.settlementLedger.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, settleMonth: true, monthSettleAmount: true } }),
-      this.prisma.settlement.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, actualAmount: true } }),
+      // 审定结算额 = 已提交（非草稿）结算单的实际结算金额；草稿不构成「已审定」
+      this.prisma.settlement.findMany({
+        where: { contractId: { in: contractIds }, ...notDraft },
+        select: { contractId: true, actualAmount: true, amount: true },
+      }),
       // 作废/红冲发票不计入「开累发票金额」（业务口径 2026-11-12；空状态历史票仍计入）
       this.prisma.invoice.findMany({
         where: { contractId: { in: contractIds }, ...countedInvoiceWhere() },
@@ -121,7 +125,8 @@ export class LedgerService {
       const ext: any = c.ext || {};
       const taxRate = num(c.taxRate);
       /** 合同额：未填（NULL/空串）时留 `null`，**不要**当成 0 —— 见 ledger-derived.ts 的口径说明 */
-      const amountFilled = c.amount !== null && c.amount !== undefined && c.amount !== '';
+      // 「是否已填」与全站同一判定（显式 0 算已填，空串/空白算未填）
+      const amountFilled = isFilledNumber(c.amount);
       const amount = amountFilled ? num(c.amount) : null;
 
       // 供应材料：来自合同物资清单
@@ -133,11 +138,20 @@ export class LedgerService {
 
       // 开累结算金额：结算台账「本月结算额」之和
       const cumSettleAmount = (ledgerMap[c.id] || []).reduce((s, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
-      // 审定结算额：结算单实际结算金额之和
-      const auditedSettleAmount = (settleMap[c.id] || []).reduce((s, x: any) => s + (num(x.actualAmount) || 0), 0);
-      // 开累税前结算金额 = 含税 / (1 + 税率)
-      const cumSettleBeforeTax = taxRate ? Number((cumSettleAmount / (1 + taxRate)).toFixed(2)) : cumSettleAmount;
-      const cumInputTax = Number((cumSettleAmount - cumSettleBeforeTax).toFixed(2));
+      // 审定结算额：非草稿结算单的实际结算金额（缺失时回退合同额，与 chainSettledTotal 同口径）
+      const auditedSettleAmount = (settleMap[c.id] || []).reduce(
+        (s, x: any) => s + (num(x.actualAmount ?? x.amount) || 0),
+        0,
+      );
+      // 送审结算额（同口径、非草稿）：审减额 = 送审 − 审定，两边必须同一口径
+      const submittedSettleAmount = (settleMap[c.id] || []).reduce(
+        (s, x: any) => s + (num(x.amount ?? x.actualAmount) || 0),
+        0,
+      );
+      // 开累税前结算金额 / 进项税：税率未填 → 两列都留 null（不要兜成 0%），显式 0 参与计算
+      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRate);
+      const cumSettleBeforeTax = taxSplit.beforeTax;
+      const cumInputTax = taxSplit.inputTax;
       const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
       const cumPaidAmount = (payMap[c.id] || []).reduce((s, p: any) => s + (num(p.amount) || 0), 0);
 
@@ -166,6 +180,8 @@ export class LedgerService {
         id: c.id,
         index: idx + 1,
         contractCode: c.code,
+        // 归档为单向终态（业务 2026-10-18）：合并后的台账列表据此禁用「编辑 / 删除」
+        archivedAt: c.archivedAt,
         financeCode: ext.financeCode,
         supplierName: sup.name,
         materialNames,
@@ -186,6 +202,8 @@ export class LedgerService {
         currentPayRatio: num(ext.currentPayRatio),
         paymentMethod: payMethodMap[c.paymentMethodCode]?.name || c.paymentMethodCode || '',
         isSupplement: yesNoMap[c.isSupplement]?.name || c.isSupplement || '',
+        /** 链根 id：汇总「合同额」时按链去重（与 contract-chain 的链定义同源，不看 isSupplement 字典值） */
+        chainRootId: chain.rootId,
         supplementType: supTypeMap[c.supplementTypeCode]?.name || c.supplementTypeCode || '',
         bidStartDate: fmtDate(ext.bidStartDate),
         bidWinDate: fmtDate(ext.bidWinDate),
@@ -196,7 +214,7 @@ export class LedgerService {
         complaint: ext.complaint,
         cumSettleAmount: Number(cumSettleAmount.toFixed(2)),
         auditedSettleAmount: Number(auditedSettleAmount.toFixed(2)),
-        cumSettleBeforeTax: Number(cumSettleBeforeTax.toFixed(2)),
+        cumSettleBeforeTax,
         cumInputTax,
         cumInvoiceAmount: Number(cumInvoiceAmount.toFixed(2)),
         cumPaidAmount: Number(cumPaidAmount.toFixed(2)),
@@ -211,7 +229,8 @@ export class LedgerService {
           auditedSettleAmount,
           payRatio: ext.currentPayRatio,
         }),
-        settleReduceAmount: Number((auditedSettleAmount - cumSettleAmount).toFixed(2)),
+        // 审减额 = 送审 − 审定（同一口径、均排除草稿）；不能再拿「含草稿的开累结算」相减
+        settleReduceAmount: Number((submittedSettleAmount - auditedSettleAmount).toFixed(2)),
         yearSettle,
         yearPaid,
       };
@@ -271,17 +290,26 @@ export class LedgerService {
   async summary(projectId: string) {
     const list = await this.allRows(projectId);
     const sumBy = (key: string) => list.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+    /** 按链根去重后的金额表：同一链上的主合同/补充协议行只留一条 */
+    const rootAmounts = chainRootAmounts(
+      list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),
+    );
     return {
       contractCount: list.length,
       /**
-       * 未填合同额的条数：汇总卡片里的金额是"**已知部分的合计**"，
+       * 未填合同额的**链**数：汇总卡片里的金额是"**已知部分的合计**"，
        * 未填金额的合同按 0 参与求和（合同额未知，无从计入）。
        * 不把这件事说出来的话，总额会看起来是完整的——前端据此显示"另有 N 份未填金额"。
        * 口径见 common/utils/ledger-derived.ts。
        */
-      // 复用同一口径的判定（显式填 0 不算"未填"）
-      amountMissingCount: list.filter((r) => !isFilledNumber(r.amount)).length,
-      contractAmount: Number(sumBy('amount').toFixed(2)),
+      amountMissingCount: [...rootAmounts.values()].filter((v) => v === null).length,
+      /**
+       * 合同额合计：**每条合同链只计一次**（主合同行的 `currentAmount` = 主合同 + Σ changeAmount）。
+       * 不能 `sumBy('amount')`——补充协议行的 amount 是自由值，逐行相加会重复计入。
+       */
+      contractAmount: chainContractTotal(
+        list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),
+      ),
       settleAmount: Number(sumBy('cumSettleAmount').toFixed(2)),
       invoiceAmount: Number(sumBy('cumInvoiceAmount').toFixed(2)),
       paidAmount: Number(sumBy('cumPaidAmount').toFixed(2)),
@@ -322,6 +350,14 @@ export class LedgerService {
     const list = await this.allRows(projectId);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const years = this.exportYears(list);
+    /** 合同额合计按链只计一次；逐行 SUBTOTAL 会把补充协议行（整链值）再加一遍 */
+    const chainTotal = chainContractTotal(
+      list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),
+    );
+    /** 有结算但税率未填的行：税前/进项税是 null（未知），合计只含已知部分，必须在标题里说清 */
+    const taxMissingCount = list.filter(
+      (r) => Number(r.cumSettleAmount) > 0 && r.cumSettleBeforeTax === null,
+    ).length;
     const rows = list.map((r) => ({
       ...r,
       settleRatioPct: r.settleRatio !== null && r.settleRatio !== undefined ? r.settleRatio / 100 : null,
@@ -332,7 +368,9 @@ export class LedgerService {
     const buffer = await this.styled.exportTable({
       sheetName: '合同台账',
       logoColumn: true,
-      title: `合同台账（${project?.name || ''}）`,
+      title: `合同台账（${project?.name || ''}）${
+        taxMissingCount ? `（另有 ${taxMissingCount} 行有结算但未填税率，税前/进项税合计不含）` : ''
+      }`,
       columns: [
         { header: '序号', key: 'index', width: 60, type: 'int' },
         { header: '合同编号', key: 'contractCode', width: 260 },
@@ -380,10 +418,13 @@ export class LedgerService {
       ],
       rows,
       totalsKeys: [
-        'amount', 'cumSettleAmount', 'auditedSettleAmount', 'cumSettleBeforeTax', 'cumInputTax',
+        // 合同额**不做逐行合计**：补充协议行的 amount 是自由值，相加会重复计入；
+        // 正确的项目合计由 totalsValues.amount 显式写入（每条链只计一次）
+        'cumSettleAmount', 'auditedSettleAmount', 'cumSettleBeforeTax', 'cumInputTax',
         'cumInvoiceAmount', 'cumPaidAmount', 'payableAmount', 'unpaidAmount', 'debt100', 'settleReduceAmount',
         ...years.map((y) => `yearSettle${y}`), ...years.map((y) => `yearPaid${y}`),
       ],
+      totalsValues: { amount: chainTotal },
       totalsLabel: '汇总',
     });
     return buffer;

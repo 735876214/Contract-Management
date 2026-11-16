@@ -9,6 +9,7 @@ import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 
 const COLORS = ['blue', 'green', 'red', 'orange', 'gold', 'cyan', 'purple', 'magenta', 'volcano', 'geekblue', 'default'];
 
@@ -174,7 +175,7 @@ export default function Dict() {
                 </Tooltip>
                 <Space size={4}>
                   <Tag>{t.itemCount ?? 0}</Tag>
-                  {canEdit && (
+                  <Can code={['dict:edit', 'system:config']}>
                     <Button
                       type="link"
                       size="small"
@@ -187,7 +188,7 @@ export default function Dict() {
                     >
                       编辑
                     </Button>
-                  )}
+                  </Can>
                 </Space>
               </div>
             ))}
@@ -212,7 +213,7 @@ export default function Dict() {
               <Button icon={<ReloadOutlined />} onClick={() => currentType && loadItems(currentType.code)} disabled={!currentType}>
                 刷新
               </Button>
-              {canEdit && (
+              <Can code={['dict:edit', 'system:config']}>
               <Button
                 icon={<ImportOutlined />}
                 disabled={!currentType}
@@ -274,7 +275,7 @@ export default function Dict() {
               >
                 导入
               </Button>
-              )}
+              </Can>
               <Button
                 icon={<ExportOutlined />}
                 disabled={!currentType}
@@ -282,7 +283,7 @@ export default function Dict() {
               >
                 导出
               </Button>
-              {canEdit && (
+              <Can code={['dict:edit', 'system:config']}>
                 <Button
                   type="primary"
                   icon={<PlusOutlined />}
@@ -296,7 +297,7 @@ export default function Dict() {
                 >
                   新增字典项
                 </Button>
-              )}
+              </Can>
             </Space>
           }
         >

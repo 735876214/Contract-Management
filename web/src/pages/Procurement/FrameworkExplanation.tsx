@@ -781,7 +781,7 @@ export default function FrameworkExplanation() {
         onEdit={editRow}
         onDelete={handleDeleteModule}
         emptyText="暂无数据（仅「引用框架协议」类型的采购任务可使用框架协议事前说明模块）"
-        rowMenuItems={(row) => {
+        rowMenuItems={(row, { canEdit }) => {
           const published = moduleStatusOf(row).value === 'PUBLISHED';
           return published
             ? [
@@ -794,7 +794,7 @@ export default function FrameworkExplanation() {
                   ),
                   onClick: () => handleRowExport(row),
                 },
-                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+                ...(canEdit ? [{ key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) }] : []),
               ]
             : [];
         }}

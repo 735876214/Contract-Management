@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deriveLedgerAmounts,
+  deriveTaxSplit,
+  chainContractTotal,
   isFilledNumber,
   ratioPctOrNull,
 } from '../src/common/utils/ledger-derived.ts';
@@ -138,5 +140,41 @@ describe('台账派生口径的两个小工具', () => {
     assert.equal(ratioPctOrNull(5, 0), null);
     assert.equal(ratioPctOrNull(5, 10), 50);
     assert.equal(ratioPctOrNull(0, 10), 0);
+  });
+});
+
+describe('台账税率拆分与合同额合计（链口径）', () => {
+  it('税率未填 → 税前/进项税都是 null（不兜成 0%）；显式 0 照常参与计算', () => {
+    assert.deepEqual(deriveTaxSplit(113000, null), { beforeTax: null, inputTax: null });
+    assert.deepEqual(deriveTaxSplit(113000, ''), { beforeTax: null, inputTax: null });
+    assert.deepEqual(deriveTaxSplit(113000, 0), { beforeTax: 113000, inputTax: 0 });
+    assert.deepEqual(deriveTaxSplit(113000, 0.13), { beforeTax: 100000, inputTax: 13000 });
+  });
+
+  it('合同额合计：同一链只计一次（按链根，不看 isSupplement 标志）', () => {
+    // 主合同 100 万 + 补充协议 changeAmount +5 万 → 主合同行 currentAmount 105 万；
+    // 补充协议行即便填了自由 amount 20 万，也不得再相加
+    const total = chainContractTotal([
+      { id: 'main', rootId: 'main', currentAmount: 1050000 },
+      { id: 'sup', rootId: 'main', currentAmount: 1050000 },
+    ]);
+    assert.equal(total, 1050000, '链金额只取一次');
+    // 即使 isSupplement 标志缺失（历史/导入不一致），只要有 parentContractId 就归到同一个 root
+    assert.equal(
+      chainContractTotal([
+        { id: 'main', rootId: 'main', currentAmount: 1050000 },
+        { id: 'sup-broken-flag', rootId: 'main', currentAmount: 1050000 },
+      ]),
+      1050000,
+      '判据只看链根，标志漂移不会重复计入',
+    );
+    assert.equal(
+      chainContractTotal([
+        { id: 'a', rootId: null, currentAmount: null },
+        { id: 'b', rootId: 'b', currentAmount: null },
+      ]),
+      0,
+      '主合同未填金额按未知处理（不计入），但也不能报错',
+    );
   });
 });

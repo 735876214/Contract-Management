@@ -5,9 +5,16 @@ import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/utils/money';
 import { assertPermission } from '../../common/utils/assert-permission';
-import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
-import { notDraft } from '../../common/utils/contract-chain';
+import {
+  countDailyReports,
+  loadContractChainFacts,
+  loadContractExecStatuses,
+  loadInvoiceFacts,
+  loadPaymentFacts,
+  loadProjectHeader,
+  loadSettlementFacts,
+} from '../../query';
 import { AiQuota } from './ai-quota';
 import { aiModelFor, type AiConfig } from './ai-config';
 import { AiSettingService } from './ai-setting.service';
@@ -304,42 +311,26 @@ export class ReportService {
     /** 本地 `YYYY-MM`（付款只有账期、没有付款日时的兜底口径） */
     const monthOf = (d: Date): string => localMonthKey(d);
     const [signed, settlements, payments, invoices, daily] = await Promise.all([
-      this.prisma.contract.findMany({
-        where: { projectId, signDate: { gte: from, lte: to } },
-        // parentContractId 决定取哪个金额字段：主合同取 amount，补充协议只能取带符号的 changeAmount
-        select: { amount: true, changeAmount: true, parentContractId: true },
-      }),
+      loadContractChainFacts(this.prisma, [projectId], { signDate: { from, to } }),
       /**
        * 归期用**业务日期**而非 `createdAt`：结算按 `settleDate`（与台账/超结闸门同口径），
        * 补录/搬月的历史单据按账期落到它真正所属的区间；按创建时间归期会让
        * 「本期结算额」既漏（后补的单）又串（补的是上月账）。
        */
-      this.prisma.settlement.findMany({
-        where: { projectId, settleDate: { gte: from, lte: to }, ...notDraft },
-        select: { amount: true, actualAmount: true },
-      }),
+      loadSettlementFacts(this.prisma, [projectId], { range: { from, to }, excludeDraft: true }),
       /**
        * 付款：有 `payDate` 按日期；只有账期（`payMonth`）的付款按月份纳入
        * （付款记录的 payDate 非必填，只看 payDate 会把它们整批漏计，而台账/预警都算它们）。
        */
-      this.prisma.paymentRecord.findMany({
-        where: {
-          projectId,
-          ...paidPaymentWhere(),
-          OR: [
-            { payDate: { gte: from, lte: to } },
-            { payDate: null, payMonth: { gte: monthOf(from), lte: monthOf(to) } },
-          ],
-        },
-        select: { amount: true },
+      loadPaymentFacts(this.prisma, [projectId], {
+        range: { from, to },
+        excludeFailed: true,
+        payMonthRange: { gte: monthOf(from), lte: monthOf(to) },
       }),
       // 本期开票只统计有效发票（作废/红冲不计入，空状态历史票计入）
-      this.prisma.invoice.findMany({
-        where: { projectId, invoiceDate: { gte: from, lte: to }, ...countedInvoiceWhere() },
-        select: { amountWithTax: true },
-      }),
+      loadInvoiceFacts(this.prisma, [projectId], { range: { from, to }, excludeTerminal: true }),
       // 日报按**进场日期**（业务日期）归期，与结算生成/归档检查同一口径
-      this.prisma.dailyReport.count({ where: { projectId, entryDate: { gte: from, lte: to } } }),
+      countDailyReports(this.prisma, projectId, { from, to }),
     ]);
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
       round2(rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0));
@@ -368,22 +359,12 @@ export class ReportService {
     current: { from: Date; to: Date },
     compare: { from: Date; to: Date },
   ): Promise<ReportFacts> {
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId },
-      select: {
-        name: true,
-        code: true,
-        projectManager: true,
-        startDate: true,
-        endDate: true,
-        selfContractAmount: true,
-      },
-    });
+    const project = await loadProjectHeader(this.prisma, projectId);
     if (!project) throw new BadRequestException('项目不存在');
 
     const [stats, contracts, now, prev] = await Promise.all([
       this.resolver.projectStats(projectId),
-      this.prisma.contract.findMany({ where: { projectId }, select: { execStatus: true } }),
+      loadContractExecStatuses(this.prisma, projectId),
       this.windowNumbers(projectId, current.from, current.to),
       this.windowNumbers(projectId, compare.from, compare.to),
     ]);

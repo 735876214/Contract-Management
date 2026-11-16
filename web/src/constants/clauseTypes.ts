@@ -4,13 +4,14 @@
  * 为什么抽出来：条款类型原本定义在 `pages/Clauses.tsx` 里，而 `.tsx`（JSX）**永远**进不了
  * `.mts` 单测（Node 类型擦除不支持 JSX，见 `.claude/rules/testing.md`）；
  * 后端条款快照逻辑要锁"四个槽位 ↔ 四种条款类型一一对应"，就必须能加载这份常量。
- * `Clauses.tsx` 与 `Contracts.tsx` 从这里 re-export，行为不变。
+ * `Clauses.tsx` 从这里 re-export，行为不变；**组件请直接 import 本文件**——
+ * 从页面模块取常量会把整个页面拖进调用方的 chunk，破坏路由懒加载。
  */
 
 /** 条款类型（与后端 `Clause.type` 一致）：technical 技术条款 / quality 质量条款 / payment 付款条件 / acceptance 验收方式 */
 export type ClauseType = 'technical' | 'quality' | 'payment' | 'acceptance';
 
-/** 类型下拉选项（`Clauses.tsx` 的新增/编辑弹窗与筛选用；`Contracts.tsx` 的四个条款下拉用） */
+/** 类型下拉选项（`Clauses.tsx` 的新增/编辑弹窗与筛选、合同编辑器四个条款下拉用） */
 export const CLAUSE_TYPE_OPTIONS: { value: ClauseType; label: string }[] = [
   { value: 'technical', label: '技术条款' },
   { value: 'quality', label: '质量条款' },

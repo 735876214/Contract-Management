@@ -2,10 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/utils/helpers';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
-import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
-import { notDraft } from '../../common/utils/contract-chain';
+import {
+  loadContractChainFacts,
+  loadContractForFields,
+  loadDomainScalars,
+  loadInvoiceFacts,
+  loadPaymentFacts,
+  loadProjectFacts,
+  loadSettlementFacts,
+  loadSupplierById,
+} from '../../query';
 import { DatasetCollector } from './analytics/dataset-collector.service';
-import { endOfDay, parseLocalDay } from './common/period';
+import { endOfDay, localMonthKey, parseLocalDay } from './common/period';
 
 /**
  * AI 字段取值器：把「字段目录里的 key」翻译成**当前项目/合同下的真实值**。
@@ -82,17 +90,12 @@ export class FieldResolverService {
     const out: Record<string, string> = {};
     if (!wanted.size) return out;
 
-    const project = await this.prisma.project.findFirst({ where: { id: ctx.projectId } });
+    const project = await loadProjectFacts(this.prisma, ctx.projectId);
     const contract = ctx.contractId
-      ? await this.prisma.contract.findFirst({
-          where: { id: ctx.contractId, projectId: ctx.projectId },
-          include: { ext: true },
-        })
+      ? await loadContractForFields(this.prisma, ctx.contractId, ctx.projectId)
       : null;
     const supplierId = ctx.supplierId || contract?.supplierId || null;
-    const supplier = supplierId
-      ? await this.prisma.supplier.findFirst({ where: { id: supplierId } })
-      : null;
+    const supplier = supplierId ? await loadSupplierById(this.prisma, supplierId) : null;
 
     // ---- 惰性加载：只在真的用到了才查 ----
     let industryDict: DictMap | null = null;
@@ -207,6 +210,36 @@ export class FieldResolverService {
         put('cross.unpaidAmount', money(totals.unpaidYuan));
         put('cross.uninvoicedAmount', money(totals.uninvoicedYuan));
       }
+
+      // 注意：下面的业务域标量不依赖 period/cross 字段，单独判断
+    }
+
+    // ---------- 台账 / 成本 / 采购 / 资产 / 日报 标量 ----------
+    // 口径与查询集中在 `query/ai-fact-queries.ts` 的 loadDomainScalars()，这里只做展示换算
+    const domainKeys = [...wanted].filter((k) => /^(ledger|cost|procurement|asset|daily)\./.test(k));
+    if (domainKeys.length) {
+      const ids = ctx.scope?.projectIds?.length ? ctx.scope.projectIds : [ctx.projectId];
+      const now = new Date();
+      const from = parseLocalDay(ctx.period?.from) ?? new Date(now.getFullYear(), now.getMonth(), 1);
+      const toEnd = endOfDay(parseLocalDay(ctx.period?.to) ?? now);
+      const s = await loadDomainScalars(this.prisma, {
+        projectIds: ids,
+        dateRange: { gte: from, lte: toEnd },
+        monthRange: { gte: localMonthKey(from), lte: localMonthKey(toEnd) },
+      });
+      const qtyText = (v: unknown): string => {
+        const n = Number(v);
+        return Number.isFinite(n) ? String(Math.round(n * 10000) / 10000) : '';
+      };
+      put('ledger.settleMonthCount', count(s.ledgerMonthCount));
+      put('ledger.cumPurchaseAmount', money(s.ledgerCumPurchaseAmount));
+      put('cost.profitLossCount', count(s.profitLossCount));
+      put('cost.sixSavingsAmount', money(s.sixSavingsAmount));
+      put('procurement.taskCount', count(s.procurementTaskCount));
+      put('asset.originalTotalAmount', money(s.assetOriginalTotal));
+      put('asset.inQty', qtyText(s.assetInQty));
+      put('daily.reportCount', count(s.dailyReportCount));
+      put('daily.confirmedReportCount', count(s.dailyConfirmedReportCount));
     }
 
     return out;
@@ -239,10 +272,7 @@ export class FieldResolverService {
      * 重复计入 **N+1 次**，汇报材料里的「累计合同金额」成倍虚高。
      * 改为一次取全项目合同行，按链根求和（同时消掉逐合同查库的 N+1）。
      */
-    const chainRows = await this.prisma.contract.findMany({
-      where: { projectId },
-      select: { id: true, parentContractId: true, amount: true, changeAmount: true },
-    });
+    const chainRows = await loadContractChainFacts(this.prisma, [projectId]);
     let contractAmountTotal = 0;
     for (const root of chainRows.filter((c) => !c.parentContractId)) {
       const amount = resolveChainAmounts(chainRows as any, root.id).currentAmount;
@@ -250,18 +280,9 @@ export class FieldResolverService {
     }
 
     const [settlements, payments, invoices] = await Promise.all([
-      this.prisma.settlement.findMany({
-        where: { projectId, ...notDraft },
-        select: { amount: true, actualAmount: true },
-      }),
-      this.prisma.paymentRecord.findMany({
-        where: { projectId, ...paidPaymentWhere() },
-        select: { amount: true },
-      }),
-      this.prisma.invoice.findMany({
-        where: { projectId, ...countedInvoiceWhere() },
-        select: { amountWithTax: true },
-      }),
+      loadSettlementFacts(this.prisma, [projectId], { excludeDraft: true }),
+      loadPaymentFacts(this.prisma, [projectId], { excludeFailed: true }),
+      loadInvoiceFacts(this.prisma, [projectId], { excludeTerminal: true }),
     ]);
 
     const sum = (rows: any[], pick: (r: any) => unknown): number =>

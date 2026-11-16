@@ -244,6 +244,12 @@ export class SettlementService {
   }
 
   async create(data: any, projectId: string, tx?: TxClient) {
+    /**
+     * 状态缺省为**草稿**：`Settlement.statusCode` 可空，而 `isDraft(null)` 会把空状态当草稿
+     * 跳过防超结闸门、`notDraft` 又把 NULL 当非草稿计入累计/审定 —— 两边相反，
+     * 不传状态就能"不计闸门但计入已结"。新写入一律落一个明确状态，NULL 只留给历史数据。
+     */
+    data = { ...data, statusCode: data.statusCode ?? SETTLEMENT_STATUS.DRAFT };
     await this.lock.assertWritable(data.contractId, '新增结算单');
     // 引用合同必须属于当前项目（防 projectId=A、contractId=B 的跨项目串数据）
     await this.scope.assertContractInProject(data.contractId, projectId, '合同');
@@ -302,6 +308,9 @@ export class SettlementService {
 
   async update(id: string, data: any, projectId?: string) {
     const before = await this.findOne(id, projectId);
+    // 显式传 null = "不改状态"：空状态会让 isDraft / notDraft 给出相反结论，新写入不允许落 NULL
+    data = { ...data };
+    if (data.statusCode === null) delete data.statusCode;
     assertVersion(before, data);
     await this.lock.assertWritable(before.contractId, '修改结算单');
     if (data.contractId) {
@@ -438,8 +447,10 @@ export class SettlementService {
    * 任务 7：结算驳回 → 回填（回退到「草稿」状态，可重新编辑提交）。
    * 纯状态回退；仅「已确认 / 已开票 / 已付款 / 已完成」等已提交状态可驳回。
    */
-  async reject(id: string, projectId?: string) {
+  async reject(id: string, projectId?: string, version?: number) {
     const before: any = await this.findOne(id, projectId);
+    // 与 update 同语义：前端带回列表/详情里的 version 时必须一致（并发编辑 → 409）
+    if (version !== undefined) assertVersion(before, { version });
     await this.lock.assertWritable(before.contractId, '驳回结算单');
     // 状态机守卫（单一事实源）：仅已提交（待确认及之后）可驳回回填，草稿不可重复驳回
     assertSettlementRejectable(before.statusCode);
@@ -514,9 +525,10 @@ export class SettlementService {
         where: {
           AND: [
             settlementId
-              ? // 已挂本行的发票必须同时属于本合同：结算单改过合同后遗留的旧关联
-                // 不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
-                { OR: [{ settlementId, contractId }, { contractId, settlementId: null }] }
+              ? // 已挂本行的发票必须同时属于本合同（或历史/手填时**未挂合同**的发票——
+                // `assertLinkable` 在合同为空时放行，不能因为本次防御把这类票静默漏计）；
+                // 结算单改过合同后遗留的旧关联不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
+                { OR: [{ settlementId, OR: [{ contractId }, { contractId: null }] }, { contractId, settlementId: null }] }
               : { contractId, settlementId: null },
             countedInvoiceWhere(),
           ],
@@ -824,7 +836,9 @@ export class SettlementService {
     const list: any[] = await this.prisma.settlement.findMany({
       where: { contractId },
       select: { id: true, settleDate: true },
-      orderBy: { createdAt: 'asc' },
+      // ⚠️ 必须与 computeLedgerAutoFields / linkOrphansForContract 同一选单规则（settleDate desc, id desc）：
+      // 历史同期多张时，自动挂发票的那张要与台账认的那张是同一张，否则发票不计入本月开票额（P1-4）
+      orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
     });
     return list.find((s) => periodKeyOf(startDay, s.settleDate) === want)?.id ?? null;
   }
@@ -848,7 +862,12 @@ export class SettlementService {
       select: { id: true, projectId: true, contractId: true, settleDate: true, code: true },
     });
     if (!s || s.projectId !== projectId) throw new NotFoundException('结算单不存在');
-    if (opts.contractId && s.contractId && s.contractId !== opts.contractId) {
+    // 合同必须**完全一致**：一贯为 null（无合同单据 ↔ 无合同结算单）才放行。
+    // 一边有合同、一边没有同样拒绝——否则发票会挂到别合同的结算单上，
+    // 台账按 `{ settlementId, contractId }` 归集时它就会从本合同的开票额里消失。
+    const mineContract = opts.contractId ?? null;
+    const settlementContract = s.contractId ?? null;
+    if (mineContract !== settlementContract) {
       throw new BadRequestException(`该结算单不属于本${opts.label}的合同，无法关联。`);
     }
     const startDay = await this.startDayOf(projectId);
@@ -915,13 +934,19 @@ export class SettlementService {
         const sid = i.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, invoiceDate(i));
-        // 结算期不符，或发票根本不属于本合同（结算单换过合同后留下的陈旧关联）→ 解绑
-        return Boolean(period && own && own !== period) || i.contractId !== contractId;
+        // 结算期不符，或发票属于**别的**合同（结算单换过合同后留下的陈旧关联）→ 解绑。
+        // ⚠️ `contractId` 可空（历史/手填发票）：空合同的已挂发票不能因本合同刷新被误解绑。
+        return Boolean(period && own && own !== period) || Boolean(i.contractId && i.contractId !== contractId);
       })
       .map((i: any) => i.id);
     let detached = 0;
     if (staleInv.length) {
-      detached += (await db.invoice.updateMany({ where: { id: { in: staleInv } }, data: { settlementId: null } })).count;
+      detached += (
+        await db.invoice.updateMany({
+          where: { id: { in: staleInv }, projectId: contract.projectId },
+          data: { settlementId: null },
+        })
+      ).count;
     }
     const linkedRo: any[] = await db.receiptOrder.findMany({
       where: { settlementId: { in: linkedIds } },
@@ -932,12 +957,18 @@ export class SettlementService {
         const sid = r.settlementId;
         const period = [...periodOf.entries()].find(([, id]) => id === sid)?.[0];
         const own = periodKeyOf(startDay, r.orderDate);
-        // 同发票：结算期不符或收领单不属于本合同 → 解绑
-        return Boolean(period && own && own !== period) || r.materialContractId !== contractId;
+        // 同发票：结算期不符或收领单不属于本合同 → 解绑；
+        // `materialContractId` 可空（历史/手工单）的已挂收领单不能因本合同刷新被误解绑
+        return Boolean(period && own && own !== period) || Boolean(r.materialContractId && r.materialContractId !== contractId);
       })
       .map((r: any) => r.id);
     if (staleRo.length) {
-      detached += (await db.receiptOrder.updateMany({ where: { id: { in: staleRo } }, data: { settlementId: null } })).count;
+      detached += (
+        await db.receiptOrder.updateMany({
+          where: { id: { in: staleRo }, projectId: contract.projectId },
+          data: { settlementId: null },
+        })
+      ).count;
     }
 
     // ② 挂载：未关联 + 与本合同同期
@@ -1307,6 +1338,8 @@ export class SettlementService {
    */
   async createLedger(data: any, projectId: string, tx?: TxClient, opts?: { fromImport?: boolean }) {
     const db: any = tx || this.prisma;
+    // 归档锁定：台账也是结算域的写入口（与结算单 create/update/remove 同口径）
+    await this.lock.assertWritable(data.contractId, '新增结算台账');
     if (!opts?.fromImport) this.assertLedgerWritable(data);
     // 结算月份同样按字符串精确匹配（台账按月列、自动抓取结算单/开票额都按它），格式错会静默对不上
     assertYearMonth(data.settleMonth, '结算月份');
@@ -1358,6 +1391,24 @@ export class SettlementService {
 
   async updateLedger(id: string, data: any, projectId?: string) {
     const old = await this.ledgerOne(id, projectId);
+    // 归档锁定：与原合同、目标合同都要校验（改合同时两边都受影响）
+    await this.lock.assertWritable(old.contractId, '修改结算台账');
+    if (data.contractId && data.contractId !== old.contractId) {
+      await this.lock.assertWritable(data.contractId, '修改结算台账');
+    }
+    /**
+     * 已挂结算单的行是**自动维护的 1:1 行**：改它的合同/月份会让结算单失去 `ledgerEntry`、
+     * 旧合同该月行不再刷新（与 removeLedger 的 400 同一个理由）。要调整先处理结算单。
+     */
+    if (old.settlementId && (data.contractId !== undefined || data.settleMonth !== undefined)) {
+      const changingContract = data.contractId !== undefined && data.contractId !== old.contractId;
+      const changingMonth = data.settleMonth !== undefined && data.settleMonth !== old.settleMonth;
+      if (changingContract || changingMonth) {
+        throw new BadRequestException(
+          '该台账行由结算单自动维护（台账行与结算单 1:1），不能改合同或结算月份；请先处理对应结算单，或使用「刷新台账」重算。',
+        );
+      }
+    }
     assertVersion(old, data);
     await this.assertLedgerWritable(data);
     assertYearMonth(data.settleMonth, '结算月份');
@@ -1406,7 +1457,19 @@ export class SettlementService {
   }
 
   async removeLedger(id: string, projectId?: string) {
-    await this.ledgerOne(id, projectId);
+    const row = await this.ledgerOne(id, projectId);
+    // 归档锁定：台账删除同样属于结算域的写操作
+    await this.lock.assertWritable(row.contractId, '删除结算台账');
+    /**
+     * 已关联结算单的行由 `syncLedgerByContract()` 自动维护（台账行与结算单 1:1）：
+     * 直接删掉会让结算单丢了 `ledgerEntry`，下次刷新又被重建——"删了又回来"比报错更让人困惑。
+     * 仅费用行（`settlementId = null`）仍可手工删除。
+     */
+    if (row.settlementId) {
+      throw new BadRequestException(
+        '该台账行对应的结算单仍在（台账行与结算单 1:1），不能直接删除；请先处理结算单，或使用「刷新台账」重算。',
+      );
+    }
     await this.prisma.settlementLedger.delete({ where: { id } });
     return true;
   }

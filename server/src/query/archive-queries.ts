@@ -13,7 +13,8 @@ import { notDraft } from '../common/utils/contract-chain';
  * 约定：
  * - 只读，不写、不开事务；
  * - 每个函数都显式带 `projectId`（项目隔离铁律）；
- * - 返回**扁平化**的字段，调用方（归档命名/导出）不需要再关心表结构。
+ * - 返回**显式 select 的扁平形状**（不返回 Prisma 关联对象图，调用方不必关心表结构）；
+ *   少数按 id 取单行的函数（如 `archiveProject`）返回该行本身。
  */
 
 const projectSelect = {
@@ -150,28 +151,26 @@ export function archiveMonthlyProfitLoss(prisma: PrismaClient, projectId: string
   });
 }
 
-/** 合同 + 保理/逾期费用条数（决定是否产出对应工作簿） */
+/** 合同 + 保理/逾期费用条数（决定是否产出对应工作簿）；用 `_count` 一次取回，避免逐合同 N+1 */
 export async function archiveContractsWithFinance(prisma: PrismaClient, projectId: string) {
-  const contracts = await prisma.contract.findMany({
+  const rows = await prisma.contract.findMany({
     where: { projectId },
-    select: { id: true, code: true, name: true, supplier: { select: { name: true } } },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      supplier: { select: { name: true } },
+      _count: { select: { factoringCosts: true, overdueInterests: true } },
+    },
   });
-  const out = [];
-  for (const c of contracts) {
-    const [factoring, overdue] = await Promise.all([
-      prisma.factoringCost.count({ where: { contractId: c.id } }),
-      prisma.overdueInterest.count({ where: { contractId: c.id } }),
-    ]);
-    out.push({
-      id: c.id,
-      code: c.code,
-      name: c.name,
-      supplierName: c.supplier?.name ?? null,
-      factoringCount: factoring,
-      overdueCount: overdue,
-    });
-  }
-  return out;
+  return rows.map((c) => ({
+    id: c.id,
+    code: c.code,
+    name: c.name,
+    supplierName: c.supplier?.name ?? null,
+    factoringCount: c._count.factoringCosts,
+    overdueCount: c._count.overdueInterests,
+  }));
 }
 
 /** 分包授权台账（签章授权书归档用） */

@@ -19,6 +19,7 @@ import { repaymentApi } from '@/api/modules';
 import { supplierApi, contractApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import EditorTabPage from '@/components/editor/EditorTabPage';
+import Can from '@/components/Can';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 
@@ -65,11 +66,11 @@ function RepaymentList({ suppliers }: { suppliers: any[] }) {
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(repaymentApi.exportUrl()))}>
             导出
           </Button>
-          {canEdit && (
+          <Can code="repayment:edit">
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
               新增协议
             </Button>
-          )}
+          </Can>
         </Space>
       }
     >

@@ -137,11 +137,6 @@ export class InvoiceService {
     const key = periodMonthKey(period);
     const date = key ? new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1) : (payload.invoiceDate ?? before?.invoiceDate);
     const contractId = payload.contractId !== undefined ? payload.contractId : before?.contractId;
-    if (payload.settlementId !== undefined) {
-      if (!payload.settlementId) return null; // 显式解绑
-      await this.settlement.assertLinkable(payload.settlementId, projectId, { contractId, date, label: '发票' });
-      return payload.settlementId;
-    }
     // 2026-11-12 复审：改了合同 / 结算账期 / 开票日期时，旧的自动匹配可能已违反
     // 「同合同同期」——与 receipt-order 的同名逻辑保持一致，按新值重算；三者都没变才保留原关联。
     const contractChanged =
@@ -150,6 +145,17 @@ export class InvoiceService {
       (payload.settlePeriod !== undefined && payload.settlePeriod !== before?.settlePeriod) ||
       (payload.invoiceDate !== undefined &&
         new Date(payload.invoiceDate ?? 0).getTime() !== new Date(before?.invoiceDate ?? 0).getTime());
+    if (payload.settlementId !== undefined) {
+      if (!payload.settlementId) return null; // 显式解绑
+      /**
+       * 关联没动、合同与账期也没动 → **保持原关联**，不再重新校验：
+       * 历史/导入发票可能 `contractId` 为空却已挂在某合同结算单上（台账读侧专门容忍这类票），
+       * 重新跑严格同合同校验会 400，导致这张发票编辑任何字段都存不了。
+       */
+      if (before?.settlementId === payload.settlementId && !contractChanged && !periodChanged) return undefined;
+      await this.settlement.assertLinkable(payload.settlementId, projectId, { contractId, date, label: '发票' });
+      return payload.settlementId;
+    }
     if (before?.settlementId && !contractChanged && !periodChanged) return undefined;
     return this.settlement.findSettlementIdFor(contractId, date);
   }

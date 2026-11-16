@@ -109,6 +109,24 @@ export class ProjectService {
     for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
       if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
     }
+    /**
+     * 结算起始日决定「结算期」边界（期 = 起始日 → 下月同日的前一日），而
+     * `Settlement.settleDate` / 台账 `settleMonth` / 发票与收领单的自动匹配全都按它派生。
+     * 已有结算单时改它会让期归属整体漂移（同合同两张单落入同一期、台账月份错位、发票匹配不到原单），
+     * 且没有任何自动回填能还原 —— 直接拦住，要求先处理结算数据。
+     */
+    if (payload.settlementStartDate !== undefined) {
+      const next = payload.settlementStartDate ? new Date(payload.settlementStartDate).getTime() : null;
+      const prev = before.settlementStartDate ? new Date(before.settlementStartDate).getTime() : null;
+      if (next !== prev) {
+        const count = await this.prisma.settlement.count({ where: { projectId: id } });
+        if (count > 0) {
+          throw new BadRequestException(
+            `项目已有 ${count} 张结算单，修改结算起始日会让结算期归属整体漂移（台账月份、发票/收领单自动匹配都会错位）。请先处理结算数据。`,
+          );
+        }
+      }
+    }
     delete payload.version;
     return this.prisma.project.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }

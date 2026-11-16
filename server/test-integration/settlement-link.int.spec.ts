@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { BadRequestException } from '@nestjs/common';
 import { bootIntApp, makeContract, makeProject, makeSupplier, type IntContext } from './helpers';
 import { SettlementService } from '../src/modules/settlement/settlement.service';
+import { InvoiceService } from '../src/modules/invoice';
+import { ProjectService } from '../src/modules/project/project.service';
 import { SETTLEMENT_STATUS } from '../src/constants/statuses';
 
 /**
@@ -19,12 +21,16 @@ import { SETTLEMENT_STATUS } from '../src/constants/statuses';
 describe('集成 · 结算台账 ↔ 结算单关联', () => {
   let ctx: IntContext;
   let settle: SettlementService;
+  let invoices: InvoiceService;
+  let projects: ProjectService;
 
   const month = (y: number, m: number) => new Date(y, m - 1, 15);
 
   before(async () => {
     ctx = await bootIntApp();
     settle = ctx.get<SettlementService>(SettlementService);
+    invoices = ctx.get<InvoiceService>(InvoiceService);
+    projects = ctx.get<ProjectService>(ProjectService);
   });
   after(async () => {
     await ctx.app.close();
@@ -214,5 +220,237 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     const rowB = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: b.id, settleMonth: '2026-06' } });
     assert.equal(Number(rowB!.monthInvoiceAmount), 0, '新合同台账不得凭空多出旧合同的开票额');
     assert.equal(Number(rowA!.monthInvoiceAmount), 5000, '旧合同按「合同 + 月份」回退归集，开票额不丢');
+  });
+
+  it('⑨ 结算单换合同 → 旧合同的收领单同样解绑', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-9');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const a = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const b = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const s: any = await settle.create(
+      { contractId: a.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 8000, settleDate: month(2026, 6) },
+      project.id,
+    );
+    const ro = await ctx.prisma.receiptOrder.create({
+      data: {
+        projectId: project.id,
+        orderNo: `LINK-RO-${Date.now()}`,
+        materialContractId: a.id,
+        settlementId: s.id,
+        orderDate: month(2026, 6),
+        status: 'SAVED',
+      } as any,
+    });
+
+    await settle.update(s.id, { contractId: b.id, version: 0 });
+
+    const moved = await ctx.prisma.receiptOrder.findUnique({ where: { id: ro.id } });
+    assert.equal(moved!.settlementId, null, '换合同后旧合同的收领单必须解绑（与发票同口径）');
+  });
+
+  it('⑩ 未挂合同的发票/收领单：已挂本行时仍计入/保持关联（不能被合同过滤静默漏掉）', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-10');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const s: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 8000, settleDate: month(2026, 7) },
+      project.id,
+    );
+    // 手工/历史发票：没有 contractId，但已挂到本合同的结算单
+    // （历史数据早于严格的同合同校验；新关联现在要求合同完全一致）
+    const inv = await ctx.prisma.invoice.create({
+      data: {
+        projectId: project.id,
+        contractId: null,
+        settlementId: s.id,
+        settlePeriod: '2026-07',
+        amountWithTax: 3000,
+        statusCode: 'VERIFIED',
+      },
+    });
+    // 手工/历史收领单：materialContractId 为空但已挂本行
+    const ro = await ctx.prisma.receiptOrder.create({
+      data: {
+        projectId: project.id,
+        orderNo: `LINK-RO-EMPTY-${Date.now()}`,
+        materialContractId: null,
+        settlementId: s.id,
+        orderDate: month(2026, 7),
+        status: 'SAVED',
+      } as any,
+    });
+
+    await settle.syncLedgerByContract(contract.id);
+
+    const row = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-07' } });
+    assert.equal(Number(row!.monthInvoiceAmount), 3000, '无合同发票挂在结算单上时仍计入「本月开票额」');
+    assert.equal(
+      (await ctx.prisma.invoice.findUnique({ where: { id: inv.id } }))!.settlementId,
+      s.id,
+      '无合同发票的已有关联不能被本合同刷新误解绑',
+    );
+    assert.equal(
+      (await ctx.prisma.receiptOrder.findUnique({ where: { id: ro.id } }))!.settlementId,
+      s.id,
+      '无合同收领单的已有关联不能被本合同刷新误解绑',
+    );
+  });
+
+  it('⑪ 已关联结算单的台账行不能删；仅费用行可删', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-9');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const s: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 10000, settleDate: month(2026, 5) },
+      project.id,
+    );
+    const row = await ctx.prisma.settlementLedger.findFirst({ where: { settlementId: s.id } });
+    assert.ok(row, '结算单保存后应生成对应台账行');
+    await assert.rejects(
+      () => settle.removeLedger(row!.id, project.id),
+      (e: any) => e instanceof BadRequestException && /不能直接删除/.test(e.message),
+      '有结算单的台账行直接删除会打断 1:1，必须 400',
+    );
+
+    // 仅费用行（无结算单）仍可手工删除
+    const fee: any = await settle.createLedger(
+      { contractId: contract.id, settleMonth: '2026-04', monthInvoiceAmount: 0 },
+      project.id,
+    );
+    assert.equal(fee.settlementId, null, '该月没有结算单 → 应为仅费用行');
+    await settle.removeLedger(fee.id, project.id);
+    const gone = await ctx.prisma.settlementLedger.findFirst({ where: { id: fee.id } });
+    assert.equal(gone, null);
+  });
+
+  it('⑫ 合同归属必须完全一致：无合同结算单不能挂有合同单据，反之亦然', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-10');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const noContract: any = await settle.create(
+      { typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 1000, settleDate: month(2026, 5) },
+      project.id,
+    );
+    await assert.rejects(
+      () => settle.assertLinkable(noContract.id, project.id, { contractId: contract.id, date: month(2026, 5), label: '发票' }),
+      (e: any) => e instanceof BadRequestException && /不属于本发票的合同/.test(e.message),
+    );
+    // 两边都没有合同 → 允许
+    const ok = await settle.assertLinkable(noContract.id, project.id, { contractId: null, date: month(2026, 5), label: '发票' });
+    assert.equal(ok.id, noContract.id);
+
+    // 反向：有合同的结算单不能挂无合同单据
+    const withContract: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 2000, settleDate: month(2026, 6) },
+      project.id,
+    );
+    await assert.rejects(
+      () => settle.assertLinkable(withContract.id, project.id, { contractId: null, date: month(2026, 6), label: '收领单' }),
+      (e: any) => e instanceof BadRequestException && /不属于本收领单的合同/.test(e.message),
+    );
+  });
+
+  it('⑬ 新建结算单不传状态 → 落草稿（不再产生会让闸门与累计口径打架的 NULL）', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-11');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const a: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', amount: 1000, settleDate: month(2026, 3) },
+      project.id,
+    );
+    assert.equal(a.statusCode, SETTLEMENT_STATUS.DRAFT, '缺省状态应落草稿');
+    const b: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: null, amount: 2000, settleDate: month(2026, 4) },
+      project.id,
+    );
+    assert.equal(b.statusCode, SETTLEMENT_STATUS.DRAFT, '显式 null 也不落 NULL');
+  });
+
+  it('⑭ 归档后台账不可写；已挂结算单的台账行不能改合同/月份', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-12');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const other = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const s: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 10000, settleDate: month(2026, 5) },
+      project.id,
+    );
+    const row = await ctx.prisma.settlementLedger.findFirst({ where: { settlementId: s.id } });
+    assert.ok(row);
+    await assert.rejects(
+      () => settle.updateLedger(row!.id, { contractId: other.id, version: row!.version }, project.id),
+      (e: any) => e instanceof BadRequestException && /不能改合同或结算月份/.test(e.message),
+      '搬走已挂单的行会打断 1:1',
+    );
+
+    await ctx.prisma.contract.update({ where: { id: contract.id }, data: { archivedAt: new Date() } });
+    await assert.rejects(
+      () => settle.createLedger({ contractId: contract.id, settleMonth: '2026-03' }, project.id),
+      /合同已归档/,
+      '归档后台账仍可新增就是写锁缺口',
+    );
+  });
+
+  it('⑮ 历史无合同发票（已挂合同结算单）编辑时保持关联、不再 400', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-13');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const s: any = await settle.create(
+      { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 5000, settleDate: month(2026, 6) },
+      project.id,
+    );
+    const inv = await ctx.prisma.invoice.create({
+      data: {
+        projectId: project.id,
+        contractId: null,
+        settlementId: s.id,
+        settlePeriod: '2026-06',
+        amountWithTax: 3000,
+        statusCode: 'VERIFIED',
+      },
+    });
+
+    const updated: any = await invoices.update(inv.id, { settlementId: s.id, remark: '改备注', version: 0 }, project.id);
+    assert.equal(updated.settlementId, s.id, '关联没动就不该重新校验，否则整张发票存不了');
+  });
+
+  it('⑯ 同期历史多张结算单时，自动匹配与台账选同一张（最新 settleDate）', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-14');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    // 直接落库制造历史同期重复（服务层已禁止新写入）
+    await ctx.prisma.settlement.create({
+      data: { projectId: project.id, contractId: contract.id, statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 1000, settleDate: new Date(2026, 4, 10) },
+    });
+    const newer = await ctx.prisma.settlement.create({
+      data: { projectId: project.id, contractId: contract.id, statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 2000, settleDate: new Date(2026, 4, 20) },
+    });
+
+    const id = await settle.findSettlementIdFor(contract.id, month(2026, 5));
+    assert.equal(id, newer.id, '必须与 computeLedgerAutoFields 的 settleDate desc 选择一致');
+  });
+
+  it('⑰ 项目已有结算单时，不能改结算起始日（期归属会整体漂移）', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-15');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    await ctx.prisma.settlement.create({
+      data: { projectId: project.id, contractId: contract.id, statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 1000, settleDate: month(2026, 1) },
+    });
+    await assert.rejects(
+      () =>
+        projects.update(
+          project.id,
+          { settlementStartDate: '2026-01-26', version: (project as any).version },
+          { userId: 'tester', isSuperAdmin: true },
+        ),
+      /结算起始日/,
+    );
   });
 });

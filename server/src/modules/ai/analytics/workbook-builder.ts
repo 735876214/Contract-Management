@@ -10,6 +10,7 @@
 
 import type { AiAnalyticsFacts } from './analytics.types.ts';
 import { AI_TOTAL_LABELS } from './dataset-facts.ts';
+import { changeRateText } from '../common/format.ts';
 
 export interface AnalyticsSheetModel {
   name: string;
@@ -51,7 +52,7 @@ export function buildAnalyticsWorkbookModel(facts: AiAnalyticsFacts): AnalyticsS
         指标: label,
         本期: now,
         对比期: prev,
-        变化: prev === 0 ? (now === 0 ? '0%' : '—') : `${(((now - prev) / prev) * 100).toFixed(2)}%`,
+        变化: changeRateText(now, prev, { sign: false }),
       });
     } else {
       overview.push({ 指标: label, 本期: now });

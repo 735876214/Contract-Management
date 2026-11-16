@@ -95,7 +95,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（88 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（22 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（23 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -173,8 +173,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/milestone.spec.mts` | **履约节点逾期派生**（四域扩展按需项 2026-10-18）：到期日当天不逾期、过期未完成=逾期 · DONE/SKIPPED 不逾期 · 无/非法 planDate 不逾期 |
   | `test/templatePlaceholderSyntax.spec.mts` | **种子模板占位符语法漂移锁**（`prisma/seed.ts` 与模板文件不得出现单花括号；内容能被渲染器吃干净） |
   | `test/statusCodes.spec.mts` | **核心状态 code 漂移锁**（常量 ↔ 字典项 ↔ `schema.prisma` 的 enum；五态合同类型 / 任务状态 / 各状态组） |
-  | `test/invoiceStatus.spec.mts` | **发票终态口径锁**（业务口径 2026-11-12：作废 `CANCELLED` / 红冲 `RED` 不计入金额口径）：排除清单常量、`countedInvoiceWhere()` 显式纳入 NULL（禁止 `NOT: { in }`）、内存谓词同口径、前后端镜像一致 · 源码扫描六处金额聚合都接了过滤、AI 两处私有谓词已收敛 |
-  | `test/aiDatasetRegistry.spec.mts` | **AI 经营数据助手数据集注册表**（2026-11-12 评审：27 个业务单据域单一事实源）：key 唯一 · 已实现 18 个、Phase 5 的 9 个对用户不可见 · 默认选中 4 个且必须是已实现 · 权限过滤不暴露未实现、无权限进 `denied` 而非静默消失 · 最多 8 个去重截断并回报截断数 |
+  | `test/invoiceStatus.spec.mts` | **发票终态口径锁**（业务口径 2026-11-12：作废 `CANCELLED` / 红冲 `RED` 不计入金额口径）：排除清单常量、`countedInvoiceWhere()` 显式纳入 NULL（禁止 `NOT: { in }`）、内存谓词同口径、前后端镜像一致 · 源码扫描各金额聚合都接了过滤（含 `query/ai-fact-queries.ts` 的 `loadInvoiceFacts` 统一口径）、AI 两处私有谓词已收敛 |
+  | `test/aiDatasetRegistry.spec.mts` | **AI 经营数据助手数据集注册表**（2026-11-12 评审：27 个业务单据域单一事实源）：key 唯一 · **27 个域全部已实现**且每个域有 Excel 列定义 · 默认选中 4 个且必须是已实现 · 权限过滤无权限进 `denied` 而非静默消失 · 最多 8 个去重截断并回报截断数 |
   | `test/aiIntent.spec.mts` | **AI 经营数据助手的规则意图**（Phase 1 唯一解析路径）：自然语言 → scope / period preset / datasets / focus / reportKind / outputs · 同比与环比**单选**、累计至今归一 `none` · 前端 `datasets` 非空**整体替换**文本命中（不做并集），其余字段逐字段覆盖 · 未知数据集/关注点/范围丢弃并进 `warnings` · 自定义期间缺日期回落本月 · 超 8 个截断 · 默认只出报告、提到表格才带工作簿 · `rawText`≤2000 / `notes`≤300 |
   | `test/aiPeriod.spec.mts` | **AI 经营数据助手的期间原语**：本月/上月/本季度/今年/年初至今/近 30·90 天按本地日计算 · 累计至今没有起点 · 自定义期间按**本地零点**解析并含结束日、缺日期/倒置返回 null · 环比 = 紧邻本期之前等长段、同比 = 起止各回退一年 · `none` 与累计至今的对比期一律 null（展示 `-`，不当作下降 100%）· 空业务日期不落任何区间 |
   | `test/aiCommonFacts.spec.mts` | **AI 事实层共享原语**：有效发票排除作废/红冲、NULL 与未填状态计入、金额整数分合计且空金额跳过 · 合同链根多级上溯、父级缺失判断链（不猜）、成环按断链处理、链行数按链根归集 |
@@ -264,10 +264,11 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 
 | spec | 覆盖 |
 |---|---|
-| `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 |
+| `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 · **换合同同时解绑旧合同的收领单** · **未挂合同（`contractId`/`materialContractId` 为空）的已挂发票/收领单不被合同过滤漏掉或误解绑** |
+| `ledger-derived.int.spec.ts` | **合同台账派生金额口径**（2026-11-14 审计修复）：项目「合同额」合计按**链**只计一次（补充协议的自由 `amount` 不参与相加）· 「审定结算额」**排除草稿**且 `actualAmount` 为空时回退 `amount` · 税率未填时税前/进项税留 `null`（未知不兜 0%），显式 0/13% 正常拆分 |
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |
 | `contract-fulfillment.int.spec.ts` | **合同履约派生进度（零表）**（业务口径 2026-10-18）：合同链金额（主合同 + 补充协议增量）· 已收量按总日报且只算「已确认」· 结算排除草稿 · 付款排除失败/退款 · 发票合计（**作废/红冲排除、空状态计入**）· 跨项目 404 |
-| `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额**（条件更新 + `count` 校验，防并发双红冲；红冲票未填合同时按原票合同刷台账） · **红冲票与原票两侧都不能换合同（请求省略 `redOfInvoiceId` 也不能绕过同合同校验）** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
+| `invoice-terminal.int.spec.ts` | **发票作废/红冲联动**（业务口径 2026-11-12）：作废/红冲后**保留 `settlementId`**，结算台账「本月开票额」、合同台账「开累发票金额」、履约、工作台、AI 经营数据全部归零 · 终态不可重复/互转 · 通用 PUT 拒绝状态进出终态（原值回传放行）· 终态不能查验 · 跨项目 404 · 空状态历史票仍计入 · 终态孤儿发票不建「幽灵台账行」· 状态分布仍统计终态张数 · **红冲票关联原票（`redOfInvoiceId`）时原票在同一事务里自动作废、两张票都不计入金额**（条件更新 + `count` 校验，防并发双红冲；红冲票未填合同时按原票合同刷台账） · 通用 PUT 不放行「非终态 → 红冲」（红冲只能新建票时建立关联） · **红冲票与原票两侧都不能换合同（请求省略 `redOfInvoiceId` 也不能绕过同合同校验）** · 原票须有效且同项目同合同、红冲票状态必须 RED · 关联创建后不可修改/解绑 · 已有红冲票的原票不可删除、删红冲票不自动恢复原票 |
 | `aiAnalyticsPlan.int.spec.ts` | **AI 经营数据助手（Phase 1）权限与意图**：注册表只返回已实现且有权限的条目、无权限进 `denied`（超管全量）· `scope=current` 必须是成员项目 · `scope=all` 需 `dashboard:view` 且返回成员项目集合 · `scope=selected` 忽略无权/未知项目并提示、`mentions` 回写匹配到的项目名 · 无权数据集被剔除（`deniedDatasets`） |
 | `aiAnalyticsStore.int.spec.ts` | **AI 经营数据助手（Phase 2）报告与历史**：确定性报告落库（合同链 = 主合同 + 补充协议 `changeAmount`、草稿结算/失败付款/红冲发票不计入、日报条数）· 历史默认本人全部、非创建人 404、`projectId` 可选筛选 · 删除后不可再取 |
 | `aiAnalyticsWorkbook.int.spec.ts` | **AI 经营数据助手（Phase 4）工作簿与行级填充**：多 sheet 工作簿落库/下载（合法 xlsx、`hasReport`+`hasWorkbook` 同记录）· 行级填充按列映射写入数据集行（插行复制样式、数值列落 number、公式前缀文本化、行数上限） |
@@ -358,7 +359,8 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - [ ] **④ 前端构建**：涉及前端改动时确认 `vite build` 通过（`npm run build` 已含）。
 - [ ] **⑤ 采购工作流改动**：同步改后端 `constants/procurementFlow.ts` 与前端 `constants/procurementWorkflow.ts`，
       并跑 `cd server && npm run test` 确认一致性锁通过。
-- [ ] **⑥ 菜单改动**：改后端 `menu.service.ts` 的 `MENU_TREE`（权威来源）；
+- [ ] **⑥ 菜单改动**：改后端 `constants/menuTree.ts` 的 `MENU_TREE`（权威来源）；
+      前端兜底 `Sider/menuConfig.ts` **逐项同序**同步（`routePermissionParity.spec.mts` 用 deepEqual 锁定）；
       icon 在 `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；递增 `Sider/utils/storage.ts` 缓存键版本。
 - [ ] **⑦ 导入改动**：确认「全成功或全失败」与 >1000 行异步路径仍成立；跑 `npm run test:int`
       （`import-two-phase.int.spec.ts` 会在真库上验证「零写入」与并发去重）。
@@ -504,7 +506,7 @@ cd .worktrees/<slug>/web;    $env:VITE_PROXY_TARGET="http://localhost:3111"; npm
 | `web/**` | 全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test` |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |
-| 金额/状态/导入 | `migrate deploy` + 选中的 int spec（`--test-concurrency=4`） |
+| 金额/状态/导入 | `migrate deploy` + 选中的 int spec（`--test-concurrency=2`） |
 
 **边界**：`nest build` / `tsc` 是整程序编译，无法只编一个模块；verify 收窄的是**测试与数据库范围**，
 不是类型检查范围。真实渲染与 E2E 仍按 §5.2。
@@ -544,7 +546,9 @@ node scripts/check-import-integrity.mjs
 [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 
 **跨域读取层**：`server/src/query/` 是唯一允许散写跨域只读查询的地方。`archive` 的 11 个域读取已收敛到
-`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的只读子域
-（`analytics` / `anomaly` / `analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
+`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的窗口事实
+（合同链 / 结算 / 付款 / 发票 / 项目范围 / 日报与采购计数）统一走 `query/ai-fact-queries.ts`，
+`field-resolver` / `report` / `dataset-collector` / `scm` 已接入；AI 只读子域（`analytics` / `anomaly` /
+`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
 两类规则都由 `check-module-boundaries` 锁定。
 

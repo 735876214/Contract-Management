@@ -72,15 +72,14 @@ describe('发票终态口径（作废/红冲）', () => {
     }
   });
 
-  it('六处金额聚合都接了 countedInvoiceWhere（防止新增聚合漏口径）', () => {
+  it('各金额聚合都接了 countedInvoiceWhere（含 query 层统一口径）', () => {
     const consumers: Array<[string, number]> = [
       // [文件, 至少出现次数（import + 各调用点）]
       ['../src/modules/settlement/settlement.service.ts', 3], // computeLedgerAutoFields + refreshLedger
       ['../src/modules/ledger/ledger.service.ts', 2],
       ['../src/modules/contract/contract-fulfillment.service.ts', 2],
       ['../src/modules/dashboard/dashboard.service.ts', 3], // overview + invoiceStats.byType
-      ['../src/modules/ai/field-resolver.service.ts', 2],
-      ['../src/modules/ai/report.service.ts', 2],
+      ['../src/query/ai-fact-queries.ts', 2], // AI 读取层的 loadInvoiceFacts 统一接口径
     ];
     for (const [file, min] of consumers) {
       const src = read(file);
@@ -91,6 +90,33 @@ describe('发票终态口径（作废/红冲）', () => {
       assert.ok(
         !src.includes('NOT: { statusCode'),
         `${file} 出现 NOT: { statusCode } —— SQL 三值逻辑会静默排除空状态发票`,
+      );
+    }
+
+    // AI 侧不再各自写 prisma.invoice，统一走 loadInvoiceFacts({ excludeTerminal: true })
+    for (const file of [
+      '../src/modules/ai/field-resolver.service.ts',
+      '../src/modules/ai/report.service.ts',
+      '../src/modules/ai/analytics/dataset-collector.service.ts',
+    ]) {
+      const src = read(file);
+      assert.ok(src.includes('loadInvoiceFacts'), `${file} 未通过 query 层的 loadInvoiceFacts 统计开票额`);
+      assert.ok(
+        src.includes('excludeTerminal: true'),
+        `${file} 调用 loadInvoiceFacts 时未显式 excludeTerminal: true（作废/红冲会混入）`,
+      );
+    }
+
+    // 窗口事实必须完全走 query 层：这两个文件里出现 prisma.invoice 就是绕过口径
+    // （dataset-collector 的明细行查询是域特有的，不在本条约束内）
+    for (const file of [
+      '../src/modules/ai/field-resolver.service.ts',
+      '../src/modules/ai/report.service.ts',
+    ]) {
+      const src = read(file);
+      assert.ok(
+        !src.includes('prisma.invoice'),
+        `${file} 直接出现 prisma.invoice —— 发票口径必须走 query 层的 loadInvoiceFacts`,
       );
     }
   });
