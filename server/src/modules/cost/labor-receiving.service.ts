@@ -208,21 +208,27 @@ export class LaborReceivingService {
     db: any = this.prisma,
   ) {
     const row: any = pickFields(d, DETAIL_FIELDS, { label: '领用明细行' });
-    // 与聚合侧同一规范化：不 trim 会让「钢筋」与「钢筋 」拆成两行（唯一键按名称+规格）
+    // 与聚合侧同一规范化：不 trim 会让「钢筋」与「钢筋 」拆成两行（唯一键按名称+规格+单位）
     row.materialName = String(row.materialName ?? '').trim();
     if (!row.materialName) throw new BadRequestException('物资名称不能为空');
     row.spec = String(row.spec ?? '').trim();
+    row.unit = String(row.unit ?? '').trim();
     ['designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty'].forEach((f) => {
       if (row[f] !== undefined) row[f] = num(row[f]);
     });
     const where = {
-      docId_materialName_spec: { docId: doc.id, materialName: row.materialName, spec: row.spec },
+      docId_materialName_spec_unit: {
+        docId: doc.id,
+        materialName: row.materialName,
+        spec: row.spec,
+        unit: row.unit,
+      },
     } as any;
     const existing = await db.laborReceivingSummary.findUnique({ where });
     if (existing) {
       if (d?.version != null) assertVersion(existing, d);
-      const { materialName, spec, ...editable } = row;
-      void materialName; void spec;
+      const { materialName, spec, unit, ...editable } = row;
+      void materialName; void spec; void unit;
       await db.laborReceivingSummary.update({
         where,
         data: { ...editable, version: existing.version + 1 },
@@ -297,13 +303,13 @@ export class LaborReceivingService {
     const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, period);
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
     const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
-    const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec)));
+    const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec, r.unit)));
     const keys = new Set<string>([...periodRows.keys(), ...savedKeys]);
     const list: any[] = [];
     let sort = 0;
     for (const key of keys) {
-      const { materialName, spec } = parseRowKey(key);
-      const savedRow = saved.find((r) => rowKey(r.materialName, r.spec) === key);
+      const { materialName, spec, unit } = parseRowKey(key);
+      const savedRow = saved.find((r) => rowKey(r.materialName, r.spec, r.unit) === key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
       // 平均单价只读：截至该期末的加权均价（后续期补录不追溯改写历史期）
@@ -326,7 +332,7 @@ export class LaborReceivingService {
         prevCum: prevCumByMat.get(key) ?? 0,
         materialName,
         spec,
-        unit: auto?.unit ?? savedRow?.unit ?? null,
+        unit: unit || auto?.unit || savedRow?.unit || null,
         receivedQty, // 本期领用（自动，只读）
         unitPrice,
         designQtyCum: input.designQtyCum,
@@ -504,13 +510,15 @@ export class LaborReceivingService {
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
     const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
     const savedPeriodRows = saved.filter((r) => r.period === period);
-    // 本期的行键统一用**两段键**（材料 + 规格）：自动聚合桶与已存行同形状，
+    // 本期的行键统一用**材料+规格+单位**：自动聚合桶与已存行同形状，
     // 含期的三段键只用于查「上期末累计」，不能混进 rows/keys（否则 parseRowKey 会把期间当材料名）
-    const savedByMat = new Map(savedPeriodRows.map((r) => [rowKey(r.materialName, r.spec), r] as const));
+    const savedByMat = new Map(
+      savedPeriodRows.map((r) => [rowKey(r.materialName, r.spec, r.unit), r] as const),
+    );
     const keys = new Set<string>([...periodRows.keys(), ...savedByMat.keys()]);
     const out: any[] = [];
     for (const key of keys) {
-      const { materialName, spec } = parseRowKey(key);
+      const { materialName, spec, unit } = parseRowKey(key);
       const savedRow = savedByMat.get(key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
@@ -529,7 +537,7 @@ export class LaborReceivingService {
         laborAuthId: subcontractorId,
         materialName,
         spec: spec ?? '',
-        unit: auto?.unit ?? savedRow?.unit ?? null,
+        unit: unit || auto?.unit || savedRow?.unit || null,
         unitPrice,
         entryQty: derived.usedCum, // 进场量 = 至本期末累计领用
         designQty: savedRow?.designQtyCum != null ? Number(savedRow.designQtyCum) : null,
@@ -582,7 +590,8 @@ export class LaborReceivingService {
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
-        const key = rowKey(name, d.specModel || '');
+        const unitKey = String(d.unit ?? '').trim();
+        const key = rowKey(name, d.specModel || '', unitKey);
         // 未填实收 ≠ 0（三态契约）：不参与数量桶，也不参与加权平均
         const qty = num(d.receivedQty);
         if (qty == null) continue;
@@ -633,7 +642,7 @@ export class LaborReceivingService {
   /**
    * 目标期期初开累：J(目标期) = Σ 历史期（领用 − 退库），首期 0。
    *
-   * ⚠️ 返回的键是**材料键 rowKey(materialName, spec)**（不含期间），与 `mergeDocRows()` /
+   * ⚠️ 返回的键是**材料键 rowKey(materialName, spec, unit)**（不含期间），与 `mergeDocRows()` /
    * `periodSnapshotRows()` 的行键同形状。此前这里用含期的三段键建 map、调用方却用两段键查，
    * 导致上期开累恒为 0（跨期只累加了上一期退库）；同时 `aggregateReceipts()` 的桶一直是
    * 两段键，旧代码却按三段键去取自动领用量，也同样取不到。
@@ -654,7 +663,7 @@ export class LaborReceivingService {
     for (const period of ordered) {
       const savedByMat = new Map<string, any>();
       for (const r of saved) {
-        if (r.period === period) savedByMat.set(rowKey(r.materialName, r.spec), r);
+        if (r.period === period) savedByMat.set(rowKey(r.materialName, r.spec, r.unit), r);
       }
       const autoRows = receivedByPeriod.get(period) ?? new Map<string, { qty: number }>();
       const matKeys = new Set<string>([...savedByMat.keys(), ...autoRows.keys()]);
@@ -687,14 +696,15 @@ export class LaborReceivingService {
 }
 
 /**
- * 材料行键：`rowKey(materialName, spec)`——**不含期间**，单据内/统计期的行身份一律用它。
- * 期间只作为查询条件/分组维度，绝不拼进行键（拼进去会让 parseRowKey 把期间当材料名）。
+ * 材料行键：`rowKey(materialName, spec, unit)`——**不含期间**，单据内/统计期的行身份一律用它。
+ * 期间只作为查询条件/分组维度，绝不拼进行键（拼进去会让 parseRowKey 把期间当材料名）；
+ * 单位必须进键：同名同规格但计量单位不同（米/根）是两条独立领用，合并会把数量跨单位相加。
  */
-function rowKey(materialName: string, spec: string): string {
-  return [materialName, spec].join('\u0001');
+function rowKey(materialName: string, spec: string, unit: string): string {
+  return [materialName, spec, unit].join('\u0001');
 }
 
-function parseRowKey(key: string): { materialName: string; spec: string } {
-  const idx = key.indexOf('\u0001');
-  return idx < 0 ? { materialName: key, spec: '' } : { materialName: key.slice(0, idx), spec: key.slice(idx + 1) };
+function parseRowKey(key: string): { materialName: string; spec: string; unit: string } {
+  const [materialName = key, spec = '', unit = ''] = key.split('\u0001');
+  return { materialName, spec, unit };
 }

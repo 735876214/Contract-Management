@@ -260,7 +260,7 @@ model LaborReceivingDoc {
 }
 
 // 分包单位领用月度汇总明细行（图一盘点表 / 图二月度汇总 / 图三节超分析的落点）。
-// 一行 = 单据 × 材料（名称+规格）。本期领用数量与平均单价**从收领单明细自动聚合**
+// 一行 = 单据 × 材料（名称+规格+**单位**）。本期领用数量与平均单价**从收领单明细自动聚合**
 // （按 laborAuthId 关联聚合，分包商改名不断档），不落库、每次读取实时算；
 // 落库的只有**手填字段**（退库/盘点/设计量开累/损耗率/手改单价）。
 model LaborReceivingSummary {
@@ -272,7 +272,7 @@ model LaborReceivingSummary {
   period            String // 冗余（= doc.period；聚合/台账分组用）
   materialName      String
   spec              String
-  unit              String?
+  unit              String    @default("") // 计量单位（行键的一部分；未填归一为空串）
   unitPrice         Decimal?  @db.Decimal(18, 4) // 平均单价（服务端按 Σ税前总价÷Σ数量 带出；手改后不再回写）
   priceOverridden   Boolean   @default(false) // true = 手改过单价，刷新领用时保留手填值
   designQtyCum      Decimal?  @db.Decimal(18, 3) // 设计量 · 至本期末开累（手填）
@@ -288,7 +288,9 @@ model LaborReceivingSummary {
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   doc     LaborReceivingDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
 
-  @@unique([docId, materialName, spec])
+  // 单位必须进唯一键：同名称+规格但计量单位不同（如「钢管 DN50」按米/根）是两条独立的领用，
+  // 合并会把数量与均价跨单位相加。
+  @@unique([docId, materialName, spec, unit])
   @@index([projectId, period])
 }
 

@@ -500,13 +500,14 @@ export class ReceiptOrderService {
       },
     });
 
-    // 按「材料名+规格」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    // 按「材料名+规格+单位」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    // 单位是行身份的一部分：同名同规格按米/根的领用是两条独立材料行
     const byKey = new Map<string, any>();
     outer: for (const o of orders) {
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
-        const key = `${name}\u0002${d.specModel || ''}`;
+        const key = `${name}\u0002${d.specModel || ''}\u0002${String(d.unit ?? '').trim()}`;
         if (byKey.has(key)) continue outer; // 订单已按日期倒序 → 首见即最近
         byKey.set(key, d);
       }
