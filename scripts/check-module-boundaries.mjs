@@ -23,11 +23,29 @@ const quiet = process.argv.includes('--quiet');
 /** 横切基础设施：允许任何模块深层引用（守卫/装饰器） */
 const INFRA_MODULES = new Set(['auth']);
 
-/** 只读查询层：跨域直查只允许出现在这里 */
-const QUERY_LAYER = 'server/src/query/';
-
 /** 归档是聚合器，但跨域读取必须走 query/，不得自己 prisma.<模型> */
 const ARCHIVE_DIR = 'server/src/modules/archive/';
+
+/**
+ * AI 根目录的 service 不得直查业务域事实表（必须走 server/src/query/）。
+ * 例外：`register.service.ts` 是刻意的写路径（复用 ContractService/SupplierService 的校验）。
+ * 子目录（analytics/anomaly/analysis）按只读子域规则处理。
+ */
+const AI_ROOT_DIR = 'server/src/modules/ai/';
+const AI_ROOT_WRITE_ALLOWLIST = new Set(['register.service.ts']);
+const AI_FACT_MODELS = new Set([
+  'contract',
+  'settlement',
+  'paymentRecord',
+  'invoice',
+  'dailyReport',
+  'procurementTask',
+  'monthlyProfitLoss',
+  'assetLedger',
+  'settlementLedger',
+  'project',
+  'supplier',
+]);
 
 /**
  * AI 的只读子域：只允许读、不允许依赖业务模块。
@@ -87,6 +105,19 @@ for (const file of files) {
         file,
         line: src.slice(0, m.index).split('\n').length,
         rule: `archive 不得直接查表（命中 ${m[0]}），改走 server/src/query/ 的只读查询`,
+      });
+    }
+  }
+
+  // AI 根目录：业务事实表必须走 query/（register 的写路径是刻意例外）
+  const aiRel = file.startsWith(AI_ROOT_DIR) ? file.slice(AI_ROOT_DIR.length) : '';
+  if (aiRel && !aiRel.includes('/') && !AI_ROOT_WRITE_ALLOWLIST.has(aiRel)) {
+    for (const m of src.matchAll(/\bprisma\.([A-Za-z]\w*)/g)) {
+      if (!AI_FACT_MODELS.has(m[1])) continue;
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `AI 根目录不得直查业务事实表（命中 prisma.${m[1]}），请改用 server/src/query/ 的 load*Facts()`,
       });
     }
   }

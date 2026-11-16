@@ -59,11 +59,11 @@ dev 容器挂的是主树的 `./server` / `./web`，**服务不了 worktree**，
 
 | 改动 | verify 会做什么 |
 |---|---|
-| 总是 | `check-import-integrity`（已入库文件） |
+| 总是 | `check-import-integrity`（已入库文件）+ `check-module-boundaries`（跨模块只走公开入口、无环） |
 | `web/**` | 默认全量 `npm run build`；`--fast` 且改动全在 `web/src/pages/` → 临时 tsconfig 子集 tsc |
 | `server/**` | `nest build` + **全量** `npm test`（关键词筛会漏 parity/docStats） |
 | schema/迁移 | `migrate diff --exit-code`（本树影子库） |
-| 金额/状态/导入/关联 | `migrate deploy` + int spec（`--int auto` 按改动选集、`--int all` 跑全量；`--test-concurrency=4`，只对本树 `*_wt_*` 库） |
+| 金额/状态/导入/关联 | `migrate deploy` + int spec（`--int auto` 按改动选集、`--int all` 跑全量；`--test-concurrency=2`，只对本树 `*_wt_*` 库） |
 
 - **覆盖边界**：`nest build` / `tsc` 是整程序编译，没有真正的"只编这个模块"；
   verify 能做的是**把测试与数据库范围收窄**，不能把类型检查收窄（`--fast` 例外，且仅限 pages）。
@@ -127,7 +127,8 @@ node scripts/remove-task-worktree.mjs <slug> --yes    # 连库一起删（不可
 
 | 症状 | 处置 |
 |---|---|
-| `too many clients already` | 确认测试 URL 带 `connection_limit=4`，`--test-concurrency=4`；否则调低并发 |
+| int 测试每个 spec 都只报 `test failed`、无子用例输出 | `JWT_SECRET` 用了 `.env.example` 的占位值（`cms-super-secret-key`），`jwt.strategy` 拒绝占位值 → 进程启动即失败。`verify-module` 已强制注入 `cms-int-test-secret`；手工跑时务必显式 `JWT_SECRET=cms-int-test-secret` |
+| `too many clients already` / int 测试进程无输出地超时 | 确认测试 URL 带 `connection_limit=4`；int spec 每个进程都要 ts-node 整包编译，**并发保持 2**（`test:int:run` 已默认 2），并发 4 在本机会因资源竞争整批失败 |
 | `migrate diff` 报影子库错误 | 用 `new-task-worktree` 重建（幂等），确保 `cms_shadow_wt_*` 存在 |
 | prisma 模型类型缺失/旧字段 | 该树 `node_modules` 串了：删掉重装 + `npx prisma generate` |
 | verify 说 `DATABASE_URL` 不合法 | 该树没有 `.env` 或指向了 `cms`/`cms_int`；重跑建树脚本补齐 |

@@ -48,11 +48,19 @@ function git(args) {
 
 const root = git(['rev-parse', '--show-toplevel']);
 
-// 改动集：相对 base 的差异（含已提交）+ 已暂存 + 未跟踪
+// 改动集：相对**分支基点**（merge-base）的差异（含已提交）+ 未跟踪。
+// 不能直接 diff `origin/main`：主分支前进后，别人的改动会被算成"本树的改动"，
+// 导致选错 int spec、跑无关测试（实测：origin/main 前进 71 个文件后选中了 settlement 套件）。
+const mergeBase = (() => {
+  try {
+    return git(['merge-base', 'HEAD', base]) || base;
+  } catch {
+    return base;
+  }
+})();
 const changed = new Set(
   [
-    ...git(['diff', '--name-only', base]).split('\n'),
-    ...git(['diff', '--name-only', '--cached']).split('\n'),
+    ...git(['diff', '--name-only', mergeBase]).split('\n'),
     ...git(['ls-files', '-o', '--exclude-standard']).split('\n'),
   ]
     .map((s) => s.trim())
@@ -171,6 +179,9 @@ if (webChanged.length) {
       }
     });
   } else {
+    if (fast && !onlyPages) {
+      console.log('  [verify] --fast 只在「改动全在 web/src/pages」时生效，本次退回全量 build');
+    }
     step('web build（tsc --noEmit && vite build）', () => {
       // Windows 沙箱下 vite/esbuild 删除系统 TEMP 里的临时文件会被拒（Access is denied），
       // 把 TEMP 指到工程内目录（docs/development.md §9 的既有做法）。
@@ -220,10 +231,10 @@ if (needsInt && intMode !== 'none') {
           `CREATE SCHEMA "${runId}"`], { encoding: 'utf8' });
         if (created.status !== 0) die(`建 schema 失败：${(created.stderr || '').trim()}`);
       }
+      // 集成测试必须用**测试专用** JWT_SECRET：`.env.example` 里的占位值（cms-super-secret-key）
+      // 会被 jwt.strategy 拒绝，表现为每个 spec 进程启动即失败、且只报 "test failed" 无子用例输出。
       const testEnv = {
         DATABASE_URL: testUrl,
-        // 固定、非占位值：JwtStrategy 会拒绝 cms-super-secret-key / change-me-*（工作树 .env 的旧默认值），
-        // 症状是每个 int spec 在 boot 阶段静默退出、只报 "test failed"。
         JWT_SECRET: 'cms-int-test-secret',
         UPLOAD_DIR: env.UPLOAD_DIR && env.UPLOAD_DIR.includes('.tmp-uploads') ? env.UPLOAD_DIR : mkdtempSync(path.join(tmpdir(), 'cms-int-uploads-')),
       };
@@ -231,11 +242,16 @@ if (needsInt && intMode !== 'none') {
       if (!npx(['prisma', 'migrate', 'deploy'], { cwd: path.join(root, 'server'), env: testEnv })) return false;
 
       const specs = intMode === 'all' ? allIntSpecs() : selectIntSpecs([...changed]);
-      // 直接调 node，不经 npm.cmd → cmd 的多参数转发（shell 下参数不转义，多文件时易被拆坏）
+      // 直接 spawn node（不经 npm.cmd / cmd.exe）：Windows 下 `shell: true` 启动的
+      // npm 会让 node:test 的子进程在继承 stdio 时整批无输出失败；同一命令直跑 node 稳定通过。
       const ok = run(
         process.execPath,
-        ['--require', 'ts-node/register', '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
-          '--test', '--test-concurrency=4', ...specs],
+        [
+          '--require', 'ts-node/register',
+          '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
+          '--test', '--test-concurrency=2',
+          ...specs,
+        ],
         { cwd: path.join(root, 'server'), env: testEnv },
       );
 
