@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
-import { round4 } from '../../common/utils/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { rateToPct } from '../../common/calc/rate';
 import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -103,7 +104,7 @@ export class MaterialService {
     const raw = num(taxRatePct);
     if (raw !== null) return raw;
     const contractRate = num(contract?.taxRate);
-    return contractRate === null ? null : Math.round(contractRate * 10000) / 100;
+    return rateToPct(contractRate);
   }
 
   /** 业态编码 → 名称（导出表头用） */
@@ -425,8 +426,8 @@ export class MaterialService {
     const qty = num(row.qty);
     const priceBeforeTax = num(row.priceBeforeTax);
     const taxPct = num(row.taxRatePct);
-    const priceWithTax = priceBeforeTax !== null ? round4(priceBeforeTax * (1 + (taxPct || 0) / 100)) : null;
-    const totalWithTax = priceWithTax !== null && qty !== null ? round4(qty * priceWithTax) : null;
+    const priceWithTax = calcPriceWithTax(priceBeforeTax, taxPct ?? 0);
+    const totalWithTax = calcTotalWithTax(priceWithTax, qty);
     return { priceWithTax, totalWithTax };
   }
 

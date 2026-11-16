@@ -30,6 +30,15 @@
  *
  * 变量占位符：{{项目名称}} {{承接单位}} {{采购价格对比表-明细表}}（表格变量）
  */
+import {
+  calcAmount as calcAmountShared,
+  calcRateNullable as calcRateNullableShared,
+  fmtAmount as fmtAmountShared,
+  fmtQty as fmtQtyShared,
+  fmtRate as fmtRateShared,
+  numOrNull as numOrNullShared,
+  round2 as round2Shared,
+} from '../../../server/src/common/calc/index.ts';
 
 /** 明细行（价格均为「不含税单价」，单位：元） */
 export interface PriceCompareItemRow {
@@ -95,52 +104,24 @@ export const pricingMethodLabel = (v?: string | null): string =>
 
 /* ---------------- 数值与格式化 ---------------- */
 
-/** 数值解析：非数值 / 空 → null */
-export function numOrNull(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 保留 2 位小数（消除浮点误差） */
-export const round2 = (v: unknown): number =>
-  Math.round(((Number(v) || 0) + Number.EPSILON) * 100) / 100;
-
-/** 金额格式：千分位 + 2 位小数；空值返回空串（0 也正常显示为 0.00） */
-export const fmtAmount = (v: number | null | undefined): string => {
-  const n = numOrNull(v);
-  if (n == null) return '';
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
-/** 数量格式：整数原样、小数去掉多余的 0；空值返回空串 */
-export const fmtQty = (v: number | null | undefined): string => {
-  const n = numOrNull(v);
-  return n == null ? '' : String(n);
-};
-
-/** 比率格式：百分比保留 2 位小数；空值返回空串 */
-export const fmtRate = (v: number | null | undefined): string => {
-  if (v == null || !Number.isFinite(Number(v))) return '';
-  return `${Number(v).toFixed(2)}%`;
-};
+/** 数值/舍入/格式化统一复用共享原语（保留原导出名，调用方无需改动） */
+export const numOrNull = numOrNullShared;
+export const round2 = round2Shared;
+export const fmtAmount = fmtAmountShared;
+export const fmtQty = fmtQtyShared;
+export const fmtRate = fmtRateShared;
 
 /* ---------------- 计算规则 ---------------- */
 
 /** 不含税合价 = 不含税单价 × 数量 */
-export const calcAmount = (price: unknown, qty: unknown): number =>
-  round2((Number(price) || 0) * (Number(qty) || 0));
+export const calcAmount = (price: unknown, qty: unknown): number => calcAmountShared(price, qty);
 
 /**
  * 比率（%）=（基准 − 成交价）÷ 基准 × 100，保留 2 位小数。
  * 基准或成交价缺失、基准为 0 时返回 null（表示暂无数据，避免误显示 100%）。
  */
-export const calcRateNullable = (base: unknown, deal: unknown): number | null => {
-  const b = numOrNull(base);
-  const d = numOrNull(deal);
-  if (b == null || b === 0 || d == null) return null;
-  return round2(((b - d) / b) * 100);
-};
+export const calcRateNullable = (base: unknown, deal: unknown): number | null =>
+  calcRateNullableShared(base, deal);
 
 /** 利润额 = 清单收入 − 成交价（同为合价口径）；成交价缺失时返回 null */
 export const calcProfit = (income: unknown, deal: unknown): number | null => {

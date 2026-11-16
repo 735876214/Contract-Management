@@ -1,6 +1,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { amountToChineseCapital, round, round2, round4 } from '../src/common/utils/money.ts';
+import {
+  calcAmount,
+  calcPriceWithTax,
+  calcRateNullable,
+  calcTotalWithTax,
+  compareMonthKey,
+  fmtAmount,
+  fmtRate,
+  parseMonthKey,
+  pctToRate,
+  rateToPct,
+  sumRounded,
+} from '../src/common/calc/index.ts';
 
 /**
  * 金额四舍五入的口径锁（2026-10-20 第 4 轮审计）。
@@ -63,5 +76,53 @@ describe('amountToChineseCapital：大写金额与 round 同口径', () => {
   it('字符串入参与非有限值兜底', () => {
     assert.equal(amountToChineseCapital('100.5'), '壹佰元伍角整');
     assert.equal(amountToChineseCapital(Number.NaN), '零元整');
+  });
+});
+
+describe('共享计算原语 golden case', () => {
+  it('含税单价与合价：任一入参缺失不臆造 0，精度由调用方显式指定', () => {
+    assert.equal(calcPriceWithTax(10, 13), 11.3);
+    assert.equal(calcTotalWithTax(11.3, 3), 33.9);
+    assert.equal(calcTotalWithTax(11.3, 3, 2), 33.9);
+    assert.equal(calcPriceWithTax(10, null), null);
+    assert.equal(calcTotalWithTax(null, 3), null);
+  });
+
+  it('合价与逐项累加都走同一舍入实现（字符串 Decimal 直接吃）', () => {
+    assert.equal(calcAmount('10', 3), 30);
+    assert.equal(calcAmount(3.015, 1), 3.02);
+    assert.equal(calcAmount(2.675, 1), 2.68);
+    assert.equal(sumRounded([0.1, 0.2, 0.3]), 0.6);
+    // 已知边界：1.005*3 的 double 是 3.0149999999999997，按既有 round 口径得 3.01。
+    // 要做到 Excel 的十进制精确乘法，需要后续切换到整数分运算，不能在本层私自改口径。
+  });
+
+  it('税率单位互转显式进行，不再用 >1 猜口径', () => {
+    assert.equal(rateToPct(0.13), 13);
+    assert.equal(rateToPct(null), null);
+    assert.equal(pctToRate(13), 0.13);
+  });
+
+  it('比率零分母策略：占比返回 0，差额比率返回 null', () => {
+    assert.equal(calcRateNullable(0, 5), null);
+    assert.equal(calcRateNullable(100, 80), 20);
+    assert.equal(calcRateNullable(null, 80), null);
+  });
+
+  it('月份键严格校验，排序只认零补齐的 YYYY-MM', () => {
+    assert.equal(parseMonthKey('2026-09'), '2026-09');
+    assert.equal(parseMonthKey('2026-9'), null);
+    assert.equal(parseMonthKey('2026-13'), null);
+    assert.deepEqual(['2026-10', '2026-02', '2026-01'].sort(compareMonthKey), [
+      '2026-01',
+      '2026-02',
+      '2026-10',
+    ]);
+  });
+
+  it('格式化只负责展示，空值不显示 0.00', () => {
+    assert.equal(fmtAmount(1234.5), '1,234.50');
+    assert.equal(fmtAmount(null), '');
+    assert.equal(fmtRate(12.345), '12.35%');
   });
 });

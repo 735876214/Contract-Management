@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 
 /**
  * 导出件末尾的合计行标记（`styled.exportTable({ totalsLabel: '汇总' })` 写进「项目」列）。
@@ -125,12 +126,9 @@ export class SettlementService {
     out.qty = num(out.qty);
     out.priceBeforeTax = num(out.priceBeforeTax);
     out.taxRatePct = num(out.taxRatePct);
-    out.priceWithTax =
-      out.priceBeforeTax != null && out.taxRatePct != null
-        ? Number((out.priceBeforeTax * (1 + out.taxRatePct / 100)).toFixed(4))
-        : out.priceBeforeTax;
-    out.totalWithTax =
-      out.priceWithTax != null && out.qty != null ? round2(out.priceWithTax * out.qty) : null;
+    // 税率未填时沿用旧口径：按 0% 处理（含税单价 = 税前单价），不把整行置空
+    out.priceWithTax = calcPriceWithTax(out.priceBeforeTax, out.taxRatePct ?? 0, 4);
+    out.totalWithTax = calcTotalWithTax(out.priceWithTax, out.qty, 2);
     out.sortOrder = out.sortOrder ?? index + 1;
     return out;
   }

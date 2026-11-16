@@ -13,6 +13,13 @@ import {
   CONTRACT_STAGE_STATUSES,
   buildStageChain,
 } from '../../web/src/constants/procurementWorkflow.ts';
+import { amountToChineseCapital as feAmountToChineseCapital } from '../../web/src/utils/money.ts';
+import {
+  calcAmount as feCalcAmount,
+  round2 as feRound2,
+} from '../../web/src/utils/procurementPriceCompare.ts';
+import { amountToChineseCapital, round2 } from '../src/common/calc/money.ts';
+import { calcAmount } from '../src/common/calc/amounts.ts';
 
 /**
  * 优化点 2：前后端阶段链/状态定义「漂移锁」。
@@ -85,5 +92,25 @@ describe('前后端阶段链一致性（漂移锁）', () => {
     assert.ok(!keys.includes('PRE_MEETING'));
     assert.ok(keys.includes('NOTICE'));
     assert.ok(keys.includes('DOCUMENT'));
+  });
+});
+
+/**
+ * 金额口径漂移锁：web 侧的工具必须直接复用 server/src/common/calc，
+ * 不允许再出现「前端一份 EPSILON 旧公式、后端一份字符串位移新公式」。
+ */
+describe('前后端计算原语一致性（漂移锁）', () => {
+  it('中文大写金额逐值相等', () => {
+    for (const v of [0, 8.165, 1234.56, 100005, 100000001, -1.01]) {
+      assert.equal(feAmountToChineseCapital(v), amountToChineseCapital(v), `大写金额漂移：${v}`);
+    }
+  });
+
+  it('round2 与合价逐值相等（含半值边界与字符串 Decimal）', () => {
+    for (const v of [8.165, 1.005, -2.5, 1234567.005, 0.1 + 0.2]) {
+      assert.equal(feRound2(v), round2(v), `round2 漂移：${v}`);
+    }
+    assert.equal(feCalcAmount('1.005', 3), calcAmount('1.005', 3));
+    assert.equal(feCalcAmount(10, 13), calcAmount(10, 13));
   });
 });

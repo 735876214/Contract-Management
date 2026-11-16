@@ -16,6 +16,11 @@
  * 以及 {{项目名称}} {{采购内容}} {{预计采购金额(万元)}} {{编写人}} {{审核人}}
  *      {{技术质量标准}} {{验收方式}} {{付款方式}}
  */
+import {
+  fmtAmount,
+  fmtRate as fmtRateShared,
+  round2,
+} from '../../../server/src/common/calc/index.ts';
 
 /** 采购清单行（序号由表格渲染，表头：序号|物资名称|规格型号|计量单位|暂定数量） */
 export interface PurchaseItemRow {
@@ -75,21 +80,14 @@ export interface PreMeetingContext {
 
 /* ---------------- 数值与格式化 ---------------- */
 
-/** 保留 2 位小数（消除浮点误差） */
-export const round2 = (v: unknown): number =>
-  Math.round(((Number(v) || 0) + Number.EPSILON) * 100) / 100;
+/** 数值/格式化统一复用共享原语（保留原导出名） */
+export { round2 };
 
 /** 万元金额格式：保留 2 位小数（千分位） */
-export const fmtWan = (v: number | null | undefined): string => {
-  if (v == null || !Number.isFinite(Number(v))) return '';
-  return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
+export const fmtWan = fmtAmount;
 
 /** 效益率格式：百分比保留 2 位小数 */
-export const fmtRate = (v: number | null | undefined): string => {
-  if (v == null || !Number.isFinite(Number(v))) return '';
-  return `${round2(v).toFixed(2)}%`;
-};
+export const fmtRate = (v: number | null | undefined): string => fmtRateShared(v);
 
 /* ---------------- 采购成本分析表计算规则 ---------------- */
 

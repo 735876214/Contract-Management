@@ -4,6 +4,8 @@ import * as path from 'path';
 import { checkFileUrl } from '../../common/utils/safe-url';
 import { paginate, buildResult, num, fmtDate, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { rateToPct } from '../../common/calc/rate';
 import { projectWhere } from '../../common/utils/project-scope';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
@@ -607,7 +609,7 @@ export class ContractService {
       select: { taxRate: true },
     });
     const frac = contract?.taxRate != null ? Number(contract.taxRate) : null;
-    return frac == null ? null : Math.round(frac * 10000) / 100;
+    return rateToPct(frac);
   }
 
   /** 合同税率变更后：Tab2 合同清单所有物料税率同步更新，并按税前单价/数量重算含税金额 */
@@ -617,8 +619,8 @@ export class ContractService {
     for (const r of rows) {
       const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
       const qty = r.qty != null ? Number(r.qty) : null;
-      const priceWithTax = pct != null && price != null ? round4(price * (1 + pct / 100)) : null;
-      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      const priceWithTax = calcPriceWithTax(price, pct);
+      const totalWithTax = calcTotalWithTax(priceWithTax, qty);
       await this.prisma.contractDraftMaterial.update({
         where: { id: r.id },
         data: { taxRatePct: pct, priceWithTax, totalWithTax },
@@ -635,8 +637,8 @@ export class ContractService {
       const tax = pct;
       const price = r.priceBeforeTax != null ? Number(r.priceBeforeTax) : null;
       const qty = r.qty != null ? Number(r.qty) : null;
-      const priceWithTax = price != null ? round4(price * (1 + tax / 100)) : null;
-      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      const priceWithTax = calcPriceWithTax(price, tax);
+      const totalWithTax = calcTotalWithTax(priceWithTax, qty);
       await this.prisma.contractDraftMaterial.update({
         where: { id: r.id },
         data: { taxRatePct: tax, priceWithTax, totalWithTax },
@@ -682,7 +684,7 @@ export class ContractService {
     }
     // 需求修正2：新增行预填合同税率（物料税率实时绑定合同税率）
     const frac = contract.taxRate != null ? Number(contract.taxRate) : null;
-    const contractPct = frac == null ? null : Math.round(frac * 10000) / 100;
+    const contractPct = rateToPct(frac);
     const pool = await this.prisma.contractMaterialPool.findMany({
       where: { contractId, materialBaseId: { in: materialBaseIds } },
       orderBy: { sortOrder: 'asc' },
@@ -761,8 +763,8 @@ export class ContractService {
       }
       const qty = numOf(it.qty);
       const price = numOf(it.priceBeforeTax);
-      const priceWithTax = price != null && contractPct != null ? round4(price * (1 + contractPct / 100)) : null;
-      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      const priceWithTax = calcPriceWithTax(price, contractPct);
+      const totalWithTax = calcTotalWithTax(priceWithTax, qty);
       maxSort += 1;
       has.add(materialBaseId);
       await this.prisma.contractDraftMaterial.create({
@@ -819,8 +821,8 @@ export class ContractService {
       const qty = r.qty == null || r.qty === '' ? null : Number(r.qty);
       const price = r.priceBeforeTax == null || r.priceBeforeTax === '' ? null : Number(r.priceBeforeTax);
       const tax = contractPct;
-      const priceWithTax = price != null && tax != null ? round4(price * (1 + tax / 100)) : null;
-      const totalWithTax = priceWithTax != null && qty != null ? round4(priceWithTax * qty) : null;
+      const priceWithTax = calcPriceWithTax(price, tax);
+      const totalWithTax = calcTotalWithTax(priceWithTax, qty);
       await this.prisma.contractDraftMaterial.update({
         where: { id: r.id },
         data: {

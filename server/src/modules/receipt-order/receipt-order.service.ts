@@ -8,7 +8,8 @@ import {
   SUBCONTRACTOR_STATUS,
 } from '../../constants/statuses';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
-import { round2, round4 } from '../../common/utils/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { rateToPct } from '../../common/calc/rate';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
@@ -237,14 +238,12 @@ export class ReceiptOrderService {
     });
 
     // 合同税率（小数 0.13）→ 百分比（13）
-    const contractPct =
-      contract.taxRate != null ? round4(Number(contract.taxRate) * 100) : null;
+    const contractPct = rateToPct(contract.taxRate);
 
     const list = rows.map((r: any, i: number) => {
       const priceBeforeTax = num(r.priceBeforeTax);
       const taxRate = num(r.taxRatePct) ?? contractPct;
-      const priceWithTax =
-        priceBeforeTax != null && taxRate != null ? round4(priceBeforeTax * (1 + taxRate / 100)) : null;
+      const priceWithTax = calcPriceWithTax(priceBeforeTax, taxRate);
       return {
         // 行唯一标识（前端本地 key，落库时忽略）
         key: r.id,
@@ -539,10 +538,7 @@ export class ReceiptOrderService {
         receivedQty: null as number | null, // 手填
         priceBeforeTax,
         taxRate,
-        priceWithTax:
-          priceBeforeTax != null && taxRate != null
-            ? round4(priceBeforeTax * (1 + taxRate / 100))
-            : null,
+        priceWithTax: calcPriceWithTax(priceBeforeTax, taxRate),
         totalPrice: null as number | null,
         usagePart: null as string | null,
         custodian: null as string | null,
@@ -680,10 +676,8 @@ export class ReceiptOrderService {
     const priceBeforeTax = num(out.priceBeforeTax);
     const taxRate = num(out.taxRate);
     const receivedQty = num(out.receivedQty);
-    out.priceWithTax =
-      priceBeforeTax != null && taxRate != null ? round4(priceBeforeTax * (1 + taxRate / 100)) : null;
-    out.totalPrice =
-      out.priceWithTax != null && receivedQty != null ? round2(out.priceWithTax * receivedQty) : null;
+    out.priceWithTax = calcPriceWithTax(priceBeforeTax, taxRate);
+    out.totalPrice = calcTotalWithTax(out.priceWithTax, receivedQty, 2);
     out.sortOrder = index + 1;
     return out;
   }
@@ -890,8 +884,7 @@ export class ReceiptOrderService {
 
       const qty = num(d.receivedQty);
       const price = num(d.priceWithTax);
-      const total =
-        qty !== null && price !== null ? round2(qty * price) : (num(d.totalPrice) ?? null);
+      const total = calcTotalWithTax(price, qty, 2) ?? (num(d.totalPrice) ?? null);
       const payload: any = {
         projectId: order.projectId,
         date: order.orderDate ? new Date(order.orderDate) : null,
@@ -976,8 +969,7 @@ export class ReceiptOrderService {
       const receivedQty = num(d.receivedQty);
       const priceAfterTax = num(d.priceWithTax);
       const totalPrice = num(d.totalPrice);
-      const amountBeforeTax =
-        priceBeforeTax != null && receivedQty != null ? round2(priceBeforeTax * receivedQty) : null;
+      const amountBeforeTax = calcTotalWithTax(priceBeforeTax, receivedQty, 2);
       const entryDate = toDate(order.orderDate);
       const base: any = d.materialId ? baseMap.get(d.materialId) : null;
       rows.push({
