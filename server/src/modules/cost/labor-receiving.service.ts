@@ -7,7 +7,10 @@ import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
 import {
   averageUnitPrice,
   deriveReceivingRow,
+  laborMaterialKey,
   laborReceivingReceiptWhere,
+  laborRowKey,
+  parseLaborRowKey,
   type DeriveReceivingInput,
 } from '../../common/utils/labor-receiving';
 import { periodKeyOf, startDayOf, periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
@@ -216,6 +219,14 @@ export class LaborReceivingService {
     ['designQtyCum', 'lossRate', 'returnQty', 'stockTakeQty'].forEach((f) => {
       if (row[f] !== undefined) row[f] = num(row[f]);
     });
+    // 单位是行身份的一部分：换单位会让旧行（连同手填值）孤立，必须拒绝而不是静默新建
+    if (d?.id) {
+      const byId = await db.laborReceivingSummary.findUnique({ where: { id: String(d.id) } });
+      if (!byId || byId.docId !== doc.id) throw new NotFoundException('领用明细行不存在');
+      if (String(byId.unit ?? '').trim() !== row.unit) {
+        throw new BadRequestException('计量单位不可修改；如需按新单位登记，请新增一行');
+      }
+    }
     const where = {
       docId_materialName_spec_unit: {
         docId: doc.id,
@@ -303,13 +314,14 @@ export class LaborReceivingService {
     const prevCumByMat = this.buildPrevCumMap(history, agg.receivedByPeriod, period);
     const periodRows = agg.receivedByPeriod.get(period) ?? new Map();
     const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
-    const savedKeys = new Set(saved.map((r) => rowKey(r.materialName, r.spec, r.unit)));
-    const keys = new Set<string>([...periodRows.keys(), ...savedKeys]);
+    const unitByMaterial = this.unitByMaterial(agg.receivedByPeriod);
+    const savedByKey = this.pickPreferredByKey(saved, unitByMaterial);
+    const keys = new Set<string>([...periodRows.keys(), ...savedByKey.keys()]);
     const list: any[] = [];
     let sort = 0;
     for (const key of keys) {
-      const { materialName, spec, unit } = parseRowKey(key);
-      const savedRow = saved.find((r) => rowKey(r.materialName, r.spec, r.unit) === key);
+      const { materialName, spec, unit } = parseLaborRowKey(key);
+      const savedRow = savedByKey.get(key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
       // 平均单价只读：截至该期末的加权均价（后续期补录不追溯改写历史期）
@@ -511,14 +523,12 @@ export class LaborReceivingService {
     const avgPriceByKey = this.avgPriceThrough(agg.priceByPeriod, period);
     const savedPeriodRows = saved.filter((r) => r.period === period);
     // 本期的行键统一用**材料+规格+单位**：自动聚合桶与已存行同形状，
-    // 含期的三段键只用于查「上期末累计」，不能混进 rows/keys（否则 parseRowKey 会把期间当材料名）
-    const savedByMat = new Map(
-      savedPeriodRows.map((r) => [rowKey(r.materialName, r.spec, r.unit), r] as const),
-    );
+    // 含期的三段键只用于查「上期末累计」，不能混进 rows/keys（否则 parseLaborRowKey 会把期间当材料名）
+    const savedByMat = this.pickPreferredByKey(savedPeriodRows, this.unitByMaterial(agg.receivedByPeriod));
     const keys = new Set<string>([...periodRows.keys(), ...savedByMat.keys()]);
     const out: any[] = [];
     for (const key of keys) {
-      const { materialName, spec, unit } = parseRowKey(key);
+      const { materialName, spec, unit } = parseLaborRowKey(key);
       const savedRow = savedByMat.get(key);
       const auto = periodRows.get(key);
       const receivedQty = auto?.qty ?? null;
@@ -590,8 +600,9 @@ export class LaborReceivingService {
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
+        const specKey = String(d.specModel ?? '').trim();
         const unitKey = String(d.unit ?? '').trim();
-        const key = rowKey(name, d.specModel || '', unitKey);
+        const key = laborRowKey(name, specKey, unitKey);
         // 未填实收 ≠ 0（三态契约）：不参与数量桶，也不参与加权平均
         const qty = num(d.receivedQty);
         if (qty == null) continue;
@@ -652,10 +663,11 @@ export class LaborReceivingService {
    */
   private buildPrevCumMap(
     saved: any[],
-    receivedByPeriod: Map<string, Map<string, { qty: number }>>,
+    receivedByPeriod: Map<string, Map<string, { qty: number; unit?: string | null }>>,
     targetPeriod: string,
   ): Map<string, number> {
     const cumByMat = new Map<string, number>();
+    const unitByMaterial = this.unitByMaterial(receivedByPeriod);
     const periods = new Set<string>([...saved.map((r) => r.period), ...receivedByPeriod.keys()]);
     const ordered = Array.from(periods)
       .filter((p) => p && p < targetPeriod)
@@ -663,7 +675,10 @@ export class LaborReceivingService {
     for (const period of ordered) {
       const savedByMat = new Map<string, any>();
       for (const r of saved) {
-        if (r.period === period) savedByMat.set(rowKey(r.materialName, r.spec, r.unit), r);
+        if (r.period !== period) continue;
+        const k = this.resolvedSavedKey(r, unitByMaterial);
+        const prev = savedByMat.get(k);
+        if (!prev || (!String(prev.unit ?? '').trim() && String(r.unit ?? '').trim())) savedByMat.set(k, r);
       }
       const autoRows = receivedByPeriod.get(period) ?? new Map<string, { qty: number }>();
       const matKeys = new Set<string>([...savedByMat.keys(), ...autoRows.keys()]);
@@ -674,6 +689,50 @@ export class LaborReceivingService {
       }
     }
     return cumByMat;
+  }
+
+  /**
+   * 聚合桶里出现过的单位（按材料+规格聚合）。
+   * 历史空单位行回落到聚合单位时用：某材料只有一个聚合单位时，把 '' 行挂到该单位上，避免幽灵行。
+   */
+  private unitByMaterial(
+    receivedByPeriod: Map<string, Map<string, { qty: number; unit?: string | null }>>,
+  ): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    for (const bucket of receivedByPeriod.values()) {
+      for (const [key, v] of bucket) {
+        const { materialName, spec, unit } = parseLaborRowKey(key);
+        const u = String(unit || v.unit || '').trim();
+        if (!u) continue;
+        const mk = laborMaterialKey(materialName, spec);
+        const set = out.get(mk) ?? new Set<string>();
+        set.add(u);
+        out.set(mk, set);
+      }
+    }
+    return out;
+  }
+
+  /** 已存行的实际键：空单位且聚合侧只有一个单位时回落到该单位 */
+  private resolvedSavedKey(row: any, unitByMaterial: Map<string, Set<string>>): string {
+    const materialName = String(row.materialName ?? '').trim();
+    const spec = String(row.spec ?? '').trim();
+    const unit = String(row.unit ?? '').trim();
+    if (unit) return laborRowKey(materialName, spec, unit);
+    const units = unitByMaterial.get(laborMaterialKey(materialName, spec));
+    const only = units && units.size === 1 ? [...units][0] : '';
+    return laborRowKey(materialName, spec, only);
+  }
+
+  /** 同一 key 有多行时优先保留「有单位」的行（历史 '' 行只是回填前的残留） */
+  private pickPreferredByKey(rows: any[], unitByMaterial: Map<string, Set<string>>): Map<string, any> {
+    const out = new Map<string, any>();
+    for (const r of rows) {
+      const k = this.resolvedSavedKey(r, unitByMaterial);
+      const prev = out.get(k);
+      if (!prev || (!String(prev.unit ?? '').trim() && String(r.unit ?? '').trim())) out.set(k, r);
+    }
+    return out;
   }
 
   /** 单据期标签为 fullKey（含期）；行内键不含期 */
@@ -693,18 +752,4 @@ export class LaborReceivingService {
       updatedAt: r.updatedAt,
     };
   }
-}
-
-/**
- * 材料行键：`rowKey(materialName, spec, unit)`——**不含期间**，单据内/统计期的行身份一律用它。
- * 期间只作为查询条件/分组维度，绝不拼进行键（拼进去会让 parseRowKey 把期间当材料名）；
- * 单位必须进键：同名同规格但计量单位不同（米/根）是两条独立领用，合并会把数量跨单位相加。
- */
-function rowKey(materialName: string, spec: string, unit: string): string {
-  return [materialName, spec, unit].join('\u0001');
-}
-
-function parseRowKey(key: string): { materialName: string; spec: string; unit: string } {
-  const [materialName = key, spec = '', unit = ''] = key.split('\u0001');
-  return { materialName, spec, unit };
 }

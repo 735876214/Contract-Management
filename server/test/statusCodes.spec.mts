@@ -24,6 +24,7 @@ import {
   TASK_STATUS,
   TASK_STATUS_LABELS,
 } from '../src/constants/procurementFlow.ts';
+import { LABOR_RECEIVING_DOC_STATUS as WEB_LABOR_RECEIVING_DOC_STATUS } from '../../web/src/constants/laborReceivingStatus.ts';
 
 /**
  * 核心业务状态 **code 的漂移锁**（评审意见「核心业务枚举不用裸字符串」的配套）。
@@ -150,6 +151,14 @@ describe('核心状态 code 漂移锁（常量 ↔ 字典 + schema 零枚举）'
     for (const [name, code] of Object.entries(DICT_TYPES)) {
       assert.ok(declared.includes(code), `DICT_TYPES.${name} = '${code}' 在种子数据里不存在`);
     }
+  });
+
+  it('docStats / 前端镜像：领用单据状态前后端逐条相等', () => {
+    assert.deepEqual(
+      WEB_LABOR_RECEIVING_DOC_STATUS,
+      LABOR_RECEIVING_DOC_STATUS,
+      '前端 constants/laborReceivingStatus.ts 与后端 LABOR_RECEIVING_DOC_STATUS 不一致',
+    );
   });
 
   it('各组内 code 唯一、命名规范统一（全大写 + 下划线）', () => {

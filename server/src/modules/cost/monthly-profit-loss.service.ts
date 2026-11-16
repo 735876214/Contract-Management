@@ -2,9 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { buildResult, num, paginate, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/utils/money';
-import { periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
+import { periodLabel } from '../../common/utils/settlement-period';
 import { pickFields } from '../../common/pick-fields';
-import { weightedUnitPrice } from '../../common/utils/labor-receiving';
+import { laborRowKey, monthlyDetailKey, weightedUnitPrice } from '../../common/utils/labor-receiving';
 import { LaborReceivingService } from './labor-receiving.service';
 
 /**
@@ -19,6 +19,16 @@ import { LaborReceivingService } from './labor-receiving.service';
 const HEADER_FIELDS = ['period', 'sixSavingsAmount', 'totalDeductAmount', 'remark'];
 /** 明细手填字段：只有这三项（数量/单价/金额都是快照派生物，见 product-decisions §成本管理） */
 const DETAIL_EDITABLE = ['owner', 'deductAmount', 'remark'];
+/** 快照派生列：只读。请求里出现且与当前值不同 → 400（不静默忽略） */
+const SNAPSHOT_FIELDS = [
+  'unitPrice', 'entryQty', 'designQty', 'lossRate', 'theoryUseQty',
+  'actualUseQty', 'stockQty', 'saveOverQty', 'saveOverAmount', 'saveRate',
+] as const;
+function sameNum(a: unknown, b: unknown): boolean {
+  const x = num(a);
+  const y = num(b);
+  return (x == null && y == null) || (x != null && y != null && Math.abs(x - y) < 1e-9);
+}
 
 @Injectable()
 export class MonthlyProfitLossService {
@@ -131,9 +141,19 @@ export class MonthlyProfitLossService {
           // 明细行也必须属于本记录（防止借本记录 id 改写其它记录的明细）
           const owned = await tx.monthlyProfitLossDetail.findFirst({
             where: { id: d.id, profitLossId: id },
-            select: { id: true },
+            select: {
+              id: true, unitPrice: true, entryQty: true, designQty: true, lossRate: true,
+              theoryUseQty: true, actualUseQty: true, stockQty: true, saveOverQty: true,
+              saveOverAmount: true, saveRate: true,
+            },
           });
           if (!owned) continue;
+          // 快照列只读：显式改值一律 400（与台账“只读派生列不静默忽略”同一口径）
+          for (const f of SNAPSHOT_FIELDS) {
+            if (d[f] !== undefined && !sameNum(d[f], (owned as any)[f])) {
+              throw new BadRequestException('盈亏明细的数量/单价/金额是快照派生物，不允许手改；请修改源单据后重新抓取');
+            }
+          }
           const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
           if (row.deductAmount !== undefined) row.deductAmount = num(row.deductAmount);
           // 盈亏金额联动（未被显式改写时）：盈亏数量 × 单价
@@ -160,7 +180,7 @@ export class MonthlyProfitLossService {
     // 手填项按「分包单位 + 材料 + 规格 + 单位」回填：单位不同是两条快照行
     const manual = new Map(
       old.map((d) => [
-        `${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}\u0003${d.unit ?? ''}`,
+        monthlyDetailKey(d.laborAuthId ?? '', d.materialName, d.spec ?? '', d.unit ?? ''),
         d,
       ]),
     );
@@ -195,7 +215,7 @@ export class MonthlyProfitLossService {
     const full: any = await this.detail(id, projectId);
     const details: any[] = full.details || [];
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    const periodLabel = periodLabelOf(full.period);
+    const periodLabelText = periodLabel(full.period);
 
     const wb = new ExcelJS.Workbook();
 
@@ -216,7 +236,7 @@ export class MonthlyProfitLossService {
       ['', 12, false],
       ['', 12, false],
       ['降本、创效、主材盈亏分析', 18, true],
-      [periodLabel, 14, true],
+      [periodLabelText, 14, true],
       ['物资部负责人：', 12, false],
     ];
     coverLines.forEach(([text, size, bold], i) => {
@@ -235,7 +255,7 @@ export class MonthlyProfitLossService {
 
     // ---- Sheet2 明细表（图2）----
     const ws2 = wb.addWorksheet('明细表');
-    ws2.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabel}1日）`;
+    ws2.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabelText}1日）`;
     ws2.getCell('A1').font = { size: 14, bold: true };
     ws2.getRow(2).values = ['项目名称', project?.name ?? ''];
     const HEAD = [
@@ -286,7 +306,7 @@ export class MonthlyProfitLossService {
 
     // ---- Sheet3 汇总表（图1）：按材料跨队加权汇总 ----
     const ws3 = wb.addWorksheet('汇总表');
-    ws3.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabel}1日）`;
+    ws3.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabelText}1日）`;
     ws3.getCell('A1').font = { size: 14, bold: true };
     ws3.getRow(2).values = ['项目名称', project?.name ?? ''];
     ws3.getRow(3).values = [
@@ -299,15 +319,14 @@ export class MonthlyProfitLossService {
     // 按材料名称+规格+单位合并（跨劳务队）；单位不同不能合并数量
     const byMat = new Map<string, any[]>();
     for (const d of details) {
-      const key = `${d.materialName}\u0001${d.spec ?? ''}\u0001${d.unit ?? ''}`;
+      const key = laborRowKey(d.materialName, d.spec ?? '', d.unit ?? '');
       if (!byMat.has(key)) byMat.set(key, []);
       byMat.get(key)!.push(d);
     }
     let r3 = 4;
     let seq3 = 1;
-    const allSums = { theory: 0, actual: 0, stock: 0 };
-    // 合计是否「每一行都有值」：部分队缺值时不能把已知行相加后冒充合计（三态契约）
-    const allKnown = { theory: true, actual: true, stock: true };
+    let actualSum = 0;
+    let actualKnown = true;
     for (const [, list] of byMat) {
       const sum = (f: string) => list.reduce((s, x) => s + (Number(x[f]) || 0), 0);
       // 任一行未填 → 合计 null（未知 ≠ 0；只加已知行会低估）
@@ -329,9 +348,7 @@ export class MonthlyProfitLossService {
       };
       const price = weightedUnitPrice(list.map((x) => ({ qty: pickQty(x), unitPrice: x.unitPrice })));
       const first = list[0];
-      if (theory != null) allSums.theory += theory; else allKnown.theory = false;
-      if (actual != null) allSums.actual += actual; else allKnown.actual = false;
-      if (stock != null) allSums.stock += stock; else allKnown.stock = false;
+      if (actual != null) actualSum += actual; else actualKnown = false;
       ws3.getRow(r3).values = [
         seq3++, first.materialName, first.unit ?? '', price,
         qty, amountOf(qty, price),
@@ -351,9 +368,9 @@ export class MonthlyProfitLossService {
     ws3.getRow(r3).font = { bold: true };
     ws3.getRow(r3 + 1).values = ['劳务计价累计扣款金额', '元', '', '', '', '', '', '', '', '', '', '', '', round2(Number(totalDeduct) || 0), '', ''];
     ws3.getRow(r3 + 1).font = { bold: true };
-    ws3.getRow(r3 + 2).values = ['非自拌混凝土原材合计', '', '', '', '', '', '', '', allKnown.actual ? round2(allSums.actual) : null, '', '', '', '', '', '', ''];
+    ws3.getRow(r3 + 2).values = ['非自拌混凝土原材合计', '', '', '', '', '', '', '', actualKnown ? round2(actualSum) : null, '', '', '', '', '', '', ''];
     ws3.getRow(r3 + 2).font = { bold: true };
-    ws3.getRow(r3 + 4).values = ['进场量/实际库存量/实际消耗量统计截止至' + periodLabel + '1日 11:00'];
+    ws3.getRow(r3 + 4).values = ['进场量/实际库存量/实际消耗量统计截止至' + periodLabelText + '1日 11:00'];
     ws3.getRow(r3 + 6).values = ['制表人：', '', '物资部经理：', '', '工程部经理：', '', '合约部经理：', '', '商务经理：', '', '项目经理：'];
     ws3.columns.forEach((c) => (c.width = 14));
 
@@ -381,7 +398,7 @@ export class MonthlyProfitLossService {
     for (const auth of auths) {
       const snapshot = await this.laborReceiving.periodSnapshotRows(auth.id, period, projectId);
       for (const s of snapshot) {
-        const key = `${auth.id}\u0001${s.materialName}\u0002${s.spec ?? ''}\u0003${s.unit ?? ''}`;
+        const key = monthlyDetailKey(auth.id, s.materialName, s.spec ?? '', s.unit ?? '');
         const m = manual?.get(key);
         const saveOverQty = s.saveOverQty;
         // 盈亏金额是 qty × price 的派生列（前端也只读展示）：
@@ -415,19 +432,16 @@ export class MonthlyProfitLossService {
     return rows.length;
   }
 
-  /** 明细行手改后联动盈亏金额（显式传了 saveOverAmount 则以手填为准；db 用于在事务内复用连接） */
+  /** 明细行手改后重算盈亏金额/节超率（数量与单价是快照值，不再接受手填） */
   private async recalcDetailAmount(detailId: string, row: any, db: any = this.prisma) {
     const data: any = { ...row };
-    if (row.saveOverAmount === undefined) {
-      const cur = await db.monthlyProfitLossDetail.findUnique({ where: { id: detailId } });
-      if (cur) {
-        const qty = row.saveOverQty !== undefined ? num(row.saveOverQty) : (cur.saveOverQty != null ? Number(cur.saveOverQty) : null);
-        const price = row.unitPrice !== undefined ? num(row.unitPrice) : (cur.unitPrice != null ? Number(cur.unitPrice) : null);
-        data.saveOverAmount = qty != null ? amountOf(qty, price) : null;
-        // 节超率联动
-        const theory = row.theoryUseQty !== undefined ? num(row.theoryUseQty) : (cur.theoryUseQty != null ? Number(cur.theoryUseQty) : null);
-        data.saveRate = qty != null && theory ? round4(qty / theory) : null;
-      }
+    const cur = await db.monthlyProfitLossDetail.findUnique({ where: { id: detailId } });
+    if (cur) {
+      const qty = cur.saveOverQty != null ? Number(cur.saveOverQty) : null;
+      const price = cur.unitPrice != null ? Number(cur.unitPrice) : null;
+      data.saveOverAmount = amountOf(qty, price);
+      const theory = cur.theoryUseQty != null ? Number(cur.theoryUseQty) : null;
+      data.saveRate = qty != null && theory ? round4(qty / theory) : null;
     }
     await db.monthlyProfitLossDetail.update({ where: { id: detailId }, data });
   }

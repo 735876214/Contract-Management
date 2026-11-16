@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { averageUnitPrice, deriveReceivingRow, weightedUnitPrice } from '../src/common/utils/labor-receiving.ts';
+import {
+  averageUnitPrice,
+  deriveReceivingRow,
+  laborMaterialKey,
+  laborRowKey,
+  monthlyDetailKey,
+  parseLaborRowKey,
+  weightedUnitPrice,
+} from '../src/common/utils/labor-receiving.ts';
 
 /**
  * 劳务队领用月度汇总 · 派生口径（附件需求 2026-10-17 第二批）。
@@ -91,4 +99,18 @@ test('加权单价 = Σ(数量×单价) ÷ Σ数量（月度盈亏分析汇总�
   assert.equal(weightedUnitPrice([{ qty: 0, unitPrice: 10 }]), null);
   assert.equal(weightedUnitPrice([{ qty: 10, unitPrice: null }]), null);
   assert.equal(weightedUnitPrice([]), null);
+});
+
+test('行键：材料/规格/单位往返稳定，单位不同即不同键', () => {
+  const key = laborRowKey('钢管', 'DN50', '米');
+  assert.deepEqual(parseLaborRowKey(key), { materialName: '钢管', spec: 'DN50', unit: '米' });
+  assert.notEqual(key, laborRowKey('钢管', 'DN50', '根'));
+  // 兼容历史两段键（无单位）：解析出空单位
+  assert.deepEqual(parseLaborRowKey('钢管\u0001DN50'), { materialName: '钢管', spec: 'DN50', unit: '' });
+  // 材料维度键不含单位；月度明细键含分包单位维度
+  assert.equal(laborMaterialKey('钢管', 'DN50'), '钢管\u0001DN50');
+  assert.notEqual(
+    monthlyDetailKey('auth-1', '钢管', 'DN50', '米'),
+    monthlyDetailKey('auth-2', '钢管', 'DN50', '米'),
+  );
 });

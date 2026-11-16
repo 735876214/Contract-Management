@@ -122,6 +122,37 @@ export function laborReceivingReceiptWhere(projectId: string, laborAuthId: strin
 }
 
 /**
+ * 领用行键的统一分隔符（`\u0001`）。
+ * 行键、月度盈亏快照键、导出分组键都复用它，避免三个 service 各拼一份、加字段时漏改。
+ */
+export const LABOR_KEY_SEP = '\u0001';
+
+/** 领用明细行键：材料 + 规格 + 单位（不含期间） */
+export function laborRowKey(materialName: string, spec: string, unit: string): string {
+  return [materialName, spec, unit].join(LABOR_KEY_SEP);
+}
+
+export function parseLaborRowKey(key: string): { materialName: string; spec: string; unit: string } {
+  const [materialName = key, spec = '', unit = ''] = key.split(LABOR_KEY_SEP);
+  return { materialName, spec, unit };
+}
+
+/** 材料维度键（不含单位）：历史空单位行回落到聚合单位时用 */
+export function laborMaterialKey(materialName: string, spec: string): string {
+  return [materialName, spec].join(LABOR_KEY_SEP);
+}
+
+/** 月度盈亏明细键：分包单位 + 材料 + 规格 + 单位（回填手填项/生成快照共用） */
+export function monthlyDetailKey(
+  laborAuthId: string,
+  materialName: string,
+  spec: string,
+  unit: string,
+): string {
+  return [laborAuthId, materialName, spec, unit].join(LABOR_KEY_SEP);
+}
+
+/**
  * 平均单价 = Σ税前总价 ÷ Σ数量（图三口径：来自该分包单位有价格的材料的平均单价）。
  * 聚合输入为空（无记录/Σ数量 0）→ null。
  */

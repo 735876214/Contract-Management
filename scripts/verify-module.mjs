@@ -18,6 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, openSync, readFileSync, statSync, unlinkSync, writeSync, closeSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { isWeakJwtSecret } from './lib/env-secret.mjs';
 
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -218,10 +219,7 @@ if (needsInt && intMode !== 'none') {
       // JWT_SECRET：工作树 .env 可能仍是模板占位值（jwt.strategy 会 fail-fast 拒绝），
       // 集成测试统一用固定测试密钥，避免「命令手动跑能过、verify 里 30s 后整文件失败」。
       const envSecret = env.JWT_SECRET || '';
-      const jwtSecret =
-        !envSecret || envSecret === 'cms-super-secret-key' || envSecret.startsWith('change-me')
-          ? 'cms-int-test-secret'
-          : envSecret;
+      const jwtSecret = isWeakJwtSecret(envSecret) ? 'cms-int-test-secret' : envSecret;
       const testEnv = { DATABASE_URL: testUrl, JWT_SECRET: jwtSecret,
         UPLOAD_DIR: env.UPLOAD_DIR && env.UPLOAD_DIR.includes('.tmp-uploads') ? env.UPLOAD_DIR : mkdtempSync(path.join(tmpdir(), 'cms-int-uploads-')) };
 
