@@ -144,14 +144,8 @@ env = setKey(env, 'PORT', String(port));
 // 每树写一个确定性的测试密钥（生产/开发容器仍由 compose 注入真实值）
 env = setKey(env, 'JWT_SECRET', `wt-test-${slug}-secret-do-not-use-in-prod`);
 env = setKey(env, 'UPLOAD_DIR', path.join(wtPath, '.tmp-uploads').replace(/\\/g, '/'));
-/**
- * JWT_SECRET：模板里的 `cms-super-secret-key` 会被 `jwt.strategy.ts` 当作占位值拒绝，
- * 工作树后端（以及 verify 的集成测试）会在启动期直接失败。模板是弱密钥时改写成随机值。
- */
-const envSecret = /^JWT_SECRET="?([^"\n]*)"?$/m.exec(env)?.[1] || '';
-if (!envSecret || envSecret === 'cms-super-secret-key' || envSecret.startsWith('change-me')) {
-  env = setKey(env, 'JWT_SECRET', randomBytes(32).toString('base64'));
-}
+// `.env.example` 的 JWT_SECRET 是占位值（jwt.strategy 会显式拒绝）→ 每棵树生成一个随机开发密钥
+env = setKey(env, 'JWT_SECRET', randomBytes(32).toString('base64'));
 env = `# 由 scripts/new-task-worktree.mjs 生成（slug=${slug}）\n${env}`;
 writeFileSync(envPath, env);
 mkdirSync(path.join(wtPath, '.tmp-uploads'), { recursive: true });
