@@ -7,12 +7,21 @@ import { OperationLogInterceptor } from './common/interceptors/operation-log.int
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
-import * as path from 'path';
-import * as fs from 'fs';
-import { seedAdmin, seedDictAndParams, seedDefaultProject } from './seed';
+import { StorageService } from './common/services/storage.service';
+import { requestContext } from './common/services/request-context';
+import { runStartupSeed } from './seed';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // 请求上下文（项目 id）→ AsyncLocalStorage：service 里按 id 取行的查询靠它补
+  // `projectId` 过滤，堵住「守卫只管"能不能进这个项目"、不管这条数据属不属于它」的跨项目 IDOR。
+  // 必须在路由之前注册；只认 header 与 query（multipart 的 body 在守卫阶段还读不到）。
+  app.use((req: any, _res: any, next: any) => {
+    const raw = req?.headers?.['x-project-id'] ?? req?.query?.projectId;
+    const projectId = Array.isArray(raw) ? String(raw[0] ?? '').trim() : String(raw ?? '').trim();
+    requestContext.run({ projectId: projectId || undefined }, () => next());
+  });
 
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');
@@ -29,22 +38,19 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  const uploadDir = process.env.UPLOAD_DIR || './uploads';
-  const absUploadDir = path.isAbsolute(uploadDir) ? uploadDir : path.join(process.cwd(), uploadDir);
-  if (!fs.existsSync(absUploadDir)) fs.mkdirSync(absUploadDir, { recursive: true });
-  app.useStaticAssets(absUploadDir, { prefix: '/api/files' });
+  // 本地存储根目录的创建仍走 StorageService；读取不再用 useStaticAssets（那是公开的），
+  // 改由 FileServeController（JwtAuthGuard）代理 /api/files/**，URL 形态保持不变。
+  app.get(StorageService).ensureRoot();
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`CMS server running on http://localhost:${port}/api`);
 
-  // 首次部署空库时，自动 seed 一个默认管理员账号，保证可直接登录
+  // 启动播种（空库首启初始化 + 每次启动的历史数据修正）统一入口。
+  // ⚠️ 必须走这一条：它用事务级咨询锁把整段播种**串行化**，避免多进程同时启动时
+  // 在字典/参数的唯一键上撞 P2002 导致"播种中断、后面的项漏播"（CI 的并发集成测试必现）。
+  // 内部顺序：admin → 默认项目（依赖 admin）→ 字典/参数 → 历史数据修正。
   const prisma = app.get<PrismaClient>(PrismaClient);
-  await seedAdmin(prisma);
-  // 首次部署空库时，创建一个默认项目，解决 admin 登录报「缺少项目上下文（x-project-id）」的问题
-  // （顺序须位于 seedAdmin 之后，因为默认项目 seed 依赖 admin 已存在）
-  await seedDefaultProject(prisma);
-  // 首次部署空库时，写入字典类型 / 字典项 / 系统参数初始数据，保证字典与系统参数页面有内容
-  await seedDictAndParams(prisma);
+  await runStartupSeed(prisma);
 }
 bootstrap();

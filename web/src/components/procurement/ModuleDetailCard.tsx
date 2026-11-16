@@ -1,7 +1,10 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useEffect, useState, type ReactNode } from 'react';
 import { Card, Descriptions, Space, Spin, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { buildProcurementDoc } from '@/utils/procurementExport';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { replaceProcurementVariables } from '@/constants/procurementVariables';
 
 /**
@@ -39,13 +42,25 @@ export default function ModuleDetailCard({
   docLoading,
   actions,
 }: ModuleDetailCardProps) {
+  /**
+   * 详情卡的 `Descriptions` 列数按**卡片自身宽度**决定（DESIGN.md §10.2）：
+   * 同一张卡在整页里宽、在工作台 `lg=8` 侧列里只有 ~380px，`column={3}` 在三列窄卡里会挤出竖排文字。
+   * `column` 是 AntD 的 JS prop，CSS 驱动不了，故走 `useContainerWidth()`。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const descColumns = containerSize.isNarrow ? 1 : containerSize.isWide ? 3 : 2;
+
   return (
     <Card
       size="small"
       title={title}
       extra={actions ? <Space wrap>{actions}</Space> : undefined}
+      // 容器标记：卡片内部（含下方 .doc-preview）按**卡片自身的宽度**降级，
+      // 而不是按视口——本卡片常出现在窄栅格列里（DESIGN.md §10.2）
+      className="cq"
+      ref={cqRef}
     >
-      <Descriptions column={3} size="small" bordered style={{ marginBottom: 12 }}>
+      <Descriptions column={descColumns} size="small" bordered style={{ marginBottom: 12 }}>
         <Descriptions.Item label="采购编号">{taskNo || '-'}</Descriptions.Item>
         <Descriptions.Item label="采购内容">{content || '-'}</Descriptions.Item>
         <Descriptions.Item label="状态">
@@ -60,14 +75,16 @@ export default function ModuleDetailCard({
       </Descriptions>
       <Spin spinning={!!docLoading}>
         <div
+          className="doc-preview"
           style={{
             maxHeight: '52vh',
             overflow: 'auto',
-            border: '1px solid #eee',
-            padding: 24,
-            background: '#fff',
+            border: '1px solid var(--cms-hairline-soft)',
+            // padding 交由 .doc-preview 按容器级收敛（DESIGN.md §10.2）
+            // 文档预览是「纸张」，恒为白、不随主题（DESIGN.md §6）
+            background: 'var(--cms-paper)',
           }}
-          dangerouslySetInnerHTML={{ __html: docHtml || '<p style="color:#bfbfbf">暂无内容</p>' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(docHtml) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>' }}
         />
       </Spin>
     </Card>

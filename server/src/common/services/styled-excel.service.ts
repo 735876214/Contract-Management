@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { CSCEC_LOGO_PNG_BASE64 } from './cscec-logo.base64';
+import { sanitizeSheetName } from '../utils/excel-sheet';
 
 /**
  * 中建项目管理表格样式导出服务
@@ -35,6 +36,11 @@ export interface StyledTableOptions {
   rows: Record<string, any>[];
   /** 需要做 SUBTOTAL(109) 汇总的列 key */
   totalsKeys?: string[];
+  /**
+   * 合计值的**显式覆写**：key 命中时写死数值，不再生成 SUBTOTAL 公式。
+   * 用于"逐行相加会重复计入"的列（如台账合同额：补充协议行是整链值，按链只应计一次）。
+   */
+  totalsValues?: Record<string, number>;
   totalsLabel?: string;
   /** 下拉数据验证：列 key → 选项列表 */
   dropdowns?: Record<string, string[]>;
@@ -106,7 +112,8 @@ export class StyledExcelService {
 
   async exportTable(opts: StyledTableOptions): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet(opts.sheetName, {
+    // sheet 名可能来自用户填的字典/模板名（含 * ? : \ / [ ] 时 exceljs 直接 throw）→ 统一净化
+    const ws = wb.addWorksheet(sanitizeSheetName(opts.sheetName, 'Sheet1'), {
       views: [{ state: 'frozen', ySplit: 3 }],
     });
     const colCount = opts.columns.length;
@@ -188,6 +195,10 @@ export class StyledExcelService {
         cell.alignment = { horizontal: c.type === 'money' || c.type === 'qty' ? 'right' : 'center', vertical: 'middle' };
         if (ci === 0) {
           cell.value = opts.totalsLabel || '汇总';
+        } else if (opts.totalsValues && Object.prototype.hasOwnProperty.call(opts.totalsValues, c.key)) {
+          // 显式覆写优先：这类列不能用 SUBTOTAL（逐行相加会重复计入）
+          cell.value = opts.totalsValues[c.key];
+          if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
         } else if (opts.totalsKeys.includes(c.key) && opts.rows.length > 0) {
           const L = colLetter(ci + 1);
           cell.value = { formula: `SUBTOTAL(109,${L}${dataStart}:${L}${dataEnd})` };

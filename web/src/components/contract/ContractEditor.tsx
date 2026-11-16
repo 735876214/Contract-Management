@@ -1,0 +1,557 @@
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Descriptions,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Row,
+  Select,
+  Space,
+  Tabs,
+  Typography,
+  message,
+} from 'antd';
+import dayjs from 'dayjs';
+import { contractApi, materialApi, projectApi, supplierApi, templateApi } from '@/api/business';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import DictSelect from '@/components/DictSelect';
+import Uploader, { UploadFile } from '@/components/Uploader';
+import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentModes';
+import { LIST_PATHS } from '@/constants/listPaths';
+import { useEditorTab } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { useAuthStore } from '@/store/auth';
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+import { CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
+
+/**
+ * 合同编辑器（列表 + 编辑器是同一路由的两种形态：`?editor=new|<id>`）。
+ *
+ * 由原 `pages/Contracts.tsx` 迁入（业务 2026-11-14 合并「合同台账」与「合同台账维护」）：
+ * 台账列表与编辑器共用 `/contract/list`，编辑器页签与列表刷新令牌都用 `LIST_PATHS.contractLedger`。
+ */
+
+/** 需求 2.3：四种条款类型对应的合同表单字段 */
+const CLAUSE_FIELDS: { type: string; field: string }[] = [
+  { type: 'technical', field: 'technicalClauseId' },
+  { type: 'quality', field: 'qualityClauseId' },
+  { type: 'payment', field: 'paymentClauseId' },
+  { type: 'acceptance', field: 'acceptanceClauseId' },
+];
+
+export default function ContractEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATHS.contractLedger);
+  const [form] = Form.useForm();
+  const [extForm] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const editing = seed as any | undefined;
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
+  const [supplier, setSupplier] = useState<any>(null);
+  const [attachments, setAttachments] = useState<UploadFile[]>([]);
+  const [codeStatus, setCodeStatus] = useState<'' | 'error' | 'success'>('');
+  const [codeMsg, setCodeMsg] = useState('');
+  const [codeTimer, setCodeTimer] = useState<any>(null);
+  const [currentProject, setCurrentProject] = useState<any>(null);
+
+  // 需求 2.3：合同条款（四种类型）选择
+  const [clauseList, setClauseList] = useState<any[]>([]);
+  const [clausePreview, setClausePreview] = useState<any[] | null>(null); // 预览全部条款
+  const [clauseView, setClauseView] = useState<{ label: string; content: string } | null>(null); // 查看单条内容
+  useEffect(() => {
+    templateApi.clauses().then((res: any) => setClauseList(res?.list || res || []));
+  }, []);
+  const clausesByType = useCallback(
+    (type: string) => clauseList.filter((c: any) => c.type === type),
+    [clauseList],
+  );
+
+  useEffect(() => {
+    supplierApi.options().then((res: any) => setSuppliers(res || []));
+    materialApi.options().then((res: any) => setMaterials(res || []));
+  }, []);
+
+  // 当前项目（用于编号第3段字母简称）
+  const currentProjectId = useAuthStore((s) => s.currentProjectId);
+  useEffect(() => {
+    if (currentProjectId) projectApi.detail(currentProjectId).then((res: any) => setCurrentProject(res));
+  }, [currentProjectId]);
+
+  // 编辑态：整行（含 ext）回填；新建：默认值
+  useEffect(() => {
+    form.resetFields();
+    extForm.resetFields();
+    if (editing) {
+      form.setFieldsValue({
+        ...editing,
+        signDate: editing.signDate ? dayjs(editing.signDate) : null,
+      });
+      extForm.setFieldsValue({
+        ...(editing.ext || {}),
+        // 付款安排在主表上，但和 ext 的比例并排显示、一起保存（见 submit 里的归位说明）
+        paymentMode: editing.paymentMode ?? undefined,
+        bidStartDate: editing.ext?.bidStartDate ? dayjs(editing.ext.bidStartDate) : null,
+        bidWinDate: editing.ext?.bidWinDate ? dayjs(editing.ext.bidWinDate) : null,
+        disclosureDate: editing.ext?.disclosureDate ? dayjs(editing.ext.disclosureDate) : null,
+      });
+      setSupplier(editing.supplier || null);
+      setAttachments(editing.attachments || []);
+    }
+    setDirty(false);
+  }, [editing]);
+
+  // 自动生成合同编号（类型/子类型/项目变化时刷新）
+  const genCode = async (typeCode?: string, subTypeCode?: string) => {
+    if (editing) return; // 编辑态编号不可变更
+    try {
+      const res: any = await contractApi.nextCode({
+        typeCode: typeCode ?? form.getFieldValue('typeCode'),
+        subTypeCode: subTypeCode ?? form.getFieldValue('subTypeCode'),
+        projectId: currentProjectId,
+      });
+      if (res?.code) {
+        form.setFieldsValue({ code: res.code });
+        setCodeStatus('success');
+        setCodeMsg('已自动生成（可手动微调，保存后不可变更）');
+        if (res.missing?.length) setCodeMsg(`已生成，但缺少：${res.missing.join('；')}`);
+      }
+    } catch {
+      /* 映射缺失时静默，由用户手填 */
+    }
+  };
+
+  // 监听类型/子类型变化自动刷新编号预览
+  const watchedType = Form.useWatch('typeCode', form);
+  // 需求 2.1：合同发布后（待签章/已签章）合同类型固化；历史空状态在 UI 上按「待签章」展示，同样锁定
+  const typeLocked = !!editing && editing.status !== 'DRAFT';
+  const watchedSubType = Form.useWatch('subTypeCode', form);
+  /** 付款安排：决定「月度结算办理比例」是否可填（标准安排自带比例，自定义才要填） */
+  const watchedPayMode = Form.useWatch('paymentMode', extForm);
+  useEffect(() => {
+    if (!editing) genCode(watchedType, watchedSubType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedType, watchedSubType, editing]);
+
+  // 合同编号实时查重
+  const checkCode = (code: string) => {
+    if (!code) {
+      setCodeStatus('');
+      setCodeMsg('');
+      return;
+    }
+    if (codeTimer) clearTimeout(codeTimer);
+    setCodeTimer(
+      setTimeout(async () => {
+        if (editing && editing.code === code) {
+          setCodeStatus('success');
+          setCodeMsg('当前编号');
+          return;
+        }
+        const res: any = await contractApi.checkCode(code, editing?.id);
+        if (res?.exists) {
+          setCodeStatus('error');
+          setCodeMsg(`合同编号已存在（${res.scope === 'GLOBAL' ? '全局唯一' : '项目内唯一'}）`);
+        } else {
+          setCodeStatus('success');
+          setCodeMsg('编号可用');
+        }
+      }, 400),
+    );
+  };
+
+  const onSupplierChange = (id: string) => {
+    const hit = suppliers.find((s) => s.id === id);
+    setSupplier(hit || null);
+  };
+
+  const submit = async () => {
+    if (editing?.archivedAt) {
+      message.error('合同已归档（单向归档），不能修改');
+      return;
+    }
+    const values = await form.validateFields();
+    if (codeStatus === 'error') {
+      message.error('合同编号已存在，请修改');
+      return;
+    }
+    const materialIds = values.materialIds;
+    delete values.materialIds;
+    /**
+     * 「付款安排」是**合同主表**字段（`Contract.paymentMode`），却和 ext 的「月度结算办理比例」并排显示
+     * —— 故在这里拆开归位：主表字段提到 payload 顶层，比例留在 `ext` 里。
+     * （两个都塞进 ext 会**静默丢失**：后端 `saveExt` 只认 `EXT_FIELDS` 白名单。）
+     */
+    const extValues = extForm.getFieldsValue();
+    // `currentPayRatio` 由服务端派生（见后端 `contract.service.syncPayRatio`），前端只展示、不回传
+    const { paymentMode, settlementPayRatio, currentPayRatio: _derivedRatio, ...extRest } = extValues;
+    const payload = {
+      ...values,
+      paymentMode,
+      signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
+      attachments,
+      ext: { ...extRest, settlementPayRatio },
+      materialIds: editing ? undefined : materialIds, // 仅创建时派生清单
+      // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
+      version: editing ? (editing as any).version : undefined,
+    };
+    setSaving(true);
+    try {
+      if (editing) await contractApi.update(editing.id, payload);
+      else await contractApi.create(payload);
+      message.success(editing ? '保存成功' : '保存成功，已按所选物资生成合同物资清单');
+      editorTab.closeEditor();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATHS.contractLedger}
+      title={editing ? '编辑合同' : '新建合同'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} component={false} onValuesChange={() => setDirty(true)}>
+        {editing?.archivedAt && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`该合同已归档（${editing.archivedBy || '—'} · ${String(editing.archivedAt).slice(0, 10)}），仅可查看，不能修改`}
+          />
+        )}
+        <Tabs
+          items={[
+            {
+              key: 'base',
+              label: '基础信息',
+              children: (
+                <>
+                  <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="code"
+                        label="合同编号"
+                        rules={[{ required: true }]}
+                        validateStatus={codeStatus}
+                        help={codeMsg}
+                        hasFeedback
+                      >
+                        <Input onChange={(e) => checkCode(e.target.value)} placeholder="如 HT-2026-0001" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="name" label="合同名称" rules={[{ required: true }]}><Input /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      {/* 需求 2.1：发布后（待签章/已签章）合同类型只读，后端同步校验 */}
+                      <Form.Item
+                        name="typeCode"
+                        label={typeLocked ? '合同类型（发布后不可修改）' : '合同类型'}
+                        rules={[{ required: true }]}
+                      >
+                        <DictSelect typeCode="contract_type" disabled={typeLocked} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="subTypeCode" label="合同子类型" rules={[{ required: true }]}>
+                        <DictSelect typeCode="contract_sub_type" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="supplierId" label="供应商" rules={[{ required: true }]}>
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="请选择供应商（选择后自动带出法人/授权人/银行等信息）"
+                          onChange={onSupplierChange}
+                          options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="signDate" label="签订日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+                    </Col>
+                    {!editing && (
+                      <Col xs={24} md={16}>
+                        <Form.Item
+                          name="materialIds"
+                          label="初始物资（从项目物资清单派生合同清单，可多选）"
+                          extra="创建合同后将按所选物资自动生成合同物资清单（唯一数据源），也可之后在「合同物资清单」页面派生或导入。"
+                        >
+                          <Select
+                            mode="multiple"
+                            showSearch
+                            optionFilterProp="label"
+                            allowClear
+                            maxTagCount={4}
+                            placeholder="选择物资（可留空，稍后在合同物资清单中派生）"
+                            options={materials.map((m) => ({ value: m.id, label: `${m.name} / ${m.spec}` }))}
+                          />
+                        </Form.Item>
+                      </Col>
+                    )}
+                    <Col xs={24} md={8}>
+                      <Form.Item name="amount" label="合同额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="paymentMethodCode" label="合同约定付款方式"><DictSelect typeCode="payment_method" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="isFramework" label="是否框架协议"><DictSelect typeCode="yes_no" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="isSupplement" label="是否补充协议"><DictSelect typeCode="yes_no" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        noStyle
+                        shouldUpdate={(prev, cur) => prev.isSupplement !== cur.isSupplement}
+                      >
+                        {({ getFieldValue }) =>
+                          getFieldValue('isSupplement') === 'Y' ? (
+                            <Form.Item name="supplementTypeCode" label="补充协议类型" rules={[{ required: true, message: '请选择补充协议类型' }]}>
+                              <DictSelect typeCode="supplement_agreement_type" />
+                            </Form.Item>
+                          ) : null
+                        }
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="execStatus" label="合同执行情况"><DictSelect typeCode="contract_execution_status" /></Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item label="附件"><Uploader value={attachments} onChange={setAttachments} /></Form.Item>
+                    </Col>
+                    {/* 需求 2.3：合同条款 —— 四种类型分别下拉选择已维护的条款 */}
+                    <Col xs={24}>
+                      <Card
+                        type="inner"
+                        title="合同条款"
+                        extra={
+                          <Button
+                            onClick={() => {
+                              const rows = CLAUSE_FIELDS.map(({ type, field }) => {
+                                const id = form.getFieldValue(field);
+                                return { type, clause: clauseList.find((c: any) => c.id === id) || null };
+                              });
+                              setClausePreview(rows);
+                            }}
+                          >
+                            预览全部条款
+                          </Button>
+                        }
+                      >
+                        <Row gutter={16}>
+                          {CLAUSE_FIELDS.map(({ type, field }) => (
+                            <Col xs={24} md={12} key={field}>
+                              <Form.Item label={CLAUSE_TYPE_LABEL[type]}>
+                                <Space.Compact style={{ width: '100%' }}>
+                                  <Form.Item noStyle name={field}>
+                                    <Select
+                                      allowClear
+                                      showSearch
+                                      optionFilterProp="label"
+                                      placeholder={`选择${CLAUSE_TYPE_LABEL[type]}`}
+                                      options={clausesByType(type).map((c: any) => ({ value: c.id, label: c.title }))}
+                                    />
+                                  </Form.Item>
+                                  <Button
+                                    onClick={() => {
+                                      const id = form.getFieldValue(field);
+                                      const clause = clauseList.find((c: any) => c.id === id);
+                                      if (!clause) return message.warning(`请先选择${CLAUSE_TYPE_LABEL[type]}`);
+                                      setClauseView({ label: `${CLAUSE_TYPE_LABEL[type]}：${clause.title}`, content: clause.content });
+                                    }}
+                                  >
+                                    查看内容
+                                  </Button>
+                                </Space.Compact>
+                              </Form.Item>
+                            </Col>
+                          ))}
+                        </Row>
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="条款内容在「基础信息管理 → 合同条款」中维护；此处选择后随合同一起保存。"
+                        />
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  {supplier && (
+                    <>
+                      <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message="以下信息由供应商库自动带出，只读展示；修改请在【供应商库】维护"
+                      />
+                      <SupplierInfoDescriptions supplier={supplier} />
+                    </>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: 'ext',
+              label: '台账补充信息',
+              children: (
+                // 两个独立 Form（form + extForm），外层 component={false} 只做 dirty 汇总
+                <Form form={extForm} layout="vertical" onValuesChange={() => setDirty(true)}>
+                  <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="financeCode" label="财务一体化合同编号"><Input /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="bidName" label="招标名称"><Input /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="procurementSrc" label="采购来源"><DictSelect typeCode="procurement_source" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="isDirectPurchase" label="是否厂家直采"><DictSelect typeCode="is_direct_purchase" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="supplierCategory" label="分供方类别"><DictSelect typeCode="supplier_category" /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="paymentMode"
+                        label="付款安排"
+                        extra="月度结算办理的付款节点；总结算办理完成后按 100%（当前生效比例由服务端派生）"
+                      >
+                        <Select allowClear placeholder="请选择付款安排" options={PAYMENT_MODE_OPTIONS} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="settlementPayRatio"
+                        label="月度结算办理比例"
+                        extra={
+                          watchedPayMode === CUSTOM_PAYMENT_MODE
+                            ? '自定义付款安排时必填（如 0.65 表示 65%）'
+                            : '标准付款安排的比例由安排本身决定，无需填写'
+                        }
+                      >
+                        <InputNumber
+                          style={{ width: '100%' }}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          precision={4}
+                          disabled={watchedPayMode !== CUSTOM_PAYMENT_MODE}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="currentPayRatio"
+                        label="当前合同付款比例"
+                        extra="只读：由服务端按「付款安排 / 已完已结」派生，保存后自动更新"
+                      >
+                        <Input readOnly placeholder="保存后自动计算" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="bidStartDate" label="开始招标时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="bidWinDate" label="定标时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="disclosureDate" label="合同交底时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
+                    </Col>
+                    <Col xs={24}>
+                      <Form.Item name="complaint" label="投诉情况"><Input.TextArea rows={2} /></Form.Item>
+                    </Col>
+                  </Row>
+                </Form>
+              ),
+            },
+          ]}
+        />
+      </Form>
+
+      {/* 需求 2.3：查看单条条款内容 */}
+      <Modal
+        title={clauseView?.label || '条款内容'}
+        open={!!clauseView}
+        onCancel={() => setClauseView(null)}
+        footer={<Button type="primary" onClick={() => setClauseView(null)}>关闭</Button>}
+        width={680}
+      >
+        <div
+          style={{ maxHeight: 480, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 16, background: 'var(--cms-paper)' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(clauseView?.content) }}
+        />
+      </Modal>
+
+      {/* 需求 2.3：预览当前合同所选的全部四种条款 */}
+      <Modal
+        title="预览全部条款"
+        open={!!clausePreview}
+        onCancel={() => setClausePreview(null)}
+        footer={<Button type="primary" onClick={() => setClausePreview(null)}>关闭</Button>}
+        width={760}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {(clausePreview || []).map(({ type, clause }) => (
+            <div key={type}>
+              <Typography.Title level={5} style={{ marginBottom: 8 }}>
+                {CLAUSE_TYPE_LABEL[type]}
+                {clause ? <Typography.Text type="secondary">（{clause.title}）</Typography.Text> : null}
+              </Typography.Title>
+              {clause ? (
+                <div
+                  style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', borderRadius: 6, padding: 12, background: 'var(--cms-paper)' }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(clause.content) }}
+                />
+              ) : (
+                <Typography.Text type="secondary">未选择</Typography.Text>
+              )}
+            </div>
+          ))}
+        </Space>
+      </Modal>
+    </EditorTabPage>
+  );
+}
+
+/** 编辑器「供应商信息带出」只读区：列数按容器宽度降级 */
+function SupplierInfoDescriptions({ supplier }: { supplier: any }) {
+  const { ref, size } = useContainerWidth<HTMLDivElement>();
+  return (
+    <div ref={ref} className="cq" style={{ marginBottom: 16 }}>
+      <Descriptions bordered size="small" column={size.isNarrow ? 1 : 2}>
+        <Descriptions.Item label="法人姓名">{supplier.legalPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="法人电话">{supplier.legalPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同授权人姓名">{supplier.contractAuthPerson || '-'}</Descriptions.Item>
+        <Descriptions.Item label="合同授权人电话">{supplier.contractAuthPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="授权人身份证号">{supplier.contractAuthIdNo || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人姓名">{supplier.contactName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人电话">{supplier.contactPhone || '-'}</Descriptions.Item>
+        <Descriptions.Item label="联系人邮箱">{supplier.contactEmail || '-'}</Descriptions.Item>
+        <Descriptions.Item label="银行名称">{supplier.bankName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="银行账号">{supplier.bankAccount || '-'}</Descriptions.Item>
+        <Descriptions.Item label="公司地址" span={size.isNarrow ? 1 : 2}>{supplier.address || '-'}</Descriptions.Item>
+      </Descriptions>
+    </div>
+  );
+}

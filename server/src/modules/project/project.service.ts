@@ -1,17 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, toDate } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
+import { ProjectAccessService } from '../../common/services/project-access.service';
 
 const PROJECT_FIELDS = [
-  'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'selfContractAmount', 'industryType',
+  'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'packageLeader', 'projectManager', 'selfContractAmount', 'industryType',
   'provinceCity', 'siteLocation', 'projectAddress', 'materialOrigin',
   'status', 'description', 'startDate', 'endDate', 'managerId',
+  // 月度结算起始日期（其「日」为每期起始日；自动生成结算与发票/收领单归属都按它算期）
+  'settlementStartDate',
 ];
 const CODE_ABBR_RE = /^[A-Z0-9]+$/;
 
@@ -24,7 +27,19 @@ export class ProjectService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private access: ProjectAccessService,
   ) {}
+
+  /**
+   * 项目级访问校验（成员关系）。
+   *
+   * `@ProjectId()` 只保证「请求头里的项目是自己的」，不保证 URL 里的项目 id 是自己的：
+   * 不校验时任何持 `project:view` 的成员换个 id 就能读别项目详情（含全部成员手机号/邮箱），
+   * 持 `project:edit` 的还能改写/删除别项目、增删别项目成员。超管按设计放行。
+   */
+  private async assertAccess(id: string, user?: any) {
+    await this.access.assertAccess(user?.userId, id, !!user?.isSuperAdmin);
+  }
 
   async findAll(query: any = {}, user: any) {
     const { skip, take } = paginate(query);
@@ -39,7 +54,7 @@ export class ProjectService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { members: { include: { user: { select: { id: true, realName: true, username: true } } } } },
       }),
       this.prisma.project.count({ where }),
@@ -47,7 +62,8 @@ export class ProjectService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: any) {
+    await this.assertAccess(id, user);
     const p = await this.prisma.project.findUnique({
       where: { id },
       include: { members: { include: { user: { select: { id: true, realName: true, username: true, phone: true } } } } },
@@ -74,34 +90,87 @@ export class ProjectService {
     await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr);
-    return db.project.create({ data: pickFields(data, PROJECT_FIELDS, { label: '项目' }) });
+    // 日期字段经 toDate 归一化：前端/导入传 'YYYY-MM-DD' 时 Prisma 会报
+    // 「Invalid value ... Expected ISO-8601 DateTime」，服务端统一转换而不是要求调用方拼时间
+    const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
+    for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
+      if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
+    }
+    return db.project.create({ data: payload });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, user?: any) {
+    const before = await this.findOne(id, user);
     assertVersion(before, data);
     if (data.status) await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr, id);
     const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
+    for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
+      if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
+    }
+    /**
+     * 结算起始日决定「结算期」边界（期 = 起始日 → 下月同日的前一日），而
+     * `Settlement.settleDate` / 台账 `settleMonth` / 发票与收领单的自动匹配全都按它派生。
+     * 已有结算单时改它会让期归属整体漂移（同合同两张单落入同一期、台账月份错位、发票匹配不到原单），
+     * 且没有任何自动回填能还原 —— 直接拦住，要求先处理结算数据。
+     */
+    if (payload.settlementStartDate !== undefined) {
+      const next = payload.settlementStartDate ? new Date(payload.settlementStartDate).getTime() : null;
+      const prev = before.settlementStartDate ? new Date(before.settlementStartDate).getTime() : null;
+      if (next !== prev) {
+        const count = await this.prisma.settlement.count({ where: { projectId: id } });
+        if (count > 0) {
+          throw new BadRequestException(
+            `项目已有 ${count} 张结算单，修改结算起始日会让结算期归属整体漂移（台账月份、发票/收领单自动匹配都会错位）。请先处理结算数据。`,
+          );
+        }
+      }
+    }
     delete payload.version;
     return this.prisma.project.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
-  async remove(id: string) {
-    const counts = await Promise.all([
-      this.prisma.contract.count({ where: { projectId: id } }),
-      this.prisma.dailyReport.count({ where: { projectId: id } }),
-      this.prisma.settlement.count({ where: { projectId: id } }),
-      this.prisma.invoice.count({ where: { projectId: id } }),
-    ]);
+  async remove(id: string, user?: any) {
+    await this.assertAccess(id, user);
+    /**
+     * 项目下**所有**项目级业务表都要计入：这些表的 projectId 外键是 `onDelete: Cascade`，
+     * 只看合同/日报/结算/发票会放行「已有招标或劳务/成本数据」的项目，
+     * 删除时由数据库静默级联清空，事后无法追溯（操作日志里也只留项目一行）。
+     */
+    const projectTables: Array<[string, () => Promise<number>]> = [
+      ['合同', () => this.prisma.contract.count({ where: { projectId: id } })],
+      ['总日报', () => this.prisma.dailyReport.count({ where: { projectId: id } })],
+      ['结算单', () => this.prisma.settlement.count({ where: { projectId: id } })],
+      ['结算台账', () => this.prisma.settlementLedger.count({ where: { projectId: id } })],
+      ['发票', () => this.prisma.invoice.count({ where: { projectId: id } })],
+      ['付款记录', () => this.prisma.paymentRecord.count({ where: { projectId: id } })],
+      ['收领单', () => this.prisma.receiptOrder.count({ where: { projectId: id } })],
+      ['总结算单', () => this.prisma.finalSettlement.count({ where: { projectId: id } })],
+      ['付款手续', () => this.prisma.paymentProcedure.count({ where: { projectId: id } })],
+      ['分包授权台账', () => this.prisma.laborAuthLedger.count({ where: { projectId: id } })],
+      ['分包领用单据', () => this.prisma.laborReceivingDoc.count({ where: { projectId: id } })],
+      ['月度盈亏分析', () => this.prisma.monthlyProfitLoss.count({ where: { projectId: id } })],
+      ['资产台账', () => this.prisma.assetLedger.count({ where: { projectId: id } })],
+      ['还款协议', () => this.prisma.repaymentAgreement.count({ where: { projectId: id } })],
+      ['采购任务', () => this.prisma.procurementTask.count({ where: { projectId: id } })],
+    ];
+    const counts = await Promise.all(projectTables.map(([, count]) => count()));
     const total = counts.reduce((a, b) => a + b, 0);
-    if (total > 0) throw new BadRequestException(`该项目下存在 ${total} 条业务数据，不可删除，建议归档`);
+    if (total > 0) {
+      const detail = projectTables
+        .map(([label], i) => [label, counts[i]] as const)
+        .filter(([, n]) => n > 0)
+        .map(([label, n]) => `${label} ${n} 条`)
+        .join('、');
+      throw new BadRequestException(`该项目下存在业务数据（${detail}），不可删除，建议归档`);
+    }
     await this.prisma.projectMember.deleteMany({ where: { projectId: id } });
     return this.prisma.project.delete({ where: { id } });
   }
 
-  async members(projectId: string) {
+  async members(projectId: string, user?: any) {
+    await this.assertAccess(projectId, user);
     return this.prisma.projectMember.findMany({
       where: { projectId },
       include: { user: { select: { id: true, realName: true, username: true, phone: true, email: true } } },
@@ -109,14 +178,16 @@ export class ProjectService {
     });
   }
 
-  async addMember(projectId: string, userId: string, roleCode: string) {
+  async addMember(projectId: string, userId: string, roleCode: string, user?: any) {
+    await this.assertAccess(projectId, user);
     await this.dict.validate('project_member_role', roleCode, true);
     const exist = await this.prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } });
     if (exist) return this.prisma.projectMember.update({ where: { id: exist.id }, data: { roleCode } });
     return this.prisma.projectMember.create({ data: { projectId, userId, roleCode } });
   }
 
-  async removeMember(projectId: string, userId: string) {
+  async removeMember(projectId: string, userId: string, user?: any) {
+    await this.assertAccess(projectId, user);
     await this.prisma.projectMember.deleteMany({ where: { projectId, userId } });
     return true;
   }
@@ -132,6 +203,8 @@ export class ProjectService {
       { label: '项目简称（文字）', key: 'nameAbbr', type: 'text', width: 18, example: '城东科创园' },
       { label: '项目简称（字母）', key: 'codeAbbr', type: 'text', width: 16, example: 'CDKC', desc: '仅大写字母和数字，全局唯一，用于合同编号' },
       { label: '承接单位', key: 'undertaker', type: 'text', width: 24, example: '中国建筑土木建设有限公司' },
+      { label: '项目包保领导', key: 'packageLeader', type: 'text', width: 16, example: '张三' },
+      { label: '项目经理', key: 'projectManager', type: 'text', width: 16, example: '李四' },
       { label: '项目自施合同额（万元）', key: 'selfContractAmount', type: 'money', width: 22, example: 35000 },
       { label: '项目业态', key: 'industryType', type: 'select', width: 14, example: '房建', options: industry.map((i: any) => i.itemName).filter(Boolean) },
       { label: '项目所在省市', key: 'provinceCity', type: 'text', width: 18, example: '广东省深圳市' },
@@ -146,7 +219,7 @@ export class ProjectService {
   }
 
   /** 项目信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importProjects(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importProjects(buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [industry, status] = await Promise.all([
       this.dict.options('industry_type'), this.dict.options('project_status'),
@@ -176,6 +249,8 @@ export class ProjectService {
           nameAbbr: String(r['项目简称（文字）'] ?? '').trim() || null,
           codeAbbr: String(r['项目简称（字母）'] ?? '').trim() || null,
           undertaker: String(r['承接单位'] ?? '').trim() || null,
+          packageLeader: String(r['项目包保领导'] ?? '').trim() || null,
+          projectManager: String(r['项目经理'] ?? '').trim() || null,
           selfContractAmount: num(r['项目自施合同额（万元）']),
           industryType,
           provinceCity: String(r['项目所在省市'] ?? '').trim() || null,
@@ -192,6 +267,6 @@ export class ProjectService {
         for (const p of plans) await this.create(p.data, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

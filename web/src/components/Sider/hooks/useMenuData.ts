@@ -13,6 +13,26 @@ import {
 } from '../utils/storage';
 
 /**
+ * 在途去重：菜单有三个消费者（`Sider/MenuLoader`、`BreadcrumbNav`、`BasicLayout` 的多页签标题），
+ * 而 sessionStorage 缓存**只对已完成的请求**有效 —— 冷启动时三者会并发发出 3 次 `/api/menu`。
+ * 这里让同一时刻只发一个请求，其余复用同一个 Promise；`reload()` 走 `removeSession` + 重新请求，
+ * 不受影响。
+ */
+let inflightMenu: Promise<MenuItem[]> | null = null;
+
+function fetchMenu(): Promise<MenuItem[]> {
+  if (!inflightMenu) {
+    inflightMenu = http
+      .get<unknown, MenuItem[]>('/menu')
+      .then((data) => (Array.isArray(data) ? data : []))
+      .finally(() => {
+        inflightMenu = null;
+      });
+  }
+  return inflightMenu;
+}
+
+/**
  * 菜单数据获取 Hook（需求 5.5）
  *
  * 流程：sessionStorage 缓存（5 分钟内不重复请求）→ GET /api/menu → 权限过滤 → 渲染；
@@ -47,13 +67,11 @@ export function useMenuData(): MenuDataState {
       };
     }
 
-    // 2) 请求后端菜单
+    // 2) 请求后端菜单（同一次冷启动里的并发调用复用同一个请求，见 fetchMenu）
     setLoading(true);
-    http
-      .get<unknown, MenuItem[]>('/menu')
-      .then((data) => {
+    fetchMenu()
+      .then((list) => {
         if (!alive) return;
-        const list = Array.isArray(data) ? data : [];
         writeSession(STORAGE_KEYS.menuCache, list);
         writeSession(STORAGE_KEYS.menuCacheAt, Date.now());
         setMenu(filterByPermission(list, hasPermission));

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
-  Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert,
+  Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert, Statistic,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -9,12 +9,19 @@ import { assetApi } from '@/api/modules';
 import { supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
+import EditorTabPage from '@/components/editor/EditorTabPage';
 
 const money = (v: any) =>
   v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qty = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }));
+/** 金额（未知 → `-`，不把「未填」显示成 0） */
+const yuan = (v: any) => (v == null ? '-' : `¥${money(v)}`);
 
 /** 调入费/维保费行只填金额，不填数量 */
 const isFeeSource = (code?: string) => code === 'TRANSFER_IN_FEE' || code === 'MAINTENANCE';
@@ -26,12 +33,17 @@ const STATUS_QTY_KEYS: [string, string][] = [
   ['lostQty', '丢失'],
 ];
 
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/daily/asset';
+
+/**
+ * 手机端（窄容器 <720px）默认列集（docs/09 §4 阶段 B）：
+ * 29 列在手机上要横滑 10.5 屏，这里只留「日期 / 来源 / 名称 / 数量 / 总额 + 操作」。
+ * 桌面列完全不变（本页无列设置，窄容器下总是用这套预设）。
+ */
+const MOBILE_DEFAULT_KEYS = ['date', 'sourceCode', 'name', 'qty', 'totalAmount', 'op'];
+
 export default function Assets() {
-  const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
 
@@ -40,9 +52,36 @@ export default function Assets() {
     dictApi.options('measurement_unit').then((res: any) => setUnits(res || []));
   }, []);
 
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <AssetEditor suppliers={suppliers} units={units} seed={editorTab.seed} />;
+  }
+  return <AssetList suppliers={suppliers} units={units} />;
+}
+
+function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const { loading, list, pagination, search, reload } = useTable<any>((p) => assetApi.list(p));
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
+
+  /** 物资进出场汇总（只做物资；费用行单独统计，2026-10-18） */
+  const [flow, setFlow] = useState<any>(null);
+  useEffect(() => {
+    assetApi
+      .flowSummary()
+      .then((res: any) => setFlow(res))
+      .catch(() => {});
+  }, [tabRefresh]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any[] = [
-    { title: '序号', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
     { title: '日期', dataIndex: 'date', width: 110, fixed: 'left', render: (v: any) => v?.slice(0, 10) },
     { title: '来源', dataIndex: 'sourceCode', width: 110, fixed: 'left', render: (v: any) => <DictTag typeCode="asset_ledger_source" value={v} /> },
     { title: '资产类别（一级）', dataIndex: 'categoryL1Code', width: 140, render: (v: any) => <DictTag typeCode="asset_category_l1" value={v} /> },
@@ -68,56 +107,27 @@ export default function Assets() {
     { title: '调出进场金额', dataIndex: 'transferOutAmount', width: 130, align: 'right' as const, render: money },
     {
       title: '操作',
+      key: 'op',
       width: 130,
       fixed: 'right' as const,
       render: (_: any, row: any) => (
-        <Space size={4}>
-          <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-          <Popconfirm title="确认删除？" onConfirm={async () => { await assetApi.remove(row.id); message.success('已删除'); reload(); }}>
-            <Button type="link" size="small" danger>删除</Button>
-          </Popconfirm>
-        </Space>
+        <Can code="asset:edit">
+          <Space size={4}>
+            <Button type="link" size="small" onClick={() => editorTab.openEdit(row.id, row)}>编辑</Button>
+            <Popconfirm title="确认删除？" onConfirm={async () => { await assetApi.remove(row.id); message.success('已删除'); reload(); }}>
+              <Button type="link" size="small" danger>删除</Button>
+            </Popconfirm>
+          </Space>
+        </Can>
       ),
     },
   ];
 
-  const submit = async () => {
-    const v = await form.validateFields();
-    setSubmitting(true);
-    try {
-      const payload = {
-        ...v,
-        date: v.date ? dayjs(v.date).format('YYYY-MM-DD') : null,
-      };
-      if (editing) await assetApi.update(editing.id, payload);
-      else await assetApi.create(payload);
-      message.success('保存成功');
-      setModal(false);
-      setEditing(null);
-      form.resetFields();
-      reload();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue({
-      ...row,
-      date: row.date ? dayjs(row.date) : null,
-    });
-    setModal(true);
-  };
-
-  const openCreate = () => {
-    setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({ date: dayjs() });
-    setModal(true);
-  };
+  const mobileHidden = mobileHiddenColumns(columns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleColumns = containerSize.isNarrow ? filterVisibleColumns(columns, mobileHidden) : columns;
 
   return (
+    <div ref={cqRef} className="cq">
     <Card title="资产管理台账">
       <Alert
         type="info"
@@ -125,8 +135,47 @@ export default function Assets() {
         style={{ marginBottom: 16 }}
         message="进/出场总额 = 数量 × 单价 自动计算；在用/闲置/报废/丢失数量之和应等于进/出场数量；「调入费/维保费」行只填单价（金额），不填数量。"
       />
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic
+              title="进场（采购 / 调入）"
+              value={(flow?.inQty ?? undefined) as any}
+              formatter={(v) => qty(v)}
+              suffix={<span style={{ fontSize: 12 }}>数量 · 金额 {yuan(flow?.inAmount)}</span>}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic
+              title="出场（调出 / 处置）"
+              value={(flow?.outQty ?? undefined) as any}
+              formatter={(v) => qty(v)}
+              suffix={<span style={{ fontSize: 12 }}>数量 · 金额 {yuan(flow?.outAmount)}</span>}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card size="small">
+            <Statistic title="费用（调入费 / 维保费）" value={yuan(flow?.feeAmount)} />
+          </Card>
+        </Col>
+      </Row>
       <Form layout="inline" style={{ marginBottom: 16, rowGap: 8 }} onFinish={(v) => search(v)}>
         <Form.Item name="keyword"><Input placeholder="名称/规格/领用单位" allowClear /></Form.Item>
+        <Form.Item name="direction">
+          <Select
+            placeholder="进出场方向"
+            allowClear
+            style={{ width: 140 }}
+            options={[
+              { value: 'IN', label: '进场（采购/调入）' },
+              { value: 'OUT', label: '出场（调出/处置）' },
+              { value: 'FEE', label: '费用行' },
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="sourceCode"><DictSelect typeCode="asset_ledger_source" placeholder="来源" /></Form.Item>
         <Form.Item name="categoryL1Code"><DictSelect typeCode="asset_category_l1" placeholder="资产类别（一级）" /></Form.Item>
         <Form.Item name="categoryFocusCode"><DictSelect typeCode="asset_category_focus" placeholder="重点关注类别" /></Form.Item>
@@ -135,9 +184,13 @@ export default function Assets() {
 
       <div style={{ marginBottom: 16, textAlign: 'right' }}>
         <Space>
-          <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} onUpload={(f) => assetApi.import(f)} onDone={reload} />
+          <Can code="asset:edit">
+            <ImportButton moduleName="资产管理台账" templateUrl={assetApi.templateUrl()} uploadUrl={assetApi.importUrl()} validateUrl={assetApi.validateUrl()} onDone={reload} />
+          </Can>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(assetApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增台账</Button>
+          <Can code="asset:edit">
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>新增台账</Button>
+          </Can>
         </Space>
       </div>
 
@@ -147,25 +200,69 @@ export default function Assets() {
         dataSource={list}
         pagination={pagination}
         scroll={{ x: 2600 }}
-        columns={columns}
+        columns={visibleColumns}
       />
-
-      <Modal
-        title={editing ? '编辑资产台账' : '新增资产台账'}
-        open={modal}
-        onOk={submit}
-        confirmLoading={submitting}
-        onCancel={() => setModal(false)}
-        width={1040}
-        destroyOnClose
-      >
-        <AssetForm form={form} suppliers={suppliers} units={units} />
-      </Modal>
     </Card>
+    </div>
   );
 }
 
-function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; units: any[] }) {
+function AssetEditor({ suppliers, units, seed }: { suppliers: any[]; units: any[]; seed: unknown }) {
+  const [form] = Form.useForm();
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  /** 列表页递过来的整行；`undefined` = 新增（其表单正文 `AssetForm` 原样复用，字段未动） */
+  const editing = seed as any | undefined;
+
+  useEffect(() => {
+    if (editing) {
+      form.setFieldsValue({ ...editing, date: editing.date ? dayjs(editing.date) : null });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({ date: dayjs() });
+    }
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const submit = async () => {
+    const v = await form.validateFields();
+    const payload = { ...v, date: v.date ? dayjs(v.date).format('YYYY-MM-DD') : null };
+    setSaving(true);
+    try {
+      if (editing) await assetApi.update(editing.id, { ...payload, version: editing.version });
+      else await assetApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editing ? '编辑资产台账' : '新增资产台账'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <AssetForm form={form} suppliers={suppliers} units={units} onDirty={() => setDirty(true)} />
+    </EditorTabPage>
+  );
+}
+
+function AssetForm({
+  form,
+  suppliers,
+  units,
+  onDirty,
+}: {
+  form: any;
+  suppliers: any[];
+  units: any[];
+  onDirty?: () => void;
+}) {
   const sourceCode = Form.useWatch('sourceCode', form);
   const feeMode = isFeeSource(sourceCode);
   // 数量/单价联动展示各项金额
@@ -186,7 +283,7 @@ function AssetForm({ form, suppliers, units }: { form: any; suppliers: any[]; un
   const qtyRules = feeMode ? [] : [{ required: true, message: '请填写数量' }];
 
   return (
-    <Form form={form} layout="vertical">
+    <Form form={form} layout="vertical" onValuesChange={onDirty}>
       <Row gutter={16}>
         <Col xs={24} md={6}>
           <Form.Item name="date" label="日期" rules={[{ required: true }]}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>

@@ -1,0 +1,482 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+import { buildResult, num, paginate, assertVersion } from '../../common/utils/helpers';
+import { round2, round4 } from '../../common/utils/money';
+import { periodLabel as periodLabelOf } from '../../common/utils/settlement-period';
+import { pickFields } from '../../common/pick-fields';
+import { weightedUnitPrice } from '../../common/utils/labor-receiving';
+import { LaborReceivingService } from './labor-receiving.service';
+
+/**
+ * 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账 ProfitLossAnalysis）。
+ *
+ * **一个月一条记录**：新建时把当期各分包单位「甲供材节超分析」行**快照**成明细行
+ * （单价/数量冻结，历史表样不随后续改单变化）；只有责任人/劳务计价已扣/备注可手改
+ * （业务口径：数量与单价是快照，不是手填项）；「重新抓取」重算快照并按 laborAuthId+材料+规格 回填手填项。
+ * 汇总表不落库——导出时由明细行按材料**跨队加权汇总**（`weightedUnitPrice`）。
+ */
+
+const HEADER_FIELDS = ['period', 'sixSavingsAmount', 'totalDeductAmount', 'remark'];
+/** 明细手填字段：只有这三项（数量/单价/金额都是快照派生物，见 product-decisions §成本管理） */
+const DETAIL_EDITABLE = ['owner', 'deductAmount', 'remark'];
+
+@Injectable()
+export class MonthlyProfitLossService {
+  constructor(
+    private prisma: PrismaClient,
+    private laborReceiving: LaborReceivingService,
+  ) {}
+
+  async list(query: any = {}, projectId: string) {
+    const { skip, take } = paginate(query);
+    const where: any = { projectId };
+    if (query.period) where.period = query.period;
+    const [rows, total] = await Promise.all([
+      this.prisma.monthlyProfitLoss.findMany({
+        where, skip, take,
+        orderBy: { period: 'desc' },
+        include: { _count: { select: { details: true } } },
+      }),
+      this.prisma.monthlyProfitLoss.count({ where }),
+    ]);
+    return buildResult(
+      rows.map((r) => this.serializeHeader(r, (r as any)._count?.details ?? 0)),
+      total,
+      query,
+    );
+  }
+
+  /**
+   * 归属复核（防御纵深）：按 id 直读/改写时必须确认记录属于请求头项目，
+   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据
+   * （见 .claude/rules/rules-index.md「项目隔离」）。
+   */
+  private assertOwnProject<T extends { projectId: string }>(row: T | null, projectId?: string): T {
+    if (!row) throw new NotFoundException('月度盈亏分析记录不存在');
+    if (projectId && row.projectId !== projectId) throw new NotFoundException('月度盈亏分析记录不存在');
+    return row;
+  }
+
+  async detail(id: string, projectId?: string) {
+    const r = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({
+        where: { id },
+        include: { details: { orderBy: [{ laborTeamName: 'asc' }, { sortOrder: 'asc' }] } },
+      }),
+      projectId,
+    );
+    return { ...this.serializeHeader(r), details: r.details.map((d) => this.serializeDetail(d)) };
+  }
+
+  /** 新建：校验期唯一 → 生成当期快照明细 */
+  async create(data: any, projectId: string, user: any) {
+    const period = String(data?.period || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(period)) throw new BadRequestException('请选择结算期（YYYY-MM）');
+    const dup = await this.prisma.monthlyProfitLoss.findUnique({
+      where: { projectId_period: { projectId, period } },
+    });
+    if (dup) throw new BadRequestException(`该结算期（${period}）已有盈亏分析记录`);
+    const payload: any = pickFields({ ...data, period }, HEADER_FIELDS, { label: '月度盈亏分析' });
+    payload.projectId = projectId;
+    // JwtUser 只有 userId（没有 id）：原来写 user?.id 导致「创建人」恒为 null（第 13/14 轮审计）
+    payload.createdBy = user?.userId || user?.id || null;
+    ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
+      if (payload[f] !== undefined) payload[f] = num(payload[f]);
+    });
+    /**
+     * 并发双击时两个请求都会通过上面的 findUnique 查重，后到的会撞 `@@unique([projectId, period])`。
+     * 这里把 P2002 归一成可读的 400（否则全局异常过滤器会把 Prisma 原文回给前端）。
+     */
+    let created: any;
+    try {
+      created = await this.prisma.monthlyProfitLoss.create({ data: payload });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new BadRequestException(`该结算期（${period}）已有盈亏分析记录`);
+      throw e;
+    }
+    try {
+      await this.snapshotDetails(created.id, projectId, period);
+    } catch (e) {
+      // 头记录已建但快照失败会留下"没有明细"的半成品，而用户重试又被期唯一挡住：
+      // 回滚头记录，让用户可以重新生成。
+      await this.prisma.monthlyProfitLoss.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw e;
+    }
+    return this.detail(created.id);
+  }
+
+  /** 更新：头字段 + 明细行手改（按明细 ID 逐行，乐观锁在头记录上） */
+  async update(id: string, data: any, projectId?: string) {
+    const current = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
+      projectId,
+    );
+    assertVersion(current, data);
+    const payload: any = pickFields(data, HEADER_FIELDS.filter((f) => f !== 'period'), { label: '月度盈亏分析' });
+    ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
+      if (payload[f] !== undefined) payload[f] = num(payload[f]);
+    });
+    payload.version = current.version + 1;
+    /**
+     * 头记录 + 明细行必须一个事务（第 13/14 轮审计）：原来先 update 头（version 已 +1），
+     * 再逐行重算明细，中途失败就留下「版本推进了、明细只改了一半」，用户重试还会撞
+     * 乐观锁 409。与 labor-receiving.updateDoc 的口径对齐。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.monthlyProfitLoss.update({ where: { id }, data: payload });
+      // 明细手改
+      if (Array.isArray(data?.details)) {
+        for (const d of data.details) {
+          if (!d?.id) continue;
+          // 明细行也必须属于本记录（防止借本记录 id 改写其它记录的明细）
+          const owned = await tx.monthlyProfitLossDetail.findFirst({
+            where: { id: d.id, profitLossId: id },
+            select: { id: true },
+          });
+          if (!owned) continue;
+          const row = pickFields(d, DETAIL_EDITABLE, { label: '盈亏明细行' });
+          if (row.deductAmount !== undefined) row.deductAmount = num(row.deductAmount);
+          // 盈亏金额联动（未被显式改写时）：盈亏数量 × 单价
+          await this.recalcDetailAmount(d.id, row, tx);
+        }
+      }
+    });
+    return this.detail(id, projectId);
+  }
+
+  async remove(id: string, projectId?: string) {
+    this.assertOwnProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId);
+    await this.prisma.monthlyProfitLoss.delete({ where: { id } });
+    return true;
+  }
+
+  /** 重新抓取：删明细重生成快照，按 laborAuthId+材料+规格 回填手填项 */
+  async reSnapshot(id: string, projectId?: string) {
+    const current = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
+      projectId,
+    );
+    const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
+    // 手填项按「分包单位 + 材料 + 规格 + 单位」回填：单位不同是两条快照行
+    const manual = new Map(
+      old.map((d) => [
+        `${d.laborAuthId ?? ''}\u0001${d.materialName}\u0002${d.spec ?? ''}\u0003${d.unit ?? ''}`,
+        d,
+      ]),
+    );
+    /**
+     * 删旧 + 生成新明细必须在同一事务里（第 6 轮审计）：
+     * 原来是「先删空再插」，中途失败会把这一期的明细整片清空且无法恢复。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.monthlyProfitLossDetail.deleteMany({ where: { profitLossId: id } });
+      await this.snapshotDetails(id, current.projectId, current.period, manual, tx);
+    }, { timeout: 60000 });
+    return this.detail(id, projectId);
+  }
+
+  // ==================== 导出（封面 + 明细 + 汇总三 sheet） ====================
+
+  /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
+  async exportMeta(id: string, projectId?: string) {
+    const rec = this.assertOwnProject(
+      await this.prisma.monthlyProfitLoss.findUnique({
+        where: { id },
+        select: { projectId: true, period: true },
+      }),
+      projectId,
+    );
+    return { fileName: `降本、创效、主材盈亏分析表-${rec.period || id}.xlsx` };
+  }
+
+  async exportWorkbook(id: string, projectId: string): Promise<Buffer> {
+    const ExcelJS = await import('exceljs');
+    const { CSCEC_LOGO_PNG_BASE64 } = await import('../../common/services/cscec-logo.base64');
+    const full: any = await this.detail(id, projectId);
+    const details: any[] = full.details || [];
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const periodLabel = periodLabelOf(full.period);
+
+    const wb = new ExcelJS.Workbook();
+
+    // ---- Sheet1 封面 ----
+    const cover = wb.addWorksheet('封面');
+    cover.columns = [{ width: 60 }];
+    const coverLines: Array<[string, number, boolean]> = [
+      ['中国建筑土木建设有限公司', 20, true],
+      ['华北公司', 18, true],
+      ['', 12, false],
+      [project?.name ?? '', 16, true],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['', 12, false],
+      ['降本、创效、主材盈亏分析', 18, true],
+      [periodLabel, 14, true],
+      ['物资部负责人：', 12, false],
+    ];
+    coverLines.forEach(([text, size, bold], i) => {
+      const cell = cover.getCell(i + 1, 1);
+      cell.value = text;
+      cell.font = { size, bold, name: '楷体' };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cover.getRow(i + 1).height = size + 14;
+    });
+    try {
+      const logoId = wb.addImage({ base64: CSCEC_LOGO_PNG_BASE64, extension: 'png' });
+      cover.addImage(logoId, { tl: { col: 0.4, row: 5.5 }, ext: { width: 140, height: 140 } });
+    } catch {
+      // logo 缺失不阻断导出
+    }
+
+    // ---- Sheet2 明细表（图2）----
+    const ws2 = wb.addWorksheet('明细表');
+    ws2.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabel}1日）`;
+    ws2.getCell('A1').font = { size: 14, bold: true };
+    ws2.getRow(2).values = ['项目名称', project?.name ?? ''];
+    const HEAD = [
+      '序号', '材料名称', '规格型号', '单位', '单价', '进场量-数量', '进场量-金额',
+      '图纸设计量-数量', '图纸设计量-金额', '损耗率', '理论消耗量-数量', '理论消耗量-金额',
+      '实际消耗量-数量', '实际消耗量-金额', '库存量-数量', '库存量-金额',
+      '盈(+)/亏(-)-数量', '盈(+)/亏(-)-金额', '节超率', '劳务队名称', '责任人', '劳务计价已扣', '备注',
+    ];
+    ws2.getRow(3).values = HEAD;
+    ws2.getRow(3).font = { bold: true };
+    ws2.getRow(3).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+    ws2.getRow(3).height = 30;
+    let r2 = 4;
+    let seq = 1;
+    let team = '';
+    // 组尾「劳务计价已扣」小计行：写一行并推进行号
+    const writeTeamDeduct = (name: string) => {
+      const teamDeduct = details
+        .filter((x) => x.laborTeamName === name)
+        .reduce((s, x) => s + (x.deductAmount ?? 0), 0);
+      ws2.getRow(r2).values = [`劳务计价已扣（${name}）`, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', round2(teamDeduct)];
+      ws2.getRow(r2).font = { bold: true };
+      r2 += 1;
+    };
+    for (const d of details) {
+      // 换队时先给上一队收尾
+      if (team && team !== d.laborTeamName) writeTeamDeduct(team);
+      team = d.laborTeamName;
+      const price = d.unitPrice;
+      ws2.getRow(r2).values = [
+        seq++,
+        d.materialName, d.spec ?? '', d.unit ?? '', price,
+        d.entryQty, amountOf(d.entryQty, price),
+        d.designQty, amountOf(d.designQty, price),
+        d.lossRate == null ? null : Number(d.lossRate),
+        d.theoryUseQty, amountOf(d.theoryUseQty, price),
+        d.actualUseQty, amountOf(d.actualUseQty, price),
+        d.stockQty, amountOf(d.stockQty, price),
+        d.saveOverQty, d.saveOverAmount ?? amountOf(d.saveOverQty, price),
+        d.saveRate == null ? null : Number(d.saveRate),
+        d.laborTeamName, d.owner ?? '', d.deductAmount, d.remark ?? '',
+      ];
+      r2 += 1;
+    }
+    // 循环里只在「换队」时收尾，最后一个劳务队必须在循环结束后补一行，否则末队合计缺失
+    if (team) writeTeamDeduct(team);
+    ws2.columns.forEach((c) => (c.width = 13));
+
+    // ---- Sheet3 汇总表（图1）：按材料跨队加权汇总 ----
+    const ws3 = wb.addWorksheet('汇总表');
+    ws3.getCell('A1').value = `${project?.name ?? ''}项目降本、创效、主材盈亏分析汇总表（开工至${periodLabel}1日）`;
+    ws3.getCell('A1').font = { size: 14, bold: true };
+    ws3.getRow(2).values = ['项目名称', project?.name ?? ''];
+    ws3.getRow(3).values = [
+      '序号', '材料名称', '单位', '单价', '进场量-数量', '进场量-金额',
+      '理论消耗量-数量', '理论消耗量-金额', '实际消耗量-数量', '实际消耗量-金额',
+      '库存量-数量', '库存量-金额', '盈(+)/亏(-)-数量', '盈(+)/亏(-)-金额', '节超率', '备注',
+    ];
+    ws3.getRow(3).font = { bold: true };
+    ws3.getRow(3).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+    // 按材料名称+规格+单位合并（跨劳务队）；单位不同不能合并数量
+    const byMat = new Map<string, any[]>();
+    for (const d of details) {
+      const key = `${d.materialName}\u0001${d.spec ?? ''}\u0001${d.unit ?? ''}`;
+      if (!byMat.has(key)) byMat.set(key, []);
+      byMat.get(key)!.push(d);
+    }
+    let r3 = 4;
+    let seq3 = 1;
+    const allSums = { theory: 0, actual: 0, stock: 0 };
+    // 合计是否「每一行都有值」：部分队缺值时不能把已知行相加后冒充合计（三态契约）
+    const allKnown = { theory: true, actual: true, stock: true };
+    for (const [, list] of byMat) {
+      const sum = (f: string) => list.reduce((s, x) => s + (Number(x[f]) || 0), 0);
+      // 任一行未填 → 合计 null（未知 ≠ 0；只加已知行会低估）
+      const nullableSum = (f: string) =>
+        list.some((x) => x[f] == null) ? null : sum(f);
+      const qty = nullableSum('entryQty');
+      const theory = nullableSum('theoryUseQty');
+      const actual = nullableSum('actualUseQty');
+      const stock = nullableSum('stockQty');
+      const saveOver = nullableSum('saveOverQty');
+      // 加权单价：每行取第一个非零的数量口径（进场量 → 理论消耗 → 实际消耗）作权重
+      const pickQty = (x: any) => {
+        for (const f of ['entryQty', 'theoryUseQty', 'actualUseQty']) {
+          const v = Number(x[f]);
+          if (Number.isFinite(v) && v !== 0) return v;
+        }
+        const v = Number(x.entryQty);
+        return Number.isFinite(v) ? v : null;
+      };
+      const price = weightedUnitPrice(list.map((x) => ({ qty: pickQty(x), unitPrice: x.unitPrice })));
+      const first = list[0];
+      if (theory != null) allSums.theory += theory; else allKnown.theory = false;
+      if (actual != null) allSums.actual += actual; else allKnown.actual = false;
+      if (stock != null) allSums.stock += stock; else allKnown.stock = false;
+      ws3.getRow(r3).values = [
+        seq3++, first.materialName, first.unit ?? '', price,
+        qty, amountOf(qty, price),
+        theory, amountOf(theory, price),
+        actual, amountOf(actual, price),
+        stock, amountOf(stock, price),
+        saveOver, amountOf(saveOver, price),
+        saveOver != null && theory ? round4(saveOver / theory) : null,
+        list.map((x) => x.remark).filter(Boolean).join('；'),
+      ];
+      r3 += 1;
+    }
+    // 尾部合计行
+    const six = full.sixSavingsAmount;
+    const totalDeduct = full.totalDeductAmount;
+    ws3.getRow(r3).values = ['六项降本创效金额', '', '', '', '', '', '', '', '', '', '', '', '', round2(Number(six) || 0), '', '资产降本'];
+    ws3.getRow(r3).font = { bold: true };
+    ws3.getRow(r3 + 1).values = ['劳务计价累计扣款金额', '元', '', '', '', '', '', '', '', '', '', '', '', round2(Number(totalDeduct) || 0), '', ''];
+    ws3.getRow(r3 + 1).font = { bold: true };
+    ws3.getRow(r3 + 2).values = ['非自拌混凝土原材合计', '', '', '', '', '', '', '', allKnown.actual ? round2(allSums.actual) : null, '', '', '', '', '', '', ''];
+    ws3.getRow(r3 + 2).font = { bold: true };
+    ws3.getRow(r3 + 4).values = ['进场量/实际库存量/实际消耗量统计截止至' + periodLabel + '1日 11:00'];
+    ws3.getRow(r3 + 6).values = ['制表人：', '', '物资部经理：', '', '工程部经理：', '', '合约部经理：', '', '商务经理：', '', '项目经理：'];
+    ws3.columns.forEach((c) => (c.width = 14));
+
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
+
+  // ==================== 私有 ====================
+
+  /** 生成快照明细（manual 传入时按 手填 项回填） */
+  private async snapshotDetails(
+    profitLossId: string,
+    projectId: string,
+    period: string,
+    manual?: Map<string, any>,
+    /** 事务客户端：调用方（重新抓取）要保证「删旧明细 + 生成新明细」同生共死 */
+    db: any = this.prisma,
+  ) {
+    const auths = await this.prisma.laborAuthLedger.findMany({
+      where: { projectId },
+      select: { id: true, subcontractorName: true },
+      orderBy: { subcontractorName: 'asc' },
+    });
+    const rows: any[] = [];
+    let sort = 0;
+    for (const auth of auths) {
+      const snapshot = await this.laborReceiving.periodSnapshotRows(auth.id, period, projectId);
+      for (const s of snapshot) {
+        const key = `${auth.id}\u0001${s.materialName}\u0002${s.spec ?? ''}\u0003${s.unit ?? ''}`;
+        const m = manual?.get(key);
+        const saveOverQty = s.saveOverQty;
+        // 盈亏金额是 qty × price 的派生列（前端也只读展示）：
+        // 重新抓取后单价/数量可能已变，必须按新值重算——沿用旧金额会让快照内部自相矛盾。
+        const saveOverAmount = amountOf(saveOverQty, s.unitPrice);
+        rows.push({
+          profitLossId,
+          sortOrder: sort++,
+          laborAuthId: auth.id,
+          laborTeamName: auth.subcontractorName,
+          owner: m?.owner ?? null,
+          materialName: s.materialName,
+          spec: s.spec || null,
+          unit: s.unit,
+          unitPrice: s.unitPrice,
+          entryQty: s.entryQty,
+          designQty: s.designQty,
+          lossRate: s.lossRate,
+          theoryUseQty: s.theoryUseQty,
+          actualUseQty: s.actualUseQty,
+          stockQty: s.stockQty,
+          saveOverQty,
+          saveOverAmount,
+          saveRate: saveOverQty != null && s.theoryUseQty ? round4(saveOverQty / s.theoryUseQty) : null,
+          deductAmount: m?.deductAmount ?? null,
+          remark: m?.remark ?? s.remark ?? '',
+        });
+      }
+    }
+    if (rows.length) await db.monthlyProfitLossDetail.createMany({ data: rows });
+    return rows.length;
+  }
+
+  /** 明细行手改后联动盈亏金额（显式传了 saveOverAmount 则以手填为准；db 用于在事务内复用连接） */
+  private async recalcDetailAmount(detailId: string, row: any, db: any = this.prisma) {
+    const data: any = { ...row };
+    if (row.saveOverAmount === undefined) {
+      const cur = await db.monthlyProfitLossDetail.findUnique({ where: { id: detailId } });
+      if (cur) {
+        const qty = row.saveOverQty !== undefined ? num(row.saveOverQty) : (cur.saveOverQty != null ? Number(cur.saveOverQty) : null);
+        const price = row.unitPrice !== undefined ? num(row.unitPrice) : (cur.unitPrice != null ? Number(cur.unitPrice) : null);
+        data.saveOverAmount = qty != null ? amountOf(qty, price) : null;
+        // 节超率联动
+        const theory = row.theoryUseQty !== undefined ? num(row.theoryUseQty) : (cur.theoryUseQty != null ? Number(cur.theoryUseQty) : null);
+        data.saveRate = qty != null && theory ? round4(qty / theory) : null;
+      }
+    }
+    await db.monthlyProfitLossDetail.update({ where: { id: detailId }, data });
+  }
+
+  private serializeHeader(r: any, detailCount?: number) {
+    return {
+      id: r.id,
+      period: r.period,
+      sixSavingsAmount: r.sixSavingsAmount == null ? null : Number(r.sixSavingsAmount),
+      totalDeductAmount: r.totalDeductAmount == null ? null : Number(r.totalDeductAmount),
+      remark: r.remark ?? '',
+      detailCount: detailCount ?? r._count?.details ?? undefined,
+      version: r.version,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  private serializeDetail(d: any) {
+    return {
+      id: d.id,
+      sortOrder: d.sortOrder,
+      laborAuthId: d.laborAuthId,
+      laborTeamName: d.laborTeamName,
+      owner: d.owner ?? '',
+      materialName: d.materialName,
+      spec: d.spec ?? '',
+      unit: d.unit ?? '',
+      unitPrice: d.unitPrice == null ? null : Number(d.unitPrice),
+      entryQty: d.entryQty == null ? null : Number(d.entryQty),
+      designQty: d.designQty == null ? null : Number(d.designQty),
+      lossRate: d.lossRate == null ? null : Number(d.lossRate),
+      theoryUseQty: d.theoryUseQty == null ? null : Number(d.theoryUseQty),
+      actualUseQty: d.actualUseQty == null ? null : Number(d.actualUseQty),
+      stockQty: d.stockQty == null ? null : Number(d.stockQty),
+      saveOverQty: d.saveOverQty == null ? null : Number(d.saveOverQty),
+      saveOverAmount: d.saveOverAmount == null ? null : Number(d.saveOverAmount),
+      saveRate: d.saveRate == null ? null : Number(d.saveRate),
+      deductAmount: d.deductAmount == null ? null : Number(d.deductAmount),
+      remark: d.remark ?? '',
+    };
+  }
+}
+
+/** 盈亏金额 = 数量 × 单价（单价未知 → null；数量未知/0 → 0） */
+function amountOf(qty: unknown, price: unknown): number | null {
+  const q = Number(qty);
+  if (!Number.isFinite(q)) return null;
+  const p = Number(price);
+  if (!Number.isFinite(p)) return null;
+  return round2(q * p);
+}

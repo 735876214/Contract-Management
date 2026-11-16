@@ -7,6 +7,7 @@ import {
 import { PrismaClient } from '@prisma/client';
 import { from, Observable, switchMap, tap, catchError, throwError } from 'rxjs';
 import { LogService } from '../services/log.service';
+import { slimSecrets } from '../utils/mask';
 
 /**
  * 全局操作日志拦截器（需求 2.6）
@@ -39,6 +40,20 @@ const ROUTE_MAP: Record<string, { model?: string; module: string }> = {
   auth: { module: '认证授权' },
   files: { module: '文件管理' },
   notifications: { module: '消息中心' },
+  // 以下模块此前没登记：`beforeData` 永远为 null、module 记录成英文路由段，
+  // 收领单/付款手续/总结算这类不可逆操作的「改前值」因此无法从审计日志还原
+  'receipt-orders': { model: 'receiptOrder', module: '收领单' },
+  'payment-procedures': { model: 'paymentProcedure', module: '付款手续' },
+  'final-settlements': { model: 'finalSettlement', module: '总结算单' },
+  'procurement-tasks': { model: 'procurementTask', module: '采购任务' },
+  'procurement-templates': { model: 'procurementTemplate', module: '采购模板' },
+  labor: { model: 'laborAuthLedger', module: '分包授权台账' },
+  'doc-templates': { model: 'contractTemplate', module: '公文模板' },
+  cost: { module: '成本管理' },
+  archive: { module: '合同归档' },
+  dashboard: { module: '看板' },
+  menu: { module: '系统管理' },
+  ai: { module: 'AI 助手' },
 };
 
 const ACTION_MAP: Record<string, string> = {
@@ -58,14 +73,13 @@ function safeJson(v: any, limit = 4000): string | null {
   }
 }
 
-/** 去掉二进制/大字段，避免日志膨胀 */
+/**
+ * 请求参数脱敏：按白名单深拷贝后打码（凭据 / 银行账号 / 证件号 / 联系方式）。
+ * 白名单与打码规则见 `common/utils/mask.ts`；**不再只处理三个密码键名**——
+ * 2026-10-14 实测发现登录响应里的 JWT、供应商银行账号都曾被明文写入日志。
+ */
 function slimParams(body: any): any {
-  if (!body || typeof body !== 'object') return body;
-  const clone: any = { ...body };
-  ['password', 'oldPassword', 'newPassword'].forEach((k) => {
-    if (k in clone) clone[k] = '******';
-  });
-  return clone;
+  return slimSecrets(body);
 }
 
 @Injectable()
@@ -76,7 +90,16 @@ export class OperationLogInterceptor implements NestInterceptor {
     if (context.getType() !== 'http') return next.handle();
     const req: any = context.switchToHttp().getRequest();
     const method: string = req.method;
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return next.handle();
+    /**
+     * 导出/下载也记一条（第 13/14 轮审计）：原来这里只放行写方法，而导出下载全是 GET
+     * —— 合同台账、签章件原件、归档包这类最敏感数据的批量外发**完全无审计**，
+     * 事后答不出「谁在什么时候导走了什么」。下面 `action = '导出'` 的分支也是因此
+     * 从来命中不到（写方法里几乎没有 /export）。
+     */
+    const probeUrl: string = req.originalUrl || req.url || '';
+    const isReadExport =
+      method === 'GET' && /(export|download|signed-file|archive|attachment)/i.test(probeUrl);
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isReadExport) return next.handle();
 
     const started = Date.now();
     const url: string = req.originalUrl || req.url || '';
@@ -98,9 +121,16 @@ export class OperationLogInterceptor implements NestInterceptor {
       req.connection?.remoteAddress ||
       null;
 
-    // 业务主键：URL 中的 id 段（PUT /xxx/:id、DELETE /xxx/:id）
-    const idSeg = segs.length > apiIdx + 2 ? segs[segs.length - 1] : null;
-    const bizId = idSeg && !/^(import|export|template|options|logs|params)$/.test(idSeg) ? idSeg : null;
+    // 业务主键：URL 里的 id 段。
+    // ⚠️ 不能取「最后一段」——动作型子路由的最后一段是动作名（submit/reject/toggle/status/
+    //    reset-password…），据此 findUnique 必然查空，变更前快照全丢、也没法按业务 ID 检索。
+    // 主键都是 Prisma cuid（c + 20 位以上小写字母数字），优先按形状取第一段；
+    // 兜底仍用最后一段，但要排掉已知的动作/查询段。
+    const rest = segs.slice(apiIdx + 2);
+    const idSeg = rest.find((s) => /^c[a-z0-9]{20,}$/i.test(s)) || null;
+    const ACTION_SEGMENTS = /^(import|export|template|options|logs|params|validate|submit|reject|publish|sign|status|toggle|reset-password|refresh|detail|sync|close|confirm)$/;
+    const lastSeg = segs[segs.length - 1];
+    const bizId = idSeg || (segs.length > apiIdx + 2 && !ACTION_SEGMENTS.test(lastSeg) ? lastSeg : null);
 
     const snapshotModel = (this.prisma as any)[route.model || ''];
     let beforePromise: Promise<any> = Promise.resolve(null);
@@ -132,14 +162,19 @@ export class OperationLogInterceptor implements NestInterceptor {
               action,
               method,
               url,
-              params: safeJson(slimParams({ ...req.body, ...req.query })),
+              params: slimParams({ ...req.body, ...req.query }),
               ip,
-              beforeData: safeJson(before),
-              afterData: safeJson(data, 8000),
+              beforeData: safeJson(slimSecrets(before)),
+              afterData: safeJson(slimSecrets(data), 8000),
               result: 'SUCCESS',
               duration,
               bizType: route.model || biz,
-              bizId: bizId || (data && data.id) || null,
+              /**
+               * 异步导入（>1000 行）在响应时 only taskId，`created/updated/errors` 都是占位 0；
+               * 以 taskId 作为 bizId，任务结束后由 ImportTaskService.syncOperationLog 回填真实统计
+               * （见 import-task.service.ts）。否则大文件导入在审计日志里永远是成功 0、失败 0。
+               */
+              bizId: (data && data.async && data.taskId) || bizId || (data && data.id) || null,
               projectId: (req.headers['x-project-id'] as string) || null,
               importFile: isImport ? (req as any).file?.originalname || null : null,
               importRows,
@@ -155,9 +190,9 @@ export class OperationLogInterceptor implements NestInterceptor {
               action,
               method,
               url,
-              params: safeJson(slimParams({ ...req.body, ...req.query })),
+              params: slimParams({ ...req.body, ...req.query }),
               ip,
-              beforeData: safeJson(before),
+              beforeData: safeJson(slimSecrets(before)),
               result: 'FAIL',
               message: err?.message || String(err),
               duration: Date.now() - started,

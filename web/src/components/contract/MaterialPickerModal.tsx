@@ -88,7 +88,7 @@ export default function MaterialPickerModal({
       okText={`确认添加${selected.length ? `（${selected.length}）` : ''}`}
       cancelText="取消"
       width={900}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Space>
@@ -114,6 +114,7 @@ export default function MaterialPickerModal({
           size="small"
           loading={loading}
           dataSource={rows}
+          scroll={{ x: 'max-content' }}
           pagination={{ pageSize: 8, showTotal: (t: number) => `共 ${t} 条` }}
           rowSelection={{
             selectedRowKeys: selected,
@@ -125,7 +126,7 @@ export default function MaterialPickerModal({
             {
               title: '物资名称',
               dataIndex: 'name',
-              render: (v, row) => (excludeSet.has(row.id) ? <span style={{ color: '#bfbfbf' }}>{v}</span> : v),
+              render: (v, row) => (excludeSet.has(row.id) ? <span style={{ color: 'var(--cms-muted-soft)' }}>{v}</span> : v),
             },
             { title: '规格型号', dataIndex: 'spec', width: 180 },
             { title: 'MDM编码', dataIndex: 'mdmCode', width: 160, render: (v) => v || '-' },
@@ -143,7 +144,7 @@ export default function MaterialPickerModal({
         confirmLoading={creating}
         okText="创建并勾选"
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="name" label="物资名称" rules={[{ required: true, message: '请输入物资名称' }]}>

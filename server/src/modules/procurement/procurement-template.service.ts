@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
 
 /** 允许的采购模块类型（批次一 · 任务 1.2） */
 const MODULE_TYPES = [
@@ -12,17 +13,53 @@ type ModuleType = (typeof MODULE_TYPES)[number];
 const isModuleType = (v: unknown): v is ModuleType =>
   typeof v === 'string' && (MODULE_TYPES as readonly string[]).includes(v);
 
+/** 状态只接受 0/1（Boolean 也兼容：true→1、false→0） */
+function normalizeStatus(v: unknown, fallback: number): number {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (n !== 0 && n !== 1) throw new BadRequestException('状态只能为 0（停用）或 1（启用）');
+  return n;
+}
+
+/**
+ * 采购模板服务。
+ * 业务 2026-10-17：采购模板**全项目通用**（projectId 列已弃用，恒 null），
+ * 每个业务类型全局仅一个模板；**能力对齐合同模板**（版本历史/回滚/标签/状态）。
+ */
 @Injectable()
 export class ProcurementTemplateService {
   constructor(private prisma: PrismaClient) {}
 
-  /** 模板列表（当前项目，按模块类型排序） */
-  async findAll(projectId: string) {
-    const rows = await this.prisma.procurementTemplate.findMany({
-      where: { projectId },
-      orderBy: [{ moduleType: 'asc' }, { updatedAt: 'desc' }],
-    });
-    return rows.map((r) => this.serialize(r));
+  /**
+   * 模板列表（全局；支持关键词/模块类型/状态筛选与分页——能力对齐合同模板 2026-10-18）。
+   * 返回 `{ list, total, page, pageSize }`；采购模块最多 7 类，分页默认一页全展示但仍走统一形态。
+   */
+  async findAll(query: any = {}) {
+    const { skip, take } = paginate(query);
+    const where: any = {};
+    if (query.keyword) {
+      where.OR = [
+        { templateName: { contains: String(query.keyword) } },
+        { tags: { contains: String(query.keyword) } },
+      ];
+    }
+    if (query.moduleType) {
+      if (!isModuleType(query.moduleType)) throw new BadRequestException('无效的采购模块类型');
+      where.moduleType = query.moduleType;
+    }
+    if (query.status !== undefined && query.status !== '') {
+      where.status = normalizeStatus(query.status, 1);
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.procurementTemplate.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ moduleType: 'asc' }, { updatedAt: 'desc' }],
+      }),
+      this.prisma.procurementTemplate.count({ where }),
+    ]);
+    return buildResult(rows.map((r) => this.serialize(r)), total, query);
   }
 
   async findOne(id: string) {
@@ -31,13 +68,30 @@ export class ProcurementTemplateService {
     return this.serialize(r);
   }
 
+  /** 更新前的旧版本快照（对齐合同模板：每次更新入版本表，version 递增） */
+  private async snapshotVersion(current: {
+    id: string; templateName: string; content: string; variables: string | null; tags: string | null; version: number;
+  }, operator?: string) {
+    await this.prisma.procurementTemplateVersion.create({
+      data: {
+        templateId: current.id,
+        templateName: current.templateName,
+        content: current.content,
+        variables: current.variables,
+        tags: current.tags,
+        version: current.version,
+        operator: operator ?? null,
+      },
+    });
+  }
+
   /**
-   * 创建模板。同一项目同一业务类型仅保留一个模板：
+   * 创建模板。全局同一业务类型仅保留一个模板：
    * 已存在同类型模板时执行覆盖（前端已做覆盖前确认）。
    */
   async create(
-    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] },
-    projectId: string,
+    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string; status?: number },
+    operator?: string,
   ) {
     const moduleType = data?.moduleType;
     if (!isModuleType(moduleType)) throw new BadRequestException('无效的采购模块类型');
@@ -45,34 +99,56 @@ export class ProcurementTemplateService {
     if (!templateName) throw new BadRequestException('请填写模板名称');
     const content = String(data?.content ?? '');
     if (!content.trim()) throw new BadRequestException('请填写模板内容');
+    // 提前校验状态：覆盖分支会先写版本快照，非法状态不能在校验前留下副作用
+    if (data?.status !== undefined) normalizeStatus(data.status, 1);
 
     const vars = Array.isArray(data?.variables) ? data.variables.filter((v) => typeof v === 'string') : [];
     const existing = await this.prisma.procurementTemplate.findUnique({
-      where: { projectId_moduleType: { projectId, moduleType } },
+      where: { moduleType },
     });
     if (existing) {
+      // 覆盖前把旧版本快照入版本表（同"更新"语义）
+      await this.snapshotVersion(existing, operator);
       const updated = await this.prisma.procurementTemplate.update({
         where: { id: existing.id },
-        data: { templateName, content, variables: JSON.stringify(vars) },
+        data: {
+          templateName,
+          content,
+          variables: JSON.stringify(vars),
+          tags: data?.tags ?? existing.tags,
+          status: normalizeStatus(data?.status, existing.status),
+          version: { increment: 1 },
+        },
       });
       return { ...this.serialize(updated), overwritten: true };
     }
     const created = await this.prisma.procurementTemplate.create({
-      data: { projectId, moduleType, templateName, content, variables: JSON.stringify(vars) },
+      data: {
+        projectId: null,
+        moduleType,
+        templateName,
+        content,
+        variables: JSON.stringify(vars),
+        tags: data?.tags ?? null,
+        status: normalizeStatus(data?.status, 1),
+      },
     });
     return this.serialize(created);
   }
 
-  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖） */
+  /** 更新模板（模块类型变更时同样执行同类型唯一性覆盖；旧版本入版本表） */
   async update(
     id: string,
-    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] },
-    projectId: string,
+    data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string; status?: number; version?: number },
+    operator?: string,
   ) {
     const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购模板不存在');
+    assertVersion(current, data);
 
-    const patch: { moduleType?: string; templateName?: string; content?: string; variables?: string } = {};
+    const patch: {
+      moduleType?: string; templateName?: string; content?: string; variables?: string; tags?: string; status?: number;
+    } = {};
     if (data?.moduleType != null) {
       if (!isModuleType(data.moduleType)) throw new BadRequestException('无效的采购模块类型');
       patch.moduleType = data.moduleType;
@@ -83,6 +159,8 @@ export class ProcurementTemplateService {
       patch.templateName = name;
     }
     if (data?.content != null) patch.content = String(data.content);
+    if (data?.tags !== undefined) patch.tags = data.tags;
+    if (data?.status !== undefined) patch.status = normalizeStatus(data.status, current.status);
     if (Array.isArray(data?.variables)) {
       patch.variables = JSON.stringify(data.variables.filter((v) => typeof v === 'string'));
     }
@@ -90,22 +168,63 @@ export class ProcurementTemplateService {
     const nextModuleType = patch.moduleType ?? current.moduleType;
     if (nextModuleType !== current.moduleType) {
       const conflict = await this.prisma.procurementTemplate.findUnique({
-        where: { projectId_moduleType: { projectId, moduleType: nextModuleType } },
+        where: { moduleType: nextModuleType },
       });
       if (conflict && conflict.id !== id) {
-        // 覆盖同类型旧模板：删除旧记录后更新本记录
+        // 覆盖同类型旧模板：旧版本入版本表后删除旧记录
+        await this.snapshotVersion(conflict, operator);
         await this.prisma.procurementTemplate.delete({ where: { id: conflict.id } });
       }
     }
 
-    const updated = await this.prisma.procurementTemplate.update({ where: { id }, data: patch });
+    await this.snapshotVersion(current, operator);
+    const updated = await this.prisma.procurementTemplate.update({
+      where: { id },
+      data: { ...patch, version: { increment: 1 } },
+    });
+    return this.serialize(updated);
+  }
+
+  /** 版本历史（新→旧） */
+  async versions(id: string) {
+    const rows = await this.prisma.procurementTemplateVersion.findMany({
+      where: { templateId: id },
+      orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      version: r.version,
+      templateName: r.templateName,
+      operator: r.operator,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  /** 回滚：基于旧版本内容创建新版本（与合同模板同语义——不覆盖历史） */
+  async rollback(id: string, versionRecordId: string, operator?: string) {
+    const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('采购模板不存在');
+    const v = await this.prisma.procurementTemplateVersion.findUnique({ where: { id: versionRecordId } });
+    if (!v || v.templateId !== id) throw new NotFoundException('版本记录不存在');
+
+    await this.snapshotVersion(current, operator);
+    const updated = await this.prisma.procurementTemplate.update({
+      where: { id },
+      data: {
+        templateName: v.templateName,
+        content: v.content,
+        variables: v.variables,
+        tags: v.tags,
+        version: { increment: 1 },
+      },
+    });
     return this.serialize(updated);
   }
 
   async remove(id: string) {
     const current = await this.prisma.procurementTemplate.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('采购模板不存在');
-    await this.prisma.procurementTemplate.delete({ where: { id } });
+    await this.prisma.procurementTemplate.delete({ where: { id } }); // 版本随 Cascade 一并删除
     return { id };
   }
 
@@ -115,6 +234,9 @@ export class ProcurementTemplateService {
     templateName: string;
     content: string;
     variables: string | null;
+    tags: string | null;
+    status: number;
+    version: number;
     updatedAt: Date;
     createdAt: Date;
   }) {
@@ -131,6 +253,9 @@ export class ProcurementTemplateService {
       templateName: r.templateName,
       content: r.content,
       variables,
+      tags: r.tags,
+      status: r.status,
+      version: r.version,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };

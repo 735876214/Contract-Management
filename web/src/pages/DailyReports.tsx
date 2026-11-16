@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, InputNumber, DatePicker, Row, Col, Select, AutoComplete } from 'antd';
-import { PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
+import { Card, Table, Button, Form, InputNumber, DatePicker, Select, Space } from 'antd';
+import { ExportOutlined } from '@ant-design/icons';
 import { dailyApi, contractApi, supplierApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
 const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
@@ -19,61 +21,71 @@ interface F {
   dict?: string;
   width?: number;
   fixed?: 'left' | 'right';
-  step?: number;
-  precision?: number;
-  /** 需求 2.1.4：来源为物资基础库的字段，总日报只读展示，不允许手工维护 */
-  readonly?: boolean;
+  /** 整数字段：不加千分位（年份、月份等；数量/金额仍需分位符便于读数） */
+  noGroup?: boolean;
 }
 
 // 列顺序严格按需求，请勿随意增删（无"合规性问题"列）
+// ⚠️ key 必须与 DailyReport 模型字段**逐字一致**（dataIndex 取数）。
+//    总日报为纯展示页（数据全部来自收领单推送），本数组只驱动表格列，不再驱动表单。
 const FIELDS: F[] = [
-  { key: 'periodYear', label: '账期/年', kind: 'number', width: 90 },
+  { key: 'periodYear', label: '账期/年', kind: 'number', noGroup: true, width: 90 },
   { key: 'periodMonth', label: '账期/月', kind: 'number', width: 90 },
   { key: 'entryDate', label: '进场日期', kind: 'date', width: 120 },
+  // 出场日期（四域扩展按需项 2026-10-18）：退场/退库登记用，只填不参与自动计算
+  { key: 'exitDate', label: '出场日期', kind: 'date', width: 120 },
   { key: 'contractId', label: '合同编号', kind: 'contractSelect', width: 150, fixed: 'left' },
-  // 需求 2.1.4：「是否资产」「是否安全物资」由物资基础库带出，日报只读展示
-  { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100, readonly: true },
-  { key: 'isSafetyMaterial', label: '是否安全物资', kind: 'dict', dict: 'yes_no', width: 120, readonly: true },
+  // 现场确认状态（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：决定该行是否计入结算口径。
+  // 总日报页只读展示；确认/驳回在收领单推送侧完成（receipt-order.service 直接置已确认）
+  { key: 'confirmStatusCode', label: '确认状态', kind: 'dict', dict: 'site_confirm_status', width: 110 },
+  // 需求 2.1.4：「是否资产」「是否安全物资」由物资基础库带出，总日报只读展示
+  { key: 'isAsset', label: '是否资产', kind: 'dict', dict: 'yes_no', width: 100 },
+  { key: 'isSafetyMaterial', label: '是否安全物资', kind: 'dict', dict: 'yes_no', width: 120 },
   { key: 'assetSupervision', label: '资产监管', kind: 'text', width: 120 },
-  { key: 'dept', label: '部门', kind: 'text', width: 110 },
-  { key: 'person', label: '人员', kind: 'text', width: 110 },
+  { key: 'department', label: '部门', kind: 'text', width: 110 },
+  { key: 'personnel', label: '人员', kind: 'text', width: 110 },
   { key: 'assetStatus', label: '资产状态', kind: 'dict', dict: 'asset_status', width: 120 },
-  { key: 'source', label: '来源', kind: 'dict', dict: 'material_source', width: 120 },
+  { key: 'sourceCode', label: '来源', kind: 'dict', dict: 'material_source', width: 120 },
   { key: 'materialCategory', label: '材料类别', kind: 'dict', dict: 'material_category', width: 130 },
   { key: 'materialType', label: '物资种类', kind: 'dict', dict: 'material_type', width: 130 },
   { key: 'materialName', label: '物资名称', kind: 'text', width: 160 },
   { key: 'steelBrand', label: '钢筋品牌', kind: 'text', width: 120 },
-  { key: 'steelPieces', label: '钢筋件数', kind: 'number', width: 110 },
+  { key: 'steelCount', label: '钢筋件数', kind: 'number', width: 110 },
   { key: 'spec', label: '规格型号', kind: 'text', width: 150 },
-  // 需求 2.3.2：默认带出物资基础库单位，允许手输，但必须存在于字典「measurement_unit」
   { key: 'unit', label: '计量单位', kind: 'unit', width: 110 },
-  { key: 'weighQty', label: '过磅数量/t', kind: 'number', step: 0.001, precision: 3, width: 120 },
-  { key: 'deductWeight', label: '扣重/t', kind: 'number', step: 0.001, precision: 3, width: 100 },
-  { key: 'settleQty', label: '结算数量', kind: 'number', step: 0.001, precision: 3, width: 110 },
+  { key: 'weighQty', label: '过磅数量/t', kind: 'number', width: 120 },
+  { key: 'deductQty', label: '扣重/t', kind: 'number', width: 100 },
+  { key: 'settleQty', label: '结算数量', kind: 'number', width: 110 },
   { key: 'isWeighed', label: '是否过磅', kind: 'dict', dict: 'yes_no', width: 100 },
-  { key: 'priceBeforeTax', label: '单价/元(税前)', kind: 'number', step: 0.01, precision: 2, width: 130 },
-  { key: 'taxRate', label: '税率', kind: 'number', step: 0.01, precision: 4, width: 90 },
-  { key: 'priceAfterTax', label: '单价/元(税后)', kind: 'number', step: 0.01, precision: 2, width: 130 },
+  { key: 'priceBeforeTax', label: '单价/元(税前)', kind: 'number', width: 130 },
+  { key: 'taxRate', label: '税率', kind: 'number', width: 90 },
+  { key: 'priceAfterTax', label: '单价/元(税后)', kind: 'number', width: 130 },
   { key: 'amountBeforeTax', label: '金额/元(税前)', kind: 'money', width: 140 },
   { key: 'amountAfterTax', label: '金额/元(税后)', kind: 'money', width: 140 },
   { key: 'supplierId', label: '供应单位', kind: 'supplierSelect', width: 180 },
   { key: 'receiveUnit', label: '领用单位', kind: 'text', width: 140 },
   { key: 'receiver', label: '领料人', kind: 'text', width: 110 },
-  { key: 'laborContract', label: '劳务合同', kind: 'text', width: 140 },
-  { key: 'usePart', label: '使用部位', kind: 'text', width: 140 },
+  { key: 'laborContract', label: '分包合同', kind: 'text', width: 140 },
+  { key: 'usePosition', label: '使用部位', kind: 'text', width: 140 },
   { key: 'isProxy', label: '是否代购', kind: 'dict', dict: 'yes_no', width: 100 },
   { key: 'plateNo', label: '车牌号', kind: 'text', width: 120 },
   { key: 'receiptNo', label: '收领单编号', kind: 'text', width: 140 },
   { key: 'remark', label: '备注', kind: 'text', width: 180 },
-  { key: 'subPackagePeriod', label: '分包计价账期', kind: 'text', width: 130 },
-  { key: 'incomePrice', label: '收入单价', kind: 'number', step: 0.01, precision: 2, width: 120 },
-  { key: 'incomeTotal', label: '收入合价', kind: 'money', width: 140 },
-  { key: 'standardPrice', label: '标准单价', kind: 'number', step: 0.01, precision: 2, width: 120 },
-  { key: 'standardTotal', label: '标准合价', kind: 'money', width: 140 },
+  { key: 'subcontractPeriod', label: '分包计价账期', kind: 'text', width: 130 },
+  { key: 'incomePrice', label: '收入单价', kind: 'number', width: 120 },
+  { key: 'incomeAmount', label: '收入合价', kind: 'money', width: 140 },
+  { key: 'stdPrice', label: '标准单价', kind: 'number', width: 120 },
+  { key: 'stdAmount', label: '标准合价', kind: 'money', width: 140 },
 ];
 
-// ==================== 计量单位输入（需求 2.3.2：默认带出，可手输，但必须存在于字典） ====================
+/**
+ * 手机端（窄容器 <720px）默认列集（docs/09 §4 阶段 B）：
+ * 43 列的宽表在手机上要横滑 16.9 屏，这里只留「合同 / 物资 / 数量 / 金额 / 确认状态」。
+ * 桌面列完全不变；本页是纯展示页（无列设置），故窄容器下总是用这套预设。
+ */
+const MOBILE_DEFAULT_KEYS = ['contractId', 'materialName', 'settleQty', 'amountAfterTax', 'confirmStatusCode'];
 
+// ==================== 计量单位（展示用：编码 → 字典名称） ====================
 let unitDictCache: { value: string; label: string }[] | null = null;
 async function loadUnitDict(): Promise<{ value: string; label: string }[]> {
   if (unitDictCache) return unitDictCache;
@@ -82,66 +94,18 @@ async function loadUnitDict(): Promise<{ value: string; label: string }[]> {
   return unitDictCache;
 }
 
-/** 输入文本 → 字典编码（同时接受编码与名称；不在字典内返回 null） */
-function normalizeUnit(raw: string, dict: { value: string; label: string }[]): string | null {
-  const v = String(raw ?? '').trim();
-  if (!v) return '';
-  const hit = dict.find((d) => d.value === v || d.label === v);
-  return hit ? hit.value : null;
-}
-
-/** 单位输入：下拉选项来自字典，允许手输，非字典值前端拦截 */
-function UnitInput({ value, onChange }: { value?: string; onChange?: (v: string) => void }) {
-  const [dict, setDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
-  const [text, setText] = useState<string>('');
-  const [invalid, setInvalid] = useState(false);
-
-  useEffect(() => {
-    loadUnitDict().then(setDict).catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    const hit = dict.find((d) => d.value === value);
-    setText(hit ? hit.label : value || '');
-    setInvalid(false);
-  }, [value, dict]);
-
-  return (
-    <div>
-      <AutoComplete
-        value={text}
-        options={dict.map((d) => ({ value: d.label }))}
-        style={{ width: '100%' }}
-        placeholder="计量单位（字典内）"
-        status={invalid ? 'error' : undefined}
-        filterOption={(input, option) => String(option?.value || '').includes(input)}
-        onChange={(v) => setText(v ?? '')}
-        onBlur={() => {
-          const code = normalizeUnit(text, dict);
-          if (code === null) {
-            setInvalid(true);
-            message.error('计量单位不在字典范围内，请先在字典管理中添加');
-            return;
-          }
-          setInvalid(false);
-          onChange?.(code);
-        }}
-      />
-      <div style={{ fontSize: 12, color: invalid ? '#ff4d4f' : '#999', marginTop: 2 }}>
-        {invalid ? '不在字典范围内，请先在字典管理中添加' : '默认取物资基础库，可输入字典内其他单位'}
-      </div>
-    </div>
-  );
-}
-
+/**
+ * 总日报（纯展示页，2026-10-17 业务口径）：
+ * **所有数据来自收领单推送**，本页无新增/修改/删除/导入/现场确认入口，只保留查询与**导出**。
+ * （确认状态由收领单推送侧直接置「已确认」，结算闸门仍读该状态；后端接口保留，仅前端收口。）
+ */
 export default function DailyReports() {
-  const { loading, list, params, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
-  const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
-
   const [contracts, setContracts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [unitDict, setUnitDict] = useState<{ value: string; label: string }[]>(unitDictCache || []);
+  const tabRefresh = useTabRefresh('/daily/report');
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const { loading, list, search, reload, pagination } = useTable<any>((p) => dailyApi.list(p));
 
   useEffect(() => {
     contractApi.options().then((res: any) => setContracts(res || []));
@@ -149,32 +113,10 @@ export default function DailyReports() {
     loadUnitDict().then(setUnitDict).catch(() => undefined);
   }, []);
 
-  const openEdit = (row?: any) => {
-    setEditing(row || null);
-    form.resetFields();
-    if (row) {
-      const v = { ...row, entryDate: row.entryDate ? dayjs(row.entryDate) : null };
-      form.setFieldsValue(v);
-    }
-    setModal(true);
-  };
-
-  const submit = async () => {
-    const values = await form.validateFields();
-    const payload: any = { ...values };
-    if (values.entryDate) payload.entryDate = values.entryDate.format('YYYY-MM-DD');
-    // 数值字段转 number
-    FIELDS.forEach((f) => {
-      if ((f.kind === 'number') && payload[f.key] != null) payload[f.key] = Number(payload[f.key]);
-    });
-    if (payload.taxRate != null) payload.taxRate = Number(payload.taxRate);
-    if (editing) await dailyApi.update(editing.id, payload);
-    else await dailyApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    setEditing(null);
-    reload();
-  };
+  // 收领单等关联页保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   const onSearch = (v: any) => {
     const p: any = { ...v };
@@ -185,32 +127,6 @@ export default function DailyReports() {
     }
     if (p.materialType === undefined) delete p.materialType;
     search(p);
-  };
-
-  const importExcel = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(dailyApi.importUrl(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('cms_token')}`,
-          'x-project-id': localStorage.getItem('cms_project_id') || '',
-        },
-        body: fd,
-      });
-      const body = await res.json();
-      if (body.code === 0) {
-        message.success(`导入完成：新增 ${body.data.created}，更新 ${body.data.updated}`);
-        reload();
-      } else message.error(body.message);
-    };
-    input.click();
   };
 
   const columns = FIELDS.map((f) => {
@@ -227,32 +143,25 @@ export default function DailyReports() {
     }
     if (f.kind === 'money') return { ...base, render: money };
     if (f.kind === 'date') return { ...base, render: (v: string) => (v ? v.slice(0, 10) : '-') };
-    if (f.kind === 'number') return { ...base, render: (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN')) };
+    if (f.kind === 'number') {
+      return {
+        ...base,
+        render: (v: any) => (v == null ? '-' : f.noGroup ? String(v) : Number(v).toLocaleString('zh-CN')),
+      };
+    }
     return base;
   });
 
-  columns.push({
-    title: '操作',
-    width: 150,
-    fixed: 'right',
-    render: (_: any, row: any) => (
-      <Space size={4}>
-        <Button type="link" size="small" onClick={() => openEdit(row)}>编辑</Button>
-        <Popconfirm title="确认删除该日报？" onConfirm={async () => { await dailyApi.remove(row.id); message.success('已删除'); reload(); }}>
-          <Button type="link" size="small" danger>删除</Button>
-        </Popconfirm>
-      </Space>
-    ),
-  } as any);
+  const mobileHidden = mobileHiddenColumns(columns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleColumns = containerSize.isNarrow ? filterVisibleColumns(columns, mobileHidden) : columns;
 
   return (
-    <Card
-      title="日报管理"
+    <div ref={cqRef} className="cq">
+      <Card
+      title="总日报"
       extra={
-        <Space>
-          <Button icon={<ImportOutlined />} onClick={importExcel}>导入</Button>
+        <Space wrap>
           <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(dailyApi.exportUrl()))}>导出</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增日报</Button>
         </Space>
       }
     >
@@ -275,8 +184,9 @@ export default function DailyReports() {
             </Form.Item>
           )}
         </Form.Item>
+        <Form.Item name="confirmStatusCode"><DictSelect typeCode="site_confirm_status" placeholder="确认状态" /></Form.Item>
         <Form.Item name="assetStatus"><DictSelect typeCode="asset_status" placeholder="资产状态" /></Form.Item>
-        <Form.Item name="source"><DictSelect typeCode="material_source" placeholder="来源" /></Form.Item>
+        <Form.Item name="sourceCode"><DictSelect typeCode="material_source" placeholder="来源" /></Form.Item>
         <Form.Item name="entryDate"><DatePicker.RangePicker format="YYYY-MM-DD" placeholder={['进场起', '进场止']} /></Form.Item>
         <Form.Item><Button type="primary" htmlType="submit">查询</Button></Form.Item>
       </Form>
@@ -286,69 +196,10 @@ export default function DailyReports() {
         loading={loading}
         dataSource={list}
         pagination={pagination}
-        scroll={{ x: 3200 }}
-        columns={columns as any}
+        scroll={{ x: 3300 }}
+        columns={visibleColumns as any}
       />
-
-      <Modal
-        title={editing ? '编辑日报' : '新增日报'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={1080}
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            {FIELDS.map((f) => (
-              <Col xs={24} md={8} key={f.key}>
-                {f.kind === 'contractSelect' && (
-                  <Form.Item name="contractId" label="合同" rules={[{ required: true }]}>
-                    <Select showSearch optionFilterProp="label" placeholder="请选择合同"
-                      options={contracts.map((c) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))} />
-                  </Form.Item>
-                )}
-                {f.kind === 'supplierSelect' && (
-                  <Form.Item name="supplierId" label="供应单位" rules={[{ required: true }]}>
-                    <Select showSearch optionFilterProp="label" placeholder="请选择供应单位"
-                      options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
-                  </Form.Item>
-                )}
-                {f.kind === 'dict' && (
-                  <Form.Item
-                    name={f.key}
-                    label={f.readonly ? `${f.label}（物资基础库带出）` : f.label}
-                    extra={f.readonly ? '由物资基础库自动带出，无需手工填写' : undefined}
-                  >
-                    <DictSelect typeCode={f.dict!} disabled={f.readonly} />
-                  </Form.Item>
-                )}
-                {f.kind === 'unit' && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <UnitInput />
-                  </Form.Item>
-                )}
-                {f.kind === 'date' && (
-                  <Form.Item name={f.key} label={f.label}><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
-                )}
-                {f.kind === 'number' && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <InputNumber style={{ width: '100%' }} min={0} step={f.step} precision={f.precision} />
-                  </Form.Item>
-                )}
-                {f.kind === 'text' && (
-                  <Form.Item name={f.key} label={f.label}><Input /></Form.Item>
-                )}
-                {(f.kind === 'money') && (
-                  <Form.Item name={f.key} label={f.label}>
-                    <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} />
-                  </Form.Item>
-                )}
-              </Col>
-            ))}
-          </Row>
-        </Form>
-      </Modal>
     </Card>
+    </div>
   );
 }

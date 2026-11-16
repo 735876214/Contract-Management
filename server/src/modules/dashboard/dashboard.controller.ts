@@ -32,4 +32,10 @@ export class DashboardController {
   reminders(@ProjectId() projectId: string, @CurrentUser() user: JwtUser, @Query() query: any) {
     return this.service.reminders(projectId, user);
   }
+
+  /** 我的待办（业务口径 2026-10-16）：按模块分类聚合，0 条的分类也返回（前端 Tab 常驻） */
+  @Get('todos')
+  todos(@ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.service.todos(projectId, user);
+  }
 }

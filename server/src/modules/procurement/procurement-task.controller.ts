@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 /** 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理） */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -57,6 +58,20 @@ export class ProcurementTaskController {
   @Put(':id/framework-explanation')
   saveFrameworkExplanation(@Param('id') id: string, @Body() body: any) {
     return this.service.saveFrameworkExplanation(id, body);
+  }
+
+  /** 从采购价格对比表导入「价格对比表」明细到框架协议事前说明（任务 3.6） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/framework-explanation/import-price-compare')
+  importPriceCompare(@Param('id') id: string) {
+    return this.service.importPriceCompare(id);
+  }
+
+  /** 任务 7：成交报告「退回 → 重发」（纯状态回退） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/reject-result-report')
+  rejectResultReport(@Param('id') id: string) {
+    return this.service.rejectResultReport(id);
   }
 
   /** 采前会会议纪要（任务 3.2；仅单项采购且预计采购金额 ≥ 100 万时生成） */
@@ -122,12 +137,33 @@ export class ProcurementTaskController {
     return this.service.saveResultReport(id, body);
   }
 
-  /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表 */
+  /** 导入「响应单位情况汇总表」（Excel）；导入后自动重建四张表，并双写结构化投标单位 */
   @RequirePermissions('contract:edit')
   @Post(':id/result-report/import')
-  @UseInterceptors(FileInterceptor('file'))
-  importResultReport(@Param('id') id: string, @UploadedFile() file: any) {
-    return this.service.importResultReport(id, file?.buffer);
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importResultReport(@Param('id') id: string, @UploadedFile() file: any, @CurrentUser() user: JwtUser) {
+    return this.service.importResultReport(id, file?.buffer, user);
+  }
+
+  /** 结构化投标单位 + 评标记录（招标域）：读取时对存量 JSON 快照做幂等回填 */
+  @RequirePermissions('contract:view')
+  @Get(':id/bidders')
+  bidders(@Param('id') id: string) {
+    return this.service.bidders(id);
+  }
+
+  /** 保存结构化投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与报价来自导入表，不在此改） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/bidders')
+  saveBidders(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveBidders(id, body);
+  }
+
+  /** 保存评标记录（全量替换：评委 / 得分 / 排名 / 结论 / 备注 / 评标时间） */
+  @RequirePermissions('contract:edit')
+  @Put(':id/evaluations')
+  saveEvaluations(@Param('id') id: string, @Body() body: any) {
+    return this.service.saveEvaluations(id, body);
   }
 
   /** 下载「响应单位情况汇总表」导入模板 */

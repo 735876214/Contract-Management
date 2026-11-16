@@ -4,13 +4,18 @@ import {
   Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm,
   InputNumber, Select, Tooltip, Upload, Descriptions,
 } from 'antd';
-import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { usePermission } from '@/hooks/usePermission';
+import Can from '@/components/Can';
 
 const COLORS = ['blue', 'green', 'red', 'orange', 'gold', 'cyan', 'purple', 'magenta', 'volcano', 'geekblue', 'default'];
 
 export default function Dict() {
+  /** 字典写入：后端是 `dict:edit` **或** `system:config` 任一即可（OR 语义，见 dict.controller） */
+  const canEdit = usePermission(['dict:edit', 'system:config']);
   const [types, setTypes] = useState<any[]>([]);
   const [typeKeyword, setTypeKeyword] = useState('');
   const [currentType, setCurrentType] = useState<any>(null);
@@ -23,6 +28,27 @@ export default function Dict() {
   const [typeForm] = Form.useForm();
   const [itemForm] = Form.useForm();
   const invalidate = useDictStore((s) => s.invalidate);
+  /**
+   * 窄容器主从降级：`xs=24` 会让「类型列表」与「字典项」上下堆叠，
+   * 选一个类型后要往下滚很久才看得到明细（375px 实测：列表高约 1.5 屏）。
+   * 窄容器改成「列表 → 点进明细」单栏切换，宽容器两栏并存不受影响。
+   * 判定用**容器宽度**（`useContainerWidth`，行内注释见 DESIGN.md §10.2）——
+   * 视口值只归页面外壳使用，本页两栏形态由自己所在容器决定。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const isNarrow = containerSize.isNarrow;
+  const [mobileDetail, setMobileDetail] = useState(false);
+  /**
+   * 窄容器下**只隐藏另一栏是不够的，还要把可见栏拉满整行**：
+   * `Col` 的 `lg={7}`/`lg={17}` 按**视口**断点生效，当视口 ≥1200 而容器 <720
+   * （分屏 / 嵌入等窄容器场景）时，剩下的那一栏仍只占 7/24 或 17/24 的宽度——
+   * 500px 容器里只剩 ~146px，标题与「新增」按钮重叠、搜索框被压成一条。
+   * 容器级响应式的判定与宽度必须同源，故这里用容器档位直接覆盖 flex 宽度。
+   */
+  const colStyle = (hidden: boolean) =>
+    isNarrow
+      ? { display: hidden ? ('none' as const) : undefined, flex: '0 0 100%', maxWidth: '100%' }
+      : undefined;
 
   const loadTypes = async (keyword = '') => {
     const res: any = await dictApi.types({ keyword, pageSize: 500 });
@@ -104,23 +130,25 @@ export default function Dict() {
   };
 
   return (
-    <Row gutter={16}>
-      <Col xs={24} lg={7}>
+    <Row gutter={16} ref={cqRef} className="cq">
+      <Col xs={24} lg={7} style={colStyle(mobileDetail)}>
         <Card
           title="字典类型"
           extra={
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingType(null);
-                typeForm.resetFields();
-                setTypeModal(true);
-              }}
-            >
-              新增
-            </Button>
+            canEdit ? (
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setEditingType(null);
+                  typeForm.resetFields();
+                  setTypeModal(true);
+                }}
+              >
+                新增
+              </Button>
+            ) : null
           }
         >
           <Input.Search placeholder="搜索编码/名称" allowClear onSearch={loadTypes} onChange={(e) => setTypeKeyword(e.target.value)} style={{ marginBottom: 12 }} />
@@ -128,13 +156,13 @@ export default function Dict() {
             {filteredTypes.map((t) => (
               <div
                 key={t.id}
-                onClick={() => setCurrentType(t)}
+                onClick={() => { setCurrentType(t); setMobileDetail(true); }}
                 style={{
                   padding: '8px 12px',
                   cursor: 'pointer',
                   borderRadius: 6,
                   marginBottom: 4,
-                  background: currentType?.id === t.id ? '#e6f4ff' : 'transparent',
+                  background: currentType?.id === t.id ? 'var(--cms-surface-card)' : 'transparent',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -142,23 +170,25 @@ export default function Dict() {
               >
                 <Tooltip title={t.remark}>
                   <span>
-                    {t.name} <span style={{ color: '#999', fontSize: 12 }}>{t.code}</span>
+                    {t.name} <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>{t.code}</span>
                   </span>
                 </Tooltip>
                 <Space size={4}>
                   <Tag>{t.itemCount ?? 0}</Tag>
-                  <Button
-                    type="link"
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingType(t);
-                      typeForm.setFieldsValue(t);
-                      setTypeModal(true);
-                    }}
-                  >
-                    编辑
-                  </Button>
+                  <Can code={['dict:edit', 'system:config']}>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingType(t);
+                        typeForm.setFieldsValue(t);
+                        setTypeModal(true);
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </Can>
                 </Space>
               </div>
             ))}
@@ -166,14 +196,24 @@ export default function Dict() {
         </Card>
       </Col>
 
-      <Col xs={24} lg={17}>
+      <Col xs={24} lg={17} style={colStyle(!mobileDetail)}>
         <Card
-          title={currentType ? `字典项 · ${currentType.name}` : '字典项'}
+          title={
+            isNarrow ? (
+              <Space size={4}>
+                <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => setMobileDetail(false)}>
+                  字典类型
+                </Button>
+                {currentType && <span>· {currentType.name}</span>}
+              </Space>
+            ) : currentType ? `字典项 · ${currentType.name}` : '字典项'
+          }
           extra={
             <Space>
               <Button icon={<ReloadOutlined />} onClick={() => currentType && loadItems(currentType.code)} disabled={!currentType}>
                 刷新
               </Button>
+              <Can code={['dict:edit', 'system:config']}>
               <Button
                 icon={<ImportOutlined />}
                 disabled={!currentType}
@@ -187,6 +227,34 @@ export default function Dict() {
                     const fd = new FormData();
                     fd.append('file', file);
                     const token = localStorage.getItem('cms_token');
+                    // 预校验：不写库，全部通过后再导入
+                    const vRes = await fetch(dictApi.validateUrl(currentType.code), {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        'x-project-id': localStorage.getItem('cms_project_id') || '',
+                      },
+                      body: fd,
+                    });
+                    const vBody = await vRes.json();
+                    if (vBody.code !== 0) { message.error(vBody.message); return; }
+                    const vErrors = vBody.data?.errors || [];
+                    if (vBody.data?.valid === false || vErrors.length) {
+                      Modal.error({
+                        title: `预校验未通过：${vErrors.length} 行存在问题，未写入任何数据`,
+                        width: 560,
+                        content: (
+                          <ul style={{ maxHeight: 300, overflowY: 'auto', paddingLeft: 18 }}>
+                            {vErrors.map((e: any, i: number) => (
+                              <li key={i} style={{ color: 'var(--cms-error)' }}>
+                                {e.row ? `第 ${e.row} 行` : ''}{e.field ? `【${e.field}】` : ''}：{e.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ),
+                      });
+                      return;
+                    }
                     const res = await fetch(dictApi.importUrl(currentType.code), {
                       method: 'POST',
                       headers: {
@@ -207,6 +275,7 @@ export default function Dict() {
               >
                 导入
               </Button>
+              </Can>
               <Button
                 icon={<ExportOutlined />}
                 disabled={!currentType}
@@ -214,19 +283,21 @@ export default function Dict() {
               >
                 导出
               </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                disabled={!currentType}
-                onClick={() => {
-                  setEditingItem(null);
-                  itemForm.resetFields();
-                  itemForm.setFieldsValue({ status: 1, sortOrder: items.length + 1 });
-                  setItemModal(true);
-                }}
-              >
-                新增字典项
-              </Button>
+              <Can code={['dict:edit', 'system:config']}>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  disabled={!currentType}
+                  onClick={() => {
+                    setEditingItem(null);
+                    itemForm.resetFields();
+                    itemForm.setFieldsValue({ status: 1, sortOrder: items.length + 1 });
+                    setItemModal(true);
+                  }}
+                >
+                  新增字典项
+                </Button>
+              </Can>
             </Space>
           }
         >
@@ -262,32 +333,35 @@ export default function Dict() {
               { title: '备注', dataIndex: 'remark', render: (v: string) => v || '-' },
               {
                 title: '操作',
-                width: 210,
+                // 5 个 small 按钮实测共 236px（编辑/停用/上移/下移/删除 各 44 + 间距），
+                // 原 210 会把「删除」裁在固定列右缘外（桌面与手机都点不到）。留 16px 内边距余量。
+                width: 260,
                 fixed: 'right',
-                render: (_: any, row: any) => (
-                  <Space size={4}>
-                    <Button type="link" size="small" onClick={() => { setEditingItem(row); itemForm.setFieldsValue(row); setItemModal(true); }}>
-                      编辑
-                    </Button>
-                    <Button type="link" size="small" onClick={() => toggleItem(row)}>
-                      {row.status === 1 ? '停用' : '启用'}
-                    </Button>
-                    <Button type="link" size="small" onClick={() => move(row, -1)}>
-                      上移
-                    </Button>
-                    <Button type="link" size="small" onClick={() => move(row, 1)}>
-                      下移
-                    </Button>
-                    <Popconfirm
-                      title="确认删除该字典项？被业务数据引用时不可删除"
-                      onConfirm={() => removeItem(row)}
-                    >
-                      <Button type="link" size="small" danger>
-                        删除
+                render: (_: any, row: any) =>
+                  canEdit ? (
+                    <Space size={4} wrap>
+                      <Button type="link" size="small" onClick={() => { setEditingItem(row); itemForm.setFieldsValue(row); setItemModal(true); }}>
+                        编辑
                       </Button>
-                    </Popconfirm>
-                  </Space>
-                ),
+                      <Button type="link" size="small" onClick={() => toggleItem(row)}>
+                        {row.status === 1 ? '停用' : '启用'}
+                      </Button>
+                      <Button type="link" size="small" onClick={() => move(row, -1)}>
+                        上移
+                      </Button>
+                      <Button type="link" size="small" onClick={() => move(row, 1)}>
+                        下移
+                      </Button>
+                      <Popconfirm
+                        title="确认删除该字典项？被业务数据引用时不可删除"
+                        onConfirm={() => removeItem(row)}
+                      >
+                        <Button type="link" size="small" danger>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  ) : null,
               },
             ]}
           />
@@ -299,7 +373,7 @@ export default function Dict() {
         open={typeModal}
         onOk={submitType}
         onCancel={() => setTypeModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={typeForm} layout="vertical">
           <Form.Item name="code" label="字典类型编码" rules={[{ required: true }]}>
@@ -325,7 +399,7 @@ export default function Dict() {
         open={itemModal}
         onOk={submitItem}
         onCancel={() => setItemModal(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={itemForm} layout="vertical">
           <Form.Item name="itemCode" label="字典项编码" rules={[{ required: true }]}>

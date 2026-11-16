@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
 
 @Injectable()
 export class RepaymentService {
@@ -10,6 +11,7 @@ export class RepaymentService {
     private prisma: PrismaClient,
     private excel: ExcelService,
     private sysParam: SysParamService,
+    private scope: ProjectScopeService,
   ) {}
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
@@ -26,7 +28,7 @@ export class RepaymentService {
     if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { material: { contains: query.keyword } }];
     const [list, total] = await Promise.all([
       this.prisma.repaymentAgreement.findMany({
-        where, skip, take, orderBy: { createdAt: 'desc' },
+        where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           supplier: { select: { id: true, name: true, contactName: true, contactPhone: true } },
           contract: { select: { id: true, code: true, name: true } },
@@ -38,22 +40,45 @@ export class RepaymentService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, projectId?: string) {
     const a = await this.prisma.repaymentAgreement.findUnique({
       where: { id },
       include: { supplier: true, contract: true, details: { orderBy: { period: 'asc' } } },
     });
     if (!a) throw new NotFoundException('还款协议不存在');
+    // 归属校验：只验项目成员身份不验记录归属时，拿别项目协议的 id 即可读写删
+    if (projectId && (a as any).projectId !== projectId) throw new NotFoundException('还款协议不存在');
     return a;
   }
 
-  /** 生成协议编号：前缀 + 年月 + 4 位流水（项目内唯一） */
+  /**
+   * 生成协议编号：前缀 + 年月 + 4 位流水（项目内唯一）。
+   *
+   * 取「该年月已有编号里的最大流水 + 1」，**不能**用 `count + 1`：删掉中间一条后
+   * count 变小、建议号回退到已占用的号（HK-…-0001/0002/0003 删 0001 → 建议 0003），
+   * 而 create 先 checkCode 再建，按系统建议号保存会被 400「编号已存在」顶回来。
+   * 并发时两个请求仍可能算出同一个号，故逐个试到可用为止（表上有唯一键兜底）。
+   */
   async suggestCode(projectId: string) {
     const prefix = await this.sysParam.get('repayment.code.prefix', 'HK');
     const now = new Date();
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const count = await this.prisma.repaymentAgreement.count({ where: { projectId } });
-    return `${prefix}-${ym}-${String(count + 1).padStart(4, '0')}`;
+    const head = `${prefix}-${ym}-`;
+    const rows = await this.prisma.repaymentAgreement.findMany({
+      where: { projectId, code: { startsWith: head } },
+      select: { code: true },
+    });
+    let max = 0;
+    for (const r of rows) {
+      const n = Number(String(r.code).slice(head.length));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    for (let i = 0; i < 50; i += 1) {
+      const code = `${head}${String(max + 1 + i).padStart(4, '0')}`;
+      const dup = await this.prisma.repaymentAgreement.findFirst({ where: { projectId, code }, select: { id: true } });
+      if (!dup) return code;
+    }
+    throw new BadRequestException('还款协议编号生成失败，请手动填写编号');
   }
 
   async checkCode(code: string, projectId: string, excludeId?: string) {
@@ -97,6 +122,7 @@ export class RepaymentService {
     if (!data.code) throw new BadRequestException('签订协议编号不能为空');
     const { exists } = await this.checkCode(data.code, projectId);
     if (exists) throw new BadRequestException('协议编号在当前项目中已存在');
+    await this.scope.assertContractInProject(data.contractId, projectId, '关联合同');
     const details = Array.isArray(data.details) ? data.details : [];
     if (!details.length) throw new BadRequestException('至少需录入一条约定还款明细');
     const { details: _d, ...rest } = data;
@@ -112,9 +138,12 @@ export class RepaymentService {
     });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
+    }
     if (data.code && data.code !== before.code) {
       const { exists } = await this.checkCode(data.code, before.projectId, id);
       if (exists) throw new BadRequestException('协议编号在当前项目中已存在');
@@ -137,14 +166,30 @@ export class RepaymentService {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    await this.findOne(id, projectId);
     await this.prisma.repaymentAgreement.delete({ where: { id } });
     return true;
   }
 
+  /**
+   * 导出用全量协议（分页取）：`findAll({ pageSize: 2000 })` 会被 `paginate` 夹到单页上限，
+   * 协议数超过上限时导出文件**静默**少行，且没有任何提示。
+   */
+  private async allAgreements(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const batch = (res.list || []) as any[];
+      out.push(...batch);
+      if (!batch.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const list = await this.allAgreements(projectId);
     const columns = [
       { header: '签订协议编号', key: 'code', width: 20 },
       { header: '供应商名称', key: 'supplierName', width: 28 },
@@ -157,9 +202,9 @@ export class RepaymentService {
       { header: '到期未付款金额', key: 'overdueUnpaid', width: 18 },
       { header: '备注', key: 'remark', width: 22 },
     ];
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows: any[] = [];
-    (res.list as any[]).forEach((a) => {
+    list.forEach((a) => {
       rows.push({
         code: a.code, supplierName: a.supplier?.name, material: a.material, signDate: fmt(a.signDate),
         settleAmount: num(a.settleAmount), agreedDebtAmount: num(a.agreedDebtAmount),

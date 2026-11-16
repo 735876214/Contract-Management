@@ -1,12 +1,35 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, fmtDate, num } from '../../common/utils/helpers';
+import { paginate, buildResult, fmtDate, num, assertVersion } from '../../common/utils/helpers';
 import { amountToChineseCapital } from '../../common/utils/money';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
+import { requestContext } from '../../common/services/request-context';
+import { SysParamService } from '../../common/services/sys-param.service';
+import {
+  mergeSupplierFields,
+  parseSupplierSnapshot,
+  pickSupplierSnapshot,
+} from '../../common/utils/supplier-snapshot';
+import { renderTemplate, pendingPlaceholders } from './template-render';
 
-const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy'];
+// version 只用于乐观锁校验（create/update 里都由服务端显式赋值，不会被请求体覆盖）
+const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy', 'version'];
 const CLAUSE_FIELDS = ['title', 'content', 'categoryCode', 'type', 'sortOrder', 'status', 'createdBy'];
+
+/**
+ * 模板状态归一：数据库是 `Int`（1 启用 / 0 停用），而前端历史上用 `yes_no` 字典（Y/N）——
+ * 直接写库会报「Invalid value for Int」，这里统一兼容 1/0、Y/N 与布尔值。
+ */
+function statusOf(v: unknown, fallback: number): number {
+  if (v === undefined || v === null || v === '') return fallback;
+  const n = Number(v);
+  if (n === 0 || n === 1) return n;
+  const s = String(v).trim().toUpperCase();
+  if (s === 'Y' || s === 'TRUE') return 1;
+  if (s === 'N' || s === 'FALSE') return 0;
+  throw new BadRequestException('状态只能为 0（停用）或 1（启用）');
+}
 
 /** 需求 2.3：合同条款固定四种类型 */
 export const CLAUSE_TYPES = [
@@ -18,12 +41,25 @@ export const CLAUSE_TYPES = [
 
 @Injectable()
 export class TemplateService {
-  constructor(private prisma: PrismaClient, private dict: DictService) {}
+  constructor(
+    private prisma: PrismaClient,
+    private dict: DictService,
+    private sysParam: SysParamService,
+  ) {}
 
   async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query);
     const where: any = {};
     const and: any[] = [];
+    /**
+     * 单据模板与合同模板**共用 `ContractTemplate` 表**（分类走不同的字典）。
+     * 这里必须排除单据分类，否则合同模板列表会冒出「付款单 / 结算单」等单据模板
+     * （2026-10-18 真渲染验收时发现：测试用的 SETTLEMENT 行出现在合同模板列表里）。
+     */
+    const docCategories = (await this.dict.options('doc_template_category')).map((i: any) => i.itemCode);
+    if (docCategories.length) {
+      and.push({ OR: [{ categoryCode: null }, { categoryCode: { notIn: docCategories } }] });
+    }
     if (query.keyword) and.push({ OR: [{ name: { contains: query.keyword } }, { tags: { contains: query.keyword } }] });
     if (query.categoryCode) and.push({ categoryCode: query.categoryCode });
     if (projectId) and.push({ OR: [{ projectId: null }, { projectId }] });
@@ -39,8 +75,20 @@ export class TemplateService {
     return buildResult(list, total, query);
   }
 
+  /**
+   * 按 id 取模板 —— **带项目口径**（2026-10-20 第 3 轮审计）。
+   *
+   * 模板分两类：全局模板（`projectId = null`，所有项目可用）与项目私有模板。
+   * 原来 `findUnique({ where: { id } })` 不限项目，换个 id 就能读/改/删/回滚别的项目的私有模板；
+   * update/remove/toggle/versions/rollback 全部复用本方法，改这一处即可收口。
+   */
+  private templateWhere(id: string) {
+    const projectId = requestContext.projectId;
+    return projectId ? { id, OR: [{ projectId: null }, { projectId }] } : { id };
+  }
+
   async findOne(id: string) {
-    const t = await this.prisma.contractTemplate.findUnique({ where: { id }, include: { variables: true } });
+    const t = await this.prisma.contractTemplate.findFirst({ where: this.templateWhere(id), include: { variables: true } });
     if (!t) throw new NotFoundException('模板不存在');
     return t;
   }
@@ -52,6 +100,9 @@ export class TemplateService {
     return this.prisma.contractTemplate.create({
       data: {
         ...payload,
+        // 归属只认请求上下文：否则前端塞一个别人的 projectId 就能把模板投进别的项目
+        projectId: requestContext.projectId ?? null,
+        status: statusOf(payload.status, 1),
         version: 1,
         parentId: null,
         createdBy: user?.userId,
@@ -61,9 +112,10 @@ export class TemplateService {
     });
   }
 
-  /** 修改后生成新版本：旧版本停用，新版本启用 */
+  /** 修改后生成新版本：旧版本停用，新版本沿用提交的状态（默认保持原状态） */
   async update(id: string, data: any, user: any) {
     const old = await this.findOne(id);
+    assertVersion(old, data);
     await this.dict.validate('contract_template_category', data.categoryCode);
     const rootId = old.parentId || old.id;
     const max = await this.prisma.contractTemplate.aggregate({
@@ -72,14 +124,21 @@ export class TemplateService {
     });
     const { variables, ...rest } = data;
     const payload = pickFields(rest, TPL_FIELDS, { label: '合同模板' });
+    /**
+     * 新版本必须留在原归属上（第 9 轮审计）：TPL_FIELDS 含 projectId，
+     * 原来直接展开 payload → 前端在改模板时塞 projectId: null 就能把**项目私有模板
+     * 升成全局模板**（全公司可见），塞别人的 projectId 则把它搬进别的项目。
+     */
+    delete payload.projectId;
     const created = await this.prisma.contractTemplate.create({
       data: {
         ...payload,
+        projectId: old.projectId ?? null,
         name: data.name || old.name,
         categoryCode: data.categoryCode || old.categoryCode,
         version: (max._max.version || 1) + 1,
         parentId: rootId,
-        status: 1,
+        status: statusOf(data.status, old.status),
         createdBy: user?.userId,
         variables: variables?.length
           ? { create: variables.map((v: any) => ({ varKey: v.varKey, varLabel: v.varLabel, sourceType: v.sourceType, defaultValue: v.defaultValue })) }
@@ -91,9 +150,13 @@ export class TemplateService {
     return created;
   }
 
+  /** 删除整条版本链（与界面「删除后该模板所有版本将被移除」一致；合同引用为 SetNull，不会误删） */
   async remove(id: string) {
-    await this.findOne(id);
-    await this.prisma.contractTemplate.delete({ where: { id } });
+    const t = await this.findOne(id);
+    const rootId = t.parentId || t.id;
+    await this.prisma.contractTemplate.deleteMany({
+      where: { OR: [{ id: rootId }, { parentId: rootId }] },
+    });
     return true;
   }
 
@@ -114,7 +177,11 @@ export class TemplateService {
   /** 回滚：以目标版本内容生成新版本 */
   async rollback(id: string, targetId: string, user: any) {
     const target = await this.findOne(targetId);
+    // update() 走乐观锁：省略 version 会被 assertVersion 直接判 409，
+    // 所以这里必须先读当前模板的版本号再带上（前端只发 targetId，拿不到这个值）。
+    const current = await this.findOne(id);
     return this.update(id, {
+      version: current.version,
       name: target.name,
       categoryCode: target.categoryCode,
       tags: target.tags,
@@ -141,6 +208,7 @@ export class TemplateService {
       PURCHASE_EXEC: ['PURCHASE_EXEC'],
       LEASE: ['LEASE'],
       LEASE_EXEC: ['LEASE_EXEC'],
+      EMERGENCY: ['EMERGENCY'],
     };
     const codes = typeMap[params.contractType] || [];
     return all.filter((i: any) => codes.includes(i.itemCode));
@@ -211,8 +279,8 @@ export class TemplateService {
 
   /**
    * 生成合同正文：变量替换。
-   * 表格占位符：新规范 {{物料编码清单}} / {{合同清单}}（双花括号）；
-   * 兼容旧模板 {{MATERIAL_CODE_TABLE}} / {{CONTRACT_ITEM_TABLE}} 与单花括号 {物料编码清单} / {合同清单}。
+   * 占位符语法**只支持双花括号** `{{变量名}}`（表格占位符 `{{物料编码清单}}` / `{{合同清单}}`）；
+   * 单花括号与英文遗留 key 的支持已移除，见 `template-render.ts` 文件头。
    */
   async generate(params: { templateId: string; contractId: string; manual?: Record<string, any> }, projectId: string) {
     const template = await this.findOne(params.templateId);
@@ -225,7 +293,18 @@ export class TemplateService {
 
     const typeMap = await this.dict.nameMap('contract_type');
     const payMap = await this.dict.nameMap('payment_method');
-    const sup: any = (contract as any).supplier || {};
+    /**
+     * 供应商取值（业务口径 2026-10-15：合同正文导出取**签订时快照**）。
+     * `supplier.name.sync.history`：`KEEP`（默认）= 快照优先、逐字段回退实时；
+     * `SYNC` = 强制实时。参数此前只声明未实现（"产品在说谎"），这里补上。
+     * 存量合同没有快照 → 全字段回退实时，行为与改造前一致。
+     */
+    const syncMode = await this.sysParam.get('supplier.name.sync.history', 'KEEP');
+    const sup: any = mergeSupplierFields(
+      syncMode,
+      parseSupplierSnapshot((contract as any).supplierSnapshot),
+      pickSupplierSnapshot((contract as any).supplier) as unknown as Record<string, string>,
+    );
     const taxRate = num(contract.taxRate);
 
     // 模板变量中配置了默认值的，作为兜底值（系统值与手工填写值优先）
@@ -253,6 +332,8 @@ export class TemplateService {
       签订日期: fmtDate(contract.signDate) || '',
       合同约定付款方式: payMap[contract.paymentMethodCode]?.name || contract.paymentMethodCode || '',
       项目名称: (contract as any).project?.name || '',
+      项目包保领导: (contract as any).project?.packageLeader || '',
+      项目经理: (contract as any).project?.projectManager || '',
       物资产地: (contract as any).project?.materialOrigin || '',
       供应商名称: sup.name || '',
       公司地址: sup.address || '',
@@ -266,37 +347,39 @@ export class TemplateService {
       联系人姓名: sup.contactName || '',
       联系人电话: sup.contactPhone || '',
       联系人邮箱: sup.contactEmail || '',
-      甲方名称: (contract as any).partyAName || sup.partyAName || '中国建筑第八工程局有限公司',
+      /**
+       * 甲方名称 = **项目管理里的「承接单位」**（`Project.undertaker`，业务口径 2026-10-16）。
+       *
+       * 此前读的是 `(contract as any).partyAName || sup.partyAName`，而 `Contract` 与 `Supplier`
+       * **都没有 `partyAName` 字段**（死引用），所以这个变量一直落到兜底常量。项目未填承接单位时
+       * 仍回退兜底常量（历史合同里的默认甲方）。
+       *
+       * ⚠️ 承接单位是**项目主数据**，本变量因此随项目实时变化；与供应商字段不同，它**没有**签订时快照
+       * （快照机制见 `common/utils/supplier-snapshot.ts`，对应"供应商改名/换银行不该改写历史合同"那条口径）。
+       * 若业务也要求"甲方名称冻结在签订时"，需另立口径（改快照字段集或加列），不要顺手塞进 `supplierSnapshot`。
+       */
+      甲方名称: (contract as any).project?.undertaker || '中国建筑第八工程局有限公司',
       乙方名称: sup.name || '',
       当前日期: fmtDate(new Date()),
       ...(params.manual || {}),
     };
 
-    // 表格占位符：双花括号（先于单花括号变量替换，避免嵌套冲突）
-    let html = template.content || '';
-    // 新规范中文占位符
-    html = html.split('{{物料编码清单}}').join(tables.codeTable);
-    html = html.split('{{合同清单}}').join(tables.itemTable);
-    // 兼容旧英文占位符
-    html = html.split('{{MATERIAL_CODE_TABLE}}').join(tables.codeTable);
-    html = html.split('{{CONTRACT_ITEM_TABLE}}').join(tables.itemTable);
-    // 兼容单花括号中文别名
-    html = html.split('{物料编码清单}').join(tables.codeTable);
-    html = html.split('{合同清单}').join(tables.itemTable);
-    // 合同额大写（双花括号与单花括号均支持）
-    html = html.split('{{合同额大写}}').join(String(values['合同额大写'] ?? ''));
-    html = html.split('{合同额大写}').join(String(values['合同额大写'] ?? ''));
-
-    Object.entries(values).forEach(([key, value]) => {
-      html = html.split(`{${key}}`).join(String(value ?? ''));
-    });
-
     // 补充协议占位符：前端在 formData.supplement 中已解析好可直接注入的值（含表格 HTML 与各项汇总）
     const supp = this.parseSupplement(contract);
-    Object.entries(supp).forEach(([key, value]) => {
-      html = html.split(`{{${key}}}`).join(String(value ?? ''));
-      html = html.split(`{${key}}`).join(String(value ?? ''));
+
+    // 占位符替换（纯函数，见 template-render.ts）：表格 → 变量 → 补充协议（同名键以先替换者为准）
+    const html = renderTemplate({
+      html: template.content || '',
+      tables: { 物料编码清单: tables.codeTable, 合同清单: tables.itemTable },
+      values,
+      supplement: supp,
     });
+
+    const pending = pendingPlaceholders(html);
+    if (pending.length) {
+      // 模板里存在取值表未覆盖的占位符：不阻断生成，但留下线索便于维护者补变量
+      console.warn(`[template] 模板「${template.name}」生成后仍有未替换占位符：${pending.join('、')}`);
+    }
     Object.assign(values, supp);
 
     return { html, values, tables, templateName: template.name, variables: template.variables, pageSetup: (template as any).pageSetup || null };
@@ -321,16 +404,6 @@ export class TemplateService {
     } catch {
       return {};
     }
-  }
-
-  /** 将旧模板中的英文表格占位符批量替换为中文占位符（一键迁移） */
-  migratePlaceholders(content: string): string {
-    if (!content) return content;
-    return content
-      .split('{{MATERIAL_CODE_TABLE}}')
-      .join('{{物料编码清单}}')
-      .split('{{CONTRACT_ITEM_TABLE}}')
-      .join('{{合同清单}}');
   }
 
   // ---------------- 合同条款（需求 2.2/2.3：原条款库统一命名，固定四种类型） ----------------

@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useEffect, useState } from 'react';
 import {
   Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
@@ -40,18 +42,18 @@ function buildTableHtml(headers: readonly string[], rows: readonly (string | num
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
   const thead = `<tr>${headers
-    .map((h) => `<th style="border:1px solid #000;padding:4px 6px;background:#f2f2f2;">${esc(h)}</th>`)
+    .map((h) => `<th style="border:1px solid var(--cms-ink);padding:4px 6px;background:var(--cms-paper-head);">${esc(h)}</th>`)
     .join('')}</tr>`;
   const tbody = rows.length
     ? rows
         .map(
           (r) =>
             `<tr>${r
-              .map((c) => `<td style="border:1px solid #000;padding:4px 6px;text-align:center;">${esc(c)}</td>`)
+              .map((c) => `<td style="border:1px solid var(--cms-ink);padding:4px 6px;text-align:center;">${esc(c)}</td>`)
               .join('')}</tr>`,
         )
         .join('')
-    : `<tr><td style="border:1px solid #000;padding:4px 6px;text-align:center;" colspan="${headers.length}">暂无数据</td></tr>`;
+    : `<tr><td style="border:1px solid var(--cms-ink);padding:4px 6px;text-align:center;" colspan="${headers.length}">暂无数据</td></tr>`;
   return `<table style="border-collapse:collapse;width:100%;">${thead}${tbody}</table>`;
 }
 
@@ -324,7 +326,14 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
 
   const persistFormData = async (id: string): Promise<void> => {
     const supplement = buildSupplementData();
-    await contractApi.update(id, { supplementTypeCode: suppType, formData: { supplement } });
+    // 乐观锁：本组件可能对同一份补充协议连续保存多次（保存→预览→发布），
+    // 每次保存前取一次最新 version，否则第二次必被后端 assertVersion 拦成 409
+    const detail: any = await contractApi.detail(id).catch(() => undefined);
+    await contractApi.update(id, {
+      supplementTypeCode: suppType,
+      formData: { supplement },
+      ...(detail?.version !== undefined ? { version: detail.version } : {}),
+    });
     setSaved(true);
   };
 
@@ -358,7 +367,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
     await persistFormData(id);
     Modal.confirm({
       title: '发布补充协议',
-      content: '发布后该补充协议将进入「合同查询」列表，状态为审批中，合同类型与内容不可再修改。',
+      content: '发布后该补充协议将进入「合同查询」列表，状态为待签章，合同类型与内容不可再修改。',
       okText: '确认发布',
       cancelText: '再检查一下',
       onOk: async () => {
@@ -518,7 +527,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               )}
               <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={priceRows} pagination={false}
                 scroll={{ x: 1560 }}
-                columns={[...priceColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(priceRows, setPriceRows, i) }]} />
+                columns={[...priceColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => deleteBtn(priceRows, setPriceRows, i) }]} />
             </Card>
           )}
 
@@ -535,7 +544,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               )}
               <Table<SuppRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={qtyRows} pagination={false}
                 scroll={{ x: 1500 }}
-                columns={[...qtyColumns, { title: '操作', width: 60, render: (_, __, i) => deleteBtn(qtyRows, setQtyRows, i) }]} />
+                columns={[...qtyColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => deleteBtn(qtyRows, setQtyRows, i) }]} />
             </Card>
           )}
 
@@ -546,7 +555,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
               </Card>
               <Card size="small" title="新增合同清单（增项）" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setItemNew([...itemNew, blankItem()])}>加一行</Button>}>
                 <Table<ItemRow> size="small" rowKey={(_, i) => String(i ?? 0)} dataSource={itemNew} pagination={false} scroll={{ x: 1200 }}
-                  columns={[...itemColumns, { title: '操作', width: 60, render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setItemNew(itemNew.filter((_, j) => j !== i))} /> }]} />
+                  columns={[...itemColumns, { title: '操作', width: 60, fixed: 'right', render: (_, __, i) => <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => setItemNew(itemNew.filter((_, j) => j !== i))} /> }]} />
               </Card>
             </>
           )}
@@ -569,8 +578,8 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
         </Space>
       )}
 
-      <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnClose>
-        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }} dangerouslySetInnerHTML={{ __html: previewHtml }} />
+      <Modal title="补充协议预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} width={900} footer={null} destroyOnHidden>
+        <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }} dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewHtml) }} />
       </Modal>
     </Modal>
   );

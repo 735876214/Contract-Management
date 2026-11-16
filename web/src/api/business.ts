@@ -12,7 +12,7 @@ export {
   notificationApi,
   dashboardApi,
   receiptOrderApi,
-  subcontractorApi,
+  laborApi,
 } from './modules';
 
 export const projectApi = {
@@ -25,6 +25,8 @@ export const projectApi = {
   addMember: (id: string, data: { userId: string; roleCode: string }) => http.post<any, any>(`/projects/${id}/members`, data),
   removeMember: (id: string, userId: string) => http.delete<any, any>(`/projects/${id}/members/${userId}`),
   templateUrl: () => `${http.defaults.baseURL}/projects/template`,
+  importUrl: () => `${http.defaults.baseURL}/projects/import`,
+  validateUrl: () => `${http.defaults.baseURL}/projects/import/validate`,
   import: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -43,6 +45,7 @@ export const supplierApi = {
   exportUrl: () => `${http.defaults.baseURL}/suppliers/export`,
   templateUrl: () => `${http.defaults.baseURL}/suppliers/template`,
   importUrl: () => `${http.defaults.baseURL}/suppliers/import`,
+  validateUrl: () => `${http.defaults.baseURL}/suppliers/import/validate`,
 };
 
 export const contractApi = {
@@ -59,9 +62,22 @@ export const contractApi = {
   nextSupplementCode: (id: string) => http.get<any, any>(`/contracts/${id}/next-supplement-code`),
   templateUrl: () => `${http.defaults.baseURL}/contracts/template`,
   changes: (id: string) => http.get<any, any>(`/contracts/${id}/changes`),
+  /** 履约派生进度（零表）：合同链 + 总日报/结算/付款/发票汇总（业务 2026-10-18） */
+  fulfillment: (id: string) => http.get<any, any>(`/contracts/${id}/fulfillment`),
+  /** 履约节点 CRUD（四域扩展按需项 2026-10-18；逾期为派生字段 overdue） */
+  milestones: (id: string) => http.get<any, any>(`/contracts/${id}/milestones`),
+  createMilestone: (id: string, data: any) => http.post<any, any>(`/contracts/${id}/milestones`, data),
+  updateMilestone: (id: string, milestoneId: string, data: any) =>
+    http.put<any, any>(`/contracts/${id}/milestones/${milestoneId}`, data),
+  removeMilestone: (id: string, milestoneId: string) =>
+    http.delete<any, any>(`/contracts/${id}/milestones/${milestoneId}`),
+  /** 归档前检查与归档（单向，业务 2026-10-18） */
+  archiveCheck: (id: string) => http.get<any, any>(`/contracts/${id}/archive-check`),
+  archive: (id: string) => http.post<any, any>(`/contracts/${id}/archive`),
   ext: (id: string) => http.get<any, any>(`/contracts/${id}/ext`),
   saveExt: (id: string, data: any) => http.put<any, any>(`/contracts/${id}/ext`, data),
   importUrl: () => `${http.defaults.baseURL}/contracts/import`,
+  validateUrl: () => `${http.defaults.baseURL}/contracts/import/validate`,
   // 合同起草（需求 2.1）
   drafts: () => http.get<any, any>('/contracts/drafts'),
   removeDraft: (id: string) => http.delete<any, any>(`/contracts/drafts/${id}`),
@@ -85,6 +101,9 @@ export const contractApi = {
   publish: (id: string) => http.post<any, any>(`/contracts/${id}/publish`),
   setStatus: (id: string, status: string) =>
     http.put<any, any>(`/contracts/${id}/status`, { status }),
+  // 任务 7：合同签章驳回 → 回退到「合同起草」
+  rejectToDraft: (id: string) =>
+    http.post<any, any>(`/contracts/${id}/reject`),
   // 合同查询（需求 2.2）：已发布/正式合同
   published: (params?: any) => http.get<any, any>('/contracts/published', { params }),
   exportWordUrl: (id: string) => `${http.defaults.baseURL}/contracts/${id}/export-word`,

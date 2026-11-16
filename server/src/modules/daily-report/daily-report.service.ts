@@ -1,12 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SysParamService } from '../../common/services/sys-param.service';
+import { ContractLockService } from '../../common/services/contract-lock.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
+import {
+  assertSiteConfirmable,
+  SITE_CONFIRM_STATUS,
+} from '../../constants/workflowGuards';
+import { JwtUser } from '../../common/decorators/user.decorator';
 
 const DECIMAL_FIELDS = [
   'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRate', 'priceAfterTax',
@@ -22,7 +31,15 @@ export class DailyReportService {
     private styled: StyledExcelService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private sysParam: SysParamService,
+    private lock: ContractLockService,
+    private scope: ProjectScopeService,
   ) {}
+
+  /** 日报行是结算量的来源：目标合同已归档时禁止写（2026-10-18 业务流审计）。 */
+  private async assertContractWritable(contractId: string | null | undefined, action: string) {
+    await this.lock.assertWritable(contractId, action);
+  }
 
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
@@ -35,7 +52,25 @@ export class DailyReportService {
     if (query.materialType) where.materialType = query.materialType;
     if (query.assetStatus) where.assetStatus = query.assetStatus;
     if (query.sourceCode) where.sourceCode = query.sourceCode;
-    if (query.keyword) where.OR = [{ materialName: { contains: query.keyword } }, { receiptNo: { contains: query.keyword } }, { plateNo: { contains: query.keyword } }];
+    // 现场确认状态筛选（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）；'PENDING' 需同时命中历史空值行
+    // ⚠️ 待确认条件与关键词条件都是 OR，必须放进 AND 数组分别成组；
+    // 旧实现两处都写 where.OR，后写的会整体覆盖前者（待确认筛选被关键词悄悄丢掉）
+    const orGroups: any[] = [];
+    if (query.confirmStatusCode === SITE_CONFIRM_STATUS.PENDING) {
+      orGroups.push({ OR: [{ confirmStatusCode: null }, { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING }] });
+    } else if (query.confirmStatusCode) {
+      where.confirmStatusCode = query.confirmStatusCode;
+    }
+    if (query.keyword) {
+      orGroups.push({
+        OR: [
+          { materialName: { contains: query.keyword } },
+          { receiptNo: { contains: query.keyword } },
+          { plateNo: { contains: query.keyword } },
+        ],
+      });
+    }
+    if (orGroups.length) where.AND = orGroups;
     if (query.startDate || query.endDate) {
       where.entryDate = {};
       if (query.startDate) where.entryDate.gte = new Date(query.startDate);
@@ -55,8 +90,12 @@ export class DailyReportService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
-    const r = await this.prisma.dailyReport.findUnique({ where: { id }, include: { contract: true, supplier: true } });
+  /** 按 id + 项目取单条（防止跨项目按 id 读/改/删，CLAUDE.md 铁律 3）；`projectId` 缺省时退化为仅按 id（内部调用） */
+  async findOne(id: string, projectId?: string) {
+    const r = await this.prisma.dailyReport.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
+      include: { contract: true, supplier: true },
+    });
     if (!r) throw new NotFoundException('日报不存在');
     return r;
   }
@@ -73,15 +112,122 @@ export class DailyReportService {
    */
   async contractSettledQty(contractId: string, projectId: string) {
     if (!contractId) return [];
+    // 结算口径：开启闸门时只汇总「已确认」的现场记录（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）
+    const gated = await this.requireConfirmed();
     const rows = await this.prisma.dailyReport.groupBy({
       by: ['materialBaseId'],
-      where: { projectId, contractId, materialBaseId: { not: null } },
+      where: {
+        projectId,
+        contractId,
+        materialBaseId: { not: null },
+        ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
+      },
       _sum: { settleQty: true },
     });
     return rows.map((r) => ({
       materialBaseId: r.materialBaseId as string,
       settleQty: num(r._sum?.settleQty),
     }));
+  }
+
+  /* ==================== 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」） ==================== */
+
+  /**
+   * 结算口径是否只认「已确认」的现场记录。
+   * 系统参数 `settlement.require_confirmed`，**默认开启**；置为 `false` 时行为与改造前完全一致（可一键回退）。
+   */
+  async requireConfirmed(): Promise<boolean> {
+    const v = await this.sysParam.get('settlement.require_confirmed', 'true');
+    return String(v).toLowerCase() !== 'false';
+  }
+
+  /** 确认/驳回单条现场记录（日报行） */
+  async confirmOne(id: string, action: string, projectId: string, user?: JwtUser, remark?: string) {
+    const row = await this.prisma.dailyReport.findFirst({ where: { id, projectId } });
+    if (!row) throw new NotFoundException('日报不存在');
+    // 归档锁定：确认/驳回也会改变结算量口径（已确认行才进结算），属于写操作
+    await this.assertContractWritable(row.contractId, '确认/驳回现场记录');
+    const target = assertSiteConfirmable(row.confirmStatusCode, action);
+    return this.prisma.dailyReport.update({
+      where: { id },
+      data: {
+        confirmStatusCode: target,
+        confirmedBy: user?.realName || user?.username || null,
+        confirmedAt: new Date(),
+        confirmRemark: remark ?? row.confirmRemark ?? null,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  /**
+   * 批量确认/驳回（列表页多选）。
+   * 语义与导入一致：**先全量校验，全通过才写**——避免出现"一半确认了、一半没确认"的中间态。
+   * 逐行走 `assertSiteConfirmable` 状态机守卫（单一事实源）。
+   */
+  async confirmMany(ids: string[], action: string, projectId: string, user?: JwtUser, remark?: string) {
+    const list = [
+      ...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x ?? '').trim()).filter(Boolean)),
+    ];
+    if (!list.length) throw new BadRequestException('请先选择要操作的现场记录');
+    const rows = await this.prisma.dailyReport.findMany({ where: { id: { in: list }, projectId } });
+    if (rows.length !== list.length) {
+      throw new BadRequestException('部分现场记录不存在或不属于当前项目');
+    }
+    // 归档锁定：逐合同校验（同一批可能跨合同），任一已归档则整批拒绝——与 create/update/remove 同口径
+    for (const cid of new Set(rows.map((r) => r.contractId).filter(Boolean))) {
+      await this.assertContractWritable(cid as string, '确认/驳回现场记录');
+    }
+    const targets = rows.map((r) => assertSiteConfirmable(r.confirmStatusCode, action));
+    const operator = user?.realName || user?.username || null;
+    const now = new Date();
+    await this.prisma.$transaction(
+      rows.map((r, i) =>
+        this.prisma.dailyReport.update({
+          where: { id: r.id },
+          data: {
+            confirmStatusCode: targets[i],
+            confirmedBy: operator,
+            confirmedAt: now,
+            confirmRemark: remark ?? r.confirmRemark ?? null,
+            version: { increment: 1 },
+          },
+        }),
+      ),
+    );
+    return { updated: rows.length, statusCode: targets[0] };
+  }
+
+  /**
+   * 某合同下「未确认 / 已驳回」的现场记录条数与数量合计。
+   * 用途：结算页提示"该合同还有 N 条现场记录待确认"，让口径缺口可见。
+   */
+  async unconfirmedSummary(contractId: string, projectId: string) {
+    if (!contractId) return { pending: 0, rejected: 0, pendingQty: 0, rejectedQty: 0 };
+    const notConfirmed = [
+      { confirmStatusCode: null },
+      { confirmStatusCode: SITE_CONFIRM_STATUS.PENDING },
+    ];
+    const [pending, rejected, pendAgg, rejAgg] = await Promise.all([
+      this.prisma.dailyReport.count({ where: { projectId, contractId, OR: notConfirmed } }),
+      this.prisma.dailyReport.count({
+        where: { projectId, contractId, confirmStatusCode: SITE_CONFIRM_STATUS.REJECTED },
+      }),
+      this.prisma.dailyReport.aggregate({
+        where: { projectId, contractId, OR: notConfirmed },
+        _sum: { settleQty: true },
+      }),
+      this.prisma.dailyReport.aggregate({
+        where: { projectId, contractId, confirmStatusCode: SITE_CONFIRM_STATUS.REJECTED },
+        _sum: { settleQty: true },
+      }),
+    ]);
+    return {
+      pending,
+      rejected,
+      pendingQty: num(pendAgg._sum?.settleQty) ?? 0,
+      rejectedQty: num(rejAgg._sum?.settleQty) ?? 0,
+    };
   }
 
   private async validate(data: any) {
@@ -106,6 +252,11 @@ export class DailyReportService {
 
   private normalize(data: any) {
     const payload: any = { ...data };
+    // 确认状态与确认留痕只由 confirm()/confirmMany() 维护，不接受前端直传（防绕过状态机）
+    delete payload.confirmStatusCode;
+    delete payload.confirmedBy;
+    delete payload.confirmedAt;
+    delete payload.confirmRemark;
     DECIMAL_FIELDS.forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
@@ -114,87 +265,91 @@ export class DailyReportService {
       else if (payload[f] === '') payload[f] = null;
     });
     if (data.entryDate) payload.entryDate = toDate(data.entryDate);
+    if (data.exitDate !== undefined) payload.exitDate = data.exitDate ? toDate(data.exitDate) : null;
     return payload;
   }
 
   async create(data: any, projectId: string, tx?: TxClient) {
     const db: any = tx || this.prisma;
+    // 日报行是结算量的来源：目标合同已归档时禁止新增（收领单推送路径在推送前已锁；
+    // 手工/接口直连路径在这里锁）。
+    // ⚠️ 归档锁必须在**事务外**执行：ContractLockService 走共享连接池，事务内再取
+    //    外部连接会重演「dict-in-tx 连接池耗尽挂起」的同类问题（导入 write 阶段传 tx）。
+    //    导入路径在 plan 阶段（事务外）已用 RowError 拦截归档合同，事务内这里
+    //    只在非事务（交互式）调用时锁，事务调用依赖 plan 阶段的过滤。
+    if (!tx) await this.assertContractWritable(data.contractId, '新增日报');
+    // 引用合同必须属于当前项目（防跨项目串数据：projectId=A、contractId=B 会让 A 的结算
+    // 挂到 B 的合同上，B 的链口径也跟着变）。导入路径在 plan 阶段已按项目解析合同，故只兜交互式写入。
+    if (!tx) await this.scope.assertContractInProject(data.contractId, projectId, '合同');
     // 事务内不得调用 this.dict（它使用事务外的 PrismaClient 连接，连接池耗尽会挂起）。
     // 导入流程已在事务外的 map 阶段完成 validate，此处仅在无事务的直连写入时校验。
     if (!tx) await this.validate(data);
-    return db.dailyReport.create({ data: { ...this.normalize(data), projectId } });
+    return db.dailyReport.create({
+      data: {
+        ...this.normalize(data),
+        projectId,
+        // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：新建/导入的日报行默认「待确认」；
+        // 收领单推送生成的行由 receipt-order.service 直接置「已确认」（现场签收即确认）
+        confirmStatusCode: SITE_CONFIRM_STATUS.PENDING,
+      },
+    });
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
+    // 结算来源可被绕过归档锁修改 → 归档不变量被打破（原/新合同都要检查）
+    await this.assertContractWritable(before.contractId, '修改日报');
+    if (data.contractId !== undefined) {
+      await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '合同');
+    }
+    if (data.contractId !== undefined && data.contractId !== before.contractId) {
+      await this.assertContractWritable(data.contractId, '修改日报');
+    }
     assertVersion(before, data);
     await this.validate(data);
     const payload: any = this.normalize(data);
     delete payload.version;
+    const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
+    if (!row) throw new NotFoundException('日报不存在');
     return this.prisma.dailyReport.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const row: any = await this.prisma.dailyReport.findFirst({
+      where: { id, ...(projectId ? { projectId } : {}) },
+      select: { id: true, contractId: true },
+    });
+    if (!row) throw new NotFoundException('日报不存在');
+    await this.assertContractWritable(row.contractId, '删除日报');
     await this.prisma.dailyReport.delete({ where: { id } });
     return true;
   }
 
-  private exportColumns() {
-    return [
-      { header: '账期/年', key: 'periodYear', width: 10 },
-      { header: '账期/月', key: 'periodMonth', width: 10 },
-      { header: '进场日期', key: 'entryDate', width: 14 },
-      { header: '合同编号', key: 'contractCode', width: 20 },
-      { header: '是否资产', key: 'isAssetName', width: 10 },
-      { header: '是否安全物资', key: 'isSafetyMaterialName', width: 14 },
-      { header: '资产监管', key: 'assetSupervision', width: 14 },
-      { header: '部门', key: 'department', width: 14 },
-      { header: '人员', key: 'personnel', width: 12 },
-      { header: '资产状态', key: 'assetStatusName', width: 12 },
-      { header: '来源', key: 'sourceName', width: 18 },
-      { header: '材料类别', key: 'materialCategoryName', width: 14 },
-      { header: '物资种类', key: 'materialTypeName', width: 14 },
-      { header: '物资名称', key: 'materialName', width: 20 },
-      { header: '钢筋品牌', key: 'steelBrand', width: 12 },
-      { header: '钢筋件数', key: 'steelCount', width: 12 },
-      { header: '规格型号', key: 'spec', width: 14 },
-      { header: '计量单位', key: 'unitName', width: 12 },
-      { header: '过磅数量/t', key: 'weighQty', width: 14 },
-      { header: '扣重/t', key: 'deductQty', width: 12 },
-      { header: '结算数量', key: 'settleQty', width: 12 },
-      { header: '是否过磅', key: 'isWeighedName', width: 12 },
-      { header: '未云筑验收原因', key: 'noAcceptReason', width: 20 },
-      { header: '单价/元(税前)', key: 'priceBeforeTax', width: 14 },
-      { header: '税率', key: 'taxRate', width: 10 },
-      { header: '单价/元(税后)', key: 'priceAfterTax', width: 14 },
-      { header: '金额/元(税前)', key: 'amountBeforeTax', width: 16 },
-      { header: '金额/元(税后)', key: 'amountAfterTax', width: 16 },
-      { header: '供应单位', key: 'supplierName', width: 26 },
-      { header: '领用单位', key: 'receiveUnit', width: 16 },
-      { header: '领料人', key: 'receiver', width: 12 },
-      { header: '劳务合同', key: 'laborContract', width: 16 },
-      { header: '使用部位', key: 'usePosition', width: 16 },
-      { header: '是否代购', key: 'isProxyName', width: 12 },
-      { header: '车牌号', key: 'plateNo', width: 14 },
-      { header: '收领单编号', key: 'receiptNo', width: 16 },
-      { header: '备注', key: 'remark', width: 22 },
-      { header: '分包计价账期', key: 'subcontractPeriod', width: 14 },
-      { header: '收入单价', key: 'incomePrice', width: 12 },
-      { header: '收入合价', key: 'incomeAmount', width: 14 },
-      { header: '标准单价', key: 'stdPrice', width: 12 },
-      { header: '标准合价', key: 'stdAmount', width: 14 },
-    ];
+  /**
+   * 导出用全量日报：`findAll({ pageSize: 2000 })` 受单页上限（默认 500）截断，
+   * 日报条数超过上限时导出文件**静默**少行。按页拉全量（与发票/付款/台账导出同口径）。
+   */
+  private async allReports(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findAll({ page, pageSize }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
   }
 
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allReports(projectId);
+    const res: any = { list: all, total: all.length };
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.nameMap('yes_no'), this.dict.nameMap('asset_status'), this.dict.nameMap('material_source'),
       this.dict.nameMap('material_category'), this.dict.nameMap('material_type'), this.dict.nameMap('measurement_unit'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
     const rows = (res.list as any[]).map((r) => {
       const priceAfterTax = num(r.priceAfterTax);
       const stdPrice = num(r.stdPrice);
@@ -204,6 +359,7 @@ export class DailyReportService {
         periodYear: r.periodYear ? String(r.periodYear) : '',
         periodMonth: r.periodMonth ? `${r.periodYear}年${r.periodMonth}月` : '',
         entryDate: fmt(r.entryDate),
+        exitDate: fmt(r.exitDate),
         isAssetName: yesNo[r.isAsset]?.name || '',
         isSafetyMaterialName: yesNo[r.isSafetyMaterial]?.name || '',
         assetSupervision: [r.department, r.personnel].filter(Boolean).join('，'),
@@ -239,6 +395,7 @@ export class DailyReportService {
         { header: '账期/年', key: 'periodYear', width: 80, type: 'center' },
         { header: '账期/月', key: 'periodMonth', width: 100, type: 'center' },
         { header: '进场日期', key: 'entryDate', width: 110, type: 'center' },
+        { header: '出场日期', key: 'exitDate', width: 110, type: 'center' },
         { header: '是否资产', key: 'isAssetName', width: 80, type: 'center' },
         { header: '是否安全物资', key: 'isSafetyMaterialName', width: 100, type: 'center' },
         { header: '资产监管部门，人员', key: 'assetSupervision', width: 130, type: 'center' },
@@ -266,7 +423,7 @@ export class DailyReportService {
         { header: '供应单位', key: 'supplierName', width: 150 },
         { header: '领用单位', key: 'receiveUnit', width: 150 },
         { header: '领料人', key: 'receiver', width: 80, type: 'center' },
-        { header: '劳务合同', key: 'laborContract', width: 100, type: 'center' },
+        { header: '分包合同', key: 'laborContract', width: 100, type: 'center' },
         { header: '使用部位', key: 'usePosition', width: 150 },
         { header: '是否代购', key: 'isProxyName', width: 80, type: 'center' },
       ],
@@ -288,15 +445,32 @@ export class DailyReportService {
   }
 
   /** 物资日报导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async import(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
+    /**
+     * 不传示例行号（第 22 轮审计 P2-10）：日报**没有**填写模板，用户是拿导出件（export 接口）改完再导回，
+     * 而导出件第 1~2 行是 logo/标题、表头在第 3 行 —— 交给解析器自动探测表头行；
+     * 若这里按模板口径写死 skip=[2]，导出件第 3 行的第一条真实数据会被当成示例行丢掉。
+     */
     const rows = await this.excel.parse(buffer);
     const [yesNo, assetStatus, source, category, type, unit] = await Promise.all([
       this.dict.options('yes_no'), this.dict.options('asset_status'), this.dict.options('material_source'),
       this.dict.options('material_category'), this.dict.options('material_type'), this.dict.options('measurement_unit'),
     ]);
-    const codeOf = (items: any[], name: string) => {
-      const hit = items.find((i: any) => i.itemName === name || i.itemCode === name);
-      return hit?.itemCode || null;
+    /**
+     * 第 9 轮审计：字典名称没命中就静默写 NULL（类别/状态丢失却提示成功）、
+     * 日期用裸 `new Date(...)`（非法值整批回滚且看不到行号）。统一走严格解析。
+     */
+    const codeOf = (items: any[], value: unknown, field: string) => {
+      const code = pickDictCode(items, value);
+      if (code === null && String(value ?? '').trim()) {
+        throw new RowError(`「${field}」填的「${String(value).trim()}」在字典里找不到（可能写错或已停用），请从下拉选项里选`, field);
+      }
+      return code;
+    };
+    const dateOf = (value: unknown, field: string) => {
+      const parsed = parseImportDate(value, field);
+      if (parsed.error) throw new RowError(parsed.error, field);
+      return parsed.date;
     };
     return this.tasks.submit<any>({ module: 'daily-report', moduleName: '物资日报', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       startRowNo: 2,
@@ -307,10 +481,16 @@ export class DailyReportService {
           ? await this.prisma.contract.findFirst({ where: { projectId, code: contractCode } })
           : null;
         if (contractCode && !contract) throw new RowError(`关联校验失败：合同台账中不存在合同编号「${contractCode}」`, '合同编号');
+        // 归档合同禁止通过导入追加日报（2026-10-18 业务流审计）：归档检查确认下游收口后，
+        // 不能再产生新的已确认日报行。
+        if (contract?.archivedAt) throw new RowError('该合同已归档，不能导入日报行', '合同编号');
         const supplier = supplierName
           ? await this.prisma.supplier.findFirst({ where: { name: supplierName } })
           : null;
         if (supplierName && !supplier) throw new RowError(`关联校验失败：供应商库中不存在「${supplierName}」`, '供应单位');
+        if (supplier && supplier.status === 0) {
+          throw new RowError(`关联校验失败：供应商「${supplierName}」已停用，不能导入日报行`, '供应单位');
+        }
         // 物资名称/规格型号统一取自物资基础库，日报通过 materialBaseId 关联（需求 2.5）
         const materialName = String(r['物资名称'] ?? '').trim() || null;
         const spec = String(r['规格型号'] ?? '').trim() || null;
@@ -323,27 +503,28 @@ export class DailyReportService {
         const data: any = {
           periodYear: Number(r['账期/年']) || null,
           periodMonth: Number(r['账期/月']) || null,
-          entryDate: r['进场日期'] ? new Date(r['进场日期']) : null,
+          entryDate: dateOf(r['进场日期'], '进场日期'),
+          exitDate: dateOf(r['出场日期'], '出场日期'),
           contractId: contract?.id,
-          isAsset: codeOf(yesNo, r['是否资产']),
-          isSafetyMaterial: codeOf(yesNo, r['是否安全物资']),
+          isAsset: codeOf(yesNo, r['是否资产'], '是否资产'),
+          isSafetyMaterial: codeOf(yesNo, r['是否安全物资'], '是否安全物资'),
           assetSupervision: r['资产监管'] || null,
           department: r['部门'] || null,
           personnel: r['人员'] || null,
-          assetStatus: codeOf(assetStatus, r['资产状态']),
-          sourceCode: codeOf(source, r['来源']),
-          materialCategory: codeOf(category, r['材料类别']),
-          materialType: codeOf(type, r['物资种类']),
+          assetStatus: codeOf(assetStatus, r['资产状态'], '资产状态'),
+          sourceCode: codeOf(source, r['来源'], '来源'),
+          materialCategory: codeOf(category, r['材料类别'], '材料类别'),
+          materialType: codeOf(type, r['物资种类'], '物资种类'),
           materialBaseId,
           materialName,
           steelBrand: r['钢筋品牌'] || null,
           steelCount: Number(r['钢筋件数']) || null,
           spec,
-          unit: codeOf(unit, r['计量单位']),
+          unit: codeOf(unit, r['计量单位'], '计量单位'),
           weighQty: num(r['过磅数量/t']),
           deductQty: num(r['扣重/t']),
           settleQty: num(r['结算数量']),
-          isWeighed: codeOf(yesNo, r['是否过磅']),
+          isWeighed: codeOf(yesNo, r['是否过磅'], '是否过磅'),
           noAcceptReason: r['未云筑验收原因'] || null,
           priceBeforeTax: num(r['单价/元(税前)']),
           taxRate: num(r['税率']),
@@ -353,9 +534,10 @@ export class DailyReportService {
           supplierId: supplier?.id,
           receiveUnit: r['领用单位'] || null,
           receiver: r['领料人'] || null,
-          laborContract: r['劳务合同'] || null,
+          // 新表头「分包合同」；兼容旧导入模板的「劳务合同」
+          laborContract: r['分包合同'] || r['劳务合同'] || null,
           usePosition: r['使用部位'] || null,
-          isProxy: codeOf(yesNo, r['是否代购']),
+          isProxy: codeOf(yesNo, r['是否代购'], '是否代购'),
           plateNo: r['车牌号'] || null,
           receiptNo: r['收领单编号'] || null,
           remark: r['备注'] || null,
@@ -372,6 +554,6 @@ export class DailyReportService {
         for (const p of plans) await this.create(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

@@ -1,0 +1,159 @@
+# ============================================================================
+# CMS 本地开发调试 compose —— 与部署用的 docker-compose.yml 完全独立
+#
+# 定位：**只为本机开发调试服务**，不是部署方案。
+#   - 后端：源码挂载 + `nest start --watch`（改 TS 立即重编译重启）
+#   - 前端：源码挂载 + `vite dev server`（HMR 热更新，/api 反代到后端容器）
+#   - 数据库：PostgreSQL（对外暴露 15432，方便 psql / DBeaver 直连看数据）
+#   - 上传文件：映射到宿主机 ./data-dev，可直接打开生成的 Word / 附件
+#
+# 用法（在仓库根目录执行）：
+#   启动全部（首次会安装依赖，约几分钟）：
+#     docker compose -f docker-compose.dev.yml up
+#   后台启动：
+#     docker compose -f docker-compose.dev.yml up -d
+#   只看后端日志：
+#     docker compose -f docker-compose.dev.yml logs -f server
+#   改过 package.json / vite 配置后重装依赖：
+#     docker compose -f docker-compose.dev.yml exec server npm ci --legacy-peer-deps
+#     docker compose -f docker-compose.dev.yml exec web    npm ci --legacy-peer-deps
+#   清库重来（含数据库数据与依赖卷）：
+#     docker compose -f docker-compose.dev.yml down -v
+#
+# 访问地址：
+#   前端（带热更新）：http://localhost:5173   ← 日常用这个
+#   后端 API 直连：  http://localhost:3000/api
+#   默认管理员：     admin / admin123（空库首次启动自动 seed）
+#
+# 只想要数据库、前后端在宿主机跑（推荐习惯 IDE 调试时用）：
+#   docker compose -f docker-compose.dev.yml up -d postgres
+#   cd server && npm ci --legacy-peer-deps && npm run prisma:deploy && npm run seed && npm run start:dev
+#   cd web    && npm ci --legacy-peer-deps && npm run dev
+#   （vite.config.ts 的 /api 反代默认已指向 http://localhost:3000，无需改配置）
+#
+# ⚠ 与生产 compose 的差异（有意为之，勿照搬）：
+#   1. 用完整版 node:20（非 slim）：自带 openssl，prisma generate 能正确识别引擎平台；
+#   2. 不设 restart 策略：依赖安装 / 编译失败时容器停在 exited 便于看日志，而不是无限重启刷屏；
+#   3. JWT_SECRET / 数据库密码是写死的弱值，仅限本地，生产必须用 .env 注入随机值；
+#   4. node_modules 用命名卷隔离，避免宿主机（Windows）依赖与容器（Linux）二进制互相污染。
+#
+# ⚠ 僵尸进程（2026-10 修复，**三个服务都必须保留 `init: true`，勿删**）：
+#   `init: true` 让 docker-init(tini) 当容器 PID1，专职「回收孤儿进程 + 转发信号」。
+#   不开的话 PID1 就是应用自己（npm / npx / nest，本质都是 node 进程），而 node 只回收
+#   自己 fork 的那几个孩子，不会回收「被别人过继来的」孤儿：调试期间的短命进程
+#   （watch 热重启留下的旧进程、prisma schema-engine、IDE attach 的调试残留、
+#     docker exec 里的临时命令、探针脚本）一旦生父先退出，就会被挂到 PID1 名下；
+#   它们随后退出就定格成 <defunct>。僵尸进程**杀不掉**（kill -9 无效，Z 状态不占 CPU/内存，
+#   只占 PID 表槽位），只能重建容器才清得掉 —— 这就是「每次调试都攒僵尸、且删不掉」的来历。
+#   自检 / 清理：sh scripts/dev-zombie-check.sh [--fix]
+# ============================================================================
+
+# 独立项目名：与 docker-compose.yml（项目名=目录名）隔离网络、卷、容器，可同时运行
+name: cms-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cms-postgres-dev
+    init: true                   # 回收僵尸进程（docker exec 进去敲 psql 等短命命令也不会留 defunct）
+    environment:
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: cms123456
+      POSTGRES_DB: cms
+      TZ: Asia/Shanghai
+    ports:
+      - "15432:5432"            # 宿主机 psql -h localhost -p 15432 -U cms -d cms（生产不暴露）
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  server:
+    image: node:20              # 完整版（含 openssl）：prisma generate 需要
+    container_name: cms-server-dev
+    init: true                  # tini 作 PID1：回收热重启/调试产生的孤儿进程，并把信号转发给 watcher
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"             # 后端 API（前端 vite 反代到这里）
+      - "9229:9229"             # Node 调试端口：把下面 command 的 nest start --watch 换成
+                                #   exec ./node_modules/.bin/nest start --watch --debug 后即可 IDE Attach
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      TZ: Asia/Shanghai
+      DATABASE_URL: "postgresql://cms:cms123456@postgres:5432/cms?schema=public"
+      JWT_SECRET: "dev-only-secret-do-not-use-in-production"
+      JWT_EXPIRES_IN: "7d"
+      UPLOAD_DIR: "/data/uploads"
+      DEFAULT_ADMIN_USERNAME: "admin"
+      DEFAULT_ADMIN_PASSWORD: "admin123"
+      # 依赖装不动 / 太慢时可换镜像源（去掉注释）
+      # npm_config_registry: "https://registry.npmmirror.com"
+    volumes:
+      # 源码挂载 → 容器内 tsc --watch 感知宿主机改动，实现后端热重载
+      # （个别文件系统不转发变更事件导致热重载失灵时，在 server/tsconfig.json 加
+      #   "watchOptions": { "watchFile": "priorityPollingInterval" } 即可退化为轮询）
+      - ./server:/app
+      # 依赖目录用命名卷隔离：宿主机 Windows 的 node_modules 无法在 Linux 容器内使用
+      - server-node-modules:/app/node_modules
+      # 上传文件落到宿主机，便于直接查看导出物
+      - ./data-dev:/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        # 首次（或依赖卷被清空）才安装，避免每次启动都跑一遍 npm ci。
+        # 用 npm ci 而非 npm install：严格按 package-lock.json 安装，与镜像/CI 一致、可复现。
+        [ -x node_modules/.bin/nest ] || npm ci --legacy-peer-deps --no-audit --no-fund
+        # 应用数据库迁移：与生产 compose 完全一致（20260901000000_init 是「空库 → 当前 schema」的折叠基线，
+        # 全新空库也能一次建出全表，不再出现 P3018 relation "Contract" does not exist）。
+        ./node_modules/.bin/prisma generate
+        ./node_modules/.bin/prisma migrate deploy
+        # 改了 prisma/schema.prisma 后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
+        # 不要用 db push：那会让本机库脱离迁移历史，缺失的迁移只会在别人/生产上暴露。
+        # 直接跑 nest CLI（不经 npm run / npx）：npm 夹在中间只是一层多余父子进程，
+        # stop/restart 时它先死、把 watcher 过继给 PID1，既多攒孤儿又拖慢信号；
+        # exec 让 nest 顶替 shell 成为容器的直接子进程（PID1 由 init: true 的 tini 担当）。
+        exec ./node_modules/.bin/nest start --watch
+
+  web:
+    image: node:20
+    container_name: cms-web-dev
+    init: true                  # 同上：vite 重启 esbuild 服务等短命子进程由 tini 回收
+    working_dir: /app
+    depends_on:
+      - server
+    ports:
+      - "5173:5173"             # 前端 vite dev server（HMR）
+    environment:
+      # vite dev server 的 /api 反代目标：容器内必须指向 server 服务，而不是 localhost
+      # 默认直连容器内的后端；本机直跑后端（如 AI 联调，容器无 IPv6 出口）时可覆盖：
+      #   VITE_PROXY_TARGET=http://host.docker.internal:3100 docker compose -f docker-compose.dev.yml up -d web
+      VITE_PROXY_TARGET: "${VITE_PROXY_TARGET:-http://server:3000}"
+      # Windows 挂载盘的文件事件不稳定，开启轮询保证热更新可靠触发
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "800"
+      # npm_config_registry: "https://registry.npmmirror.com"
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        [ -x node_modules/.bin/vite ] || npm ci --legacy-peer-deps --no-audit --no-fund
+        exec ./node_modules/.bin/vite --host 0.0.0.0 --port 5173
+
+volumes:
+  pgdata-dev:
+  server-node-modules:
+  web-node-modules:

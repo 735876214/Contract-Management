@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, ProjectId } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
@@ -60,10 +61,18 @@ export class MaterialController {
 
   @RequirePermissions('material:edit')
   @Post('materials/import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importBases(@UploadedFile() file: any, @CurrentUser() user: any) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
     return this.service.importBases(file.buffer, { fileName: file?.originalname, user });
+  }
+
+  @RequirePermissions('material:edit')
+  @Post('materials/import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importBasesValidate(@UploadedFile() file: any, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importBases(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
   @RequirePermissions('material:edit')
@@ -94,8 +103,8 @@ export class MaterialController {
 
   @RequirePermissions('material:view')
   @Get('contract-materials')
-  findRows(@Query('contractId') contractId: string) {
-    return this.service.findRows(contractId);
+  findRows(@Query('contractId') contractId: string, @ProjectId() projectId: string) {
+    return this.service.findRows(contractId, projectId);
   }
 
   /** 项目下所有合同物资清单（需求修正3）：平铺展示 + 供应商/物资名称/合同编号组合筛选 */
@@ -118,16 +127,17 @@ export class MaterialController {
   /** 派生清单（需求 2.3）：从物资基础库按所选物资重新生成，序号从 1 开始 */
   @RequirePermissions('material:edit')
   @Post('contract-materials/derive')
-  derive(@Body() body: any) {
-    return this.service.derive(String(body?.contractId || ''), Array.isArray(body?.materialIds) ? body.materialIds : []);
+  derive(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.derive(String(body?.contractId || ''), Array.isArray(body?.materialIds) ? body.materialIds : [], projectId);
   }
 
   @RequirePermissions('material:view')
   @Get('contract-materials/export')
-  async exportRows(@Query('contractId') contractId: string, @Query('format') format: string, @Res() res: Response) {
+  async exportRows(@Query('contractId') contractId: string, @Query('format') format: string, @ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename, mime } = await this.service.exportRows(
       contractId,
       format === 'csv' ? 'csv' : 'xlsx',
+      projectId,
     );
     res.setHeader('Content-Type', mime);
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
@@ -136,33 +146,41 @@ export class MaterialController {
 
   @RequirePermissions('material:edit')
   @Post('contract-materials/import')
-  @UseInterceptors(FileInterceptor('file'))
-  importRows(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any) {
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importRows(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any, @ProjectId() projectId: string) {
     if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
-    return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user });
+    return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user }, projectId);
+  }
+
+  @RequirePermissions('material:edit')
+  @Post('contract-materials/import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importRowsValidate(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any, @ProjectId() projectId: string) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user, validateOnly: true }, projectId);
   }
 
   @RequirePermissions('material:edit')
   @Post('contract-materials')
-  createRow(@Body() body: any) {
-    return this.service.createRow(body);
+  createRow(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createRow(body, projectId);
   }
 
   @RequirePermissions('material:edit')
   @Put('contract-materials/sort')
-  sortRows(@Body() body: any) {
-    return this.service.sortRows(body?.items);
+  sortRows(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.sortRows(body?.items, projectId);
   }
 
   @RequirePermissions('material:edit')
   @Put('contract-materials/:id')
-  updateRow(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateRow(id, body);
+  updateRow(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateRow(id, body, projectId);
   }
 
   @RequirePermissions('material:edit')
   @Delete('contract-materials/:id')
-  removeRow(@Param('id') id: string) {
-    return this.service.removeRow(id);
+  removeRow(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeRow(id, projectId);
   }
 }

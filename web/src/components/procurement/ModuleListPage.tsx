@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  Badge,
   Button,
+  Checkbox,
   Col,
   DatePicker,
   Dropdown,
-  Empty,
   Form,
   Input,
   Modal,
+  Popover,
   Row,
   Select,
   Space,
@@ -23,11 +25,18 @@ import {
   MoreOutlined,
   ReloadOutlined,
   SearchOutlined,
+  SettingOutlined,
   UpOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
-import { taskTypeLabel } from '@/constants/procurementWorkflow';
+import { taskTypeLabel, taskTypeTone } from '@/constants/procurementWorkflow';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { useListColumns } from '@/hooks/useListColumns';
+import { usePermission } from '@/hooks/usePermission';
+import { columnKeyOf, filterVisibleColumns } from '@/utils/listColumns';
+import EmptyState from '@/components/EmptyState';
+import MobileCardList from '@/components/MobileCardList';
 
 /**
  * 采购六模块通用「标准列表页」（筛选区 + 工具栏 + 数据表格 + 分页）：
@@ -124,8 +133,12 @@ export interface ModuleListPageProps {
   onDelete?: (row: ModuleListRow) => void;
   /** 行是否可删除的判定（控制「更多 → 删除」是否禁用；默认已进入合同阶段不可删） */
   rowDeletable?: (row: ModuleListRow) => boolean;
-  /** 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单 */
-  rowMenuItems?: (row: ModuleListRow) => {
+  /**
+   * 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单。
+   * `ctx.canEdit` = 当前用户在本页是否有编辑权限（来自 `editPermission`）：**写操作必须用它门禁**，
+   * 只读项（查看/导出/下载）不要门禁。
+   */
+  rowMenuItems?: (row: ModuleListRow, ctx: { canEdit: boolean }) => {
     key: string;
     label: ReactNode;
     disabled?: boolean;
@@ -135,9 +148,60 @@ export interface ModuleListPageProps {
   }[];
   /** 空列表提示文案 */
   emptyText?: string;
+  /**
+   * 启用「列设置」的存储键（**每浏览器**偏好，存 localStorage，不落库）。
+   * 不传时：module 模式自动取 `procurement.<moduleKey>`；generic 模式不启用（该页可显式传 key 开启）。
+   * ⚠️ 台账页（Ledger）**不要**传——它用的是服务端共享列配置 `ledger.columns.config`，语义不同。
+   */
+  columnConfigKey?: string;
+  /** 额外不可隐藏的列标识（「操作」列与无标识列总是保留） */
+  columnConfigLockedKeys?: string[];
+  /**
+   * **窄容器（<720px）默认列集**（docs/09 §4 阶段 B，2026-11-12）：
+   * 只列 4–6 个列标识（`key` 或 `dataIndex`）。窄容器且**移动端没存过列偏好**时只显示这些列；
+   * 桌面列不变，移动端偏好在独立键里（用户动过列设置后以用户为准）。
+   * ⚠️ generic 模式下列定义必须带 `key` 或 `dataIndex`，否则该列无法被移动端裁剪。
+   */
+  mobileDefaultKeys?: string[];
+  /** 窄容器下用**卡片视图**代替表格（仅最高频的 3 个页面开启，见 docs/09 §4） */
+  mobileCards?: boolean;
+  /**
+   * 行编辑/删除所需的权限码（2026-11-13）：无该权限时**不渲染**「编辑 / 删除」（含「更多」里的项），
+   * 只保留查看。数组表示任一命中即放行（与后端 `@RequirePermissions` 的 OR 语义一致）。
+   * 不传 = 不做前端门禁（后端仍会 403 兜底）。
+   */
+  editPermission?: string | string[];
+  /**
+   * 命中这些字段名时，筛选值变化**立即查询**（等价于点一次「查询」）。
+   *
+   * 用途：像「资金费用台账」这种"先选合同才加载"的页面 —— 选了合同还要用户再点一次查询
+   * 会很别扭。其余筛选条件仍保持"点查询才生效"的手感。
+   */
+  autoSearchOnChange?: string[];
+  /**
+   * 任一筛选值变化时的回调（收到全部值与本次变更的字段）。
+   * 用途：让页面把筛选值同步到自己的 state（如上例中要拿 `contractId` 去拉合同资金参数）。
+   */
+  onFilterChange?: (values: Record<string, any>, changed: Record<string, any>) => void;
+  /** 取数完成后的回调（拿到接口原始响应）——供页面取出 `totals`/`stats` 这类汇总数据 */
+  onFetched?: (res: any) => void;
+  /** 表格合计行（`Table.Summary` 的内容）。需要页面自己先经 `onFetched` 拿到汇总数据再拼 */
+  tableSummary?: ReactNode;
 }
 
-const PER_ROW = 4; // 每行筛选字段数
+/**
+ * 筛选字段的最小可用宽度（px）→ **每行几列**由容器宽度除出来，而不是套断点：
+ * 容器比视口窄掉整个外壳（侧栏 + 边距，1280 桌面只剩 ~996），直接套 480/720/1024 会把
+ * 每一档都往下挪一格（1280 桌面从 4 列掉成 3 列）。按"一个筛选项至少 240px 才不挤"推，
+ * 三档视口下的结果与 DESIGN.md §10 完全对齐：375 → 2 列 · 768 → 3 列 · 1280 → 4 列。
+ * （这不是"又一个断点"，是布局约束；断点仍只有 `containerSize.ts` 那一处。）
+ */
+const MIN_FILTER_FIELD_W = 240;
+const PER_ROW_MIN = 2; // 再窄也不单列：筛选区两列比一列更省纵向空间（DESIGN.md §10.1）
+const PER_ROW_MAX = 4;
+
+/** 由每行字段数推出 `Col flex`（用 CSS 值而不是 AntD 断点 prop：断点 prop 是视口驱动的） */
+const filterColFlexOf = (perRow: number) => `0 0 ${(100 / perRow).toFixed(4)}%`;
 
 export default function ModuleListPage({
   moduleKey,
@@ -157,8 +221,36 @@ export default function ModuleListPage({
   rowMenuItems,
   showOpColumn = true,
   emptyText,
+  columnConfigKey,
+  columnConfigLockedKeys,
+  mobileDefaultKeys,
+  mobileCards,
+  editPermission,
+  autoSearchOnChange,
+  onFilterChange,
+  onFetched,
+  tableSummary,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
+  /**
+   * **容器**驱动（DESIGN.md §10.2）：冻结列、紧凑行高、筛选区列数由**列表页自身宽度**决定，
+   * 不再看视口——列表页可能被放进弹窗/抽屉/分栏里，"窗口宽不宽"推不出"表格挤不挤"。
+   * 列宽用 `Col flex`（CSS 值）而不是 `xs/md/lg` 断点 prop：断点 prop 是视口驱动的，改不动。
+   */
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  /**
+   * 行编辑/删除的前端门禁（2026-11-13）：无权限时只保留「查看」，
+   * 「更多」里也不再出现编辑/删除项（后端 403 仍是最后防线）。
+   */
+  const canEditRow = usePermission(editPermission);
+  const effectiveOnEdit = canEditRow ? onEdit : undefined;
+  const effectiveOnDelete = canEditRow ? onDelete : undefined;
+  // 容器宽度未知（首帧）时按 4 列渲染，避免先窄后宽闪一下
+  const perRow = Math.min(
+    PER_ROW_MAX,
+    Math.max(PER_ROW_MIN, Math.floor((containerSize.width || Infinity) / MIN_FILTER_FIELD_W)),
+  );
+  const filterColFlex = filterColFlexOf(perRow);
   const [form] = Form.useForm();
   const [rows, setRows] = useState<ModuleListRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -174,10 +266,39 @@ export default function ModuleListPage({
     [extraFilters, isModuleMode],
   );
   const visibleFilters = useMemo(
-    () => (expanded ? filters : filters.slice(0, PER_ROW)),
-    [filters, expanded],
+    () => (expanded ? filters : filters.slice(0, perRow)),
+    [filters, expanded, perRow],
   );
-  const collapsible = filters.length > PER_ROW;
+  const collapsible = filters.length > perRow;
+
+  /**
+   * ⚠️ **引用稳定性**：取数 effect 的依赖里有 `fetchRows` → `buildParams`，
+   * 而 `buildParams` 要用 `baseParams` / `fetcher` 两个 **prop**。
+   * 调用方几乎都写成内联字面量（`baseParams={{ type: 'SINGLE' }}`、
+   * `fetcher={(p) => api.list(p)}`），引用**每轮渲染都会变** ——
+   * 若把它们直接放进依赖数组，effect 会在每次渲染后重跑：
+   * 取数 → `setRows(新数组)` → 重渲染 → 依赖又变 → 再取数，**形成请求风暴**
+   * （更糟的是多页签会把多个列表页同时挂在 DOM 上，风暴会成倍）。
+   *
+   * 因此这里做两件事：
+   * - `baseParams` 用**值的签名**（字符串）参与依赖：值变了才重新取数，引用变了不算；
+   * - `fetcher` 走 ref（函数无法序列化签名）：始终调用最新的那一个，但不因引用变化触发取数。
+   * 两者合起来使 `fetchRows` 只在 **page / pageSize / 筛选值 / baseParams 的值** 变化时才变。
+   */
+  const baseParamsKey = useMemo(() => {
+    try {
+      return JSON.stringify(baseParams ?? {});
+    } catch {
+      // 循环引用等异常：退化为"没有基础参数"，也绝不因此反复取数
+      return '{}';
+    }
+  }, [baseParams]);
+  const stableBaseParams = useMemo<Record<string, unknown>>(() => JSON.parse(baseParamsKey), [baseParamsKey]);
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+  /** 取数完成回调同样走 ref：调用方一般传行内箭头函数，不应影响取数 effect 的依赖 */
+  const onFetchedRef = useRef(onFetched);
+  onFetchedRef.current = onFetched;
 
   const buildParams = useCallback(
     (values: Record<string, any>) => {
@@ -185,7 +306,7 @@ export default function ModuleListPage({
         ...(isModuleMode ? { module: moduleKey } : {}),
         page,
         pageSize,
-        ...(baseParams ?? {}),
+        ...stableBaseParams,
       };
       Object.entries(values ?? {}).forEach(([k, v]) => {
         if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) return;
@@ -200,27 +321,42 @@ export default function ModuleListPage({
       });
       return params;
     },
-    [isModuleMode, moduleKey, page, pageSize, baseParams],
+    [isModuleMode, moduleKey, page, pageSize, stableBaseParams],
   );
 
+  /** 请求序号：丢弃过期响应（快速改筛选连续查询时，慢的旧响应不得覆盖新结果） */
+  const fetchSeqRef = useRef(0);
   const fetchRows = useCallback(
     (values: Record<string, any>) => {
+      const seq = ++fetchSeqRef.current;
       setLoading(true);
-      const req = fetcher
-        ? Promise.resolve(fetcher(buildParams(values)))
+      const req = fetcherRef.current
+        ? Promise.resolve(fetcherRef.current(buildParams(values)))
         : procurementTaskApi.list(buildParams(values));
       req
         .then((res: any) => {
-          setRows(res?.list ?? res?.data?.list ?? []);
-          setTotal(res?.total ?? res?.data?.total ?? 0);
+          if (seq !== fetchSeqRef.current) return; // 过期响应丢弃
+          const list = res?.list ?? res?.data?.list ?? [];
+          const nextTotal = Number(res?.total ?? res?.data?.total ?? 0) || 0;
+          setRows(list);
+          setTotal(nextTotal);
+          // 末页被删空后自动回落到最后一页（第 17~20 轮审计 P3-10：
+          // 原来停在空页，看起来像「数据全没了」，得手动点回上一页）
+          const maxPage = Math.max(1, Math.ceil(nextTotal / pageSize));
+          if (list.length === 0 && nextTotal > 0 && page > maxPage) setPage(maxPage);
+          onFetchedRef.current?.(res);
         })
         .catch(() => {
+          if (seq !== fetchSeqRef.current) return;
           setRows([]);
           setTotal(0);
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === fetchSeqRef.current) setLoading(false);
+        });
     },
-    [buildParams, fetcher],
+    // page/pageSize 用于「末页被删空后自动回落」，必须进 deps
+    [buildParams, page, pageSize],
   );
 
   useEffect(() => {
@@ -234,7 +370,22 @@ export default function ModuleListPage({
   const handleReset = () => {
     form.resetFields();
     setPage(1);
-    setCommitted({});
+    // 重置同样要让页面知道（被清空的字段可能就是页面依赖的那个，如合同）
+    const values = form.getFieldsValue();
+    onFilterChange?.(values, values);
+    setCommitted(values);
+  };
+
+  /**
+   * 表单值变化：先把变更透出给页面（如"选合同 → 去拉合同资金参数"），
+   * 命中 `autoSearchOnChange` 的字段则**立即查询**（等价于点一次「查询」）。
+   */
+  const handleValuesChange = (changed: Record<string, any>, all: Record<string, any>) => {
+    onFilterChange?.(all, changed);
+    if (!autoSearchOnChange?.length) return;
+    if (!Object.keys(changed).some((k) => autoSearchOnChange.includes(k))) return;
+    setPage(1);
+    setCommitted({ ...all });
   };
 
   /* ---------------- 表格列 ---------------- */
@@ -256,6 +407,8 @@ export default function ModuleListPage({
             title: '采购编号',
             dataIndex: 'taskNo',
             width: 170,
+            // 窄容器下横向滚动时冻结关键列（DESIGN.md §10.2）
+            ...(containerSize.isNarrow ? { fixed: 'left' as const } : {}),
             render: (v: string, row) => (
               <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>
                 {v}
@@ -272,7 +425,9 @@ export default function ModuleListPage({
             title: '采购类型',
             dataIndex: 'type',
             width: 110,
-            render: (v: string) => <Tag color="cyan">{taskTypeLabel(v)}</Tag>,
+            // 窄容器下收起（styles/containers.css 的 [@container] 规则按容器宽度隐藏）
+            className: 'col-secondary',
+            render: (v: string) => <Tag color={taskTypeTone(v)}>{taskTypeLabel(v)}</Tag>,
           },
         ] as ColumnsType<ModuleListRow>)
       : []),
@@ -283,6 +438,7 @@ export default function ModuleListPage({
             title: '发布时间',
             key: 'publishedAt',
             width: 140,
+            className: 'col-secondary',
             render: (_v, row) =>
               row.module?.publishedAt ? dayjs(row.module.publishedAt).format('YYYY-MM-DD HH:mm') : '-',
           },
@@ -313,33 +469,33 @@ export default function ModuleListPage({
           onClick?: () => void;
           children?: { key: string; label: ReactNode; disabled?: boolean; danger?: boolean; onClick?: () => void }[];
         }[] = [];
-        if (onEdit) {
+        if (effectiveOnEdit) {
           moreItems.push({
             key: 'edit',
             label: '编辑',
             disabled: !editable,
-            onClick: () => onEdit(row),
+            onClick: () => effectiveOnEdit(row),
           });
         }
-        if (onDelete) {
+        if (effectiveOnDelete) {
           moreItems.push({
             key: 'delete',
             label: '删除',
             danger: true,
             disabled: !deletable,
-            onClick: () => onDelete(row),
+            onClick: () => effectiveOnDelete(row),
           });
         }
-        moreItems.push(...(rowMenuItems?.(row) ?? []));
+        moreItems.push(...(rowMenuItems?.(row, { canEdit: canEditRow }) ?? []));
         // 问题一：module 模式首按钮按模块状态切换——未填写/编辑中显示「编辑」（直接进编辑界面），
         // 已完成显示「查看」（进入任务查看弹窗）；generic 模式保持「查看」
         const published = isModuleMode && moduleStatusOf(row).value === 'PUBLISHED';
         const primary =
-          published || !onEdit
+          published || !effectiveOnEdit
             ? onView
               ? { label: '查看', onClick: () => onView(row) }
               : null
-            : { label: '编辑', onClick: () => onEdit(row) };
+            : { label: '编辑', onClick: () => effectiveOnEdit(row) };
         return (
           <Space size={4}>
             {primary && (
@@ -361,6 +517,59 @@ export default function ModuleListPage({
   ] as ColumnsType<ModuleListRow>)
       : []),
   ];
+
+  /* ---------------- 列设置（每浏览器偏好，存 localStorage） ---------------- */
+
+  /** module 模式按模块自动取键；generic 模式须显式传 columnConfigKey 才启用 */
+  const effectiveColumnConfigKey =
+    columnConfigKey ?? (isModuleMode && moduleKey ? `procurement.${moduleKey}` : undefined);
+  // 用签名串做 useMemo 依赖：columns 每次渲染都是新数组，直接当依赖会让 memo 失效
+  const columnKeySignature = columns.map(columnKeyOf).filter(Boolean).join('|');
+  const columnKeys = useMemo(() => (columnKeySignature ? columnKeySignature.split('|') : []), [columnKeySignature]);
+  /** 「操作」列与关键标识列（module 模式的采购编号）不可隐藏 */
+  const lockedColumnKeys = useMemo(
+    () => ['op', ...(isModuleMode ? ['taskNo'] : []), ...(columnConfigLockedKeys ?? [])],
+    [isModuleMode, columnConfigLockedKeys],
+  );
+  const { hiddenKeys, isHidden, toggle, reset, hiddenCount } = useListColumns({
+    configKey: effectiveColumnConfigKey,
+    allKeys: columnKeys,
+    lockedKeys: lockedColumnKeys,
+    mobileDefaultKeys,
+    narrow: containerSize.isNarrow,
+  });
+  // 直接过滤（不做 useMemo）：`columns` 每轮渲染都是新数组，若把 memo 依赖设为键签名，
+  // 列内的 render/事件闭包会在依赖未变时滞留旧值（点「查看」调用旧 handler 这类隐性 bug）。
+  const visibleColumns = filterVisibleColumns(columns, hiddenKeys, lockedColumnKeys);
+  const columnConfigItems = columns
+    .map((c) => ({ key: columnKeyOf(c), title: c.title as ReactNode }))
+    .filter((c) => c.key !== '');
+  const columnConfigContent = (
+    <div style={{ maxWidth: 240 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--cms-muted-soft)' }}>勾选要显示的列</span>
+        <Button type="link" size="small" style={{ padding: 0 }} disabled={!hiddenCount} onClick={reset}>
+          重置
+        </Button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+        {columnConfigItems.map((c) => {
+          const locked = lockedColumnKeys.includes(c.key);
+          return (
+            <Checkbox
+              key={c.key}
+              checked={locked || !isHidden(c.key)}
+              disabled={locked}
+              // 勾选框 checked = 「可见」，toggle 的第二参是「是否隐藏」→ 必须取反
+              onChange={(e) => toggle(c.key, !e.target.checked)}
+            >
+              {c.title || c.key}
+            </Checkbox>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   /* ---------------- 筛选控件 ---------------- */
 
@@ -384,18 +593,20 @@ export default function ModuleListPage({
 
   return (
     <div
+      ref={cqRef}
+      className="cq"
       style={{
-        background: '#fff',
+        background: 'var(--cms-paper)',
         borderRadius: 8,
         padding: '16px 16px 8px',
-        border: '1px solid #f0f0f0',
+        border: '1px solid var(--cms-hairline-soft)',
       }}
     >
       {/* 1. 顶部筛选区（可折叠） */}
-      <Form form={form} layout="vertical" style={{ marginBottom: 4 }}>
+      <Form form={form} layout="vertical" style={{ marginBottom: 4 }} onValuesChange={handleValuesChange}>
         <Row key={expanded ? 'expanded' : 'collapsed'} gutter={[16, 0]} align="middle">
           {visibleFilters.map((f) => (
-            <Col key={f.key} span={6} style={{ marginBottom: 12 }}>
+            <Col key={f.key} flex={filterColFlex} style={{ marginBottom: 12 }}>
               <Form.Item name={f.key} label={f.label} style={{ marginBottom: 0 }}>
                 {renderControl(f)}
               </Form.Item>
@@ -433,38 +644,66 @@ export default function ModuleListPage({
           {toolbarLeft}
         </Space>
         <Space size={12}>
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             本页: {rows.length}条 总计: {total}条
           </span>
+          {effectiveColumnConfigKey && (
+            <Popover content={columnConfigContent} trigger="click" placement="bottomRight">
+              <Tooltip title={hiddenCount ? `列设置（已隐藏 ${hiddenCount} 列）` : '列设置'}>
+                <Badge dot={hiddenCount > 0}>
+                  <Button size="small" icon={<SettingOutlined />} />
+                </Badge>
+              </Tooltip>
+            </Popover>
+          )}
           <Tooltip title="刷新">
             <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchRows(committed)} />
           </Tooltip>
         </Space>
       </div>
 
-      {/* 3. 数据表格 + 分页 */}
-      <Table<ModuleListRow>
-        size="middle"
-        rowKey="id"
-        columns={columns}
-        dataSource={rows}
-        loading={loading}
-        scroll={{ x: 'max-content' }}
-        locale={{ emptyText: <Empty description={emptyText ?? '暂无数据'} /> }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showQuickJumper: true,
-          pageSizeOptions: [10, 20, 50, 100],
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p);
-            setPageSize(ps);
-          },
-          showTotal: () => `共 ${total} 条`,
-        }}
-      />
+      {/* 3. 数据表格 + 分页（窄容器下高频页可切卡片视图，docs/09 §4 阶段 B） */}
+      {containerSize.isNarrow && mobileCards ? (
+        <MobileCardList<ModuleListRow>
+          rows={rows}
+          columns={visibleColumns}
+          loading={loading}
+          emptyText={emptyText ?? '暂无数据'}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: (p, ps) => {
+              setPage(ps !== pageSize ? 1 : p);
+              setPageSize(ps);
+            },
+          }}
+        />
+      ) : (
+        <Table<ModuleListRow>
+          size={containerSize.isNarrow ? 'small' : 'middle'}
+          rowKey="id"
+          columns={visibleColumns}
+          dataSource={rows}
+          loading={loading}
+          scroll={{ x: 'max-content' }}
+          {...(tableSummary ? { summary: () => tableSummary } : {})}
+          locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (p, ps) => {
+              setPage(ps !== pageSize ? 1 : p);
+              setPageSize(ps);
+            },
+            showTotal: () => `共 ${total} 条`,
+          }}
+        />
+      )}
     </div>
   );
 }

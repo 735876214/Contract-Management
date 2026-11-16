@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -21,7 +21,7 @@ import {
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
@@ -33,6 +33,7 @@ import {
 } from '@/constants/procurementVariables';
 import ImportButton from '@/components/ImportButton';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
+import BidderPanel from '@/components/procurement/BidderPanel';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
 import ModuleListPage, {
   moduleStatusOf,
@@ -42,6 +43,12 @@ import ModuleListPage, {
 } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { editorTabKey } from '@/utils/tabs';
+
+/** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/procurement/result-report';
 import {
   buildResultReportDocHtml,
   buildResultReportVariableValues,
@@ -127,11 +134,24 @@ const EMPTY_FORM: ResultForm = {
 };
 
 export default function ResultReport() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
 
-  const [taskId, setTaskId] = useState<string | null>(searchParams.get('taskId') || null);
-  /** 列表刷新键：编辑弹窗关闭后重查，反映最新模块状态 */
+  /**
+   * 列表与「编辑」是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释。
+   * 编辑态原本是弹窗，现改为编辑器页签（底部操作栏 sticky，长表单不再把按钮滚出视口）。
+   */
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const taskId = editorTab.editorId === 'new' ? null : editorTab.editorId;
+  /** 兼容旧深链 `?taskId=xxx`：归一成编辑器页签 */
+  useEffect(() => {
+    const legacy = searchParams.get('taskId');
+    if (legacy && !editorTab.isEditor) navigate(editorTabKey(LIST_PATH, legacy), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** 列表刷新键：编辑器页签关闭后由 closeEditor 的 bump 触发；本键用于页内（删除等） */
   const [listRefresh, setListRefresh] = useState(0);
   /** 问题二：删除模块记录并回退流程 */
   const handleDeleteModule = useModuleDelete('RESULT_REPORT', () => setListRefresh((k) => k + 1));
@@ -148,8 +168,8 @@ export default function ResultReport() {
   const [reEditing, setReEditing] = useState(false);
   /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
   const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；带 taskId 进入页面时直接打开） */
-  const [editOpen, setEditOpen] = useState(!!searchParams.get('taskId'));
+  /** 未保存改动（关闭编辑器页签前确认） */
+  const [dirty, setDirty] = useState(false);
   /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
   const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
   /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
@@ -213,26 +233,27 @@ export default function ResultReport() {
       .finally(() => setDetailLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (taskId) loadDetail(taskId);
-  }, [taskId, loadDetail]);
-
   /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
   const handleViewRow = (row: ModuleListRow) => {
     if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
     else editRow(row);
   };
-  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑） */
+  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑）—— 打开编辑器页签，reEdit 随种子递过去 */
   const editRow = (row: ModuleListRow, reEdit = false) => {
-    setTaskId(row.id);
-    setSearchParams({ taskId: row.id }, { replace: true });
-    reEditRef.current = reEdit;
-    setEditOpen(true);
+    editorTab.openEdit(row.id, { reEdit });
   };
+  /** 编辑器页签挂载时：按种子里的 reEdit 决定初始是否可编辑，并拉详情 */
+  useEffect(() => {
+    if (!taskId) return;
+    reEditRef.current = !!(editorTab.seed as { reEdit?: boolean } | undefined)?.reEdit;
+    loadDetail(taskId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
   /** 关闭编辑弹窗后刷新列表（反映保存/发布后的最新模块状态） */
+  /** 关闭编辑器页签（发布 / 退回后都回到列表，并让列表重新取数） */
   const closeEdit = () => {
-    setEditOpen(false);
-    setListRefresh((x) => x + 1);
+    setDirty(false);
+    editorTab.closeEditor();
   };
 
   /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
@@ -245,7 +266,10 @@ export default function ResultReport() {
     }
   };
 
-  const patchForm = (patch: Partial<ResultForm>) => setForm((f) => ({ ...f, ...patch }));
+  const patchForm = (patch: Partial<ResultForm>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
 
   /* ---------------- 候选人勾选（第二轮报价表） ---------------- */
 
@@ -293,8 +317,10 @@ export default function ResultReport() {
     try {
       await procurementTaskApi.saveResultReport(taskId, buildSavePayload());
       message.success('已保存');
-      setEditOpen(false);
+      // 编辑器页签形态下「保存」不关标签，就地重载详情与列表
       loadDetail(taskId);
+      setDirty(false);
+      setListRefresh((x) => x + 1);
     } finally {
       setSaving(false);
     }
@@ -324,6 +350,29 @@ export default function ResultReport() {
     } finally {
       setPublishing(false);
     }
+  };
+
+  /** 任务 7：成交报告「退回 → 重发」（纯状态回退；若下游合同已签章则禁止） */
+  const handleRejectResultReport = async () => {
+    if (!taskId) return;
+    Modal.confirm({
+      title: '成交报告退回重发',
+      content:
+        '确认退回成交报告吗？退回后报告恢复为「编制中」可重新编辑并再次发布（重发），已自动生成的合同草稿将被清理。',
+      okText: '确认退回',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await procurementTaskApi.rejectResultReport(taskId);
+          message.success('已退回，成交报告恢复编制中，可重新发布');
+          setModalMode(null);
+          closeEdit();
+        } catch (e: any) {
+          message.error(e?.message || '退回失败');
+        }
+      },
+    });
   };
 
   const reportData = useMemo<ResultReportData>(
@@ -484,6 +533,7 @@ export default function ResultReport() {
     {
       title: '操作',
       width: 90,
+      fixed: 'right',
       render: (_v, r) => (
         <Button
           type="link"
@@ -554,15 +604,16 @@ export default function ResultReport() {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         toolbarLeft={
-          <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+          <span style={{ color: 'var(--cms-muted-soft)', fontSize: 13 }}>
             仅显示单项采购类型的任务；编辑与发布以任务所处阶段为准（需先完成采购文件）
           </span>
         }
-        refreshKey={listRefresh}
+        refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}
-        rowMenuItems={(row) => {
+        rowMenuItems={(row, { canEdit }) => {
           const published = moduleStatusOf(row).value === 'PUBLISHED';
           return published
             ? [
@@ -575,7 +626,7 @@ export default function ResultReport() {
                   ),
                   onClick: () => handleRowExport(row),
                 },
-                { key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) },
+                ...(canEdit ? [{ key: 'reEdit', label: '重新编辑', onClick: () => editRow(row, true) }] : []),
               ]
             : [];
         }}
@@ -585,40 +636,45 @@ export default function ResultReport() {
       <TaskViewModal task={viewRow} open={!!viewRow} onClose={() => setViewRow(null)} />
 
       {/* 编辑弹窗（问题一：未填写/编辑中行「编辑」直接进入；问题三：居中弹窗） */}
-      <Modal
-        title={`成交报告 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
-        width={1100}
-        centered
-        open={editOpen && !modalMode}
-        onCancel={closeEdit}
-        destroyOnClose
-        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}
-        footer={
-          <Space style={{ float: 'right' }}>
-            <Button onClick={closeEdit}>取消</Button>
-            {currentTask && (
-              <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
-                预览
-              </Button>
-            )}
-            {currentTask && (
-              <Button icon={<FileWordOutlined />} onClick={handleExport}>
-                导出Word
-              </Button>
-            )}
-            {editable && (
-              <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
-                保存
-              </Button>
-            )}
-            {detail && !detail.published && editable && (
+      {/* 编辑器页签（未填写/编辑中行「编辑」直接进入；底部操作栏 sticky） */}
+      {taskId && (
+        <EditorTabPage
+          listPath={LIST_PATH}
+          title={`成交报告 · 编辑${currentTask ? ` · ${currentTask.taskNo}` : ''}`}
+          saving={saving}
+          saveText="保 存"
+          onSave={editable ? handleSave : undefined}
+          // 本页有独立的「发布 / 退回重发」流程，保存不关标签
+          closeOnSave={false}
+          dirty={dirty}
+          footerLeft={
+            <Space wrap size={8}>
+              {currentTask && (
+                <Button icon={<EyeOutlined />} onClick={() => setModalMode('preview')}>
+                  预览
+                </Button>
+              )}
+              {currentTask && (
+                <Button icon={<FileWordOutlined />} onClick={handleExport}>
+                  导出Word
+                </Button>
+              )}
+              {/* 任务 7：成交报告「退回 → 重发」（仅已发布且单项采购类型） */}
+              {detail?.published && currentTask?.type === 'SINGLE' && (
+                <Button danger icon={<RollbackOutlined />} onClick={handleRejectResultReport}>
+                  退回重发
+                </Button>
+              )}
+            </Space>
+          }
+          footerExtra={
+            detail && !detail.published && editable ? (
               <Button type="primary" icon={<SendOutlined />} onClick={openPublishPreview}>
                 发布
               </Button>
-            )}
-          </Space>
-        }
-      >
+            ) : null
+          }
+        >
         <Spin spinning={detailLoading}>
           {!currentTask && !detailLoading && (
             <Alert type="warning" showIcon message="任务详情加载失败，请关闭后重试。" />
@@ -665,8 +721,8 @@ export default function ResultReport() {
             {/* 一、成交报告基本信息 */}
             <Card size="small" title="一、成交报告基本信息">
               <Row gutter={[16, 16]}>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>成交单位数量</div>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>成交单位数量</div>
                   {editable ? (
                     <InputNumber
                       style={{ width: '100%' }}
@@ -680,8 +736,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.unitCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>采购开启时间</div>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>采购开启时间</div>
                   {editable ? (
                     <DatePicker
                       style={{ width: '100%' }}
@@ -692,8 +748,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.openTime || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>开启地点</div>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>开启地点</div>
                   {editable ? (
                     <Input
                       value={form.openPlace}
@@ -704,8 +760,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.openPlace || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>评审小组成员</div>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>评审小组成员</div>
                   {editable ? (
                     <Input
                       value={form.reviewMembers}
@@ -716,8 +772,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.reviewMembers || '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     审核通过响应单位数量
                   </div>
                   {editable ? (
@@ -733,8 +789,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.approvedCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     参与响应单位数量
                   </div>
                   {editable ? (
@@ -750,8 +806,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.participantCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     弃权响应单位数量
                   </div>
                   {editable ? (
@@ -767,8 +823,8 @@ export default function ResultReport() {
                     <div style={{ minHeight: 22 }}>{form.abstainCount ?? '-'}</div>
                   )}
                 </Col>
-                <Col span={6}>
-                  <div style={{ color: '#8c8c8c', fontSize: 12, marginBottom: 4 }}>
+                <Col xs={24} md={6}>
+                  <div style={{ color: 'var(--cms-muted-soft)', fontSize: 12, marginBottom: 4 }}>
                     有效响应文件数量
                   </div>
                   {editable ? (
@@ -792,7 +848,7 @@ export default function ResultReport() {
               size="small"
               title="二、响应单位情况汇总表（导入）"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   导入后自动生成下方四张表；重复导入将覆盖已有明细
                 </span>
               }
@@ -808,7 +864,7 @@ export default function ResultReport() {
                   disabled={!editable}
                   extraHint="导入将覆盖已有的响应单位明细。"
                 />
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   已导入 {suppliers.length} 家响应单位
                 </span>
               </Space>
@@ -829,7 +885,7 @@ export default function ResultReport() {
               size="small"
               title="三、开启报价情况表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   排序规则：按第一轮报价不含税总额由小到大
                 </span>
               }
@@ -850,7 +906,7 @@ export default function ResultReport() {
               size="small"
               title="四、第二轮报价情况表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   仅「通过第一轮报价=是」的单位；按第二轮报价不含税总额由小到大；勾选后生成候选人表
                 </span>
               }
@@ -871,7 +927,7 @@ export default function ResultReport() {
               size="small"
               title="五、拟推荐成交候选人表"
               extra={
-                <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+                <span style={{ color: 'var(--cms-muted-soft)', fontSize: 12 }}>
                   在第二轮报价情况表中勾选后自动填入
                 </span>
               }
@@ -887,10 +943,16 @@ export default function ResultReport() {
               />
             </Card>
 
+            {/* 六、七、招标域结构化：投标单位状态/投标文件 + 评标记录（与 JSON 快照双写） */}
+            {taskId ? (
+              <BidderPanel taskId={taskId} editable={editable} />
+            ) : null}
+
           </Space>
           )}
         </Spin>
-      </Modal>
+        </EditorTabPage>
+      )}
 
       {/* 统一预览 / 发布流程（批次四 · 任务 4.2）：发布前确认与发布后预览共用 */}
       <PreviewPublishModal

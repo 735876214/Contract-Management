@@ -1,15 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion } from '../../common/utils/helpers';
 import { round4 } from '../../common/utils/money';
+import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { DictService } from '../dict/dict.service';
-import { SettlementService } from '../settlement/settlement.service';
+import { DictService } from '../dict';
+import { SettlementService } from '../settlement';
 
 const BASE_FIELDS = [
   'name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode',
@@ -41,6 +42,52 @@ export class MaterialService {
     const hit = units.find((u: any) => u.itemName === raw || u.itemCode === raw);
     if (!hit) throw new BadRequestException(`计量单位不在字典范围内，请先在字典管理中添加（当前值：「${raw}」）`);
     return hit.itemName;
+  }
+
+  /**
+   * 一/二级分类校验与归一化（业务 2026-10-18 分类表）。
+   *
+   * - 一级必须存在于字典 `material_category`，二级必须存在于 `material_type`；
+   * - 二级的 `extField1` 必须指向所选一级（同名二级如「型钢」分属工程材料/周转材料，
+   *   未选一级且命中多个父级时要求先选一级）；
+   * - 只传二级时自动带出所属一级；返回**名称**（`MaterialBase` 存名称，与前端下拉一致）。
+   */
+  private async resolveCategories(l1Raw: any, l2Raw: any) {
+    const l1s = await this.dict.options('material_category');
+    const l2s = await this.dict.options('material_type');
+    const l1Text = String(l1Raw ?? '').trim();
+    const l2Text = String(l2Raw ?? '').trim();
+
+    let l1: any = null;
+    let l2: any = null;
+    if (l1Text) {
+      l1 = l1s.find((i: any) => i.itemName === l1Text || i.itemCode === l1Text);
+      if (!l1) throw new BadRequestException(`一级分类不在字典范围内（当前值：「${l1Text}」），请先在字典管理中选择规范分类`);
+    }
+    if (l2Text) {
+      const candidates = l2s.filter((i: any) => i.itemName === l2Text || i.itemCode === l2Text);
+      if (!candidates.length) {
+        throw new BadRequestException(`二级分类不在字典范围内（当前值：「${l2Text}」），请先在字典管理中选择规范分类`);
+      }
+      if (l1) {
+        l2 = candidates.find((i: any) => i.extField1 === l1.itemCode);
+        if (!l2) {
+          throw new BadRequestException(`二级分类「${l2Text}」不属于一级分类「${l1.itemName}」`);
+        }
+      } else {
+        const parents = [...new Set(candidates.map((i: any) => i.extField1).filter(Boolean))];
+        if (parents.length > 1) {
+          throw new BadRequestException(`二级分类「${l2Text}」存在多个一级分类，请先选择一级分类`);
+        }
+        l2 = candidates[0];
+      }
+      const parent = l1s.find((i: any) => i.itemCode === l2.extField1);
+      if (!parent) {
+        throw new BadRequestException(`二级分类「${l2.itemName}」未绑定一级分类，请在字典管理中维护关联`);
+      }
+      l1 = parent;
+    }
+    return { categoryLevel1: l1?.itemName ?? null, categoryLevel2: l2?.itemName ?? null };
   }
 
   /** 布尔属性归一化（需求 2.1.1：是否资产 / 是否安全物资 必填） */
@@ -87,7 +134,7 @@ export class MaterialService {
     if (query.categoryLevel1) where.categoryLevel1 = query.categoryLevel1;
     if (query.categoryLevel2) where.categoryLevel2 = query.categoryLevel2;
     const [list, total] = await Promise.all([
-      this.prisma.materialBase.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.materialBase.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.materialBase.count({ where }),
     ]);
     // 附带引用计数，便于前端提示删除风险
@@ -116,7 +163,7 @@ export class MaterialService {
         { dscCode: { contains: keyword } },
       ];
     }
-    return this.prisma.materialBase.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    return this.prisma.materialBase.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200 });
   }
 
   private async validateBase(data: any) {
@@ -127,6 +174,10 @@ export class MaterialService {
   async createBase(data: any) {
     await this.validateBase(data);
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 一/二级分类必须引用字典中的规范项（2026-10-18 分类表）
+    const cat = await this.resolveCategories(data.categoryLevel1, data.categoryLevel2);
+    payload.categoryLevel1 = cat.categoryLevel1;
+    payload.categoryLevel2 = cat.categoryLevel2;
     // 需求 2.3.1：计量单位必填，且只能取自字典「measurement_unit」
     payload.unit = await this.resolveUnit(data.unit);
     // 需求 2.1.1：是否资产 / 是否安全物资 为必填布尔属性（由物资基础库统一维护）
@@ -142,6 +193,15 @@ export class MaterialService {
     if (!old) throw new NotFoundException('物资基础信息不存在');
     await this.validateBase({ ...old, ...data });
     const payload = pickFields(data, BASE_FIELDS, { label: '物资基础信息' });
+    // 一/二级分类：任一变化都整对校验（二级必须属于所选一级；只传二级时自动带出一级）
+    if (data.categoryLevel1 !== undefined || data.categoryLevel2 !== undefined) {
+      const cat = await this.resolveCategories(
+        data.categoryLevel1 !== undefined ? data.categoryLevel1 : old.categoryLevel1,
+        data.categoryLevel2 !== undefined ? data.categoryLevel2 : old.categoryLevel2,
+      );
+      payload.categoryLevel1 = cat.categoryLevel1;
+      payload.categoryLevel2 = cat.categoryLevel2;
+    }
     // 需求 2.3.1：计量单位创建后不可修改（历史空值允许一次性补齐）
     if (data.unit !== undefined && data.unit !== null && String(data.unit).trim() !== '') {
       const unit = await this.resolveUnit(data.unit);
@@ -162,7 +222,13 @@ export class MaterialService {
       });
       if (dup) throw new BadRequestException('该材料已创建');
     }
-    return this.prisma.materialBase.update({ where: { id }, data: payload });
+    // 乐观锁（2026-10-18 审计）：此前 updateBase 既不校验也不递增 version，
+    // 物资基础信息的并发保护是空转。前端已回传 version。
+    assertVersion(old, data);
+    return this.prisma.materialBase.update({
+      where: { id },
+      data: { ...payload, version: { increment: 1 } },
+    });
   }
 
   /** 删除：被合同物资清单引用时阻止（提示改为停用，保留历史合同数据） */
@@ -184,8 +250,20 @@ export class MaterialService {
     return this.prisma.materialBase.update({ where: { id }, data: { status: old.status === 1 ? 0 : 1 } });
   }
 
+  /** 导出用：按页取全量（单页上限会被 `paginate` 夹断，超出的行会静默丢失） */
+  private async allBases(): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findBases({ page, pageSize: 500 }, 500);
+      const list = (res.list ?? []) as any[];
+      out.push(...list);
+      if (!list.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async exportBases() {
-    const res = await this.findBases({ pageSize: 5000 }, IMPORT_MAX_ROWS);
+    const all = await this.allBases();
     const columns = [
       { header: '物资名称', key: 'name', width: 26 },
       { header: '规格型号', key: 'spec', width: 18 },
@@ -200,7 +278,7 @@ export class MaterialService {
       { header: '被引用次数', key: 'refCount', width: 12 },
       { header: '备注', key: 'remark', width: 24 },
     ];
-    const rows = (res.list as any[]).map((i) => ({
+    const rows = all.map((i) => ({
       name: i.name, spec: i.spec,
       categoryLevel1: i.categoryLevel1 || '', categoryLevel2: i.categoryLevel2 || '',
       unit: i.unit || '',
@@ -215,11 +293,36 @@ export class MaterialService {
   /** 物资基础库填写模板（需求 3.3，实际字段口径） */
   async templateBases() {
     const units = await this.dict.options('measurement_unit');
+    // 一/二级分类：一级普通下拉，二级**级联**下拉（随一级联动；2026-10-18 分类表，来源与页面同一份字典）
+    const l1s = await this.dict.options('material_category');
+    const l2s = await this.dict.options('material_type');
+    const l1Names = l1s.map((i: any) => i.itemName).filter(Boolean);
+    // 字典的 extField1 = 一级分类 itemCode；同名二级（如「型钢」分属工程材料/周转材料）各自成组、按父级取值
+    // ⚠️ `dict.options()` 返回的是**原始字典行**（itemCode/itemName/extField1），不是 controller 包装后的 value
+    const l1NameByCode = new Map(l1s.map((i: any) => [i.itemCode, i.itemName as string]));
+    const cascade: Record<string, string[]> = {};
+    for (const l1 of l1Names) cascade[l1] = [];
+    for (const l2 of l2s) {
+      const parentName = l1NameByCode.get((l2 as any).extField1);
+      if (parentName && cascade[parentName] && !cascade[parentName].includes(l2.itemName)) {
+        cascade[parentName].push(l2.itemName);
+      }
+    }
     const columns: TemplateColumn[] = [
       { label: '物资名称', key: 'name', required: true, width: 26, example: '螺纹钢 HRB400E' },
       { label: '规格型号', key: 'spec', required: true, width: 18, example: 'Φ20' },
-      { label: '一级分类', key: 'categoryLevel1', type: 'text', width: 14, example: '工程材料' },
-      { label: '二级分类', key: 'categoryLevel2', type: 'text', width: 14, example: '钢筋' },
+      {
+        label: '一级分类', key: 'categoryLevel1', type: 'select', width: 14, example: '工程材料',
+        options: l1Names,
+        desc: '下拉选择，来自字典「材料类别」（物资一级分类）',
+      },
+      {
+        label: '二级分类', key: 'categoryLevel2', type: 'cascader', width: 14, example: '钢筋',
+        cascade,
+        cascadeFrom: 'categoryLevel1',
+        cascadePrefix: '二级分类',
+        desc: '级联下拉：先选一级分类，本列选项随一级联动（同名二级如「型钢」按所选一级给出）',
+      },
       {
         label: '计量单位', key: 'unit', required: true, type: 'select', width: 12, example: '吨(t)',
         options: units.map((u: any) => u.itemName).filter(Boolean),
@@ -246,7 +349,7 @@ export class MaterialService {
    * - 任一行失败即返回错误报告，不写入任何数据
    * - 全部通过后在同一事务内写入
    */
-  async importBases(buffer: Buffer, meta?: { fileName?: string; user?: any }) {
+  async importBases(buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]);
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'material-base', moduleName: '物资基础库', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
@@ -272,10 +375,16 @@ export class MaterialService {
         };
         const isAsset = boolOf(r['是否资产'], '是否资产');
         const isSafetyMaterial = boolOf(r['是否安全物资'], '是否安全物资');
+        let cat;
+        try {
+          cat = await this.resolveCategories(r['一级分类'], r['二级分类']);
+        } catch (e: any) {
+          throw new RowError(e?.message || '一/二级分类不在字典范围内', '一级分类');
+        }
         const payload = {
           name, spec, unit, isAsset, isSafetyMaterial,
-          categoryLevel1: String(r['一级分类'] ?? '').trim() || null,
-          categoryLevel2: String(r['二级分类'] ?? '').trim() || null,
+          categoryLevel1: cat.categoryLevel1,
+          categoryLevel2: cat.categoryLevel2,
           mdmCode: String(r['MDM编码'] ?? '').trim() || null,
           dscCode: String(r['DSC编码'] ?? '').trim() || null,
           remark: String(r['备注'] ?? '').trim() || null,
@@ -306,7 +415,7 @@ export class MaterialService {
         }
         return { created, updated };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   // ==================== 合同物资清单 ====================
@@ -332,9 +441,10 @@ export class MaterialService {
   }
 
   /** 按合同查询清单行（含基础物资信息 + 合同头信息），按行号排序 */
-  async findRows(contractId: string) {
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
+  async findRows(contractId: string, projectId?: string) {
+    if (!contractId) throw new BadRequestException('缺少合同 ID');
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, ...(projectId ? { projectId } : {}) },
       include: { supplier: { select: { id: true, name: true } }, project: { select: { name: true, industryType: true } } },
     });
     if (!contract) throw new NotFoundException('合同不存在');
@@ -388,8 +498,21 @@ export class MaterialService {
     return buildResult(list, total, query);
   }
 
-  private async assertContract(contractId: string) {    if (!contractId) throw new BadRequestException('缺少合同 ID');
-    const contract = await this.prisma.contract.findUnique({ where: { id: contractId } });
+  /**
+   * 取合同并**校验它属于当前项目**（2026-10-20 第 3 轮审计）。
+   *
+   * 原来的 `findUnique({ where: { id } })` 只校验「合同存在」：守卫只核对 `x-project-id`
+   * 与成员关系，不看 URL/body 里的 `contractId` 到底属于谁，于是 A 项目的人只要猜到
+   * B 项目的合同 id，就能读它的物资清单（含单价）、甚至增删改它 —— 与 P1-1 同类。
+   * 现在带上 projectId 查，跨项目一律 404（不区分「不存在」与「无权」，避免被用来探测）。
+   *
+   * `projectId` 可缺省：service 内部调用（已确定过归属）保持原样，路由入口必须传。
+   */
+  private async assertContract(contractId: string, projectId?: string) {
+    if (!contractId) throw new BadRequestException('缺少合同 ID');
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, ...(projectId ? { projectId } : {}) },
+    });
     if (!contract) throw new NotFoundException('合同不存在');
     return contract;
   }
@@ -401,8 +524,8 @@ export class MaterialService {
     if (dup) throw new BadRequestException('同一物资在当前合同内只能出现一次');
   }
 
-  async createRow(data: any) {
-    const contract = await this.assertContract(data.contractId);
+  async createRow(data: any, projectId?: string) {
+    const contract = await this.assertContract(data.contractId, projectId);
     if (!data.materialBaseId) throw new BadRequestException('请从物资基础库中选择物资');
     const base = await this.prisma.materialBase.findUnique({ where: { id: data.materialBaseId } });
     if (!base) throw new NotFoundException('物资基础信息不存在，请先在物资基础库中维护');
@@ -430,11 +553,11 @@ export class MaterialService {
     return row;
   }
 
-  async updateRow(id: string, data: any) {
+  async updateRow(id: string, data: any, projectId?: string) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
     assertVersion(old, data); // 乐观锁：版本号不一致说明已被他人修改
-    const contract = await this.assertContract(old.contractId);
+    const contract = await this.assertContract(old.contractId, projectId);
     if (data.unit !== undefined) data.unit = await this.resolveUnit(data.unit ?? old.unit);
     const taxRate = await this.resolveTaxRate(contract, data.taxRatePct ?? old.taxRatePct);
     if (taxRate !== null) data.taxRatePct = taxRate;
@@ -461,9 +584,11 @@ export class MaterialService {
     return row;
   }
 
-  async removeRow(id: string) {
+  async removeRow(id: string, projectId?: string) {
     const old = await this.prisma.contractMaterial.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('合同物资清单行不存在');
+    // 先确认这一行所属合同在当前项目内，再删（否则等于给别人项目删行）
+    await this.assertContract(old.contractId, projectId);
     await this.prisma.contractMaterial.delete({ where: { id } });
     // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
     await this.settlement.syncLedgerByContract(old.contractId);
@@ -471,8 +596,19 @@ export class MaterialService {
   }
 
   /** 行号调整：接收 [{ id, sortOrder }] 全量重排 */
-  async sortRows(items: { id: string; sortOrder: number }[]) {
+  async sortRows(items: { id: string; sortOrder: number }[], projectId?: string) {
     if (!Array.isArray(items) || !items.length) throw new BadRequestException('缺少排序数据');
+    if (projectId) {
+      // 排序是「按 id 批量写」，不校验归属就等于可以改别人项目的行号
+      const ids = [...new Set(items.map((it) => String(it?.id || '')).filter(Boolean))];
+      const rows = await this.prisma.contractMaterial.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, contract: { select: { projectId: true } } },
+      });
+      if (rows.length !== ids.length || rows.some((r: any) => r.contract?.projectId !== projectId)) {
+        throw new NotFoundException('合同物资清单行不存在');
+      }
+    }
     for (const it of items) {
       await this.prisma.contractMaterial.update({
         where: { id: it.id },
@@ -488,10 +624,10 @@ export class MaterialService {
    * - 物资名称+规格型号 须在物资基础库中存在（关联校验）
    * - 同一合同下物资名称+规格型号不能重复（唯一性校验）
    * - 默认为新增数据，不覆盖已有数据（重复即报行级错误）
-   * - 全部校验通过不等于部分写入：任一行失败仅记录错误，其余行照常入库
+   * - 全部校验通过后才写库：写库在**同一个事务**里（见 write 分支），任一行写失败即整体回滚，不会写部分数据
    */
-  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
-    const contract = await this.assertContract(contractId);
+  async importRows(contractId: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }, projectId?: string) {
+    const contract = await this.assertContract(contractId, projectId);
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为示例行
     const maxSort = (await this.prisma.contractMaterial.aggregate({ where: { contractId }, _max: { sortOrder: true } }))._max.sortOrder || 0;
     const notDup = this.runner.batchDup();
@@ -507,6 +643,10 @@ export class MaterialService {
         let tax = num(r['税率']);
         if (qty === null) throw new RowError('暂定数量为必填数字', '暂定数量');
         if (price === null) throw new RowError('税前单价为必填数字', '税前单价');
+        // 负数/0 数量与负单价是录入错误（Excel 里的误敲负号会静默污染台账与防超结口径）
+        if (qty < 0) throw new RowError('暂定数量不能为负数', '暂定数量');
+        if (price < 0) throw new RowError('税前单价不能为负数', '税前单价');
+        if (tax !== null && (tax < 0 || tax > 100)) throw new RowError('税率应在 0–100 之间（百分比数字）', '税率');
         // 税率未填时按合同主表税率自动带出
         tax = tax === null ? await this.resolveTaxRate(contract, null) : tax;
         if (tax === null) throw new RowError('税率为必填数字（如 13 表示 13%），或先在合同台账中维护税率', '税率');
@@ -538,7 +678,7 @@ export class MaterialService {
         await this.settlement.syncLedgerByContract(contractId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   /** 填写模板（需求 3.3）：下拉/数字/格式验证 + 示例行 */
@@ -563,8 +703,8 @@ export class MaterialService {
    * 派生清单（需求 2.3）：从物资基础库（项目物资清单数据源）按选定物资重新生成
    * 重新编号（序号从 1 开始），仅复制统一字段模型中的字段，自动计算含税单价与暂定含税合价。
    */
-  async derive(contractId: string, materialIds: string[]) {
-    await this.assertContract(contractId);
+  async derive(contractId: string, materialIds: string[], projectId?: string) {
+    await this.assertContract(contractId, projectId);
     if (!Array.isArray(materialIds) || !materialIds.length) {
       throw new BadRequestException('请选择要派生的物资（来自物资基础库）');
     }
@@ -598,8 +738,8 @@ export class MaterialService {
    * 排除字段：收入单价/合价、标准成本单价/合价、MDM/DSC 编码不出现在合同清单中
    * format: xlsx | csv
    */
-  async exportRows(contractId: string, format: 'xlsx' | 'csv' = 'xlsx'): Promise<{ buffer: Buffer; filename: string; mime: string }> {
-    const { contract, list } = await this.findRows(contractId);
+  async exportRows(contractId: string, format: 'xlsx' | 'csv' = 'xlsx', projectId?: string): Promise<{ buffer: Buffer; filename: string; mime: string }> {
+    const { contract, list } = await this.findRows(contractId, projectId);
     const headers = [
       '序号', '合同编号', '项目名称', '供应商名称', '物资名称', '规格型号', '计量单位',
       '暂定数量', '税前单价', '税率(%)', '含税单价', '暂定含税合价', '备注',
@@ -621,19 +761,17 @@ export class MaterialService {
     ]);
 
     if (format === 'csv') {
-      const esc = (v: any) => {
-        const s = String(v ?? '');
-        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
+      // 用 csvCell 而不是本地转义：备注/物资名称是用户可填字段，直接拼进 CSV 会被 Excel
+      // 当成公式执行（=cmd|'/c calc'!A1 这类注入），csvCell 负责补单引号防护。
       const lines: string[] = [];
-      lines.push(`合同名称,${esc(contract.name)}`);
-      lines.push(`供应商名称,${esc(contract.supplierName)}`);
-      lines.push(`合同编号,${esc(contract.code)}`);
-      lines.push(`项目名称,${esc(contract.projectName)}`);
-      lines.push(`项目业态,${esc(await this.industryTypeName(contract.industryType))}`);
+      lines.push(`合同名称,${csvCell(contract.name)}`);
+      lines.push(`供应商名称,${csvCell(contract.supplierName)}`);
+      lines.push(`合同编号,${csvCell(contract.code)}`);
+      lines.push(`项目名称,${csvCell(contract.projectName)}`);
+      lines.push(`项目业态,${csvCell(await this.industryTypeName(contract.industryType))}`);
       lines.push('');
-      lines.push(headers.map(esc).join(','));
-      rows.forEach((r) => lines.push(r.map(esc).join(',')));
+      lines.push(toCsv([headers]));
+      rows.forEach((r) => lines.push(toCsv([r])));
       // BOM：保证 Excel 打开中文不乱码
       return {
         buffer: Buffer.from('\ufeff' + lines.join('\r\n'), 'utf-8'),

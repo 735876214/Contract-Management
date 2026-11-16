@@ -1,17 +1,29 @@
 # 在 GitHub 上构建并推送 CMS 镜像到 GitHub Container Registry（ghcr.io）
 # 这样 NAS 部署时无需源码，直接 `docker compose pull` 预构建镜像即可（首次也一样）。
-# 触发：push 到 main，或手动在 Actions 页面点 Run workflow。
+# 触发：push 到 main / 打 v* 标签 / PR（仅验证可构建，不推送）/ 手动 Run workflow。
 #
-# 提速要点（2026-09-13 优化）：
+# 三个门禁 job（2026-11-13 按模块拆分）：server（迁移门禁 + 单测 + 集成测试 + 构建）、
+# web（类型检查 + 构建）并行执行 → 聚合 job `test`（保留原必需 check 名）→ build（镜像构建推送，needs: test）
+#   → 任一门禁失败时**不发布新镜像**，避免带病镜像进 NAS。
+#
+# 提速与稳定性要点（2026-09-14 修订）：
 #   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
 #     QEMU 软模拟，nest build / vite build 这类 CPU 密集任务会慢数倍乃至十倍，故砍掉。
-#     若将来确有 ARM NAS，把下面 matrix 各项的 platforms 改回 linux/amd64,linux/arm64 即可。
-#   - backend / frontend 用 matrix 并行构建（时间取最大而非相加）。
-#   - 启用 buildx 的 GitHub Actions 层缓存（type=gha），增量构建大幅提速。
-name: Build and Push CMS Images
+#     若将来确有 ARM NAS：加 docker/setup-qemu-action 并把 platforms 改为
+#     linux/amd64,linux/arm64。
+#   - 单容器镜像：构建 context=.，由 deploy/single/Dockerfile.single 合并前后端。
+#   - 启用 buildx 的 GitHub Actions 层缓存（type=gha，带 scope），增量构建大幅提速。
+#   - 根目录 .dockerignore 排除 node_modules / .git，否则上下文巨大，且本地
+#     node_modules 会覆盖镜像内 Linux 依赖导致运行时崩溃。
+#   - provenance/sbom 关闭：默认的 SLSA 证明会在 manifest 里附加 unknown 平台条目，
+#     群晖等 NAS 上较旧版本的 Docker 拉取时会报 no matching manifest。
+name: Build and Push CMS Image
 
 on:
   push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -19,44 +31,182 @@ permissions:
   contents: read
   packages: write   # 推送到 ghcr.io 所需
 
+# 同一 ref 上连续 push 时只保留最新一次构建，避免并发任务互相覆盖 latest / gha 缓存
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: cms-single
+
 jobs:
-  build:
+  # 2026-11-13：单个 test job 拆成 server / web 两个并行 job（模块级独立反馈），
+  # 再用同名聚合 job `test` 收口——分支保护若引用名为 test 的必需 check，改名会阻断合并，
+  # 故保留 `test` 作为聚合门（只做占位，真正的断言在 server / web）。
+  #
+  # server job 的门禁：
+  # - **提交自洽**：check-import-integrity 只扫已入库文件——干净检出里 import 不到未跟踪文件，
+  #   这正是「页面提交了未跟踪 hook」那类 HEAD 不自洽的拦截点；
+  # - 迁移门禁 `prisma migrate diff --exit-code`：改了 schema 却没生成迁移 → 直接红；
+  # - `noDbPush.spec.mts`（在 npm test 内，无需 DB）：可执行配置里禁止出现 `db push`；
+  # - `npm test`（无 DB）+ `npm run test:int`（真库）；
+  # - `nest build`。
+  # web job 只有 `tsc --noEmit && vite build`，与后端互不拖累。
+  #
+  # Node 24：`.spec.mts` 依赖 Node≥22.18 的「类型擦除」直接加载 .mts/.ts；node:20 会直接报无法识别。
+  # 包管理统一 npm（package-lock.json + `npm ci --legacy-peer-deps`），与镜像构建同一套。
+  server:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: backend
-            context: ./server
-            dockerfile: ./server/Dockerfile
-            image: cms-backend
-          - service: frontend
-            context: ./web
-            dockerfile: ./web/Dockerfile
-            image: cms-frontend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cms
+          POSTGRES_PASSWORD: cms123456
+          POSTGRES_DB: cms_int
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cms -d cms_int"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # 集成测试用库（`npm run test:int` 会先对它跑 migrate deploy）
+      DATABASE_URL: postgresql://cms:cms123456@localhost:5432/cms_int?schema=public
+      # ⚠️ 迁移 diff 的影子库**必须是另一个库**：`migrate diff` 会把影子库重置成"重放迁移后的样子"，
+      # 指到 cms_int 上会把集成测试库的迁移历史清掉（随后 migrate deploy 直接 P3005）。
+      SHADOW_DATABASE_URL: postgresql://cms:cms123456@localhost:5432/cms_shadow?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: 提交自洽（已入库文件的 import 完整性）
+        run: node scripts/check-import-integrity.mjs
+
+      - name: 模块边界（跨模块只走公开入口）
+        run: node scripts/check-module-boundaries.mjs
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Prisma generate
+        working-directory: server
+        run: npx prisma generate
+
+      - name: 准备影子库（供下方 migrate diff 使用）
+        working-directory: server
+        run: echo 'CREATE DATABASE cms_shadow;' | npx prisma db execute --stdin --url "$DATABASE_URL"
+
+      - name: Prisma 迁移完整性（改了 schema 必须生成迁移）
+        working-directory: server
+        run: |
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+
+      - name: Backend unit tests（无 DB 依赖）
+        working-directory: server
+        run: npm test
+
+      - name: Backend integration tests（真库：先 migrate deploy）
+        working-directory: server
+        env:
+          JWT_SECRET: cms-int-test-secret
+        run: npm run test:int
+
+      - name: Backend build（nest build）
+        working-directory: server
+        run: npm run build
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Frontend build（tsc --noEmit && vite build）
+        working-directory: web
+        run: npm run build
+
+  # 聚合门：保持名为 `test` 的必需 check 不消失；真正的断言在 server / web。
+  test:
+    needs: [server, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总
+        run: echo "server 与 web 均通过"
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image owner
+        id: repo
+        env:
+          # GHCR 镜像路径必须全小写；用变量传值避免表达式注入
+          OWNER: ${{ github.repository_owner }}
+        run: echo "owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        # fork PR 的 GITHUB_TOKEN 无 packages: write，登录会失败
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=long,prefix=sha-,enable=true
+            type=semver,pattern={{version}}
+            type=ref,event=pr
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: ./deploy/single/Dockerfile.single
           platforms: linux/amd64
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/735876214/${{ matrix.image }}:latest
-            ghcr.io/735876214/${{ matrix.image }}:sha-${{ github.sha }}
+          # PR 只验证镜像可构建成功，不推送
+          push: ${{ github.event_name != 'pull_request' }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,scope=${{ env.IMAGE_NAME }},mode=max

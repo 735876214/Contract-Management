@@ -15,15 +15,22 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ContractService } from './contract.service';
+import { MilestoneService } from './milestone.service';
+import { ContractFulfillmentService } from './contract-fulfillment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('contracts')
 export class ContractController {
-  constructor(private contractService: ContractService) {}
+  constructor(
+    private contractService: ContractService,
+    private fulfillmentService: ContractFulfillmentService,
+    private milestoneService: MilestoneService,
+  ) {}
 
   @RequirePermissions('contract:view')
   @Get()
@@ -88,8 +95,9 @@ export class ContractController {
     @Param('id') id: string,
     @UploadedFile() file: any,
     @Body() body: { signDate?: string; remark?: string },
+    @ProjectId() projectId: string,
   ) {
-    return this.contractService.sign(id, file, body?.signDate, body?.remark);
+    return this.contractService.sign(id, file, body?.signDate, body?.remark, projectId);
   }
 
   /** 合同签章：下载签章合同文件 */
@@ -158,8 +166,15 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Put(':id/status')
-  setStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.contractService.setStatus(id, body?.status);
+  setStatus(@Param('id') id: string, @Body() body: { status: string }, @ProjectId() projectId: string) {
+    return this.contractService.setStatus(id, body?.status, projectId);
+  }
+
+  /** 任务 7：合同签章驳回 → 回退到「合同起草」 */
+  @RequirePermissions('contract:edit')
+  @Post(':id/reject')
+  rejectToDraft(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.rejectToDraft(id, projectId);
   }
 
   /** 删除草稿（仅本人创建且未提交，服务端二次校验） */
@@ -185,6 +200,66 @@ export class ContractController {
     res.end(buffer);
   }
 
+  /** 归档前检查（下游完整性）：阻断项/提示项（业务口径 2026-10-18，单向归档） */
+  @RequirePermissions('contract:view')
+  @Get(':id/archive-check')
+  archiveCheck(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.archiveCheck(id, projectId);
+  }
+
+  /** 归档：检查通过后单向锁定（不提供解除归档） */
+  @RequirePermissions('contract:edit')
+  @Post(':id/archive')
+  archive(@Param('id') id: string, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.contractService.archive(id, projectId, user);
+  }
+
+  /** 合同履约派生进度（零表）：总日报/结算/付款/发票的汇总视角（业务 2026-10-18） */
+  @RequirePermissions('contract:view')
+  @Get(':id/fulfillment')
+  fulfillment(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.fulfillmentService.get(id, projectId);
+  }
+
+  /** 履约节点列表（四域扩展按需项 2026-10-18；逾期为派生字段 overdue） */
+  @RequirePermissions('contract:view')
+  @Get(':id/milestones')
+  milestones(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.milestoneService.list(id, projectId);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post(':id/milestones')
+  createMilestone(
+    @Param('id') id: string,
+    @Body() body: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.milestoneService.create(id, body, projectId, user);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Put(':id/milestones/:milestoneId')
+  updateMilestone(
+    @Param('id') id: string,
+    @Param('milestoneId') milestoneId: string,
+    @Body() body: any,
+    @ProjectId() projectId: string,
+  ) {
+    return this.milestoneService.update(id, milestoneId, body, projectId);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Delete(':id/milestones/:milestoneId')
+  removeMilestone(
+    @Param('id') id: string,
+    @Param('milestoneId') milestoneId: string,
+    @ProjectId() projectId: string,
+  ) {
+    return this.milestoneService.remove(id, milestoneId, projectId);
+  }
+
   @RequirePermissions('contract:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -205,14 +280,19 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: JwtUser) {
-    return this.contractService.update(id, body, user);
+  update(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUser() user: JwtUser,
+    @ProjectId() projectId: string,
+  ) {
+    return this.contractService.update(id, body, user, projectId);
   }
 
   @RequirePermissions('contract:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.contractService.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.contractService.remove(id, projectId);
   }
 
   @RequirePermissions('contract:edit')
@@ -229,10 +309,18 @@ export class ContractController {
 
   @RequirePermissions('contract:edit')
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
     return this.contractService.import(file.buffer, projectId, user);
+  }
+
+  @RequirePermissions('contract:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.contractService.import(file.buffer, projectId, user, file?.originalname, true);
   }
 
 }

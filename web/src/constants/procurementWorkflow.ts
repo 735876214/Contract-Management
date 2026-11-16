@@ -3,15 +3,33 @@
  * 与后端 procurement-task.service.ts 的阶段链 / 状态定义保持一致。
  */
 
-export type ProcurementTaskType = 'FRAMEWORK' | 'SINGLE';
+export type ProcurementTaskType = 'FRAMEWORK' | 'SINGLE' | 'EMERGENCY';
 
 export const PROCUREMENT_TASK_TYPES: { value: ProcurementTaskType; label: string }[] = [
   { value: 'FRAMEWORK', label: '引用框架协议' },
   { value: 'SINGLE', label: '单项采购' },
+  { value: 'EMERGENCY', label: '紧急采购' },
 ];
 
 export const taskTypeLabel = (t: string): string =>
   PROCUREMENT_TASK_TYPES.find((x) => x.value === t)?.label ?? t;
+
+/**
+ * 采购类型 → 标签色（**只加这一张映射，不动 `PROCUREMENT_TASK_TYPES` 的 value/label**，
+ * 故 `frontendChainParity.spec.mts` 的前后端一致性锁不受影响）。
+ *
+ * 起因：三种采购类型原本共用同一个 `cyan`，列表里**看不出区别**，
+ * 而"紧急采购"恰恰是要被优先看见的那一类。
+ * 取值是 AntD 预置色名（`blue/cyan/red`），由 index.css 的 `.ant-tag-*` 映射到本仓语义色：
+ * 框架协议 = 珊瑚（品牌/特殊）、单项采购 = 青（常规）、紧急采购 = 红（警示）。
+ */
+export const TASK_TYPE_TONES: Record<string, string> = {
+  FRAMEWORK: 'geekblue',
+  SINGLE: 'cyan',
+  EMERGENCY: 'red',
+};
+
+export const taskTypeTone = (t: string): string => TASK_TYPE_TONES[t] ?? 'default';
 
 /** 工作流状态 → 展示名 */
 export const TASK_STATUS_LABELS: Record<string, string> = {
@@ -24,7 +42,7 @@ export const TASK_STATUS_LABELS: Record<string, string> = {
   PRICE_COMPARE_EDITING: '价格对比表编制中',
   FRAMEWORK_EDITING: '事前报告编制中',
   CONTRACT_EDITING: '合同编制中',
-  CONTRACT_APPROVING: '合同审批中',
+  CONTRACT_APPROVING: '合同待签章',
   COMPLETED: '已完成',
 };
 
@@ -63,13 +81,21 @@ export interface FlowStage {
 }
 
 /** 与后端一致的阶段链（列表页本地展示兜底；详情以接口 stages 为准） */
+// 前端展示用阶段链（与后端 server/src/constants/procurementFlow.ts 的 stageChain 保持一致；
+// 后端为 gating 单一事实源，本函数仅用于列表/详情的本地兜底展示）
 export function buildStageChain(type: string, preMeetingRequired: boolean): FlowStage[] {
   const mk = (key: string, label: string): FlowStage => ({ key, label, state: 'locked' });
   const chain: FlowStage[] = [mk('TOTAL_LIST', '编制总采购清单')];
-  if (type === 'SINGLE' && preMeetingRequired) chain.push(mk('PRE_MEETING', '采前会会议纪要'));
+  if (type === 'EMERGENCY') {
+    // 紧急采购：仅总清单 → 生成合同（无采前会/公告/文件/成交报告/价格对比表）
+    chain.push(mk('CONTRACT', '生成合同'));
+    return chain;
+  }
   if (type === 'FRAMEWORK') {
-    chain.push(mk('FRAMEWORK_EXPLAIN', '框架协议事前说明'));
+    // 引用框架协议：价格对比表在前，数据灌入框架协议事前说明
+    chain.push(mk('PRICE_COMPARE', '采购价格对比表'), mk('FRAMEWORK_EXPLAIN', '框架协议事前说明'));
   } else {
+    if (preMeetingRequired) chain.push(mk('PRE_MEETING', '采前会会议纪要'));
     chain.push(
       mk('NOTICE', '采购公告'),
       // 任务 3.4：采购文件紧随采购公告

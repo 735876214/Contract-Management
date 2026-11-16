@@ -1,3 +1,102 @@
+/* ============================================================================
+ * 全局样式：**CSS 变量层 + 少量全局覆盖**（DESIGN.md §1–§6）
+ *
+ * - 色值/尺度的唯一 JS 事实源是 `web/src/theme.ts`；本文件的 `--cms-*` 是它在 CSS 侧的镜像，
+ *   两者共同构成"token 层"，**其余文件不得再写死色值**（`server/test/themeTokens.spec.mts` 锁定）。
+ * - 设计语言来自项目外部设计文档「Claude.com 设计系统」：暖奶油底 + 珊瑚主色 + 暖中性灰阶 +
+ *   深墨面 + hairline 分层 + "color-block first, shadow rare"。只取 token 层，不搬营销页组件。
+ * - 全站样式文件：本文件（token 层 + 页面外壳层的全局覆盖）、`components/Sider/index.less`（LESS 用不了
+ *   `var()`），以及 **`styles/containers.css`（组件级 Container Queries，必须在本次之后引入，
+ *   见 DESIGN.md §9 与该文件头注释）**。
+ * ============================================================================ */
+
+:root {
+  /* 色板（与 theme.ts 的 palette 一一对应） */
+  --cms-primary: #cc785c;
+  --cms-primary-active: #a9583e;
+  --cms-primary-disabled: #e6dfd8;
+
+  --cms-canvas: #faf9f5;
+  --cms-surface-soft: #f5f0e8;
+  --cms-surface-card: #efe9de;
+  --cms-surface-cream-strong: #e8e0d2;
+  --cms-surface-dark: #181715;
+  --cms-surface-dark-elevated: #252320;
+  --cms-surface-dark-soft: #1f1e1b;
+
+  --cms-hairline: #e6dfd8;
+  --cms-hairline-soft: #ebe6df;
+
+  --cms-ink: #141413;
+  --cms-body-strong: #252523;
+  --cms-body: #3d3d3a;
+  --cms-muted: #6c6a64;
+  --cms-muted-soft: #8e8b82;
+  --cms-on-primary: #ffffff;
+  --cms-on-dark: #faf9f5;
+  --cms-on-dark-soft: #a09d96;
+
+  --cms-success: #5db872;
+  --cms-warning: #d4a017;
+  --cms-error: #c64545;
+  --cms-accent-teal: #5db8a6;
+  --cms-accent-amber: #e8a55a;
+
+  /* 文档纸张（预览区恒为白，不随主题） */
+  --cms-paper: #ffffff;
+  --cms-paper-head: #f2f2f2;
+
+  /* 语义标签色（fg 对 bg 均 ≥ 4.5:1） */
+  --cms-tone-neutral-bg: #f5f0e8;
+  --cms-tone-neutral-fg: #3d3d3a;
+  --cms-tone-neutral-bd: #e6dfd8;
+  --cms-tone-teal-bg: #e7f4f1;
+  --cms-tone-teal-fg: #2c6f61;
+  --cms-tone-teal-bd: #cbe7e0;
+  --cms-tone-amber-bg: #fbf1e0;
+  --cms-tone-amber-fg: #7d5a0e;
+  --cms-tone-amber-bd: #f0dfc2;
+  --cms-tone-success-bg: #e8f4ea;
+  --cms-tone-success-fg: #2c6b41;
+  --cms-tone-success-bd: #cde6d4;
+  --cms-tone-error-bg: #fbeae9;
+  --cms-tone-error-fg: #9c3232;
+  --cms-tone-error-bd: #f0cfcc;
+  --cms-tone-coral-bg: #f9ece7;
+  --cms-tone-coral-fg: #a9583e;
+  --cms-tone-coral-bd: #efd8cf;
+  --cms-tone-dark-bg: #252320;
+  --cms-tone-dark-fg: #faf9f5;
+  --cms-tone-dark-bd: #252320;
+
+  /* 尺度 */
+  --cms-radius-sm: 6px;
+  --cms-radius-md: 8px;
+  --cms-radius-lg: 12px;
+  --cms-radius-pill: 9999px;
+  --cms-card-padding: 20px;
+
+  /* 字体 */
+  --cms-font-serif: 'Noto Serif SC', 'Songti SC', 'SimSun', Georgia, serif;
+  --cms-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --cms-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 卡片悬停阴影（业务要求的唯一例外，见 DESIGN.md §5）：
+     静止仍然无阴影（"color-block first, shadow rare"），**仅悬停时**加深一档，
+     用来提示"这张卡可点/可进入"。别把它当默认卡片样式用。 */
+  --cms-shadow-card-hover: 0 4px 16px rgba(20, 20, 19, 0.1);
+
+  /* 容器断点（**组件级**响应式；视口断点在 DESIGN.md §10-1，两者并存不互替）
+     单一事实源是 `web/src/utils/containerSize.ts` 的 CONTAINER_BREAKPOINTS，
+     本处是 CSS 镜像，由 `server/test/containerQuery.spec.mts` 校验两处逐个相等。
+     ⚠️ `@container` 的条件**不支持 var()**（2026-10-15 Edge 实测），故
+     `styles/containers.css` 里只能写字面值——改断点要三处同步（见该文件头注释）。 */
+  --cq-sm: 480px;
+  --cq-md: 720px;
+  --cq-lg: 1024px;
+}
+
 html,
 body,
 #root {
@@ -6,19 +105,531 @@ body,
   padding: 0;
 }
 
+body {
+  background: var(--cms-canvas);
+  color: var(--cms-body);
+  font-family: var(--cms-font-sans);
+  font-size: 14px;
+}
+
+/* 衬线标题：字重恒为 400（文档明确「不用粗衬线」），只用于 UI 标题/KPI，不用于表格数据 */
+.cms-serif-title {
+  font-family: var(--cms-font-serif);
+  font-weight: 400;
+  color: var(--cms-ink);
+}
+.cms-title-page {
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+}
+.cms-title-section {
+  font-size: 18px;
+  line-height: 1.3;
+  letter-spacing: -0.3px;
+}
+.cms-title-kpi {
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.6px;
+}
+
+/* 说明/次要文字（原来是散落各处的 #8c8c8c） */
+.cms-hint {
+  color: var(--cms-muted-soft);
+  font-size: 12px;
+}
+
 .page-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--cms-canvas);
+  border: 1px solid var(--cms-hairline);
+  border-radius: var(--cms-radius-lg);
+  padding: var(--cms-card-padding);
 }
 
 .stat-card {
-  border-radius: 8px;
+  border-radius: var(--cms-radius-lg);
 }
 
-/* 响应式：小屏下抽屉/表格自适应 */
-@media (max-width: 768px) {
+/* 卡片悬停加深一档阴影（业务要求，见 DESIGN.md §5）。
+   ⚠️ 只挂在 `.stat-card`（工作台的关键指标卡）与显式声明可点的卡片上；
+   **不要**给所有 `.ant-card` 加 —— 列表页里的卡片密密麻麻，全都浮起来会变成噪声。
+   过渡只做 box-shadow，避免整页重排。 */
+.stat-card,
+.cms-card-hoverable {
+  transition: box-shadow 0.18s ease;
+}
+.stat-card:hover,
+.cms-card-hoverable:hover {
+  box-shadow: var(--cms-shadow-card-hover);
+}
+
+/* ============================================================================
+ * 多页签导航条（`layouts/TagsView.tsx`）—— 通栏工具条形态（对标 XHan Admin）
+ *
+ * 归属**页面外壳层**：宽度=视口（顶栏正下方、面包屑之上、内容边距之外），
+ * 尺寸随视口收敛的规则走 `.is-compact`（由 JS 的 useResponsive 挂上），不使用 Container Queries。
+ * 形态（2026-10-17 用户确认的样式）：小圆角矩形卡片（非 pill）、默认透明底灰字、
+ * 激活 = canvas 底 + 珊瑚深档文字；**编辑器激活标签 = 品牌色实底白字**（图 3 形态）。
+ * ============================================================================ */
+
+.cms-tags-view {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  background: var(--cms-surface-soft);
+  border-bottom: 1px solid var(--cms-hairline);
+}
+
+.cms-tags-view__item {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  padding: 3px 10px;
+  border-radius: var(--cms-radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--cms-muted);
+  font-size: 13px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.cms-tags-view__item:hover {
+  background: var(--cms-surface-card);
+  color: var(--cms-body-strong);
+}
+.cms-tags-view__item.is-active {
+  background: var(--cms-canvas);
+  border-color: var(--cms-hairline);
+  color: var(--cms-primary-active);
+}
+/* 编辑器激活标签：品牌色实底白字（"正在编辑的一条记录"最该被看见；图 3 形态的映射） */
+.cms-tags-view__item.is-editor.is-active {
+  background: var(--cms-primary);
+  border-color: var(--cms-primary);
+  color: var(--cms-on-primary);
+}
+.cms-tags-view__item.is-editor.is-active:hover {
+  background: var(--cms-primary-active);
+  border-color: var(--cms-primary-active);
+}
+/* 未保存：标签后加一个琥珀色圆点（关闭时会先确认） */
+.cms-tags-view__item.is-dirty .cms-tags-view__label::after {
+  content: ' •';
+  color: var(--cms-warning);
+}
+
+/* 标签图标（仅激活态显示，避免一排小图标过吵——参考图 3 也是仅激活标签带图标） */
+.cms-tags-view__icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.cms-tags-view__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cms-tags-view__close {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cms-muted-soft);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cms-tags-view__close:hover {
+  background: var(--cms-surface-cream-strong);
+  color: var(--cms-ink);
+}
+/* 品牌色实底（激活的编辑器标签）上的关闭按钮：半透明白 → hover 纯白 */
+.cms-tags-view__item.is-editor.is-active .cms-tags-view__close {
+  color: rgba(255, 255, 255, 0.85);
+}
+.cms-tags-view__item.is-editor.is-active .cms-tags-view__close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+/* 激活实底上的脏点与图标也用白系 */
+.cms-tags-view__item.is-editor.is-active.is-dirty .cms-tags-view__label::after {
+  color: var(--cms-accent-amber);
+}
+
+/* 手机/平板：标签更窄；手机（<768）由 `.is-mobile` 折叠为「当前标签 + 下拉」，
+   平板仍平铺、靠横向滚动容纳（标签条属页面外壳层，见 DESIGN.md §11） */
+.cms-tags-view.is-compact {
+  gap: 3px;
+  padding: 4px 8px;
+}
+.cms-tags-view.is-compact .cms-tags-view__item {
+  max-width: 140px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* 手机端：只渲染当前标签 + 下拉按钮（切换 / 批量关闭，见 `layouts/TagsView.tsx`）。
+   平铺时 375px 下要横滑 0.6k px 才能点到当前页签的关闭按钮，且与抽屉导航重复。 */
+.cms-tags-view.is-mobile {
+  gap: 6px;
+}
+.cms-tags-view.is-mobile .cms-tags-view__item {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+.cms-tags-view__mobile-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--cms-hairline);
+  border-radius: var(--cms-radius-sm);
+  background: var(--cms-surface-card);
+  color: var(--cms-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cms-tags-view__mobile-more:hover {
+  color: var(--cms-body-strong);
+}
+
+/* 每个标签的内容容器：非活动的整体 display:none（由内联样式给），
+   这里只保证它在栅格/弹性布局里不会被内容撑破 */
+.cms-tab-pane {
+  min-width: 0;
+}
+
+/* ============================================================================
+ * 「编辑器页签」外壳（`components/editor/EditorTabPage.tsx`）
+ *
+ * 替代原来的"新增/编辑弹窗"：页头 + 正文 + **sticky 底栏**。
+ * `.page-card` 自带内边距，这里清零后由三个区块各自给——否则 sticky 底栏会顶着
+ * 卡片的 padding 出现一条"假的空白带"。
+ * ============================================================================ */
+
+.cms-editor {
+  padding: 0;
+}
+
+.cms-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 16px var(--cms-card-padding);
+  border-bottom: 1px solid var(--cms-hairline-soft);
+}
+
+.cms-editor__body {
+  padding: 16px var(--cms-card-padding);
+}
+
+.cms-editor__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px var(--cms-card-padding);
+  background: var(--cms-canvas);
+  border-top: 1px solid var(--cms-hairline);
+  border-radius: 0 0 var(--cms-radius-lg) var(--cms-radius-lg);
+}
+
+/* ============================================================================
+ * 语义标签色：把 AntD 的**预置色类**重映射到本项目色板
+ *
+ * 为什么这样做：字典 `dict_item.color` 与 `TASK_STATUS_COLORS` 里存的是 `blue`/`green`/`orange`
+ * 这类**语义名**（且是前后端镜像常量）。换视觉若去改这些名字，就会连带改动字典数据与
+ * `frontendChainParity` 等漂移锁；而在渲染层覆盖 class 只需改这一处，语义名保持不动。
+ * AntD v5 的预置色标签类名是稳定的 `.ant-tag-<name>`，但它的规则特异度是 (0,1,0) 且由
+ * 运行时注入（排在静态样式之后）——故这里统一写成 **`.ant-tag.ant-tag-<name>`（0,2,0）** 才能稳定压过它。
+ * ============================================================================ */
+
+.ant-tag.ant-tag-default {
+  color: var(--cms-tone-neutral-fg);
+  background: var(--cms-tone-neutral-bg);
+  border-color: var(--cms-tone-neutral-bd);
+}
+.ant-tag.ant-tag-blue,
+.ant-tag.ant-tag-cyan,
+.ant-tag.ant-tag-processing {
+  color: var(--cms-tone-teal-fg);
+  background: var(--cms-tone-teal-bg);
+  border-color: var(--cms-tone-teal-bd);
+}
+.ant-tag.ant-tag-orange,
+.ant-tag.ant-tag-gold,
+.ant-tag.ant-tag-volcano,
+.ant-tag.ant-tag-warning {
+  color: var(--cms-tone-amber-fg);
+  background: var(--cms-tone-amber-bg);
+  border-color: var(--cms-tone-amber-bd);
+}
+.ant-tag.ant-tag-green,
+.ant-tag.ant-tag-lime,
+.ant-tag.ant-tag-success {
+  color: var(--cms-tone-success-fg);
+  background: var(--cms-tone-success-bg);
+  border-color: var(--cms-tone-success-bd);
+}
+.ant-tag.ant-tag-red,
+.ant-tag.ant-tag-magenta,
+.ant-tag.ant-tag-error {
+  color: var(--cms-tone-error-fg);
+  background: var(--cms-tone-error-bg);
+  border-color: var(--cms-tone-error-bd);
+}
+.ant-tag.ant-tag-purple,
+.ant-tag.ant-tag-geekblue {
+  color: var(--cms-tone-coral-fg);
+  background: var(--cms-tone-coral-bg);
+  border-color: var(--cms-tone-coral-bd);
+}
+
+/* 表格：紧凑一些（后台一屏多几行），表头用奶油卡色，行间用 hairline 而不是重线 */
+.ant-table-thead > tr > th {
+  font-weight: 500;
+}
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--cms-hairline-soft);
+}
+
+/* 卡片：去阴影、奶油底 + hairline（"color-block first, shadow rare"） */
+.ant-card {
+  border-color: var(--cms-hairline);
+}
+
+/* 标题声音：**衬线 400**（文档的核心特征）——卡片标题、弹窗标题、KPI 数字用它；
+   表格表头/表单标签/正文保持 humanist sans（数据区讲可读性，不讲编辑感）。
+   全局一处收敛，页面无需逐个改标题。 */
+.ant-card-head-title,
+.ant-modal-title,
+.ant-drawer-title,
+.ant-descriptions-title {
+  font-family: var(--cms-font-serif);
+  font-weight: 400;
+  color: var(--cms-ink);
+  letter-spacing: -0.2px;
+}
+.ant-card-head-title {
+  font-size: 16px;
+}
+.ant-modal-title {
+  font-size: 18px;
+  letter-spacing: -0.3px;
+}
+/* 统计数字：KPI 用更大号衬线（文档里数字走 display 字） */
+.ant-statistic-content {
+  font-family: var(--cms-font-serif);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.6px;
+  color: var(--cms-ink);
+}
+.ant-statistic-title {
+  color: var(--cms-muted);
+}
+
+/* ============================================================================
+ * 顶栏（深墨面）内部控件
+ *
+ * 主题已把 `Layout.headerBg` 设为 surface-dark，但顶栏里的按钮/下拉/文字都是按**浅色**写的，
+ * 必须逐个重配，否则会出现"深底上的深字"（本阶段最容易漏的地方）。
+ * ============================================================================ */
+
+.cms-header {
+  border-bottom: 1px solid rgba(230, 223, 216, 0.12);
+}
+
+.cms-header .ant-btn-text {
+  color: var(--cms-on-dark);
+}
+.cms-header .ant-btn-text:hover {
+  background: rgba(250, 249, 245, 0.08) !important;
+  color: var(--cms-on-dark) !important;
+}
+.cms-header .ant-typography,
+.cms-header .ant-space-item > span {
+  color: var(--cms-on-dark);
+}
+.cms-header .ant-badge-count {
+  background: var(--cms-primary);
+  box-shadow: 0 0 0 1px var(--cms-surface-dark);
+}
+
+/* 顶栏里的项目切换（浅色 Select → 深墨面方案：抬高面 + 透明边） */
+.cms-header-select .ant-select-selector {
+  background: var(--cms-surface-dark-elevated) !important;
+  border-color: transparent !important;
+}
+.cms-header-select .ant-select-selection-item,
+.cms-header-select .ant-select-selection-placeholder {
+  color: var(--cms-on-dark) !important;
+}
+.cms-header-select .ant-select-arrow,
+.cms-header-select .ant-select-clear {
+  color: var(--cms-on-dark-soft);
+  background: transparent;
+}
+.cms-header-select:not(.ant-select-disabled):hover .ant-select-selector {
+  background: var(--cms-surface-dark-soft) !important;
+}
+
+/* ============================================================================
+ * 全局响应式兜底（DESIGN.md §10.1）
+ *
+ * **本段是「页面外壳层」的规范**，判定依据 = **视口**，断点采用 Ant Design 默认值：
+ * xs <576 · sm ≥576 · md ≥768 · lg ≥992 · xl ≥1200。
+ * 视口断点的唯一来源是 `web/src/hooks/useResponsive.ts`（JS 侧）。
+ *
+ * 组件**内部**布局的判定依据是**容器宽度**，规则在 `styles/containers.css`（V2 双层模型，
+ * 见 DESIGN.md §10）——两层并存、不互替：外壳只能看视口（它的容器就是视口），
+ * 组件必须看容器（它不知道自己会被放到多宽的地方）。
+ * ============================================================================ */
+
+/**
+ * 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、采购文件预览共用）。
+ * 这里是**宽容器基线**；窄容器收敛（padding 24 → 12）由 `styles/containers.css` 的
+ * `@container` 按**容器宽度**覆盖（V2 阶段 2 起，此前是 `<768px` 的视口媒体查询）。
+ * 故各处的容器只加 `className="doc-preview"`，不再各写 `padding: 24`。
+ * ⚠️ 用它的地方**外层要挂 `.cq`**，否则容器查询无处可查、只会保持基线。
+ */
+.doc-preview {
+  padding: 24px;
+}
+
+/* 手机/平板窄屏（<768px，antd md 断点以下） */
+@media (max-width: 767.98px) {
+  /* 内容卡片内边距收紧（与 BasicLayout 的 Content margin: 8 配套） */
+  .page-card {
+    padding: 12px;
+  }
+
+  /* 编辑器页签的三个区块同理（`.cms-editor` 把 .page-card 的内边距清零了，见上文） */
+  .cms-editor {
+    padding: 0;
+  }
+  .cms-editor__head,
+  .cms-editor__body,
+  .cms-editor__footer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* 弹窗兜底：个别位置即使仍写死大宽度，也不会溢出屏幕。
+     阶段 3 会把这些 Modal 逐个改为响应式宽度，此处只保证「不破版」。 */
+  .ant-modal {
+    max-width: calc(100vw - 16px);
+    margin: 8px auto;
+  }
+
+  /* 表格：横向滚动只发生在表格内部，不撑破内容区 */
+  .ant-table-wrapper {
+    max-width: 100%;
+  }
+
+  /* 卡片头操作组换行：AntD 的 `.ant-card-head-wrapper` 默认不换行、`.ant-card-extra`
+     还带 `margin-inline-start:auto`，3–4 个按钮并排会直接把卡片（进而整个内容区）
+     撑出视口——实测 `/labor/auth` 溢出 26px、`/system/dict` 溢出 48px。
+     只做"放不下才折行"：标题保留原来的弹性（不强制独占一行），extra 限宽 100%
+     且内部 Space 可折行；桌面端与"标题+一个按钮"的窄卡片形态不变。 */
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .ant-card-head .ant-card-extra {
+    max-width: 100%;
+  }
+  /* ⚠️ 标题不能沿用 AntD 的 `flex:1`（basis 0）：basis 0 时标题的"理想宽度"是 0，
+     于是它与满宽的 extra 被判定为**能塞进同一行**→ 标题被压成 0 宽而"消失"、
+     extra 自己再折行（2026-10-27 375px 实测踩到）。改成按内容取宽度，
+     放不下时才会把 extra 换到下一行。 */
+  .ant-card-head .ant-card-head-title {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .ant-card-head .ant-card-extra > .ant-space {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  /* 标题里的长文本/状态 Tag 不截断：AntD 的 `.ant-card-head-title` 是
+     `white-space:nowrap` + ellipsis，手机端会把标题内的 Tag 裁掉半截
+     （`/ai/assistant` 的「已启用 <模型名>」即此）。允许换行，卡片头随内容增高——
+     比"静默裁掉半截"可读。⚠️ 不加 `overflow-wrap: anywhere`：那会把模型名这类
+     长标识从中间劈开（实测 `deepseek` → `deep eek`），中文标题本身就能在字间断行。 */
+  .ant-card-head .ant-card-head-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .ant-card-head .ant-card-head-title > .ant-space {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  /* 万一标题里的 Tag 比整行还长（超长模型名），用省略号收口，而不是把卡片撑破 */
+  .ant-card-head .ant-card-head-title .ant-tag {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 行内操作按钮的触控目标：表格里 `size="small"` 的链接按钮只有 30px 高，
+     手机上「编辑 / 停用 / 删除」三连击很容易误触（实测 44×30）。只放宽表格内的
+     small 按钮高度，不动工具栏与表单里的 small 按钮（它们不在 `.ant-table` 内）。 */
+  .ant-table .ant-btn.ant-btn-sm {
+    min-height: 40px;
+    padding-block: 0;
+  }
+
+  /* 页签条的触控目标：关闭按钮原为 14×14、下拉按钮高 26px——手机上点「×」误触
+     等于直接关掉当前页（脏标签虽会拦一次，没改动过的页面直接消失）。页签条本身
+     只有 ~37px 高，放大到 28/34 是在条高与可点性之间的折中；桌面端保持原尺寸。 */
+  .cms-tags-view__close {
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
+  .cms-tags-view__mobile-more {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+}
+
+/* 窄屏手机（<576px，antd sm 断点以下） */
+@media (max-width: 575.98px) {
   .page-card {
     padding: 8px;
+  }
+
+  .ant-modal {
+    margin: 4px auto;
   }
 }

@@ -1,18 +1,25 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth, localDayKey } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
-import { DictService } from '../dict/dict.service';
+import { DICT_TYPES, PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
+import { SysParamService } from '../../common/services/sys-param.service';
+import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
+// 链口径统一在 contract-chain（见该文件头）
+import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
 
 const RECORD_FIELDS = [
-  'projectId', 'contractId', 'applyId', 'payMonth', 'amount', 'methodCode', 'payDate',
+  'projectId', 'contractId', 'payMonth', 'amount', 'methodCode', 'payDate',
   'receiptUrl', 'statusCode', 'remark',
 ];
+/** update 白名单：不含 projectId —— 归属只能由 create 决定（前端会整包回传表单种子） */
+const RECORD_UPDATE_FIELDS = RECORD_FIELDS.filter((f) => f !== 'projectId');
 
 @Injectable()
 export class PaymentService {
@@ -24,7 +31,53 @@ export class PaymentService {
     private tpl: ImportTemplateService,
     private runner: ImportRunnerService,
     private tasks: ImportTaskService,
+    private sysParam: SysParamService,
   ) {}
+
+  /**
+   * 不构成实际出资的付款状态：不计入「累计付款」，自身为该状态时也不做超付校验。
+   * 取自 `constants/statuses.ts` 的单一事实源——合同台账用**同一份**，
+   * 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论。
+   */
+  private static readonly NON_PAYING_STATUSES: string[] = [...PAYMENT_EXCLUDED_STATUSES];
+
+  /**
+   * 防超付校验（口径见 .claude/rules/backend-conventions.md「金额上限」）：累计付款（含补充协议链）+ 本次 ≤ 累计结算。
+   * 策略取系统参数 `payment.over_amount_policy`（BLOCK 拦截 / WARN 仅提示 / OFF 不校验，默认 WARN）。
+   *
+   * ⚠️ 仅在交互式写入（无 tx）时执行：事务内不得调用 `sysParam`（事务外连接，可能挂起）。
+   */
+  private async checkOverPayment(
+    contractId: string | null | undefined,
+    currentAmount: number,
+    statusCode: any,
+    excludeId?: string,
+  ): Promise<{ overAmountWarning?: string }> {
+    if (!contractId) return {};
+    if (PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) return {};
+    const policy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
+    if (policy === 'OFF') return {};
+    const [limit, used] = await Promise.all([
+      chainSettledTotal(this.prisma, contractId, undefined),
+      chainPaidTotal(this.prisma, contractId, excludeId, PaymentService.NON_PAYING_STATUSES),
+    ]);
+    const res = checkOverAmount({ limit, used, current: currentAmount, label: '付款' });
+    if (!res.exceeded) return {};
+    if (policy === 'BLOCK') throw new BadRequestException(res.message);
+    console.warn('[付款/防超付]', res.message);
+    return { overAmountWarning: res.message };
+  }
+
+  /**
+   * 付款记录挂的合同必须属于当前项目。
+   * 不校验时：本项目付款可挂到别项目合同上 → `findRecords` 的 `contractInclude` 会把
+   * 对方供应商的开户行/账号返回给本项目用户，防超付闸门也按对方合同的累计数算错。
+   */
+  private async assertContractInProject(contractId: string | null | undefined, projectId: string) {
+    if (!contractId) return;
+    const c = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    if (!c || c.projectId !== projectId) throw new BadRequestException('关联合同不存在或不属于当前项目');
+  }
 
   private contractInclude = {
     contract: { select: { id: true, code: true, name: true, supplier: { select: { id: true, name: true, bankName: true, bankAccount: true } } } },
@@ -44,34 +97,72 @@ export class PaymentService {
     return buildResult(list, total, query);
   }
 
-  async createRecord(data: any, projectId: string, tx?: TxClient) {
-    const db: any = tx || this.prisma;
-    await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('payment_status', data.statusCode);
-    return db.paymentRecord.create({
-      data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
-    });
+  /**
+   * 导出用全量付款记录：`findRecords({ pageSize: 2000 })` 会被单页上限（默认 500）截断，
+   * 大于上限时导出文件**静默**少行、汇总行金额偏小。按页拉全量，与发票/台账导出同口径。
+   */
+  private async allRecords(projectId: string): Promise<any[]> {
+    const pageSize = 500;
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res = await this.findRecords({ page, pageSize }, projectId, pageSize);
+      const list = (res.list as any[]) ?? [];
+      out.push(...list);
+      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
   }
 
-  async updateRecord(id: string, data: any) {
+  async createRecord(data: any, projectId: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
+    await this.assertContractInProject(data.contractId, projectId);
+    await this.dict.validate('payment_method', data.methodCode);
+    await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
+    // 台账/看板按字符串精确匹配 payMonth，非 YYYY-MM 会让该笔付款在所有月度统计里消失
+    assertYearMonth(data.payMonth, '付款月份');
+    const warn = tx
+      ? {}
+      : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
+    const created: any = await db.paymentRecord.create({
+      data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
+    });
+    return { ...created, ...warn };
+  }
+
+  async updateRecord(id: string, data: any, projectId?: string) {
     const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('付款记录不存在');
+    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
-    await this.dict.validate('payment_status', data.statusCode);
-    const payload: any = pickFields(data, RECORD_FIELDS, { label: '付款记录' });
+    await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
+    assertYearMonth(data.payMonth, '付款月份');
+    const payload: any = pickFields(data, RECORD_UPDATE_FIELDS, { label: '付款记录' });
+    await this.assertContractInProject(payload.contractId, projectId ?? before.projectId);
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);
     delete payload.version;
-    return this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const warn = await this.checkOverPayment(
+      payload.contractId ?? before?.contractId,
+      payload.amount !== undefined ? payload.amount : num(before?.amount),
+      payload.statusCode !== undefined ? payload.statusCode : before?.statusCode,
+      id,
+    );
+    const updated: any = await this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return { ...updated, ...warn };
   }
 
-  async removeRecord(id: string) {
+  async removeRecord(id: string, projectId?: string) {
+    const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('付款记录不存在');
+    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
     await this.prisma.paymentRecord.delete({ where: { id } });
     return true;
   }
 
   async exportRecords(projectId: string) {
-    const res = await this.findRecords({ pageSize: 2000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allRecords(projectId);
+    const res: any = { list: all, total: all.length };
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
     const rows = (res.list as any[]).map((r) => ({
       projectName: project?.name || '',
@@ -115,12 +206,31 @@ export class PaymentService {
   }
 
   /** 付款台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importRecords(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async importRecords(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const methods = await this.dict.options('payment_method');
     const status = await this.dict.options('payment_status');
     const codeOf = (items: any[], val: any) =>
       val ? (items.find((i: any) => i.itemName === val || i.itemCode === val)?.itemCode ?? null) : null;
+    // 行级幂等：付款记录没有业务唯一键，同一份表重复导入会让付款金额翻倍
+    // （累计付款/台账/防超付闸门全跟着虚高）。批内与本库各查一次「合同+月份+金额+日期」。
+    const seen = new Set<string>();
+    /**
+     * 防超付闸门（第 22 轮审计 P2-13）：导入的写库走事务，而**事务内不得读 sysParam/累计数**
+     * （事务外连接，可能挂起），所以原来 write 分支干脆跳过了超付校验 —— 用导入就能绕开闸门。
+     * 现在把闸门放到 plan 阶段（事务外）执行：策略 + 各合同累计结算/累计付款各查一次，
+     * 并叠加**本批已累加**的金额，这样同一份文件里连开多张也不会漏判。
+     */
+    const overPolicy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
+    const limitOf = new Map<string, number>();
+    const paidOf = new Map<string, number>();
+    const ensureChain = async (contractId: string) => {
+      if (limitOf.has(contractId)) return;
+      limitOf.set(contractId, await chainSettledTotal(this.prisma, contractId, undefined));
+      paidOf.set(contractId, await chainPaidTotal(this.prisma, contractId, undefined, PaymentService.NON_PAYING_STATUSES));
+    };
+    const dupKey = (contractId: string, payMonth: string, amount: number, payDate: any) =>
+      `${contractId}|${payMonth}|${amount.toFixed(2)}|${payDate ? localDayKey(payDate) : ''}`;
     return this.tasks.submit<any>({ module: 'payment', moduleName: '付款台账', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
       plan: async (r) => {
         const contractCode = String(r['合同编号'] ?? '').trim();
@@ -139,14 +249,44 @@ export class PaymentService {
         if (statusName && codeOf(status, statusName) === null) {
           throw new RowError(`下拉校验失败：「${statusName}」不在状态选项范围内`, '状态');
         }
+        const payDate = r['付款日期'] || null;
+        const statusCode = codeOf(status, statusName);
+        if (overPolicy !== 'OFF' && !PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) {
+          await ensureChain(contract.id);
+          const overRes = checkOverAmount({
+            limit: limitOf.get(contract.id) ?? 0,
+            used: paidOf.get(contract.id) ?? 0,
+            current: amount,
+            label: '付款',
+          });
+          if (overRes.exceeded) {
+            if (overPolicy === 'BLOCK') throw new RowError(overRes.message, '付款金额');
+            console.warn('[付款/防超付/导入]', overRes.message);
+          }
+          paidOf.set(contract.id, (paidOf.get(contract.id) ?? 0) + amount);
+        }
+        const key = dupKey(contract.id, payMonth, amount, payDate);
+        if (seen.has(key)) throw new RowError(`重复行：同一合同 ${payMonth} 已有同金额同日期的一行`, '付款金额');
+        const dup = await this.prisma.paymentRecord.findFirst({
+          where: {
+            projectId,
+            contractId: contract.id,
+            payMonth,
+            amount,
+            payDate: payDate ? toDate(payDate) : null,
+          },
+          select: { id: true },
+        });
+        if (dup) throw new RowError(`重复导入：该合同 ${payMonth} 已存在同金额同日期的付款记录，请勿重复导入`, '付款金额');
+        seen.add(key);
         return {
           data: {
             contractId: contract.id,
             payMonth,
             amount,
             methodCode: codeOf(methods, methodName),
-            payDate: r['付款日期'] || null,
-            statusCode: codeOf(status, statusName),
+            payDate,
+            statusCode,
             remark: String(r['备注'] ?? '').trim() || null,
           },
         };
@@ -155,6 +295,6 @@ export class PaymentService {
         for (const p of plans) await this.createRecord(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

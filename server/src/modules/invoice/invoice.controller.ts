@@ -20,6 +20,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('invoices')
@@ -59,8 +60,8 @@ export class InvoiceController {
 
   @RequirePermissions('invoice:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')
@@ -71,20 +72,34 @@ export class InvoiceController {
 
   @RequirePermissions('invoice:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   @RequirePermissions('invoice:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')
   @Post(':id/verify')
-  verify(@Param('id') id: string) {
-    return this.service.verify(id);
+  verify(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.verify(id, projectId);
+  }
+
+  /** 作废（终态）：保留结算单关联，不计入任何金额口径。通用 PUT 拒绝状态进出终态 */
+  @RequirePermissions('invoice:edit')
+  @Post(':id/cancel')
+  cancel(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.cancel(id, projectId);
+  }
+
+  /** 红冲（终态）：保留结算单关联，不计入任何金额口径 */
+  @RequirePermissions('invoice:edit')
+  @Post(':id/red')
+  red(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.red(id, projectId);
   }
 
   @RequirePermissions('invoice:edit')
@@ -102,9 +117,17 @@ export class InvoiceController {
 
   @RequirePermissions('invoice:edit')
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
     return this.service.import(file.buffer, projectId, { fileName: file?.originalname, user });
+  }
+
+  @RequirePermissions('invoice:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.import(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 }

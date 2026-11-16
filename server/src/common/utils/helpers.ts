@@ -1,5 +1,20 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
+/**
+ * 本地日期键 `YYYY-MM-DD`（按**进程时区**，容器里 `TZ=Asia/Shanghai`）。
+ *
+ * 为什么不写 `toISOString().slice(0, 10)`（第 21 轮审计）：那是 **UTC** 日期。
+ * 北京时间 00:00–07:59 生成的单据编号会把日期写成**前一天**
+ * （`ZJS-<合同>-<日期>`、`FK-<合同>-<日期>`、`PROC-<日期>-NNN`、归档包名 `<root>-归档-<日期>.zip`），
+ * 于是「同一天开的两张单」被判成两个日期，归档包名也与业务日期对不上。
+ */
+export function localDayKey(now: Date | string = new Date()): string {
+  const d = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** Decimal / null 安全转 number */
 export function num(v: any): number | null {
   if (v === null || v === undefined || v === '') return null;
@@ -67,6 +82,23 @@ export function fmtDate(v: any): string | null {
 /** 单次导入最大行数（需求 3.4 性能要求） */
 export const IMPORT_MAX_ROWS = 5000;
 
+/**
+ * 账期字段（付款月份 `payMonth` / 结算月份 `settleMonth`）格式校验：必须是 `YYYY-MM`。
+ *
+ * 为什么要拦：台账与看板对这些字段做**字符串精确匹配**
+ * （`ledger.service.ts` 的 `payMonth = query.month`、`dashboard.service.ts` 的按月聚合），
+ * 写成 `2026-9` / `2026/09` / `2026-9-1` 都能存进去，但那一行永远不会被任何月份的统计命中——
+ * 界面上看到的是「保存成功」，账上的当月付款/结算额却静默少一块。
+ */
+export function assertYearMonth(value: any, label = '月份') {
+  if (value === null || value === undefined || value === '') return;
+  const s = String(value).trim();
+  const m = /^(\d{4})-(\d{2})$/.exec(s);
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) {
+    throw new BadRequestException(`${label}须为 YYYY-MM 格式（如 2026-09），当前为「${s}」`);
+  }
+}
+
 /** 导入行数上限校验，超出时抛错提示分批 */
 export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
   if (rows.length > max) {
@@ -78,7 +110,12 @@ export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
 export function assertVersion(oldRow: any, data: any) {
   if (!oldRow || oldRow.version === undefined || oldRow.version === null) return;
   const v = data?.version;
-  if (v === undefined || v === null || v === '') return; // 未提供版本号时不阻断（兼容旧客户端）
+  // 2026-10-18 审计：省略 version = 无条件最后写入者胜，乐观锁形同虚设。
+  // 所有前端写入路径都会回传 version（表单种子来自 GET），故此处改为强制要求；
+  // 确有「不需要并发保护」的内部调用，应显式传 data.version = oldRow.version。
+  if (v === undefined || v === null || v === '') {
+    throw new ConflictException('缺少 version 字段（乐观锁），请刷新后重试');
+  }
   if (Number(v) !== Number(oldRow.version)) {
     throw new ConflictException('数据已被其他用户修改，请刷新后重试');
   }

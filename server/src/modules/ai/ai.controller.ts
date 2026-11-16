@@ -1,0 +1,332 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Query,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Response } from 'express';
+import { AiService } from './ai.service';
+import { AiSettingService, type AiSettingInput, type AiSettingTestInput } from './ai-setting.service';
+import { RegisterService, type RegisterConfirmInput } from './register.service';
+import { ReportService } from './report.service';
+import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
+import { QuoteService, type QuoteAnomalyQuery } from './quote/quote.service';
+import { FulfillmentService, type FulfillmentAnomalyQuery } from './fulfillment/fulfillment.service';
+import { ScmService, type ScmAnalysisQuery } from './analysis/scm.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+
+/**
+ * 上传限额：multer 层 50MB 是**硬上限**（与 nginx `client_max_body_size 50m`、
+ * `files/upload` 同口径），业务上限是 `ai-config.ts` 的 `maxFileBytes`（默认 5MB，可用
+ * `AI_MAX_FILE_BYTES` 调）。两层是有意的：multer 拦「大到会把内存打爆的包」，
+ * service 层给「文件超限」这句人话（2026-10-20 审计 P2 记录过两者不一致，这里写明口径）。
+ */
+const AI_UPLOAD = { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } };
+
+/** multipart 只能传文本：projectIds 允许 JSON 数组串或逗号分隔串 */
+const parseProjectIds = (v: unknown): string[] => {
+  if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  if (typeof v !== 'string' || !v.trim()) return [];
+  try {
+    const arr = JSON.parse(v);
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  } catch {
+    return v.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+};
+
+/** 表单填报的共享上下文（inspect/fill 口径一致） */
+const formContext = (body: any, projectId: string) => ({
+  projectId,
+  contractId: body?.contractId || null,
+  supplierId: body?.supplierId || null,
+  scope: body?.scopeMode
+    ? { mode: body.scopeMode as 'current' | 'selected' | 'all', projectIds: parseProjectIds(body.projectIds) }
+    : undefined,
+  period: body?.from || body?.to ? { from: body?.from, to: body?.to } : undefined,
+});
+
+/**
+ * AI 助手（模块前缀 `api/ai`）。
+ *
+ * 权限：
+ * - `ai:view`：看状态与字段目录；
+ * - `ai:use`：真正消耗 AI 配额的两个动作（扫描 / 回填）。
+ * 两者分开是为了让「只读用户看到入口但点不动」变成明确的 403，而不是静默隐藏。
+ *
+ * ⚠️ **一期不落任何业务数据**：扫描 / 回填都是「输入文件 → 输出文件/建议」，
+ * 不写库、不存盘（回填结果直接以附件流回传）。这样 AI 出错的最坏后果是下载到一个错的表。
+ * 二期「文件登记」拆成 `register/parse`（**只解析，不写库**）+ `register/confirm`
+ * （写库，且必须先经人确认）——与两阶段导入同一口径：先出结果给人看，确认后才落库。
+ */
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('ai')
+export class AiController {
+  constructor(
+    private service: AiService,
+    private setting: AiSettingService,
+    private register: RegisterService,
+    private report: ReportService,
+    private anomaly: AnomalyService,
+    private quote: QuoteService,
+    private fulfillment: FulfillmentService,
+    private scm: ScmService,
+  ) {}
+
+  /**
+   * AI 信息登记（系统管理 → AI 信息登记页面用）。
+   *
+   * 与下面的业务接口**分开权限**：这些接口改的是全站共用的上游配置（地址/密钥/模型），
+   * 属于「系统配置」而非常规业务操作，所以要求 `system:config` 而不是 `ai:view`。
+   * 密钥只写不读——`view()` 只回「有没有存过」，永远不回明文。
+   */
+  @RequirePermissions('system:config')
+  @Get('setting')
+  getSetting() {
+    return this.setting.view();
+  }
+
+  @RequirePermissions('system:config')
+  @Put('setting')
+  saveSetting(@Body() body: AiSettingInput) {
+    return this.setting.save(body || {});
+  }
+
+  /** 用当前（或页面上刚填、还没保存的）配置真打一次上游，只做诊断，不改任何状态；`purpose` 可指定测哪个用途 */
+  @RequirePermissions('system:config')
+  @Post('setting/test')
+  testSetting(@Body() body: AiSettingTestInput) {
+    return this.setting.test(body || {});
+  }
+
+  /** 前端据此决定「AI 助手」菜单是否可用（未配置时显示"未启用"而不是报错） */
+  @RequirePermissions('ai:view')
+  @Get('status')
+  status() {
+    return this.service.status();
+  }
+
+  /**
+   * 上传 Excel 表单 → 返回「单元格 ↔ 字段」建议。
+   * `contractId` 可选：给了才能用 `contract.*` / `supplier.*` 字段。
+   */
+  @RequirePermissions('ai:use')
+  @Post('forms/inspect')
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
+  inspect(
+    @UploadedFile() file: any,
+    @Body() body: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string; from?: string; to?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.service.inspectForm(file, formContext(body, projectId), user);
+  }
+
+  /**
+   * 按映射回填并下载。
+   * `mapping` 是 JSON 字符串（multipart 只能传文本字段）：`[{ sheet, cellRef, fieldKey }]`。
+   */
+  /**
+   * 合同文件（.docx / .xlsx）→ 登记草案。
+   * **只解析不写库**：返回字段值、原文核对结果、交叉校验告警与明细，
+   * 由人在前端逐项确认后再调 `register/confirm`。
+   */
+  @RequirePermissions('ai:use')
+  @Post('register/parse')
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
+  parseRegister(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.register.parse(file, { projectId }, user?.userId || user?.username || 'anonymous');
+  }
+
+  /**
+   * 把确认过的字段写库（供应商可复用已有 / 新建，合同走 ContractService.create）。
+   * 权限按动作判，**不是「二选一」**：守卫是 OR 语义，写 `('contract:edit','supplier:edit')`
+   * 会让只有 supplier:edit 的岗位也能建合同（2026-10-20 审计 P1）。这里卡 `contract:edit`，
+   * 新建供应商时再由 service 追加校验 `supplier:edit`。
+   */
+  @RequirePermissions('contract:edit')
+  @Post('register/confirm')
+  confirmRegister(@Body() body: RegisterConfirmInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.register.confirm(body, { projectId }, user);
+  }
+
+  /**
+   * 汇报材料（三期）：由**程序**聚合事实、模型只负责组织语言。
+   * 返回 Markdown + 事实清单 + 对账结果（`unknownNumbers` = 材料里出现但系统数据对不上的数字）。
+   */
+  @RequirePermissions('ai:use')
+  @Post('report/generate')
+  generateReport(
+    @Body() body: { kind?: string; from?: string; to?: string; extra?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.report.generate(body || {}, projectId, user);
+  }
+
+  /**
+   * 把页面上的同一份 Markdown 导出为 docx / pdf（不重新生成，避免导出与预览不一致）。
+   * `format=pdf` 需要服务器有中文字体（未安装时返回 400 并给出安装提示）。
+   */
+  /**
+   * 结算 / 付款异常预警（课题 6-9）——**只读**，不写库、不发通知。
+   *
+   * 权限：`ai:view` 够看结果，但命中项带合同/结算/付款金额，
+   * service 里会再要 `contract:view`（与汇报材料同口径的敏感数据保护）。
+   *
+   * 参数全部可选：`from`/`to`（结算日期区间，YYYY-MM-DD）、`contractId`（只看单合同）、
+   * `narrative=0`（只看规则结果，不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/payment')
+  paymentAnomaly(@Query() query: PaymentAnomalyQuery, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.anomaly.payment(query || {}, projectId, user);
+  }
+
+  /**
+   * 异常报价与价差识别预警（课题 3-9）——**只读**，不写库、不改任务状态、不发通知。
+   *
+   * 权限：路由层 `ai:view`；命中项带供应商报价与控制价，service 里再要 `contract:view`
+   * （与采购任务详情同一敏感级别）。
+   *
+   * 参数全部可选：`taskId`（只看单个采购任务）、`narrative=0`（只看规则结果，不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/quote')
+  quoteAnomaly(@Query() query: QuoteAnomalyQuery, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.quote.quote(query || {}, projectId, user);
+  }
+
+  /**
+   * 合同履行偏差预警（课题 4-9）——**只读**，不写库、不改节点状态、不发通知。
+   *
+   * 权限：路由层 `ai:view`；命中项带合同金额与付款进度，service 里再要 `contract:view`。
+   *
+   * 参数全部可选：`contractId`（只看单个合同）、`narrative=0`（只看规则结果，不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/fulfillment')
+  fulfillmentAnomaly(
+    @Query() query: FulfillmentAnomalyQuery,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.fulfillment.fulfillment(query || {}, projectId, user);
+  }
+
+  /**
+   * 供应链运营全景（课题 7-11）——**只读**，不写库、不发通知。
+   *
+   * 与前三个预警不同：它是**跨项目**的，所以不接 `@ProjectId()`——项目集合由前端显式传
+   * （`projectIds=a,b,c`，最多 20 个；不传 = 全部项目）。权限三层：
+   * 路由 `ai:view`、service `contract:view`、跨项目（>1 个或不指定）另需 `dashboard:view`。
+   *
+   * `narrative=0`：只出确定性汇总（不调模型）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('analysis/supply-chain')
+  supplyChain(@Query() query: ScmAnalysisQuery, @CurrentUser() user: JwtUser) {
+    return this.scm.panorama(query || {}, user);
+  }
+
+  @RequirePermissions('ai:use')
+  @Post('report/export')
+  async exportReport(
+    @Body() body: { markdown?: string; title?: string; header?: string; footer?: string; format?: string },
+    @Res() res: Response,
+  ) {
+    const isPdf = String(body?.format || 'docx').toLowerCase() === 'pdf';
+    const { buffer, fileName } = isPdf
+      ? await this.report.exportPdf(body || {})
+      : await this.report.exportDocx(body || {});
+    res.setHeader('Content-Type', isPdf ? 'application/pdf' : this.service.docxMime);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="report.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    );
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.end(buffer);
+  }
+
+  @RequirePermissions('ai:use')
+  @Post('forms/fill')
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
+  async fill(
+    @UploadedFile() file: any,
+    @Body() body: { mapping?: string; contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string; from?: string; to?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ) {
+    const result = await this.service.fillForm(
+      file,
+      body?.mapping,
+      formContext(body, projectId),
+      user,
+    );
+    // 统计放进响应头：附件流的正文是二进制，前端拿不到 JSON
+    res.setHeader('Content-Type', this.service.xlsxMime);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
+    );
+    res.setHeader('x-ai-filled', String(result.filled));
+    res.setHeader('x-ai-skipped', String(result.skipped.length));
+    res.setHeader('Access-Control-Expose-Headers', 'x-ai-filled, x-ai-skipped, Content-Disposition');
+    res.end(result.buffer);
+  }
+
+  /**
+   * 行级表格填充：把数据集的行写进模板的表区（列映射由前端选择）。
+   * 返回 xlsx 附件 + `x-ai-filled-rows / x-ai-skipped / x-ai-truncated` 统计头。
+   */
+  @RequirePermissions('ai:use')
+  @Post('forms/fill-table')
+  @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
+  async fillTable(
+    @UploadedFile() file: any,
+    @Body()
+    body: {
+      datasetKey?: string;
+      sheet?: string;
+      headerRow?: string;
+      startRow?: string;
+      columns?: string;
+      contractId?: string;
+      supplierId?: string;
+      scopeMode?: string;
+      projectIds?: string;
+      from?: string;
+      to?: string;
+    },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ) {
+    const result = await this.service.fillTable(file, body || {}, formContext(body, projectId), user);
+    res.setHeader('Content-Type', this.service.xlsxMime);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
+    );
+    res.setHeader('x-ai-filled-rows', String(result.filledRows));
+    res.setHeader('x-ai-skipped', String(result.skippedCells));
+    res.setHeader('x-ai-truncated', result.truncated ? '1' : '0');
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
+    );
+    res.end(result.buffer);
+  }
+}

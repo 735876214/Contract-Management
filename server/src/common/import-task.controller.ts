@@ -18,7 +18,7 @@ export class ImportTaskController {
   }
 
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.tasks.findOne(id);
+  detail(@Param('id') id: string, @Req() req: any) {
+    return this.tasks.findOne(id, req.user && !req.user.isSuperAdmin ? req.user.userId : undefined);
   }
 }

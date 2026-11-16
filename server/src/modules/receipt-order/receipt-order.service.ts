@@ -1,9 +1,23 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
+import {
+  CONTRACT_STATUS,
+  LEGACY_CONTRACT_STATUS_COMPLETED,
+  RECEIPT_STATUS,
+  SUBCONTRACTOR_STATUS,
+} from '../../constants/statuses';
 import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/utils/money';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
+import { SettlementService } from '../settlement';
+import { ContractLockService } from '../../common/services/contract-lock.service';
+import { ProjectScopeService } from '../../common/services/project-scope.service';
+import { storageKeyFromUrl } from '../../common/utils/storage-url';
+import { projectWhere } from '../../common/utils/project-scope';
+import { laborReceivingReceiptWhere } from '../../common/utils/labor-receiving';
+
 
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [
@@ -34,6 +48,7 @@ const DETAIL_ALLOWED_FIELDS = [
   'priceBeforeTax',
   'taxRate',
   'usagePart',
+  'custodian',
   'brand',
   'remark',
   'isAgentPurchase',
@@ -68,7 +83,49 @@ export class ReceiptOrderService {
   constructor(
     private prisma: PrismaClient,
     private dict: DictService,
+    private settlement: SettlementService,
+    private lock: ContractLockService,
+    private scope: ProjectScopeService,
   ) {}
+
+  // ==================== 结算单关联 ====================
+
+  /**
+   * 结算单关联（业务口径 2026-10-16「收领单仅与结算单对应，一张结算单可对多张收领单」）：
+   *
+   * - 请求里**明确带了** `settlementId`（含显式 `null` 解绑）→ 当人工指定，
+   *   先校验「同项目 / 同合同（收领单的合同是**物资合同** `materialContractId`）/ 同月份」；
+   * - **没带**且原来也没关联 → **自动匹配**「物资合同 + 下单日期所在月份」的那张结算单
+   *   （收领单是月度结算的抓取来源，同月同合同即归属同一张）；
+   * - 已有关联且没带 → 保持不动（不覆盖人工选择）。
+   */
+  private async resolveSettlementId(
+    data: any,
+    projectId: string,
+    current?: string | null,
+    fallback?: any,
+  ): Promise<string | null> {
+    const contractId =
+      data.materialContractId !== undefined
+        ? data.materialContractId || null
+        : (fallback?.materialContractId ?? null);
+    const date = data.orderDate !== undefined ? data.orderDate : fallback?.orderDate;
+    // 2026-10-18 业务流审计：改了物资合同或日期时，旧的自动匹配可能已违反「同合同同期」——
+    // 必须按新合同/新日期重算（显式传 settlementId 的人工指定仍优先）。current 只在
+    // 合同与日期都未变时才保留。
+    const contractChanged = data.materialContractId !== undefined && data.materialContractId !== fallback?.materialContractId;
+    const dateChanged = data.orderDate !== undefined && new Date(data.orderDate ?? 0).getTime() !== new Date(fallback?.orderDate ?? 0).getTime();
+    if (data.settlementId !== undefined) {
+      if (!data.settlementId) return null; // 显式解绑
+      // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
+      // 重新跑严格同合同校验会 400，导致整张单据存不了
+      if (current === data.settlementId && !contractChanged && !dateChanged) return current;
+      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
+      return data.settlementId;
+    }
+    if (current && !contractChanged && !dateChanged) return current;
+    return this.settlement.findSettlementIdFor(contractId, date);
+  }
 
   // ==================== 编号生成 ====================
 
@@ -129,6 +186,7 @@ export class ReceiptOrderService {
         include: {
           supplier: { select: { id: true, name: true } },
           materialContract: { select: { id: true, code: true, name: true } },
+          settlement: { select: { id: true, code: true, settleDate: true } },
         },
       }),
       this.prisma.receiptOrder.count({ where }),
@@ -136,17 +194,25 @@ export class ReceiptOrderService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
+  /**
+   * 单条查询（带项目归属校验）。
+   * 按 id 的读/改/删/推送都必须经过这里：`JwtAuthGuard` 只验「是不是该项目成员」，
+   * 不验「这条记录是不是该项目的」——用户同时属于 A、B 两个项目时，
+   * 拿 B 的收领单 id 配 A 的项目头即可读到/改写/删除 B 的数据。
+   */
+  async findOne(id: string, projectId?: string) {
     const order = await this.prisma.receiptOrder.findUnique({
       where: { id },
       include: {
         supplier: { select: { id: true, name: true } },
         materialContract: { select: { id: true, code: true, name: true } },
         subcontract: { select: { id: true, code: true, name: true } },
+        settlement: { select: { id: true, code: true, settleDate: true } },
         details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
       },
     });
     if (!order) throw new NotFoundException('收领单不存在');
+    if (projectId && (order as any).projectId !== projectId) throw new NotFoundException('收领单不存在');
     return order;
   }
 
@@ -156,8 +222,10 @@ export class ReceiptOrderService {
    */
   async loadContractMaterials(contractId: string) {
     if (!contractId) throw new BadRequestException('缺少物资合同 ID');
-    const contract = await this.prisma.contract.findUnique({
-      where: { id: contractId },
+    // 项目归属（2026-11-12 续审）：本接口只收 contractId，不追加过滤时换一个 id
+    // 就能读到别项目合同的物资清单与供应商名称。
+    const contract = await this.prisma.contract.findFirst({
+      where: projectWhere(contractId),
       include: { supplier: { select: { id: true, name: true } } },
     });
     if (!contract) throw new NotFoundException('物资合同不存在');
@@ -259,12 +327,42 @@ export class ReceiptOrderService {
     };
   }
 
+  /**
+   * 收领单必须挂在**已签章**合同上（业务流：合同签订 → 收领单；2026-10-18 审计）。
+   * 与 contractSupplierOptions 同一「已签章」口径：APPROVING/SIGNED/COMPLETED 或已有签章文件。
+   */
+  private async assertContractSigned(contractId: string | null | undefined) {
+    if (!contractId) return;
+    const c = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      select: { status: true, signedFilePath: true, code: true },
+    });
+    if (!c) return; // 归属/存在性由调用方校验
+    const signed =
+      [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED, LEGACY_CONTRACT_STATUS_COMPLETED].includes(c.status as any) ||
+      !!c.signedFilePath;
+    if (!signed) {
+      throw new BadRequestException(`合同「${c.code}」尚未签章，收领单必须挂在已签订的合同上`);
+    }
+  }
+
   /** 供应商：合同已签章的供应商（status 为 APPROVING / SIGNED / COMPLETED 视为已签章） */
   private async contractSupplierOptions(projectId: string, keyword?: string) {
     const where: any = {
       projectId,
       supplierId: { not: null },
-      OR: [{ status: { in: ['APPROVING', 'SIGNED', 'COMPLETED'] } }, { signedFilePath: { not: null } }],
+      OR: [
+        {
+          status: {
+            in: [
+              CONTRACT_STATUS.APPROVING,
+              CONTRACT_STATUS.SIGNED,
+              LEGACY_CONTRACT_STATUS_COMPLETED,
+            ],
+          },
+        },
+        { signedFilePath: { not: null } },
+      ],
     };
     const contracts = await this.prisma.contract.findMany({
       where,
@@ -284,14 +382,17 @@ export class ReceiptOrderService {
 
   /** 分包商：分包商库中 编辑中 + 已完成 */
   private async subcontractorOptions(projectId: string, keyword?: string) {
-    const where: any = { status: { in: ['EDITING', 'COMPLETED'] }, projectId };
+    const where: any = {
+      status: { in: [SUBCONTRACTOR_STATUS.EDITING, SUBCONTRACTOR_STATUS.COMPLETED] },
+      projectId,
+    };
     if (keyword) {
       where.OR = [
         { subcontractorName: { contains: keyword } },
         { authorizedPerson: { contains: keyword } },
       ];
     }
-    const rows = await this.prisma.subcontractor.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
+    const rows = await this.prisma.laborAuthLedger.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 500 });
     return rows.map((r: any) => ({
       id: r.id,
       name: r.subcontractorName,
@@ -348,7 +449,8 @@ export class ReceiptOrderService {
    * 保证仍可下拉选择，不阻塞业务。
    */
   async subcontractorContracts(subcontractorId: string, projectId: string) {
-    const sub = await this.prisma.subcontractor.findUnique({ where: { id: subcontractorId } });
+    // 分包商必须属于当前项目：否则可用别项目的 id 探测存在性并拿到本项目的租赁执行合同列表
+    const sub = await this.prisma.laborAuthLedger.findFirst({ where: { id: subcontractorId, projectId } });
     if (!sub) throw new NotFoundException('分包商不存在');
     const ids: string[] = [];
     if (sub.subcontractId) ids.push(sub.subcontractId);
@@ -358,9 +460,99 @@ export class ReceiptOrderService {
     const list = await this.prisma.contract.findMany({
       where,
       select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     return list;
+  }
+
+  /**
+   * 供应商在本项目的合同（供应单位=供应商时，物资合同下拉的数据源）：
+   * 业务口径 2026-10-17——物资合同下拉只带出**该供应商自己的合同**，由用户自选。
+   */
+  async supplierContracts(supplierId: string, projectId: string) {
+    if (!supplierId) throw new BadRequestException('缺少供应商 ID');
+    return this.prisma.contract.findMany({
+      where: { projectId, supplierId },
+      select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  /**
+   * 分包商在本项目**领用过的所有材料**（领用单位=分包商时，明细清单的数据源）。
+   * ⚠️ 口径与「分包单位领用月度汇总 / 月度盈亏分析」**同源**（业务 2026-10-17：三处是同一组数）
+   * ——共用 `laborReceivingReceiptWhere()`：只认**领用单位**=该分包商，不认供应侧。
+   * 分包商向项目供货时它是供应方，不是领用方，不能算进它的领用（否则两份领用串户虚增）。
+   * 按「材料名+规格」去重（与汇总行键同口径），骨架字段取最近一条明细，数量列留空手填。
+   */
+  async subcontractorMaterials(subcontractorId: string, projectId: string) {
+    if (!subcontractorId) throw new BadRequestException('缺少分包商 ID');
+    const orders = await this.prisma.receiptOrder.findMany({
+      where: laborReceivingReceiptWhere(projectId, subcontractorId),
+      orderBy: { orderDate: 'desc' },
+      select: {
+        id: true, orderDate: true,
+        details: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            materialId: true, categoryLevel1: true, categoryLevel2: true,
+            materialName: true, specModel: true, unit: true,
+            priceBeforeTax: true, taxRate: true,
+          },
+        },
+      },
+    });
+
+    // 按「材料名+规格+单位」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    // 单位是行身份的一部分：同名同规格按米/根的领用是两条独立材料行
+    const byKey = new Map<string, any>();
+    outer: for (const o of orders) {
+      for (const d of o.details) {
+        const name = String(d.materialName || '').trim();
+        if (!name) continue;
+        const key = `${name}\u0002${d.specModel || ''}\u0002${String(d.unit ?? '').trim()}`;
+        if (byKey.has(key)) continue outer; // 订单已按日期倒序 → 首见即最近
+        byKey.set(key, d);
+      }
+    }
+
+    const baseMap = await this.loadMaterialBaseMap(
+      Array.from(byKey.values()).map((d) => ({ materialId: d.materialId })),
+      this.prisma,
+    );
+
+    let sort = 0;
+    const list = Array.from(byKey.values()).map((d: any) => {
+      const base: any = d.materialId ? baseMap.get(d.materialId) : null;
+      const priceBeforeTax = num(d.priceBeforeTax);
+      const taxRate = num(d.taxRate);
+      return {
+        key: d.materialId || `m-${sort}`,
+        materialId: d.materialId || null,
+        categoryLevel1: d.categoryLevel1 || base?.categoryLevel1 || null,
+        categoryLevel2: d.categoryLevel2 || base?.categoryLevel2 || null,
+        materialName: d.materialName || base?.name || '',
+        specModel: d.specModel || base?.spec || '',
+        unit: d.unit || base?.unit || '',
+        contractQty: null as number | null,
+        deliveryQty: null as number | null,
+        receivedQty: null as number | null, // 手填
+        priceBeforeTax,
+        taxRate,
+        priceWithTax:
+          priceBeforeTax != null && taxRate != null
+            ? round4(priceBeforeTax * (1 + taxRate / 100))
+            : null,
+        totalPrice: null as number | null,
+        usagePart: null as string | null,
+        custodian: null as string | null,
+        brand: null as string | null,
+        remark: null as string | null,
+        isAgentPurchase: null as string | null,
+        sortOrder: sort++,
+      };
+    });
+    return { list };
   }
 
   // ==================== 写入 ====================
@@ -457,10 +649,17 @@ export class ReceiptOrderService {
     p.supplySubcontractId = data.supplySubcontractId || null;
     p.supplySubcontractName = data.supplySubcontractName ?? null;
     p.subcontractorId = data.subcontractorId || null;
+    // 表头「是否为资产」（dict yes_no Y/N）：N = 整单不入资产台账
+    p.isAssetFlag = data.isAssetFlag || null;
     p.receiver = data.receiver ?? null;
     p.materialContractId = data.materialContractId || null;
     p.materialContractNo = data.materialContractNo ?? null;
     p.remark = data.remark ?? null;
+    // 收领单扫描件（附件需求 2026-10-17）：值是 `/api/files/<键>` 或相对键，统一存相对键
+    if (data.scanUrl !== undefined) {
+      p.scanUrl = data.scanUrl ? storageKeyFromUrl(data.scanUrl) : null;
+      p.scanFileName = data.scanUrl ? data.scanFileName ?? null : null;
+    }
     if (data.orderDate !== undefined) p.orderDate = toDate(data.orderDate);
     return p;
   }
@@ -493,6 +692,13 @@ export class ReceiptOrderService {
     if (!data?.supplierId) throw new BadRequestException('请选择供应单位');
     if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
     if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    await this.assertContractSigned(data.materialContractId);
+    await this.lock.assertWritable(data.materialContractId, '新增收领单');
+    // 引用型外键必须属于当前项目（防跨项目串数据；前端下拉是项目内数据源，但接口可被直接调用）
+    await this.scope.assertContractInProject(data.materialContractId, projectId, '物资合同');
+    await this.scope.assertContractInProject(data.subcontractId, projectId, '分包合同');
+    await this.scope.assertContractInProject(data.supplySubcontractId, projectId, '供应分包合同');
+    await this.scope.assertLaborAuthInProject(data.subcontractorId, projectId, '分包商');
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -503,14 +709,17 @@ export class ReceiptOrderService {
     // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
     // 连接池耗尽时事务会一直等待而挂起
     const assetDict = await this.loadAssetDict();
+    // 同理：结算单关联也在事务外解析（要查结算单表）
+    const settlementId = await this.resolveSettlementId(data, projectId);
 
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.receiptOrder.create({
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.receiptOrder.create({
         data: {
           ...this.normalizeHeader(data),
+          settlementId,
           orderNo,
           projectId,
-          status: 'SAVED',
+          status: RECEIPT_STATUS.SAVED,
           pushedAt: new Date(),
           createdBy: user?.userId || user?.id || null,
           details: { create: details },
@@ -518,14 +727,42 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
       // 需求 2.2：资产物资自动写入资产台账
-      await this.syncAssetLedger(order.id, tx, assetDict);
-      return order;
+      await this.syncAssetLedger(created.id, tx, assetDict);
+      return created;
     });
+    // 任务 5：收领单验收登记完成（保存）即自动将明细导入总日报（幂等：按收领单编号去重）。
+    // 推送在保存事务之后：失败不能让「已落库的收领单」变成 500（用户重试会产生重复单据），
+    // 与 update 路径同口径——只记日志，可经「重新推送」补推。
+    try {
+      await this.pushToDailyReport(order.id);
+    } catch (e) {
+      console.error('[收领单] 推送总日报失败（保存已生效，可手动补推）:', e);
+    }
+    return order;
   }
 
-  async update(id: string, data: any) {
-    const before = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before = await this.findOne(id, projectId);
     assertVersion(before, data);
+    // 归档锁：原合同与新合同都不能是已归档合同
+    await this.lock.assertWritable(before.materialContractId, '修改收领单');
+    const scopeProject = projectId ?? before.projectId;
+    if (data.materialContractId !== undefined) {
+      await this.scope.assertContractInProject(data.materialContractId, scopeProject, '物资合同');
+    }
+    if (data.subcontractId !== undefined) {
+      await this.scope.assertContractInProject(data.subcontractId, scopeProject, '分包合同');
+    }
+    if (data.supplySubcontractId !== undefined) {
+      await this.scope.assertContractInProject(data.supplySubcontractId, scopeProject, '供应分包合同');
+    }
+    if (data.subcontractorId !== undefined) {
+      await this.scope.assertLaborAuthInProject(data.subcontractorId, scopeProject, '分包商');
+    }
+    if (data.materialContractId && data.materialContractId !== before.materialContractId) {
+      await this.lock.assertWritable(data.materialContractId, '修改收领单');
+      await this.assertContractSigned(data.materialContractId);
+    }
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -535,15 +772,18 @@ export class ReceiptOrderService {
     // 字典必须在事务外预取：事务内调用 this.dict 会取用事务外的数据库连接，
     // 连接池耗尽时事务会一直等待而挂起
     const assetDict = await this.loadAssetDict();
+    // 同理：结算单关联也在事务外解析（改了物资合同/日期会重新匹配月份）
+    const settlementId = await this.resolveSettlementId(data, before.projectId, before.settlementId, before);
 
-    return this.prisma.$transaction(async (tx) => {
+    const saved = await this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
       await tx.receiptOrderDetail.deleteMany({ where: { orderId: id } });
       await tx.receiptOrder.update({
         where: { id },
         data: {
           ...this.normalizeHeader(data),
-          status: 'SAVED',
+          settlementId,
+          status: RECEIPT_STATUS.SAVED,
           pushedAt: new Date(),
           version: { increment: 1 },
           details: { create: details },
@@ -556,17 +796,58 @@ export class ReceiptOrderService {
         include: { details: { orderBy: { sortOrder: 'asc' } } },
       });
     });
+    // 任务 5：保存即把明细导入总日报（幂等：按 receiptOrderId 先清后推）。
+    // ⚠️ 必须在事务提交后执行（此前写在 return 后面永远不可达——修改收领单后
+    // 总日报（结算量唯一来源）会一直停留在旧数据）。失败不阻断保存本身。
+    try {
+      await this.pushToDailyReport(id);
+    } catch (e) {
+      console.error('[收领单] 推送总日报失败（保存已生效，可手动补推）:', e);
+    }
+    // 关联可能被重算（改了合同/日期后旧结算单解除、新期重挂）→ 台账的收领单
+    // 关联计数随之变化，需重刷（与 settlement 侧改动后的收尾同一套）。
+    //
+    // ⚠️ 参数是**合同 id**，不是结算单 id（第 15/16 轮审计发现的老 bug）：
+    // 原写法传的是 `settlementId`（Settlement 的主键），`syncLedgerByContract` 用它去
+    // `contract.findUnique` 必然查不到 → 直接 `return 0`，而外层还有 try/catch 兜底，
+    // 于是线上表现是「保存成功、台账没刷」。合同换了就两头都刷（旧合同要退挂、新合同要挂上）。
+    const touchedContracts = new Set<string>();
+    if (before.materialContractId) touchedContracts.add(before.materialContractId);
+    if (settlementId !== before.settlementId && (settlementId || before.settlementId)) {
+      const after = await this.findOne(id, projectId);
+      if (after?.materialContractId) touchedContracts.add(after.materialContractId);
+      if (before.settlementId) {
+        const oldSettlement = await this.prisma.settlement.findUnique({
+          where: { id: before.settlementId },
+          select: { contractId: true },
+        });
+        if (oldSettlement?.contractId) touchedContracts.add(oldSettlement.contractId);
+      }
+      for (const contractId of touchedContracts) {
+        try {
+          await this.settlement.syncLedgerByContract(contractId);
+        } catch (e) {
+          console.error('[收领单] 关联变更后台账刷新失败（合同', contractId, '）:', e);
+        }
+      }
+    }
+    return this.findOne(id);
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const before = await this.findOne(id, projectId);
+    await this.lock.assertWritable(before.materialContractId, '删除收领单');
+    // 单条 DELETE 自带原子性，无需外层事务；级联与加锁说明见下：
+    // - 明细（ReceiptOrderDetail）与自动入账的资产台账（AssetLedger.receiptOrderId）均为
+    //   DB 级 onDelete: Cascade，随主表删除一并清理，无需手工 deleteMany
+    //   （加锁顺序因此天然与「修改」一致：ReceiptOrder → 级联 AssetLedger，不会形成 ABBA 环路）。
+    // - 总日报（DailyReport.receiptOrderId）为 onDelete: SetNull——但**推送生成的行**
+    //   必须一并删除：它们是本收领单的镜像（推送时直接置「已确认」），SetNull 后会变成
+    //   「无来源但已确认」的孤儿行，继续计入结算口径 → 结算量永久虚高且无法再被清理。
+    //   手工录入的日报行（receiptOrderId 为空）不受影响。
     await this.prisma.$transaction(async (tx) => {
-      // 加锁顺序必须与 update 保持一致（主表 ReceiptOrder → 关联 AssetLedger），
-      // 否则与「修改」并发时会形成 ABBA 加锁环路导致死锁
-      // 先删主表，明细通过 onDelete: Cascade 级联删除
+      await tx.dailyReport.deleteMany({ where: { receiptOrderId: id } });
       await tx.receiptOrder.delete({ where: { id } });
-      // 需求 2.2.3：收领单删除后，其自动入账的资产台账记录同步删除
-      await tx.assetLedger.deleteMany({ where: { receiptOrderId: id } });
     });
     return true;
   }
@@ -588,6 +869,14 @@ export class ReceiptOrderService {
       include: { details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
     });
     if (!order) return { created: 0, updated: 0, removed: 0 };
+
+    // 表头「是否为资产」= N → 一票否决：不入账，并清理该单已有台账行
+    if (order.isAssetFlag === 'N') {
+      const removed = (
+        await db.assetLedger.deleteMany({ where: { receiptOrderId: orderId } })
+      ).count;
+      return { created: 0, updated: 0, removed };
+    }
 
     const baseMap = await this.loadMaterialBaseMap(order.details || [], db);
 
@@ -627,7 +916,8 @@ export class ReceiptOrderService {
         lostQty: null,
         originalPrice: price,
         originalTotal: total,
-        remark: order.remark || d.remark || null,
+        remark:
+          [order.remark || null, d.custodian ? `保管：${d.custodian}` : null].filter(Boolean).join('；') || null,
         receiptOrderId: order.id,
         receiptDetailId: d.id,
       };
@@ -661,7 +951,8 @@ export class ReceiptOrderService {
    *  - supplierId      ← supplierId（供应单位）
    *  - receiveUnit     ← receivingUnitName（领用单位）
    *  - receiver        ← receiver（领料人）
-   *  - receiptNo       ← orderNo（收领单编号）
+   *  - receiptOrderId  ← order.id（显式外键关联，为幂等清理的依据）
+   *  - receiptNo       ← orderNo（收领单编号快照，仅供展示/导入导出；不再用于关联匹配）
    *  - subcontractPeriod ← subcontractName（分包合同）
    *  - materialName/spec/unit ← 明细带出（unit 统一转字典编码）
    *  - settleQty       ← receivedQty（实收数量）
@@ -715,22 +1006,34 @@ export class ReceiptOrderService {
         usePosition: d.usagePart || null,
         isProxy: d.isAgentPurchase || null,
         receiptNo: order.orderNo || null,
+        receiptOrderId: order.id,
+        // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：收领单本身即现场签收 → 推送出的日报行直接置「已确认」，
+        // 避免收领单流程被二次卡住（若业务要求收领单也需单独确认，改这里即可）
+        confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED,
+        confirmedBy: order.receiver || order.createdBy || null,
+        confirmedAt: new Date(),
+        confirmRemark: '收领单自动确认',
         remark: d.remark || null,
         subcontractPeriod: order.subcontractName || null,
       });
     }
 
-    // 幂等：同一收领单编号的历史推送先行清理，避免重复推送产生脏数据
+    // 幂等：本收领单的历史推送先行清理，避免重复推送产生脏数据。
+    // 按 receiptOrderId（显式外键）而非 receiptNo 文本匹配——收领单编号变更不会再导致残留/误删，
+    // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
-      await tx.dailyReport.deleteMany({ where: { projectId: order.projectId, receiptNo: order.orderNo } });
+      await tx.dailyReport.deleteMany({ where: { receiptOrderId: orderId } });
       await tx.dailyReport.createMany({ data: rows });
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });
     return { pushed: rows.length };
   }
 
-  /** 重新推送：用于保存后补推 / 修复历史数据 */
-  async repush(id: string) {
+  /** 重新推送：用于保存后补推 / 修复历史数据。⚠️ 归档合同禁止（否则归档后复活已确认日报行，
+   *  结算创建又被锁 → 永久「未纳入结算」，打破归档不变量）。 */
+  async repush(id: string, projectId?: string) {
+    const order: any = await this.findOne(id, projectId);
+    await this.lock.assertWritable(order.materialContractId, '重新推送总日报');
     return this.pushToDailyReport(id);
   }
 }

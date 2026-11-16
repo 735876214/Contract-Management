@@ -1,18 +1,22 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { requestContext } from '../../common/services/request-context';
 
 const SUPPLIER_FIELDS = [
   'name', 'legalPerson', 'legalPhone', 'contractAuthPerson', 'contractAuthPhone',
   'contractAuthIdNo', 'contactName', 'contactPhone', 'contactEmail', 'bankName',
   'bankAccount', 'address', 'remark', 'status', 'projectId',
 ];
+
+/** 导入时被识别为「停用」的状态文本（第 22 轮审计 P2-11：原来只认 '停用' 一种写法） */
+const SUPPLIER_DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
 
 @Injectable()
 export class SupplierService {
@@ -31,8 +35,8 @@ export class SupplierService {
     return scope === 'PROJECT' && projectId ? { projectId } : {};
   }
 
-  async findAll(query: any = {}, projectId?: string) {
-    const { skip, take } = paginate(query);
+  async findAll(query: any = {}, projectId?: string, maxPageSize = 500) {
+    const { skip, take } = paginate(query, maxPageSize);
     const base = await this.scopeWhere(projectId);
     const where: any = { ...base };
     if (query.keyword) {
@@ -45,7 +49,7 @@ export class SupplierService {
     }
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
-      this.prisma.supplier.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.supplier.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.supplier.count({ where }),
     ]);
     // 附带被引用合同数
@@ -62,24 +66,50 @@ export class SupplierService {
     const list = await this.prisma.supplier.findMany({
       where,
       orderBy: { name: 'asc' },
+      // 供应商是全库共享主数据，无 take 时下拉会把全部启用供应商一次性读进内存
+      // （第 15/16 轮审计）；500 与列表页上限同口径，再多靠 keyword 远程搜索。
+      take: 500,
       select: { id: true, name: true, legalPerson: true, contactName: true, contactPhone: true, bankName: true, bankAccount: true },
     });
     return list;
   }
 
   async findOne(id: string) {
-    const s = await this.prisma.supplier.findUnique({ where: { id } });
+    // 项目口径（第 3 轮审计）：与列表/下拉一致。原来按 id 直读不限项目，
+    // 换个 id 就能看到别的项目私有供应商（含开户行/账号/联系人电话）。
+    const s = await this.prisma.supplier.findFirst({
+      where: { id, ...(await this.scopeWhere(requestContext.projectId)) },
+    });
     if (!s) throw new NotFoundException('供应商不存在');
     return s;
   }
 
-  async create(data: any, projectId?: string) {
+  /**
+   * 按名称查找**当前项目可见**的供应商（受 `supplier.share.scope` 控制）。
+   *
+   * 供「AI 文件登记」等复用：`scope=PROJECT` 时不能按全局名称复用，
+   * 否则会把别项目的私有供应商（连同其开户行/账号）复用到本项目的合同上。
+   */
+  async findByName(name: string, projectId?: string) {
+    const n = String(name ?? '').trim();
+    if (!n) return null;
+    return this.prisma.supplier.findFirst({
+      where: { name: n, ...(await this.scopeWhere(projectId ?? requestContext.projectId)) },
+    });
+  }
+
+  /**
+   * 新建供应商。`tx` 用于把「建供应商」并入调用方的事务（AI 文件登记：合同失败时
+   * 不能留下孤儿供应商，2026-10-20 审计 P1-6），不传则走普通连接。
+   */
+  async create(data: any, projectId?: string, tx?: TxClient) {
+    const db: any = tx || this.prisma;
     if (!data.name) throw new BadRequestException('供应商名称不能为空');
-    const exist = await this.prisma.supplier.findUnique({ where: { name: data.name } });
+    const exist = await db.supplier.findUnique({ where: { name: data.name } });
     if (exist) throw new BadRequestException('供应商名称已存在（系统内唯一）');
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     const payload = pickFields(data, SUPPLIER_FIELDS, { label: '供应商' });
-    return this.prisma.supplier.create({ data: { ...payload, projectId: scope === 'PROJECT' ? projectId : null } });
+    return db.supplier.create({ data: { ...payload, projectId: scope === 'PROJECT' ? projectId : null } });
   }
 
   async update(id: string, data: any) {
@@ -95,8 +125,22 @@ export class SupplierService {
   }
 
   async remove(id: string) {
-    const count = await this.prisma.contract.count({ where: { supplierId: id } });
-    if (count > 0) throw new BadRequestException(`该供应商已被 ${count} 份合同引用，不可删除，仅可停用`);
+    /**
+     * 先过 `findOne`（第 21 轮审计）：它按项目口径过滤，别项目的私有供应商在这里就是 404。
+     * 原来直接 `delete({ where: { id } })`——拿到别项目的 supplierId 就能删掉对方的主数据
+     * （引用检查也只查得到**本库全局**的引用，拦不住跨项目删除），且 id 不存在时抛裸 P2025 → 500。
+     */
+    await this.findOne(id);
+    // 引用检查覆盖所有非 SetNull 外键：合同之外，还款协议/收领单/资产台账的
+    // supplierId 无 onDelete 级联，漏查会让 Prisma 抛裸 P2003（500）。
+    const [contracts, repayments, receipts, assets] = await Promise.all([
+      this.prisma.contract.count({ where: { supplierId: id } }),
+      this.prisma.repaymentAgreement.count({ where: { supplierId: id } }),
+      this.prisma.receiptOrder.count({ where: { supplierId: id } }),
+      this.prisma.assetLedger.count({ where: { supplierId: id } }),
+    ]);
+    const total = contracts + repayments + receipts + assets;
+    if (total > 0) throw new BadRequestException(`该供应商已被 ${total} 处业务数据引用（合同/还款协议/收领单/资产台账），不可删除，仅可停用`);
     return this.prisma.supplier.delete({ where: { id } });
   }
 
@@ -126,13 +170,15 @@ export class SupplierService {
   }
 
   async export(projectId?: string) {
-    const res = await this.findAll({ pageSize: 500 }, projectId);
+    // pageSize 写死 500 会让导出静默截断（paginate 的默认上限也是 500）：这里显式放到
+    // IMPORT_MAX_ROWS，与其它模块的导出口径一致（supplier.share.scope=GLOBAL 时是全库共享）
+    const res = await this.findAll({ pageSize: IMPORT_MAX_ROWS }, projectId, IMPORT_MAX_ROWS);
     const rows = (res.list as any[]).map((s) => ({ ...s, status: s.status === 1 ? '启用' : '停用' }));
     return this.excel.export(this.columns(), rows, '供应商库');
   }
 
   /** 供应商信息导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async import(buffer: Buffer, projectId?: string, meta?: { fileName?: string; user?: any }) {
+  async import(buffer: Buffer, projectId?: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
@@ -142,8 +188,22 @@ export class SupplierService {
         const name = String(r['供应商名称'] ?? '').trim();
         if (!name) throw new RowError('供应商名称为必填项', '供应商名称');
         notDup(name, `供应商名称「${name}」在本次导入中重复`, '供应商名称');
+        /**
+         * 项目隔离（第 22 轮审计 P1-5）：`Supplier.name` 是全库唯一，但 scope=PROJECT 时一行只属于一个项目。
+         * 原来只在 write 阶段按 name 查一次就 update，A 项目导入同名供应商会把 B 项目的
+         * 银行账号/联系人/状态一并改掉（version+1，无任何痕迹）。这里在 plan 阶段就挡掉，行号可回显。
+         */
+        const exist: any = await this.prisma.supplier.findUnique({
+          where: { name },
+          select: { id: true, projectId: true },
+        });
+        if (exist && scope === 'PROJECT' && (exist.projectId ?? null) !== ownerProjectId) {
+          const where = exist.projectId ? '其他项目' : '全局共享库';
+          throw new RowError(`供应商名称「${name}」已被${where}占用，本项目不能再导入同名供应商`, '供应商名称');
+        }
         return {
           name,
+          existingId: exist?.id ?? null,
           payload: {
             name,
             legalPerson: r['法人姓名'] || null,
@@ -158,17 +218,17 @@ export class SupplierService {
             bankAccount: r['银行账号'] || null,
             address: r['公司地址'] || null,
             remark: r['备注'] || null,
-            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+            // 状态口径（第 22 轮审计 P2-11）：原来只认字符串 '停用'，'停用 '（尾随空格）、'0'、'禁用' 全被当成启用
+            status: SUPPLIER_DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
           },
         };
       },
       write: async (plans, tx) => {
         let created = 0;
         let updated = 0;
-        for (const p of plans) {
-          const exist = await tx.supplier.findUnique({ where: { name: p.name } });
-          if (exist) {
-            await tx.supplier.update({ where: { id: exist.id }, data: { ...p.payload, version: { increment: 1 } } });
+        for (const p of plans as any[]) {
+          if (p.existingId) {
+            await tx.supplier.update({ where: { id: p.existingId }, data: { ...p.payload, version: { increment: 1 } } });
             updated++;
           } else {
             await tx.supplier.create({ data: { ...p.payload, projectId: ownerProjectId } });
@@ -177,7 +237,7 @@ export class SupplierService {
         }
         return { created, updated };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 
   /** 供应商信息填写模板（需求 3.3，实际字段口径） */

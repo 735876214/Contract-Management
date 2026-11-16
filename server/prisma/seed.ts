@@ -47,10 +47,20 @@ const PERMISSIONS = [
   { code: 'finance:edit', name: '维护资金费用台账', module: '资金费用台账' },
   { code: 'asset:view', name: '查看资产管理台账', module: '资产管理台账' },
   { code: 'asset:edit', name: '维护资产管理台账', module: '资产管理台账' },
+  // 分包管理（原「劳务管理」，统一改名）/ 成本管理（附件需求 2026-10-17 新增模块）
+  { code: 'labor:view', name: '查看分包授权台账', module: '分包管理' },
+  { code: 'labor:edit', name: '维护分包授权台账', module: '分包管理' },
+  { code: 'cost:view', name: '查看成本台账', module: '成本管理' },
+  { code: 'cost:edit', name: '维护成本台账', module: '成本管理' },
+  // 项目资料归档（一键打包下载）
+  { code: 'archive:view', name: '查看项目资料归档', module: '项目资料归档' },
   { code: 'system:user', name: '用户与角色管理', module: '系统管理' },
   { code: 'system:role', name: '角色管理', module: '系统管理' },
   { code: 'system:config', name: '系统参数配置', module: '系统管理' },
   { code: 'system:log', name: '日志查看', module: '系统管理' },
+  // AI 助手（2026-10-19）：view = 看入口与字段目录；use = 真正消耗配额的扫描与回填
+  { code: 'ai:view', name: '查看 AI 助手', module: 'AI 助手' },
+  { code: 'ai:use', name: '使用 AI 助手', module: 'AI 助手' },
 ];
 
 const SYS_PARAMS = sysParams.map((p) => ({ key: p.key, value: p.value ?? '', remark: p.remark ?? '' }));
@@ -136,7 +146,11 @@ async function main() {
       create: { roleId: roleManager.id, permissionId: p.id },
     });
   }
-  const staffPermCodes = PERMISSIONS.filter((p) => p.code.endsWith(':view')).map((p) => p.code);
+  const staffPermCodes = [
+    ...PERMISSIONS.filter((p) => p.code.endsWith(':view')).map((p) => p.code),
+    // AI 助手是录入效率工具：普通员工既要看到入口，也要真的能用（2026-10-19）
+    'ai:use',
+  ];
   for (const p of allPerms.filter((x) => staffPermCodes.includes(x.code))) {
     await prisma.rolePermission.upsert({
       where: { roleId_permissionId: { roleId: roleStaff.id, permissionId: p.id } },
@@ -428,16 +442,16 @@ async function main() {
 
   // ---------- 合同模板 ----------
   if ((await prisma.contractTemplate.count()) === 0) {
-    const tplContent = `<h2 style="text-align:center">{合同名称}</h2>
-<p>合同编号：{合同编号}　　项目名称：{项目名称}</p>
+    const tplContent = `<h2 style="text-align:center">{{合同名称}}</h2>
+<p>合同编号：{{合同编号}}　　项目名称：{{项目名称}}</p>
 <p>甲方：本公司</p>
-<p>乙方：{供应商名称}</p>
-<p>法定代表人：{法人姓名}（电话：{法人电话}）</p>
-<p>合同授权人：{合同授权人姓名}（电话：{合同授权人电话}，身份证号：{合同授权人身份证号}）</p>
-<p>联系人：{联系人姓名}　电话：{联系人电话}　邮箱：{联系人邮箱}</p>
-<p>开户银行：{银行名称}　银行账号：{银行账号}</p>
-<p>公司地址：{公司地址}</p>
-<p>合同金额：{合同额} 元，税率：{税率}，付款方式：{合同约定付款方式}，签订日期：{签订日期}。</p>
+<p>乙方：{{供应商名称}}</p>
+<p>法定代表人：{{法人姓名}}（电话：{{法人电话}}）</p>
+<p>合同授权人：{{合同授权人姓名}}（电话：{{合同授权人电话}}，身份证号：{{合同授权人身份证号}}）</p>
+<p>联系人：{{联系人姓名}}　电话：{{联系人电话}}　邮箱：{{联系人邮箱}}</p>
+<p>开户银行：{{银行名称}}　银行账号：{{银行账号}}</p>
+<p>公司地址：{{公司地址}}</p>
+<p>合同金额：{{合同额}} 元，税率：{{税率}}，付款方式：{{合同约定付款方式}}，签订日期：{{签订日期}}。</p>
 <p>一、工程概况及承包范围……</p>
 <p>二、合同价款与支付方式……</p>
 <p>三、质量标准与验收……</p>
@@ -477,10 +491,10 @@ async function main() {
       },
     });
     await prisma.contractTemplate.create({
-      data: { name: '框架协议标准模板', categoryCode: 'FRAMEWORK', status: 1, version: 1, content: '<h2 style="text-align:center">框架协议</h2><p>甲方：本公司　乙方：{供应商名称}</p><p>联系人：{联系人姓名} {联系人电话}</p>', createdBy: admin.id },
+      data: { name: '框架协议标准模板', categoryCode: 'FRAMEWORK', status: 1, version: 1, content: '<h2 style="text-align:center">框架协议</h2><p>甲方：本公司　乙方：{{供应商名称}}</p><p>联系人：{{联系人姓名}} {{联系人电话}}</p>', createdBy: admin.id },
     });
     await prisma.contractTemplate.create({
-      data: { name: '涨价补充协议模板', categoryCode: 'PRICE_UP', status: 1, version: 1, content: '<h2 style="text-align:center">涨价补充协议</h2><p>原合同编号：{合同编号}</p><p>乙方：{供应商名称}</p>', createdBy: admin.id },
+      data: { name: '涨价补充协议模板', categoryCode: 'PRICE_UP', status: 1, version: 1, content: '<h2 style="text-align:center">涨价补充协议</h2><p>原合同编号：{{合同编号}}</p><p>乙方：{{供应商名称}}</p>', createdBy: admin.id },
     });
     // 参考真实合同（紫金街项目步道砖、盲道砖采购合同）整理的采购执行合同模板
     const { variables, ...purchaseExec } = PURCHASE_EXEC_TEMPLATE;

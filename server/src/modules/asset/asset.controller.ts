@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('assets')
@@ -16,6 +17,13 @@ export class AssetController {
   @Get()
   findAll(@Query() query: any, @ProjectId() projectId: string) {
     return this.service.findAll(query, projectId);
+  }
+
+  /** 物资进出场汇总（零新表：按来源聚合数量/金额，2026-10-18） */
+  @RequirePermissions('asset:view')
+  @Get('flow-summary')
+  flowSummary(@Query() query: any, @ProjectId() projectId: string) {
+    return this.service.flowSummary(projectId, query);
   }
 
   @RequirePermissions('asset:view')
@@ -40,10 +48,19 @@ export class AssetController {
   /** 上传导入数据（需求 3.4） */
   @RequirePermissions('asset:edit')
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importAssets(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
     return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user });
+  }
+
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('asset:edit')
+  @Post('import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importAssetsValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 
   @RequirePermissions('asset:edit')
@@ -54,13 +71,13 @@ export class AssetController {
 
   @RequirePermissions('asset:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   @RequirePermissions('asset:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

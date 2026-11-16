@@ -1,0 +1,40 @@
+# 构建上下文为仓库根目录（docker build -f deploy/single/Dockerfile.single .）
+# 不排除这些内容会导致：上下文体积巨大（构建慢），且本地 node_modules（可能是
+# Windows/macOS 平台二进制）被 COPY 进镜像覆盖 Linux 依赖，运行直接崩溃。
+
+# 依赖与构建产物
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.turbo
+**/.vite
+**/*.tsbuildinfo
+
+# 版本控制 / CI / 编辑器 / 本机 AI 工具目录
+.git
+.github
+.vscode
+.idea
+.DS_Store
+.codebuddy
+.workbuddy
+
+# 环境变量、本地数据与日志
+.env
+.env.*
+**/*.db
+**/*.db-journal
+**/uploads
+**/tmp
+**/*.log
+
+# 本地调试数据目录（docker-compose.dev.yml）
+data
+data-dev
+
+# 与运行镜像无关的仓库内容
+docs
+scripts
+hooks
+*.png

@@ -67,14 +67,16 @@ export async function fetchModuleTemplate(
     if (templateId) {
       const res: any = await procurementApi.detail(templateId);
       const row = res?.data ?? res;
-      if (row?.content) {
+      // 停用模板不参与生成（对齐合同模板：只用启用中的模板）
+      if (row?.content && row?.status !== 0) {
         return { id: row.id, templateName: row.templateName ?? '', content: row.content };
       }
       return null;
     }
-    const res: any = await procurementApi.list();
+    // 只取启用中的模板；分页形态与历史数组形态都兼容
+    const res: any = await procurementApi.list({ status: 1, pageSize: 500 });
     const list: any[] = res?.list ?? res?.data?.list ?? (Array.isArray(res) ? res : []);
-    const row = list.find((t) => t?.moduleType === moduleType && t?.content);
+    const row = list.find((t) => t?.moduleType === moduleType && t?.content && t?.status !== 0);
     if (row) return { id: row.id, templateName: row.templateName ?? '', content: row.content };
     return null;
   } catch {

@@ -1,68 +1,117 @@
-# 合同管理系统（CMS）Docker 部署 —— 面向 NAS（群晖 / 威联通 / Unraid）
-# 架构：前端 nginx（构建产物 + 反向代理 /api） + 后端 NestJS（SQLite 持久化）
-# 默认使用 SQLite，零外部依赖；HTTPS / 域名反向代理交给 NAS 的 Reverse Proxy 处理。
+# CMS 部署：前后端合并为「一个」容器（内部 nginx 托管前端并把 /api 反代到同容器 127.0.0.1:3000）
+# 数据库：PostgreSQL（单一数据库，已移除 SQLite 演示变体）
 #
-# 核心：镜像已从 GitHub Container Registry（ghcr.io）预构建并设为 PUBLIC，
-# 所以 NAS 部署【无需源码、无需 GITHUB_TOKEN、无需本地构建】，直接 pull 公开镜像即可运行。
-# 每次 `docker compose up -d` 都会因 `pull_policy: always` 拉取 GitHub Actions 刚构建推送的最新镜像，
-# 即“每次从 GitHub 拉最新代码”（Actions 在 push 到 main 时自动重建并推送镜像）。
+# 部署前准备：复制 .env.example 为 .env（.env 已被 .gitignore 排除，绝不入库），填四项：
+#   ① POSTGRES_PASSWORD  数据库口令（openssl rand -base64 24）
+#   ② JWT_SECRET         会话签名密钥（openssl rand -base64 48）——缺省或占位值容器会启动即退出
+#   ③ DEFAULT_ADMIN_PASSWORD  空库首次启动自动建的管理员口令，登录后请立即再改一次
+#   ④ PGDATA_DIR / DATA_DIR   两个 NAS 数据目录的**绝对路径**（缺省回落到 /volume1/docker/cms/*）
+# 本文件里不写任何口令；变量缺失时 compose 直接报错退出，不会带空口令把服务拉起来。
 #
-# 部署步骤：
-#   1.（可选）cp .env.example .env 并填入你想覆盖的值（JWT_SECRET / CMS_DATA 已有内联默认值，不填也能跑）。
-#   2. docker compose up -d        # 直接拉公开镜像启动，无需 --build
-#   3. 在 NAS 反向代理中把 域名:443 -> 本机 ${CMS_HTTP_PORT:-9080}，并启用 HTTPS。
+# 用法：
+#   1. 直接拉预构建镜像（需先登录 ghcr.io，见下方说明）：
+#        docker compose pull && docker compose up -d
+#      想固定版本就把 image 的 tag 换成 CI 产出的 sha-<commit sha>。
+#   2. 本地构建（镜像不可访问时的兜底，推荐本机/无 PAT 场景）：
+#        docker compose up -d --build
+#      构建出来的就是同一个 ghcr.io/735876214/cms-single:latest tag；
+#      因为 pull_policy 是 missing，本地已有该 tag 时不会再尝试去远端拉。
 #
-# 端口说明：对外暴露端口由 ${CMS_HTTP_PORT:-9080} 控制（默认 9080，避免与 NAS 占用的
-#   80 / 8080 冲突）；容器内部仍是 80；后端不对外暴露端口，仅通过 frontend 的 nginx
-#   经 docker 内网代理访问。若 9080 也被占用，在 .env 设 CMS_HTTP_PORT=其他端口即可。
+# ⚠ ghcr.io/735876214/cms-single 目前【不是公开包】，匿名 pull 会报
+#   `error from registry: denied`。两种解法二选一：
+#   a) 登录 ghcr.io（需要有 read:packages 权限的 PAT）：
+#        docker logout ghcr.io
+#        docker login ghcr.io -u 735876214   # 密码填 PAT（勾选 read:packages）
+#      之后再 docker compose pull
+#   b) 永久解绑：GitHub → 个人头像 → Your packages → cms-single →
+#      Package settings → Danger Zone → Change visibility → Public
+#  若两者都不想做，直接用上面的「本地构建」方式。
 #
-# 镜像来源：ghcr.io/735876214/cms-backend:latest 、 ghcr.io/735876214/cms-frontend:latest
-# （由 .github/workflows/build.yml 在 push 到 main 时自动构建推送，含 amd64 / arm64 多架构）
+# 首次启动（空库）后端会自动 seed：默认管理员（DEFAULT_ADMIN_USERNAME/PASSWORD）、
+# 默认项目、字典类型/字典项/系统参数；已有数据则跳过，重复启动安全。
+# 数据持久化：PostgreSQL 数据与上传附件都落在下方 compose 里指定的两个 NAS 绝对路径
+#（bind mount，NAS 文件管理器直接可见、可纳入 NAS 的备份计划）。
+# 更新：手动执行 `docker compose pull && docker compose up -d`（有意不做 Watchtower / 计划任务自动更新）。
 
 services:
-  backend:
-    # 预构建公开镜像，无需本地构建、无需源码、无需 token
-    image: ghcr.io/735876214/cms-backend:latest
-    pull_policy: always   # 每次启动都拉最新镜像
-    container_name: cms-backend
+  postgres:
+    image: postgres:16-alpine
+    container_name: cms-postgres
     restart: unless-stopped
     environment:
-      NODE_ENV: production
-      PORT: "3000"
-      # SQLite 数据文件落在 bind mount 目录内，容器重建不丢数据
-      DATABASE_URL: "file:/data/cms.db"
-      # JWT 密钥：内联默认值（已从 .env 取的真实密钥），若宿主机 .env 设了 JWT_SECRET 则覆盖
-      JWT_SECRET: "${JWT_SECRET:-LspmRt4t0rJQGpPA40W3T4CfEb8CxompaI9s64z1AeVpENsRMKLR3a2JamDyGfkn}"
-      JWT_EXPIRES_IN: "7d"
-      # 上传文件也存进 bind mount 目录
-      UPLOAD_DIR: "/data/uploads"
-    # bind mount 到 NAS 共享文件夹（已内联群晖默认路径，可直接跑；如用其他 NAS 改此行即可）
-    # 群晖   ：/volume1/docker/cms/data
-    # 威联通 ：/share/CACHEDEV1_DATA/Container/cms/data
-    # Unraid ：/mnt/user/appdata/cms/data
-    # 注：若宿主机 .env 设了 CMS_DATA，会覆盖此内联路径。
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置：请复制 .env.example 为 .env 并填写}
+      POSTGRES_DB: cms
+      TZ: Asia/Shanghai
     volumes:
-      - /volume1/docker/cms/data:/data
-    expose:
-      - "3000"
+      - ${PGDATA_DIR:-/volume1/docker/cms/pgdata}:/var/lib/postgresql/data   # ← NAS 绝对路径（建议写进 .env 的 PGDATA_DIR）
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cms:
+    image: ghcr.io/735876214/cms-single:latest
+    pull_policy: missing         # 本地已有同名 tag（含本地构建产物）就不拉远端；取最新请显式 docker compose pull
+    # 本地构建：docker compose up -d --build
+    build:
+      context: .                 # 必须在仓库根目录执行（Dockerfile 里 COPY server/ web/ deploy/）
+      dockerfile: deploy/single/Dockerfile.single
+    container_name: cms
+    init: true                   # 以 tini 作 PID1，正确转发信号、回收僵尸进程
+    restart: unless-stopped      # 被终止后自动重启，缓解平台自动回收问题
+    stop_grace_period: 30s       # 给 start.sh 优雅停后端 + nginx 的时间
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${CMS_PORT:-9080}:8080"   # 对外端口：宿主机 → 容器 8080；改 .env 的 CMS_PORT
+    environment:
+      NODE_ENV: production
+      PORT: "3000"               # 容器内后端端口，nginx /api 固定反代到这里
+      TZ: Asia/Shanghai          # 合同到期日 / 时间戳按本地时区计算，避免差 8 小时
+      # PostgreSQL 连接：账号/口令/库名全部取自 .env，与上方 postgres 服务用同一组变量
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-cms}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-cms}?schema=public"
+      # JWT 签名密钥：必须换成随机值（openssl rand -base64 48）。
+      # 不改就上外网 = 任何拿到这串占位值的人都能伪造登录态，等于裸奔。
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：用 openssl rand -base64 48 生成后写进 .env}
+      JWT_EXPIRES_IN: "7d"
+      UPLOAD_DIR: "/data/uploads"
+      # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
+      # AI 助手（可选）：「模板智能填报」用；三项齐全才启用，缺任一项功能自动降级为「手工映射」。
+      # 兼容 OpenAI Chat Completions 协议。
+      # 【推荐】部署后在「系统管理 → AI 信息登记」页面直接填这三项：存进数据库、保存即生效、不用重启；
+      #         页面登记优先于下面的环境变量（逐项回落），也就不用把密钥写进 compose 文件。
+      # 下面的环境变量留给「页面还没登记」的场景，谁配都行，二选一即可。
+      # AI_BASE_URL: "https://your-llm-gateway.example/v1"
+      # AI_API_KEY: "sk-..."
+      # AI_MODEL: "cn:deepseek-v4.1-flash"
+      # 用途级模型（可选，2026-10-23）：不填就都用上面的 AI_MODEL；页面「按用途指定模型」优先于这里。
+      # AI_MODEL_FORM_INSPECT / AI_MODEL_REGISTER / AI_MODEL_REPORT / AI_MODEL_ANOMALY
+      # 汇报材料导出 PDF 要内嵌中文字体（镜像已装 fonts-wqy-zenhei，会自动探测）。
+      # 注意：pdf-lib 只能正确嵌 TrueType 轮廓，CFF 类的 Noto CJK / 思源会渲染成乱码，程序会跳过它们。
+      # 想用自己的字体就指定绝对路径（.ttf，或 TrueType 轮廓的 .ttc，会自动拆成单字体）：
+      # AI_PDF_FONT: "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+    # 上传文件目录：改成你的 NAS 实际目录（与 postgres 的数据路径放同一父目录便于备份）
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/cms/data}:/data   # ← NAS 绝对路径（建议写进 .env 的 DATA_DIR）
     # 限制日志体积，防止 NAS 磁盘被 Docker 日志写满
     logging:
       options:
         max-size: "10m"
         max-file: "3"
-
-  frontend:
-    image: ghcr.io/735876214/cms-frontend:latest
-    pull_policy: always
-    container_name: cms-frontend
-    restart: unless-stopped
-    # 对外端口可配置（默认 9080，避免与 NAS 已占用的 80 / 8080 冲突）
-    # 若 9080 也被占用，在宿主机 .env 设 CMS_HTTP_PORT=其它端口（如 18080）再 up 即可。
-    ports:
-      - "${CMS_HTTP_PORT:-9080}:80"
-    depends_on:
-      - backend
-    logging:
-      options:
-        max-size: "10m"
-        max-file: "3"
+    healthcheck:
+      # 基础镜像（node:20-slim）默认无 wget，改用 node 探测对外端口
+      test: ["CMD", "node", "-e", "require('net').connect(8080,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3

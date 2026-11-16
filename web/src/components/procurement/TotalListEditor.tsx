@@ -73,7 +73,7 @@ const renderNumber = (
 
 /** 合价列：自动计算（单价 × 数量），只读（需求修正 修改一） */
 const renderAmount = (price?: number | null, qty?: number | null) => {
-  if (price == null && qty == null) return <span style={{ color: '#bfbfbf' }}>-</span>;
+  if (price == null && qty == null) return <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>;
   const v = calcAmount(price, qty);
   return <span>{v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>;
 };
@@ -91,6 +91,12 @@ export interface TotalListEditorContentProps {
   onSaved?: (res: any) => void;
   /** 发布成功后回调（刷新任务列表状态） */
   onPublished?: () => void;
+  /**
+   * 单元格被改动时回调（新增/删除行、改任一可编辑单元格）。
+   * 供**外层流程**（采购发起的三步向导）标记"有未保存内容"，从而在关闭编辑器页签前给出确认——
+   * 清单的未保存内容只活在本组件的 state 里，外层看不见，不报一声就会被静默丢掉。
+   */
+  onDirty?: () => void;
 }
 
 /** 对外暴露的动作（供外层 footer 调用；问题三：第二步「保存并发布」由外层触发） */
@@ -106,7 +112,7 @@ export interface TotalListContentRef {
  * 5 个合价列自动计算不可改；表底显示各合价汇总行。
  */
 export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListEditorContentProps>(
-  function TotalListEditorContent({ task, embedded, readOnly, onSaved, onPublished }, ref) {
+  function TotalListEditorContent({ task, embedded, readOnly, onSaved, onPublished, onDirty }, ref) {
   const [units, setUnits] = useState<DictOption[]>([]);
   const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [rows, setRows] = useState<TotalRow[]>([]);
@@ -172,6 +178,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
 
   const patchRow = (key: string, patch: Partial<TotalRow>) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    onDirty?.();
   };
 
   /** 选择物资：自动带出名称/规格/计量单位默认值并直接显示（需求 2.2.1 / 2.2.2 / 修改三） */
@@ -189,9 +196,15 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
     });
   };
 
-  const addRow = () => setRows((prev) => [...prev, { key: nextKey() }]);
+  const addRow = () => {
+    setRows((prev) => [...prev, { key: nextKey() }]);
+    onDirty?.();
+  };
 
-  const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key));
+  const removeRow = (key: string) => {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+    onDirty?.();
+  };
 
   /** 合价汇总（需求修正 修改一：表底汇总行） */
   const totals = useMemo(() => {
@@ -287,10 +300,12 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
   });
 
   const columns: ColumnsType<TotalRow> = [
-    { title: '序号', width: 52, render: (_, __, i) => i + 1 },
+    { title: '序号', width: 52, fixed: 'left' as const, render: (_, __, i) => i + 1 },
     {
       title: '物资名称',
       width: 190,
+      // 横向滚动时冻结：这是识别"哪一行"的那一列（表宽 1620，不冻结很容易看串行）
+      fixed: 'left' as const,
       render: (_, r) =>
         viewOnly ? (
           r.materialName || '-'
@@ -311,7 +326,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       // 需求修正（修改三）：选择物资后直接显示真实规格型号，不再显示占位文字
       title: '规格型号',
       width: 130,
-      render: (_, r) => r.spec || <span style={{ color: '#bfbfbf' }}>-</span>,
+      render: (_, r) => r.spec || <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>,
     },
     {
       title: '计量单位',
@@ -346,7 +361,7 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       render: (_, r) => {
         const over = r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice;
         return (
-          <span style={over ? { color: '#cf1322' } : undefined} title={over ? '控制价超市场单价，重新修改' : undefined}>
+          <span style={over ? { color: 'var(--cms-error)' } : undefined} title={over ? '控制价超市场单价，重新修改' : undefined}>
             {renderNumber(r.planPrice, (v) => patchRow(r.key, { planPrice: v }), viewOnly)}
           </span>
         );
@@ -357,13 +372,14 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
       onCell: (r: TotalRow) => ({
         style:
           r.planPrice != null && r.marketPrice != null && r.planPrice > r.marketPrice
-            ? { color: '#cf1322' }
+            ? { color: 'var(--cms-error)' }
             : undefined,
       }),
     },
     {
       title: '操作',
       width: 70,
+      fixed: 'right' as const,
       render: (_, r) =>
         viewOnly ? null : (
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeRow(r.key)}>
@@ -408,7 +424,21 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
         <Alert
           type="warning"
           showIcon
-          message="物资名称/规格型号只能从物资基础库选择；计量单位默认带出、可改为字典值（提交时同步到基础库）；预计采购单价不得高于市场单价。合价列与表底汇总由系统自动计算，保存后按「预计采购合价合计 ≥ 100 万元」自动判定是否需要采前会会议纪要。"
+          message={
+            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+              <li>
+                物资名称 / 规格型号只能从<b>物资基础库</b>选择（不能手输）；
+              </li>
+              <li>计量单位默认带出，可改为字典内的其他单位，提交时同步回基础库；</li>
+              <li>
+                预计采购单价<b>不得高于市场单价</b>；
+              </li>
+              <li>
+                合价列与表底汇总由系统自动计算；保存后按「预计采购合价合计 ≥ 100 万元」
+                自动判定是否需要采前会会议纪要。
+              </li>
+            </ul>
+          }
         />
       )}
       <Table<TotalRow>
@@ -439,11 +469,13 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
           </Table.Summary>
         )}
         footer={() =>
-          !viewOnly && (
+          // 只在**空态**给底部的虚线引导按钮：顶部已经有实心的「添加物资」主操作，
+          // 两处都给会在有数据时显得冗余（改造前的真实观感问题）
+          !viewOnly && rows.length === 0 ? (
             <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
               添加物资
             </Button>
-          )
+          ) : null
         }
       />
       {rows.length > 0 && (
@@ -481,7 +513,7 @@ export default function TotalListEditor({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <TotalListEditorContent task={task} readOnly />
     </Modal>

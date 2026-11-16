@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 /**
  * 采购模块预览与发布统一流程（批次四 · 任务 4.2）
  *
@@ -158,31 +160,36 @@ export default function PreviewPublishModal({
       ]}
       onCancel={onClose}
     >
-      {tipMessage && mode === 'publish' && (
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message={tipMessage} />
-      )}
-      {tplName && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={`本模块已配置采购模板「${tplName}」，以下内容以模板为底稿生成。`}
-        />
-      )}
-      <Spin spinning={building} tip="正在生成预览…">
-        <div
-          style={{
-            maxHeight: '58vh',
-            minHeight: 120,
-            overflow: 'auto',
-            border: '1px solid #eee',
-            padding: 24,
-          }}
-          dangerouslySetInnerHTML={{
-            __html: highlightPlaceholders(html) || '<p style="color:#999">暂无内容</p>',
-          }}
-        />
-      </Spin>
+      {/* 容器标记：预览区按**弹窗自身宽度**降级（DESIGN.md §10.2）——
+          桌面视口 + 窄弹窗时 `.doc-preview` 也会收敛，这是 V1 的视口判断做不到的 */}
+      <div className="cq">
+        {tipMessage && mode === 'publish' && (
+          <Alert type="info" showIcon style={{ marginBottom: 12 }} message={tipMessage} />
+        )}
+        {tplName && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`本模块已配置采购模板「${tplName}」，以下内容以模板为底稿生成。`}
+          />
+        )}
+        <Spin spinning={building} tip="正在生成预览…">
+          <div
+            className="doc-preview"
+            style={{
+              maxHeight: '58vh',
+              minHeight: 120,
+              overflow: 'auto',
+              border: '1px solid var(--cms-hairline-soft)',
+              // padding 交由 .doc-preview 做容器级收敛（DESIGN.md §10.2）
+            }}
+            dangerouslySetInnerHTML={{
+              __html: sanitizeHtml(highlightPlaceholders(html)) || '<p style="color:var(--cms-muted-soft)">暂无内容</p>',
+            }}
+          />
+        </Spin>
+      </div>
     </Modal>
   );
 }

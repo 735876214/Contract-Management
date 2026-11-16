@@ -75,6 +75,7 @@ export default function MaterialPoolTab({
           {
             title: '操作',
             width: 90,
+            fixed: 'right',
             render: (_, row) => (
               <Popconfirm title="确认删除该物料？其在合同清单中的行也会一并移除。" onConfirm={() => handleRemove(row.id)}>
                 <Button type="link" size="small" danger icon={<DeleteOutlined />}>

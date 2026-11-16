@@ -40,8 +40,8 @@ export class RepaymentController {
 
   @RequirePermissions('repayment:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('repayment:edit')
@@ -52,13 +52,13 @@ export class RepaymentController {
 
   @RequirePermissions('repayment:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   @RequirePermissions('repayment:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

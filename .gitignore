@@ -16,6 +16,14 @@ uploads/
 .env
 .env.local
 .env.*.local
+# 备份/临时 env 一律不入库（含 .env.postgres.bak 这类）
+.env.*.bak
+
+# docker 部署数据目录（compose 默认 ./data）
+data/
+
+# 本地开发调试的数据目录（docker-compose.dev.yml 默认 ./data-dev）
+data-dev/
 
 # logs
 *.log
@@ -32,5 +40,29 @@ pnpm-debug.log*
 .npm-cache/
 *.timestamp-*.mjs
 
-# 本项目使用 pnpm 锁定依赖，避免 npm 生成的 lock 文件入库
-package-lock.json
+# 依赖锁文件（server/package-lock.json、web/package-lock.json）**必须入库**：
+# 镜像（deploy/single/Dockerfile.single）与 CI 均用 `npm ci --legacy-peer-deps`，
+# 没有锁文件就无法复现构建。2026-10 起统一为 npm，原 pnpm-lock.yaml 因过期已移除（详见 README）。
+
+
+# 备份产物（scripts/backup.sh 的输出，绝不入库）
+backups/
+.drill/
+data-drill/
+
+# 构建/测试临时目录（曾被误提交，见 a255be6）
+.tmpbuild/
+
+# 并行开发：每任务一棵 git worktree（本机生成，不入库）
+.worktrees/
+# 模块级验收的临时 tsconfig、锁文件与临时上传目录
+web/tsconfig.verify.json
+server/.verify.lock
+.tmp-uploads/
+
+# NAS 部署运行态：宿主 compose 副本含 JWT_SECRET，备份含数据库，均不入库
+deploy/nas/docker-compose.yml
+backups/
+
+# Claude Code / DSH 的本地设置（含本机路径与环境切换器状态，因人而异）
+.claude/settings.local.json

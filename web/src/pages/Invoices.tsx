@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -23,11 +23,22 @@ import { invoiceApi } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import DictSelect, { DictTag } from '@/components/DictSelect';
+import SettlementLinkSelect from '@/components/SettlementLinkSelect';
 import Uploader, { UploadFile } from '@/components/Uploader';
 import ImportButton from '@/components/ImportButton';
+import Can from '@/components/Can';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
+import { useTabsStore } from '@/store/tabs';
+import { INVOICE_STATUS, INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
+import { LIST_PATHS } from '@/constants/listPaths';
 
 const money = (v: number) =>
   v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+
+/** 列表与「收票登记/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = LIST_PATHS.invoice;
 
 /** 发票管理（问题四：统一标准列表页规约） */
 export default function Invoices() {
@@ -35,7 +46,8 @@ export default function Invoices() {
   /** 筛选用字典选项 */
   const [dicts, setDicts] = useState<Record<string, DictOption[]>>({});
   useEffect(() => {
-    contractApi.list({ pageSize: 1000 }).then((res: any) => setContracts(res?.list || []));
+    // 用轻量 options 接口：列表接口的 pageSize 上限是 500，合同超过 500 份时后续合同在下拉里会静默消失
+    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
     const types = ['goods_category', 'invoice_type', 'invoice_status', 'invoice_review_status'];
     Promise.all(types.map((t) => dictApi.options(t).catch(() => []))).then((lists) => {
       const map: Record<string, DictOption[]> = {};
@@ -43,28 +55,285 @@ export default function Invoices() {
       setDicts(map);
     });
   }, []);
-  const contractOptions = contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` }));
+  const contractOptions = useMemo(
+    () => contracts.map((c) => ({ value: c.id, label: `${c.code} ${c.name}` })),
+    [contracts],
+  );
 
-  return <InvoiceTab contractOptions={contractOptions} dicts={dicts} />;
+  const editorTab = useEditorTab(LIST_PATH);
+  if (editorTab.isEditor) {
+    return <InvoiceEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+  }
+  return <InvoiceList contractOptions={contractOptions} dicts={dicts} />;
 }
 
-function InvoiceTab({
+function InvoiceList({
   contractOptions,
   dicts,
 }: {
   contractOptions: any[];
   dicts: Record<string, DictOption[]>;
 }) {
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const canEdit = usePermission('invoice:edit');
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [listRefresh, setListRefresh] = useState(0);
+  const refreshList = () => setListRefresh((k) => k + 1);
+
+  const doVerify = async (id: string) => {
+    await invoiceApi.verify(id);
+    message.success('已标记为已查验');
+    refreshList();
+  };
+
+  /** 终态变更会影响台账/合同台账/履约/工作台：同时唤醒被缓存的列表标签 */
+  const refreshRelated = () => {
+    const bump = useTabsStore.getState().bumpRefresh;
+    bump(LIST_PATHS.settlementLedger);
+    bump(LIST_PATHS.contractLedger);
+    bump(LIST_PATHS.dashboard);
+  };
+
+  /** 作废/红冲共用确认文案：明确「不可撤销 + 不再计入金额口径」 */
+  const confirmTerminal = (row: ModuleListRow, kind: 'cancel' | 'red') => {
+    const label = kind === 'cancel' ? '作废' : '红冲';
+    Modal.confirm({
+      title: `确认${label}该发票？`,
+      content: `${label}后不可撤销。该发票将不再计入结算台账「本月开票额」、合同台账「开累发票金额」、履约开票比例与工作台统计；与原结算单的关联会保留用于追溯。${
+        kind === 'red' ? '若要登记红冲票并联动作废原发票，请在「收票登记」中把状态设为红冲并选择原发票。' : ''
+      }`,
+      okText: `确认${label}`,
+      okType: 'danger',
+      onOk: async () => {
+        if (kind === 'cancel') await invoiceApi.cancel(row.id);
+        else await invoiceApi.red(row.id);
+        message.success(`已${label}`);
+        refreshList();
+        refreshRelated();
+      },
+    });
+  };
+
+  const handleRemove = (row: ModuleListRow) => {
+    Modal.confirm({
+      title: '确认删除该发票记录？',
+      okText: '确认删除',
+      okType: 'danger',
+      onOk: async () => {
+        await invoiceApi.remove(row.id);
+        message.success('已删除');
+        refreshList();
+      },
+    });
+  };
+
+  /** 筛选项（问题四：标准筛选区） */
+  const extraFilters: ModuleListFilterField[] = [
+    { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
+    { key: 'goodsCategory', label: '商品类别', control: 'select', options: dicts.goods_category ?? [] },
+    { key: 'typeCode', label: '发票类型', control: 'select', options: dicts.invoice_type ?? [] },
+    { key: 'statusCode', label: '状态', control: 'select', options: dicts.invoice_status ?? [] },
+    { key: 'reviewStatus', label: '审核状态', control: 'select', options: dicts.invoice_review_status ?? [] },
+    { key: 'invoiceNo', label: '发票号码', control: 'input' },
+  ];
+
+  /** 表格列（问题四：generic 模式完整列定义） */
+  const extraColumns: any[] = [
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
+    { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v: any) => <DictTag typeCode="goods_category" value={v} /> },
+    { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
+    {
+      title: '结算单',
+      dataIndex: ['settlement', 'id'],
+      width: 160,
+      render: (_v: any, r: any) =>
+        r.settlement
+          ? `${r.settlement.settleDate ? String(r.settlement.settleDate).slice(0, 7) : ''}${r.settlement.code ? ` ${r.settlement.code}` : ''}`.trim()
+          : '未关联',
+    },
+    { title: '开票单位', dataIndex: 'issuer', width: 200, ellipsis: true },
+    { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v: any) => v?.slice(0, 10) },
+    { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
+    { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
+    {
+      title: '红冲原发票',
+      dataIndex: ['redOf', 'invoiceNo'],
+      width: 160,
+      render: (v: any) => v || '-',
+    },
+    {
+      title: '已被红冲',
+      dataIndex: 'redInvoices',
+      width: 160,
+      render: (v: any[]) => (v?.length ? v.map((x) => x.invoiceNo || '(无号码)').join('、') : '-'),
+    },
+    { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, align: 'right', render: money },
+    { title: '税率', dataIndex: 'taxRate', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
+    { title: '含税金额', dataIndex: 'amountWithTax', width: 140, align: 'right', render: money },
+    { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v: any) => v?.slice(0, 10) },
+    { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v: any) => <DictTag typeCode="invoice_review_status" value={v} /> },
+    { title: '责任人', dataIndex: 'responsiblePerson', width: 120 },
+    { title: '财务移交情况', dataIndex: 'financeTransferStatus', width: 130, render: (v: any) => <DictTag typeCode="finance_transfer_status" value={v} /> },
+    { title: '状态', dataIndex: 'statusCode', width: 110, render: (v: any) => <DictTag typeCode="invoice_status" value={v} /> },
+    { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
+  ];
+
+  return (
+    <>
+      <ModuleListPage
+        mode="generic"
+        columnConfigKey="invoice.list"
+        fetcher={(params) => invoiceApi.list(params)}
+        extraFilters={extraFilters}
+        extraColumns={extraColumns}
+        refreshKey={listRefresh + tabRefresh}
+        mobileDefaultKeys={['invoiceNo', 'issuer', 'invoiceDate', 'amountWithTax', 'statusCode']}
+        editPermission="invoice:edit"
+        onEdit={(row) => editorTab.openEdit(row.id, row)}
+        onDelete={handleRemove}
+        rowMenuItems={(row) =>
+          // 作废/红冲是终态：终态行不再显示状态类动作（编辑/删除仍保留）
+          !canEdit || isInvoiceTerminalStatus((row as any).statusCode)
+            ? []
+            : [
+                { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
+                { key: 'cancel', label: '作废', danger: true, onClick: () => confirmTerminal(row, 'cancel') },
+                { key: 'red', label: '红冲', danger: true, onClick: () => confirmTerminal(row, 'red') },
+              ]
+        }
+        toolbarLeft={
+          <Space wrap size={8}>
+            <Can code="invoice:edit">
+              <>
+                <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
+                  批量识别
+                </Button>
+                <ImportButton
+                  moduleName="发票台账"
+                  templateUrl={invoiceApi.templateUrl()}
+                  uploadUrl={invoiceApi.importUrl()} validateUrl={invoiceApi.validateUrl()}
+                  onDone={refreshList}
+                />
+              </>
+            </Can>
+            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
+              导出
+            </Button>
+            <Can code="invoice:edit">
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+                收票登记
+              </Button>
+            </Can>
+          </Space>
+        }
+      />
+
+      <BatchRecognizeModal
+        open={batchOpen}
+        contractOptions={contractOptions}
+        onClose={() => setBatchOpen(false)}
+        onDone={() => {
+          setBatchOpen(false);
+          refreshList();
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * 收票登记 / 编辑发票（表单正文从改造前的弹窗原样搬入，字段与校验规则未动）。
+ * 与列表是两个独立实例，故发票影像需要自己按 id 拉一次详情。
+ */
+function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
   const [form] = Form.useForm();
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
+  /** 结算单候选项依赖所选合同（结算单按「合同 + 月份」归属） */
+  const formContractId = Form.useWatch('contractId', form);
+  /** 状态为红冲时显示「红冲原发票」并加载候选（原票会被服务端自动作废） */
+  const formStatus = Form.useWatch('statusCode', form);
+  const [redCandidates, setRedCandidates] = useState<any[]>([]);
+  const [redLoading, setRedLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<UploadFile[]>([]);
   const [noStatus, setNoStatus] = useState<'' | 'error' | 'success'>('');
   const [noMsg, setNoMsg] = useState('');
   const [noTimer, setNoTimer] = useState<any>(null);
-  const [batchOpen, setBatchOpen] = useState(false);
-  const [listRefresh, setListRefresh] = useState(0);
-  const refreshList = () => setListRefresh((k) => k + 1);
+  const editingId = (seed as any)?.id as string | undefined;
+  const editing = seed as any | undefined;
+  /** 终态（作废/红冲）只能经列表行专用操作进入，编辑表单里锁定状态字段 */
+  const editingTerminal = isInvoiceTerminalStatus(editing?.statusCode);
+  const isCreate = !editingId;
+  const statusIsRed = (formStatus ?? editing?.statusCode) === INVOICE_STATUS.RED;
+  /** 红冲关系两侧都不能换合同：红冲票（有原票）与原票（已有红冲票） */
+  const contractLocked = !!editing?.redOfInvoiceId || (editing?.redInvoices?.length ?? 0) > 0;
+
+  /** 红冲原发票候选：同合同、未作废/未红冲；编辑中的红冲票要带上它已关联的原票（此时已 CANCELLED） */
+  useEffect(() => {
+    if (!formContractId || !statusIsRed) {
+      setRedCandidates([]);
+      return;
+    }
+    let alive = true;
+    setRedLoading(true);
+    /**
+     * 列表接口单页上限 500（同文件顶部的同款坑）：原票可能排在很后面，
+     * 只拉一页会让较早日期的发票从下拉里静默消失 → 按 total 继续翻页（上限 20 页防失控）。
+     */
+    const loadAll = async (): Promise<any[]> => {
+      const pageSize = 500;
+      const all: any[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const res: any = await invoiceApi.list({ contractId: formContractId, page, pageSize });
+        const list: any[] = res?.list || [];
+        all.push(...list);
+        if (list.length < pageSize || all.length >= Number(res?.total ?? all.length)) break;
+      }
+      return all;
+    };
+    loadAll()
+      .then((list) => {
+        if (!alive) return;
+        setRedCandidates(
+          list.filter(
+            (x) => x.id !== editingId && (!isInvoiceTerminalStatus(x.statusCode) || x.id === editing?.redOfInvoiceId),
+          ),
+        );
+      })
+      .catch(() => alive && setRedCandidates([]))
+      .finally(() => alive && setRedLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [formContractId, statusIsRed, editingId, editing?.redOfInvoiceId]);
+
+  useEffect(() => {
+    const load = async () => {
+      form.resetFields();
+      setImages([]);
+      setNoStatus('');
+      setNoMsg('');
+      if (!editingId) return;
+      setLoading(true);
+      try {
+        const row: any = await invoiceApi.detail(editingId);
+        form.setFieldsValue({
+          ...row,
+          invoiceDate: row?.invoiceDate ? dayjs(row.invoiceDate) : null,
+          receiveDate: row?.receiveDate ? dayjs(row.receiveDate) : null,
+        });
+        setImages(row?.images || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    setDirty(false);
+    // 仅在换记录时回填（form 实例稳定）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
 
   const checkNo = (no: string) => {
     if (!no) {
@@ -80,7 +349,7 @@ function InvoiceTab({
           setNoMsg('当前发票号码');
           return;
         }
-        const res: any = await invoiceApi.checkNo(no, editing?.id);
+        const res: any = await invoiceApi.checkNo(no, editingId);
         if (res?.exists) {
           setNoStatus('error');
           setNoMsg('发票号码已存在');
@@ -105,198 +374,146 @@ function InvoiceTab({
       imageUrl: images?.[0]?.url,
       images,
     };
-    if (editing) await invoiceApi.update(editing.id, payload);
-    else await invoiceApi.create(payload);
-    message.success('保存成功');
-    setModal(false);
-    form.resetFields();
-    setImages([]);
-    setEditing(null);
-    setNoStatus('');
-    setNoMsg('');
-    refreshList();
+    setSaving(true);
+    try {
+      if (editingId) await invoiceApi.update(editingId, { ...payload, version: editing?.version });
+      else await invoiceApi.create(payload);
+      message.success('保存成功');
+    } finally {
+      setSaving(false);
+    }
   };
-
-  const openEdit = (row: any) => {
-    setEditing(row);
-    form.setFieldsValue({
-      ...row,
-      invoiceDate: row.invoiceDate ? dayjs(row.invoiceDate) : null,
-      receiveDate: row.receiveDate ? dayjs(row.receiveDate) : null,
-    });
-    setImages(row.images || []);
-    setNoStatus('');
-    setNoMsg('');
-    setModal(true);
-  };
-
-  const doVerify = async (id: string) => {
-    await invoiceApi.verify(id);
-    message.success('已发起查验');
-    refreshList();
-  };
-
-  const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
-      title: '确认删除该发票记录？',
-      okText: '确认删除',
-      okType: 'danger',
-      onOk: async () => {
-        await invoiceApi.remove(row.id);
-        message.success('已删除');
-        refreshList();
-      },
-    });
-  };
-
-  /** 筛选项（问题四：标准筛选区） */
-  const extraFilters: ModuleListFilterField[] = [
-    { key: 'contractId', label: '合同', control: 'select', options: contractOptions },
-    { key: 'goodsCategory', label: '商品类别', control: 'select', options: dicts.goods_category ?? [] },
-    { key: 'typeCode', label: '发票类型', control: 'select', options: dicts.invoice_type ?? [] },
-    { key: 'status', label: '状态', control: 'select', options: dicts.invoice_status ?? [] },
-    { key: 'reviewStatus', label: '审核状态', control: 'select', options: dicts.invoice_review_status ?? [] },
-    { key: 'invoiceNo', label: '发票号码', control: 'input' },
-  ];
-
-  /** 表格列（问题四：generic 模式完整列定义） */
-  const extraColumns: any[] = [
-    { title: '序号', width: 70, fixed: 'left', render: (_v: any, _r: any, i: number) => i + 1 },
-    { title: '商品类别', dataIndex: 'goodsCategory', width: 120, render: (v: any) => <DictTag typeCode="goods_category" value={v} /> },
-    { title: '结算账期', dataIndex: 'settlePeriod', width: 120 },
-    { title: '开票单位', dataIndex: 'issuer', width: 200, ellipsis: true },
-    { title: '开票日期', dataIndex: 'invoiceDate', width: 120, render: (v: any) => v?.slice(0, 10) },
-    { title: '发票代码', dataIndex: 'invoiceCode', width: 140 },
-    { title: '发票号码', dataIndex: 'invoiceNo', width: 160 },
-    { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, align: 'right', render: money },
-    { title: '税率', dataIndex: 'taxRate', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
-    { title: '含税金额', dataIndex: 'amountWithTax', width: 140, align: 'right', render: money },
-    { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v: any) => v?.slice(0, 10) },
-    { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v: any) => <DictTag typeCode="invoice_review_status" value={v} /> },
-    { title: '责任人', dataIndex: 'responsiblePerson', width: 120 },
-    { title: '财务移交情况', dataIndex: 'financeTransferStatus', width: 130, render: (v: any) => <DictTag typeCode="finance_transfer_status" value={v} /> },
-    { title: '状态', dataIndex: 'statusCode', width: 110, render: (v: any) => <DictTag typeCode="invoice_status" value={v} /> },
-    { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
-  ];
 
   return (
-    <>
-      <ModuleListPage
-        mode="generic"
-        fetcher={(params) => invoiceApi.list(params)}
-        extraFilters={extraFilters}
-        extraColumns={extraColumns}
-        refreshKey={listRefresh}
-        onEdit={(row) => openEdit(row)}
-        onDelete={handleRemove}
-        rowMenuItems={(row) => [
-          { key: 'verify', label: '查验', onClick: () => doVerify(row.id) },
-        ]}
-        toolbarLeft={
-          <Space wrap size={8}>
-            <Button icon={<ScanOutlined />} type="primary" ghost onClick={() => setBatchOpen(true)}>
-              批量识别
-            </Button>
-            <ImportButton
-              moduleName="发票台账"
-              templateUrl={invoiceApi.templateUrl()}
-              uploadUrl={invoiceApi.importUrl()}
-              onDone={refreshList}
-            />
-            <Button icon={<ExportOutlined />} onClick={() => window.open(withToken(invoiceApi.exportUrl()))}>
-              导出
-            </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                form.resetFields();
-                setImages([]);
-                setNoStatus('');
-                setNoMsg('');
-                setModal(true);
-              }}
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editingId ? '编辑发票' : '收票登记'}
+      saving={saving}
+      dirty={dirty}
+      onSave={submit}
+    >
+      <Form form={form} layout="vertical" disabled={loading} onValuesChange={() => setDirty(true)}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="contractId"
+              label="关联合同"
+              rules={[{ required: true }]}
+              extra={
+                editing?.redOfInvoiceId
+                  ? '已关联原发票的红冲票不能换合同（与原票同合同）'
+                  : (editing?.redInvoices?.length ?? 0) > 0
+                    ? '该发票已被红冲，不能更换合同（红冲票与原票必须同合同）'
+                    : undefined
+              }
             >
-              收票登记
-            </Button>
-          </Space>
-        }
-      />
-
-      <Modal
-        title={editing ? '编辑发票' : '收票登记'}
-        open={modal}
-        onOk={submit}
-        onCancel={() => setModal(false)}
-        width={960}
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                allowClear
+                placeholder="请选择合同"
+                disabled={contractLocked}
+                options={contractOptions}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="settlementId"
+              label="关联结算单"
+              extra="留空则自动匹配「同合同 + 同月」的结算单；只能选同月的"
+            >
+              <SettlementLinkSelect contractId={formContractId} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="goodsCategory" label="商品类别"><DictSelect typeCode="goods_category" /></Form.Item>
+          </Col>
+          <Col xs={24} md={12}><Form.Item name="settlePeriod" label="结算账期"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="issuer" label="开票单位"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="invoiceCode" label="发票代码"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="invoiceNo"
+              label="发票号码"
+              rules={[{ required: true }]}
+              validateStatus={noStatus}
+              help={noMsg}
+              hasFeedback
+            >
+              <Input onChange={(e) => checkNo(e.target.value)} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="statusCode"
+              label="状态"
+              extra={
+                editingTerminal
+                  ? '作废/红冲为终态，不能通过编辑修改；如需办理请用列表行上的专用操作'
+                  : isCreate
+                    ? '选「红冲」可同时登记原发票：保存后原票自动作废'
+                    : undefined
+              }
+            >
+              <DictSelect
+                typeCode="invoice_status"
+                disabled={editingTerminal}
+                excludeValues={
+                  editingTerminal ? [] : isCreate ? [INVOICE_STATUS.CANCELLED] : INVOICE_TERMINAL_STATUSES
+                }
+              />
+            </Form.Item>
+          </Col>
+          {statusIsRed && (
             <Col xs={24} md={12}>
-              <Form.Item name="typeCode" label="发票类型" rules={[{ required: true }]}><DictSelect typeCode="invoice_type" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="contractId" label="关联合同" rules={[{ required: true }]}>
+              <Form.Item
+                name="redOfInvoiceId"
+                label="红冲原发票"
+                preserve={false}
+                extra={
+                  editing?.redOfInvoiceId
+                    ? '红冲关联创建后不可修改'
+                    : '选择后原发票将自动作废（同一事务）；留空表示只把本票标记为红冲'
+                }
+              >
                 <Select
+                  allowClear
                   showSearch
                   optionFilterProp="label"
-                  allowClear
-                  placeholder="请选择合同"
-                  options={contractOptions}
+                  loading={redLoading}
+                  disabled={!!editing?.redOfInvoiceId}
+                  placeholder="选择被红冲的原发票（可选）"
+                  options={redCandidates.map((x) => ({
+                    value: x.id,
+                    label: `${x.invoiceNo || '(无号码)'}｜含税 ${x.amountWithTax ?? '-'}`,
+                  }))}
                 />
               </Form.Item>
             </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="goodsCategory" label="商品类别"><DictSelect typeCode="goods_category" /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}><Form.Item name="settlePeriod" label="结算账期"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="issuer" label="开票单位"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="invoiceDate" label="开票日期"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="invoiceCode" label="发票代码"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="invoiceNo"
-                label="发票号码"
-                rules={[{ required: true }]}
-                validateStatus={noStatus}
-                help={noMsg}
-                hasFeedback
-              >
-                <Input onChange={(e) => checkNo(e.target.value)} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
-            <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="responsiblePerson" label="责任人"><Input /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="financeTransferStatus" label="财务移交情况"><DictSelect typeCode="finance_transfer_status" /></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="statusCode" label="状态"><DictSelect typeCode="invoice_status" /></Form.Item></Col>
-            <Col xs={24}>
-              <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
-            </Col>
-            <Col xs={24}>
-              <Form.Item label="发票影像">
-                <Uploader value={images} onChange={setImages} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
-
-      <BatchRecognizeModal
-        open={batchOpen}
-        contractOptions={contractOptions}
-        onClose={() => setBatchOpen(false)}
-        onDone={() => {
-          setBatchOpen(false);
-          refreshList();
-        }}
-      />
-    </>
+          )}
+          <Col xs={24}>
+            <Form.Item name="remark" label="备注"><Input.TextArea rows={2} /></Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item label="发票影像">
+              <Uploader value={images} onChange={setImages} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+    </EditorTabPage>
   );
 }
 
@@ -394,7 +611,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
           content: (
             <ul style={{ paddingLeft: 20, margin: 0 }}>
               {errs.map((e: string, i: number) => (
-                <li key={i} style={{ color: '#d4380d' }}>{e}</li>
+                <li key={i} style={{ color: 'var(--cms-error)' }}>{e}</li>
               ))}
             </ul>
           ),
@@ -415,7 +632,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
       open={open}
       onCancel={() => { onClose(); reset(); }}
       width={1080}
-      destroyOnClose
+      destroyOnHidden
       footer={
         done
           ? [<Button key="close" type="primary" onClick={() => { onClose(); reset(); }}>完成</Button>]
@@ -468,7 +685,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
                     金额：¥{it.amountBeforeTax ?? '-'}｜日期：{it.invoiceDate || '-'}
                   </span>
                 ) : (
-                  <span style={{ color: '#d4380d' }}>{it.error}</span>
+                  <span style={{ color: 'var(--cms-error)' }}>{it.error}</span>
                 ),
             },
             {

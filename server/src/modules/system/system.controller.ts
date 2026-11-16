@@ -41,31 +41,31 @@ export class SystemController {
   }
 
   // ---------- 角色 / 权限 ----------
-  @RequirePermissions('system:user')
+  @RequirePermissions('system:role', 'system:user')
   @Get('roles')
   roles() {
     return this.service.roles();
   }
 
-  @RequirePermissions('system:user')
+  @RequirePermissions('system:role', 'system:user')
   @Post('roles')
   createRole(@Body() body: any) {
     return this.service.createRole(body);
   }
 
-  @RequirePermissions('system:user')
+  @RequirePermissions('system:role', 'system:user')
   @Put('roles/:id')
   updateRole(@Param('id') id: string, @Body() body: any) {
     return this.service.updateRole(id, body);
   }
 
-  @RequirePermissions('system:user')
+  @RequirePermissions('system:role', 'system:user')
   @Delete('roles/:id')
   removeRole(@Param('id') id: string) {
     return this.service.removeRole(id);
   }
 
-  @RequirePermissions('system:user')
+  @RequirePermissions('system:role', 'system:user')
   @Get('permissions')
   permissions() {
     return this.service.permissions();
@@ -85,13 +85,13 @@ export class SystemController {
   }
 
   // ---------- 日志 ----------
-  @RequirePermissions('system:log')
+  @RequirePermissions('system:log', 'system:user')
   @Get('logs/operations')
   operationLogs(@Query() query: any) {
     return this.service.operationLogs(query);
   }
 
-  @RequirePermissions('system:log')
+  @RequirePermissions('system:log', 'system:user')
   @Get('logs/logins')
   loginLogs(@Query() query: any) {
     return this.service.loginLogs(query);

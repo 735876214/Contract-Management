@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>合同管理 · 手机端形态提案</title>
+<style>
+:root{
+  --ink:#171410; --ink-2:#4b4239; --ink-3:#8b8175; --ink-4:#b5aa9b;
+  --paper:#f8f4ea; --paper-hi:#fdfbf5;
+  --canvas:#12100c;
+  --clay:#c1663f; --clay-deep:#9d4a26; --clay-wash:rgba(193,102,63,.10);
+  --sage:#5b6f52; --amber:#a97c22; --rule:rgba(23,20,16,.13); --rule-soft:rgba(23,20,16,.06);
+  --serif:"Source Han Serif SC","Noto Serif SC","Songti SC",Songti,SimSun,serif;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+body{
+  background:var(--canvas); color:#e9e3d5; font-family:var(--sans);
+  min-height:100vh; padding:72px 64px 96px;
+  background-image:
+    radial-gradient(1100px 600px at 12% -10%,rgba(193,102,63,.16),transparent 62%),
+    radial-gradient(900px 700px at 92% 110%,rgba(90,110,80,.13),transparent 60%),
+    linear-gradient(rgba(255,255,255,.026) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.026) 1px,transparent 1px);
+  background-size:auto,auto,40px 40px,40px 40px;
+}
+body::after{content:"";position:fixed;inset:0;background-image:var(--grain);opacity:.055;pointer-events:none;mix-blend-mode:overlay}
+
+/* ---------- 展台标题 ---------- */
+.stage-head{max-width:900px;margin:0 0 64px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--clay);display:flex;align-items:center;gap:14px}
+.eyebrow::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(193,102,63,.5),transparent)}
+.stage-head h1{font-family:var(--serif);font-weight:600;font-size:46px;line-height:1.18;letter-spacing:.01em;margin:18px 0 0;color:#f4efe3}
+.stage-head h1 em{font-style:normal;color:var(--clay)}
+.stage-head p{margin-top:18px;font-size:14.5px;line-height:1.85;color:#9e9587;max-width:760px}
+.stage-head p b{color:#cdc4b4;font-weight:600}
+.stage-head p code{font-family:var(--mono);font-size:12px;color:var(--clay);background:rgba(193,102,63,.1);padding:1px 5px}
+
+/* ---------- 图纸排列 ---------- */
+.sheet-row{display:grid;grid-template-columns:repeat(3,375px);gap:64px 56px;justify-content:center}
+.sheet{flex:0 0 auto;width:375px;animation:rise .9s cubic-bezier(.22,.75,.2,1) both}
+.sheet:nth-child(1){animation-delay:.05s}
+.sheet:nth-child(2){animation-delay:.18s}
+.sheet:nth-child(3){animation-delay:.31s}
+.sheet:nth-child(4){animation-delay:.44s}
+@keyframes rise{from{opacity:0;transform:translateY(26px) scale(.985)}to{opacity:1;transform:none}}
+
+/* ---------- 屏幕（纸片） ---------- */
+.screen{
+  position:relative;width:375px;height:812px;overflow:hidden;
+  background:var(--paper);color:var(--ink);
+  border-radius:3px;
+  box-shadow:0 40px 80px -34px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.07),0 2px 0 rgba(0,0,0,.4);
+  display:flex;flex-direction:column;
+}
+.screen::after{content:"";position:absolute;inset:0;background-image:var(--grain);opacity:.05;pointer-events:none;mix-blend-mode:multiply}
+.screen::before{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--clay),var(--clay-deep) 42%,transparent 92%);z-index:5}
+/* 固定条不被压缩；仅内容区滚动裁切 */
+.screen>*{flex:0 0 auto}
+.screen>.body,.screen>.cards,.screen>.dr-body{flex:1 1 auto;min-height:0}
+
+/* ---------- 通用条 ---------- */
+.bar{display:flex;align-items:center;gap:12px;height:60px;padding:0 18px;border-bottom:1px solid var(--rule);background:var(--paper-hi);position:relative;z-index:3}
+.burger{width:40px;height:40px;border:1px solid var(--rule);background:transparent;border-radius:2px;display:grid;place-content:center;gap:4px;cursor:pointer;flex:0 0 auto}
+.burger i{display:block;width:16px;height:1.5px;background:var(--ink);transition:.25s}
+.burger:hover i:nth-child(2){transform:scaleX(.62)}
+.proj{flex:1;min-width:0;line-height:1.25}
+.proj b{display:block;font-size:14px;font-weight:600;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj span{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.08em}
+.ava{width:36px;height:36px;border-radius:50%;background:linear-gradient(150deg,var(--clay),var(--clay-deep));color:#fff;display:grid;place-content:center;font-family:var(--serif);font-size:14px;flex:0 0 auto;box-shadow:0 3px 10px -3px rgba(157,74,38,.8)}
+.body{flex:1;overflow:hidden;padding:22px 20px 0;display:flex;flex-direction:column;gap:20px}
+
+/* ---------- 屏 1 工作台 ---------- */
+.hero{border:1px solid var(--rule);background:var(--paper-hi);padding:18px 20px 16px;position:relative}
+.hero::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:3px;background:var(--clay)}
+.lbl{font-size:11px;letter-spacing:.14em;color:var(--ink-3);display:flex;justify-content:space-between;align-items:baseline}
+.lbl em{font-style:normal;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--ink-4)}
+.num{font-family:var(--serif);font-size:44px;line-height:1.06;letter-spacing:-.015em;margin:8px 0 0;font-variant-numeric:tabular-nums;font-weight:600}
+.num small{font-size:22px;color:var(--ink-2);margin-right:2px;font-weight:400}
+.delta{font-family:var(--mono);font-size:11px;color:var(--sage);letter-spacing:.06em;margin-top:8px;display:flex;gap:8px;align-items:center}
+.delta span{color:var(--ink-4)}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cell{border:1px solid var(--rule);padding:12px 14px;background:var(--paper-hi)}
+.cell span{font-size:10.5px;letter-spacing:.1em;color:var(--ink-3);display:block}
+.cell b{display:block;font-family:var(--serif);font-size:20px;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.cell.is-alert b{color:var(--clay-deep)}
+h4.sec{font-size:11px;letter-spacing:.16em;color:var(--ink-3);display:flex;align-items:baseline;gap:8px;font-weight:600}
+h4.sec::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+h4.sec u{text-decoration:none;font-family:var(--mono);color:var(--clay)}
+.todo-list{list-style:none;display:flex;flex-direction:column;gap:1px;background:var(--rule-soft);border-top:1px solid var(--rule-soft);border-bottom:1px solid var(--rule-soft)}
+.todo-list li{background:var(--paper);padding:13px 2px 13px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;position:relative;cursor:pointer;transition:.2s}
+.todo-list li::before{content:"";position:absolute;left:0;top:14px;width:2px;height:16px;background:var(--rule);transition:.2s}
+.todo-list li:hover{background:var(--paper-hi)}
+.todo-list li:hover::before{background:var(--clay);height:26px;top:9px}
+.todo-list b{font-size:13.5px;font-weight:600;display:block;letter-spacing:.01em}
+.todo-list small{font-size:11px;color:var(--ink-3);display:block;margin-top:3px;font-family:var(--mono);letter-spacing:.03em}
+.qty{font-family:var(--serif);font-size:16px;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.qty i{font-style:normal;font-size:9.5px;font-family:var(--mono);letter-spacing:.12em;color:var(--ink-4);display:block;text-align:right;margin-top:2px}
+.prog-wrap{border-top:1px solid var(--rule);padding-top:14px;margin-top:auto;padding-bottom:18px}
+.ticks{display:flex;gap:2px;height:22px;align-items:flex-end;margin-top:12px}
+.ticks i{flex:1;background:var(--rule);height:8px;transition:.4s}
+.ticks i.on{background:var(--clay);height:100%}
+.ticks i.half{background:rgba(193,102,63,.42);height:52%}
+.prog-meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--ink-3);margin-top:9px}
+
+/* ---------- 底部 tab ---------- */
+.tabbar{display:flex;border-top:1px solid var(--rule);background:var(--paper-hi);height:66px;position:relative;z-index:3}
+.tabbar button{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-family:var(--sans);font-size:10.5px;letter-spacing:.1em;color:var(--ink-4);cursor:pointer;position:relative;transition:.2s}
+.tabbar button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.tabbar button.on{color:var(--clay-deep)}
+.tabbar button.on::before{content:"";position:absolute;top:-1px;left:24%;right:24%;height:2px;background:var(--clay)}
+.tabbar button:hover{color:var(--ink-2)}
+
+/* ---------- 屏 2 台账 ---------- */
+.searchbar{display:flex;gap:10px;padding:14px 18px;border-bottom:1px solid var(--rule);background:var(--paper-hi)}
+.search{flex:1;height:40px;border:1px solid var(--rule);display:flex;align-items:center;gap:9px;padding:0 12px;background:var(--paper);font-size:12.5px;color:var(--ink-4)}
+.search svg{width:15px;height:15px;stroke:var(--ink-3);fill:none;stroke-width:1.6}
+.filter-btn{width:40px;height:40px;border:1px solid var(--rule);background:var(--paper);display:grid;place-content:center;cursor:pointer;transition:.2s}
+.filter-btn:hover{border-color:var(--clay);color:var(--clay)}
+.filter-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6}
+.chips{display:flex;gap:8px;padding:12px 18px;overflow:hidden;border-bottom:1px solid var(--rule-soft)}
+.chip{font-size:11.5px;letter-spacing:.05em;padding:7px 12px;border:1px solid var(--rule);color:var(--ink-2);white-space:nowrap;cursor:pointer;transition:.2s;background:var(--paper)}
+.chip b{font-family:var(--mono);font-size:10px;color:var(--ink-4);margin-left:5px}
+.chip.on{background:var(--ink);color:#f6f1e6;border-color:var(--ink)}
+.chip.on b{color:rgba(246,241,230,.55)}
+.chip:hover:not(.on){border-color:var(--clay);color:var(--clay-deep)}
+.cards{padding:14px 18px 0;display:flex;flex-direction:column;gap:11px;overflow:hidden}
+.led-card{border:1px solid var(--rule);background:var(--paper-hi);padding:14px 15px 12px;cursor:pointer;transition:.28s cubic-bezier(.2,.8,.2,1);position:relative}
+.led-card:hover{border-color:rgba(193,102,63,.5);transform:translateY(-1px);box-shadow:0 12px 22px -16px rgba(23,20,16,.5)}
+.led-card .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.no{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--ink-3)}
+.st{font-size:10px;letter-spacing:.1em;padding:3px 7px;border:1px solid currentColor;position:relative}
+.st.run{color:var(--sage)}
+.st.sign{color:var(--amber)}
+.st.done{color:var(--ink-3)}
+.led-card h3{font-family:var(--serif);font-size:16px;font-weight:600;line-height:1.42;margin:8px 0 4px;letter-spacing:.01em}
+.led-card .meta{font-size:11px;color:var(--ink-3);letter-spacing:.02em}
+.figs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid var(--rule-soft)}
+.figs span{font-size:10px;letter-spacing:.1em;color:var(--ink-4);display:block}
+.figs b{font-family:var(--serif);font-size:16.5px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;display:block;margin-top:3px}
+.figs b i{font-style:normal;font-size:11px;color:var(--ink-3);margin-right:1px;font-weight:400}
+.more{max-height:0;overflow:hidden;transition:max-height .38s cubic-bezier(.2,.8,.2,1),opacity .3s;opacity:0}
+.led-card.open .more{max-height:150px;opacity:1}
+.led-card.open{border-color:rgba(193,102,63,.55);box-shadow:0 16px 30px -20px rgba(23,20,16,.55)}
+.bars{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+.bar-row{display:flex;align-items:center;gap:10px}
+.bar-row span{font-size:10px;letter-spacing:.08em;color:var(--ink-3);width:52px;flex:0 0 auto}
+.track{flex:1;height:5px;background:rgba(23,20,16,.09);position:relative;overflow:hidden}
+.track i{position:absolute;inset:0 auto 0 0;background:var(--clay)}
+.track i.g{background:var(--sage)}
+.bar-row em{font-family:var(--mono);font-size:10px;color:var(--ink-2);width:34px;text-align:right;font-style:normal}
+.led-acts{display:flex;gap:8px;margin-top:13px}
+.led-acts button{flex:1;height:40px;border:1px solid var(--rule);background:var(--paper);font-family:var(--sans);font-size:12px;letter-spacing:.06em;color:var(--ink-2);cursor:pointer;transition:.2s}
+.led-acts button:hover{border-color:var(--ink);color:var(--ink)}
+.led-acts button.pri{background:var(--ink);color:#f6f1e6;border-color:var(--ink)}
+.led-acts button.pri:hover{background:var(--clay-deep);border-color:var(--clay-deep)}
+.led-acts button.danger:hover{border-color:#b03a2e;color:#b03a2e}
+.note-clip{position:absolute;bottom:66px;left:0;right:0;height:22px;background:linear-gradient(transparent,var(--paper));pointer-events:none}
+
+/* ---------- 屏 3 结算单 ---------- */
+.back{width:40px;height:40px;display:grid;place-content:center;cursor:pointer;background:none;border:0;color:var(--ink)}
+.back svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.sheet-head{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.sheet-head b{font-size:14px;font-weight:600}
+.sheet-head small{font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:.1em;display:block;margin-top:2px}
+.stamp{width:44px;height:44px;border-radius:50%;border:1.5px solid rgba(193,102,63,.55);color:var(--clay-deep);display:grid;place-content:center;font-family:var(--serif);font-size:10px;line-height:1.15;text-align:center;transform:rotate(-8deg);flex:0 0 auto;letter-spacing:.04em}
+.pay-hero{padding:18px 20px 16px;border-bottom:1px solid var(--rule);background:linear-gradient(180deg,var(--paper-hi),var(--paper))}
+.pay-hero .lbl{font-size:10.5px}
+.pay-hero .num{font-size:38px;margin-top:6px}
+.ledger{padding:6px 20px 0}
+.lrow{display:flex;justify-content:space-between;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--rule-soft);gap:12px}
+.lrow span{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em}
+.lrow b{font-family:var(--serif);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.lrow b.neg{color:var(--clay-deep)}
+.lrow.total{border-bottom:0;border-top:1.5px solid var(--ink);margin-top:4px;padding-top:15px}
+.lrow.total span{font-size:13px;font-weight:600;color:var(--ink)}
+.lrow.total b{font-size:22px}
+.attach{padding:16px 20px 0}
+.thumbs{display:flex;gap:10px;margin-top:11px}
+.thumb{flex:1;border:1px solid var(--rule);background:var(--paper-hi);padding:10px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden}
+.thumb::before{content:"";position:absolute;inset:0 0 auto;height:2px;background:var(--rule)}
+.thumb b{font-size:11.5px;font-weight:600;letter-spacing:.02em}
+.thumb small{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);letter-spacing:.06em}
+.thumb .line{height:2px;background:var(--rule-soft);width:70%}
+.thumb .line.s{width:45%}
+.thumb .ok{position:absolute;right:9px;top:9px;font-size:9px;letter-spacing:.1em;color:var(--sage);border:1px solid currentColor;padding:1px 4px}
+.memo{padding:14px 20px 0;margin-top:auto;padding-bottom:18px}
+.memo .box{border-left:2px solid var(--rule);padding:2px 0 2px 12px;margin-top:9px;font-size:12px;line-height:1.75;color:var(--ink-2)}
+.memo .box small{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-4);margin-top:6px}
+.foot{height:76px;border-top:1px solid var(--rule);background:var(--paper-hi);display:flex;gap:10px;padding:0 18px;align-items:center;position:relative;z-index:3;box-shadow:0 -14px 24px -20px rgba(23,20,16,.6)}.foot button{height:44px;border:1px solid var(--rule);background:var(--paper);font-family:var(--sans);font-size:13px;letter-spacing:.08em;color:var(--ink-2);cursor:pointer;transition:.2s;flex:0 0 auto;padding:0 18px}
+.foot button:hover{border-color:var(--ink);color:var(--ink)}
+.foot button.pri{flex:1;background:var(--clay);border-color:var(--clay);color:#fff;font-weight:600}
+.foot button.pri:hover{background:var(--clay-deep);border-color:var(--clay-deep)}
+
+/* ---------- 屏 4 抽屉导航 ---------- */
+.screen.drawer-screen{background:var(--paper-hi)}
+.dr-head{padding:22px 20px 18px;border-bottom:1px solid var(--rule);position:relative}
+.dr-head::after{content:"";position:absolute;left:20px;bottom:-1px;width:34px;height:2px;background:var(--clay)}
+.dr-head .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--ink-4);text-transform:uppercase}
+.dr-head b{display:block;font-family:var(--serif);font-size:19px;font-weight:600;margin-top:9px;line-height:1.3}
+.dr-head small{display:block;font-size:11px;color:var(--ink-3);margin-top:6px;font-family:var(--mono);letter-spacing:.06em}
+.dr-body{flex:1;overflow:hidden;padding:8px 0 0}
+.grp{padding:12px 0 6px}
+.grp h5{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--ink-4);padding:0 20px 8px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.grp h5::after{content:"";flex:1;height:1px;background:var(--rule-soft)}
+.item{display:flex;align-items:center;gap:12px;padding:0 20px;height:46px;font-size:13.5px;color:var(--ink-2);cursor:pointer;position:relative;transition:.2s}
+.item svg{width:17px;height:17px;stroke:var(--ink-3);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;transition:.2s}
+.item:hover{background:rgba(23,20,16,.035);color:var(--ink)}
+.item:hover svg{stroke:var(--clay)}
+.item.on{color:var(--clay-deep);font-weight:600;background:var(--clay-wash)}
+.item.on::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;background:var(--clay)}
+.item.on svg{stroke:var(--clay-deep)}
+.item .cnt{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+.item.on .cnt{color:var(--clay)}
+.dr-foot{border-top:1px solid var(--rule);padding:14px 20px;display:flex;align-items:center;gap:12px;background:var(--paper)}
+.dr-foot .ava{width:34px;height:34px;font-size:13px}
+.dr-foot .who{flex:1;line-height:1.3}
+.dr-foot .who b{font-size:12.5px;font-weight:600;display:block}
+.dr-foot .who small{font-size:10px;color:var(--ink-4);font-family:var(--mono);letter-spacing:.08em}
+.dr-foot .out{font-size:11px;letter-spacing:.1em;color:var(--ink-3);border:1px solid var(--rule);padding:8px 12px;background:none;cursor:pointer;font-family:var(--sans);transition:.2s}
+.dr-foot .out:hover{border-color:#b03a2e;color:#b03a2e}
+
+/* ---------- 图纸图签 ---------- */
+figcaption{display:flex;align-items:baseline;gap:12px;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+figcaption .idx{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--clay)}
+figcaption .ttl{font-family:var(--serif);font-size:15px;color:#e8e1d2;letter-spacing:.02em;font-weight:600}
+figcaption .sub{font-size:10.5px;color:#7d7566;letter-spacing:.06em;margin-left:auto;text-align:right;line-height:1.5}
+
+.stage-foot{margin-top:72px;display:flex;gap:28px;align-items:flex-start;border-top:1px solid rgba(255,255,255,.1);padding-top:24px;max-width:1200px}
+.stage-foot div{font-size:11.5px;line-height:1.9;color:#8a8274;letter-spacing:.02em}
+.stage-foot b{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--clay);text-transform:uppercase;margin-bottom:6px;font-weight:400}
+
+/* ---------- 屏 04 两级抽屉 ---------- */
+.crumb{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-4);display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden}
+.crumb b{color:var(--clay-deep);font-weight:400}
+.crumb i{color:var(--rule);font-style:normal}
+.quick{padding:10px 20px 4px;border-bottom:1px solid var(--rule-soft)}
+.quick-row{display:flex;align-items:center;gap:10px;height:42px;border-bottom:1px solid var(--rule-soft);cursor:pointer;transition:.2s}
+.quick-row:last-child{border-bottom:0}
+.quick-row:hover{background:rgba(23,20,16,.03)}
+.quick-row .k{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--ink-4);flex:0 0 auto}
+.quick-row b{font-size:12px;font-weight:600;color:var(--ink-2);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quick-row span{font-family:var(--mono);font-size:9.5px;color:var(--clay);letter-spacing:.02em;flex:0 0 auto}
+.navgrp{border-bottom:1px solid var(--rule-soft)}
+.navhead{display:flex;align-items:center;gap:11px;height:44px;padding:0 20px;cursor:pointer;transition:.2s;outline-offset:-2px}
+.navhead:hover{background:rgba(23,20,16,.03)}
+.navhead b{font-size:12.5px;font-weight:600;letter-spacing:.03em;color:var(--ink-2);flex:1}
+.navhead .n{font-family:var(--mono);font-size:9.5px;color:var(--ink-4)}
+.navhead .cv{width:8px;height:8px;border-right:1.4px solid var(--ink-4);border-bottom:1.4px solid var(--ink-4);transform:rotate(-45deg);transition:.25s;flex:0 0 auto;margin-right:2px}
+.navgrp.open .navhead .cv{transform:rotate(45deg);border-color:var(--clay)}
+.navgrp.open .navhead b{color:var(--ink)}
+.navsub{max-height:0;overflow:hidden;transition:max-height .34s cubic-bezier(.2,.8,.2,1)}
+.navgrp.open .navsub{max-height:220px}
+.navitem{display:flex;align-items:center;gap:10px;height:40px;padding:0 20px 0 38px;font-size:12.5px;color:var(--ink-2);cursor:pointer;position:relative;transition:.2s}
+.navitem::before{content:"";position:absolute;left:24px;top:50%;width:6px;height:1px;background:var(--rule);transition:.2s}
+.navitem:hover{background:rgba(23,20,16,.035);color:var(--ink)}
+.navitem .cnt{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--ink-4)}
+.navitem.on{color:var(--clay-deep);font-weight:600;background:var(--clay-wash)}
+.navitem.on::before{background:var(--clay);width:11px}
+.navitem.on .cnt{color:var(--clay)}
+
+/* ---------- 屏 05 结算明细 ---------- */
+.pill{font-size:9.5px;letter-spacing:.1em;padding:3px 7px;border:1px solid currentColor;flex:0 0 auto;font-family:var(--sans)}
+.pill.sign{color:var(--amber)}
+.pill.draft{color:var(--ink-3)}
+.meta-strip{display:flex;border-bottom:1px solid var(--rule);background:var(--paper)}
+.meta-strip div{flex:1;padding:9px 12px;border-right:1px solid var(--rule-soft)}
+.meta-strip div:last-child{border-right:0}
+.meta-strip span{display:block;font-size:9.5px;letter-spacing:.11em;color:var(--ink-4)}
+.meta-strip b{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:4px;letter-spacing:.02em}
+.sum-bar{display:flex;align-items:baseline;gap:10px;padding:13px 20px 11px;border-bottom:1px solid var(--rule)}
+.sum-bar .lbl2{font-size:10px;letter-spacing:.1em;color:var(--ink-3);flex:1}
+.sum-bar .lbl2 em{font-style:normal;color:var(--ink-4);font-family:var(--mono);font-size:9.5px;display:block;margin-top:3px;letter-spacing:.08em}
+.sum-bar b{font-family:var(--serif);font-size:25px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.lines{padding:0 16px;overflow:hidden}
+.ln{padding:10px 4px 11px;border-bottom:1px solid var(--rule-soft)}
+.ln .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ln .t b{font-size:12.5px;font-weight:600;letter-spacing:.01em}
+.ln .t .amt{font-family:var(--serif);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.ln .d{display:flex;gap:7px;align-items:center;margin-top:5px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.01em}
+.ln .d em{font-style:normal;color:var(--ink-4)}
+.tagline{font-size:9px;letter-spacing:.08em;color:var(--sage);border:1px solid currentColor;padding:1px 4px;font-family:var(--sans);white-space:nowrap}
+.tagline.warn{color:var(--clay-deep)}
+.ln .src{margin-top:5px;font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gate{margin:11px 16px 0;border:1px solid var(--rule);padding:9px 12px;background:var(--paper-hi)}
+.gate .g-top{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.1em;color:var(--ink-3);font-family:var(--mono)}
+.gate .g-track{height:5px;background:rgba(23,20,16,.1);margin-top:8px;position:relative;overflow:hidden}
+.gate .g-track i{position:absolute;inset:0 auto 0 0;background:var(--amber)}
+.gate .g-note{margin-top:7px;font-size:9.5px;letter-spacing:.04em;color:var(--ink-4)}
+
+/* ---------- 屏 06 收领单编辑 ---------- */
+.form{padding:14px 18px 0;overflow:hidden}
+.fld{margin-bottom:11px}
+.fld label{display:block;font-size:9.5px;letter-spacing:.12em;color:var(--ink-4);margin-bottom:5px}
+.ctl{height:44px;border:1px solid var(--rule);background:var(--paper-hi);display:flex;align-items:center;padding:0 12px;font-size:13px;color:var(--ink);gap:8px}
+.ctl .cv2{width:7px;height:7px;border-right:1.2px solid var(--ink-4);border-bottom:1.2px solid var(--ink-4);transform:rotate(45deg);margin-left:auto;flex:0 0 auto}
+.ctl .lk{font-family:var(--mono);font-size:10px;color:var(--ink-4);margin-left:auto}
+.more-rows{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--clay-deep);letter-spacing:.05em;margin:0 0 12px;cursor:pointer}
+.qty-head{display:flex;align-items:center;gap:8px;margin:0 0 9px}
+.qty-head h4.sec{flex:1}
+.rc-card{border:1px solid var(--rule);background:var(--paper-hi);padding:11px 12px;margin-bottom:9px}
+.rc-card .n1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.rc-card .n1 b{font-size:12.5px;font-weight:600}
+.rc-card .n1 span{font-family:var(--serif);font-size:13.5px;font-variant-numeric:tabular-nums;font-weight:600}
+.rc-card .spec{font-family:var(--mono);font-size:10px;color:var(--ink-4);margin-top:4px;letter-spacing:.03em}
+.steps{display:flex;gap:8px;margin-top:9px}
+.step{flex:1;min-width:0}
+.step>span{display:block;font-size:9.5px;letter-spacing:.1em;color:var(--ink-4);margin-bottom:4px}
+.step .box{display:flex;align-items:center;border:1px solid var(--rule);height:38px;background:var(--paper)}
+.step .box button{width:34px;height:36px;border:0;background:none;color:var(--ink-2);font-size:15px;cursor:pointer;line-height:1;transition:.15s}
+.step .box button:hover{background:rgba(23,20,16,.05);color:var(--clay-deep)}
+.step .box i{flex:1;text-align:center;font-family:var(--serif);font-size:14px;font-style:normal;font-variant-numeric:tabular-nums}
+.step .box.alert{border-color:rgba(193,102,63,.6);background:rgba(193,102,63,.05)}
+.short{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:9.5px;letter-spacing:.05em;color:var(--clay-deep);font-family:var(--mono)}
+.upload{display:flex;align-items:center;gap:10px;border:1px dashed var(--rule);padding:9px 12px;background:var(--paper);cursor:pointer;transition:.2s;margin-bottom:6px}
+.upload:hover{border-color:var(--clay);background:var(--clay-wash)}
+.upload .ph{width:34px;height:34px;border:1px solid var(--rule);display:grid;place-content:center;font-size:15px;color:var(--ink-4);flex:0 0 auto}
+.upload .tx b{display:block;font-size:11.5px;font-weight:600}
+.upload .tx small{font-family:var(--mono);font-size:9.5px;color:var(--ink-4);letter-spacing:.05em}
+
+/* ---------- 可访问性 ---------- */
+:where(a,button,[tabindex]):focus-visible{outline:2px solid var(--clay);outline-offset:2px}
+.burger:focus-visible{outline-offset:3px}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;animation-delay:0ms !important;transition-duration:.01ms !important}
+}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* ---------- 响应式：窄屏竖排 + 按屏宽收缩 ---------- */
+body{overflow-x:hidden}
+@media (max-width:1780px){
+  body{padding:56px 32px 80px}
+}
+@media (max-width:1380px){
+  .sheet-row{grid-template-columns:repeat(2,375px)}
+}
+@media (max-width:860px){
+  body{padding:34px 16px 56px;background-size:auto,auto,32px 32px,32px 32px}
+  .stage-head{margin-bottom:40px}
+  .stage-head h1{font-size:31px;line-height:1.24}
+  .stage-head p{font-size:13px;line-height:1.8;margin-top:14px}
+  .eyebrow{font-size:9.5px;letter-spacing:.16em}
+  .sheet-row{grid-template-columns:minmax(0,375px);gap:44px;justify-items:center}
+  .sheet{width:100%;max-width:375px}
+  .screen{width:100%;max-width:375px;height:auto;min-height:812px}
+  figcaption{flex-wrap:wrap;gap:6px 10px;margin-top:14px;padding-top:10px}
+  figcaption .sub{margin-left:0;width:100%;text-align:left}
+  .stage-foot{flex-direction:column;gap:18px;margin-top:44px;padding-top:18px}
+  .stage-foot div{font-size:11px;line-height:1.8}
+}
+@media (max-width:400px){
+  .num{font-size:38px}
+  .body{padding:16px 16px 0;gap:16px}
+}
+</style>
+</head>
+<body>
+<a class="sr-only" href="#sheets">跳到效果图</a>
+
+<header class="stage-head">
+  <div class="eyebrow">Sheet Set · 375 × 812 · dpr 2 · 6 屏</div>
+  <h1>合同管理 · <em>手机端</em>形态提案</h1>
+  <p>六张关键屏，走通一条完整下钻：<b>抽屉选路径 → 台账找合同 → 结算单看金额 → 结算明细看行项 → 收领单改实收</b>。字段全部对齐 <b>schema.prisma</b>（<code>SettlementItem</code> 的 qty / priceBeforeTax / taxRatePct / totalWithTax，<code>ReceiptOrderDetail</code> 的送货与实收数量），不是占位假数据。品牌色与宋体沿用 DESIGN.md，不引入新语言。</p>
+</header>
+
+<div class="sheet-row" id="sheets" role="list" aria-label="手机端效果图四屏">
+
+  <!-- ============ 01 工作台 ============ -->
+  <figure class="sheet">
+    <div class="screen">
+      <div class="bar">
+        <button class="burger" aria-label="菜单"><i></i><i></i><i></i></button>
+        <div class="proj"><b>华东智造产业园二期</b><span>PROJ · 2026-0412</span></div>
+        <div class="ava">超</div>
+      </div>
+      <div class="body">
+        <section class="hero">
+          <div class="lbl">合同总额 <em>CNY</em></div>
+          <div class="num"><small>¥</small>12,860,400</div>
+          <div class="delta">↑ 8.4% <span>较上月</span></div>
+        </section>
+        <div class="duo">
+          <div class="cell"><span>本月付款</span><b>2,140,000</b></div>
+          <div class="cell is-alert"><span>应付未付</span><b>3,860,000</b></div>
+        </div>
+        <h4 class="sec">待办 <u>03</u></h4>
+        <ul class="todo-list">
+          <li><div class="qty">01<i>审核</i></div><div><b>结算单待批</b><small>JS-2026-0031 · 钢结构</small></div><div class="qty">¥486,200<i>1 张</i></div></li>
+          <li><div class="qty">02<i>核对</i></div><div><b>发票待核</b><small>2 张 · 待匹配收领单</small></div><div class="qty">¥1,120,000<i>2 张</i></div></li>
+          <li><div class="qty">03<i>预警</i></div><div><b>履约偏差</b><small>工期滞后 12 天 · 需说明</small></div><div class="qty">HT-0412<i>1 条</i></div></li>
+        </ul>
+        <div class="prog-wrap">
+          <h4 class="sec">履约总进度 <u>62%</u></h4>
+          <div class="ticks">
+            <i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i>
+            <i class="half"></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="prog-meta"><span>开工 2026-03</span><span>计划竣工 2027-09</span></div>
+        </div>
+      </div>
+      <nav class="tabbar">
+        <button class="on"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M9 20v-6h6v6"/></svg>工作台</button>
+        <button><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>台账</button>
+        <button><svg viewBox="0 0 24 24"><path d="M7 3h10v18l-5-3-5 3z"/></svg>单据</button>
+        <button><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg>我的</button>
+      </nav>
+    </div>
+    <figcaption><span class="idx">SHEET 01</span><span class="ttl">工作台</span><span class="sub">账本式数字<br>粗细对比建立层级</span></figcaption>
+  </figure>
+
+  <!-- ============ 02 合同台账 ============ -->
+  <figure class="sheet">
+    <div class="screen">
+      <div class="bar">
+        <button class="burger" aria-label="菜单"><i></i><i></i><i></i></button>
+        <div class="proj"><b>合同台账</b><span>41 列 → 5 字段</span></div>
+        <div class="ava">超</div>
+      </div>
+      <div class="searchbar">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>合同编号 / 供应商</div>
+        <button class="filter-btn"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg></button>
+      </div>
+      <div class="chips">
+        <div class="chip on">履约中 <b>12</b></div>
+        <div class="chip">待签 <b>3</b></div>
+        <div class="chip">已归档 <b>41</b></div>
+      </div>
+      <div class="cards">
+
+        <article class="led-card open">
+          <div class="top"><span class="no">HT-2026-0412</span><span class="st run">履约中</span></div>
+          <h3>钢结构加工与安装分包合同</h3>
+          <div class="meta">浙江中南钢构 · 项目经理 王骏</div>
+          <div class="figs">
+            <div><span>合同额</span><b><i>¥</i>2,860,000</b></div>
+            <div><span>开累结算</span><b><i>¥</i>1,944,800</b></div>
+          </div>
+          <div class="more">
+            <div class="bars">
+              <div class="bar-row"><span>结算</span><div class="track"><i style="width:68%"></i></div><em>68%</em></div>
+              <div class="bar-row"><span>付款</span><div class="track"><i class="g" style="width:52%"></i></div><em>52%</em></div>
+            </div>
+            <div class="led-acts">
+              <button class="pri">办结算</button>
+              <button>收领单</button>
+              <button class="danger">归档</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="led-card">
+          <div class="top"><span class="no">HT-2026-0388</span><span class="st sign">待签</span></div>
+          <h3>商品混凝土年度采购合同</h3>
+          <div class="meta">杭州临平商砼 · 采购部 陈昱</div>
+          <div class="figs">
+            <div><span>合同额</span><b><i>¥</i>5,120,000</b></div>
+            <div><span>开累结算</span><b><i>¥</i>0</b></div>
+          </div>
+          <div class="more">
+            <div class="bars">
+              <div class="bar-row"><span>结算</span><div class="track"><i style="width:0%"></i></div><em>0%</em></div>
+              <div class="bar-row"><span>付款</span><div class="track"><i class="g" style="width:0%"></i></div><em>0%</em></div>
+            </div>
+            <div class="led-acts"><button class="pri">去签署</button><button>看条款</button><button class="danger">作废</button></div>
+          </div>
+        </article>
+
+        <article class="led-card">
+          <div class="top"><span class="no">HT-2025-0917</span><span class="st done">已归档</span></div>
+          <h3>临时用电工程分包合同</h3>
+          <div class="meta">绍兴恒通电力 · 项目经理 王骏</div>
+          <div class="figs">
+            <div><span>合同额</span><b><i>¥</i>386,000</b></div>
+            <div><span>开累结算</span><b><i>¥</i>386,000</b></div>
+          </div>
+          <div class="more">
+            <div class="led-acts"><button>查看</button><button>导出</button></div>
+          </div>
+        </article>
+
+      </div>
+      <div class="note-clip"></div>
+      <nav class="tabbar">
+        <button><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z"/><path d="M9 20v-6h6v6"/></svg>工作台</button>
+        <button class="on"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>台账</button>
+        <button><svg viewBox="0 0 24 24"><path d="M7 3h10v18l-5-3-5 3z"/></svg>单据</button>
+        <button><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/></svg>我的</button>
+      </nav>
+    </div>
+    <figcaption><span class="idx">SHEET 02</span><span class="ttl">台账卡片化</span><span class="sub">P0 修法：<br>16.8 屏 → 0 横滑</span></figcaption>
+  </figure>
+
+  <!-- ============ 03 结算单 ============ -->
+  <figure class="sheet">
+    <div class="screen">
+      <div class="bar">
+        <button class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <div class="sheet-head"><div><b>结算单</b><small>JS-2026-0031</small></div></div>
+        <div class="stamp">待<br>审批</div>
+      </div>
+      <div class="pay-hero">
+        <div class="lbl">本次应付 <em>AFTER RETENTION</em></div>
+        <div class="num"><small>¥</small>486,200.00</div>
+      </div>
+      <div class="ledger">
+        <div class="lrow"><span>合同金额</span><b>2,860,000.00</b></div>
+        <div class="lrow"><span>开累结算（含本次）</span><b>1,944,800.00</b></div>
+        <div class="lrow"><span>本次结算</span><b>486,200.00</b></div>
+        <div class="lrow"><span>质保金扣留 5%</span><b class="neg">− 24,310.00</b></div>
+        <div class="lrow"><span>已付款</span><b class="neg">− 1,286,400.00</b></div>
+        <div class="lrow total"><span>应付合计</span><b>¥ 486,200.00</b></div>
+      </div>
+      <div class="attach" style="margin-top:12px">
+        <h4 class="sec">支撑附件 <u>02</u></h4>
+        <div class="thumbs">
+          <div class="thumb"><span class="ok">已核</span><b>发票 · 增值税专票</b><small>0441 2218 · ¥486,200</small><div class="line"></div><div class="line s"></div></div>
+          <div class="thumb"><span class="ok">已核</span><b>收领单 · 第 7 期</b><small>SL-2026-0117 · 钢结构</small><div class="line"></div><div class="line s"></div></div>
+        </div>
+      </div>
+      <div class="memo">
+        <h4 class="sec">经办备注</h4>
+        <div class="box">第 7 期钢结构验收合格，质保金按 5% 扣留，请财务核对发票后放款。<small>王骏 · 2026-10-21 14:32</small></div>
+      </div>
+      <div class="foot">
+        <button>驳回</button>
+        <button class="pri">审批通过</button>
+      </div>
+    </div>
+    <figcaption><span class="idx">SHEET 03</span><span class="ttl">结算单详情</span><span class="sub">账本栏线 + 44px<br>底部固定操作</span></figcaption>
+  </figure>
+
+  <!-- ============ 04 导航抽屉（两级深化） ============ -->
+  <figure class="sheet">
+    <div class="screen drawer-screen">
+      <div class="dr-head">
+        <div class="crumb"><span>结算与资金</span><i>›</i><span>结算单</span><i>›</i><b>结算明细</b></div>
+        <b style="margin-top:10px">华东智造产业园二期</b>
+        <small>两级分组 · 路径可回溯</small>
+      </div>
+      <div class="dr-body">
+        <div class="quick">
+          <div class="quick-row"><span class="k">最近</span><b>结算明细 · 钢结构第 7 期</b><span>JS-0031 ↗</span></div>
+          <div class="quick-row"><span class="k">待办</span><b>收领单 · 待补实收数量</b><span>SO-0217 ↗</span></div>
+        </div>
+        <div class="navgrp">
+          <div class="navhead"><b>采购管理</b><span class="n">16</span><span class="cv"></span></div>
+          <div class="navsub">
+            <div class="navitem">采购立项<span class="cnt">8</span></div>
+            <div class="navitem">采购公告<span class="cnt">3</span></div>
+            <div class="navitem">成交报告<span class="cnt">5</span></div>
+          </div>
+        </div>
+        <div class="navgrp">
+          <div class="navhead"><b>合同管理</b><span class="n">56</span><span class="cv"></span></div>
+          <div class="navsub">
+            <div class="navitem">合同台账<span class="cnt">56</span></div>
+            <div class="navitem">合同起草</div>
+            <div class="navitem">合同查询</div>
+          </div>
+        </div>
+        <div class="navgrp open">
+          <div class="navhead"><b>结算与资金</b><span class="n">6</span><span class="cv"></span></div>
+          <div class="navsub">
+            <div class="navitem">结算单<span class="cnt">4</span></div>
+            <div class="navitem on">结算明细<span class="cnt">17</span></div>
+            <div class="navitem">付款记录</div>
+            <div class="navitem">发票管理<span class="cnt">2</span></div>
+          </div>
+        </div>
+        <div class="navgrp open">
+          <div class="navhead"><b>物资与单据</b><span class="n">14</span><span class="cv"></span></div>
+          <div class="navsub">
+            <div class="navitem">收领单<span class="cnt">12</span></div>
+            <div class="navitem">物资基础库</div>
+          </div>
+        </div>
+        <div class="navgrp">
+          <div class="navhead"><b>基础资料</b><span class="n">9</span><span class="cv"></span></div>
+          <div class="navsub">
+            <div class="navitem">供应商库</div>
+            <div class="navitem">项目档案</div>
+          </div>
+        </div>
+      </div>
+      <div class="dr-foot">
+        <div class="ava">超</div>
+        <div class="who"><b>赵超 · 合同管理员</b><small>SUPER ADMIN</small></div>
+        <button class="out">退出</button>
+      </div>
+    </div>
+    <figcaption><span class="idx">SHEET 04</span><span class="ttl">两级导航抽屉</span><span class="sub">分组可展开 · 当前路径<br>直达结算明细与收领单</span></figcaption>
+  </figure>
+
+  <!-- ============ 05 结算明细 ============ -->
+  <figure class="sheet">
+    <div class="screen">
+      <div class="bar">
+        <button class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <div class="sheet-head"><div><b>结算明细</b><small>JS-2026-0031</small></div></div>
+        <span class="pill sign">待审批</span>
+      </div>
+      <div class="meta-strip">
+        <div><span>合同</span><b>HT-2026-0412</b></div>
+        <div><span>结算期</span><b>2026-09</b></div>
+        <div><span>明细行</span><b>4 ROWS</b></div>
+      </div>
+      <div class="sum-bar">
+        <div class="lbl2">Σ 明细金额 <em>= 结算单金额</em></div>
+        <b>486,200.00</b>
+      </div>
+      <div class="lines">
+        <div class="ln">
+          <div class="t"><b>钢结构柱 H 型钢</b><span class="amt">356,380.00</span></div>
+          <div class="d"><span>86.5 t</span><em>×</em><span>4,120.00</span><span class="tagline">税 13%</span></div>
+          <div class="src">来源 · 总日报 9/12–9/28 · 现场已确认</div>
+        </div>
+        <div class="ln">
+          <div class="t"><b>高强螺栓 M24×70</b><span class="amt">14,880.00</span></div>
+          <div class="d"><span>1,200 套</span><em>×</em><span>12.40</span><span class="tagline">税 13%</span></div>
+          <div class="src">来源 · 收领单 SO00009cy000217</div>
+        </div>
+        <div class="ln">
+          <div class="t"><b>防腐涂料 环氧富锌</b><span class="amt">52,910.00</span></div>
+          <div class="d"><span>1,850 kg</span><em>×</em><span>28.60</span><span class="tagline">税 13%</span></div>
+          <div class="src">来源 · 总日报汇总 · 允许人工修改</div>
+        </div>
+        <div class="ln">
+          <div class="t"><b>防火涂料 超薄型</b><span class="amt">62,030.00</span></div>
+          <div class="d"><span>1,000 kg</span><em>×</em><span>62.03</span><span class="tagline warn">量差 已说明</span></div>
+          <div class="src">备注 · 损耗率 3.2%，较设计量少 30 kg</div>
+        </div>
+      </div>
+      <div class="gate">
+        <div class="g-top"><span>量级闸门 · 链上清单量</span><span>已结算 72%</span></div>
+        <div class="g-track"><i style="width:72%"></i></div>
+      </div>
+      <div class="foot">
+        <button>新增明细</button>
+        <button class="pri">提交审批</button>
+      </div>
+    </div>
+    <figcaption><span class="idx">SHEET 05</span><span class="ttl">结算明细</span><span class="sub">一行 = 清单物资<br>单头 = Σ 明细</span></figcaption>
+  </figure>
+
+  <!-- ============ 06 收领单编辑 ============ -->
+  <figure class="sheet">
+    <div class="screen">
+      <div class="bar">
+        <button class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <div class="sheet-head"><div><b>编辑收领单</b><small>SO00009cy000217</small></div></div>
+        <span class="pill draft">草稿</span>
+      </div>
+      <div class="form">
+        <div class="fld"><label>供应单位</label><div class="ctl">浙江中南钢构有限公司<span class="cv2"></span></div></div>
+        <div class="fld"><label>领用单位</label><div class="ctl">本项目（自营）<span class="cv2"></span></div></div>
+        <div class="fld"><label>日期</label><div class="ctl">2026-09-28<span class="lk">09/28</span></div></div>
+        <div class="more-rows">展开其余 6 个字段 ▾</div>
+        <div class="qty-head"><h4 class="sec">明细 <u>02</u></h4></div>
+        <div class="rc-card">
+          <div class="n1"><b>钢结构柱 H 型钢</b><span>¥82,400.00</span></div>
+          <div class="spec">t · 合同 90.0000 · @4,120.00</div>
+          <div class="steps">
+            <div class="step"><span>送货数量</span><div class="box"><button data-step="-1">−</button><i>20</i><button data-step="1">+</button></div></div>
+            <div class="step"><span>实收数量</span><div class="box"><button data-step="-1">−</button><i>20</i><button data-step="1">+</button></div></div>
+          </div>
+        </div>
+        <div class="rc-card">
+          <div class="n1"><b>高强螺栓 M24×70</b><span>¥4,910.40</span></div>
+          <div class="spec">套 · 合同 1,500.0000 · @12.40</div>
+          <div class="steps">
+            <div class="step"><span>送货数量</span><div class="box"><button data-step="-1">−</button><i>400</i><button data-step="1">+</button></div></div>
+            <div class="step"><span>实收数量</span><div class="box alert"><button data-step="-1">−</button><i>396</i><button data-step="1">+</button></div></div>
+          </div>
+          <div class="short">⚠ 短量 4 套 · 需填备注说明</div>
+        </div>
+        <div class="upload">
+          <div class="ph">＋</div>
+          <div class="tx"><b>扫描件 / 现场照片</b><small>JPG · PNG · PDF ≤ 10MB</small></div>
+        </div>
+      </div>
+      <div class="foot">
+        <button>存草稿</button>
+        <button class="pri">保存收领单</button>
+      </div>
+    </div>
+    <figcaption><span class="idx">SHEET 06</span><span class="ttl">收领单编辑</span><span class="sub">单列表单 · 44px 控件<br>数量步进器可点</span></figcaption>
+  </figure>
+
+</div>
+
+<div class="stage-foot">
+  <div><b>沿用既有 token</b>暖赭 #C1663F / 墨 #171410 / 纸 #F8F4EA，与 DESIGN.md 一致，不新增品牌语言。</div>
+  <div><b>下钻链路</b>抽屉两级分组 → 结算明细（Σ 行项 = 单头金额、量级闸门、来源可溯）→ 收领单编辑（单列表单 + 数量步进器 + 扫描件）。</div>
+  <div><b>可交互</b>点分组标题折叠/展开、点台账卡片展开进度、点 ± 改数量、点底部 tab 切换激活态。</div>
+</div>
+
+<script>
+// a11y：给四张屏与底部 tab 补语义
+document.querySelectorAll('.sheet').forEach(function (s, i) {
+  s.setAttribute('role', 'listitem');
+  var cap = s.querySelector('figcaption .ttl');
+  var screen = s.querySelector('.screen');
+  if (screen && cap) {
+    screen.setAttribute('role', 'img');
+    screen.setAttribute('aria-label', '效果图 ' + (i + 1) + '：' + cap.textContent);
+  }
+});
+document.querySelectorAll('.tabbar').forEach(function (bar) {
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', '底部导航');
+  bar.querySelectorAll('button').forEach(function (b) {
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', b.classList.contains('on') ? 'true' : 'false');
+  });
+});
+document.querySelectorAll('.chips').forEach(function (row) {
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', '状态筛选');
+});
+
+document.querySelectorAll('.navhead').forEach(function (head) {
+  head.setAttribute('role', 'button');
+  head.setAttribute('tabindex', '0');
+  head.setAttribute('aria-expanded', head.parentElement.classList.contains('open') ? 'true' : 'false');
+  function toggle() {
+    var g = head.parentElement;
+    g.classList.toggle('open');
+    head.setAttribute('aria-expanded', g.classList.contains('open') ? 'true' : 'false');
+  }
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+});
+
+document.querySelectorAll('.step .box button').forEach(function (btn) {
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var box = btn.parentElement;
+    var out = box.querySelector('i');
+    var v = parseFloat(out.textContent) + Number(btn.dataset.step);
+    if (v < 0) v = 0;
+    out.textContent = Number.isInteger(v) ? v : v.toFixed(1);
+  });
+});
+
+document.querySelectorAll('.led-card').forEach(function (card) {
+  card.addEventListener('click', function (e) {
+    if (e.target.closest('.led-acts')) return;
+    card.classList.toggle('open');
+    card.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
+  });
+});
+document.querySelectorAll('.tabbar').forEach(function (bar) {
+  bar.querySelectorAll('button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      bar.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); b.setAttribute('aria-selected', 'false'); });
+      btn.classList.add('on');
+      btn.setAttribute('aria-selected', 'true');
+    });
+  });
+});
+document.querySelectorAll('.chips').forEach(function (row) {
+  row.querySelectorAll('.chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      row.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('on'); });
+      chip.classList.add('on');
+    });
+  });
+});
+</script>
+</body>
+</html>

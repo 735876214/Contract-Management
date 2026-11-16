@@ -1,15 +1,21 @@
 import http from './http';
 
-/** 采购模板（批次一 · 任务 1.2）：每个业务类型仅一个模板，新增覆盖同类型旧模板 */
+/** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
-  list: () => http.get<any, any>('/procurement-templates'),
+  /** 列表：支持 keyword / moduleType / status / page / pageSize（返回 { list, total, page, pageSize }） */
+  list: (params?: any) => http.get<any, any>('/procurement-templates', { params }),
   detail: (id: string) => http.get<any, any>(`/procurement-templates/${id}`),
   // 同业务类型已有模板时后端执行覆盖（upsert），前端负责覆盖前确认
-  create: (data: { moduleType: string; templateName: string; content: string; variables?: string[] }) =>
+  create: (data: { moduleType: string; templateName: string; content: string; variables?: string[]; tags?: string | null; status?: number }) =>
     http.post<any, any>('/procurement-templates', data),
-  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[] }) =>
+  update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string | null; status?: number; version?: number }) =>
     http.put<any, any>(`/procurement-templates/${id}`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
+  /** 版本历史（新→旧） */
+  versions: (id: string) => http.get<any, any>(`/procurement-templates/${id}/versions`),
+  /** 回滚：基于旧版本内容创建新版本 */
+  rollback: (id: string, data: { versionId: string }) =>
+    http.post<any, any>(`/procurement-templates/${id}/rollback`, data),
 };
 
 /**
@@ -36,6 +42,13 @@ export const procurementTaskApi = {
       techQuality?: string;
       acceptanceMethod?: string;
       paymentMethod?: string;
+      /** 条款选择（业务口径 2026-10-16）：正文由后端快照进 techQuality/acceptanceMethod/paymentMethod */
+      technicalClauseId?: string | null;
+      qualityClauseId?: string | null;
+      acceptanceClauseId?: string | null;
+      paymentClauseId?: string | null;
+      /** 乐观锁：列表/详情带回的 version（服务端 `assertVersion` 强制校验）——**必填**，缺失即 409 */
+      version: number;
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */
@@ -62,6 +75,9 @@ export const procurementTaskApi = {
       attachments?: unknown[];
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/framework-explanation`, data),
+  /** 从采购价格对比表导入「价格对比表」明细（任务 3.6） */
+  importPriceCompare: (id: string) =>
+    http.post<any, any>(`/procurement-tasks/${id}/framework-explanation/import-price-compare`),
   /** 采前会会议纪要（任务 3.2）：仅「单项采购」且预计采购金额 ≥ 100 万时生成 */
   preMeetingMinutes: (id: string) =>
     http.get<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`),
@@ -137,6 +153,14 @@ export const procurementTaskApi = {
   /** 「响应单位情况汇总表」导入模板下载地址 */
   resultReportTemplateUrl: (id: string) =>
     `${http.defaults.baseURL}/procurement-tasks/${id}/result-report/template`,
+  /** 结构化投标单位 + 评标记录（招标域）：读取时服务端对存量 JSON 快照做幂等回填 */
+  bidders: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/bidders`),
+  /** 保存投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与两轮报价来自导入表，不在此改） */
+  saveBidders: (id: string, bidders: unknown[]) =>
+    http.put<any, any>(`/procurement-tasks/${id}/bidders`, { bidders }),
+  /** 保存评标记录（全量替换） */
+  saveEvaluations: (id: string, evaluations: unknown[]) =>
+    http.put<any, any>(`/procurement-tasks/${id}/evaluations`, { evaluations }),
   /** 采购价格对比表（任务 3.6）：仅「单项采购」任务可用；入口条件为成交报告已完成 */
   priceCompare: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/price-compare`),
   savePriceCompare: (
@@ -151,6 +175,9 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/price-compare`, data),
   remove: (id: string) => http.delete<any, any>(`/procurement-tasks/${id}`),
+  /** 任务 7：成交报告「退回 → 重发」 */
+  rejectResultReport: (id: string) =>
+    http.post<any, any>(`/procurement-tasks/${id}/reject-result-report`),
   /** 问题二：删除子模块记录并回退流程（仅流程最末端模块可删，删除后上一阶段恢复可编辑） */
   deleteModule: (id: string, moduleKey: string) =>
     http.delete<any, any>(`/procurement-tasks/${id}/modules/${moduleKey}`),
@@ -166,8 +193,16 @@ export const dailyApi = {
   // 按合同聚合日报「结算数量」合计（补充协议：原合同剩余数量 = 原合同数量 − 日报已发生数量）
   contractSettledQty: (contractId: string) =>
     http.get<any, any>('/daily-reports/contract-settled-qty', { params: { contractId } }),
+  // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：单条传 id，批量传 ids；action = CONFIRM | REJECT
+  confirm: (payload: { id?: string; ids?: string[]; action: 'CONFIRM' | 'REJECT'; remark?: string }) =>
+    http.post<any, any>('/daily-reports/confirm', payload),
+  // 某合同下未确认/已驳回的现场记录汇总（结算页提示用）
+  unconfirmedSummary: (contractId: string) =>
+    http.get<any, any>('/daily-reports/unconfirmed-summary', { params: { contractId } }),
   exportUrl: () => `${http.defaults.baseURL}/daily-reports/export`,
-  importUrl: () => `${http.defaults.baseURL}/daily-reports/import`,
+  // 日报导入（第 22 轮审计 P2-10）：后端 POST /daily-reports/import 与 /import/validate 都在，
+  // 但日报**没有填写模板**、页面也没挂导入按钮，原来这里留的 importUrl/validateUrl 无人使用（孤儿接口）。
+  // 已删除以免误以为日报可导入；真要导入须先补日报填写模板，再照物资清单页那样接 ImportButton。
 };
 
 export const materialApi = {
@@ -180,6 +215,7 @@ export const materialApi = {
   exportUrl: () => `${http.defaults.baseURL}/materials/export`,
   templateUrl: () => `${http.defaults.baseURL}/materials/template`,
   importUrl: () => `${http.defaults.baseURL}/materials/import`,
+  validateUrl: () => `${http.defaults.baseURL}/materials/import/validate`,
 };
 
 export const contractMaterialApi = {
@@ -196,6 +232,8 @@ export const contractMaterialApi = {
   exportUrl: (contractId: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     `${http.defaults.baseURL}/contract-materials/export?contractId=${contractId}&format=${format}`,
   importUrl: (contractId: string) => `${http.defaults.baseURL}/contract-materials/import?contractId=${contractId}`,
+  validateUrl: (contractId: string) =>
+    `${http.defaults.baseURL}/contract-materials/import/validate?contractId=${contractId}`,
 };
 
 export const settlementApi = {
@@ -203,6 +241,8 @@ export const settlementApi = {
   detail: (id: string) => http.get<any, any>(`/settlements/${id}`),
   create: (data: any) => http.post<any, any>('/settlements', data),
   update: (id: string, data: any) => http.put<any, any>(`/settlements/${id}`, data),
+  // 任务 7：结算驳回 → 回填
+  reject: (id: string, version?: number) => http.post<any, any>(`/settlements/${id}/reject`, { version }),
   remove: (id: string) => http.delete<any, any>(`/settlements/${id}`),
   ledger: (params?: any) => http.get<any, any>('/settlements/ledger', { params }),
   ledgerDetail: (id: string) => http.get<any, any>(`/settlements/ledger/${id}`),
@@ -212,7 +252,15 @@ export const settlementApi = {
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
+  ledgerValidateUrl: () => `${http.defaults.baseURL}/settlements/ledger/import/validate`,
   refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
+  /** 预览「上一期」待生成的结算（顶部提示用）：未挂结算单的收领单张数、还差几个合同 */
+  previewGenerate: (params?: any) => http.get<any, any>('/settlements/generate/preview', { params }),
+  /**
+   * 生成本期（默认上一期）结算单：抓取期间内未挂结算单的收领单，按合同各生成一张草稿结算单。
+   * 幂等 —— 已有结算单的合同会被跳过（返回 `skipped`）。
+   */
+  generate: (data?: { refDate?: string; contractId?: string }) => http.post<any, any>('/settlements/generate', data || {}),
   ledgerImport: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -228,11 +276,48 @@ export const paymentApi = {
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
   recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
   recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
+  recordsValidateUrl: () => `${http.defaults.baseURL}/payments/records/import/validate`,
   recordsImport: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
     return http.post<any, any>('/payments/records/import', fd);
   },
+};
+
+/** 付款手续编制（业务口径 2026-10-16）：开累两值由服务端按合同链口径取数并快照，前端不提交 */
+export const paymentProcedureApi = {
+  list: (params?: any) => http.get<any, any>('/payment-procedures', { params }),
+  detail: (id: string) => http.get<any, any>(`/payment-procedures/${id}`),
+  create: (data: any) => http.post<any, any>('/payment-procedures', data),
+  update: (id: string, data: any) => http.put<any, any>(`/payment-procedures/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
+};
+
+/** 总结算单（结算及付款管理，业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 */
+export const finalSettlementApi = {
+  list: (params?: any) => http.get<any, any>('/final-settlements', { params }),
+  detail: (id: string) => http.get<any, any>(`/final-settlements/${id}`),
+  /** 生成：`contractId` 必填；一个合同只允许一张（重复会 400） */
+  generate: (contractId: string) => http.post<any, any>('/final-settlements/generate', { contractId }),
+  update: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}`, data),
+  /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
+  attach: (id: string, data: { url: string; fileName: string }) =>
+    http.post<any, any>(`/final-settlements/${id}/attach`, data),
+  remove: (id: string) => http.delete<any, any>(`/final-settlements/${id}`),
+  exportUrl: (id: string, templateId?: string) =>
+    `${http.defaults.baseURL}/final-settlements/${id}/export${templateId ? `?templateId=${templateId}` : ''}`,
+};
+
+/** 单据模板（基础信息管理，业务口径 2026-10-17）：五类单据的 Excel 模板 */
+export const docTemplateApi = {
+  list: (params?: any) => http.get<any, any>('/doc-templates', { params }),
+  detail: (id: string) => http.get<any, any>(`/doc-templates/${id}`),
+  create: (data: any) => http.post<any, any>('/doc-templates', data),
+  update: (id: string, data: any) => http.put<any, any>(`/doc-templates/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/doc-templates/${id}`),
+  /** 渲染付款单（付款手续 → Excel）；`templateId` 可指定模板，不传则用启用中的「付款单」模板 */
+  renderPaymentUrl: (procedureId: string, templateId?: string) =>
+    `${http.defaults.baseURL}/doc-templates/render/payment-procedure/${procedureId}${templateId ? `?templateId=${templateId}` : ''}`,
 };
 
 export const invoiceApi = {
@@ -243,17 +328,26 @@ export const invoiceApi = {
   remove: (id: string) => http.delete<any, any>(`/invoices/${id}`),
   checkNo: (no: string, excludeId?: string) => http.get<any, any>('/invoices/check-no', { params: { no, excludeId } }),
   verify: (id: string) => http.post<any, any>(`/invoices/${id}/verify`),
+  /** 作废（终态）：保留结算单关联，不计入台账/履约/工作台等金额口径 */
+  cancel: (id: string) => http.post<any, any>(`/invoices/${id}/cancel`),
+  /** 红冲（终态）：同上 */
+  red: (id: string) => http.post<any, any>(`/invoices/${id}/red`),
   // 批量识别：上传发票图片解码二维码 → 用户选合同后批量入台账
   recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
   batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
   templateUrl: () => `${http.defaults.baseURL}/invoices/template`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
+  validateUrl: () => `${http.defaults.baseURL}/invoices/import/validate`,
 };
 
 export const assetApi = {
   list: (params?: any) => http.get<any, any>('/assets', { params }),
+  /** 物资进出场汇总（零新表，2026-10-18） */
+  flowSummary: (params?: any) => http.get<any, any>('/assets/flow-summary', { params }),
   templateUrl: () => `${http.defaults.baseURL}/assets/template`,
+  importUrl: () => `${http.defaults.baseURL}/assets/import`,
+  validateUrl: () => `${http.defaults.baseURL}/assets/import/validate`,
   import: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -284,18 +378,74 @@ export const repaymentApi = {
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
 };
 
+/** 劳务管理 · 分包授权台账（附件需求 2026-10-17 新增模块；原「分包商库」并入，含委托书全流程） */
+export const laborApi = {
+  list: (params?: any) => http.get<any, any>('/labor/auth-ledger', { params }),
+  options: (keyword?: string) => http.get<any, any>('/labor/auth-ledger/options', { params: { keyword } }),
+  detail: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}`),
+  create: (data: any) => http.post<any, any>('/labor/auth-ledger', data),
+  update: (id: string, data: any) => http.put<any, any>(`/labor/auth-ledger/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/labor/auth-ledger/${id}`),
+  /** 授权委托书打印就绪 HTML（iframe 预览） */
+  letterHtml: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter`),
+  /** 委托书文件名（分包材料员授权委托书_{分包商}_{日期}.pdf） */
+  letterFileName: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter-filename`),
+  /** 未落库前的实时预览（按表单值渲染 HTML） */
+  previewHtml: (values: any) => http.post<any, any>('/labor/auth-ledger/preview', values),
+  /** 导出 PDF 版委托书 → 落库（状态：编辑中） */
+  exportMark: (data: any) => http.post<any, any>('/labor/auth-ledger/export-mark', data),
+  /** 上传签字盖章版委托书 + 签字截图 → 状态：已完成 */
+  complete: (id: string, data: any) => http.post<any, any>(`/labor/auth-ledger/${id}/complete`, data),
+  /** 分包材料员授权信息表.xlsx（图片内嵌；归档「11.分包授权台账」的 Excel 源） */
+  exportWorkbookUrl: () => `${http.defaults.baseURL}/labor/auth-ledger/export`,
+};
+
+/** 成本管理（附件需求 2026-10-17 新增模块）：分包领用汇总 + 月度盈亏分析 + 分包单位领用月度汇总 */
+export const costApi = {
+  /** 月度盈亏分析（附件需求 2026-10-17 第三批；一个月一条，明细=当期节超快照） */
+  monthlyProfitLoss: {
+    list: (params?: any) => http.get<any, any>('/cost/monthly-profit-loss', { params }),
+    detail: (id: string) => http.get<any, any>(`/cost/monthly-profit-loss/${id}`),
+    create: (data: any) => http.post<any, any>('/cost/monthly-profit-loss', data),
+    update: (id: string, data: any) => http.put<any, any>(`/cost/monthly-profit-loss/${id}`, data),
+    remove: (id: string) => http.delete<any, any>(`/cost/monthly-profit-loss/${id}`),
+    /** 重新抓取当期快照（手填项按 分包单位+材料+规格 回填） */
+    reSnapshot: (id: string) => http.post<any, any>(`/cost/monthly-profit-loss/${id}/re-snapshot`),
+    exportUrl: (id: string) => `${http.defaults.baseURL}/cost/monthly-profit-loss/${id}/export`,
+  },
+  /** 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位×结算期） */
+  laborReceiving: {
+    options: () => http.get<any, any>('/cost/labor-receiving/options'),
+    listDocs: (params?: any) => http.get<any, any>('/cost/labor-receiving/docs', { params }),
+    createDoc: (data: any) => http.post<any, any>('/cost/labor-receiving/docs', data),
+    docDetail: (id: string) => http.get<any, any>(`/cost/labor-receiving/docs/${id}`),
+    updateDoc: (id: string, data: any) => http.put<any, any>(`/cost/labor-receiving/docs/${id}`, data),
+    removeDoc: (id: string) => http.delete<any, any>(`/cost/labor-receiving/docs/${id}`),
+    docExportUrl: (id: string) => `${http.defaults.baseURL}/cost/labor-receiving/docs/${id}/export`,
+  },
+};
+
+/** 项目资料归档（附件需求 2026-10-17）：目录树 + 一键/按目录打包 ZIP */
+export const archiveApi = {
+  entries: () => http.get<any, any>('/archive/entries'),
+  downloadUrl: (scope?: string) =>
+    `${http.defaults.baseURL}/archive/download${scope && scope !== 'all' ? `?scope=${encodeURIComponent(scope)}` : ''}`,
+};
+
 export const financeApi = {
   // 合同资金参数（付款模式/月利率/宽限期/上限比例）
   contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),
   saveContractParams: (contractId: string, data: any) => http.put<any, any>(`/finance/contract-params/${contractId}`, data),
   // 保理费用台账
-  factoring: (contractId: string) => http.get<any, any>('/finance/factoring-costs', { params: { contractId } }),
+  factoring: (contractId: string, params?: any) =>
+    http.get<any, any>('/finance/factoring-costs', { params: { contractId, ...(params ?? {}) } }),
   createFactoring: (data: any) => http.post<any, any>('/finance/factoring-costs', data),
   updateFactoring: (id: string, data: any) => http.put<any, any>(`/finance/factoring-costs/${id}`, data),
   removeFactoring: (id: string) => http.delete<any, any>(`/finance/factoring-costs/${id}`),
   exportFactoringUrl: (contractId: string) => `${http.defaults.baseURL}/finance/factoring-costs/export?contractId=${contractId}`,
   // 逾期利息台账
-  overdue: (contractId: string) => http.get<any, any>('/finance/overdue-interests', { params: { contractId } }),
+  overdue: (contractId: string, params?: any) =>
+    http.get<any, any>('/finance/overdue-interests', { params: { contractId, ...(params ?? {}) } }),
   generateOverdue: (data: { contractId: string; settlementMonth: string; materialAmount: number }) =>
     http.post<any, any>('/finance/overdue-interests/generate', data),
   createOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests', data),
@@ -317,6 +467,8 @@ export const dashboardApi = {
   contractType: () => http.get<any, any>('/dashboard/contract-type'),
   invoiceStats: () => http.get<any, any>('/dashboard/invoice-stats'),
   reminders: () => http.get<any, any>('/dashboard/reminders'),
+  /** 我的待办（业务口径 2026-10-16）：按模块分类聚合，0 条的分类也返回（Tab 常驻） */
+  todos: () => http.get<any, any>('/dashboard/todos'),
 };
 
 /**
@@ -339,6 +491,12 @@ export const receiptOrderApi = {
   // 需求 2.5 互锁：按分包商带出其关联分包合同
   subcontractorContracts: (subcontractorId: string) =>
     http.get<any, any>('/receipt-orders/subcontractor-contracts', { params: { subcontractorId } }),
+  // 供应单位=供应商时，物资合同下拉 = 该供应商在本项目的合同（2026-10-17 业务口径）
+  supplierContracts: (supplierId: string) =>
+    http.get<any, any>('/receipt-orders/supplier-contracts', { params: { supplierId } }),
+  // 领用单位=分包商时，带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
+  subcontractorMaterials: (subcontractorId: string) =>
+    http.get<any, any>('/receipt-orders/subcontractor-materials', { params: { subcontractorId } }),
   create: (data: any) => http.post<any, any>('/receipt-orders', data),
   update: (id: string, data: any) => http.put<any, any>(`/receipt-orders/${id}`, data),
   push: (id: string) => http.post<any, any>(`/receipt-orders/${id}/push`),
@@ -375,4 +533,705 @@ export const subcontractorApi = {
       headers: { 'x-raw-response': '1' },
       transformResponse: [(d: any) => d],
     } as any),
+};
+
+/**
+ * AI 助手（2026-10-19）。
+ *
+ * 两个动作都是「上传文件 → 拿结果」，**不落库**：
+ * - `inspect`：返回「单元格 ↔ 字段」建议（后台调模型），可能耗时十几秒，超时放宽；
+ * - `fill`：按映射回填并回传 xlsx（二进制），统计数放在响应头 `x-ai-filled` / `x-ai-skipped`。
+ */
+export interface AiInspectCandidate {
+  sheet: string;
+  cellRef: string;
+  row: number;
+  col: number;
+  label: string;
+  hasValue: boolean;
+  /** 模型建议匹配到的字段键（未建议为 null） */
+  fieldKey?: string | null;
+  fieldLabel?: string | null;
+  confidence?: number | null;
+}
+
+export interface AiTableRegion {
+  sheet: string;
+  headerRow: number;
+  startRow: number;
+  columns: Array<{ col: number; letter: string; label: string }>;
+  emptyRows: number;
+}
+
+export interface AiTableDataset {
+  key: string;
+  label: string;
+  columns: string[];
+}
+
+export interface AiInspectResult {
+  aiEnabled: boolean;
+  aiMessage?: string;
+  sheetNames: string[];
+  candidates: AiInspectCandidate[];
+  /** 超出扫描上限被丢弃的槽位数（>0 时前端提示精简文件） */
+  truncated: number;
+  availableFields: { key: string; label: string; type: string; scope: string; sensitive?: boolean }[];
+  /** 表格区（行级填充） */
+  tables?: AiTableRegion[];
+  /** 行级填充可选数据集与列 */
+  tableDatasets?: AiTableDataset[];
+}
+
+
+/** 文件登记：一个字段的抽取结果（值已由后端按类型规整） */
+export interface AiRegisterField {
+  key: string;
+  label: string;
+  group: 'supplier' | 'contract';
+  type: 'text' | 'code' | 'date' | 'money' | 'percent' | 'enum';
+  required: boolean;
+  sensitive: boolean;
+  /** null = 没抽到 */
+  value: string | null;
+  /** 该值能否在原文里找到（后端核对，不信模型自评） */
+  verified: boolean;
+  confidence: number | null;
+  warn?: 'unverified' | 'invalid' | 'missing-required' | 'cross-check' | 'duplicate';
+  note?: string;
+}
+
+export interface AiRegisterItem {
+  name: string | null;
+  spec: string | null;
+  unit: string | null;
+  qty: number | null;
+  unitPriceWithTax: number | null;
+  amountWithTax: number | null;
+}
+
+export interface AiRegisterParseResult {
+  aiEnabled: boolean;
+  aiMessage?: string;
+  fileName: string;
+  kind: 'docx' | 'xlsx';
+  chars: number;
+  truncated: boolean;
+  draft: {
+    fields: AiRegisterField[];
+    missing: string[];
+    warnings: string[];
+    items: AiRegisterItem[];
+    itemsTotal: number | null;
+  };
+  existing: { supplierId?: string; supplierName?: string; contractId?: string; contractCode?: string };
+  items: number;
+  model?: string;
+}
+
+export interface AiRegisterConfirmResult {
+  supplierId: string | null;
+  supplierCreated: boolean;
+  contractId: string;
+  code: string;
+  name: string;
+  /** 写入的物资明细行数 */
+  materialCount: number;
+  /** 新建的物资主数据条数（其余匹配到已有） */
+  materialBaseCreated: number;
+  /** 因缺名称被丢弃的明细行数 */
+  materialSkipped: number;
+  /** 因「名称 + 规格」重复而合并（数量/金额相加）的明细行数 */
+  materialMerged: number;
+}
+
+
+/** 汇报材料（三期）：事实包由后端程序聚合，模型只负责组织语言 */
+/** 汇报材料：一个统计区间内发生的量（本期与对比期共用同一套字段） */
+export interface AiReportWindow {
+  period: { from: string; to: string; label: string };
+  contractsSigned: number;
+  contractsSignedAmount: number;
+  settlementCount: number;
+  settlementAmount: number;
+  paymentCount: number;
+  paymentAmount: number;
+  invoiceCount: number;
+  invoiceAmount: number;
+  dailyReports: number;
+}
+
+/** 环比：`pct` 为 null 表示上期为 0、无法计算（后端不写百分比） */
+export interface AiReportDelta {
+  now: number;
+  prev: number;
+  pct: number | null;
+}
+
+/** 后端 `ReportFacts` 的前端副本（结构变更时必须同步，否则渲染读到 undefined） */
+export interface AiReportFacts {
+  project: { name: string; code: string; manager?: string | null; startDate?: string | null; endDate?: string | null; selfContractAmount?: number | null };
+  /** 本期区间 */
+  current: AiReportWindow;
+  /** 对比期区间（环比基数） */
+  compare: AiReportWindow;
+  /** 项目级累计（不受区间限制） */
+  totals: { contracts: number; executing: number; contractAmount: number; settlementAmount: number; paymentAmount: number; invoiceAmount: number; unpaid: number };
+  deltas: {
+    contractsSigned: AiReportDelta;
+    contractsSignedAmount: AiReportDelta;
+    settlementAmount: AiReportDelta;
+    paymentAmount: AiReportDelta;
+    invoiceAmount: AiReportDelta;
+    dailyReports: AiReportDelta;
+  };
+  risks: string[];
+}
+
+export interface AiReportResult {
+  kind: 'monthly' | 'project' | 'brief';
+  label: string;
+  /** 该材料的公文骨架（节标题），后端保证 prompt 按这棵树填 */
+  sections: string[];
+  period: { from: string; to: string; label: string };
+  /** 对比期（环比基数） */
+  comparePeriod: { from: string; to: string; label: string };
+  markdown: string;
+  facts: AiReportFacts;
+  /** 材料里出现、但事实清单里找不到的数字 */
+  unknownNumbers: string[];
+  warnings: string[];
+  /** 材料里缺少模板要求的节标题（模型偶尔会漏） */
+  missingSections: string[];
+}
+
+/**
+ * 结算 / 付款异常预警（课题 6-9）一条命中。
+ *
+ * `code` / `level` 与后端 `server/src/modules/ai/anomaly/anomaly-types.ts` 的
+ * `ANOMALY_CODES` / `ANOMALY_LEVEL` 一一对应；面板再写一份中文标签是刻意的
+ * ——要在不依赖接口的情况下也能解释「这条是什么规则」（无名代码对使用者等于没提示）。
+ */
+export interface AiAnomalyFinding {
+  code: string;
+  level: 'HIGH' | 'MEDIUM';
+  /** 命中对象：合同 / 结算单 / 付款 / 付款手续 */
+  entity: 'contract' | 'settlement' | 'payment' | 'procedure';
+  entityId: string;
+  /** 模板串标题（后端生成，保证不缺描述） */
+  title: string;
+  /** 判定依据：中文键 → 已格式化的值。**面板只展示，不做加工** */
+  facts: Record<string, string>;
+  /** 差额（元字符串，正数 = 超出/重复金额）；无金额概念时为 null */
+  amountDiff: string | null;
+}
+
+export interface AiAnomalyNarrative {
+  conclusion: string;
+  actions: string[];
+  /** llm = 模型措辞且数字对账通过；template = 模板兜底（模型未配置/失败/对账失败） */
+  source: 'llm' | 'template';
+  /** 结论里出现、但不在事实清单里的数字（对账失败即为非空） */
+  unknownNumbers: string[];
+}
+
+export interface AiAnomalyResult {
+  /** 系统参数 `ai.anomaly.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
+  enabled: boolean;
+  generatedAt: string;
+  period: { from: string | null; to: string | null };
+  /** 参与判定的单据量：0 命中时据此说明「算过哪些数据」，是可信度的依据 */
+  sample: Record<string, number>;
+  tolerances: { amount: string; qtyPct: number; jaccard: number };
+  summary: { total: number; high: number; medium: number; byCode: Record<string, number> };
+  findings: AiAnomalyFinding[];
+  /** 因数据缺失没跑成的规则：**未判定不等于没问题**，必须显式展示 */
+  notEvaluated: string[];
+  narrative: AiAnomalyNarrative;
+  warnings: string[];
+}
+
+/**
+ * 异常报价与价差识别预警（课题 3-9）一条命中。
+ *
+ * `code` / `level` / `entity` 与后端 `server/src/modules/ai/quote/quote-types.ts` 的
+ * `QUOTE_CODES` / `ANOMALY_LEVEL` 一一对应；面板再存一份中文标签是刻意的
+ * ——要在没有接口返回时也能解释「这条是什么规则」。
+ */
+export interface AiQuoteFinding {
+  code: string;
+  level: 'HIGH' | 'MEDIUM';
+  /** 命中对象：采购任务 / 响应单位 / 清单行 */
+  entity: 'task' | 'bidder' | 'totalItem';
+  entityId: string;
+  taskId: string;
+  taskNo: string;
+  /** 模板串标题（后端生成，保证不缺描述） */
+  title: string;
+  /** 判定依据：已格式化的中文事实行（金额都带单位）。**面板只展示，不做加工** */
+  facts: string[];
+  /** 差额（元字符串，正数 = 超出/偏离金额）；无金额概念时为 null */
+  amountDiff: string | null;
+}
+
+export interface AiQuoteResult {
+  /** 系统参数 `ai.quote.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
+  enabled: boolean;
+  generatedAt: string;
+  /** 扫描范围说明（单个采购任务 / 本项目全部采购任务） */
+  scope: string;
+  /** 参与判定的数据量：0 命中时据此说明「算过哪些数据」 */
+  sample: Record<string, number>;
+  tolerances: {
+    amount: string;
+    dropPct: number;
+    spreadPct: number;
+    underBudgetPct: number;
+    priceDevPct: number;
+    taxRateToleranceBp: number;
+    minBidders: number;
+  };
+  summary: { total: number; high: number; medium: number; byCode: Record<string, number> };
+  findings: AiQuoteFinding[];
+  /** 因数据缺失没跑成的规则：**未判定不等于没问题**，必须显式展示 */
+  notEvaluated: string[];
+  narrative: AiAnomalyNarrative;
+  warnings: string[];
+}
+/**
+ * 合同履行偏差预警（课题 4-9）一条命中。
+ *
+ * `code` / `level` / `entity` 与后端 `server/src/modules/ai/fulfillment/fulfillment-types.ts`
+ * 的 `FULFILLMENT_CODES` / `FULFILLMENT_LEVEL` 一一对应。
+ */
+export interface AiFulfillmentFinding {
+  code: string;
+  level: 'HIGH' | 'MEDIUM';
+  /** 命中对象：履约节点 / 合同 */
+  entity: 'milestone' | 'contract';
+  entityId: string;
+  /** 模板串标题（后端生成，保证不缺描述） */
+  title: string;
+  /** 判定依据：已格式化的中文事实行（天数/比例都带单位）。**面板只展示，不做加工** */
+  facts: string[];
+  /** 差额（元字符串）；履约偏差多为 null */
+  amountDiff: string | null;
+}
+
+export interface AiFulfillmentResult {
+  /** 系统参数 `ai.fulfillment.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
+  enabled: boolean;
+  generatedAt: string;
+  /** 扫描范围说明（单个合同 / 本项目全部在履行合同） */
+  scope: string;
+  /** 参与判定的数据量：0 命中时据此说明「算过哪些数据」 */
+  sample: Record<string, number>;
+  tolerances: {
+    amount: string;
+    graceDays: number;
+    lateFinishDays: number;
+    progressGapPct: number;
+  };
+  summary: { total: number; high: number; medium: number; byCode: Record<string, number> };
+  findings: AiFulfillmentFinding[];
+  /** 因数据缺失没跑成的规则：**未判定不等于没问题**，必须显式展示 */
+  notEvaluated: string[];
+  narrative: AiAnomalyNarrative;
+  warnings: string[];
+}
+/**
+ * 供应链运营全景（课题 7-11）：跨项目汇总的**事实包**。
+ * 页面展示的数字全部来自这里——后端算好、模型只抄，所以前端不需要做任何再计算。
+ */
+export interface AiScmProjectFacts {
+  projectId: string;
+  code: string;
+  name: string;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  /** 已结算未付款；负值 = 付款已超过结算 */
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  /** 付款率/结算率/开票率（%）；分母为 0 时为 null（不是 0%） */
+  payRatioPct: number | null;
+  settleRatioPct: number | null;
+  invoiceRatioPct: number | null;
+  milestoneCount: number;
+  overdueMilestones: number;
+}
+
+export interface AiScmSupplierFacts {
+  supplierId: string | null;
+  name: string;
+  contractCount: number;
+  signedYuan: number;
+  sharePct: number;
+}
+
+export interface AiScmTotals {
+  projectCount: number;
+  contractCount: number;
+  signedYuan: number;
+  settledYuan: number;
+  paidYuan: number;
+  invoicedYuan: number;
+  unpaidYuan: number;
+  uninvoicedYuan: number;
+  payRatioPct: number | null;
+  settleRatioPct: number | null;
+  invoiceRatioPct: number | null;
+  overdueMilestones: number;
+}
+
+export interface AiScmFacts {
+  /** 事实基准日（YYYY-MM-DD） */
+  asOf: string;
+  totals: AiScmTotals;
+  projects: AiScmProjectFacts[];
+  suppliers: AiScmSupplierFacts[];
+  /** 程序判定的风险提示（模型只许转述） */
+  risks: string[];
+  empty: boolean;
+}
+
+export interface AiScmResult {
+  enabled: boolean;
+  generatedAt: string;
+  asOf: string;
+  scope: string;
+  projects: Array<{ id: string; code: string; name: string }>;
+  sample: Record<string, number>;
+  tolerances: { topSharePct: number; invoiceGapPct: number; topSuppliers: number };
+  toleranceText: string;
+  facts: AiScmFacts;
+  /** 报告正文（Markdown）：AI 版或确定性汇总版，两者数字同源 */
+  markdown: string;
+  sections: string[];
+  missingSections: string[];
+  /** 恒为空数组：对不上的数字不会进正文 */
+  unknownNumbers: string[];
+  /** 被丢弃的模型数字（透明展示） */
+  discardedNumbers: string[];
+  source: 'llm' | 'template';
+  warnings: string[];
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
+/** AI 信息登记：页面提交内容（不传 = 不改；apiKey 空串 = 清除） */
+export interface AiSettingInput {
+  enabled?: boolean;
+  baseUrl?: string;
+  /** 全局默认模型；空串 = 清除（回落环境变量） */
+  model?: string;
+  /** 用途级模型覆盖：`{ register: "qwen-plus" }`；值空串 = 清除该用途（跟随全局）。不传的用途不动 */
+  models?: Record<string, string>;
+  apiKey?: string;
+}
+
+/** 诊断接口入参：在登记内容之外，可指定「测哪个用途」的模型 */
+export interface AiSettingTestInput extends AiSettingInput {
+  /** 只测某个用途实际会用的模型（不传 = 测全局 model） */
+  purpose?: string;
+}
+
+/** 登记页「按用途指定模型」表格的一行 */
+export interface AiSettingPurposeView {
+  code: string;
+  name: string;
+  desc: string;
+  /** 该用途实际生效的模型（没单独指定时等于全局模型） */
+  model: string;
+  /** db = 页面单独登记过；env = 来自用途环境变量；default = 跟随全局模型 */
+  source: 'db' | 'env' | 'default';
+  /** 页面登记过的原始值（留空表示未覆盖；用它回填输入框，便于「清空 = 跟随全局」） */
+  stored: string;
+}
+
+export type AiSettingSourceKind = 'db' | 'env' | 'default' | 'none';
+
+export interface AiSettingView {
+  /** 当前是否真的可用（开关开着且三项齐全） */
+  enabled: boolean;
+  model: string;
+  baseUrl: string;
+  /** 是否已保存过密钥（永不回显明文） */
+  apiKeySaved: boolean;
+  /** 每一项取自哪里，页面用标签展示「页面登记 / 环境变量 / 未配置」 */
+  source: { enabled: AiSettingSourceKind; baseUrl: AiSettingSourceKind; model: AiSettingSourceKind; apiKey: AiSettingSourceKind };
+  /** 环境变量是否已有完整配置 */
+  envConfigured: boolean;
+  /** 后端拼好的一句话状态说明 */
+  hint: string;
+  /** 按用途的模型明细（页面表格直接渲染这份，不在前端重算回落逻辑） */
+  purposes: AiSettingPurposeView[];
+}
+
+export interface AiSettingTestResult {
+  ok: boolean;
+  message: string;
+  ms?: number;
+  model?: string;
+  reply?: string;
+}
+
+export interface AiAnalyticsDatasetMeta {
+  key: string;
+  label: string;
+  desc: string;
+  permission: string;
+  periodField: string | null;
+  reportSection: string;
+  defaultSelected: boolean;
+}
+
+export interface AiAnalyticsDatasetsResult {
+  datasets: AiAnalyticsDatasetMeta[];
+  deniedDatasets: string[];
+  crossProjectAllowed: boolean;
+  maxDatasets: number;
+  defaultKeys: string[];
+}
+
+export type AiPeriodPreset =
+  | 'this_month' | 'last_month' | 'this_quarter' | 'this_year'
+  | 'last_30_days' | 'last_90_days' | 'ytd' | 'all' | 'custom';
+export type AiCompareMode = 'none' | 'mom' | 'yoy';
+export type AiScopeMode = 'current' | 'selected' | 'all';
+
+export interface AiAnalyticsIntent {
+  version: 1;
+  scope: { mode: AiScopeMode; mentions?: string[] };
+  period: { preset: AiPeriodPreset; from?: string; to?: string };
+  datasets: string[];
+  groupBy: 'project' | 'month' | 'supplier' | 'contract';
+  detail: 'summary' | 'detail' | 'both';
+  focus: string[];
+  outputs: { report: boolean; workbook: boolean };
+  reportKind: 'monthly' | 'project' | 'brief' | 'custom' | 'comparison';
+  compare: AiCompareMode;
+  notes?: string;
+  rawText?: string;
+}
+
+export interface AiAnalyticsPlanResult {
+  intent: AiAnalyticsIntent;
+  warnings: string[];
+  unknownTerms: string[];
+  unknownDatasets: string[];
+  deniedDatasets: string[];
+  projects: Array<{ id: string; code: string; name: string }>;
+  source: 'rules' | 'llm';
+}
+
+export interface AiAnalyticsReportResult {
+  id: string | null;
+  persisted: boolean;
+  title: string;
+  intent: AiAnalyticsIntent;
+  scope: { mode: string; label: string; projects: Array<{ id: string; code: string; name: string }>; projectCount: number };
+  period: { from: string | null; to: string; label: string; preset: string };
+  compareMode: AiCompareMode;
+  comparePeriod: { from: string | null; to: string; label: string; mode: 'mom' | 'yoy' } | null;
+  sections: Array<{ id: string; title: string }>;
+  markdown: string;
+  facts: any;
+  unknownNumbers: string[];
+  discardedNumbers: string[];
+  warnings: string[];
+  source: 'template' | 'llm';
+  factNumbers?: number[];
+}
+
+export interface AiAnalyticsRecordSummary {
+  id: string;
+  title: string;
+  projectId: string;
+  createdBy: string | null;
+  createdByName: string | null;
+  scopeMode: string | null;
+  projectCount: number;
+  periodLabel: string | null;
+  compareMode: string | null;
+  datasetKeys: string[];
+  hasReport: boolean;
+  hasWorkbook: boolean;
+  narrative: boolean;
+  source: string | null;
+  createdAt: string;
+}
+
+export interface AiAnalyticsRecordDetail extends AiAnalyticsRecordSummary {
+  markdown?: string | null;
+  factsJson?: any;
+  warningsJson?: any;
+  rawText?: string | null;
+  intentJson?: any;
+}
+
+export const aiApi = {
+  status: () => http.get<any, { enabled: boolean; model: string }>('/ai/status'),
+  /** 扫描表单：`contractId` / `supplierId` 可选，给了才能用对应域的字段；`scopeMode` 非 current 时为跨项目汇总填报 */
+  inspect: (file: File, ctx?: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string[]; from?: string; to?: string }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (ctx?.contractId) form.append('contractId', ctx.contractId);
+    if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    if (ctx?.scopeMode) form.append('scopeMode', ctx.scopeMode);
+    if (ctx?.projectIds?.length) form.append('projectIds', JSON.stringify(ctx.projectIds));
+    if (ctx?.from) form.append('from', ctx.from);
+    if (ctx?.to) form.append('to', ctx.to);
+    return http.post<any, AiInspectResult>('/ai/forms/inspect', form, { timeout: 120000 } as any);
+  },
+  /** 文件登记：上传合同文件 → 登记草案（**不写库**，只返回抽取结果供人确认） */
+  registerParse: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return http.post<any, AiRegisterParseResult>('/ai/register/parse', form, { timeout: 180000 } as any);
+  },
+  /** 文件登记：确认写库。body 用嵌套结构，操作日志的按键名脱敏才能认出 bankAccount */
+  registerConfirm: (body: {
+    supplier?: Record<string, unknown>;
+    contract?: Record<string, unknown>;
+    supplierId?: string;
+    skipSupplier?: boolean;
+    /** 抽取到的明细（勾选「顺带写合同物资明细」时才带） */
+    items?: Record<string, unknown>[];
+    writeMaterials?: boolean;
+  }) => http.post<any, AiRegisterConfirmResult>('/ai/register/confirm', body),
+  /** 汇报材料：由程序聚合事实、模型组织语言；返回 Markdown + 事实清单 + 数字对账结果 */
+  reportGenerate: (body: { kind: string; from?: string; to?: string; extra?: string }) =>
+    http.post<any, AiReportResult>('/ai/report/generate', body, { timeout: 180000 } as any),
+  /** 导出 Word / PDF：把页面上的同一份 Markdown 转成文件（不重新生成，避免导出与预览不一致） */
+  reportExport: (body: { markdown: string; title?: string; header?: string; footer?: string; format?: 'docx' | 'pdf' }) =>
+    http.post<any, any>('/ai/report/export', body, { responseType: 'blob', timeout: 120000, rawResponse: true } as any),
+  /** 回填：返回完整响应（要读 x-ai-filled 响应头 + 二进制 body） */
+  fill: (
+    file: File,
+    mapping: { sheet: string; cellRef: string; fieldKey: string }[],
+    ctx?: { contractId?: string; supplierId?: string; scopeMode?: string; projectIds?: string[]; from?: string; to?: string },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mapping', JSON.stringify(mapping));
+    if (ctx?.contractId) form.append('contractId', ctx.contractId);
+    if (ctx?.supplierId) form.append('supplierId', ctx.supplierId);
+    if (ctx?.scopeMode) form.append('scopeMode', ctx.scopeMode);
+    if (ctx?.projectIds?.length) form.append('projectIds', JSON.stringify(ctx.projectIds));
+    if (ctx?.from) form.append('from', ctx.from);
+    if (ctx?.to) form.append('to', ctx.to);
+    return http.post<any, any>('/ai/forms/fill', form, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any);
+  },
+  /** 行级表格填充：数据集行 → 模板表区（返回 xlsx + 统计响应头） */
+  fillTable: (
+    file: File,
+    body: {
+      datasetKey: string;
+      sheet: string;
+      headerRow: number;
+      startRow: number;
+      columns: Array<{ col: number; source: string }>;
+      scopeMode?: string;
+      projectIds?: string[];
+      from?: string;
+      to?: string;
+    },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('datasetKey', body.datasetKey);
+    form.append('sheet', body.sheet);
+    form.append('headerRow', String(body.headerRow));
+    form.append('startRow', String(body.startRow));
+    form.append('columns', JSON.stringify(body.columns));
+    if (body.scopeMode) form.append('scopeMode', body.scopeMode);
+    if (body.projectIds?.length) form.append('projectIds', JSON.stringify(body.projectIds));
+    if (body.from) form.append('from', body.from);
+    if (body.to) form.append('to', body.to);
+    return http.post<any, any>('/ai/forms/fill-table', form, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any);
+  },
+
+  /**
+   * 结算 / 付款异常预警（课题 6-9）：只读扫描，规则在服务端算，模型只写结论。
+   * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
+   */
+  paymentAnomaly: (query: { from?: string; to?: string; contractId?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiAnomalyResult>('/ai/anomaly/payment', { params: query, timeout: 180000 } as any),
+  /**
+   * 异常报价与价差识别预警（课题 3-9）：只读扫描，规则在服务端算，模型只写结论。
+   * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
+   */
+  quoteAnomaly: (query: { taskId?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiQuoteResult>('/ai/anomaly/quote', { params: query, timeout: 180000 } as any),
+  /**
+   * 合同履行偏差预警（课题 4-9）：只读扫描，规则在服务端算，模型只写结论。
+   * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
+   */
+  fulfillmentAnomaly: (query: { contractId?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiFulfillmentResult>('/ai/anomaly/fulfillment', { params: query, timeout: 180000 } as any),
+
+  /**
+   * 供应链运营全景（课题 7-11）：**跨项目**只读汇总。
+   * `projectIds` 逗号分隔（不传 = 全部项目，需要跨项目权限 `dashboard:view`）；
+   * `narrative=0` 强制只出确定性汇总（不调模型）。
+   */
+  supplyChain: (query: { projectIds?: string; narrative?: '0' | '1' }) =>
+    http.get<any, AiScmResult>('/ai/analysis/supply-chain', { params: query, timeout: 180000 } as any),
+
+  // ---------- AI 经营数据助手（Phase 1–2）----------
+  /** 数据集注册表：只返回已实现且当前用户有权限的条目 */
+  analyticsDatasets: () => http.get<any, AiAnalyticsDatasetsResult>('/ai/analytics/datasets'),
+  /** 自然语言/结构化选择 → 最终意图（规则解析 + 逐字段覆盖） */
+  analyticsPlan: (body: Record<string, unknown>) =>
+    http.post<any, AiAnalyticsPlanResult>('/ai/analytics/plan', body, { timeout: 60000 } as any),
+  /** 确定性报告（不调模型）：成功即落库，返回 id 供历史/导出使用 */
+  analyticsReport: (body: Record<string, unknown>) =>
+    http.post<any, AiAnalyticsReportResult>('/ai/analytics/report', body, { timeout: 180000 } as any),
+  /** 多 sheet 工作簿：不调模型、不扣配额；带 `reportId` 时挂到已有报告记录 */
+  analyticsWorkbook: (body: Record<string, unknown>) =>
+    http.post<any, { id: string; fileName: string; size: number; sheets: string[]; warnings: string[]; reportId: string | null }>(
+      '/ai/analytics/workbook',
+      body,
+      { timeout: 180000 } as any,
+    ),
+  /** 下载存档工作簿（GET 走 Cookie 鉴权） */
+  analyticsWorkbookDownload: (id: string) =>
+    http.get<any, any>(`/ai/analytics/${id}/workbook`, {
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any),
+  /** 历史列表：默认本人全部（跨项目可见）；`projectId` 可选筛选；超管 `all=1` */
+  analyticsHistory: (params: Record<string, unknown>) =>
+    http.get<any, { list: AiAnalyticsRecordSummary[]; total: number; page: number; pageSize: number }>('/ai/analytics', {
+      params,
+    }),
+  analyticsDetail: (id: string) => http.get<any, AiAnalyticsRecordDetail>(`/ai/analytics/${id}`),
+  /** 用存档 Markdown 重新导出（GET 下载走 Cookie 鉴权） */
+  analyticsExport: (id: string, format: 'docx' | 'pdf') =>
+    http.get<any, any>(`/ai/analytics/${id}/export`, {
+      params: { format },
+      responseType: 'blob',
+      timeout: 120000,
+      rawResponse: true,
+    } as any),
+  analyticsRemove: (id: string) => http.delete<any, { id: string; deleted: boolean }>(`/ai/analytics/${id}`),
+  /**
+   * AI 信息登记（2026-10-20）：全站共用的上游配置，权限 `system:config`。
+   * 密钥只写不读——`getSetting` 只回「有没有存过」，永远没有明文。
+   */
+  getSetting: () => http.get<any, AiSettingView>('/ai/setting'),
+  saveSetting: (body: AiSettingInput) => http.put<any, AiSettingView>('/ai/setting', body),
+  /** 用当前（或刚填还没保存的）配置真打一次上游；失败原因在返回值里，不抛错 */
+  testSetting: (body: AiSettingTestInput) =>
+    http.post<any, AiSettingTestResult>('/ai/setting/test', body, { timeout: 30000 } as any),
 };

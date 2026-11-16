@@ -1,0 +1,388 @@
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+import { ContractService } from '../contract';
+import { SupplierService } from '../supplier';
+import { AiQuota } from './ai-quota';
+import { aiModelFor, type AiConfig } from './ai-config';
+import { AiSettingService } from './ai-setting.service';
+import { DOC_EXTS, extOf, extractDocumentText } from './document-text';
+import { looksLikeContract } from './docx-text';
+import { chatJson, LlmError } from './llm-client';
+import { materialRowsFromItems } from './register-materials';
+import { isRealDay, normalizeExtraction, taxRateFraction, type RegisterDraft } from './register-fields';
+import { buildRegisterMessages } from './register-prompt';
+import { assertPermission } from '../../common/utils/assert-permission';
+
+/** 一次登记的解析结果：**不落库**，等人在前端确认后才写 */
+export interface RegisterParseResult {
+  aiEnabled: boolean;
+  /** AI 不可用时的原因（文件解析成功，但没法自动填） */
+  aiMessage?: string;
+  fileName: string;
+  kind: 'docx' | 'xlsx';
+  chars: number;
+  truncated: boolean;
+  /** 抽出来的草案：字段值 + 原文核对结果 + 明细 */
+  draft: RegisterDraft;
+  /** 库里已存在的同编号合同 / 同名供应商（前端提示「将关联已有，不重复建」） */
+  existing: { supplierId?: string; supplierName?: string; contractId?: string; contractCode?: string };
+  items: number;
+  model?: string;
+}
+
+export interface RegisterConfirmInput {
+  supplier?: Record<string, unknown>;
+  contract?: Record<string, unknown>;
+  /** 直接复用已有供应商（前端下拉选中时传） */
+  supplierId?: string;
+  /** 只登记合同，不动供应商 */
+  skipSupplier?: boolean;
+  /** 抽取到的物资明细（写库前由 `materialRowsFromItems` 规整） */
+  items?: unknown[];
+  /** 是否把明细写入「合同物资明细」（默认不写，用户勾选才写） */
+  writeMaterials?: boolean;
+}
+
+export interface RegisterConfirmResult {
+  supplierId: string | null;
+  supplierCreated: boolean;
+  contractId: string;
+  code: string;
+  name: string;
+  /** 写入的物资明细行数 */
+  materialCount: number;
+  /** 新建的物资主数据条数（其余为匹配已有） */
+  materialBaseCreated: number;
+  /** 因缺名称被丢弃的明细行数 */
+  materialSkipped: number;
+  /** 因「名称 + 规格」重复而**合并**（数量/金额相加）的明细行数 */
+  materialMerged: number;
+}
+
+/**
+ * 文件自动登记（二期）。
+ *
+ * 分工刻意写成「解析算子」与「写入算子」两半：
+ * - `parse()` 只读文件、只调模型、只做核对，**一个字节都不写库**；
+ * - `confirm()` 只接受前端已审阅过的字段，走各模块既有的 create()（编号唯一、名称拼接、
+ *   字典校验、付款比例派生都在那里），不另开一条写库捷径。
+ * 这样误识别最多是「多看一眼」，不会变成台账里的脏数据。
+ */
+@Injectable()
+export class RegisterService {
+  private readonly logger = new Logger(RegisterService.name);
+
+  constructor(
+    private prisma: PrismaClient,
+    private quota: AiQuota,
+    private contracts: ContractService,
+    private suppliers: SupplierService,
+    /** 配置统一走「系统管理 → AI 信息登记」：页面登记 > 环境变量（见 ai-config.ts） */
+    private setting: AiSettingService,
+  ) {}
+
+  private async config(): Promise<AiConfig> {
+    return this.setting.resolve();
+  }
+
+  private assertUpload(file: any, cfg: AiConfig): { buffer: Buffer; fileName: string } {
+    if (!file?.buffer?.length) throw new BadRequestException('请上传合同文件');
+    const name = String(file.originalname || 'contract.docx');
+    const ext = extOf(name);
+    if (!DOC_EXTS.includes(ext as any)) {
+      throw new BadRequestException(`只支持 ${DOC_EXTS.join(' / ')}（.doc 与 PDF 请先另存为 docx）`);
+    }
+    if (file.size && file.size > cfg.maxFileBytes) {
+      throw new BadRequestException(`文件超过 ${Math.round(cfg.maxFileBytes / 1024 / 1024)}MB，请拆分后上传`);
+    }
+    return { buffer: file.buffer as Buffer, fileName: name };
+  }
+
+  /** 文件 → 草案（不写库） */
+  async parse(file: any, ctx: { projectId: string }, userId: string): Promise<RegisterParseResult> {
+    const cfg = await this.config();
+    const { buffer, fileName } = this.assertUpload(file, cfg);
+
+    let doc;
+    try {
+      doc = await extractDocumentText(buffer, fileName);
+    } catch (e: any) {
+      throw new BadRequestException(`文件解析失败：${e?.message || '无法读取正文'}`);
+    }
+    if (!doc.text.trim()) throw new BadRequestException('文件里没有可读文字（扫描件需要先做 OCR）');
+
+    const empty: RegisterDraft = { fields: [], missing: [], warnings: [], items: [], itemsTotal: null };
+
+    // AI 未配置：仍然把文件信息回给前端，但没法抽字段 —— 直接说清楚，让用户走手工新建
+    if (!cfg.enabled) {
+      return {
+        aiEnabled: false,
+        aiMessage: 'AI 未配置（接口地址 / API Key / 模型名），无法自动识别：请手工新建，或让管理员到「系统管理 → AI 信息登记」填写',
+        fileName,
+        kind: doc.kind,
+        chars: doc.chars,
+        truncated: doc.truncated,
+        draft: empty,
+        existing: {},
+        items: 0,
+      };
+    }
+
+    this.quota.consume(userId, cfg.hourlyLimitPerUser);
+
+    let raw: unknown;
+    try {
+      const res = await chatJson(globalThis.fetch as any, {
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        // 文件登记：长正文 + 要求字段齐全，可单独配上下文大的模型
+        model: aiModelFor(cfg, 'register'),
+        timeoutMs: cfg.timeoutMs,
+        temperature: 0,
+        maxTokens: cfg.maxTokens,
+      }, buildRegisterMessages({ text: doc.text, maxChars: cfg.maxTextChars }));
+      raw = res.data;
+    } catch (e: any) {
+      const msg = e instanceof LlmError ? e.message : String(e?.message || e);
+      // 失败不占额度（2026-10-20 审计 P2）：否则上游故障会把用户的每小时额度烧光
+      this.quota.refund(userId);
+      this.logger.warn(`合同解析失败：${msg}`);
+      return {
+        aiEnabled: true,
+        aiMessage: `AI 识别失败：${msg}（可重试，或手工新建）`,
+        fileName,
+        kind: doc.kind,
+        chars: doc.chars,
+        truncated: doc.truncated,
+        draft: empty,
+        existing: {},
+        items: 0,
+        // 回给前端的「这次用的哪个模型」要跟真实调用一致（用途级覆盖后不再等于全局）
+        model: aiModelFor(cfg, 'register'),
+      };
+    }
+
+    const draft = normalizeExtraction(raw, doc.text);
+    if (!looksLikeContract(doc.text)) {
+      draft.warnings.unshift('正文里没有明显的合同特征（甲方/乙方/结算等），请确认上传的是合同文件');
+    }
+    if (doc.truncated) {
+      draft.warnings.push(`正文较长已截断（共 ${doc.chars} 字），靠后的条款可能没被识别`);
+    }
+
+    const existing = await this.findExisting(draft, ctx.projectId);
+    if (existing.contractCode) draft.warnings.push(`合同编号 ${existing.contractCode} 已存在，登记会因编号重复被拒绝`);
+    if (existing.supplierName) draft.warnings.push(`供应商「${existing.supplierName}」已存在，登记时将关联已有记录`);
+
+    return {
+      aiEnabled: true,
+      fileName,
+      kind: doc.kind,
+      chars: doc.chars,
+      truncated: doc.truncated,
+      draft,
+      existing,
+      items: draft.items.length,
+      model: aiModelFor(cfg, 'register'),
+    };
+  }
+
+  private async findExisting(draft: RegisterDraft, projectId: string): Promise<RegisterParseResult['existing']> {
+    const out: RegisterParseResult['existing'] = {};
+    const supplierName = draft.fields.find((f) => f.key === 'supplier.name')?.value;
+    const code = draft.fields.find((f) => f.key === 'contract.code')?.value;
+    if (supplierName) {
+      // 按共享范围查找（scope=PROJECT 时不把别项目的私有供应商当成「已存在」）
+      const hit = await this.suppliers.findByName(String(supplierName), projectId);
+      if (hit) {
+        out.supplierId = hit.id;
+        out.supplierName = hit.name;
+      }
+    }
+    if (code) {
+      // 查重口径必须跟 `ContractService.checkCode` 一致（GLOBAL / PROJECT 由系统参数决定），
+      // 否则 scope=PROJECT 时会跨项目误报「编号已存在」（2026-10-20 审计 P1-3）
+      const { exists } = await this.contracts.checkCode(code, projectId);
+      if (exists) {
+        const hit = await this.prisma.contract.findFirst({ where: { projectId, code } });
+        out.contractId = hit?.id;
+        out.contractCode = hit?.code || code;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 按人工确认后的字段写库。
+   * body 用**嵌套结构**（`{supplier:{...}, contract:{...}}`）而不是扁平键：
+   * 操作日志的脱敏是按**键名**做的（`common/utils/mask.ts`），嵌套结构才能把
+   * `bankAccount` 认出来打码；扁平键 `supplier.bankAccount` 会漏网。
+   */
+  async confirm(
+    input: RegisterConfirmInput,
+    ctx: { projectId: string },
+    user: any,
+  ): Promise<RegisterConfirmResult> {
+    const c = input?.contract || {};
+    const s = input?.supplier || {};
+
+    const code = str(c.code);
+    const name = str(c.name);
+    const amount = num(c.amountWithTax ?? c.amount);
+    if (!code) throw new BadRequestException('合同编号不能为空');
+    if (!name) throw new BadRequestException('合同名称不能为空');
+    if (amount === null || amount < 0) throw new BadRequestException('合同金额必须是不小于 0 的数字');
+
+    const signDate = str(c.signDate);
+    // 格式之外还要校验日期真实存在（2026-10-20 审计 P2）：2026-02-30 会被 Date 静默归一成 3-02
+    if (signDate && !isRealDay(signDate)) {
+      throw new BadRequestException('签订日期不是有效日期（应为 YYYY-MM-DD，例如 2026-02-28）');
+    }
+    const taxRatePct = num(c.taxRatePct);
+    const rate = taxRateFraction(taxRatePct);
+    if (rate.error) throw new BadRequestException(rate.error);
+    const taxRate = rate.value;
+
+    // 1) 供应商：前端已选 → 校验存在；否则按名字复用，缺的**在事务里**新建
+    //    （2026-10-20 审计 P1-6：原来在事务外建，合同失败会留下无合同的孤儿供应商）
+    let supplierId: string | null = input?.supplierId ? String(input.supplierId) : null;
+    if (supplierId) {
+      // 走供应商服务的存在性 + 共享范围校验（scope=PROJECT 时不能选别项目私有供应商）
+      await this.suppliers.findOne(supplierId);
+    }
+    const supplierName = str(s.name);
+    const willCreateSupplier = !supplierId && !input?.skipSupplier && Boolean(supplierName);
+    // 2026-10-20 审计 P1-2：建供应商是「供应商管理」的写动作，守卫的 OR 语义
+    // （contract:edit 或 supplier:edit）不足以保证这一点，这里按动作追加校验。
+    if (willCreateSupplier) {
+      assertPermission(
+        user,
+        'supplier:edit',
+        '新增供应商需要「供应商-编辑」权限：可以改选已有供应商，或请管理员授权后再登记',
+      );
+    }
+
+    // 事务外先按共享范围找一次同名供应商：`scopeWhere` 要读系统参数，
+    // 事务内不得再走 sysParam（事务外连接，可能挂起）。
+    const visibleSupplier = willCreateSupplier && supplierName
+      ? await this.suppliers.findByName(supplierName, ctx.projectId)
+      : null;
+
+    // 2) 供应商（新建时）+ 合同 + 3) 物资明细：同一个事务。
+    // 不同事务时，物资行写到一半失败会留下「合同已建、明细只写了一半」的半成品，
+    // 再点确认又会被合同编号唯一键拦下（物资明细永远补不上，只能人修库）。
+    const written = await this.prisma.$transaction(
+      async (tx) => {
+        let supplierCreated = false;
+        if (willCreateSupplier) {
+          if (visibleSupplier) {
+            supplierId = visibleSupplier.id;
+          } else {
+            const created = await this.suppliers.create(
+              {
+                name: supplierName,
+                legalPerson: str(s.legalPerson),
+                bankName: str(s.bankName),
+                bankAccount: str(s.bankAccount),
+                address: str(s.address),
+                contactName: str(s.contactName),
+                contactPhone: str(s.contactPhone),
+                contactEmail: str(s.contactEmail),
+              },
+              ctx.projectId,
+              tx as any,
+            );
+            supplierId = created.id;
+            supplierCreated = true;
+          }
+        }
+
+        const contract = await this.contracts.create(
+          {
+            code,
+            name,
+            autoName: false,
+            typeCode: str(c.typeCode) || null,
+            supplierId,
+            signDate: signDate || null,
+            amount,
+            taxRate,
+            paymentMode: str(c.paymentMode) || null,
+            materialDescription: str(c.materialDescription) || null,
+            remark: str(c.remark) || null,
+            // 不写 execStatus：它是「已签章/已完已结」的权威事实，只能由签章/驳回/总结算维护；
+            // 文件登记出来的仍是草稿（无签章件），标成「执行中」会让工作台执行数虚高。
+          },
+          ctx.projectId,
+          user,
+          tx as any,
+        );
+
+        // 物资明细：用户勾选才写。物资主数据按「名称 + 规格」匹配，缺的先建再挂明细；
+        // 只复用**未停用**的主数据（停用项再被 AI 挂上明细，等于绕过停用约束）
+        let materialCount = 0;
+        let materialBaseCreated = 0;
+        let materialSkipped = 0;
+        let materialMerged = 0;
+        if (input?.writeMaterials && Array.isArray(input.items) && input.items.length) {
+          const { rows, skipped, merged } = materialRowsFromItems(input.items, taxRatePct);
+          materialSkipped = skipped;
+          materialMerged = merged;
+          for (const r of rows) {
+            let base = await tx.materialBase.findFirst({ where: { name: r.name, spec: r.spec, status: 1 } });
+            if (!base) {
+              base = await tx.materialBase.create({
+                data: { name: r.name, spec: r.spec, unit: r.unit || null, remark: '由 AI 文件登记自动创建' },
+              });
+              materialBaseCreated += 1;
+            }
+            await tx.contractMaterial.create({
+              data: {
+                contractId: contract.id,
+                materialBaseId: base.id,
+                unit: r.unit,
+                qty: r.qty,
+                priceBeforeTax: r.priceBeforeTax,
+                taxRatePct: r.taxRatePct,
+                priceWithTax: r.priceWithTax,
+                totalWithTax: r.totalWithTax,
+                remark: r.remark,
+                sortOrder: r.sortOrder,
+              },
+            });
+            materialCount += 1;
+          }
+        }
+        return { contract, materialCount, materialBaseCreated, materialSkipped, materialMerged, supplierCreated };
+      },
+      { timeout: 60000 },
+    );
+    const { contract, materialCount, materialBaseCreated, materialSkipped, materialMerged, supplierCreated } = written;
+
+    return {
+      supplierId,
+      supplierCreated,
+      contractId: contract.id,
+      code: contract.code,
+      name: contract.name,
+      materialCount,
+      materialBaseCreated,
+      materialSkipped,
+      materialMerged,
+    };
+  }
+}
+
+const str = (v: unknown): string | null => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+};
+
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[,，\s￥¥元]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+

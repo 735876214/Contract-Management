@@ -13,6 +13,8 @@
  */
 
 import { round } from '../../common/utils/money';
+import { summarizeOverdue } from '../../common/utils/overdue-summary';
+import { modeTranchesOf } from '../../common/utils/pay-ratio';
 
 export { round };
 
@@ -60,20 +62,10 @@ export interface PaymentModeDefaults {
 
 /** 两种标准付款模式（100% / 3382）的付款节点 */
 export function modeTranches(mode: string | null | undefined): PaymentModeDefaults | null {
-  if (mode === '100') {
-    // 次月 25 日前支付 100%
-    return { tranches: [{ ratio: 1, plusMonths: 1, day: 25 }] };
-  }
-  if (mode === '3382') {
-    // 第 3 个月内支付 80%，第 6 个月支付剩余（累计 100%）
-    return {
-      tranches: [
-        { ratio: 0.8, plusMonths: 3, day: 25 },
-        { ratio: 0.2, plusMonths: 6, day: 25 },
-      ],
-    };
-  }
-  return null;
+  // 分期定义已收敛到零依赖的 `common/utils/pay-ratio.ts`（那里同时给出月度比例与"当前生效比例"的判定），
+  // 这里只做一次委托：**别再在本文件里复制一份 tranches**，否则两处会漂移。
+  const tranches = modeTranchesOf(mode);
+  return tranches ? { tranches: tranches.map((t) => ({ ...t })) } : null;
 }
 
 /** 台账行输入（来自前端，字段名与 OverdueInterest 模型一致） */
@@ -109,12 +101,14 @@ export interface EngineOptions {
 }
 
 interface Entry {
+  /** 在入参数组中的下标——**不能改用 rowId 反查**：本引擎按文档也可用于「前端复算/单测」，
+   *  那种场景下入参往往没有 id，用 rowId 匹配会退化成「总取第一个条目」。 */
+  srcIdx: number;
   month: string;
   payableAmount: number;
   payableDate: Date;
   overdueStart: Date;
   remaining: number;
-  rowId?: string; // 主行（materialAmount>0 的行）
 }
 
 /**
@@ -128,16 +122,16 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
 
   // ---- 1. 构建应付款条目（materialAmount>0 的行为主行） ----
   const entries: Entry[] = [];
-  for (const r of rows) {
+  rows.forEach((r, idx) => {
     const material = Number(r.materialAmount) || 0;
-    if (material <= 0) continue;
+    if (material <= 0) return;
     const ratio = r.paymentRatio === null || r.paymentRatio === undefined ? 1 : Number(r.paymentRatio);
     const payable = round(material * ratio, 2) || 0;
     const pDate = r.payableDate ? new Date(r.payableDate) : null;
-    if (!pDate || isNaN(pDate.getTime())) continue;
+    if (!pDate || isNaN(pDate.getTime())) return;
     const overdueStart = addDays(pDate, (opts.graceDays ?? 7) + 1);
-    entries.push({ month: r.settlementMonth, payableAmount: payable, payableDate: pDate, overdueStart, remaining: payable, rowId: r.id });
-  }
+    entries.push({ srcIdx: idx, month: r.settlementMonth, payableAmount: payable, payableDate: pDate, overdueStart, remaining: payable });
+  });
   // 按逾期起始日期顺序（应付款日期顺序）
   entries.sort((a, b) => a.overdueStart.getTime() - b.overdueStart.getTime() || a.month.localeCompare(b.month));
 
@@ -183,15 +177,17 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
     if (target) {
       const days = Math.max(0, days360(e.overdueStart, asOf));
       const interest = round(e.remaining * days * rate / 30, 2) || 0;
+      // 同一结算月可能存在多条应付（多材料款行）而计息行只有一条：必须**累加**而不是覆盖，
+      // 否则后一条把前一条的利息冲掉（老实现用 `paymentAmount = -1` 当复用标记，但该标记
+      // 不参与下面的 filter 判断，等于死标记 → 逾期利息偏小）。
+      const prev = derived.get(target.idx);
       derived.set(target.idx, {
-        payableAmount: e.payableAmount,
-        overdueStartDate: e.overdueStart,
-        interestAmount: e.remaining,
-        overdueDays: days,
-        overdueInterest: interest,
+        payableAmount: round((prev?.payableAmount ?? 0) + e.payableAmount, 2) || 0,
+        overdueStartDate: prev ? new Date(Math.min(prev.overdueStartDate.getTime(), e.overdueStart.getTime())) : e.overdueStart,
+        interestAmount: round((prev?.interestAmount ?? 0) + e.remaining, 2) || 0,
+        overdueDays: Math.max(prev?.overdueDays ?? 0, days),
+        overdueInterest: round((prev?.overdueInterest ?? 0) + interest, 2) || 0,
       });
-      // 已承担，标记防止复用
-      target.r.paymentAmount = -1;
     }
   }
 
@@ -217,7 +213,7 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
     const r = rows[idx];
     const material = Number(r.materialAmount) || 0;
     if (material <= 0 || derived.has(idx)) continue;
-    const entry = entries.find((e) => e.rowId === r.id);
+    const entry = entries.find((e) => e.srcIdx === idx);
     if (!entry) continue;
     derived.set(idx, {
       payableAmount: entry.payableAmount,
@@ -229,41 +225,21 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
   }
 
   // ---- 5. 合计与结转统计 ----
-  const interestOf = (idx: number) => (rows[idx].waived ? 0 : derived.get(idx)?.overdueInterest || 0);
-  // 按结算月份排序计算开累
-  const months = Array.from(new Set(rows.map((r) => r.settlementMonth))).sort();
-  let cumulative = 0;
-  const cumulativeByMonth = new Map<string, number>();
-  for (const m of months) {
-    const monthInterest = rows.reduce((acc, r, idx) => (r.settlementMonth === m ? acc + interestOf(idx) : acc), 0);
-    cumulative = round(cumulative + monthInterest, 2) || 0;
-    cumulativeByMonth.set(m, cumulative);
-  }
-  const totalMaterial = round(rows.reduce((acc, r) => acc + (Number(r.materialAmount) || 0), 0), 2) || 0;
-  const totalPayment = round(rows.reduce((acc, r) => acc + (Number(r.paymentAmount) > 0 ? Number(r.paymentAmount) : 0), 0), 2) || 0;
-  const totalInterest = cumulative;
-  const perRowPrev = new Map<number, number | null>();
-  rows.forEach((r, idx) => {
-    // 上期开累 = 手动期初值优先，否则为上一结算月份的开累值
-    if (r.prevCumulative !== null && r.prevCumulative !== undefined) perRowPrev.set(idx, Number(r.prevCumulative));
-    else {
-      const ms = months.filter((m) => m < r.settlementMonth);
-      perRowPrev.set(idx, ms.length ? cumulativeByMonth.get(ms[ms.length - 1]) || 0 : 0);
-    }
-  });
-  const currentMonth = months[months.length - 1];
-  const prevCumulative = currentMonth ? perRowPrev.get(rows.findIndex((r) => r.settlementMonth === currentMonth)) || 0 : 0;
+  // 汇总口径（含「上期开累」规则）统一在 common/utils/overdue-summary.ts，与列表接口 listOverdue 共用一份实现
+  const summary = summarizeOverdue(rows, (row, idx) =>
+    row.waived ? 0 : derived.get(idx)?.overdueInterest || 0,
+  );
 
   return {
     derived,
     stats: {
-      totalMaterial,
-      totalPayment,
-      totalInterest,
-      currentCumulative: totalInterest,
-      prevCumulative,
-      currentSettlement: round(totalInterest - prevCumulative, 2) || 0,
-      cumulativeByMonth: Object.fromEntries(cumulativeByMonth),
+      totalMaterial: summary.totalMaterial,
+      totalPayment: summary.totalPayment,
+      totalInterest: summary.currentCumulative,
+      currentCumulative: summary.currentCumulative,
+      prevCumulative: summary.prevCumulative,
+      currentSettlement: summary.currentSettlement,
+      cumulativeByMonth: summary.cumulativeByMonth,
     },
   };
 }

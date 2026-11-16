@@ -1,203 +1,639 @@
 # 03 · API 接口清单
 
-- 基地址：`http://localhost:3000/api`
-- 统一返回：`{ code: 0, data: any, message: 'ok' }`，`code !== 0` 为业务异常（如 1001 参数错误、1401 未登录、1403 无权限、1500 服务端异常）。
-- 鉴权：`Authorization: Bearer <token>`；项目上下文：`x-project-id: <projectId>`。
-- 公共查询参数：`page`(默认1)、`pageSize`(默认20)、`keyword`、各业务筛选字段。
+> **文档状态**：2026-10-13 按当前代码（`server/src/modules/**/*.controller.ts`）重出，已与实现校准。
+> 基准 main @ `0755e7c` + P1 一致性修复。**路由以 controller 为准**，本文与之一一对应（22 个模块）。
 
-## 1. 认证 /auth
+## 0. 通用约定
+
+| 项 | 约定 |
+|---|---|
+| 基地址 | `/api`（Nginx 反代到后端 `PORT`，开发态 vite 亦反代 `/api`） |
+| 统一返回 | `{ code, data, message, timestamp }`；`code === 0` 为成功 |
+| 错误码 | `1001` 参数错误 · `1401` 未登录 · `1403` 无权限 · `1404` 不存在 · `1409` 乐观锁冲突 · `1500` 服务端异常 |
+| 鉴权 | `Authorization: Bearer <token>`（`JwtAuthGuard`） |
+| 项目上下文 | `x-project-id: <projectId>`，控制器用 `@ProjectId()` 取值；`JwtAuthGuard` 另按 `ProjectMember` 校验成员归属（`/api/auth`、`/api/projects` 豁免），非成员返回 `1403 无权访问该项目`、项目不存在返回 `1404 项目不存在` |
+| 权限 | `@RequirePermissions('module:action')` + `PermissionsGuard`；下表「权限」列为**任一即可**（`superAdmin` 直通） |
+| 公共查询参数 | `page`（默认 1）、`pageSize`（默认 20）、`keyword`，以及各模块的筛选字段 |
+| 乐观锁 | 业务表多有 `version Int`，`PUT` 请求体须带上 `version`，不一致返回 `1409` |
+
+### 项目隔离口径（`CLAUDE.md` 铁律 3）
+
+隔离靠**约定**而非中间件：service 在 `where` 中显式带 `projectId`。**例外**：
+
+| 模块 | 口径 |
+|---|---|
+| `/dict` | **全局**，无 `projectId`（字典类型/项为全系统共享） |
+| `/finance` | 按 `contractId` 归属（合同本身已在项目内），查询**不带** `projectId` 过滤 |
+| `/suppliers` | 受系统参数 `supplier.share.scope` 控制：`GLOBAL` 全局共享 / `PROJECT` 按项目隔离 |
+| `/contract-templates`（`/templates`）、`/subcontractors` | `projectId = null` 表示**全局共享**，否则按项目 |
+
+> 新增业务表/查询必须自己带上 `projectId` 过滤，否则会跨项目泄漏数据。
+
+### 相对上一版的变更（已移除的接口）
+
+以下端点**已不存在**，旧版本文档中的条目据此删除：`/system/depts`（部门管理已移除）、
+`/payments/plans`、`/payments/applies`、`/payments/verifications`（付款计划/申请/核销已重构为单表
+`/payments/records`）、`/invoices/applies`（开票申请）。
+
+> **核销（三单匹配）当前不做**：发票与付款之间没有核销关联模型，`/payments/records` 与 `/invoices`
+> 各自独立登记，仅通过 `contractId` 间接相关（业务 2026-10-16 再次确认「付款不需要核销」，
+> 见 [CLAUDE.md](../CLAUDE.md) §1「已定的产品口径」）。
+
+---
+
+## 1. 认证 `/auth`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| POST | `/auth/login` | 登录，返回 token + userInfo + 可访问项目 | — |
+| GET | `/auth/profile` | 当前用户、权限码、可访问项目、系统参数 | — |
+| POST | `/auth/logout` | 退出（记录日志） | — |
+| POST | `/auth/password` | 修改密码 | — |
+
+## 2. 菜单 `/menu`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/menu` | 当前用户可见的菜单树（按权限过滤；**菜单权威来源**，与前端 `Sider/menuConfig.ts` 兜底配置对应） | — |
+
+## 3. 字典 `/dict`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/dict/types` | 字典类型列表（搜索、分页） | `dict:view` `system:config` |
+| POST | `/dict/types` | 新增类型 | `dict:edit` `system:config` |
+| PUT | `/dict/types/:id` | 修改类型 | `dict:edit` `system:config` |
+| DELETE | `/dict/types/:id` | 删除类型（含字典项时一并校验） | `dict:edit` `system:config` |
+| GET | `/dict/items` | 字典项列表（`typeCode` 必填，含停用项） | `dict:view` `system:config` |
+| GET | `/dict/options/:typeCode` | 下拉选项（仅启用，支持 `extValue` 联动过滤） | `dict:view` `system:config` |
+| GET | `/dict/options` | 批量下拉选项（多 `typeCode`） | — |
+| POST | `/dict/items` | 新增字典项（校验 code 唯一） | `dict:edit` `system:config` |
+| PUT | `/dict/items/:id` | 修改字典项 | `dict:edit` `system:config` |
+| DELETE | `/dict/items/:id` | 删除（被业务引用返回「该选项已被使用，不可删除」） | `dict:edit` `system:config` |
+| POST | `/dict/items/:id/toggle` | 启用/停用 | `dict:edit` `system:config` |
+| POST | `/dict/items/sort` | 批量排序 | `dict:edit` `system:config` |
+| GET | `/dict/items/usage/:id` | 引用情况（删除前检查） | `dict:edit` `system:config` |
+| GET | `/dict/export?typeCode=` | 导出 Excel | `dict:view` `system:config` |
+| POST | `/dict/import` | 导入 Excel | `dict:edit` `system:config` |
+| POST | `/dict/import/validate` | 导入前预校验（`typeCode` 必填；只校验不写库，返回逐行问题） | `dict:edit` `system:config` |
+| POST | `/dict/cache/refresh` | 手动刷新字典缓存 | `dict:edit` `system:config` |
+
+> 项目隔离：**全局**（无 `projectId`）。
+
+## 4. 项目 `/projects`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/projects` | 我参与的项目列表 | `project:view` |
+| GET | `/projects/template` | 导入模板下载 | `project:view` |
+| GET | `/projects/:id` | 详情（含成员） | `project:view` |
+| POST | `/projects` | 新建项目 | `project:edit` |
+| POST | `/projects/import` | 导入 Excel | `project:edit` |
+| POST | `/projects/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `project:edit` |
+| PUT | `/projects/:id` | 修改 | `project:edit` |
+| DELETE | `/projects/:id` | 删除（有业务数据时禁止） | `project:edit` |
+| GET | `/projects/:id/members` | 成员列表 | `project:view` |
+| POST | `/projects/:id/members` | 添加成员（指定项目角色） | `project:edit` |
+| DELETE | `/projects/:id/members/:userId` | 移除成员 | `project:edit` |
+
+## 5. 供应商 `/suppliers`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/suppliers` | 列表（分页、关键词、状态） | `supplier:view` |
+| GET | `/suppliers/options` | 下拉（仅启用，按 `supplier.share.scope` 决定是否项目隔离） | `supplier:view` `contract:edit` `daily:edit` `repayment:edit` |
+| GET | `/suppliers/export` · GET `/suppliers/template` | 导出 Excel / 模板 | `supplier:view` |
+| GET | `/suppliers/:id` | 详情 | `supplier:view` |
+| POST | `/suppliers` | 新增（名称唯一校验） | `supplier:edit` |
+| PUT | `/suppliers/:id` | 修改 | `supplier:edit` |
+| DELETE | `/suppliers/:id` | 删除（被合同引用只可停用） | `supplier:edit` |
+| POST | `/suppliers/:id/toggle` | 启用/停用 | `supplier:edit` |
+| POST | `/suppliers/import` | 导入 Excel | `supplier:edit` |
+| POST | `/suppliers/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `supplier:edit` |
+
+> 项目隔离：`projectId = null` 为全局共享；`supplier.share.scope = PROJECT` 时按项目过滤。
+
+## 6. 分包商 `/subcontractors`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/subcontractors` | 列表 | `subcontractor:view` |
+| GET | `/subcontractors/options` | 下拉 | `subcontractor:view` |
+| GET | `/subcontractors/:id` | 详情 | `subcontractor:view` |
+| GET | `/subcontractors/:id/letter` | 材料员授权委托书（生成/下载） | `subcontractor:view` |
+| GET | `/subcontractors/:id/letter-filename` | 委托书文件名 | `subcontractor:view` |
+| POST | `/subcontractors/preview` | 委托书预览（未落库） | `subcontractor:view` |
+| POST | `/subcontractors` | 新增 | `subcontractor:edit` |
+| PUT | `/subcontractors/:id` | 修改 | `subcontractor:edit` |
+| POST | `/subcontractors/:id/complete` | 完成（编辑中 → 已完成） | `subcontractor:edit` |
+| POST | `/subcontractors/export-mark` | 导出签章标记 | `subcontractor:edit` |
+| DELETE | `/subcontractors/:id` | 删除 | `subcontractor:edit` |
+
+> 关联：`subcontractId` 指向分包合同（`Contract`），已建立真实外键（`onDelete: SetNull`）。
+
+## 7. 合同 `/contracts`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/contracts` | 列表（编号/名称/类型/供应商/执行情况/状态筛选） | `contract:view` |
+| GET | `/contracts/options` | 下拉（当前项目） | `contract:view` `daily:edit` `settlement:edit` `payment:edit` `invoice:edit` `repayment:edit` |
+| GET | `/contracts/check-code` | 编号实时查重（`code`、`excludeId`） | `contract:view` `contract:edit` |
+| GET | `/contracts/next-code` | 生成下一个合同编号 | `contract:view` |
+| GET | `/contracts/name-preview` | 合同名称预览（按编号规则拼装） | `contract:view` |
+| GET | `/contracts/drafts` | 草稿列表（合同起草） | `contract:view` |
+| GET | `/contracts/published` | 已发布（待签章/已签章）列表——「合同查询」 | `contract:view` |
+| GET | `/contracts/template` | 导出用空白模板 | `contract:view` |
+| GET | `/contracts/:id` | 详情（含供应商、扩展信息、附件） | `contract:view` |
+| GET | `/contracts/:id/changes` | 变更记录 | `contract:view` |
+| GET | `/contracts/:id/fulfillment` | 履约派生进度（零表：已收/已结/已付/开票，2026-10-18） | `contract:view` |
+| GET | `/contracts/:id/archive-check` | 归档前下游完整性检查（阻断项/提示项） | `contract:view` |
+| GET/POST | `/contracts/:id/milestones` | 履约节点列表（含 overdue 派生）/ 新增（四域扩展按需项 2026-10-18） | view / `contract:edit` |
+| PUT/DELETE | `/contracts/:id/milestones/:milestoneId` | 修改（乐观锁）/ 删除履约节点 | `contract:edit` |
+| POST | `/contracts/:id/archive` | 合同归档（**单向**；归档后锁合同/收领单/结算/总结算写操作） | `contract:edit` |
+| GET | `/contracts/:id/ext` · PUT `/contracts/:id/ext` | 台账补充字段（双向） | view / `contract:edit` |
+| POST | `/contracts` | 新增（编号查重 + 字典校验） | `contract:edit` |
+| PUT | `/contracts/:id` | 修改（记录变更日志） | `contract:edit` |
+| DELETE | `/contracts/:id` | 删除（仅草稿） | `contract:edit` |
+| DELETE | `/contracts/drafts/:id` | 删除草稿 | `contract:view` |
+| POST | `/contracts/:id/publish` | 提交（草稿 → 待签章） | `contract:edit` |
+| PUT | `/contracts/:id/status` | 直接置状态 | `contract:edit` |
+| POST | `/contracts/:id/reject` | 驳回回合同起草（仅待签章/已签章可驳回） | `contract:edit` |
+| POST | `/contracts/:id/sign` | 签章（上传签章件，记录签订日期） | `contract:edit` |
+| GET | `/contracts/:id/signed-file` | 下载签章合同 | `contract:view` |
+| GET | `/contracts/:id/export-word` | 导出 Word（变量替换后的正文） | `contract:view` |
+| GET | `/contracts/:id/material-pool` · POST · DELETE `/:poolId` | 合同物资池（起草期候选物资） | view / edit / edit |
+| GET | `/contracts/:id/draft-materials` · POST · PUT · DELETE `/:rowId` | 起草期合同物资清单 | view / edit / edit / edit |
+| GET | `/contracts/:id/next-supplement-code` | 下一个补充协议编号 | `contract:view` |
+| POST | `/contracts/import` | 导入 Excel | `contract:edit` |
+| POST | `/contracts/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `contract:edit` |
+
+## 8. 合同模板与条款 `/templates`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/templates` | 模板列表（`keyword` / `categoryCode` / `includeHistory` / 分页） | `template:view` |
+| GET | `/templates/:id` | 详情（含变量 `variables`） | `template:view` |
+| POST | `/templates` | 新增（生成 v1；`status` 接受 0/1 与历史 Y/N，服务端归一） | `template:edit` |
+| PUT | `/templates/:id` | 修改并生成新版本（**沿用提交的状态**；旧版本停用；乐观锁 `version`） | `template:edit` |
+| DELETE | `/templates/:id` | 删除**整条版本链**（与界面文案一致） | `template:edit` |
+| POST | `/templates/:id/toggle` | 启用/停用 | `template:edit` |
+| GET | `/templates/:id/versions` | 版本列表 | `template:view` |
+| POST | `/templates/:id/rollback` | 回滚到指定版本 | `template:edit` |
+| GET | `/templates/guide/categories` | 起草向导步骤三：可用模板分类（`isFramework`/`isSupplement`/`contractType`） | `template:view` |
+| POST | `/templates/guide/generate` | 按模板 + 合同 + 供应商生成合同正文（变量替换） | `template:edit` |
+| GET | `/templates/clauses` | 条款库列表 | `template:view` |
+| POST | `/templates/clauses` | 新增条款（technical/quality/payment/acceptance） | `template:edit` |
+| PUT | `/templates/clauses/:id` · DELETE `/templates/clauses/:id` | 修改 / 删除条款 | `template:edit` |
+
+> **占位符语法规范**：模板**只支持双花括号 `{{变量名}}`**（表格占位符 `{{物料编码清单}}` / `{{合同清单}}` 同类）。
+> 合同模板与单据模板**共用 `ContractTemplate` 表**：`GET /templates` 会排除 `doc_template_category`
+> 里的分类（否则「付款单/结算单」会出现在合同模板列表里）。
+> 单花括号 `{变量名}` 与英文遗留 key（`MATERIAL_CODE_TABLE`、`CONTRACT_ITEM_TABLE`）的支持**已移除**
+> （2026-10-14，本项目无存量业务数据；存量模板内容已由迁移 `20261018000000_canonicalize_template_placeholders` 规范化），
+> 原「一键迁移」接口 `POST /templates/migrate` 一并下线。
+> 采购文档的变量体系另见
+> [.claude/rules/procurement-and-tender.md](../.claude/rules/procurement-and-tender.md)「三套变量体系」。
+
+## 8.1 单据模板 `/doc-templates`
+
+基础信息管理 →「单据模板」（业务口径 2026-10-17）：五类单据的 **Excel 模板**
+—— **结算单 / 总结算单 / 保理单 / 逾期利息 / 付款单**（模板文件为上传的 `.xlsx`）。
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/doc-templates` | 列表（`?keyword=` 名称关键词、`?categoryCode=` 按分类筛、`?status=` 0/1；默认只列五类单据） | `template:view` |
+| GET | `/doc-templates/:id` | 详情（`fileUrl` 返回**相对存储键**，前端展示时补一次 `/api/files/` 前缀） | `template:view` |
+| POST | `/doc-templates` | 新增（**分类走字典 `doc_template_category`**；必须上传 `.xlsx`，服务端校验存在性与可解析性） | `template:edit` |
+| PUT | `/doc-templates/:id` | 修改（沿用乐观锁 `version`；换文件时重新校验） | `template:edit` |
+| DELETE | `/doc-templates/:id` | 删除 | `template:edit` |
+| GET | `/doc-templates/render/payment-procedure/:procedureId` | **渲染付款单 Excel**（`?templateId=` 可指定模板，不传则取启用中的「付款单」模板） | `template:view` |
+
+> 存储**复用 `ContractTemplate` 表**，但分类走独立字典 `doc_template_category`（混用会让合同模板的
+> 分类下拉里冒出"付款单"）。**付款单与总结算单已接生成路径**，其余三类先做模板存放与编辑。
+> 模板文件**只接受 `.xlsx`**（`.xlsm` 的宏在 ExcelJS 写出时会丢失）；`fileUrl` 落库为
+> `StorageService` 相对键（上传接口同时返回 `key` 与 `url`，前端落库用 `key`）。
+> 变量体系见 `server/src/modules/doc-template/doc-template-vars.ts` 与
+> `web/src/constants/docVariables.ts`（互为镜像，由 `docVariables.spec.mts` 锁定）；
+> `{{结算明细表}}` 是**表格占位符**：整格独占时按行展开，与文字混排时退化为多行文本。
+
+## 9. 采购任务 `/procurement-tasks`
+
+权限：读 `contract:view` / 写 `contract:edit`（采购工作流归属合同域）。
+**阶段链单一事实源**：后端 `src/constants/procurementFlow.ts` 与前端 `web/src/constants/procurementWorkflow.ts` 互为镜像，由 `server/test/frontendChainParity.spec.mts` 锁定。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/auth/login` | 登录，返回 token + userInfo + projects |
-| POST | `/auth/logout` | 退出（记录日志） |
-| GET | `/auth/profile` | 当前用户、权限码、可访问项目、系统参数 |
-| POST | `/auth/password` | 修改密码 |
+| GET | `/procurement-tasks` | 列表（可按 `module` 带出对应阶段模块数据） |
+| POST | `/procurement-tasks` | 采购发起（新建任务） |
+| GET | `/procurement-tasks/:id` | 详情（含阶段链 `stages`、`contractId` 派生值） |
+| PUT | `/procurement-tasks/:id` | 修改基本信息（须处于可编辑状态） |
+| DELETE | `/procurement-tasks/:id` | 删除任务 |
+| POST | `/procurement-tasks/:id/publish` | **发布当前阶段**（阶段门禁 + 全部完成后自动生成关联合同） |
+| POST | `/procurement-tasks/:id/sync-contract-status` | 同步合同阶段状态 |
+| DELETE | `/procurement-tasks/:id/modules/:moduleKey` | 删除某阶段模块数据 |
+| GET/PUT | `/procurement-tasks/:id/total-list` | 总采购清单 |
+| GET/PUT | `/procurement-tasks/:id/pre-meeting-minutes` | 采前会会议纪要（单项采购 ≥100 万） |
+| GET/PUT | `/procurement-tasks/:id/notice` | 采购公告 |
+| GET/PUT | `/procurement-tasks/:id/document` | 采购文件 |
+| GET/PUT | `/procurement-tasks/:id/result-report` | 成交报告 |
+| POST | `/procurement-tasks/:id/result-report/import` | 导入「响应单位情况汇总表」 |
+| GET | `/procurement-tasks/:id/result-report/template` | 成交报告导入模板 |
+| POST | `/procurement-tasks/:id/reject-result-report` | 成交报告退回 → 重发（回退阶段并清理草稿合同） |
+| GET | `/procurement-tasks/:id/bidders` | 结构化投标/响应单位 + 评标记录（读取时对存量 JSON 快照做幂等回填） |
+| PUT | `/procurement-tasks/:id/bidders` | 保存投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与报价来自导入表） |
+| PUT | `/procurement-tasks/:id/evaluations` | 保存评标记录（**全量替换**：评委 / 得分 / 排名 / 结论 / 备注 / 评标时间） |
+| GET/PUT | `/procurement-tasks/:id/price-compare` | 采购价格对比表 |
+| GET/PUT | `/procurement-tasks/:id/framework-explanation` | 框架协议事前说明 |
+| POST | `/procurement-tasks/:id/framework-explanation/import-price-compare` | 导入价格对比数据 |
+| GET | `/procurement-tasks/:id/contract-template` | 导出合同模板所需数据（模板内容 + 技术质量/验收/付款标准） |
 
-## 2. 字典 /dict
+> 关联：采购任务 ↔ 合同**只由 `Contract.taskId` 一条表达**（任务侧无冗余 `contractId` 字段）；
+> 详情的 `contractId` 为**派生值**（该任务生成时间最早的主合同）。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/dict/types` | 字典类型列表（搜索、分页） |
-| POST | `/dict/types` | 新增类型 |
-| PUT | `/dict/types/:id` | 修改类型 |
-| DELETE | `/dict/types/:id` | 删除类型（含字典项的一并校验） |
-| GET | `/dict/items` | 字典项列表（`typeCode` 必填，含停用项） |
-| GET | `/dict/options/:typeCode` | 下拉选项（仅启用，支持 `extValue` 过滤联动） |
-| POST | `/dict/items` | 新增字典项（校验 code 唯一） |
-| PUT | `/dict/items/:id` | 修改字典项 |
-| DELETE | `/dict/items/:id` | 删除（被业务引用返回「该选项已被使用，不可删除」） |
-| POST | `/dict/items/:id/toggle` | 启用/停用 |
-| POST | `/dict/items/sort` | 批量排序 |
-| GET | `/dict/export?typeCode=` | 导出 Excel |
-| POST | `/dict/import` | 导入 Excel |
-| POST | `/dict/cache/refresh` | 手动刷新字典缓存 |
+## 10. 采购模板 `/procurement-templates`
 
-## 3. 项目 /projects
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/procurement-templates` | 列表（`keyword` 匹配名称/标签、`moduleType`、`status` 0/1、`page`/`pageSize`；返回 `{ list, total, page, pageSize }`） | `template:view` |
+| GET | `/procurement-templates/:id` | 详情（含变量） | `template:view` |
+| POST | `/procurement-templates` | 新增（**全项目通用**；同 `moduleType` 覆盖旧模板并写版本快照；`status` 只接受 0/1） | `template:edit` |
+| PUT | `/procurement-templates/:id` | 修改（乐观锁 `version`；换 `moduleType` 时快照并删除冲突模板） | `template:edit` |
+| DELETE | `/procurement-templates/:id` | 删除（版本快照级联删除） | `template:edit` |
+| GET | `/procurement-templates/:id/versions` | 版本历史（新→旧） | `template:view` |
+| POST | `/procurement-templates/:id/rollback` | 回滚（body `{ versionId }`，基于快照创建新版本） | `template:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/projects` | 我参与的项目列表 |
-| GET | `/projects/all` | 全部项目（系统管理员） |
-| POST | `/projects` | 新建项目 |
-| GET | `/projects/:id` | 详情（含成员） |
-| PUT | `/projects/:id` | 修改 |
-| DELETE | `/projects/:id` | 删除（有业务数据时禁止） |
-| GET | `/projects/:id/members` | 成员列表 |
-| POST | `/projects/:id/members` | 添加成员（指定项目角色） |
-| DELETE | `/projects/:id/members/:userId` | 移除成员 |
+> `moduleType`：`INITIATE` / `PRE_MEETING` / `NOTICE` / `DOCUMENT` / `RESULT_REPORT` / `PRICE_COMPARE` / `FRAMEWORK`。
+> 其中 `INITIATE`（采购发起）不产出 Word 文档，无可用变量。
+> 导出只使用**启用中**（`status = 1`）的模板；显式指定的模板已停用时降级为模块内置文档。
 
-## 4. 供应商 /suppliers
+## 11. 物资 `/materials` · `/contract-materials`
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/suppliers` | 列表（分页、关键词、状态） |
-| GET | `/suppliers/options` | 下拉（仅启用，按系统参数决定是否项目隔离） |
-| GET | `/suppliers/:id` | 详情 |
-| POST | `/suppliers` | 新增（名称唯一校验） |
-| PUT | `/suppliers/:id` | 修改 |
-| DELETE | `/suppliers/:id` | 删除（被合同引用只可停用） |
-| POST | `/suppliers/:id/toggle` | 启用/停用 |
-| GET | `/suppliers/export` · POST `/suppliers/import` | Excel 导入导出 |
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/materials` | 物资基础库列表 | `material:view` |
+| GET | `/materials/options` | 下拉 | `material:view` |
+| GET | `/materials/export` · GET `/materials/template` | 导出 / 模板 | `material:view` |
+| POST | `/materials` | 新增（`name + spec` 唯一） | `material:edit` |
+| PUT | `/materials/:id` | 修改 | `material:edit` |
+| POST | `/materials/:id/toggle` | 启用/停用（软删除） | `material:edit` |
+| DELETE | `/materials/:id` | 删除（被合同物资清单引用时禁止，须改用停用） | `material:edit` |
+| POST | `/materials/import` | 导入 Excel | `material:edit` |
+| POST | `/materials/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `material:edit` |
+| GET | `/contract-materials` | 合同物资清单（按 `contractId`） | `material:view` |
+| GET | `/contract-materials/all` | 全部（跨合同） | `material:view` |
+| GET | `/contract-materials/template` · GET `/contract-materials/export` | 模板 / 导出 | `material:view` |
+| POST | `/contract-materials` | 新增清单行 | `material:edit` |
+| PUT | `/contract-materials/:id` | 修改（变更后自动重派生结算台账） | `material:edit` |
+| PUT | `/contract-materials/sort` | 行号批量重排 | `material:edit` |
+| DELETE | `/contract-materials/:id` | 删除 | `material:edit` |
+| POST | `/contract-materials/derive` | 由物资基础库派生清单行 | `material:edit` |
+| POST | `/contract-materials/import` | 导入 Excel | `material:edit` |
+| POST | `/contract-materials/import/validate` | 导入前预校验（`contractId` 必填；只校验不写库，返回逐行问题） | `material:edit` |
 
-## 5. 合同 /contracts
+## 12. 日报 `/daily-reports`
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/contracts` | 列表（按项目，支持编号/名称/类型/供应商/执行情况/审批状态筛选） |
-| GET | `/contracts/options` | 下拉（当前项目） |
-| GET | `/contracts/:id` | 详情（含供应商信息、扩展信息、附件） |
-| POST | `/contracts` | 新增（编号查重 + 字典校验） |
-| PUT | `/contracts/:id` | 修改（记录变更日志） |
-| DELETE | `/contracts/:id` | 删除（仅草稿） |
-| GET | `/contracts/check-code?code=&excludeId=` | 编号实时查重 |
-| POST | `/contracts/:id/submit` | 提交审批 |
-| POST | `/contracts/:id/approve` | 审批（action: APPROVED/REJECTED，comment） |
-| GET | `/contracts/:id/changes` | 变更记录 |
-| PUT | `/contracts/:id/ext` | 保存扩展信息（台账补充字段） |
-| POST | `/contracts/import` · GET `/contracts/export` | Excel |
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/daily-reports` | 列表（账期、合同、供应商、材料类别筛选；关键词命中 `materialName`/`receiptNo`/`plateNo`） | `daily:view` |
+| GET | `/daily-reports/material-types` | 物资种类联动（读字典 `extField1`） | `daily:view` |
+| GET | `/daily-reports/contract-settled-qty` | 按合同汇总已结算数量 | `daily:view` |
+| GET | `/daily-reports/export` | 导出 Excel（按台账列顺序） | `daily:view` |
+| GET | `/daily-reports/:id` | 详情 | `daily:view` |
+| POST / PUT / DELETE | `/daily-reports[/:id]` | CRUD | `daily:edit` |
+| POST | `/daily-reports/import` | 导入 Excel | `daily:edit` |
+| POST | `/daily-reports/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `daily:edit` |
 
-## 6. 合同模板 /templates
+> 关联：收领单推送产生的日报由 `receiptOrderId`（真实外键，`onDelete: SetNull`）关联；
+> `receiptNo` 仅为编号快照，用于展示与导入导出，**不再用于匹配**。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/templates` | 模板列表 |
-| GET | `/templates/:id` | 详情（含变量） |
-| POST | `/templates` | 新增（生成 v1） |
-| PUT | `/templates/:id` | 修改并生成新版本 |
-| DELETE | `/templates/:id` | 删除 |
-| POST | `/templates/:id/toggle` | 启用/停用 |
-| GET | `/templates/:id/versions` | 版本列表 |
-| POST | `/templates/:id/rollback` | 回滚到指定版本 |
-| GET | `/templates/guide/categories?isFramework=&isSupplement=&contractType=` | 向导步骤三：可用模板分类 |
-| POST | `/templates/guide/generate` | 按模板 + 合同 + 供应商生成合同正文（变量替换） |
-| GET/POST | `/templates/clauses` | 条款库列表/新增 |
-| DELETE | `/templates/clauses/:id` | 删除条款 |
+## 13. 收领单 `/receipt-orders`
 
-## 7. 日报 /daily-reports
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/receipt-orders` | 列表 | `receipt:view` |
+| GET | `/receipt-orders/next-no` | 生成下一个收领单编号 | `receipt:view` |
+| GET | `/receipt-orders/contract-materials` | 按合同带出物资明细 | `receipt:view` |
+| GET | `/receipt-orders/party-options` | 供应/领用单位候选 | `receipt:view` |
+| GET | `/receipt-orders/receiving-unit-options` | 领用单位候选（多态） | `receipt:view` |
+| GET | `/receipt-orders/subcontractor-contracts` | 分包合同候选 | `receipt:view` |
+| GET | `/receipt-orders/:id` | 详情（含明细） | `receipt:view` |
+| POST | `/receipt-orders` | 新增（保存后自动入资产台账、推送总日报） | `receipt:edit` |
+| PUT | `/receipt-orders/:id` | 修改（明细全量覆盖；同步资产台账） | `receipt:edit` |
+| POST | `/receipt-orders/:id/push` | 重新推送总日报 | `receipt:edit` |
+| DELETE | `/receipt-orders/:id` | 删除（明细与资产台账级联删除；日报保留并解除关联） | `receipt:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/daily-reports` | 列表（账期、合同、供应商、材料类别等筛选） |
-| GET | `/daily-reports/:id` · POST · PUT · DELETE | CRUD |
-| GET | `/daily-reports/export` · POST `/daily-reports/import` | Excel（按台账列顺序） |
-| GET | `/daily-reports/material-types?category=` | 物资种类联动（读字典 extField1） |
+## 14. 资产台账 `/assets`
 
-## 8. 合同清单 /contract-items
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/assets` | 列表（进/出场记录 + 在用/闲置/报废/丢失四态；`direction=IN/OUT/FEE` 方向筛选） | `asset:view` |
+| GET | `/assets/flow-summary` | 物资进出场汇总（进场/出场/费用，零新表，2026-10-18） | `asset:view` |
+| GET | `/assets/export` · GET `/assets/template` | 导出 / 模板 | `asset:view` |
+| POST | `/assets` | 新增 | `asset:edit` |
+| PUT | `/assets/:id` | 修改（金额由服务端计算） | `asset:edit` |
+| DELETE | `/assets/:id` | 删除 | `asset:edit` |
+| POST | `/assets/import` | 导入 Excel | `asset:edit` |
+| POST | `/assets/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `asset:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/contract-items` | 列表（合同、供应商、物资类别筛选） |
-| POST / PUT / DELETE | `/contract-items[/:id]` | CRUD |
-| POST | `/contract-items/generate/:contractId` | 由合同明细生成 |
-| GET/POST | `/contract-items/export` · `/contract-items/import` | Excel |
+## 15. 结算 `/settlements`
 
-## 9. 结算与付款 /settlements · /payments
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/settlements` | 结算单列表 | `settlement:view` |
+| GET | `/settlements/:id` | 详情 | `settlement:view` |
+| POST | `/settlements` | 新增 | `settlement:edit` |
+| PUT | `/settlements/:id` | 修改 | `settlement:edit` |
+| POST | `/settlements/:id/reject` | 驳回回填 | `settlement:edit` |
+| DELETE | `/settlements/:id` | 删除 | `settlement:edit` |
+| GET | `/settlements/ledger` | 结算台账列表 | `settlement:view` |
+| GET | `/settlements/ledger/:id` | 台账详情 | `settlement:view` |
+| GET | `/settlements/ledger/export` · GET `/settlements/ledger/template` | 导出 / 模板 | `settlement:view` |
+| POST | `/settlements/ledger` | 新增台账行 | `settlement:edit` |
+| PUT | `/settlements/ledger/:id` | 修改 | `settlement:edit` |
+| DELETE | `/settlements/ledger/:id` | 删除 | `settlement:edit` |
+| POST | `/settlements/ledger/refresh` | 按合同重派生台账 | `settlement:edit` |
+| POST | `/settlements/ledger/import` | 导入 Excel | `settlement:edit` |
+| POST | `/settlements/ledger/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `settlement:edit` |
+| GET | `/settlements/generate/preview` | 预览「上一期」待生成情况（未挂结算单的收领单张数 / 还差几个合同；`?refDate=` 可指定参照日） | `settlement:view` |
+| POST | `/settlements/generate` | **生成本期（默认上一期）结算单**：抓该期未挂结算单的收领单，按物资合同各出一张**草稿**（幂等，已有结算单的合同跳过并补挂迟到的收领单）；`refDate` / `contractId` 可选 | `settlement:edit` |
+| GET | `/settlements/compliance-sheet` | 合规性问题清单 | `settlement:view` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET/POST/PUT/DELETE | `/settlements[/:id]` | 结算单 CRUD（按项目） |
-| GET/POST/PUT/DELETE | `/settlements/ledger[/:id]` | 结算台账 CRUD |
-| GET | `/payments/plans` 及 CRUD | 付款计划 |
-| GET | `/payments/applies` 及 CRUD | 付款申请（自动带出收款方/银行） |
-| POST | `/payments/applies/:id/approve` | 付款审批 |
-| GET | `/payments/records` 及 CRUD | 付款执行 / 付款台账 |
-| POST | `/payments/verifications` | 付款-发票核销 |
-| GET | `/payments/overdue` | 逾期提醒（应付未付） |
+## 15.1 总结算单 `/final-settlements`
 
-## 10. 发票 /invoices
+结算及付款管理 →「总结算单」（业务口径 2026-10-16）：抓取该合同**全部月度结算**生成，
+附件上传到位即「已结算」——此时合同执行情况置 `DONE_SETTLED`（已完已结），**付款比例切到 100%**。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET/POST/PUT/DELETE | `/invoices[/:id]` | 收票登记 / 发票台账 |
-| GET | `/invoices/check-no?no=` | 发票号码查重（项目内） |
-| POST | `/invoices/:id/verify` | 查验（预留第三方接口） |
-| GET/POST | `/invoices/applies` | 开票申请列表/新增 |
-| POST | `/invoices/applies/:id/approve` | 开票审批 |
-| GET/POST | `/invoices/export` · `/invoices/import` | Excel |
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/final-settlements` | 列表（`?contractId=` / `?statusCode=` / `?keyword=`，含明细） | `settlement:view` |
+| GET | `/final-settlements/:id` | 详情（含明细行） | `settlement:view` |
+| POST | `/final-settlements/generate` | **生成**（body `contractId`）：抓非草稿月度结算 → 明细快照 + 合计；**一个合同只允许一张**（重复 400），无月度结算也 400 | `settlement:edit` |
+| PUT | `/final-settlements/:id` | 修改备注（**状态不经此直传**，只由上传附件驱动） | `settlement:edit` |
+| POST | `/final-settlements/:id/attach` | **上传附件 → 已结算**：写附件 + 状态 `SETTLED` + 合同 `execStatus = DONE_SETTLED` + 重算付款比例（→ 100%） | `settlement:edit` |
+| DELETE | `/final-settlements/:id` | 删除；**已结算的删掉会把合同执行情况与比例一并回退**（不留无单据支撑的"已完已结"） | `settlement:edit` |
+| GET | `/final-settlements/:id/export` | 导出 Word（模板分类 `FINAL_SETTLEMENT`，明细走表格占位符 `{{结算明细表}}`；`?templateId=` 可指定） | `settlement:view` |
 
-## 11. 合同台账 /ledger
+> 明细与合计是**生成时的快照**：月度结算事后被改，不回头改已出的总结算单（要更新就删掉重生成）。
+> 附件经 `POST /files/upload` 落盘后传回 URL（落盘唯一入口是 `StorageService`）。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/ledger/contracts` | 台账数据（36 列，按项目，批量聚合 + 合规性问题计算） |
-| GET | `/ledger/columns` | 列配置（默认显隐） |
-| PUT | `/ledger/columns` | 保存列显隐配置 |
-| GET | `/ledger/export` | 导出 Excel（按当前列配置） |
-| GET | `/ledger/summary` | 台账汇总指标（合同总额、结算、付款、发票） |
+## 16. 付款 `/payments`
 
-## 12. 还款协议 /repayments
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/payments/records` | 付款记录（付款台账） | `payment:view` |
+| GET | `/payments/records/export` · GET `/payments/records/template` | 导出 / 模板 | `payment:view` |
+| POST | `/payments/records` | 新增 | `payment:edit` |
+| PUT | `/payments/records/:id` | 修改 | `payment:edit` |
+| DELETE | `/payments/records/:id` | 删除 | `payment:edit` |
+| POST | `/payments/records/import` | 导入 Excel | `payment:edit` |
+| POST | `/payments/records/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `payment:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/repayments` | 列表（协议编号、供应商、签订日期筛选） |
-| GET | `/repayments/:id` | 详情（含明细） |
-| POST | `/repayments` | 新增（主表 + 至少一条明细，编号项目内唯一） |
-| PUT | `/repayments/:id` | 修改（明细整体覆盖） |
-| DELETE | `/repayments/:id` | 删除 |
-| GET | `/repayments/export` | 导出 Excel |
+> 付款计划 / 付款申请 / 核销端点**已移除**，统一收敛为单表 `/payments/records`。
 
-## 13. 审批 /approvals
+## 16.1 付款手续 `/payment-procedures`
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/approvals/todo` · `/approvals/done` · `/approvals/mine` | 待审批/已审批/我发起的 |
-| POST | `/approvals/:id/approve` | 审批动作（通过/驳回/转办） |
-| GET/POST/PUT/DELETE | `/approvals/flows[/:id]` | 流程定义 CRUD |
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/payment-procedures` | 付款手续列表（按合同 / 供应商 / 关键词 / 付款日期区间筛选） | `payment:view` |
+| GET | `/payment-procedures/:id` | 详情 | `payment:view` |
+| POST | `/payment-procedures` | 编制（**合同必填**；开累结算 / 开累付款 / 未付款三值由服务端按合同链口径取数并**快照**，不接受前端直传） | `payment:edit` |
+| PUT | `/payment-procedures/:id` | 修改（换合同时按新合同重取三值；不换则保留原快照） | `payment:edit` |
+| DELETE | `/payment-procedures/:id` | 删除 | `payment:edit` |
 
-## 14. 通知 /notifications
+> 权限复用付款管理的 `payment:view` / `payment:edit`（同一批人管，不新开权限码）。
+> ⚠️ 付款单的 **Word 导出**待「单据模板」模块落地后接入。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/notifications` | 列表（未读优先） |
-| POST | `/notifications/:id/read` · `/notifications/read-all` | 标记已读 |
-| GET | `/notifications/unread-count` | 未读数 |
+## 17. 发票 `/invoices`
 
-## 15. 看板 /dashboard
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/invoices` | 收票登记（发票台账） | `invoice:view` |
+| GET | `/invoices/check-no` | 发票号码查重（项目内） | `invoice:view` `invoice:edit` |
+| GET | `/invoices/export` · GET `/invoices/template` | 导出 / 模板 | `invoice:view` |
+| GET | `/invoices/:id` | 详情 | `invoice:view` |
+| POST / PUT / DELETE | `/invoices[/:id]` | CRUD | `invoice:edit` |
+| POST | `/invoices/:id/verify` | 标记为「已查验」（**登记核对**用：录入并核对该发票信息后手动标记；**不做验真**，不接第三方查验服务） | `invoice:edit` |
+| POST | `/invoices/:id/cancel` | 作废（终态）：保留 `settlementId` 关联用于追溯，但不计入台账开票额/履约开票比例/工作台与 AI 统计；已作废/红冲不可重复或互转 | `invoice:edit` |
+| POST | `/invoices/:id/red` | 红冲（终态）：口径同作废 | `invoice:edit` |
+| POST / PUT | `/invoices[/:id]` | 新建/编辑可带 `redOfInvoiceId`（仅红冲票）：保存后在**同一事务**里把原票置为作废；原票须有效且同项目同合同，关联创建后不可修改/解绑；导出件含「红冲原发票」列 | `invoice:edit` |
+| POST | `/invoices/recognize` | 发票 OCR/二维码识别 | `invoice:edit` |
+| POST | `/invoices/batch` | 批量登记 | `invoice:edit` |
+| POST | `/invoices/import` | 导入 Excel | `invoice:edit` |
+| POST | `/invoices/import/validate` | 导入前预校验（只校验不写库，返回逐行问题） | `invoice:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/dashboard/overview` | 关键指标卡（合同数/合同额/结算额/付款额/发票额/待办） |
-| GET | `/dashboard/trend` | 收付款与结算趋势（按月） |
-| GET | `/dashboard/contract-type` | 合同类型分布 |
-| GET | `/dashboard/invoice-stats` | 发票统计（按类型/状态） |
-| GET | `/dashboard/reminders` | 到期/逾期/付款计划提醒 |
+## 18. 资金费用 `/finance`
 
-## 16. 系统管理 /system
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/finance/contract-params/:contractId` | 合同的资金参数（付款模式/月利率/宽限天数/利息上限） | `finance:view` |
+| PUT | `/finance/contract-params/:contractId` | 保存资金参数 | `finance:edit` |
+| GET | `/finance/factoring-costs` | 保理费用台账 | `finance:view` |
+| GET | `/finance/factoring-costs/export` | 导出 | `finance:view` |
+| POST / PUT / DELETE | `/finance/factoring-costs[/:id]` | CRUD | `finance:edit` |
+| GET | `/finance/overdue-interests` | 逾期利息台账 | `finance:view` |
+| GET | `/finance/overdue-interests/export` | 导出 | `finance:view` |
+| POST | `/finance/overdue-interests/generate` | 按合同 + 结算月生成逾期利息 | `finance:edit` |
+| POST / PUT / DELETE | `/finance/overdue-interests[/:id]` | CRUD | `finance:edit` |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET/POST/PUT/DELETE | `/system/users[/:id]` | 用户管理（含角色分配） |
-| POST | `/system/users/:id/reset-password` | 重置密码 |
-| GET/POST/PUT/DELETE | `/system/roles[/:id]` | 角色管理（含权限分配） |
-| GET | `/system/permissions` | 权限树（按模块） |
-| GET/POST/PUT/DELETE | `/system/depts[/:id]` | 部门管理 |
-| GET/PUT | `/system/params` | 系统参数（编号唯一性策略、供应商共享范围等） |
-| GET | `/system/logs/operations` · `/system/logs/logins` | 操作日志 / 登录日志 |
+> 项目隔离：按 `contractId` 归属（合同已在项目内），**查询不带 `projectId` 过滤**——这是有意例外。
 
-## 17. 文件 /files
+## 19. 合同台账 `/ledger`
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/files/upload` | 单/多文件上传（本地存储，返回 url） |
-| GET | `/files/*` | 静态文件访问 |
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/ledger/contracts` | 台账数据（43 列，批量聚合 + 合规性问题计算；行内带 `archivedAt` 供列表禁用编辑/删除） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/columns` | 列配置（默认显隐） | `ledger:view` 或 `contract:view` |
+| PUT | `/ledger/columns` | 保存列显隐配置（存 `sys_param: ledger.columns.config`） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/summary` | 台账汇总指标（合同额/结算/付款/发票） | `ledger:view` 或 `contract:view` |
+| GET | `/ledger/export` | 导出 Excel（按当前列配置） | `ledger:view` 或 `contract:view` |
+
+## 20. 还款协议 `/repayments`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/repayments` | 列表（协议编号、供应商、签订日期筛选） | `repayment:view` |
+| GET | `/repayments/suggest-code` | 建议协议编号 | `repayment:edit` |
+| GET | `/repayments/check-code` | 编号查重 | `repayment:edit` |
+| GET | `/repayments/export` | 导出 Excel | `repayment:view` |
+| GET | `/repayments/:id` | 详情（含明细） | `repayment:view` |
+| POST | `/repayments` | 新增（主表 + 至少一条明细，编号项目内唯一） | `repayment:edit` |
+| PUT | `/repayments/:id` | 修改（明细整体覆盖） | `repayment:edit` |
+| DELETE | `/repayments/:id` | 删除 | `repayment:edit` |
+
+## 21. 通知 `/notifications`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/notifications` | 列表（未读优先） | — |
+| GET | `/notifications/unread-count` | 未读数 | — |
+| POST | `/notifications/:id/read` · POST `/notifications/read-all` | 标记已读 | — |
+| POST | `/notifications/send` | 发送站内信（**唯一实现的通道**；邮件/短信/企微/钉钉为接口预留） | — |
+
+## 22. 看板 `/dashboard`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/dashboard/overview` | 关键指标卡（合同数/合同额/结算额/付款额/发票额/待办） | — |
+| GET | `/dashboard/trend` | 收付款与结算趋势（按月） | — |
+| GET | `/dashboard/contract-type` | 合同类型分布 | — |
+| GET | `/dashboard/invoice-stats` | 发票统计（按类型/状态） | — |
+| GET | `/dashboard/reminders` | 到期/逾期/付款提醒 | — |
+
+## 23. 系统管理 `/system`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET/POST | `/system/users` | 用户列表 / 新增（含角色） | `system:user` |
+| PUT/DELETE | `/system/users/:id` | 修改 / 删除 | `system:user` |
+| POST | `/system/users/:id/reset-password` | 重置密码 | `system:user` |
+| GET/POST | `/system/roles` | 角色列表 / 新增（含权限分配） | `system:role` 或 `system:user` |
+| PUT/DELETE | `/system/roles/:id` | 修改 / 删除 | `system:role` 或 `system:user` |
+| GET | `/system/permissions` | 权限树（按模块） | `system:role` 或 `system:user` |
+| GET/PUT | `/system/params` | 系统参数（编号唯一性策略、供应商共享范围等） | `system:config` |
+| GET | `/system/logs/operations` | 操作日志 | `system:log` 或 `system:user` |
+| GET | `/system/logs/logins` | 登录日志 | `system:log` 或 `system:user` |
+
+> `/system/depts`（部门管理）**已移除**：系统无部门模型；行级数据权限已明确**不做**（业务 2026-10-17 确认）。
+
+## 24. 文件 `/files`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| POST | `/files/upload` | 单/多文件上传（返回 url；落盘统一走 `common/services/storage.service.ts` 的 `StorageService`，将来可换成对象存储实现） | — |
+| GET | `/files/*` | 文件读取（`FileServeController`：登录后经 `storage.read()` 返回，支持单段 Range 206） | 需登录（Bearer 或 httpOnly Cookie） |
+
+## 25. AI 助手 `/ai`（一期：模板智能填报 / 二期：文件登记 / 三期：汇报材料 / 四期：结算付款异常预警 / 五期：异常报价与价差预警 / 六期：合同履行偏差预警 / 七期：供应链运营全景）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/ai/status` | 是否启用（配置来源：**系统管理 → AI 信息登记页面 > 环境变量 > 默认**，三项齐全且开关打开算启用）+ 全局模型 `model` 与**各用途模型** `models`（未启用时均为空串，绝不回密钥）+ 可填字段目录 `fieldCatalog` | `ai:view` |
+| GET | `/ai/setting` | AI 服务登记内容（**密钥只回“有没有”，绝不回明文**）+ 每项来源 `source`（db/env/default/none）与一句话 `hint` + **按用途的模型明细 `purposes[]`**（`code/name/desc/model/source/stored`，回落在后端算好） | `system:config` |
+| PUT | `/ai/setting` | 保存 `{enabled?, baseUrl?, model?, models?, apiKey?}`：`model` 是全局默认，`models` 按用途覆盖（**空串=该用途跟随全局**，未知用途 400）；不传=不改，**空串=清除**（回落环境变量），保存即刻生效（无需重启） | `system:config` |
+| POST | `/ai/setting/test` | 用页面当前值（缺项回落已存/env）**真打一次上游**验证地址/密钥/模型；可选 `purpose` 只测该用途实际会用的模型；401/403/404/429/超时/连不上分别给人话，不抛 500 | `system:config` |
+| POST | `/ai/forms/inspect` | multipart `file`（仅 `.xlsx`）+ 可选 `contractId`/`supplierId`、`scopeMode=current\|selected\|all`、`projectIds`（JSON 数组串）、`from`/`to`；返回扫描到的槽位 `candidates`（`sheet/cellRef/label/hasValue`）、模型建议、**表格区 `tables[]`**（表头 + 空行）与 **`tableDatasets[]`**（已实现且有权限的数据集与 Excel 列） | `ai:use`（跨项目另需 `dashboard:view`） |
+| POST | `/ai/forms/fill` | multipart `file` + `mapping`（JSON 字符串数组：`{sheet, cellRef, fieldKey}`）+ 同上 scope/period；**直接返回回填后的 xlsx**，响应头 `x-ai-filled` / `x-ai-skipped` / `Content-Disposition` | `ai:use` |
+| POST | `/ai/forms/fill-table` | multipart `file` + `datasetKey`、`sheet`、`headerRow`、`startRow`、`columns`（JSON：`[{col, source}]`，`source` 为数据集 Excel 列名）+ scope/period；按行写入表区（不足插行并复制样式、不生成公式、≤2000 行），返回 `x-ai-filled-rows` / `x-ai-skipped` / `x-ai-truncated` | `ai:use`（跨项目另需 `dashboard:view`） |
+| POST | `/ai/register/parse` | multipart `file`（`.docx` / `.xlsx`）→ **只解析不写库**：返回 `draft.fields[]`（`value/verified/warn/note`）、明细 `items[]` 与合计、`warnings[]`、`missing[]`、库内同编号/同名的 `existing` | `ai:use` |
+| POST | `/ai/register/confirm` | 人工确认后的字段（**嵌套结构** `{supplier:{...}, contract:{...}}`，可选 `supplierId` / `skipSupplier`、`items[]` + `writeMaterials`）→ 写库并返回 `{supplierId, supplierCreated, contractId, code, name, materialCount, materialBaseCreated, materialSkipped}` | `contract:edit` **或** `supplier:edit` |
+
+口径（填报）：只回**是否已有内容**（`hasValue`），**绝不回传字段值**（响应体会进操作日志）；取不到值的项跳过不写空串；
+AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` 用 `@Res()` 直出，避免二进制进日志。
+
+口径（登记）：
+- **两段式**：`parse` 不写库（与两阶段导入同一口径），`confirm` 才落库；写库复用
+  `ContractService.create` / `SupplierService.create`，编号唯一、名称拼接、字典校验、付款比例派生自动生效。
+- 每个值都**回原文核对**（金额去千分位查、日期按中文写法反查、文本去空白子串匹配），核不到标 `unverified`；
+  合同类型/付款安排在模型没给时按条款推断，判不出就是 `null`，不猜。
+- 交叉校验：金额三角（含税 = 不含税 + 税额）、明细合计 vs 合同总价、法定代表人是否与联系人同一人。
+- 明细默认只做**核对参考**；`writeMaterials: true` 时才落库（前端默认勾选）：按「名称+规格」在
+  `MaterialBase` 里 find-or-create（新建的 `remark` 标记「由 AI 文件登记自动创建」，便于追溯与回滚），
+  再逐行写 `ContractMaterial`；缺名称、同「名称+规格」重复的行跳过并计入 `materialSkipped`，
+  缺合价的用 `数量×含税单价` 补齐。明细仍以「物资基础库 → 合同物资清单」为权威口径，AI 只是代录入。
+- 请求体必须是嵌套结构，操作日志的按键名脱敏（`bankAccount`）才能生效。
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| POST | `/ai/report/generate` | body `{kind: monthly\|project\|brief, from?, to?, extra?}` → 返回 Markdown + 事实清单 `facts` + 数字对账 `unknownNumbers`；区间缺省为「本月 1 日 ~ 今天」 | `ai:use` |
+| POST | `/ai/report/export` | body `{markdown, title?, header?, footer?, format?: 'docx'\|'pdf'}` → 把**同一份** Markdown 转成文件（不重新生成）：`docx` 走 `html-to-docx`（含页眉/页脚/页码），`pdf` 走 pdf-lib（页眉默认用标题、页脚默认「工程管理部 YYYY 年 M 月」、右下「第 X 页 / 共 Y 页」）；`@Res()` 直出二进制 | `ai:use` |
+| GET | `/ai/anomaly/payment` | query `{from?, to?, contractId?, narrative?}` → 返回 `{enabled, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不写库、不发通知。`from`/`to` 按**结算日期**过滤，`contractId` 只看单合同，`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/anomaly/quote` | query `{taskId?, narrative?}` → 与原语同形的 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改采购任务状态、不改报价数据。`taskId` 只看单个采购任务（缺省扫本项目全部），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/anomaly/fulfillment` | query `{contractId?, narrative?}` → 同形 `{enabled, scope, sample, tolerances, summary, findings[], notEvaluated[], narrative, warnings}`。**只读**：不改履约节点、不改付款/结算状态。`contractId` 只看单合同（缺省扫本项目全部在履行合同），`narrative=0` 只看规则结果不调模型 | `ai:view`（service 内另需 `contract:view`） |
+| GET | `/ai/analysis/supply-chain` | query `{projectIds?, narrative?}` → `{enabled, asOf, scope, projects[], sample, tolerances, toleranceText, facts, markdown, sections[], missingSections[], unknownNumbers[], discardedNumbers[], source, warnings[], usage?}`。**跨项目只读汇总**：`projectIds` 逗号分隔（最多 20 个，超出 400；不传 = 全部项目）。`narrative=0` 或 `ai.analysis.narrative=0` 只出确定性汇总 | `ai:view`（service 内另需 `contract:view`；跨项目即 >1 个项目或不指定时再要 `dashboard:view`） |
+| GET | `/ai/analytics/datasets` | 数据集注册表：只返回 **`implemented: true` 且当前用户有权限**的条目；另返回 `deniedDatasets`、`crossProjectAllowed`、`maxDatasets`、`defaultKeys` | `ai:view` |
+| POST | `/ai/analytics/plan` | body `{text?, scope?, period?, compare?, datasets?, focus?, outputs?, reportKind?, detail?, groupBy?, notes?}` → `{intent, warnings, unknownTerms, unknownDatasets, deniedDatasets, projects, source}`。意图只含枚举与注册表 key（模型不输出 ID/日期/数字）；合并顺序 **文本 < 模型补丁 < 前端显式选择**；AI 失败自动回落规则解析 | `ai:use` |
+| POST | `/ai/analytics/report` | 同 plan，另可带 `title?`、`narrative?` → `{id, persisted, title, intent, scope, period, compareMode, comparePeriod, sections, markdown, facts, unknownNumbers, discardedNumbers, warnings, source, usage}`。确定性表格 + 模型段落；模型段落过 `auditNumbers()`，对不上事实的数字 → **整段丢弃**（`discardedNumbers`）并回退确定性报告；成功即落库 | `ai:use` |
+| POST | `/ai/analytics/workbook` | 同 plan + 可选 `reportId` → `{id, fileName, size, sheets, warnings, reportId}`。多 sheet xlsx（总览/项目对照/所选数据集/风险），**不调模型、不扣配额**；带 `reportId` 挂到已有报告记录 | `ai:use` |
+| GET | `/ai/analytics` | 历史列表：`page,pageSize,keyword,has=report\|workbook,projectId?,from,to,all?`。默认**本人全部**（跨项目生成的报告切项目后仍可见）；超管 `all=1` 看全部 | `ai:view` |
+| GET | `/ai/analytics/:id` | 记录详情（本人或超管；非创建人 404，不泄露存在性） | `ai:view` |
+| GET | `/ai/analytics/:id/export?format=docx\|pdf` | 用**存档 Markdown** 重新排版导出，不重新取数（GET 下载走 httpOnly Cookie 鉴权） | `ai:view` |
+| GET | `/ai/analytics/:id/workbook` | 下载存档 xlsx（只按记录 key 读取，不接受客户端路径） | `ai:view` |
+| DELETE | `/ai/analytics/:id` | 只删 DB 记录（文件保留，由 `storage-audit.mjs` 人工审计） | `ai:use` |
+
+口径（经营数据助手）：范围支持当前项目 / 多选 / 全部项目（跨项目需 `dashboard:view`，项目集合按
+`ProjectMember` 收口）；期间按业务发生日归期；合同金额按合同链；发票排除作废/红冲；未填金额按未知处理。
+报告与表格生成物落 `AiAnalyticsReport`（快照），只写 AI 留痕表、不改任何业务单据。
+
+口径（汇报材料）：**程序给事实、模型给文字**——区间内的合同/结算/付款/开票/日报由 service 聚合
+（口径与台账一致，应付未付 = 累计结算 − 累计付款），模型只负责组织语言；产出后
+`auditReport()` 把每个数量/金额回查事实清单，对不上的列进 `unknownNumbers` 由前端红字提示。
+风险点（付超结算、开票落后于结算、区间无日报等）由**规则**判定，不交给模型。
+材料骨架由 `report-templates.ts` 固定（月度/项目/简要三套，prompt 里以【公文骨架】下发，模型不得增删小节）；
+`comparePeriod` 给出紧邻本期之前的等长区间用于环比，上期为 0 时 `pct` 为 `null`（prompt 禁止编增长率）。
+
+口径（PDF 字体）：pdf-lib 不带汉字字形，必须内嵌字体——按 `AI_PDF_FONT` → 系统常见路径顺序探测，
+**并且只接受 TrueType（`glyf`）轮廓**：CFF / CID-keyed CFF（Noto CJK、思源、苹方）pdf-lib 子集化后
+会渲染成乱码，程序直接跳过；一个都用不了时返回 400 并提示装 `fonts-wqy-zenhei`（或
+`fonts-arphic-uming`）或用 `AI_PDF_FONT` 指定 `.ttf`/`.ttc`。`.ttc` 字体集会先用
+`ttc-font.ts` 把各支拆成单字体再逐个试嵌（pdf-lib 直接嵌 TTC 会失败）。
+
+口径（结算/付款异常预警 · 矩阵课题 6-9）：**规则算、模型写**。8 条规则的判定与全部算术都在
+`server/src/modules/ai/anomaly/rules-payment.ts`（纯函数、`bigint` 分、有真值夹具双向对锁），
+service 只负责按 `projectId` 取数与聚合，模型只把命中项写成业务语言。命中口径：
+R1-a 跨期指纹重复（同合同两单金额相近 + 明细 Jaccard ≥ 阈值）、R1-b 同物资跨单计量合计超合同链清单量、
+R1-c 总结算快照与月度结算金额偏离、R2 累计付款 > 累计结算 × `ContractExt.currentPayRatio`、
+R3 付款无有效合同（`contractId` 为空 / 合同未签章）、R4 同结算单发票合计 ≠ 结算金额、
+R5 结算日期早于关联收领单、R6 付款手续「开累」快照与实时台账偏离。
+阈值走系统参数 `ai.anomaly.*`（`amountTolerance` 元 / `qtyTolerancePct` 百分点 / `jaccard` 0..1），
+非法值**回落默认并回显 warning**，不静默放宽。`DRAFT` 结算单、`FAILED`/`REFUNDED` 付款、
+`CANCELLED`/`RED` 发票不计入累计。缺口径（如合同没有付款比例、没有清单量）不猜，
+写入 `notEvaluated` 并在响应里说出来——**0 命中 ≠ 账没问题**。
+模型措辞经 `auditNarrative()` 回查 `facts` 数字，出现编造数字即丢弃、退回模板串（`narrative.source='template'`），
+判定结果本身不受影响；`ai.anomaly.narrative=0` 或 AI 未配置时不消耗额度。
+
+口径（异常报价与价差预警 · 矩阵课题 3-9）：同样**规则算、模型写**，规则在
+`server/src/modules/ai/quote/rules-quote.ts`（纯函数、`bigint` 分、真值夹具双向对锁），
+service 只按 `projectId` 取数并聚合成行。命中口径：B1 二轮降幅超阈值 / 二轮报价反而上涨、
+B2 首轮有效报价离散系数过低（围标迹象）、B3 成交价超控制价 / 显著低于控制价（弃标风险），
+B4 中标行单价超控制价 / 偏离市场价，B5 税率不在常用集合 / 两轮税率不一致，
+B6 成交价非最低有效报价，B7 有效报价家数不足 / 中标单位缺报价。
+金额口径：控制价取总采购清单 `planPrice`（含税），成交价取 `ProcurementBidder.finalPreTaxTotal` × (1+税率)，
+**全程 `bigint` 分**，比值一律用万分之一整数运算，不出现浮点数。
+阈值走系统参数 `ai.quote.*`（`amountTolerance` 元 / `dropPct` / `spreadPct` / `underBudgetPct` /
+`priceDevPct` / `taxRateToleranceBp` 万分之一 / `minBidders` 家），非法值回落默认并回显 warning；
+数据缺失（无清单行、无一轮报价、无有效报价）不猜，写进 `notEvaluated`——**0 命中 ≠ 报价没问题**。
+模型措辞经 `auditQuoteNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.quote.narrative=0` 或 AI 未配置不消耗额度。
+
+口径（合同履行偏差预警 · 矩阵课题 4-9）：同样**规则算、模型写**，规则在
+`server/src/modules/ai/fulfillment/rules-fulfillment.ts`（纯函数、日期按天差、真值夹具双向对锁），
+service 只按 `projectId` 取在履行合同及其节点/付款/终期结算，模型只把命中项写成业务语言。命中口径：
+C1 节点逾期未完成（超过 `graceDays` 未完成，逾期 > 30 天升级高风险）、C2 完成未填实际日期、
+C3 顺序倒挂（更早的计划节点未完成、更晚的却已完成）、C4 完成滞后于计划（超 `lateFinishDays`）、
+C5 节点计划日期早于合同签订日期、C6 付款快于履约（累计付款比例 − 节点完成率 ≥ `progressGapPct` 个百分点，≥ 50 个百分点升为高风险）、
+C7 已出终期结算（非 `DRAFT`）仍有未完成节点、C8 已签章合同没有任何履约节点。
+判定基准日取服务端「今天」（响应 `generatedAt` 即基准时刻），逾期天数一律按**自然日**算，不扣节假日。
+阈值走系统参数 `ai.fulfillment.*`（`graceDays` 天 / `lateFinishDays` 天 / `progressGapPct` 百分点 / `amountTolerance` 元），
+非法值回落默认并回显 warning；缺数据（没有节点、没有付款计划比例）不猜，写入 `notEvaluated`——**0 命中 ≠ 履约没问题**。
+模型措辞经 `auditFulfillmentNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.fulfillment.narrative=0` 或 AI 未配置不消耗额度。
+
+口径（供应链运营全景 · 矩阵课题 7-11）：**跨项目**的汇报材料，事实层在
+`server/src/modules/ai/analysis/scm-facts.ts`（纯函数、真值单测锁口径），service 只做「按显式项目集合取数」。
+口径：签约额按**合同链**汇总（主合同 `amount` + 补充协议 `changeAmount` 带符号增量；`DRAFT` 合同不计，
+主合同金额未填也不计但单独提示——**未填 ≠ 0**）；结算额取 `actualAmount` 回退 `amount` 且排除草稿；
+付款排除 `FAILED`/`REFUNDED`；开票排除 `RED`/`CANCELLED`；比例的分母为 0 时返回 `null`（面板显示「—」而不是 0%）；
+未付 = 结算 − 付款（可为负，表示付款已超结算）；逾期节点 = `PENDING` 且计划日早于基准日（与页面标红同口径）。
+风险点（付款超结算、开票缺口、节点逾期、供应商集中度）由**规则**判定写进 `facts.risks`，模型只许转述。
+正文必须含四个小节（总体情况 / 项目对照 / 供应商集中度 / 风险与建议），缺节记 `missingSections`（正文仍可用）；
+模型输出含任何无法对账的数字即**整份丢弃**改走确定性汇总（`discardedNumbers` 透明展示被丢弃的数字）——
+全景报告是给领导看的，「大部分数字对、个别是编的」比整份退回模板更危险。阈值走系统参数
+`ai.analysis.*`（`topSharePct` / `invoiceGapPct` / `topSuppliers`），非法值回落默认并回显 warning；
+导出 Word/PDF 复用 `POST /ai/report/export`（页面上的同一份 Markdown，不重新生成）。
+
+---
+
+## 附录 · 核对命令（只读）
+
+```bash
+# 1) 全部路由（以 controller 为准，与本文件逐条对应）
+cd server && grep -rnE "@(Controller|Get|Post|Put|Delete|Patch)\(" src/modules --include=*.controller.ts
+
+# 2) 权限码与路由的对应关系
+cd server && grep -rn "@RequirePermissions" src/modules --include=*.controller.ts
+
+# 3) 确认已移除端点不再存在（应无输出）
+cd server && grep -rnE "depts|payments/plans|payments/applies|payments/verifications|invoices/applies|approvals" src/
+
+# 4) 项目上下文读取点（应为各 controller 的 @ProjectId()）
+cd server && grep -rn "@ProjectId()" src/modules --include=*.controller.ts | wc -l
+```
+
+> 维护约定：新增/删除路由时同步更新本文件；`docs/03` 与 controller 不一致即视为文档缺陷。

@@ -1,0 +1,252 @@
+/**
+ * 核心业务状态 **code 的单一事实源**（评审意见「核心业务枚举不用裸字符串」）。
+ *
+ * == 与「字典驱动」的关系（不冲突，是分工）==
+ * - **标签 / 颜色 / 排序 / 是否可选** 仍由 `dict_type` / `dict_item` 提供（业务可自助维护）；
+ * - **code 本身** 收敛到本文件：service 里写 `SETTLEMENT_STATUS.DRAFT` 而不是 `'DRAFT'`，
+ *   这样"同一语义在多处各写一遍"的漂移（历史上 `contract.service.ts` 自造了一套 `STATUS_*`）
+ *   与拼写错误都被类型系统挡住；
+ * - 业务表**仍存 code 字符串**（不加数据库枚举，铁律 4 不变）。
+ *
+ * == 防漂移 ==
+ * `server/test/statusCodes.spec.mts` 双向锁定：
+ * ① 有字典背书的组（settlement/payment/invoice/invoice_review/site_confirm/contract_execution/
+ *   bidder_status/evaluation_conclusion）必须与字典项**集合完全相等**；
+ * ② 五态合同类型必须与 `schema.prisma` 的 `enum ContractType` 完全相等；
+ * ③ 采购任务状态必须与 `TASK_STATUS_LABELS` 的键集合完全相等；④ 组内 code 不得重复。
+ * 任何一边新增/改名而另一边没跟上，测试即红。
+ *
+ * ⚠️ 与字典同名但语义不同的坑：字典 `contract_status`（"合同起草状态"）只有 DRAFT/COMPLETED，
+ * 而 `Contract.status` 是 DRAFT/APPROVING/SIGNED（非字典驱动）——两者不是一回事，别混用。
+ */
+
+/** 字典 typeCode（供 `dict.validate()` 使用，避免手写字符串拼错） */
+export const DICT_TYPES = {
+  CONTRACT_TYPE: 'contract_type',
+  CONTRACT_STATUS: 'contract_status',
+  SETTLEMENT_STATUS: 'settlement_status',
+  PAYMENT_STATUS: 'payment_status',
+  INVOICE_STATUS: 'invoice_status',
+  INVOICE_REVIEW_STATUS: 'invoice_review_status',
+  INVOICE_TRANSFER_STATUS: 'finance_transfer_status',
+  CONTRACT_EXECUTION_STATUS: 'contract_execution_status',
+  SITE_CONFIRM_STATUS: 'site_confirm_status',
+  BIDDER_STATUS: 'bidder_status',
+  EVALUATION_CONCLUSION: 'evaluation_conclusion',
+  FINAL_SETTLEMENT_STATUS: 'final_settlement_status',
+} as const;
+
+/**
+ * 合同状态：`Contract.status`（**非字典驱动**）。
+ * 草稿 → 提交 → 待签章 → 签章；驳回把「待签章/已签章」打回草稿（见 `constants/workflowGuards.ts`）。
+ */
+export const CONTRACT_STATUS = {
+  DRAFT: 'DRAFT',
+  APPROVING: 'APPROVING',
+  SIGNED: 'SIGNED',
+} as const;
+export type ContractStatus = (typeof CONTRACT_STATUS)[keyof typeof CONTRACT_STATUS];
+
+/**
+ * 历史遗留：早期合同行把 `Contract.status` 写成过字典 `contract_status` 的 `COMPLETED`
+ * （该语义现由 `Contract.execStatus` 表达）。列表查询需**兼容展示**这类旧行，故保留具名常量，
+ * 避免它被当成"随手写的魔法字符串"删掉。
+ */
+export const LEGACY_CONTRACT_STATUS_COMPLETED = 'COMPLETED';
+
+/** 结算单状态（dict `settlement_status`） */
+export const SETTLEMENT_STATUS = {
+  DRAFT: 'DRAFT',
+  PENDING: 'PENDING',
+  CONFIRMED: 'CONFIRMED',
+  INVOICED: 'INVOICED',
+  PAID: 'PAID',
+  DONE: 'DONE',
+} as const;
+export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS];
+
+/** 付款记录状态（dict `payment_status`）：失败/已退款**不计入**累计付款 */
+export const PAYMENT_STATUS = {
+  PENDING: 'PENDING',
+  PARTIAL: 'PARTIAL',
+  PAID: 'PAID',
+  FAILED: 'FAILED',
+  REFUNDED: 'REFUNDED',
+} as const;
+export type PaymentStatus = (typeof PAYMENT_STATUS)[keyof typeof PAYMENT_STATUS];
+
+/**
+ * **不计入"累计付款"**的付款状态（不构成实际出资）。
+ * 单一事实源：防超付闸门（`payment.service`）与合同台账（`ledger.service`）必须用**同一份**，
+ * 否则同一笔失败付款在闸门里被排除、在台账里被算进去，两处给出相反结论。
+ */
+export const PAYMENT_EXCLUDED_STATUSES: string[] = [PAYMENT_STATUS.FAILED, PAYMENT_STATUS.REFUNDED];
+
+/**
+ * Prisma 查询片段：**计入累计付款**的记录（与上面的排除清单同源）。
+ *
+ * ⚠️ 不要写成 `NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } }`：SQL 三值逻辑下
+ * `NULL NOT IN (...)` 结果是 UNKNOWN，空状态行会被**静默排除**。而内存口径
+ * `chainPaidTotal`（common/utils/contract-chain.ts）把空状态算作有效付款（历史导入数据未填状态），
+ * 两处结论相反会让「台账已付金额」与「防超付闸门」互相打架。故这里显式把 NULL 归入有效付款。
+ */
+export function paidPaymentWhere(): { OR: any[] } {
+  return { OR: [{ statusCode: null }, { statusCode: { notIn: PAYMENT_EXCLUDED_STATUSES } }] };
+}
+
+/** 发票状态（dict `invoice_status`）：查验仅用于登记核对，不代表验真 */
+export const INVOICE_STATUS = {
+  WAIT_VERIFY: 'WAIT_VERIFY',
+  VERIFIED: 'VERIFIED',
+  CERTIFIED: 'CERTIFIED',
+  DEDUCTED: 'DEDUCTED',
+  ABNORMAL: 'ABNORMAL',
+  CANCELLED: 'CANCELLED',
+  RED: 'RED',
+} as const;
+export type InvoiceStatus = (typeof INVOICE_STATUS)[keyof typeof INVOICE_STATUS];
+
+/**
+ * **不计入金额口径**的发票状态：作废（`CANCELLED`）与红冲（`RED`）。
+ * 业务口径 2026-11-12：作废票与红冲票不属于「有效开票」；结算台账「本月开票额」、
+ * 合同台账「开累发票金额」、履约开票比例、工作台与 AI 统计全部排除。
+ *
+ * 单一事实源：DB 查询用 `countedInvoiceWhere()`，内存过滤用 `isCountedInvoiceStatus()`，
+ * 两边必须同源，否则同一张票在台账与 AI 里会给出相反结论。
+ */
+export const INVOICE_EXCLUDED_STATUSES: string[] = [INVOICE_STATUS.CANCELLED, INVOICE_STATUS.RED];
+
+/**
+ * Prisma 查询片段：**计入金额口径**的发票（与上面的排除清单同源）。
+ *
+ * ⚠️ 不要写成 `NOT: { statusCode: { in: INVOICE_EXCLUDED_STATUSES } }`：SQL 三值逻辑下
+ * `NULL NOT IN (...)` 结果是 UNKNOWN，历史导入/未填状态的发票会被**静默排除**。
+ * 与 `paidPaymentWhere()` 同口径，显式把 NULL 归入有效发票。
+ */
+export function countedInvoiceWhere(): { OR: any[] } {
+  return { OR: [{ statusCode: null }, { statusCode: { notIn: INVOICE_EXCLUDED_STATUSES } }] };
+}
+
+/** 是否**终态**（作废/红冲）：终态不可重复、不可互转，也不能经通用 PUT 改出 */
+export function isInvoiceTerminalStatus(statusCode: string | null | undefined): boolean {
+  return INVOICE_EXCLUDED_STATUSES.includes(String(statusCode ?? ''));
+}
+
+/** 内存谓词：与 `countedInvoiceWhere()` 同口径（`null` / 未填计入） */
+export function isCountedInvoiceStatus(statusCode: string | null | undefined): boolean {
+  return !isInvoiceTerminalStatus(statusCode);
+}
+
+/** 发票信息审核状态（dict `invoice_review_status`） */
+export const INVOICE_REVIEW_STATUS = {
+  PENDING: 'PENDING',
+  PASSED: 'PASSED',
+  REJECTED: 'REJECTED',
+} as const;
+export type InvoiceReviewStatus = (typeof INVOICE_REVIEW_STATUS)[keyof typeof INVOICE_REVIEW_STATUS];
+
+/** 合同执行情况（dict `contract_execution_status`，台账合规判定用） */
+export const CONTRACT_EXECUTION_STATUS = {
+  DRAFT: 'DRAFT',
+  UNUSED: 'UNUSED',
+  EXECUTING: 'EXECUTING',
+  DONE_UNSETTLED: 'DONE_UNSETTLED',
+  DONE_SETTLED: 'DONE_SETTLED',
+} as const;
+export type ContractExecutionStatus = (typeof CONTRACT_EXECUTION_STATUS)[keyof typeof CONTRACT_EXECUTION_STATUS];
+
+/**
+ * 总结算单状态（dict `final_settlement_status`，业务口径 2026-10-16）：
+ * 待附件 → （上传附件）→ 已结算。**附件上传完成即「已结算」**，并驱动合同 `execStatus = DONE_SETTLED`
+ * （付款比例随之切到 100%，见 `contract.service.syncPayRatio`）。
+ */
+export const FINAL_SETTLEMENT_STATUS = {
+  PENDING_ATTACHMENT: 'PENDING_ATTACHMENT',
+  SETTLED: 'SETTLED',
+} as const;
+export type FinalSettlementStatus = (typeof FINAL_SETTLEMENT_STATUS)[keyof typeof FINAL_SETTLEMENT_STATUS];
+
+/** 现场确认状态（dict `site_confirm_status`）：只有「已确认」计入结算口径（口径开关见 workflowGuards） */
+export const SITE_CONFIRM_STATUS = {
+  PENDING: 'PENDING',
+  CONFIRMED: 'CONFIRMED',
+  REJECTED: 'REJECTED',
+} as const;
+export type SiteConfirmStatus = (typeof SITE_CONFIRM_STATUS)[keyof typeof SITE_CONFIRM_STATUS];
+
+/**
+ * 合同履约节点状态（`ContractFulfillment.statusCode`，**非字典驱动**，四域扩展按需项 2026-10-18）。
+ * 展示层映射：PENDING=blue / DONE=green / SKIPPED=default；「逾期」是派生值
+ * （未完成且 planDate 已过，见 `common/utils/milestone.ts` 的 `isMilestoneOverdue`），不落库。
+ */
+export const MILESTONE_STATUS = {
+  PENDING: 'PENDING',
+  DONE: 'DONE',
+  SKIPPED: 'SKIPPED',
+} as const;
+export type MilestoneStatus = (typeof MILESTONE_STATUS)[keyof typeof MILESTONE_STATUS];
+
+/** 分包商库状态（**非字典驱动**：由委托书导出/推送流程驱动） */
+export const SUBCONTRACTOR_STATUS = {
+  EDITING: 'EDITING',
+  COMPLETED: 'COMPLETED',
+} as const;
+export type SubcontractorStatus = (typeof SUBCONTRACTOR_STATUS)[keyof typeof SUBCONTRACTOR_STATUS];
+
+/**
+ * 分包单位领用单据状态（**非字典驱动**：单据只有草稿/完成两态，不提供可配置项）。
+ * ⚠️ 与 `LaborAuthLedger.status` 的 `SUBCONTRACTOR_STATUS` 不是同一套：后者是委托书流程，
+ * 这里是领用单据的编辑状态。前端镜像在 `web/src/pages/CostLaborReceiving.tsx`。
+ */
+export const LABOR_RECEIVING_DOC_STATUS = {
+  DRAFT: 'DRAFT',
+  COMPLETED: 'COMPLETED',
+} as const;
+export type LaborReceivingDocStatus =
+  (typeof LABOR_RECEIVING_DOC_STATUS)[keyof typeof LABOR_RECEIVING_DOC_STATUS];
+
+/**
+ * 投标 / 响应单位状态（dict `bidder_status`，招标域）。
+ * 其中 `WON` **由服务端驱动**：在成交报告里勾选「拟推荐成交候选人」即中标，取消勾选回落到
+ * 入围/已递交（判据是纯函数 `bidderStatusWhenNotWon()`，见 `constants/procurementFlow.ts`）；
+ * 其余状态（弃权/未中标等）由用户在结构化投标单位面板里维护。
+ */
+export const BIDDER_STATUS = {
+  SIGNED_UP: 'SIGNED_UP',
+  SUBMITTED: 'SUBMITTED',
+  ABSTAINED: 'ABSTAINED',
+  SHORTLISTED: 'SHORTLISTED',
+  WON: 'WON',
+  LOST: 'LOST',
+} as const;
+export type BidderStatus = (typeof BIDDER_STATUS)[keyof typeof BIDDER_STATUS];
+
+/** 评标结论（dict `evaluation_conclusion`，招标域评标记录） */
+export const EVALUATION_CONCLUSION = {
+  RECOMMEND: 'RECOMMEND',
+  NOT_RECOMMEND: 'NOT_RECOMMEND',
+} as const;
+export type EvaluationConclusion = (typeof EVALUATION_CONCLUSION)[keyof typeof EVALUATION_CONCLUSION];
+
+/**
+ * 采购模块记录状态（**非字典驱动**）：`Procurement*Module.status`。
+ * 前端列表另有虚拟值 `UNFILLED`（"无记录"）与 `PUBLISHED`（"已发布"，由 `publishedAt` 推导），
+ * 它们**不落库**，故不在此列。
+ */
+export const MODULE_RECORD_STATUS = {
+  EDITING: 'EDITING',
+  COMPLETED: 'COMPLETED',
+} as const;
+export type ModuleRecordStatus = (typeof MODULE_RECORD_STATUS)[keyof typeof MODULE_RECORD_STATUS];
+
+/**
+ * 收领单状态（**非字典驱动**，`ReceiptOrder.status` 默认 `DRAFT`）：
+ * `DRAFT` 草稿 / `SAVED` 已保存（保存即推送总日报，见 `pushedAt`）。
+ * 2026-10-22 第 22 轮审计：原先 `receipt-order.service.ts` 两处裸写 `'SAVED'`，
+ * 违反「状态码写常量」铁律（拼错不报错，只会静默落一个没人认得的状态）。
+ */
+export const RECEIPT_STATUS = {
+  DRAFT: 'DRAFT',
+  SAVED: 'SAVED',
+} as const;
+export type ReceiptStatus = (typeof RECEIPT_STATUS)[keyof typeof RECEIPT_STATUS];

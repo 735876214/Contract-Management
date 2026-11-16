@@ -20,11 +20,21 @@ export default function Uploader({ value = [], onChange, max = 5 }: Props) {
   const [loading, setLoading] = useState(false);
 
   const customRequest = async ({ file, onSuccess, onError }: any) => {
+    setLoading(true);
     try {
-      const files = await fileApi.upload([file]);
-      onSuccess(files);
+      const uploaded: UploadFile[] = await fileApi.upload([file]);
+      // 受控列表由 value 派生：只 onSuccess 不会让父级拿到新附件（合同附件/发票影像会静默丢失）
+      if (value.length + uploaded.length > max) {
+        message.warning(`最多上传 ${max} 个附件`);
+        onError?.(new Error('exceed max'));
+        return;
+      }
+      onSuccess?.(uploaded);
+      onChange?.([...value, ...uploaded]);
     } catch (e: any) {
       onError(e);
+    } finally {
+      setLoading(false);
     }
   };
 

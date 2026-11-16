@@ -24,6 +24,8 @@ export interface ImportOutcome {
   created: number;
   updated: number;
   errors: ImportRowError[];
+  /** validateOnly 模式：校验是否全部通过 */
+  valid?: boolean;
 }
 
 export type TxClient = Prisma.TransactionClient;
@@ -36,8 +38,20 @@ export interface RunOptions<T> {
   /** 数据起始行号（用于错误报告行号对齐 Excel） */
   startRowNo?: number;
   maxRows?: number;
+  /** 仅校验不写库：跑完 plan 阶段后直接返回校验结果（跳过异步任务与事务写入） */
+  validateOnly?: boolean;
   /** 进度回调：每校验完一行触发（异步导入任务用于刷新进度） */
   onProgress?: (processed: number, total: number) => void | Promise<void>;
+  /**
+   * **事务提交后**的收尾动作（可选）：只在「确有写入」时调用，且**失败不影响导入结果**。
+   *
+   * 用途：某些写入要连带刷新**别的**聚合表，而那个刷新必须读得到刚提交的数据
+   * （事务内读不到未提交行）。发票导入后刷新结算台账的「本月开票额」就是一例。
+   * ⚠️ 放在这里而不是 `write` 里：`write` 在事务内，刷新会读到旧数据甚至死锁。
+   * ⚠️ 错误只记日志：数据已经提交，把导入标成失败（并让调用方以为没写）比"少刷新一次台账"糟得多——
+   *    台账可以人工点「刷新台账」补，导入结果不能重来。
+   */
+  afterCommit?: (outcome: ImportOutcome) => Promise<void>;
 }
 
 /**
@@ -68,12 +82,34 @@ export class ImportRunnerService {
       if (opts.onProgress) await opts.onProgress(index + 1, rows.length);
     }
 
+    // 仅校验模式：plan 阶段跑完即返回，不进入事务写入
+    if (opts.validateOnly) {
+      return { total: rows.length, created: 0, updated: 0, errors, valid: !errors.length };
+    }
+
     // 任一行校验失败：不写入任何数据
     if (errors.length) return { total: rows.length, created: 0, updated: 0, errors };
     if (!plans.length) return { total: rows.length, created: 0, updated: 0, errors: [] };
 
-    const res = await this.prisma.$transaction(async (tx) => opts.write(plans, tx as TxClient));
-    return { total: rows.length, created: res?.created || 0, updated: res?.updated || 0, errors: [] };
+    // 写入事务必须显式放宽超时：Prisma 默认 `timeout: 5000ms`，而各模块的 write 都是**逐行**往返
+    // （每行 1 次 create + 字典校验/查重/关联查询若干次），单批上限 IMPORT_MAX_ROWS=5000 行、
+    // 异步阈值 1000 行，正常量级就会撞上默认值 → P2028「Transaction already closed」+ 整批回滚 500。
+    // 与 syncLedgerByContract 的 `{ timeout: 30000 }` 同一思路；此处放宽到 180s（低于 nginx 300s）。
+    const res = await this.prisma.$transaction(async (tx) => opts.write(plans, tx as TxClient), {
+      timeout: 180000,
+      maxWait: 20000,
+    });
+    const outcome: ImportOutcome = { total: rows.length, created: res?.created || 0, updated: res?.updated || 0, errors: [] };
+    if (opts.afterCommit) {
+      try {
+        await opts.afterCommit(outcome);
+      } catch (e: any) {
+        // 数据已提交：收尾动作失败只记日志（见 RunOptions.afterCommit 的说明），不改变导入结果
+        // eslint-disable-next-line no-console
+        console.warn('[import] 提交后的收尾动作失败（数据已写入，不影响导入结果）:', e?.message || e);
+      }
+    }
+    return outcome;
   }
 
   /** 简易内存去重器：批内重复检测 */

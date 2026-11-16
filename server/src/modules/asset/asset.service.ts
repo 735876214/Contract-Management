@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, num, assertVersion, localDayKey } from '../../common/utils/helpers';
 import { round2 } from '../../common/utils/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -8,7 +8,11 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
-import { DictService } from '../dict/dict.service';
+import { DictService } from '../dict';
+import {
+  resolveAssetSourceFilter,
+  summarizeAssetFlow,
+} from '../../common/utils/asset-flow';
 
 const ASSET_FIELDS = [
   'date', 'sourceCode', 'categoryL1Code', 'categoryFocusCode', 'name', 'spec', 'unit',
@@ -51,7 +55,8 @@ export class AssetService {
     if (query.keyword) {
       where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
     }
-    if (query.sourceCode) where.sourceCode = query.sourceCode;
+    const sourceFilter = resolveAssetSourceFilter(query.sourceCode, query.direction);
+    if (sourceFilter) where.sourceCode = sourceFilter;
     if (query.categoryL1Code) where.categoryL1Code = query.categoryL1Code;
     if (query.categoryFocusCode) where.categoryFocusCode = query.categoryFocusCode;
     const [list, total] = await Promise.all([
@@ -63,6 +68,32 @@ export class AssetService {
       this.prisma.assetLedger.count({ where }),
     ]);
     return buildResult(list, total, query);
+  }
+
+  /**
+   * 物资进出场汇总（业务口径 2026-10-18：只做物资、零新表）。
+   * 按来源聚合数量/金额：采购/调入 = 进场，调出/处置 = 出场，调入费/维保费只计金额。
+   */
+  async flowSummary(projectId: string, query: any = {}) {
+    const where: any = { projectId };
+    if (query.startDate || query.endDate) {
+      where.date = {};
+      if (query.startDate) where.date.gte = new Date(query.startDate);
+      if (query.endDate) where.date.lte = new Date(`${query.endDate}T23:59:59`);
+    }
+    const grouped = await this.prisma.assetLedger.groupBy({
+      by: ['sourceCode'],
+      where,
+      _sum: { qty: true, totalAmount: true },
+    });
+    const summary = summarizeAssetFlow(
+      grouped.map((g: any) => ({
+        sourceCode: g.sourceCode,
+        qty: g._sum?.qty,
+        totalAmount: g._sum?.totalAmount,
+      })),
+    );
+    return { ...summary, startDate: query.startDate ?? null, endDate: query.endDate ?? null };
   }
 
   private validate(data: any) {
@@ -106,9 +137,10 @@ export class AssetService {
     return db.assetLedger.create({ data: payload });
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, projectId?: string) {
     const old = await this.prisma.assetLedger.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('资产台账记录不存在');
+    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
     assertVersion(old, data);
     this.validate({ ...old, ...data });
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
@@ -124,22 +156,39 @@ export class AssetService {
     return this.prisma.assetLedger.update({ where: { id }, data: payload });
   }
 
-  async remove(id: string) {
+  async remove(id: string, projectId?: string) {
     const old = await this.prisma.assetLedger.findUnique({ where: { id } });
     if (!old) throw new NotFoundException('资产台账记录不存在');
+    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
     await this.prisma.assetLedger.delete({ where: { id } });
     return true;
   }
 
+  /**
+   * 导出用：按页取全量。
+   * `paginate()` 会把单页 take 夹到上限，`{ pageSize: 5000 }` 只是「一页 5000 行」，
+   * 超过上限的部分不会出现在任何一页里 → 导出静默缺行（此前付款/日报/台账已按同口径改过）。
+   */
+  private async allRows(projectId: string): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page <= 1000; page += 1) {
+      const res: any = await this.findAll({ page, pageSize: 500 }, projectId, 500);
+      const list = (res.list ?? []) as any[];
+      out.push(...list);
+      if (!list.length || out.length >= Number(res.total ?? 0)) break;
+    }
+    return out;
+  }
+
   async export(projectId: string) {
-    const res = await this.findAll({ pageSize: 5000 }, projectId, IMPORT_MAX_ROWS);
+    const all = await this.allRows(projectId);
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.nameMap('asset_ledger_source'), this.dict.nameMap('asset_category_l1'),
       this.dict.nameMap('asset_category_focus'), this.dict.nameMap('measurement_unit'),
     ]);
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    const fmt = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-    const rows = (res.list as any[]).map((r) => ({
+    const fmt = (d: any) => (d ? localDayKey(d) : ''); // 本地日期：UTC 会早一天（第 22 轮审计 P1-6）
+    const rows = all.map((r) => ({
       date: fmt(r.date),
       sourceName: source[r.sourceCode]?.name || '',
       categoryL1Name: catL1[r.categoryL1Code]?.name || '',
@@ -238,7 +287,7 @@ export class AssetService {
   }
 
   /** 资产管理台账导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importAssets(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any }) {
+  async importAssets(buffer: Buffer, projectId: string, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
     const rows = await this.excel.parse(buffer, [2]); // 第 2 行为填写模板示例行
     const [source, catL1, catFocus, unit] = await Promise.all([
       this.dict.options('asset_ledger_source'), this.dict.options('asset_category_l1'),
@@ -293,6 +342,6 @@ export class AssetService {
         for (const p of plans) await this.create(p.data, projectId, tx);
         return { created: plans.length };
       },
-    });
+    }, meta?.validateOnly ?? false);
   }
 }

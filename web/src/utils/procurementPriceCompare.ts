@@ -77,6 +77,8 @@ export interface PriceCompareContext {
   siteLocation?: string;
   /** 项目地址（来源：项目管理 · 项目信息） */
   projectAddress?: string;
+  /** 物资产地（来源：项目管理 · 项目信息，与合同模板同名变量口径一致） */
+  materialOrigin?: string;
   /** 采购内容 */
   content?: string;
 }
@@ -313,6 +315,7 @@ export function buildPriceCompareVariableValues(
     项目所在省市: ctx.provinceCity ?? '',
     工程地点: ctx.siteLocation ?? '',
     项目地址: ctx.projectAddress ?? '',
+    物资产地: ctx.materialOrigin ?? '',
     采购内容: ctx.content ?? '',
     计价方式: pricingMethodLabel(data.pricingMethod),
     '采购价格对比表-明细表': buildPriceCompareTableHtml(data.items ?? []),

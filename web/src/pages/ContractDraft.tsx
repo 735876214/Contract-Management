@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/utils/sanitizeHtml';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -15,6 +17,7 @@ import {
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   message,
 } from 'antd';
 import {
@@ -22,15 +25,20 @@ import {
   EyeOutlined,
   PlusOutlined,
   SendOutlined,
-  SaveOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { contractApi, supplierApi, templateApi } from '@/api/business';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import { useAuthStore } from '@/store/auth';
+import { useTabsStore } from '@/store/tabs';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { usePermission } from '@/hooks/usePermission';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import MaterialPoolTab from '@/components/contract/MaterialPoolTab';
 import ContractItemTab from '@/components/contract/ContractItemTab';
+import { highlightPlaceholders } from '@/utils/docExport';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 
 /** 草稿超时阈值（需求 2.1.3：新增后 2 小时内未完成即视为超时） */
 const OVERDUE_HOURS = 2;
@@ -43,31 +51,42 @@ function overdueMinutes(createTime: string): number {
   return OVERDUE_HOURS * 60 - dayjs().diff(dayjs(createTime), 'minute');
 }
 
+/** 列表 / 新增 / 起草 是同一路由的三种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/contract/draft';
+
 /**
  * 合同起草页面（需求 2.1 / 2.4；问题四：列表区统一标准列表页规约）
  * - 草稿列表：仅展示当前用户「未完成」（status=DRAFT 或空）的草稿（需求 2.3），
  *   发布后的合同自动流转至「合同查询」菜单，不再出现在本列表
- * - 列表行「更多 → 编辑」打开起草抽屉，「更多 → 删除」删除草稿
- * - 新增合同：弹窗录入 类型/供应商/物资描述/模板 → 创建草稿 → 直接进入起草抽屉
- * - 起草抽屉：基础信息 + Tab1 物料编码清单 + Tab2 合同清单（税率为只读自动带出）
+ * - 列表行「更多 → 编辑」打起草编辑器页签，「更多 → 删除」删除草稿
+ * - 新增合同：先填 类型/供应商/物资描述/模板 → 创建草稿 → 换成该草稿的编辑器标签
+ * - 起草编辑器：基础信息 + Tab1 物料编码清单 + Tab2 合同清单（税率为只读自动带出）
  * - 状态流转：保存（存草稿）→ 预览确认（模板变量替换 HTML）→ 发布（完成，清单推送至合同物资）
  */
 export default function ContractDraft() {
+  const editorTab = useEditorTab(LIST_PATH);
+  const canEdit = usePermission('contract:edit');
+  const isCreate = editorTab.editorId === 'new';
+  const recordId = editorTab.editorId && editorTab.editorId !== 'new' ? editorTab.editorId : null;
+
   const currentProjectId = useAuthStore((s) => s.currentProjectId);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = useCallback(() => setListRefresh((k) => k + 1), []);
   /** 列表原始数据（用于顶部超时提醒统计） */
   const [allRows, setAllRows] = useState<any[]>([]);
+  /** 编辑器保存/发布后 bump → 被缓存的列表标签重新取数 */
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  useEffect(() => {
+    if (tabRefresh) refreshList();
+  }, [tabRefresh]);
 
-  // ===== 新增弹窗 =====
-  const [createOpen, setCreateOpen] = useState(false);
+  // ===== 新增合同（编辑器页签的 "new" 形态） =====
   const [createForm] = Form.useForm();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
 
-  // ===== 起草抽屉 =====
-  const [editorOpen, setEditorOpen] = useState(false);
+  // ===== 起草编辑器 =====
   const [editing, setEditing] = useState<any>(null); // 当前草稿合同
   const [basicForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -75,6 +94,8 @@ export default function ContractDraft() {
   const [activeTab, setActiveTab] = useState('pool');
   // 需求修正3：发布前必须预览确认；内容变更后重新禁用
   const [previewed, setPreviewed] = useState(false);
+  /** 起草编辑器里的未保存改动（关闭页签时确认） */
+  const [dirty, setDirty] = useState(false);
   // 需求修正2：合同税率实时值（状态提升，Tab2 物料税率实时绑定）
   const watchTaxRate = Form.useWatch('taxRate', basicForm);
   const contractTaxPct =
@@ -129,35 +150,51 @@ export default function ContractDraft() {
       }
       const created: any = await contractApi.create({ ...values, code, status: 'DRAFT' });
       message.success('草稿已创建，请完善清单后发布');
-      setCreateOpen(false);
       createForm.resetFields();
       refreshList();
-      openEditor(created?.id || created?.data?.id);
+      // 换成本草稿的编辑器标签（关掉 "new" 标签，但**不要**导航回列表——否则会闪一下列表）
+      const newId = created?.id || created?.data?.id;
+      useTabsStore.getState().closeTab(editorTab.tabKey);
+      editorTab.openEdit(newId, {});
     } finally {
       setCreating(false);
     }
   };
 
-  // ==================== 打开起草抽屉 ====================
-  const openEditor = async (id: string) => {
-    const detail: any = await contractApi.detail(id);
-    setEditing(detail);
-    basicForm.setFieldsValue({
-      code: detail.code,
-      name: detail.name,
-      typeCode: detail.typeCode,
-      subTypeCode: detail.subTypeCode,
-      supplierId: detail.supplierId,
-      materialDescription: detail.materialDescription,
-      templateId: detail.templateId,
-      signDate: detail.signDate ? dayjs(detail.signDate) : null,
-      // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
-      taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
-    });
-    setActiveTab('pool');
+  // ==================== 起草编辑器：进入时拉详情 ====================
+  useEffect(() => {
+    if (!recordId) return;
     setPreviewed(false); // 需求修正3：打开/切换草稿时重置预览确认状态
-    setEditorOpen(true);
-  };
+    setActiveTab('pool');
+    setDirty(false);
+    // 需求修正3：编辑器与列表是两个实例，故按 id 自己拉一次详情
+    contractApi
+      .detail(recordId)
+      .then((detail: any) => {
+        setEditing(detail);
+        basicForm.setFieldsValue({
+          code: detail.code,
+          name: detail.name,
+          typeCode: detail.typeCode,
+          subTypeCode: detail.subTypeCode,
+          supplierId: detail.supplierId,
+          materialDescription: detail.materialDescription,
+          templateId: detail.templateId,
+          signDate: detail.signDate ? dayjs(detail.signDate) : null,
+          // 合同级税率：后端按小数（0.13）存储，表单按百分比（13）展示
+          taxRate: detail.taxRate != null ? Number(detail.taxRate) * 100 : null,
+          // 条款选择回显（业务口径 2026-10-16）
+          technicalClauseId: detail.technicalClauseId,
+          qualityClauseId: detail.qualityClauseId,
+          acceptanceClauseId: detail.acceptanceClauseId,
+          paymentClauseId: detail.paymentClauseId,
+        });
+        editorTab.setTitle(`合同起草 · ${detail.code || ''}`.trim());
+      })
+      .catch(() => undefined);
+    // recordId 是种子之外的唯一依赖（详情只按它拉一次）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordId]);
 
   /** 保存基础信息（自动触发名称重建：后端按 TMHB-XX-项目-物资-类型-供应商 规则生成） */
   const saveBasic = async (silent = false): Promise<boolean> => {
@@ -174,6 +211,13 @@ export default function ContractDraft() {
         signDate: values.signDate ? values.signDate.format('YYYY-MM-DD') : null,
         // 合同级税率：用户填 13 → 后端按小数 0.13 存储；保存后 Tab2 所有物料税率自动同步
         taxRate: values.taxRate != null && values.taxRate !== '' ? Number(values.taxRate) / 100 : null,
+        // 条款选择（业务口径 2026-10-16）：Contract 的 4 个条款外键
+        technicalClauseId: values.technicalClauseId || null,
+        qualityClauseId: values.qualityClauseId || null,
+        acceptanceClauseId: values.acceptanceClauseId || null,
+        paymentClauseId: values.paymentClauseId || null,
+        // 乐观锁：后端 assertVersion 强制要求回传（缺失=409）
+        version: (editing as any).version,
       });
       const detail: any = await contractApi.detail(editing.id);
       setEditing(detail);
@@ -186,6 +230,7 @@ export default function ContractDraft() {
       if (!silent) message.success('已保存');
       // 需求修正3：基础信息变更后需重新预览确认，发布按钮重新禁用
       setPreviewed(false);
+      setDirty(false);
       return true;
     } finally {
       setSaving(false);
@@ -204,7 +249,7 @@ export default function ContractDraft() {
     setPreviewLoading(true);
     try {
       const res: any = await templateApi.generate({ templateId, contractId: editing.id });
-      setPreview({ templateName: res?.templateName || '合同预览', html: res?.html || '' });
+      setPreview({ templateName: res?.templateName || '合同预览', html: highlightPlaceholders(res?.html || '') });
       setPreviewOpen(true);
     } finally {
       setPreviewLoading(false);
@@ -238,7 +283,7 @@ export default function ContractDraft() {
           <p>发布后将执行以下动作，确认继续？</p>
           <ol style={{ paddingLeft: 20, margin: 0 }}>
             <li>合同清单推送至「合同物资」，作为正式执行数据；</li>
-            <li>合同状态置为「审批中」，从草稿列表移除并进入「合同查询」；</li>
+            <li>合同状态置为「待签章」，从草稿列表移除并进入「合同查询」；</li>
             <li>按所选模板生成合同正文（可先点击「预览合同」确认）；</li>
             <li>发布后合同类型不可再修改，可在「合同查询」中上传签章。</li>
           </ol>
@@ -252,10 +297,9 @@ export default function ContractDraft() {
         setPublishing(true);
         try {
           await contractApi.publish(editing.id);
-          message.success('合同已发布，状态：审批中');
-          setEditorOpen(false);
-          setEditing(null);
-          refreshList();
+          message.success('合同已发布，状态：待签章');
+          setDirty(false);
+          editorTab.closeEditor();
         } finally {
           setPublishing(false);
         }
@@ -325,7 +369,9 @@ export default function ContractDraft() {
   ];
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <>
+      {!isCreate && !recordId && (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {overdueCount > 0 && (
         <Alert
           type="warning"
@@ -336,40 +382,40 @@ export default function ContractDraft() {
 
       <ModuleListPage
         mode="generic"
+        columnConfigKey="contract.draft"
         fetcher={fetcher}
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         emptyText="暂无合同草稿"
-        refreshKey={listRefresh}
-        onEdit={(row) => openEditor(row.id)}
+        refreshKey={listRefresh + tabRefresh}
+        editPermission="contract:edit"
+        onEdit={(row) => editorTab.openEdit(row.id, {})}
         onDelete={handleRemove}
         toolbarLeft={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              createForm.resetFields();
-              setCreateOpen(true);
-            }}
-          >
-            新增合同
-          </Button>
+          canEdit ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              新增合同
+            </Button>
+          ) : null
         }
       />
 
-      {/* ==================== 新增合同弹窗 ==================== */}
-      <Modal
-        title="新增合同草稿"
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={handleCreate}
-        confirmLoading={creating}
-        okText="创建草稿"
-        cancelText="取消"
-        width={560}
-        destroyOnClose
-      >
-        <Form form={createForm} layout="vertical">
+        </Space>
+      )}
+
+      {/* ==================== 新增合同（编辑器页签的 "new" 形态） ==================== */}
+      {isCreate && (
+        <EditorTabPage
+          listPath={LIST_PATH}
+          title="新增合同草稿"
+          saving={creating}
+          saveText="创建草稿"
+          onSave={handleCreate}
+          // 「创建草稿」只建单据、不关标签（随后换成该草稿的编辑器标签）
+          closeOnSave={false}
+          dirty={dirty}
+        >
+          <Form form={createForm} layout="vertical" onValuesChange={() => setDirty(true)}>
           <Form.Item name="typeCode" label="合同类型" rules={[{ required: true, message: '请选择合同类型' }]}>
             <DictSelect typeCode="contract_type" placeholder="请选择合同类型" />
           </Form.Item>
@@ -402,74 +448,77 @@ export default function ContractDraft() {
               options={templates.map((t: any) => ({ value: t.id, label: t.name }))}
             />
           </Form.Item>
-        </Form>
-      </Modal>
+          </Form>
+        </EditorTabPage>
+      )}
 
       {/* ==================== 起草弹窗（问题三：居中弹窗） ==================== */}
-      <Modal
-        title={
-          <Space>
-            <span>合同起草</span>
-            {editing?.code && <Tag color="geekblue">{editing.code}</Tag>}
-            {editing?.status === 'SIGNED' ? (
-              <Tag color="green">已签章</Tag>
-            ) : editing?.status === 'APPROVING' ? (
-              <Tag color="blue">审批中</Tag>
-            ) : (
-              <Tag color="default">草稿中</Tag>
-            )}
-          </Space>
-        }
-        width={1040}
-        centered
-        open={editorOpen}
-        onCancel={() => {
-          setEditorOpen(false);
-          setEditing(null);
-          refreshList();
-        }}
-        styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' } }}
-        footer={
-          <Space style={{ float: 'right' }}>
-            <Button icon={<SaveOutlined />} loading={saving} onClick={() => saveBasic()}>
-              保存（草稿）
-            </Button>
-            <Button icon={<EyeOutlined />} loading={previewLoading} onClick={handlePreview}>
-              预览合同
-            </Button>
-            {/* 需求修正3：预览确认无误后发布按钮才可用 */}
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              loading={publishing}
-              disabled={!previewed}
-              title={previewed ? '发布合同' : '请先点击「预览合同」并确认无误'}
-              onClick={handlePublish}
-            >
-              发布（完成）
-            </Button>
-          </Space>
-        }
-      >
+      {/* ==================== 起草编辑器（记录形态） ==================== */}
+      {recordId && (
+        <EditorTabPage
+          listPath={LIST_PATH}
+          title="合同起草"
+          titleExtra={
+            <Space>
+              {editing?.code && <Tag color="geekblue">{editing.code}</Tag>}
+              {editing?.status === 'SIGNED' ? (
+                <Tag color="green">已签章</Tag>
+              ) : editing?.status === 'APPROVING' ? (
+                <Tag color="blue">待签章</Tag>
+              ) : (
+                <Tag color="default">草稿中</Tag>
+              )}
+            </Space>
+          }
+          saving={saving}
+          saveText="保存（草稿）"
+          onSave={() => saveBasic()}
+          // 起草是多步的（基础信息 → 清单 → 预览 → 发布）；「保存」不关标签，只有「发布」才关
+          closeOnSave={false}
+          dirty={dirty}
+          footerLeft={
+            <Space wrap size={8}>
+              <Button icon={<EyeOutlined />} loading={previewLoading} onClick={handlePreview}>
+                预览合同
+              </Button>
+            </Space>
+          }
+          footerExtra={
+            /* 需求修正3：预览确认无误后发布按钮才可用（禁用态也要能问出原因，故包一层 span 给 Tooltip） */
+            <Tooltip title={previewed ? '发布合同' : '请先点击「预览合同」并确认无误'}>
+              <span>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  loading={publishing}
+                  disabled={!previewed}
+                  onClick={handlePublish}
+                >
+                  发布（完成）
+                </Button>
+              </span>
+            </Tooltip>
+          }
+        >
         {editing ? (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Card size="small" title="基础信息">
-              <Form form={basicForm} layout="vertical">
+              <Form form={basicForm} layout="vertical" onValuesChange={() => setDirty(true)}>
                 <Row gutter={16}>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Form.Item label="合同编号（自动生成，保存后不可变更）">
                       <Input value={basicForm.getFieldValue('code')} disabled />
                     </Form.Item>
                   </Col>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Form.Item label="合同名称（自动生成：TMHB-XX-项目-物资-类型-供应商）">
                       <Input value={basicForm.getFieldValue('name')} disabled />
                     </Form.Item>
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}>
-                    {/* 需求 2.1：合同发布后（审批中/已签章）合同类型固化不可修改 */}
+                  <Col xs={24} md={8}>
+                    {/* 需求 2.1：合同发布后（待签章/已签章）合同类型固化不可修改 */}
                     <Form.Item name="typeCode" label="合同类型" rules={[{ required: true }]}>
                       <DictSelect
                         typeCode="contract_type"
@@ -477,7 +526,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item name="supplierId" label="供应商" rules={[{ required: true }]}>
                       <Select
                         showSearch
@@ -486,7 +535,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="materialDescription"
                       label="物资名称描述"
@@ -497,7 +546,7 @@ export default function ContractDraft() {
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="templateId"
                       label="合同模板"
@@ -511,7 +560,7 @@ export default function ContractDraft() {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="signDate"
                       label="签订日期"
@@ -520,7 +569,7 @@ export default function ContractDraft() {
                       <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="yyyy-mm-dd" />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
+                  <Col xs={24} md={8}>
                     <Form.Item
                       name="taxRate"
                       label="合同税率(%)"
@@ -530,6 +579,10 @@ export default function ContractDraft() {
                     </Form.Item>
                   </Col>
                 </Row>
+                {/* 条款选择（业务口径 2026-10-16）：Contract 本就有 4 个条款外键，
+                    旧合同编辑页会填，新起草页此前没有入口 —— 不补的话合同模板里的
+                    {{技术条款}} 等变量恒为空。同样"只选不录"，条款库维护在 /base/clause。 */}
+                <ClauseSelectRow form={basicForm} />
               </Form>
             </Card>
 
@@ -566,7 +619,8 @@ export default function ContractDraft() {
         ) : (
           <Spin />
         )}
-      </Modal>
+        </EditorTabPage>
+      )}
 
       {/* ==================== 合同正文预览（需求修正3：确认无误后发布才可用） ==================== */}
       <Modal
@@ -582,7 +636,7 @@ export default function ContractDraft() {
           </Button>,
         ]}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Alert
           type="info"
@@ -591,10 +645,10 @@ export default function ContractDraft() {
           message="请核对合同完整内容；点击「确认无误」后「发布」按钮才可用。若返回修改合同内容，需重新预览确认。"
         />
         <div
-          style={{ maxHeight: 520, overflow: 'auto', border: '1px solid #f0f0f0', padding: 16, background: '#fff' }}
-          dangerouslySetInnerHTML={{ __html: preview?.html || '' }}
+          style={{ maxHeight: 520, overflow: 'auto', border: '1px solid var(--cms-hairline-soft)', padding: 16, background: 'var(--cms-paper)' }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(preview?.html) }}
         />
       </Modal>
-    </Space>
+    </>
   );
 }

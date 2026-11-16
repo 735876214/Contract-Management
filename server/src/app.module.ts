@@ -22,8 +22,15 @@ import { SystemModule } from './modules/system/system.module';
 import { FileModule } from './modules/file/file.module';
 import { AssetModule } from './modules/asset/asset.module';
 import { ReceiptOrderModule } from './modules/receipt-order/receipt-order.module';
-import { SubcontractorModule } from './modules/subcontractor/subcontractor.module';
+
 import { ProcurementModule } from './modules/procurement/procurement.module';
+import { PaymentProcedureModule } from './modules/payment-procedure/payment-procedure.module';
+import { DocTemplateModule } from './modules/doc-template/doc-template.module';
+import { FinalSettlementModule } from './modules/final-settlement/final-settlement.module';
+import { LaborModule } from './modules/labor/labor.module';
+import { CostModule } from './modules/cost/cost.module';
+import { ArchiveModule } from './modules/archive/archive.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -50,8 +57,15 @@ import { ProcurementModule } from './modules/procurement/procurement.module';
     FileModule,
     AssetModule,
     ReceiptOrderModule,
-    SubcontractorModule,
+
     ProcurementModule,
+    PaymentProcedureModule,
+    DocTemplateModule,
+    FinalSettlementModule,
+    LaborModule,
+    CostModule,
+    ArchiveModule,
+    AiModule,
   ],
 })
 export class AppModule {}

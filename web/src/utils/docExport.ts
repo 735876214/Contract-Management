@@ -1,6 +1,14 @@
 /** 合同正文导出：Word(.doc) / 打印(PDF) */
 
 /** MSO 兼容 Word HTML 封装（导出 / 通用导出管线共用） */
+/**
+ * Word 导出模板（"所见即所得"）。
+ *
+ * ⚠️ 这里**故意写死字面色值**（宋体、黑体、`#000`、`#f2f2f2`），不走 `theme.ts` / CSS 变量：
+ * 1. Word 渲染 HTML 时不认识 CSS 变量与外部样式表；
+ * 2. 导出物是**要打印归档的公文**，观感必须稳定，不该随屏幕主题（奶油/深墨）变化。
+ * 故 `server/test/themeTokens.spec.mts` 把本文件列入白名单 —— 改屏幕视觉时**不要**顺手改这里。
+ */
 export const WORD_TPL = (title: string, body: string) => `<html xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:w="urn:schemas-microsoft-com:office:word"
  xmlns="http://www.w3.org/TR/REC-html40">
@@ -64,10 +72,16 @@ export function printHtml(html: string, title = '合同正文') {
   setTimeout(() => w.print(), 300);
 }
 
-/** 把仍未替换的 {变量} 高亮出来，便于生成后核对 */
+/**
+ * 把仍未替换的占位符高亮出来，便于生成后核对。
+ * - 只匹配双花括号 `{{变量名}}`（合同/采购模板**统一的规范语法**；单花括号 `{变量名}` 已废弃，
+ *   见 server/src/modules/template/template-render.ts 文件头）。
+ * - 高亮**整段（含花括号）**：旧实现只匹配内层 `{x}`，`{{x}}` 是「靠内层间接生效」的脆弱写法。
+ * - 纯空白不视为占位符。
+ */
 export function highlightPlaceholders(html: string) {
-  return String(html || '').replace(/\{([^{}]{1,30})\}/g, (_m, g1: string) => {
-    if (/^[\s]*$/.test(g1)) return `{${g1}}`;
-    return `<span style="background:#fff1b8;border-bottom:1px dashed #d48806;color:#ad6800">{${g1}}</span>`;
+  const style = 'background:#fff1b8;border-bottom:1px dashed #d48806;color:#ad6800';
+  return String(html || '').replace(/\{\{([^{}]{1,40})\}\}/g, (match: string, name?: string): string => {
+    return /^\s*$/.test(name ?? '') ? match : `<span style="${style}">${match}</span>`;
   });
 }

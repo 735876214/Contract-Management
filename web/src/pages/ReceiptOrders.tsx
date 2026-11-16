@@ -1,17 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, AutoComplete, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
-  Row, Select, Space, Table, Tabs, Tag, Tooltip, message,
+  Row, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
-  SearchOutlined, SelectOutlined, SyncOutlined,
+  ArrowLeftOutlined, CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
+  SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { contractApi, receiptOrderApi } from '@/api/business';
+import { receiptOrderApi } from '@/api/business';
+import { fileApi } from '@/api/auth';
 import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
+import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
+import { useContainerWidth } from '@/hooks/useContainerWidth';
+import { usePermission } from '@/hooks/usePermission';
+import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import { DictTag } from '@/components/DictSelect';
+import MobileCardList from '@/components/MobileCardList';
+import { toFileUrl, toStorageKey } from '@/utils/templateFile';
+import EditorTabPage from '@/components/editor/EditorTabPage';
+import Can from '@/components/Can';
+
+/** 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
+const LIST_PATH = '/daily/receipt';
+
+/**
+ * 手机端（窄容器 <720px）列模板 + 卡片视图（docs/09 §4 阶段 B）：
+ * 12 列在手机上要横滑 5.6 屏，这里只留「编号 / 日期 / 供应 / 领用 / 状态 + 操作」。
+ * 桌面列完全不变；本页无列设置，窄容器下总是用这套预设。
+ */
+const MOBILE_DEFAULT_KEYS = ['orderNo', 'orderDate', 'supplierName', 'receivingUnitName', 'status', 'op'];
 
 /** 数字格式化 */
 const fmtNum = (v: any, digits = 4) =>
@@ -174,6 +193,7 @@ function TabPickerModal({
         style={{ marginBottom: 12 }}
       />
       <Table
+      scroll={{ x: 'max-content' }}
         rowKey={(r: any) => `${tab}-${r.id}`}
         size="small"
         loading={loading || innerLoading}
@@ -191,6 +211,7 @@ function TabPickerModal({
 
 const DETAIL_COLUMNS = (
   patchDetail: (key: React.Key, field: string, value: any) => void,
+  showCustodian: boolean,
 ) => [
   { title: '序号', width: 60, fixed: 'left' as const, render: (_: any, __: any, i: number) => i + 1 },
   { title: '一级分类', dataIndex: 'categoryLevel1', width: 110, render: (v: any) => v || '-' },
@@ -228,6 +249,17 @@ const DETAIL_COLUMNS = (
       <Input value={v} placeholder="填写" onChange={(e) => patchDetail(row.key, 'usagePart', e.target.value)} />
     ),
   },
+  // 「是否为资产」= 是 → 明细增加保管栏（业务 2026-10-17）；= 否 或未选 → 不显示
+  ...(showCustodian
+    ? [
+        {
+          title: '保管单位及保管人', dataIndex: 'custodian', width: 170,
+          render: (v: any, row: any) => (
+            <Input value={v} placeholder="保管单位及保管人" onChange={(e) => patchDetail(row.key, 'custodian', e.target.value)} />
+          ),
+        },
+      ]
+    : []),
   {
     title: '厂家/品牌', dataIndex: 'brand', width: 140,
     render: (v: any, row: any) => (
@@ -254,13 +286,25 @@ const DETAIL_COLUMNS = (
 export default function ReceiptOrders() {
   // -------- 列表视图 --------
   const { loading, list, search, reload, pagination } = useTable<any>((p) => receiptOrderApi.list(p));
+  const { ref: cqRef, size: containerSize } = useContainerWidth<HTMLDivElement>();
+  const canEdit = usePermission('receipt:edit');
   const [filterForm] = Form.useForm();
-  const [mode, setMode] = useState<'list' | 'edit'>('list');
-  const [editingId, setEditingId] = useState<string | null>(null);
+
+  /**
+   * 列表与「新增/编辑」是同一路由的两种形态（`?editor=new|<id>`）。
+   * 本页原本就用「整页编辑态 + 返回列表」而非弹窗；改成编辑器页签后，
+   * **列表标签不再被编辑态顶掉**（可以一边开着列表对照，一边填单）。
+   * 编辑所需的表头与明细由列表侧算好后经 `seed` 递过来（两个实例互相看不到对方的 state）。
+   */
+  const editorTab = useEditorTab(LIST_PATH);
+  const tabRefresh = useTabRefresh(LIST_PATH);
+  const seed = editorTab.seed as { header: Record<string, any>; details: any[] } | undefined;
+  const isEdit = editorTab.isEditor;
+  const editingId = isEdit && editorTab.editorId !== 'new' ? (editorTab.editorId as string) : null;
 
   // -------- 编辑态数据 --------
   const [headerForm] = Form.useForm();
-  const [pendingHeader, setPendingHeader] = useState<Record<string, any> | null>(null);
+  const pendingHeader = seed?.header ?? null;
 
   // Space.Compact 包裹的 Select 无法被 Form.Item 自动注入 value/onChange，需手工受控
   const watchSupplierType = Form.useWatch('supplierType', headerForm) as string | undefined;
@@ -270,16 +314,22 @@ export default function ReceiptOrders() {
   const watchReceivingUnitId = Form.useWatch('receivingUnitId', headerForm);
   const watchReceivingUnitName = Form.useWatch('receivingUnitName', headerForm);
   const watchMaterialContractId = Form.useWatch('materialContractId', headerForm);
+  // 「是否为资产」= 是 → 明细显示「保管单位及保管人」列（业务 2026-10-17）
+  const watchIsAssetFlag = Form.useWatch('isAssetFlag', headerForm);
+  // 收领单扫描件（附件需求）：归档到「5.物资结算/收领单」
+  const watchScanUrl = Form.useWatch('scanUrl', headerForm);
+  const watchScanFileName = Form.useWatch('scanFileName', headerForm);
+  const [uploadingScan, setUploadingScan] = useState(false);
 
-  const [details, setDetails] = useState<any[]>([]);
+  const [details, setDetails] = useState<any[]>(() => seed?.details ?? []);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // 下拉数据源
-  const [contracts, setContracts] = useState<any[]>([]);          // 物资合同（供应商场景）
-  const [supplySubContracts, setSupplySubContracts] = useState<any[]>([]); // 供应分包合同（分包商场景）
-  const [receiveSubContracts, setReceiveSubContracts] = useState<any[]>([]); // 分包合同（领用分包商场景）
+  const [contracts, setContracts] = useState<any[]>(() => (seed as any)?.supplierContracts ?? []); // 物资合同（= 该供应商在本项目的合同，由选中供应商带出）
+  const [supplySubContracts, setSupplySubContracts] = useState<any[]>(() => (seed as any)?.supplySubContracts ?? []); // 分包合同（供应分包商场景）
+  const [receiveSubContracts, setReceiveSubContracts] = useState<any[]>(() => (seed as any)?.receiveSubContracts ?? []); // 分包合同（领用分包商场景）
 
   // 弹窗
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
@@ -289,11 +339,9 @@ export default function ReceiptOrders() {
   const [matKeyword, setMatKeyword] = useState('');
   const [specKeyword, setSpecKeyword] = useState('');
   // 领料人候选（领用单位为分包商时，取其材料授权人）
-  const [receiverOptions, setReceiverOptions] = useState<string[]>([]);
+  const [receiverOptions, setReceiverOptions] = useState<string[]>(() => (seed as any)?.receiverOptions ?? []);
 
-  useEffect(() => {
-    contractApi.options().then((res: any) => setContracts(res || [])).catch(() => undefined);
-  }, []);
+  // 合同下拉一律由所选供应/领用单位带出（业务 2026-10-17），不再预取全量合同
 
   // ==================== 条件可见性（需求 2.4.3 动态表单） ====================
   // 供应单位 = 供应商 → 显示物资合同；= 分包商 → 显示供应分包合同；本项目/其他项目 → 都隐藏
@@ -338,14 +386,14 @@ export default function ReceiptOrders() {
 
   // ==================== 选择回调（含互锁） ====================
 
-  /** 供应单位选中：记录类型 + 名称；供应商/分包商各自联动合同字段 */
+  /** 供应单位选中：记录类型 + 名称；供应商/分包商各自联动合同下拉（只带该单位自己的合同） */
   const onPickSupplier = async (row: any, tab: string) => {
     setSupplierPickerOpen(false);
     headerForm.setFieldsValue({
       supplierId: row.id,
       supplierName: row.name,
       supplierType: tab,
-      // 切换类型时清空另一侧的合同，避免脏数据互串
+      // 切换类型/单位时清空合同与明细，避免脏数据互串
       materialContractId: undefined,
       materialContractNo: undefined,
       supplySubcontractId: undefined,
@@ -353,11 +401,18 @@ export default function ReceiptOrders() {
       subcontractorId: undefined,
     });
     setSupplySubContracts([]);
-    if (tab !== 'SUPPLIER') {
-      setDetails([]); // 非供应商场景没有物资合同，清空合同带出的明细
-    }
-    if (tab === 'SUBCONTRACTOR') {
-      // 互锁（需求 2.5）：分包商 → 自动带出其分包合同，且分包商库里的材料授权人可作为领料人
+    setContracts([]); // 合同下拉一律由所选单位带出，不再用全量
+    setDetails([]); // 换供应单位 → 明细必须重新带出
+    if (tab === 'SUPPLIER') {
+      // 业务 2026-10-17：物资合同下拉 = 该供应商在本项目的合同，由用户自选
+      try {
+        const list: any = await receiptOrderApi.supplierContracts(row.id);
+        setContracts(list || []);
+      } catch {
+        /* 拦截器已提示 */
+      }
+    } else if (tab === 'SUBCONTRACTOR') {
+      // 互锁（需求 2.5）：分包商 → 带出其分包合同；材料授权人可作为领料人
       headerForm.setFieldsValue({ subcontractorId: row.id });
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
@@ -380,7 +435,7 @@ export default function ReceiptOrders() {
     message.success(`已选择供应单位（${SUPPLIER_TABS.find((t) => t.key === tab)?.label}）：${row.name}`);
   };
 
-  /** 领用单位选中：分包商场景联动分包合同 + 领料人下拉 */
+  /** 领用单位选中：分包商场景带出其领用过的材料 + 分包合同/领料人联动 */
   const onPickReceiving = async (row: any, tab: string) => {
     setUnitPickerOpen(false);
     headerForm.setFieldsValue({
@@ -392,7 +447,9 @@ export default function ReceiptOrders() {
     });
     setReceiveSubContracts([]);
     if (tab === 'SUBCONTRACTOR') {
-      // 互锁（需求 2.5）：领用分包商 → 必填分包合同，材料授权人作为领料人可选
+      // 业务 2026-10-17：带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
+      await loadDetailsFor(() => receiptOrderApi.subcontractorMaterials(row.id), `已带出分包商「${row.name}」领用过的材料`);
+      // 互锁：领用分包商 → 必填分包合同，材料授权人作为领料人可选
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
         setReceiveSubContracts(list || []);
@@ -411,6 +468,7 @@ export default function ReceiptOrders() {
       }
     } else {
       setReceiverOptions([]);
+      setDetails([]); // 本项目/其他项目 → 合同与清单都隐藏/清空
     }
     message.success(`已选择领用单位（${RECEIVING_TABS.find((t) => t.key === tab)?.label}）：${row.name}`);
   };
@@ -418,16 +476,11 @@ export default function ReceiptOrders() {
   // ==================== 新建 / 编辑 ====================
 
   const startCreate = async () => {
-    setDetails([]);
-    setSelectedRowKeys([]);
-    setEditingId(null);
-    setSupplySubContracts([]);
-    setReceiveSubContracts([]);
-    setReceiverOptions([]);
     // 默认：供应单位=供应商、领用单位=分包商（需求 2.4.4 / 2.4.5 默认选中项）
     let init: Record<string, any> = {
       orderDate: dayjs(),
       supplierType: 'SUPPLIER', receivingUnitType: 'SUBCONTRACTOR',
+      isAssetFlag: 'N',
     };
     try {
       const res: any = await receiptOrderApi.nextNo();
@@ -435,17 +488,22 @@ export default function ReceiptOrders() {
     } catch {
       /* 编号获取失败时仍允许手工录入 */
     }
-    setPendingHeader(init);
-    setMode('edit');
+    // 表头/明细/下拉数据源都交给编辑器实例（它与列表是两个独立实例，看不到这里的 state）
+    editorTab.openCreate({ header: init, details: [], supplySubContracts: [], receiveSubContracts: [], receiverOptions: [] });
   };
 
   const startEdit = async (row: any) => {
-    setEditingId(row.id);
-    setSelectedRowKeys([]);
-    setReceiverOptions(row.receiver ? [row.receiver] : []);
+    const receiverOptions = row.receiver ? [row.receiver] : [];
+    let supplySubContracts: any[] = [];
+    let receiveSubContracts: any[] = [];
+    let supplierContracts: any[] = [];
+    let header: Record<string, any> = {};
+    let editDetails: any[] = [];
     try {
       const detail: any = await receiptOrderApi.detail(row.id);
-      setPendingHeader({
+      header = {
+        // 乐观锁：update 必须回传 version（缺失会被后端 409 拒绝）
+        version: detail.version,
         orderNo: detail.orderNo,
         supplierId: detail.supplierId,
         supplierName: detail.supplierName,
@@ -461,52 +519,61 @@ export default function ReceiptOrders() {
         orderDate: detail.orderDate ? dayjs(detail.orderDate) : null,
         receiver: detail.receiver,
         materialContractId: detail.materialContractId,
-        materialContractNo: detail.materialContractNo,
+        materialContractNo: detail.materialContractNo, // 快照落库，不在界面显示
+        isAssetFlag: detail.isAssetFlag || undefined,
+        // 扫描件：后端存相对键，展示统一走 toFileUrl()（只补一次前缀，历史 URL 形态也不会出现双前缀）
+        scanUrl: detail.scanUrl ? toFileUrl(detail.scanUrl) : null,
+        scanFileName: detail.scanFileName || null,
         remark: detail.remark,
-      });
-      // 回填互锁数据源
+      };
+      // 回填互锁数据源（这些数据由**编辑器实例**持有，故随 seed 一起递过去）
+      if (detail.supplierType === 'SUPPLIER' && detail.supplierId) {
+        supplierContracts = await receiptOrderApi
+          .supplierContracts(detail.supplierId)
+          .catch(() => []);
+      }
       if (detail.supplierType === 'SUBCONTRACTOR' && detail.subcontractorId) {
-        receiptOrderApi.subcontractorContracts(detail.subcontractorId)
-          .then((res: any) => setSupplySubContracts(res || []))
-          .catch(() => undefined);
+        supplySubContracts = await receiptOrderApi
+          .subcontractorContracts(detail.subcontractorId)
+          .catch(() => []);
       }
       if (detail.receivingUnitType === 'SUBCONTRACTOR' && detail.receivingUnitId) {
-        receiptOrderApi.subcontractorContracts(detail.receivingUnitId)
-          .then((res: any) => setReceiveSubContracts(res || []))
-          .catch(() => undefined);
+        receiveSubContracts = await receiptOrderApi
+          .subcontractorContracts(detail.receivingUnitId)
+          .catch(() => []);
       }
-      setDetails(
-        (detail.details || []).map((d: any) => ({
-          ...d,
-          key: d.id,
-          contractQty: d.contractQty == null ? null : Number(d.contractQty),
-          deliveryQty: d.deliveryQty == null ? null : Number(d.deliveryQty),
-          receivedQty: d.receivedQty == null ? null : Number(d.receivedQty),
-          priceBeforeTax: d.priceBeforeTax == null ? null : Number(d.priceBeforeTax),
-          taxRate: d.taxRate == null ? null : Number(d.taxRate),
-          priceWithTax: d.priceWithTax == null ? null : Number(d.priceWithTax),
-          totalPrice: d.totalPrice == null ? null : Number(d.totalPrice),
-        })),
-      );
-      setMode('edit');
+      editDetails = (detail.details || []).map((d: any) => ({
+        ...d,
+        key: d.id,
+        contractQty: d.contractQty == null ? null : Number(d.contractQty),
+        deliveryQty: d.deliveryQty == null ? null : Number(d.deliveryQty),
+        receivedQty: d.receivedQty == null ? null : Number(d.receivedQty),
+        priceBeforeTax: d.priceBeforeTax == null ? null : Number(d.priceBeforeTax),
+        taxRate: d.taxRate == null ? null : Number(d.taxRate),
+        priceWithTax: d.priceWithTax == null ? null : Number(d.priceWithTax),
+        totalPrice: d.totalPrice == null ? null : Number(d.totalPrice),
+      }));
     } catch {
       /* 错误已由拦截器提示 */
-    }
-  };
-
-  /** 选择物资合同 → 自动带出合同编号 + 加载合同物资清单（需求 2.4.3 供应商场景） */
-  const onContractChange = async (contractId: string) => {
-    const hit = contracts.find((c) => c.id === contractId);
-    headerForm.setFieldsValue({ materialContractNo: hit?.code || '' });
-    if (!contractId) {
-      setDetails([]);
       return;
     }
+    editorTab.openEdit(row.id, {
+      header,
+      details: editDetails,
+      supplySubContracts,
+      receiveSubContracts,
+      supplierContracts,
+      receiverOptions,
+    });
+  };
+
+  /** 通用：带出明细清单（已有手填数据时先确认覆盖） */
+  const loadDetailsFor = async (fetcher: () => Promise<any>, okMessage: string) => {
     if (details.length) {
       const ok = await new Promise((resolve) => {
         Modal.confirm({
-          title: '重新加载合同物资清单？',
-          content: '将按新合同重新带出物料清单，当前已填写的手动数据会被覆盖。',
+          title: '重新加载明细清单？',
+          content: '将重新带出清单，当前已填写的手动数据会被覆盖。',
           okText: '重新加载',
           cancelText: '取消',
           onOk: () => resolve(true),
@@ -517,14 +584,33 @@ export default function ReceiptOrders() {
     }
     setLoadingDetails(true);
     try {
-      const res: any = await receiptOrderApi.contractMaterials(contractId);
+      const res: any = await fetcher();
       const list: any[] = (res?.list || []).map((r: any) => ({ ...r, key: r.key || nextKey() }));
       setDetails(list);
       setSelectedRowKeys([]);
-      message.success(`已带出 ${list.length} 条合同物资清单`);
+      if (list.length) message.success(`${okMessage}，共 ${list.length} 条`);
     } finally {
       setLoadingDetails(false);
     }
+  };
+
+  /**
+   * 选择合同 → 自动带出编号 + 明细清单。
+   * 供应/领用两侧的合同（物资合同、分包合同）统一走这里：
+   * 供应商合同走 contractMaterials（合同清单）；分包商领用清单已在选中分包商时带出，
+   * 此处分包合同仅落名称快照，不重复加载明细。
+   */
+  const onContractChange = async (contractId: string) => {
+    const hit = contracts.find((c) => c.id === contractId) || supplySubContracts.find((c) => c.id === contractId);
+    headerForm.setFieldsValue({ materialContractNo: hit?.code || '', settlementId: undefined });
+    if (!contractId) {
+      setDetails([]);
+      return;
+    }
+    await loadDetailsFor(
+      () => receiptOrderApi.contractMaterials(contractId),
+      '已带出合同物资清单',
+    );
   };
 
   /** 明细单元格改动：重算综合单价与综合总价（前端实时预览，服务端保存时二次计算） */
@@ -546,6 +632,29 @@ export default function ReceiptOrders() {
     setDetails((prev) => prev.filter((r) => !selectedRowKeys.includes(r.key)));
     setSelectedRowKeys([]);
     message.success('已删除所选明细行');
+  };
+
+  /**
+   * 收领单扫描件上传：**文件选择与拍照上传共用**（docs/09 §4 阶段 C）。
+   * 手机端走 `capture="environment"` 直接调起后置摄像头（`accept="image/*"`），
+   * 无需原生 App；落库统一存 `StorageService` 相对键。
+   */
+  const uploadScan = async (options: any) => {
+    setUploadingScan(true);
+    try {
+      const arr = await fileApi.upload([options.file as File]);
+      // 落库统一存相对存储键（上传接口同时返回 url 与 key）
+      headerForm.setFieldsValue({
+        scanUrl: arr?.[0]?.key || toStorageKey(arr?.[0]?.url),
+        scanFileName: arr?.[0]?.fileName,
+      });
+      message.success(`「${arr?.[0]?.fileName}」上传成功`);
+      options.onSuccess?.(arr?.[0]);
+    } catch (e) {
+      options.onError?.(e);
+    } finally {
+      setUploadingScan(false);
+    }
   };
 
   const submit = async () => {
@@ -570,6 +679,7 @@ export default function ReceiptOrders() {
         priceBeforeTax: d.priceBeforeTax,
         taxRate: d.taxRate,
         usagePart: d.usagePart,
+        custodian: d.custodian,
         brand: d.brand,
         remark: d.remark,
         isAgentPurchase: d.isAgentPurchase,
@@ -580,18 +690,32 @@ export default function ReceiptOrders() {
     setSaving(true);
     try {
       const saved: any = editingId
-        ? await receiptOrderApi.update(editingId, payload)
+        ? await receiptOrderApi.update(editingId, { ...payload, version: seed?.header?.version })
         : await receiptOrderApi.create(payload);
       const targetId = saved?.id || editingId;
       if (targetId) {
-        const pushed = await receiptOrderApi.push(targetId);
-        message.success(`保存成功，已推送 ${pushed?.pushed ?? 0} 条明细到总日报`);
+        /**
+         * 保存本身已成功（后端保存时也会自动推送总日报）；这里再推一次是幂等补推。
+         * 补推失败**不能**让用户以为保存失败：否则会重复点保存 → 乐观锁 409/重复单据。
+         * 失败时改为提示保存成功即可，明细已由服务端保存流程推送。
+         */
+        let pushedCount: number | null = null;
+        try {
+          const pushed = await receiptOrderApi.push(targetId);
+          pushedCount = pushed?.pushed ?? 0;
+        } catch {
+          /* 补推失败不影响保存结果（后端保存时已尝试推送，可稍后「重新推送」） */
+        }
+        message.success(
+          pushedCount == null
+            ? '保存成功（明细将在总日报中自动生成，如缺失可点「重新推送」）'
+            : `保存成功，已推送 ${pushedCount} 条明细到总日报`,
+        );
       } else {
         message.success('保存成功');
       }
-      setMode('list');
-      setEditingId(null);
-      reload();
+      // 保存成功 → 关掉编辑器标签并让列表标签重新取数（closeEditor 内部会 bump）
+      editorTab.closeEditor();
     } finally {
       setSaving(false);
     }
@@ -614,25 +738,107 @@ export default function ReceiptOrders() {
     [details],
   );
 
-  // 编辑视图挂载后（<Form> 已连接）再写入暂存的表头初值
+  // 编辑视图挂载后（<Form> 已连接）再写入 seed 带来的表头初值
   useEffect(() => {
-    if (mode === 'edit' && pendingHeader) {
+    if (isEdit && pendingHeader) {
       headerForm.resetFields();
       headerForm.setFieldsValue(pendingHeader);
-      setPendingHeader(null);
     }
-  }, [mode, pendingHeader, headerForm]);
+    // seed 由「打开编辑器」时一次性给定，故只在首次挂载时回填
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, headerForm]);
+
+  // 编辑器标签保存后 bump 令牌 → 本（被缓存的）列表标签重新取数
+  useEffect(() => {
+    if (tabRefresh) reload();
+  }, [tabRefresh, reload]);
 
   // ==================== 列表视图 ====================
 
-  if (mode === 'list') {
+  /**
+   * 列表列（表格与手机卡片**共用同一份定义**：卡片按列取值，不会出现"表格改了、卡片没跟上"）。
+   * 每列都带 `key`，移动端列模板才能按标识裁剪（`dataIndex` 亦可，但 `key` 更稳）。
+   */
+  const listColumns: any[] = [
+    { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
+    { title: '收领单编号', dataIndex: 'orderNo', key: 'orderNo', width: 180, fixed: 'left' },
+    { title: '日期', dataIndex: 'orderDate', key: 'orderDate', width: 120, render: (v: any) => (v ? String(v).slice(0, 10) : '-') },
+    {
+      title: '供应单位', dataIndex: 'supplierName', key: 'supplierName', width: 210, ellipsis: true,
+      render: (v: any, row: any) => (
+        <Space size={4}>
+          <span>{v || '-'}</span>
+          {row.supplierType && (
+            <Tag color="blue">{SUPPLIER_TABS.find((t) => t.key === row.supplierType)?.label || row.supplierType}</Tag>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: '领用单位', dataIndex: 'receivingUnitName', key: 'receivingUnitName', width: 210, ellipsis: true,
+      render: (v: any, row: any) => (
+        <Space size={4}>
+          <span>{v || '-'}</span>
+          {row.receivingUnitType && (
+            <Tag color="purple">{RECEIVING_TABS.find((t) => t.key === row.receivingUnitType)?.label || row.receivingUnitType}</Tag>
+          )}
+        </Space>
+      ),
+    },
+    // 物资合同编号快照已不在列表展示（业务 2026-10-17）
+    {
+      title: '结算单', dataIndex: 'settlementId', key: 'settlementId', width: 150,
+      // 未挂结算单的收领单：仍会被「生成本期结算」抓到（按物资合同 + 期间归集），故显示为「未关联」
+      render: (_v: any, row: any) =>
+        row.settlement
+          ? `${row.settlement.settleDate ? String(row.settlement.settleDate).slice(0, 7) : ''}${row.settlement.code ? ` ${row.settlement.code}` : ''}`.trim()
+          : '未关联',
+    },
+    { title: '供应分包合同', dataIndex: 'supplySubcontractName', key: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
+    { title: '分包合同', dataIndex: 'subcontractName', key: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
+    { title: '领料人', dataIndex: 'receiver', key: 'receiver', width: 110, render: (v: any) => v || '-' },
+    {
+      title: '附件', dataIndex: 'scanUrl', key: 'scanUrl', width: 110,
+      render: (v: any, row: any) =>
+        v ? (
+          <a href={toFileUrl(v)} target="_blank" rel="noreferrer">
+            <PaperClipOutlined /> {row.scanFileName || '附件'}
+          </a>
+        ) : (
+          '-'
+        ),
+    },
+    {
+      title: '状态', dataIndex: 'status', key: 'status', width: 100,
+      render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
+    },
+    {
+      title: '操作', key: 'op', width: 160, fixed: 'right',
+      render: (_: any, row: any) =>
+        canEdit ? (
+          <Space size={2}>
+            <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
+            <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
+              <Button type="link" size="small" danger>删除</Button>
+            </Popconfirm>
+          </Space>
+        ) : null,
+    },
+  ];
+  const mobileHidden = mobileHiddenColumns(listColumns.map(columnKeyOf).filter(Boolean), MOBILE_DEFAULT_KEYS);
+  const visibleListColumns = containerSize.isNarrow ? filterVisibleColumns(listColumns, mobileHidden) : listColumns;
+
+  if (!isEdit) {
     return (
+      <div ref={cqRef} className="cq">
       <Card
         title="收领单"
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增收领单</Button>
+            <Can code="receipt:edit">
+              <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>新增收领单</Button>
+            </Can>
           </Space>
         }
       >
@@ -687,82 +893,39 @@ export default function ReceiptOrders() {
           </Form.Item>
         </Form>
 
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={list}
-          pagination={pagination}
-          scroll={{ x: 1500 }}
-          locale={{ emptyText: '暂无数据...' }}
-          columns={[
-            { title: '序号', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
-            { title: '收领单编号', dataIndex: 'orderNo', width: 180, fixed: 'left' },
-            { title: '日期', dataIndex: 'orderDate', width: 120, render: (v: any) => (v ? String(v).slice(0, 10) : '-') },
-            {
-              title: '供应单位', dataIndex: 'supplierName', width: 210, ellipsis: true,
-              render: (v: any, row: any) => (
-                <Space size={4}>
-                  <span>{v || '-'}</span>
-                  {row.supplierType && (
-                    <Tag color="blue">{SUPPLIER_TABS.find((t) => t.key === row.supplierType)?.label || row.supplierType}</Tag>
-                  )}
-                </Space>
-              ),
-            },
-            {
-              title: '领用单位', dataIndex: 'receivingUnitName', width: 210, ellipsis: true,
-              render: (v: any, row: any) => (
-                <Space size={4}>
-                  <span>{v || '-'}</span>
-                  {row.receivingUnitType && (
-                    <Tag color="purple">{RECEIVING_TABS.find((t) => t.key === row.receivingUnitType)?.label || row.receivingUnitType}</Tag>
-                  )}
-                </Space>
-              ),
-            },
-            { title: '物资合同编号', dataIndex: 'materialContractNo', width: 190, render: (v: any) => v || '-' },
-            { title: '供应分包合同', dataIndex: 'supplySubcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
-            { title: '分包合同', dataIndex: 'subcontractName', width: 180, ellipsis: true, render: (v: any) => v || '-' },
-            { title: '领料人', dataIndex: 'receiver', width: 110, render: (v: any) => v || '-' },
-            {
-              title: '状态', dataIndex: 'status', width: 100,
-              render: (v: any) => <Tag color={v === 'SAVED' ? 'green' : 'default'}>{v === 'SAVED' ? '已保存' : '草稿'}</Tag>,
-            },
-            {
-              title: '操作', width: 160, fixed: 'right',
-              render: (_: any, row: any) => (
-                <Space size={2}>
-                  <Button type="link" size="small" onClick={() => startEdit(row)}>编辑</Button>
-                  <Popconfirm title="删除后不可恢复，确认删除该收领单？" onConfirm={async () => { await receiptOrderApi.remove(row.id); message.success('已删除'); reload(); }}>
-                    <Button type="link" size="small" danger>删除</Button>
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-          ]}
-        />
+        {containerSize.isNarrow ? (
+          <MobileCardList
+            rows={list}
+            columns={visibleListColumns}
+            loading={loading}
+            pagination={pagination}
+            emptyText="暂无数据..."
+          />
+        ) : (
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={list}
+            pagination={pagination}
+            scroll={{ x: 1500 }}
+            locale={{ emptyText: '暂无数据...' }}
+            columns={visibleListColumns}
+          />
+        )}
       </Card>
+      </div>
     );
   }
 
   // ==================== 编辑视图 ====================
 
   return (
-    <Card
-      title={
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => setMode('list')}>返回列表</Button>
-          <span>{editingId ? '编辑收领单' : '新增收领单'}</span>
-        </Space>
-      }
-      extra={
-        <Space>
-          <Button icon={<SaveOutlined />} type="primary" loading={saving} onClick={submit}>
-            保存并推送总日报
-          </Button>
-          <Button onClick={() => { setMode('list'); setEditingId(null); }}>取消</Button>
-        </Space>
-      }
+    <EditorTabPage
+      listPath={LIST_PATH}
+      title={editingId ? '编辑收领单' : '新增收领单'}
+      saving={saving}
+      onSave={submit}
+      saveText="保存并推送总日报"
     >
       {/* ==================== 基本信息（动态表单 + 互锁） ==================== */}
       <Card size="small" title="基本信息" style={{ marginBottom: 12 }}>
@@ -778,6 +941,8 @@ export default function ReceiptOrders() {
           <Form.Item name="supplySubcontractName" hidden><Input /></Form.Item>
           <Form.Item name="subcontractName" hidden><Input /></Form.Item>
           <Form.Item name="subcontractorId" hidden><Input /></Form.Item>
+          <Form.Item name="scanUrl" hidden><Input /></Form.Item>
+          <Form.Item name="scanFileName" hidden><Input /></Form.Item>
           <Row gutter={16}>
             {/* ---- 供应单位 ---- */}
             <Col xs={24} md={12}>
@@ -811,7 +976,7 @@ export default function ReceiptOrders() {
                     showSearch
                     allowClear
                     optionFilterProp="label"
-                    placeholder="请选择物资合同（选择后自动带出编号与物料清单）"
+                    placeholder="请选择物资合同（该供应商在本项目的合同；选择后带出物料清单）"
                     options={contracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
                     onChange={onContractChange}
                   />
@@ -819,18 +984,21 @@ export default function ReceiptOrders() {
               </Col>
             )}
 
+            {/* 关联结算单不在收领单维护（业务 2026-10-17）：由「生成本期结算」在结算单页面抓取关联；
+                服务端仍按「物资合同 + 日期所在月」自动匹配落库 */}
+
             {showSupplySubcontract && (
               <Col xs={24} md={12}>
                 <Form.Item
                   name="supplySubcontractId"
-                  label="供应分包合同"
-                  rules={[{ required: true, message: '供应单位为分包商时，请选择供应分包合同' }]}
+                  label="分包合同"
+                  rules={[{ required: true, message: '供应单位为分包商时，请选择分包合同' }]}
                 >
                   <Select
                     showSearch
                     allowClear
                     optionFilterProp="label"
-                    placeholder={supplySubContracts.length ? '请选择分包合同（由分包商自动带出）' : '请先选择分包商'}
+                    placeholder={supplySubContracts.length ? '请选择分包合同（该分包商在本项目的合同）' : '请先选择分包商'}
                     options={supplySubContracts.map((c: any) => ({ value: c.id, label: `${c.code || ''} ${c.name || ''}`.trim() }))}
                     onChange={(v) => {
                       const hit = supplySubContracts.find((c: any) => c.id === v);
@@ -890,13 +1058,13 @@ export default function ReceiptOrders() {
               </Form.Item>
             </Col>
 
-            {showMaterialContract && (
-              <Col xs={24} md={12}>
-                <Form.Item name="materialContractNo" label="物资合同编号" rules={[{ required: true, message: '请先选择物资合同' }]}>
-                  <Input readOnly placeholder="选择物资合同后自动带出" />
-                </Form.Item>
-              </Col>
-            )}
+            {/* 表头「是否为资产」（业务 2026-10-17）：N=整单不入资产台账；
+                Y=推送总日报+资产台账，且明细显示「保管单位及保管人」列 */}
+            <Col xs={24} md={12}>
+              <Form.Item name="isAssetFlag" label="是否为资产" rules={[{ required: true, message: '请选择是否为资产' }]}>
+                <Select allowClear placeholder="请选择是否为资产" options={YES_NO} />
+              </Form.Item>
+            </Col>
 
             <Col xs={24} md={12}>
               <Form.Item name="orderDate" label="日期" rules={[{ required: true, message: '请选择日期' }]}>
@@ -928,23 +1096,54 @@ export default function ReceiptOrders() {
                 <Input maxLength={200} allowClear placeholder="选填" />
               </Form.Item>
             </Col>
-
-            <Col xs={24}>
-              <Alert
-                type="info"
-                showIcon
-                message="字段显示规则（互锁）"
-                description={
-                  <span>
-                    供应单位：<b>供应商</b> → 显示物资合同；<b>分包商</b> → 显示供应分包合同；
-                    <b>本项目 / 其他项目</b> → 合同字段全部隐藏。
-                    领用单位：<b>分包商</b> → 显示分包合同且领料人可选；<b>本项目 / 其他项目</b> → 隐藏分包合同。
-                  </span>
-                }
-              />
-            </Col>
           </Row>
         </Form>
+      </Card>
+
+      {/* ==================== 附件（收领单扫描件；归档到「5.物资结算/收领单」） ==================== */}
+      <Card size="small" title="附件（收领单扫描件）" style={{ marginBottom: 12 }}>
+        <Space wrap>
+          <Upload
+            name="files"
+            multiple={false}
+            showUploadList={false}
+            accept=".jpg,.jpeg,.png,.pdf"
+            customRequest={uploadScan}
+          >
+            <Button icon={<UploadOutlined />} loading={uploadingScan}>
+              {watchScanUrl ? '重新上传' : '上传扫描件'}
+            </Button>
+          </Upload>
+          {/* 现场拍照：`capture="environment"` 直接调起后置摄像头（手机无需安装 App）；桌面浏览器退化为普通选图 */}
+          <Upload
+            name="files"
+            multiple={false}
+            showUploadList={false}
+            accept="image/*"
+            capture="environment"
+            customRequest={uploadScan}
+          >
+            <Button icon={<CameraOutlined />} loading={uploadingScan}>
+              拍照上传
+            </Button>
+          </Upload>
+          {watchScanUrl ? (
+            <Space size={4}>
+              <PaperClipOutlined />
+              <a href={watchScanUrl} target="_blank" rel="noreferrer">{watchScanFileName || '附件'}</a>
+              <Popconfirm
+                title="确认删除该附件？"
+                okText="删除"
+                okType="danger"
+                onConfirm={() => headerForm.setFieldsValue({ scanUrl: null, scanFileName: null })}
+              >
+                <Button type="link" size="small" danger>删除</Button>
+              </Popconfirm>
+            </Space>
+          ) : (
+            <span style={{ color: 'var(--cms-muted-soft)' }}>未上传（jpg/png/pdf；手机可直接拍照；项目资料归档时归入「5.物资结算/收领单」）</span>
+          )}
+        </Space>
       </Card>
 
       {/* ==================== 物资明细 ==================== */}
@@ -981,7 +1180,7 @@ export default function ReceiptOrders() {
           scroll={{ x: 2700 }}
           locale={{ emptyText: '暂无数据...' }}
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-          columns={DETAIL_COLUMNS(patchDetail)}
+          columns={DETAIL_COLUMNS(patchDetail, watchIsAssetFlag === 'Y')}
         />
 
         {details.length > 0 && visibleDetails.length === 0 && (
@@ -1018,6 +1217,6 @@ export default function ReceiptOrders() {
         onPick={onPickReceiving}
         columnsFor={receivingColumns}
       />
-    </Card>
+    </EditorTabPage>
   );
 }

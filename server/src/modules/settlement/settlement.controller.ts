@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('settlements')
@@ -46,10 +47,29 @@ export class SettlementController {
   /** 上传导入数据（需求 3.4） */
   @RequirePermissions('settlement:edit')
   @Post('ledger/import')
-  @UseInterceptors(FileInterceptor('file'))
-  importLedger(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importLedger(
+    @UploadedFile() file: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Query('mode') mode?: string,
+  ) {
     if (!file) return { created: 0, errors: ['未上传文件'] };
-    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user });
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, mode });
+  }
+
+  /** 上传前预校验（不写库） */
+  @RequirePermissions('settlement:edit')
+  @Post('ledger/import/validate')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  importLedgerValidate(
+    @UploadedFile() file: any,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Query('mode') mode?: string,
+  ) {
+    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true, mode });
   }
 
   /** 一键自动生成/刷新结算台账：从结算单、收票登记、资金费用台账自动抓取 */
@@ -57,6 +77,34 @@ export class SettlementController {
   @Post('ledger/refresh')
   refreshLedger(@ProjectId() projectId: string) {
     return this.service.refreshLedger(projectId);
+  }
+
+  /**
+   * 预览「上一期」的待生成情况（结算单页顶部提示）：
+   * 该期未挂结算单的收领单张数、还差几个合同 —— 有值就提示"去生成"。
+   */
+  @RequirePermissions('settlement:view')
+  @Get('generate/preview')
+  previewGenerate(@ProjectId() projectId: string, @Query('refDate') refDate?: string) {
+    return this.service.previewPreviousPeriod(projectId, refDate);
+  }
+
+  /**
+   * **生成本期（默认上一期）结算单**：抓取期间内未挂结算单的收领单，按物资合同各生成一张草稿结算单。
+   * 幂等：已有结算单的合同会被跳过（`skipped` 计数）。
+   */
+  @RequirePermissions('settlement:edit')
+  @Post('generate')
+  generate(
+    @ProjectId() projectId: string,
+    @CurrentUser() user: any,
+    @Body() body: { refDate?: string; contractId?: string } = {},
+  ) {
+    return this.service.generateForPeriod(projectId, {
+      refDate: body?.refDate,
+      contractId: body?.contractId,
+      user,
+    });
   }
 
   @RequirePermissions('settlement:view')
@@ -76,8 +124,8 @@ export class SettlementController {
 
   @RequirePermissions('settlement:view')
   @Get('ledger/:id')
-  ledgerOne(@Param('id') id: string) {
-    return this.service.ledgerOne(id);
+  ledgerOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.ledgerOne(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')
@@ -88,20 +136,20 @@ export class SettlementController {
 
   @RequirePermissions('settlement:edit')
   @Put('ledger/:id')
-  updateLedger(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateLedger(id, body);
+  updateLedger(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateLedger(id, body, projectId);
   }
 
   @RequirePermissions('settlement:edit')
   @Delete('ledger/:id')
-  removeLedger(@Param('id') id: string) {
-    return this.service.removeLedger(id);
+  removeLedger(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeLedger(id, projectId);
   }
 
   @RequirePermissions('settlement:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')
@@ -112,13 +160,20 @@ export class SettlementController {
 
   @RequirePermissions('settlement:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
+  }
+
+  /** 任务 7：结算驳回 → 回填（纯状态回退） */
+  @RequirePermissions('settlement:edit')
+  @Post(':id/reject')
+  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: any = {}) {
+    return this.service.reject(id, projectId, body?.version);
   }
 
   @RequirePermissions('settlement:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }

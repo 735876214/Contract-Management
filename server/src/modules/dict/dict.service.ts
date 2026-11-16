@@ -5,13 +5,45 @@ import { ImportRunnerService, RowError, TxClient } from '../../common/services/i
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { pickFields } from '../../common/pick-fields';
+
+/**
+ * 字典类型允许前端写回的字段。
+ *
+ * 背景（第 11/12 轮审计）：`createType(data)` / `updateType(id, data)` 原来把
+ * `@Body() body: any` 原样交给 prisma，于是 POST 一个 `{ code, name, isSystem: true }`
+ * （或 `{ id: '...' }`、`{ createdAt }`）就能把内置字典标成系统字典——系统字典在
+ * 前端禁止删除/停用，等于把自己锁住；也能改写 id 破坏引用。这里按白名单取字段，
+ * `isSystem` 只由 seed/迁移设置，永不走接口。
+ */
+const DICT_TYPE_FIELDS = ['code', 'name', 'remark', 'sort', 'status', 'scope'] as const;
+const DICT_ITEM_FIELDS = [
+  'typeCode',
+  'itemCode',
+  'itemName',
+  'sortOrder',
+  'status',
+  'color',
+  'remark',
+  'extField1',
+] as const;
 
 /**
  * 字典服务：
  * - 全系统下拉/枚举唯一数据源
  * - 内存缓存，字典变更自动刷新
  * - 提供字典项引用校验（被业务数据引用不可删除）
+ *
+ * ⚠️ **项目隔离例外（有意为之，勿"顺手"补 `projectId` 过滤）**：
+ * 字典是**全局**配置（`dict_type` / `dict_item` 无 `projectId` 字段），所有项目共用同一套
+ * 下拉选项、标签与颜色；业务表存的是字典项**编码字符串**，不是项目内自增主键。
+ * 若在此按项目过滤，会导致不同项目看到不同字典、历史数据编码无法解析。
+ * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §3。
+ * 另两处同类例外：`finance`（按 `contractId` 归属）、`supplier`（受 `supplier.share.scope` 控制）。
  */
+/** 导入时被识别为「停用」的状态文本（第 22 轮审计 P2-11） */
+const DICT_DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
+
 @Injectable()
 export class DictService {
   private readonly logger = new Logger(DictService.name);
@@ -110,19 +142,33 @@ export class DictService {
     if (!data.code) throw new BadRequestException('字典类型编码不能为空');
     const exist = await this.prisma.dictType.findUnique({ where: { code: data.code } });
     if (exist) throw new BadRequestException('字典类型编码已存在');
-    return this.prisma.dictType.create({ data });
+    return this.prisma.dictType.create({ data: pickFields(data, DICT_TYPE_FIELDS, { label: '字典类型' }) });
   }
 
   async updateType(id: string, data: any) {
     const type = await this.prisma.dictType.findUnique({ where: { id } });
     if (!type) throw new NotFoundException('字典类型不存在');
-    if (data.code && data.code !== type.code) {
-      const exist = await this.prisma.dictType.findUnique({ where: { code: data.code } });
+    const patch = pickFields(data, DICT_TYPE_FIELDS, { label: '字典类型' });
+    const renaming = !!patch.code && patch.code !== type.code;
+    if (renaming) {
+      const exist = await this.prisma.dictType.findUnique({ where: { code: patch.code } });
       if (exist) throw new BadRequestException('字典类型编码已存在');
-      await this.prisma.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: data.code } });
-      await this.refreshCache(type.code);
     }
-    return this.prisma.dictType.update({ where: { id }, data });
+    // 改名要同时迁移字典项的 typeCode：两步分开提交时，若第二步失败会留下
+    // 「类型还是旧编码、字典项已挂到新编码」的孤儿数据（前台所有下拉变空）。
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (renaming) {
+        await tx.dictItem.updateMany({ where: { typeCode: type.code }, data: { typeCode: patch.code } });
+      }
+      return tx.dictType.update({ where: { id }, data: patch });
+    });
+    if (renaming) {
+      // 新旧编码都要失效：`options()` 会把**空结果**也缓存 24h，
+      // 只清旧编码时，若新编码此前被查过（缓存为空数组），改名后下拉会持续为空。
+      await this.refreshCache(type.code);
+      await this.refreshCache(patch.code);
+    }
+    return updated;
   }
 
   async removeType(id: string) {
@@ -130,8 +176,11 @@ export class DictService {
     if (!type) throw new NotFoundException('字典类型不存在');
     const usage = await this.checkTypeUsage(type.code);
     if (usage.used) throw new BadRequestException(`该字典类型已被业务数据引用（${usage.count} 处），不可删除`);
-    await this.prisma.dictItem.deleteMany({ where: { typeCode: type.code } });
-    await this.prisma.dictType.delete({ where: { id } });
+    // 明细与类型同事务：只删成功一半会留下没有类型头的孤儿字典项
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dictItem.deleteMany({ where: { typeCode: type.code } });
+      await tx.dictType.delete({ where: { id } });
+    });
     await this.refreshCache(type.code);
     return true;
   }
@@ -157,7 +206,10 @@ export class DictService {
       where: { typeCode_itemCode: { typeCode: data.typeCode, itemCode: data.itemCode } },
     });
     if (exist) throw new BadRequestException('同一字典类型下字典项编码已存在');
-    const item = await this.prisma.dictItem.create({ data });
+    // 白名单取字段：不然 create 时塞 id/createdAt/extField 之外的东西也能写库
+    const item = await this.prisma.dictItem.create({
+      data: pickFields(data, DICT_ITEM_FIELDS, { label: '字典项' }),
+    });
     await this.refreshCache(data.typeCode);
     return item;
   }
@@ -165,7 +217,26 @@ export class DictService {
   async updateItem(id: string, data: any) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
-    const updated = await this.prisma.dictItem.update({ where: { id }, data });
+    /**
+     * ⚠️ 编辑接口同样可能把 status 从启用改成停用（前端编辑弹窗带状态下拉），
+     * 若不复用 toggleItem 的引用检查，就能绕过「已被引用的选项不许停用」这条守卫：
+     * 历史行标签变空、validate() 只认启用项，这些行之后保存会被 400 拒绝。
+     */
+    if (item.status === 1 && data?.status !== undefined && Number(data.status) === 0) {
+      const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
+      if (usage.count > 0) {
+        throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），停用后历史数据将无法编辑；请先确认或改用新选项后再停用`);
+      }
+    }
+    /**
+     * 编码/类型是引用锚点，不允许经编辑改（第 9 轮审计）：把 `itemCode` 从 A 改成 B，
+     * 库里存量数据仍写着 A → 引用检查从此永远查不到、历史行标签变空。
+     * 需要换编码请新建一项、把老项停用（有引用的老项本就删不掉）。
+     */
+    const { itemCode: _code, typeCode: _type, id: _id, ...rest } = data || {};
+    // 白名单（与 createItem 同口径）：前端多带一个未识别字段不应变成 500
+    const patch = pickFields(rest, DICT_ITEM_FIELDS, { label: '字典项' });
+    const updated = await this.prisma.dictItem.update({ where: { id }, data: patch });
     await this.refreshCache(item.typeCode);
     return updated;
   }
@@ -173,6 +244,15 @@ export class DictService {
   async toggleItem(id: string) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
+    // 停用（而非启用）时同样做引用检查：停用后 options()/nameMap 都不再返回该项，
+    // 历史行的标签会变空白，且 validate() 只认启用项 → 携带该 code 的行后续保存会被 400 拒绝。
+    // （删除已有同款守卫；停用是同一种破坏，只是可逆。）
+    if (item.status === 1) {
+      const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
+      if (usage.count > 0) {
+        throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），停用后历史数据将无法编辑；请先确认或改用新选项后再停用`);
+      }
+    }
     const updated = await this.prisma.dictItem.update({ where: { id }, data: { status: item.status === 1 ? 0 : 1 } });
     await this.refreshCache(item.typeCode);
     return updated;
@@ -181,7 +261,16 @@ export class DictService {
   async removeItem(id: string) {
     const item = await this.prisma.dictItem.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('字典项不存在');
-    const usage = await this.checkItemUsage(item.typeCode, item.itemCode);
+    /**
+     * 第 9 轮审计：这里原来只传 itemCode，而物资基础库的 categoryLevel1/2 存的是字典**名称**，
+     * 名称口径的引用永远查不到 → 被引用的选项能被真删除。必须和 toggleItem/updateItem 一样传 itemName。
+     */
+    if (!this.usageMap[item.typeCode]) {
+      throw new BadRequestException(
+        `字典类型「${item.typeCode}」的引用检查尚未登记（见 dict.service.usageMap），为防止删掉历史数据正在用的选项，不允许删除；请改用「停用」`,
+      );
+    }
+    const usage = await this.checkItemUsage(item.typeCode, item.itemCode, item.itemName);
     if (usage.count > 0) {
       throw new BadRequestException(`该选项已被使用（${usage.count} 处，${usage.tables.join('、')}），不可删除，仅可停用`);
     }
@@ -204,8 +293,16 @@ export class DictService {
     supplement_agreement_type: [{ model: 'contract', label: '合同', fields: ['supplementTypeCode'] }],
     asset_status: [{ model: 'dailyReport', label: '日报', fields: ['assetStatus'] }],
     material_source: [{ model: 'dailyReport', label: '日报', fields: ['sourceCode'] }],
-    material_category: [{ model: 'dailyReport', label: '日报', fields: ['materialCategory'] }],
-    material_type: [{ model: 'dailyReport', label: '日报', fields: ['materialType'] }],
+    material_category: [
+      { model: 'dailyReport', label: '日报', fields: ['materialCategory'] },
+      // 物资基础库的 categoryLevel1/2 存的是字典**名称**（与 dailyReport 的 code 口径不同），
+      // checkItemUsage 会同时按 itemCode 与 itemName 匹配，故名称口径也能命中。
+      { model: 'materialBase', label: '物资基础库', fields: ['categoryLevel1', 'categoryLevel2'] },
+    ],
+    material_type: [
+      { model: 'dailyReport', label: '日报', fields: ['materialType'] },
+      { model: 'materialBase', label: '物资基础库', fields: ['categoryLevel1', 'categoryLevel2'] },
+    ],
     measurement_unit: [
       { model: 'dailyReport', label: '日报', fields: ['unit'] },
       { model: 'materialBase', label: '物资基础库', fields: ['unit'] },
@@ -232,6 +329,13 @@ export class DictService {
       { model: 'settlementLedger', label: '结算台账', fields: ['isOnAccount'] },
     ],
     contract_template_category: [{ model: 'contractTemplate', label: '合同模板', fields: ['categoryCode'] }],
+    // 第 9 轮审计补登记：这些类型在 schema 里都是字典驱动的列，原来漏登记 → 删除检查恒为 0
+    contract_status: [{ model: 'contract', label: '合同', fields: ['status'] }],
+    contract_sub_type: [{ model: 'contract', label: '合同', fields: ['subTypeCode'] }],
+    final_settlement_status: [{ model: 'finalSettlement', label: '总结算单', fields: ['statusCode'] }],
+    project_member_role: [{ model: 'projectMember', label: '项目成员', fields: ['roleCode'] }],
+    bidder_status: [{ model: 'procurementBidder', label: '投标单位', fields: ['status'] }],
+    doc_template_category: [{ model: 'contractTemplate', label: '单据模板', fields: ['categoryCode'] }],
   };
 
   /** 检查字典项是否被业务数据引用（同时按编码与名称匹配，兼容历史名称口径数据） */
@@ -297,13 +401,16 @@ export class DictService {
   }
 
   /** 字典项导入（需求 2.1）：两阶段校验 + 事务写入，全成功或全失败 */
-  async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any }) {
-    const rows = await this.excel.parse(buffer);
+  async importItems(typeCode: string, buffer: Buffer, meta?: { fileName?: string; user?: any; validateOnly?: boolean }) {
+    // 表头行探测：导出文件（logo 表头）表头在第 3 行、数据从第 4 行起，填写模板在第 1 行。
+    // 固定按第 1 行解析时，「导出 → 原样导回」会把 logo 行当表头，静默解析出 0 行且不报错。
+    const headerRowNo = await this.excel.detectHeaderRow(buffer, ['字典项编码', '字典项名称']);
+    const rows = await this.excel.parse(buffer, [], headerRowNo);
     const type = await this.prisma.dictType.findUnique({ where: { code: typeCode } });
     if (!type) throw new NotFoundException(`字典类型 ${typeCode} 不存在`);
     const notDup = this.runner.batchDup();
     const outcome = await this.tasks.submit<any>({ module: 'dict', moduleName: '数据字典', fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
-      startRowNo: 2,
+      startRowNo: headerRowNo + 1,
       plan: async (r) => {
         const itemCode = String(r['字典项编码'] ?? '').trim();
         const itemName = String(r['字典项名称'] ?? '').trim();
@@ -314,7 +421,8 @@ export class DictService {
           payload: {
             itemName,
             sortOrder: Number(r['排序号']) || 0,
-            status: String(r['状态'] ?? '启用') === '停用' ? 0 : 1,
+            // 状态口径（第 22 轮审计 P2-11）：原来只认 '停用'，'停用 '（尾随空格）/『0』/『禁用』都被当成启用
+            status: DICT_DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
             color: r['颜色'] || null,
             extField1: r['扩展字段1'] || null,
             remark: r['备注'] || null,
@@ -336,8 +444,15 @@ export class DictService {
         }
         return { created, updated };
       },
-    });
-    await this.refreshCache(typeCode);
+      // 缓存必须在数据真正提交之后刷新：超过 1000 行走异步任务，
+      // 刷新若跟在 submit() 后面同步执行，业务页面会读到导入前的旧数据并重新填满缓存（最长 24h 看不到新项）。
+      afterCommit: async () => {
+        await this.refreshCache(typeCode);
+      },
+    }, meta?.validateOnly ?? false);
+    // 同步路径（含 0 写入、仅校验）在 run 内已提交或本就未写库，这里再刷一次保证口径一致；
+    // 异步路径的 taskId 响应不代表写库完成，刷新交给上面的 afterCommit。
+    if (!(outcome as any).async) await this.refreshCache(typeCode);
     return outcome;
   }
 }

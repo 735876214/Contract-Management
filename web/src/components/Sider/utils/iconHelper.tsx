@@ -18,6 +18,7 @@ import {
   MoneyCollectOutlined,
   BookOutlined,
   PayCircleOutlined,
+  FileDoneOutlined,
   ProjectOutlined,
   TeamOutlined,
   SnippetsOutlined,
@@ -31,16 +32,21 @@ import {
   ContainerOutlined,
   SolutionOutlined,
   SearchOutlined,
+  CalculatorOutlined,
   // 采购管理模块（批次一 · 任务 1.1 / 1.2）
   ShoppingCartOutlined,
   ShoppingOutlined,
   RocketOutlined,
-  FileDoneOutlined,
   NotificationOutlined,
   FolderOpenOutlined,
   TrophyOutlined,
   FileSyncOutlined,
   EyeOutlined,
+  FundProjectionScreenOutlined,
+  PieChartOutlined,
+  EditOutlined,
+  // AI 助手（2026-10-19）
+  RobotOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -65,6 +71,7 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   MoneyCollectOutlined,
   BookOutlined,
   PayCircleOutlined,
+  FileDoneOutlined,
   ProjectOutlined,
   TeamOutlined,
   SnippetsOutlined,
@@ -81,12 +88,16 @@ const ICON_MAP: Record<string, React.ComponentType> = {
   ShoppingCartOutlined,
   ShoppingOutlined,
   RocketOutlined,
-  FileDoneOutlined,
   NotificationOutlined,
   FolderOpenOutlined,
   TrophyOutlined,
   FileSyncOutlined,
   EyeOutlined,
+  FundProjectionScreenOutlined,
+  PieChartOutlined,
+  CalculatorOutlined,
+  EditOutlined,
+  RobotOutlined,
 };
 
 /** 图标兜底组件（需求 11：图标名不存在时使用 FileOutlined） */
