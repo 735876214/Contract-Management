@@ -1,5 +1,7 @@
+import { round4 } from '../../common/calc/money.ts';
+
 /**
- * 合同物资明细的落库映射（**零依赖纯函数**）。
+ * 合同物资明细的落库映射（**纯函数**，舍入走共享原语）。
  *
  * 为什么单独一层：模型抽出来的明细是「10 行 × 7 个字段」的自由文本，
  * 直接写库会把 `￥12.5`、`13%`、空单元格一起写进去；这里统一做数值化、去重、
@@ -57,8 +59,6 @@ const pick = (o: Record<string, unknown>, keys: string[]): unknown => {
   }
   return null;
 };
-const round4 = (n: number): number => Math.round((n + Number.EPSILON) * 10000) / 10000;
-
 /** `¥1,234.50` / `1234.5元` / `13%` → 数字（取不到返回 null） */
 export function numOf(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;

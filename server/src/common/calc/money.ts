@@ -1,12 +1,11 @@
 /**
- * 金额转中文大写（财务规范）
- * - 四舍五入到分
- * - 整数：X元整
- * - 有角无分：X元X角整
- * - 无角有分：X元零X分
- * - 有角有分：X元X角X分
- * - 零金额：零元整
+ * 金额舍入与中文大写 —— 全站唯一实现（前后端共用，零依赖）。
+ *
+ * 原位置 `server/src/common/utils/money.ts` 现在只做兼容再导出；前端 `web/src/utils/money.ts`
+ * 也直接引用本文件。改动本文件必须同步跑 `server/test/money.spec.ts` 与
+ * `server/test/frontendChainParity.spec.mts`，禁止再在各模块复制舍入公式。
  */
+
 const DIGIT = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
 // [组单位(元/万/亿/兆), 组内单位(拾/佰/仟)]
 const UNIT: [string[], string[]] = [['', '万', '亿', '兆'], ['', '拾', '佰', '仟']];
@@ -60,14 +59,12 @@ function convertInteger(num: number): string {
 export function amountToChineseCapital(input: number | string | null | undefined): string {
   let n = typeof input === 'string' ? Number(input) : Number(input ?? 0);
   if (!Number.isFinite(n)) n = 0;
-  // 四舍五入到分（走 round()，与全站金额口径同一个实现；原式的 EPSILON 修正在 |n|≥2 时失效）
   n = round(n, 2) ?? 0;
   if (n === 0) return '零元整';
 
   const neg = n < 0;
   n = Math.abs(n);
 
-  // 用整数「分」避免浮点误差（字符串位移：12.34 → "12.34e2" = 1234）
   const cents = Math.round(Number(String(n) + 'e2'));
   const jiao = Math.floor(cents / 10) % 10;
   const fen = cents % 10;
@@ -75,7 +72,6 @@ export function amountToChineseCapital(input: number | string | null | undefined
 
   const intStr = convertInteger(intPart);
 
-  // 不足 1 元：不加「元」前缀，也不补前导「零」
   if (intPart === 0) {
     const sub = (jiao ? DIGIT[jiao] + '角' : '') + (fen ? DIGIT[fen] + '分' : '');
     return (neg ? '负' : '') + (sub || '零元整');
@@ -94,14 +90,10 @@ export function amountToChineseCapital(input: number | string | null | undefined
  * 金额四舍五入（模拟 Excel ROUND，避免浮点误差）。
  * null / undefined / 非有限值统一返回 null，调用方可用 ?? 0 兜底。
  *
- * **实现说明（2026-10-20 第 4 轮审计）**：原来是 `Math.round((n + Number.EPSILON) * p) / p`，
- * 而 `Number.EPSILON` 是**绝对量** 2.22e-16，只在 |n| < 1 时够用：
- * - `8.165 * 100 = 816.4999999999999`（该量级 ulp≈8.9e-16，补 EPSILON 无效）→ 得 8.16，Excel 给 8.17；
- * - `1234567.005 * 100 = 123456700.49999999` → 丢 1 分；
- * - 负数更糟：`Math.round` 向 +∞ 取整，`-1.005` 得 -1（应 -1.01），`-2.5` 得 -2 而 `2.5` 得 3（半值不对称）。
- *
- * 现在改成**字符串位移法**（`n.toString()` 已是能还原该 double 的最短十进制，位移后取整即人眼口径），
+ * 字符串位移法（`n.toString()` 已是能还原该 double 的最短十进制，位移后取整即人眼口径），
  * 并按符号取整，保证 `round(-x) === -round(x)`，与 Excel ROUND 的「半值远离零」一致。
+ * 禁止改回 `Math.round((n + Number.EPSILON) * p) / p`：
+ * 8.165 → 8.16、1234567.005 丢 1 分、-1.005 → -1。
  */
 export function round(n: number | null | undefined, digits = 2): number | null {
   if (n === null || n === undefined || !Number.isFinite(n)) return null;

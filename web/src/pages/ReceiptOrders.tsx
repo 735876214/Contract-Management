@@ -38,15 +38,18 @@ const fmtNum = (v: any, digits = 4) =>
 const fmtMoney = (v: any) =>
   v == null || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const round4 = (n: number) => Math.round((n + Number.EPSILON) * 1e4) / 1e4;
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 1e2) / 1e2;
+import { round2 } from '../../../server/src/common/calc/money.ts';
+import {
+  calcPriceWithTax as calcPriceWithTaxShared,
+  calcTotalWithTax as calcTotalShared,
+} from '../../../server/src/common/calc/amounts.ts';
 
-/** 综合单价 = 税前单价 × (1 + 税率/100) */
-const calcPriceWithTax = (priceBeforeTax?: number | null, taxRate?: number | null) =>
-  priceBeforeTax == null || taxRate == null ? null : round4(Number(priceBeforeTax) * (1 + Number(taxRate) / 100));
-/** 综合总价 = 实收数量 × 综合单价 */
+/** 综合单价 = 税前单价 × (1 + 税率/100)，统一 4 位精度 */
+const calcPriceWithTax = (priceBeforeTax?: number | null, taxRatePct?: number | null) =>
+  calcPriceWithTaxShared(priceBeforeTax, taxRatePct, 4);
+/** 综合总价 = 实收数量 × 综合单价，收领单总价口径为 2 位精度 */
 const calcTotal = (priceWithTax?: number | null, receivedQty?: number | null) =>
-  priceWithTax == null || receivedQty == null ? null : round2(Number(priceWithTax) * Number(receivedQty));
+  calcTotalShared(priceWithTax, receivedQty, 2);
 
 const YES_NO = [
   { value: 'Y', label: '是' },
@@ -549,7 +552,7 @@ export default function ReceiptOrders() {
         deliveryQty: d.deliveryQty == null ? null : Number(d.deliveryQty),
         receivedQty: d.receivedQty == null ? null : Number(d.receivedQty),
         priceBeforeTax: d.priceBeforeTax == null ? null : Number(d.priceBeforeTax),
-        taxRate: d.taxRate == null ? null : Number(d.taxRate),
+        taxRatePct: d.taxRatePct == null ? null : Number(d.taxRatePct),
         priceWithTax: d.priceWithTax == null ? null : Number(d.priceWithTax),
         totalPrice: d.totalPrice == null ? null : Number(d.totalPrice),
       }));
@@ -619,7 +622,7 @@ export default function ReceiptOrders() {
       prev.map((r) => {
         if (r.key !== key) return r;
         const next = { ...r, [field]: value };
-        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, next.taxRate);
+        const priceWithTax = calcPriceWithTax(next.priceBeforeTax, next.taxRatePct);
         next.priceWithTax = priceWithTax;
         next.totalPrice = calcTotal(priceWithTax, next.receivedQty);
         return next;
@@ -677,7 +680,7 @@ export default function ReceiptOrders() {
         deliveryQty: d.deliveryQty,
         receivedQty: d.receivedQty,
         priceBeforeTax: d.priceBeforeTax,
-        taxRate: d.taxRate,
+        taxRatePct: d.taxRatePct,
         usagePart: d.usagePart,
         custodian: d.custodian,
         brand: d.brand,

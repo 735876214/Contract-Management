@@ -34,8 +34,7 @@ import { CLAUSE_TYPE_LABEL } from '@/constants/clauseTypes';
  * 合同编辑器（列表 + 编辑器是同一路由的两种形态：`?editor=new|<id>`）。
  *
  * 由原 `pages/Contracts.tsx` 迁入（业务 2026-11-14 合并「合同台账」与「合同台账维护」）：
- * 台账列表与编辑器共用 `/contract/list`，`listPath` 用于编辑器页签与列表刷新令牌，
- * 不传时取 `LIST_PATHS.contractLedger`。
+ * 台账列表与编辑器共用 `/contract/list`，编辑器页签与列表刷新令牌都用 `LIST_PATHS.contractLedger`。
  */
 
 /** 需求 2.3：四种条款类型对应的合同表单字段 */
@@ -305,7 +304,7 @@ export default function ContractEditor({ seed }: { seed: unknown }) {
                       <Form.Item name="amount" label="合同额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
-                      <Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item>
+                      <Form.Item name="taxRatePct" label="税率(%)"><InputNumber style={{ width: '100%' }} min={0} max={100} step={0.01} precision={2} /></Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
                       <Form.Item name="paymentMethodCode" label="合同约定付款方式"><DictSelect typeCode="payment_method" /></Form.Item>

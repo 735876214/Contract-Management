@@ -12,8 +12,8 @@
  * 8. 逾期起始日期 = 应付款日期 + 宽限天数 + 1。
  */
 
-import { round } from '../../common/utils/money';
-import { summarizeOverdue } from '../../common/utils/overdue-summary';
+import { round } from '../../common/calc/money';
+import { buildOverdueStats, summarizeOverdue } from '../../common/utils/overdue-summary';
 import { modeTranchesOf } from '../../common/utils/pay-ratio';
 
 export { round };
@@ -96,8 +96,10 @@ export interface OverdueDerived {
 export interface EngineOptions {
   monthlyRate: number; // 月利率（合同覆盖值或系统默认）
   graceDays: number; // 宽限天数
-  /** 计息截止日（用于未付完的剩余金额计息，默认今天） */
-  asOfDate?: Date;
+  /** 计息截止日（用于未付完的剩余金额计息）——**必填**：规则层不读系统时钟，由 service 层显式注入 */
+  asOfDate: Date;
+  /** 合同逾期利息上限比例（仅用于 stats 展示，与 listOverdue 同口径） */
+  interestCapRatio?: number;
 }
 
 interface Entry {
@@ -118,7 +120,11 @@ interface Entry {
  */
 export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
   const rate = opts.monthlyRate || 0;
-  const asOf = opts.asOfDate || new Date();
+  // 规则层不读系统时钟：漏传/非法基准日直接抛错，绝不默默用「今天」把同一批数据算出随日期漂移的结果。
+  if (!(opts.asOfDate instanceof Date) || isNaN(opts.asOfDate.getTime())) {
+    throw new TypeError('recalculate 必须显式传入有效的 asOfDate');
+  }
+  const asOf = opts.asOfDate;
 
   // ---- 1. 构建应付款条目（materialAmount>0 的行为主行） ----
   const entries: Entry[] = [];
@@ -232,14 +238,7 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
 
   return {
     derived,
-    stats: {
-      totalMaterial: summary.totalMaterial,
-      totalPayment: summary.totalPayment,
-      totalInterest: summary.currentCumulative,
-      currentCumulative: summary.currentCumulative,
-      prevCumulative: summary.prevCumulative,
-      currentSettlement: summary.currentSettlement,
-      cumulativeByMonth: summary.cumulativeByMonth,
-    },
+    // 与 listOverdue() 返回完全同形的 stats（含 cap 字段），避免两处各自拼装导致口径漂移
+    stats: buildOverdueStats(summary, opts.interestCapRatio),
   };
 }

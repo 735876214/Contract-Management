@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeOverdue, interestOf } from '../src/common/utils/overdue-summary.ts';
+import { summarizeOverdue, interestOf, buildOverdueStats } from '../src/common/utils/overdue-summary.ts';
 
 /**
  * 逾期利息「汇总口径」单测（单一实现，供引擎 stats 与列表接口共用）。
@@ -109,5 +109,39 @@ describe('summarizeOverdue：合计与开累', () => {
   it('两位小数在累计过程中即收敛（避免浮点尾差累积）', () => {
     const s = summarizeOverdue([R('2026-01', 0.1), R('2026-01', 0.2)], fromRow);
     assert.equal(s.currentCumulative, 0.3);
+  });
+
+  it('月份归一后排序：`2026-9` 与 `2026-09` 同月，不会排在 `2026-10` 后', () => {
+    const s = summarizeOverdue(
+      [R('2026-10', 10), R('2026-9', 20), R('2026-09', 30)],
+      fromRow,
+    );
+    assert.deepEqual(s.cumulativeByMonth, { '2026-09': 50, '2026-10': 60 });
+    assert.equal(s.currentMonth, '2026-10');
+    assert.equal(s.currentCumulative, 60);
+  });
+});
+
+describe('buildOverdueStats：引擎与列表接口共用一个 stats 构造', () => {
+  it('补齐 totalInterest 别名与 cap 展示字段，且全部走统一舍入', () => {
+    const summary = summarizeOverdue(
+      [R('2026-01', 118, { materialAmount: 1000 }), R('2026-02', 26, { materialAmount: 1000 })],
+      fromRow,
+    );
+    const stats = buildOverdueStats(summary, 0.05);
+    assert.equal(stats.totalInterest, 144);
+    assert.equal(stats.currentCumulative, 144);
+    assert.equal(stats.capRatio, 0.05);
+    assert.equal(stats.capAmount, 100);
+    assert.equal(stats.capUsage, 144);
+    assert.equal(stats.interestRatio, 7.2);
+    assert.equal(stats.currentMonth, '2026-02');
+  });
+
+  it('零分母不产生 NaN / Infinity', () => {
+    const stats = buildOverdueStats(summarizeOverdue([], fromRow), 0);
+    assert.equal(stats.capAmount, 0);
+    assert.equal(stats.capUsage, 0);
+    assert.equal(stats.interestRatio, 0);
   });
 });

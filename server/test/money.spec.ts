@@ -1,6 +1,23 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { amountToChineseCapital, round, round2, round4 } from '../src/common/utils/money.ts';
+import { amountToChineseCapital, round, round2, round4 } from '../src/common/calc/money.ts';
+import {
+  calcAmount,
+  calcPriceWithTax,
+  calcRateNullable,
+  calcTotalWithTax,
+  canonicalMonthKey,
+  compareMonthKey,
+  groupSumByMonth,
+  groupSumByYear,
+  monthSequence,
+  fmtAmount,
+  fmtRate,
+  parseMonthKey,
+  settlementAmountOf,
+  sortMonthKeys,
+  sumRounded,
+} from '../src/common/calc/index.ts';
 
 /**
  * 金额四舍五入的口径锁（2026-10-20 第 4 轮审计）。
@@ -63,5 +80,103 @@ describe('amountToChineseCapital：大写金额与 round 同口径', () => {
   it('字符串入参与非有限值兜底', () => {
     assert.equal(amountToChineseCapital('100.5'), '壹佰元伍角整');
     assert.equal(amountToChineseCapital(Number.NaN), '零元整');
+  });
+});
+
+describe('共享计算原语 golden case', () => {
+  it('含税单价与合价：任一入参缺失不臆造 0，精度由调用方显式指定', () => {
+    assert.equal(calcPriceWithTax(10, 13), 11.3);
+    assert.equal(calcTotalWithTax(11.3, 3), 33.9);
+    assert.equal(calcTotalWithTax(11.3, 3, 2), 33.9);
+    assert.equal(calcPriceWithTax(10, null), null);
+    assert.equal(calcTotalWithTax(null, 3), null);
+  });
+
+  it('合价与逐项累加都走同一舍入实现（字符串 Decimal 直接吃）', () => {
+    assert.equal(calcAmount('10', 3), 30);
+    assert.equal(calcAmount(3.015, 1), 3.02);
+    assert.equal(calcAmount(2.675, 1), 2.68);
+    assert.equal(sumRounded([0.1, 0.2, 0.3]), 0.6);
+    // 已知边界：1.005*3 的 double 是 3.0149999999999997，按既有 round 口径得 3.01。
+    // 要做到 Excel 的十进制精确乘法，需要后续切换到整数分运算，不能在本层私自改口径。
+  });
+
+  it('税率单轨百分数：含税公式直接吃 13（=13%），不再有小数↔百分数双轨', () => {
+    assert.equal(calcPriceWithTax(100, 13), 113);
+    assert.equal(calcPriceWithTax(100, 9), 109);
+    assert.equal(calcPriceWithTax(100, null), null);
+  });
+
+  it('比率零分母策略：占比返回 0，差额比率返回 null', () => {
+    assert.equal(calcRateNullable(0, 5), null);
+    assert.equal(calcRateNullable(100, 80), 20);
+    assert.equal(calcRateNullable(null, 80), null);
+  });
+
+  it('月份键严格校验，排序只认零补齐的 YYYY-MM', () => {
+    assert.equal(parseMonthKey('2026-09'), '2026-09');
+    assert.equal(parseMonthKey('2026-9'), null);
+    assert.equal(parseMonthKey('2026-13'), null);
+    assert.deepEqual(['2026-10', '2026-02', '2026-01'].sort(compareMonthKey), [
+      '2026-01',
+      '2026-02',
+      '2026-10',
+    ]);
+  });
+
+  it('格式化只负责展示，空值不显示 0.00', () => {
+    assert.equal(fmtAmount(1234.5), '1,234.50');
+    assert.equal(fmtAmount(null), '');
+    assert.equal(fmtRate(12.345), '12.35%');
+  });
+});
+
+describe('统一月度聚合原语', () => {
+  it('自由文本月份归一后再排序，`2026-10` 不再排在 `2026-9` 前', () => {
+    assert.equal(canonicalMonthKey('2026-9'), '2026-09');
+    assert.equal(canonicalMonthKey('2026年9月'), '2026-09');
+    assert.equal(canonicalMonthKey('202609'), '2026-09');
+    assert.equal(canonicalMonthKey('abc'), null);
+    assert.deepEqual(['2026-10', '2026-9', '2026-01'].map(canonicalMonthKey).sort(compareMonthKey), [
+      '2026-01',
+      '2026-09',
+      '2026-10',
+    ]);
+    assert.deepEqual(sortMonthKeys(['', '2026-10', '2026-09'], true), ['', '2026-09', '2026-10']);
+  });
+
+  it('同月不同合同/材料进入同一分组；金额按 Decimal 字符串求和并收敛精度', () => {
+    const rows = [
+      { contract: 'A', material: '水泥', month: '2026-09', amount: '0.1' },
+      { contract: 'A', material: '钢材', month: '2026-9', amount: '0.2' },
+      { contract: 'B', material: '水泥', month: '2026/09', amount: '1.005' },
+      { contract: 'B', material: '钢材', month: 'bad', amount: 999 },
+    ];
+    assert.deepEqual(
+      groupSumByMonth(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount }),
+      { '2026-09': 1.31 },
+    );
+    // 未知月份可显式保留，但不会混进正常月份
+    assert.deepEqual(
+      groupSumByMonth(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount, keepUnknown: true }),
+      { '2026-09': 1.31, '': 999 },
+    );
+    assert.deepEqual(
+      groupSumByYear(rows, { monthOf: (r) => r.month, amountOf: (r) => r.amount }),
+      { '2026': 1.31 },
+    );
+  });
+
+  it('近 N 个月序列按本地月份生成（跨年不跳月）', () => {
+    assert.deepEqual(monthSequence(new Date(2026, 0, 31), 3), ['2025-11', '2025-12', '2026-01']);
+    assert.deepEqual(monthSequence('invalid', 0), []);
+  });
+
+  it('结算金额来源优先级：审定与送审分别声明，空串不当成缺失', () => {
+    assert.equal(settlementAmountOf({ actualAmount: '10.5', amount: 99 }, 'actual'), 10.5);
+    assert.equal(settlementAmountOf({ actualAmount: '10.5', amount: 99 }, 'submitted'), 99);
+    assert.equal(settlementAmountOf({ actualAmount: null, amount: '2.675' }), 2.675);
+    assert.equal(settlementAmountOf({ actualAmount: 0, amount: 99 }), 0);
+    assert.equal(settlementAmountOf({ actualAmount: '', amount: 99 }), null);
   });
 });

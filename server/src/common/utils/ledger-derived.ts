@@ -27,7 +27,7 @@
  */
 
 /** 金额舍入走全站唯一实现（字符串位移法，模拟 Excel ROUND，见 money.ts 文件头） */
-import { round2 } from './money.ts';
+import { round2 } from '../calc/money.ts';
 
 /** 值是否"已填"（`0` 算已填；空串/空白算未填） */
 export function isFilledNumber(v: unknown): boolean {
@@ -103,10 +103,11 @@ export function deriveLedgerAmounts(input: LedgerDerivedInput): LedgerDerivedFie
  */
 export function deriveTaxSplit(
   amountWithTax: number,
-  taxRate: unknown,
+  taxRatePct: unknown,
 ): { beforeTax: number | null; inputTax: number | null } {
-  if (!isFilledNumber(taxRate)) return { beforeTax: null, inputTax: null };
-  const denominator = 1 + Number(taxRate);
+  if (!isFilledNumber(taxRatePct)) return { beforeTax: null, inputTax: null };
+  // 税率单轨百分数（13 = 13%）：含税 = 税前 × (1 + pct/100)
+  const denominator = 1 + Number(taxRatePct) / 100;
   if (!Number.isFinite(denominator) || denominator === 0) return { beforeTax: null, inputTax: null };
   const total = round2(amountWithTax);
   const beforeTax = round2(total / denominator);

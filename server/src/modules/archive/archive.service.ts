@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { ZipArchive as Archiver } from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { StorageService } from '../../common/services/storage.service';
-import { localDayKey } from '../../common/utils/helpers';
+import { localDayKey } from '../../common/calc/time';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { ARCHIVE_CATEGORIES, ARCHIVE_CATEGORY_BY_KEY } from '../../constants/archiveCategories';
 import {

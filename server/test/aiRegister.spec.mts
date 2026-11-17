@@ -12,7 +12,7 @@ import {
   normalizeExtraction,
   normalizeMoneyText,
   normalizePercentText,
-  taxRateFraction,
+  taxRatePctValue,
   textHasDate,
   textHasMoney,
 } from '../src/modules/ai/register-fields.ts';
@@ -233,42 +233,41 @@ describe('docx-text：document.xml → 带表格结构的文本', () => {
 /**
  * 税率落库换算（2026-10-20 审计 P1-3）。
  *
- * 原来 `Math.round(pct)/100`：模型按小数给 `0.13` → round 成 0 → **税率变 0%**；
- * `13.5` → `0.14`（13.5% 被篡改）。税率错了会连锁污染不含税单价、税额与台账进项税额，
- * 所以这里既锁「正确换算」也锁「可疑值必须报错而不是静默猜」。
+ * 税率全站单轨百分数（13 = 13%），落库字段改名 taxRatePct，不再有百分数↔小数双轨。
+ * 这里锁「归一为百分数」与「可疑值必须报错而不是静默猜」。
  */
-describe('税率百分数 → 存库小数', () => {
-  it('整数百分比：13 → 0.13，9 → 0.09', () => {
-    assert.equal(taxRateFraction(13).value, 0.13);
-    assert.equal(taxRateFraction(9).value, 0.09);
+describe('税率归一为百分数（单轨）', () => {
+  it('整数百分比原样保留：13 → 13，9 → 9', () => {
+    assert.equal(taxRatePctValue(13).value, 13);
+    assert.equal(taxRatePctValue(9).value, 9);
   });
 
-  it('保留小数位：13.5 → 0.135（不再 round 成 0.14）', () => {
-    assert.equal(taxRateFraction(13.5).value, 0.135);
-    assert.equal(taxRateFraction(9.09).value, 0.0909);
+  it('保留小数位：13.5 → 13.5，9.09 → 9.09', () => {
+    assert.equal(taxRatePctValue(13.5).value, 13.5);
+    assert.equal(taxRatePctValue(9.09).value, 9.09);
   });
 
-  it('小数形式的百分数按同口径换算：0.13 → 0.13，而不是 0.0013', () => {
+  it('小数形式的百分数按同口径换算：0.13 → 13，而不是存成 0.13%', () => {
     // 与 normalizePercentText 一致：≤1 视为「0.13 表示 13%」
-    assert.equal(taxRateFraction(0.13).value, 0.13);
-    assert.equal(taxRateFraction(1).value, 1); // 1 = 100%
+    assert.equal(taxRatePctValue(0.13).value, 13);
+    assert.equal(taxRatePctValue(1).value, 100); // 1 = 100%
   });
 
   it('0 允许（免税/不征税合同）', () => {
-    assert.equal(taxRateFraction(0).value, 0);
-    assert.equal(taxRateFraction(0).error, undefined);
+    assert.equal(taxRatePctValue(0).value, 0);
+    assert.equal(taxRatePctValue(0).error, undefined);
   });
 
   it('负数与超过 100% 一律报错，不截断', () => {
-    assert.ok(taxRateFraction(-1).error);
-    assert.ok(taxRateFraction(1300).error);
-    assert.equal(taxRateFraction(1300).value, null);
+    assert.ok(taxRatePctValue(-1).error);
+    assert.ok(taxRatePctValue(1300).error);
+    assert.equal(taxRatePctValue(1300).value, null);
   });
 
   it('未填 → null（不写税率，而不是写 0）', () => {
-    assert.equal(taxRateFraction(null).value, null);
-    assert.equal(taxRateFraction(undefined).value, null);
-    assert.equal(taxRateFraction(Number.NaN).value, null);
+    assert.equal(taxRatePctValue(null).value, null);
+    assert.equal(taxRatePctValue(undefined).value, null);
+    assert.equal(taxRatePctValue(Number.NaN).value, null);
   });
 });
 

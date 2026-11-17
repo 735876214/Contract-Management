@@ -6,7 +6,8 @@
  * 纯函数（零依赖，仅用 `money.ts`），由 `server/test/assetFlow.spec.mts` 锁定。
  */
 
-import { round2, round4 } from './money.ts';
+import { round2, round4 } from '../calc/money.ts';
+import { num } from '../calc/numeric.ts';
 
 export const ASSET_FLOW_DIRECTION = {
   IN: 'IN',
@@ -75,12 +76,6 @@ export interface AssetFlowSummary {
   unknownAmount: number | null;
   bySource: { sourceCode: string; direction: AssetFlowDirection; qty: number | null; amount: number | null }[];
 }
-
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
 
 interface Bucket {
   qty: number;

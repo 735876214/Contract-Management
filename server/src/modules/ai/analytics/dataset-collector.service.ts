@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { round2, round4 } from '../../../common/utils/money';
+import { round2, round4 } from '../../../common/calc/money';
+import { num } from '../../../common/calc/numeric';
 import { resolveChainAmounts, notDraft } from '../../../common/utils/contract-chain';
 import {
   CONTRACT_EXECUTION_STATUS,
@@ -42,12 +43,6 @@ export interface CollectedAnalytics {
   warnings: string[];
   asOf: string;
 }
-
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
 
 const monthBetween = (range: DayRange): { gte: string; lte: string } | null =>
   range.from ? { gte: localMonthKey(range.from), lte: localMonthKey(range.to) } : null;

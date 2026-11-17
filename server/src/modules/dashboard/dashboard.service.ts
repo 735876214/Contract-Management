@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num, localDayKey } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { localDayKey } from '../../common/calc/time';
+import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere, countedInvoiceWhere, INVOICE_STATUS } from '../../constants/statuses';
@@ -46,8 +48,8 @@ export class DashboardService {
     };
   }
 
-  /** 近 12 个月收付款与结算趋势 */
-  async trend(projectId: string) {
+  /** 近 12 个月收付款与结算趋势；`now` 由上层注入，规则层不读系统时钟 */
+  async trend(projectId: string, now: Date = new Date()) {
     const [ledger, payments] = await Promise.all([
       this.prisma.settlementLedger.findMany({ where: { projectId } }),
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
@@ -56,24 +58,19 @@ export class DashboardService {
         where: { projectId, ...paidPaymentWhere() },
       }),
     ]);
-    const months: string[] = [];
-    const now = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    }
-    const settleMap: Record<string, number> = {};
-    ledger.forEach((l: any) => {
-      if (l.settleMonth) settleMap[l.settleMonth] = (settleMap[l.settleMonth] || 0) + (num(l.monthSettleAmount) || 0);
+    const months = monthSequence(now, 12);
+    const settleMap = groupSumByMonth(ledger as any[], {
+      monthOf: (l: any) => l.settleMonth,
+      amountOf: (l: any) => l.monthSettleAmount,
     });
-    const payMap: Record<string, number> = {};
-    payments.forEach((p: any) => {
-      if (p.payMonth) payMap[p.payMonth] = (payMap[p.payMonth] || 0) + (num(p.amount) || 0);
+    const payMap = groupSumByMonth(payments as any[], {
+      monthOf: (p: any) => p.payMonth,
+      amountOf: (p: any) => p.amount,
     });
     return months.map((m) => ({
       month: m,
-      settleAmount: Number((settleMap[m] || 0).toFixed(2)),
-      paidAmount: Number((payMap[m] || 0).toFixed(2)),
+      settleAmount: settleMap[m] || 0,
+      paidAmount: payMap[m] || 0,
     }));
   }
 

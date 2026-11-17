@@ -7,8 +7,10 @@ import {
   RECEIPT_STATUS,
   SUBCONTRACTOR_STATUS,
 } from '../../constants/statuses';
-import { paginate, buildResult, num, toDate, assertVersion } from '../../common/utils/helpers';
-import { round2, round4 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { toDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
@@ -25,7 +27,7 @@ const DETAIL_DECIMAL_FIELDS = [
   'deliveryQty',
   'receivedQty',
   'priceBeforeTax',
-  'taxRate',
+  'taxRatePct',
   'priceWithTax',
   'totalPrice',
 ];
@@ -46,7 +48,7 @@ const DETAIL_ALLOWED_FIELDS = [
   'deliveryQty',
   'receivedQty',
   'priceBeforeTax',
-  'taxRate',
+  'taxRatePct',
   'usagePart',
   'custodian',
   'brand',
@@ -236,15 +238,13 @@ export class ReceiptOrderService {
       include: { materialBase: true },
     });
 
-    // 合同税率（小数 0.13）→ 百分比（13）
-    const contractPct =
-      contract.taxRate != null ? round4(Number(contract.taxRate) * 100) : null;
+    // 合同税率单轨百分数（13 = 13%），无需换算
+    const contractPct = contract.taxRatePct != null ? num(contract.taxRatePct) : null;
 
     const list = rows.map((r: any, i: number) => {
       const priceBeforeTax = num(r.priceBeforeTax);
       const taxRate = num(r.taxRatePct) ?? contractPct;
-      const priceWithTax =
-        priceBeforeTax != null && taxRate != null ? round4(priceBeforeTax * (1 + taxRate / 100)) : null;
+      const priceWithTax = calcPriceWithTax(priceBeforeTax, taxRate);
       return {
         // 行唯一标识（前端本地 key，落库时忽略）
         key: r.id,
@@ -260,7 +260,7 @@ export class ReceiptOrderService {
         deliveryQty: null as number | null, // 手动填写
         receivedQty: null as number | null, // 手动填写
         priceBeforeTax,
-        taxRate,
+        taxRatePct: taxRate,
         priceWithTax,
         totalPrice: null as number | null, // 实收数量 × 综合单价，填写后自动计算
         usagePart: null as string | null,
@@ -497,7 +497,7 @@ export class ReceiptOrderService {
           select: {
             materialId: true, categoryLevel1: true, categoryLevel2: true,
             materialName: true, specModel: true, unit: true,
-            priceBeforeTax: true, taxRate: true,
+            priceBeforeTax: true, taxRatePct: true,
           },
         },
       },
@@ -529,7 +529,7 @@ export class ReceiptOrderService {
     const list = Array.from(byKey.values()).map((d: any) => {
       const base: any = d.materialId ? baseMap.get(d.materialId) : null;
       const priceBeforeTax = num(d.priceBeforeTax);
-      const taxRate = num(d.taxRate);
+      const taxRate = num(d.taxRatePct);
       return {
         // 行身份含单位：同 materialId 按米/根是两条独立明细，key 不能再用 materialId
         key: laborRowKey(
@@ -547,11 +547,8 @@ export class ReceiptOrderService {
         deliveryQty: null as number | null,
         receivedQty: null as number | null, // 手填
         priceBeforeTax,
-        taxRate,
-        priceWithTax:
-          priceBeforeTax != null && taxRate != null
-            ? round4(priceBeforeTax * (1 + taxRate / 100))
-            : null,
+        taxRatePct: taxRate,
+        priceWithTax: calcPriceWithTax(priceBeforeTax, taxRate),
         totalPrice: null as number | null,
         usagePart: null as string | null,
         custodian: null as string | null,
@@ -687,12 +684,10 @@ export class ReceiptOrderService {
       if (out[f] !== undefined) out[f] = num(out[f]);
     });
     const priceBeforeTax = num(out.priceBeforeTax);
-    const taxRate = num(out.taxRate);
+    const taxRatePct = num(out.taxRatePct);
     const receivedQty = num(out.receivedQty);
-    out.priceWithTax =
-      priceBeforeTax != null && taxRate != null ? round4(priceBeforeTax * (1 + taxRate / 100)) : null;
-    out.totalPrice =
-      out.priceWithTax != null && receivedQty != null ? round2(out.priceWithTax * receivedQty) : null;
+    out.priceWithTax = calcPriceWithTax(priceBeforeTax, taxRatePct);
+    out.totalPrice = calcTotalWithTax(out.priceWithTax, receivedQty, 2);
     out.sortOrder = index + 1;
     return out;
   }
@@ -899,8 +894,7 @@ export class ReceiptOrderService {
 
       const qty = num(d.receivedQty);
       const price = num(d.priceWithTax);
-      const total =
-        qty !== null && price !== null ? round2(qty * price) : (num(d.totalPrice) ?? null);
+      const total = calcTotalWithTax(price, qty, 2) ?? (num(d.totalPrice) ?? null);
       const payload: any = {
         projectId: order.projectId,
         date: order.orderDate ? new Date(order.orderDate) : null,
@@ -965,7 +959,7 @@ export class ReceiptOrderService {
    *  - subcontractPeriod ← subcontractName（分包合同）
    *  - materialName/spec/unit ← 明细带出（unit 统一转字典编码）
    *  - settleQty       ← receivedQty（实收数量）
-   *  - priceBeforeTax / taxRate / priceAfterTax ← 明细
+   *  - priceBeforeTax / taxRatePct / priceAfterTax ← 明细
    *  - amountBeforeTax ← 税前单价 × 实收数量；amountAfterTax ← 综合总价
    *  - usePosition     ← usagePart；isProxy ← isAgentPurchase
    *  - isAsset / isSafetyMaterial ← 物资基础库（按 materialId 关联，需求 2.1.3）
@@ -981,12 +975,11 @@ export class ReceiptOrderService {
     const rows = [];
     for (const d of order.details) {
       const priceBeforeTax = num(d.priceBeforeTax);
-      const taxRate = num(d.taxRate);
+      const taxRatePct = num(d.taxRatePct);
       const receivedQty = num(d.receivedQty);
       const priceAfterTax = num(d.priceWithTax);
       const totalPrice = num(d.totalPrice);
-      const amountBeforeTax =
-        priceBeforeTax != null && receivedQty != null ? round2(priceBeforeTax * receivedQty) : null;
+      const amountBeforeTax = calcTotalWithTax(priceBeforeTax, receivedQty, 2);
       const entryDate = toDate(order.orderDate);
       const base: any = d.materialId ? baseMap.get(d.materialId) : null;
       rows.push({
@@ -1005,7 +998,7 @@ export class ReceiptOrderService {
         unit: await this.toUnitCode(d.unit || base?.unit),
         settleQty: receivedQty,
         priceBeforeTax,
-        taxRate,
+        taxRatePct,
         priceAfterTax,
         amountBeforeTax,
         amountAfterTax: totalPrice,

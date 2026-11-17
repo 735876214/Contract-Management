@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/utils/helpers';
-import { round2, round4 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { round2, round4 } from '../../common/calc/money';
 import {
   contractChainAmount,
   contractChainIds,

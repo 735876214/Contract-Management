@@ -10,8 +10,8 @@ import { buildSettlementItemsFromDailyRows } from '../src/common/utils/settlemen
 describe('结算明细 · 从总日报带出', () => {
   it('同物资多行按数量加权平均，金额与明细合价同口径', () => {
     const res = buildSettlementItemsFromDailyRows([
-      { materialBaseId: 'm1', settleQty: 10, priceBeforeTax: 100, taxRate: 13, amountAfterTax: 1130, receiptNo: 'SO1' },
-      { materialBaseId: 'm1', settleQty: 5, priceBeforeTax: 200, taxRate: 13, amountAfterTax: 1130, receiptNo: 'SO2' },
+      { materialBaseId: 'm1', settleQty: 10, priceBeforeTax: 100, taxRatePct: 13, amountAfterTax: 1130, receiptNo: 'SO1' },
+      { materialBaseId: 'm1', settleQty: 5, priceBeforeTax: 200, taxRatePct: 13, amountAfterTax: 1130, receiptNo: 'SO2' },
     ]);
     assert.equal(res.items.length, 1);
     const it = res.items[0];
@@ -29,7 +29,7 @@ describe('结算明细 · 从总日报带出', () => {
 
   it('金额缺失时用单价 × 数量补算；含税单价独有时按 0 税率反推税前', () => {
     const res = buildSettlementItemsFromDailyRows([
-      { materialBaseId: 'm2', settleQty: 2, priceBeforeTax: 50, taxRate: 13 },
+      { materialBaseId: 'm2', settleQty: 2, priceBeforeTax: 50, taxRatePct: 13 },
       { materialBaseId: 'm3', settleQty: 1, priceAfterTax: 90 },
     ]);
     assert.equal(res.items.length, 2);
@@ -45,9 +45,9 @@ describe('结算明细 · 从总日报带出', () => {
 
   it('缺物资主数据的行不静默丢：计入 skippedRows 并带出名称', () => {
     const res = buildSettlementItemsFromDailyRows([
-      { materialBaseId: 'm4', settleQty: 1, priceBeforeTax: 10, taxRate: 0 },
-      { materialBaseId: null, materialName: '手工物资A', settleQty: 3, priceBeforeTax: 20, taxRate: 0 },
-      { materialBaseId: '', materialName: '手工物资A', settleQty: 1, priceBeforeTax: 20, taxRate: 0 },
+      { materialBaseId: 'm4', settleQty: 1, priceBeforeTax: 10, taxRatePct: 0 },
+      { materialBaseId: null, materialName: '手工物资A', settleQty: 3, priceBeforeTax: 20, taxRatePct: 0 },
+      { materialBaseId: '', materialName: '手工物资A', settleQty: 1, priceBeforeTax: 20, taxRatePct: 0 },
       { materialBaseId: null, materialName: '手工物资B', settleQty: 1 },
     ]);
     assert.equal(res.items.length, 1);
@@ -59,7 +59,7 @@ describe('结算明细 · 从总日报带出', () => {
   it('没有单价/金额时合价为 null，金额按 0 计（显式 0 仍是 0）', () => {
     const res = buildSettlementItemsFromDailyRows([
       { materialBaseId: 'm5', settleQty: 4 },
-      { materialBaseId: 'm6', settleQty: 2, priceBeforeTax: 0, taxRate: 13 },
+      { materialBaseId: 'm6', settleQty: 2, priceBeforeTax: 0, taxRatePct: 13 },
     ]);
     const m5 = res.items.find((i) => i.materialBaseId === 'm5')!;
     assert.equal(m5.qty, 4);
@@ -73,9 +73,9 @@ describe('结算明细 · 从总日报带出', () => {
 
   it('有金额但结算数量为空/0 的行不静默丢：计入 skippedNoQtyRowCount', () => {
     const res = buildSettlementItemsFromDailyRows([
-      { materialBaseId: 'm7', settleQty: null, priceBeforeTax: 100, taxRate: 13, amountAfterTax: 500 },
-      { materialBaseId: 'm8', settleQty: 0, priceBeforeTax: 50, taxRate: 0, amountAfterTax: 80 },
-      { materialBaseId: 'm9', settleQty: 2, priceBeforeTax: 10, taxRate: 0 },
+      { materialBaseId: 'm7', settleQty: null, priceBeforeTax: 100, taxRatePct: 13, amountAfterTax: 500 },
+      { materialBaseId: 'm8', settleQty: 0, priceBeforeTax: 50, taxRatePct: 0, amountAfterTax: 80 },
+      { materialBaseId: 'm9', settleQty: 2, priceBeforeTax: 10, taxRatePct: 0 },
     ]);
     assert.equal(res.skippedNoQtyRowCount, 2);
     assert.equal(res.items.length, 1);
@@ -85,8 +85,8 @@ describe('结算明细 · 从总日报带出', () => {
 
   it('异常金额推导出超范围税率：跳过并计数，不拖垮整期生成', () => {
     const res = buildSettlementItemsFromDailyRows([
-      { materialBaseId: 'm10', settleQty: 1, priceBeforeTax: 0.01, taxRate: 0, amountAfterTax: 1000 },
-      { materialBaseId: 'm11', settleQty: 1, priceBeforeTax: 10, taxRate: 13 },
+      { materialBaseId: 'm10', settleQty: 1, priceBeforeTax: 0.01, taxRatePct: 0, amountAfterTax: 1000 },
+      { materialBaseId: 'm11', settleQty: 1, priceBeforeTax: 10, taxRatePct: 13 },
     ]);
     assert.equal(res.skippedInvalidPriceRowCount, 1);
     assert.equal(res.items.length, 1);

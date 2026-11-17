@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import HTMLtoDOCX from 'html-to-docx';
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
-import { round2 } from '../../common/utils/money';
+import { round2 } from '../../common/calc/money';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import {
