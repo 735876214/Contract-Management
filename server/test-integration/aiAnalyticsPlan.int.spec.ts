@@ -130,12 +130,12 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     );
   });
 
-  it('未实现的分组维度：保留意图但明确提示已忽略', async () => {
+  it('非法的分组维度：回落到按项目并明确提示', async () => {
     const project = await makeProject(ctx.prisma, 'ANA-GROUP');
     const { jwt } = await makeUser(['ai:use', 'contract:view']);
     await join(project.id, jwt.userId);
     const res = await service.plan({ text: '合同汇总', groupBy: 'month' }, project.id, jwt);
-    assert.equal(res.intent.groupBy, 'month');
-    assert.ok(res.warnings.some((w) => w.includes('已忽略分组维度')));
+    assert.equal(res.intent.groupBy, 'project');
+    assert.ok(res.warnings.some((w) => w.includes('忽略未知的分组维度')));
   });
 });

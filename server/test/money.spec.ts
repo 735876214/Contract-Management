@@ -6,6 +6,7 @@ import {
   calcPriceWithTax,
   calcRateNullable,
   calcTotalWithTax,
+  mulDecimal,
   canonicalMonthKey,
   compareMonthKey,
   groupSumByMonth,
@@ -92,13 +93,29 @@ describe('共享计算原语 golden case', () => {
     assert.equal(calcTotalWithTax(null, 3), null);
   });
 
-  it('合价与逐项累加都走同一舍入实现（字符串 Decimal 直接吃）', () => {
+  it('合价走整数分精确乘法，消除 1.005*3 的 double 边界（字符串 Decimal 直接吃）', () => {
     assert.equal(calcAmount('10', 3), 30);
     assert.equal(calcAmount(3.015, 1), 3.02);
     assert.equal(calcAmount(2.675, 1), 2.68);
     assert.equal(sumRounded([0.1, 0.2, 0.3]), 0.6);
-    // 已知边界：1.005*3 的 double 是 3.0149999999999997，按既有 round 口径得 3.01。
-    // 要做到 Excel 的十进制精确乘法，需要后续切换到整数分运算，不能在本层私自改口径。
+    // 旧口径：1.005*3 的 double 是 3.0149999999999997，round 后得 3.01；
+    // 整数分精确乘法按十进制算 3.015 → 3.02，与 Excel ROUND 一致。
+    assert.equal(calcAmount('1.005', 3), 3.02);
+    assert.equal(calcAmount(1.005, 3), 3.02);
+  });
+
+  it('mulDecimal 十进制精确乘法：不再有浮点乘法尾差', () => {
+    assert.equal(mulDecimal('1.005', 3, 2), 3.02);
+    assert.equal(mulDecimal(0.1, 0.2, 2), 0.02);
+    assert.equal(mulDecimal('1234567.005', 3, 2), 3703701.02);
+    assert.equal(mulDecimal('-1.005', 3, 2), -3.02);
+    assert.equal(mulDecimal('2.675', 1, 2), 2.68);
+    assert.equal(mulDecimal('0.0001', '0.0001', 8), 0.00000001);
+    assert.equal(mulDecimal('1e-7', 2, 8), 0.0000002);
+    assert.equal(mulDecimal(null, 3), null);
+    assert.equal(mulDecimal('abc', 3), null);
+    assert.equal(mulDecimal(0, 3.5, 2), 0);
+    assert.equal(mulDecimal('-2', '-3', 2), 6);
   });
 
   it('税率单轨百分数：含税公式直接吃 13（=13%），不再有小数↔百分数双轨', () => {

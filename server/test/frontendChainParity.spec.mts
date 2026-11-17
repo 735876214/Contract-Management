@@ -111,6 +111,7 @@ describe('前后端计算原语一致性（漂移锁）', () => {
       assert.equal(feRound2(v), round2(v), `round2 漂移：${v}`);
     }
     assert.equal(feCalcAmount('1.005', 3), calcAmount('1.005', 3));
+    assert.equal(calcAmount('1.005', 3), 3.02, '整数分精确乘法须得 3.02（与 Excel ROUND 一致）');
     assert.equal(feCalcAmount(10, 13), calcAmount(10, 13));
   });
 });

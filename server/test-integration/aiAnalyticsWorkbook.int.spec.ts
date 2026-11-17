@@ -49,14 +49,16 @@ describe('集成 · AI 经营数据助手 工作簿与行级填充', () => {
       jwt,
     );
     const wb = await analytics.workbook(
-      { scope: { mode: 'current' }, period: { preset: 'this_year' }, datasets: ['contract.summary'], compare: 'none', reportId: report.id! },
+      // 故意给一份与报告不同的 body：挂了 reportId 就必须忽略它，只用存档事实快照
+      { scope: { mode: 'all' }, period: { preset: 'last_month' }, datasets: ['invoice.records'], compare: 'yoy', reportId: report.id! },
       project.id,
       jwt,
     );
     assert.equal(wb.reportId, report.id);
     assert.ok(wb.size > 1000);
     assert.ok(wb.sheets.includes('经营总览'));
-    assert.ok(wb.sheets.includes('合同汇总'));
+    assert.ok(wb.sheets.includes('合同汇总'), '工作簿应复用报告存档的数据集');
+    assert.ok(!wb.sheets.includes('发票记录'), '不能按请求 body 重新解析意图');
 
     const row = await analytics.detail(report.id!, jwt);
     assert.equal(row.hasReport, true);

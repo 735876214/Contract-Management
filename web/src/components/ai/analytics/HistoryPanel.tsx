@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Descriptions,
   Drawer,
@@ -24,6 +25,7 @@ import {
   type AiAnalyticsRecordSummary,
 } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
+import { useAuthStore } from '@/store/auth';
 import { MIME_DOCX, MIME_PDF, MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 import { COMPARE_LABEL, SCOPE_LABEL } from './constants';
 
@@ -38,6 +40,8 @@ export interface HistoryPanelProps {
 
 /** 历史页签：本人全部（跨项目可见）；`projectId` 可选筛选；超管可看全部（由后端 all=1 决定）。 */
 export default function HistoryPanel({ projects, refreshKey }: HistoryPanelProps) {
+  const isSuperAdmin = useAuthStore((s) => !!s.user?.isSuperAdmin);
+  const [allUsers, setAllUsers] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [has, setHas] = useState<string | undefined>();
   const [projectId, setProjectId] = useState<string | undefined>();
@@ -62,6 +66,7 @@ export default function HistoryPanel({ projects, refreshKey }: HistoryPanelProps
         projectId,
         from: range?.[0]?.format('YYYY-MM-DD'),
         to: range?.[1]?.format('YYYY-MM-DD'),
+        all: allUsers ? 1 : undefined,
       });
       setList(res.list || []);
       setTotal(res.total || 0);
@@ -70,7 +75,7 @@ export default function HistoryPanel({ projects, refreshKey }: HistoryPanelProps
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, keyword, has, projectId, range]);
+  }, [page, pageSize, keyword, has, projectId, range, allUsers]);
 
   useEffect(() => {
     load();
@@ -241,6 +246,17 @@ export default function HistoryPanel({ projects, refreshKey }: HistoryPanelProps
           ]}
         />
         <DatePicker.RangePicker value={range} onChange={(v) => setRange(v as [Dayjs, Dayjs] | null)} />
+        {isSuperAdmin && (
+          <Checkbox
+            checked={allUsers}
+            onChange={(e) => {
+              setAllUsers(e.target.checked);
+              setPage(1);
+            }}
+          >
+            全部用户
+          </Checkbox>
+        )}
         <Button onClick={() => load()}>刷新</Button>
       </Space>
 

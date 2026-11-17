@@ -83,6 +83,19 @@ describe('集成 · AI 经营数据助手 报告与历史', () => {
         confirmStatusCode: 'CONFIRMED',
       } as any,
     });
+    const month = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    await ctx.prisma.monthlyProfitLoss.create({
+      data: { projectId: project.id, period: month, sixSavingsAmount: 1234 } as any,
+    });
+    await ctx.prisma.factoringCost.create({
+      data: { contractId: main.id, financingDate: new Date(), totalCost: 500 } as any,
+    });
+    await ctx.prisma.overdueInterest.create({
+      data: { contractId: main.id, settlementMonth: month, overdueInterest: 300 } as any,
+    });
+    await ctx.prisma.assetLedger.create({
+      data: { projectId: project.id, date: new Date(), sourceCode: 'PURCHASE', qty: 1, totalAmount: 2000 } as any,
+    });
 
     const res = await service.report(
       {
@@ -100,6 +113,10 @@ describe('集成 · AI 经营数据助手 报告与历史', () => {
     assert.equal(res.facts.totals.settledYuan, 60000, '草稿结算不计入');
     assert.equal(res.facts.totals.paidYuan, 40000, '失败付款不计入');
     assert.equal(res.facts.totals.invoicedYuan, 50000, '红冲发票不计入');
+    assert.equal(res.facts.totals.costSavingsYuan, 1234, '六项降本创效进成本合计');
+    assert.equal(res.facts.totals.financeCostYuan, 500, '保理费用进资金费用合计');
+    assert.equal(res.facts.totals.overdueYuan, 300, '逾期利息进合计');
+    assert.equal(res.facts.totals.assetInYuan, 2000, '进场金额进资产合计');
     assert.equal(res.facts.totals.dailyReports, 1);
     assert.ok(res.markdown.includes(project.code), '报告应包含项目编号');
     assert.equal(res.source, 'template');

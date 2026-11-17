@@ -12,6 +12,7 @@ import { paymentModeViolation } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculate,
+  recomputeOverdueRows,
   round,
   modeTranches,
   payableDateOf,
@@ -400,23 +401,61 @@ export class FinanceService {
     return stats;
   }
 
-  async listOverdue(contractId: string, query: any = {}, projectId?: string) {
+  /**
+   * 逾期利息台账列表（页面与导出共用）。
+   *
+   * 读时重算：派生列（overdueDays / overdueInterest 等）不再读库内上次写入的快照，
+   * 而是按本次查询的 asOfDate 走**同一个 recalculate 引擎**现算一遍再展示，彻底消除
+   * "过了几天没再编辑，未付完的利息却停在旧日期"的陈旧值问题；库内列退化为写入快照。
+   *
+   * 关键顺序：
+   * 1. **先全量取行再重算**——付款分配按逾期起始日跨月进行，若先按 settlementMonth
+   *    过滤再做引擎重算，会漏掉跨月分配片段导致利息错误；故筛选只能发生在重算之后。
+   * 2. 重算结果按 settlementMonth 过滤后汇总——保持"筛选视图只汇总被筛出的行"既有语义，
+   *    但读的是刚算出的派生值（interestOf 从重算后的行取），不再是库内旧值。
+   * 3. asOfDate 由 service 边界取一次并注入；单测可显式传入固定日期复现任意时点口径。
+   */
+  async listOverdue(contractId: string, query: any = {}, projectId?: string, asOfDate?: Date) {
     const params = await this.contractParams(contractId, projectId);
-    const where: any = { contractId };
-    if (query.settlementMonth) where.settlementMonth = query.settlementMonth;
+    // 全量取行（不在此处按 settlementMonth 过滤，理由见方法注释第 1 点）
     const rows = await this.prisma.overdueInterest.findMany({
-      where,
+      where: { contractId },
       orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }, { createdAt: 'asc' }],
     });
+    // 展开原始行保留全部字段（monthlyRate/version/createdAt 等供前端与导出使用），
+    // 同时把 Prisma Decimal 数值字段归一为 number 供引擎计算。
+    const input = rows.map((r: any) => ({
+      ...r,
+      materialAmount: num(r.materialAmount),
+      paymentRatio: num(r.paymentRatio),
+      payableDate: r.payableDate,
+      paymentDate: r.paymentDate,
+      paymentAmount: num(r.paymentAmount),
+      prevCumulative: num(r.prevCumulative),
+      payableAmount: num(r.payableAmount),
+      interestAmount: num(r.interestAmount),
+      overdueDays: r.overdueDays,
+      overdueInterest: num(r.overdueInterest),
+      monthlyRate: num(r.monthlyRate),
+    })) as OverdueRowInput[];
+    // 读时重算：基准日缺省取当前时刻（边界取一次），显式注入时用于单测/定时刷新等稳定口径
+    const asOf = asOfDate instanceof Date && !isNaN(asOfDate.getTime()) ? asOfDate : new Date();
+    const { rows: fresh } = recomputeOverdueRows(input, {
+      monthlyRate: params.monthlyRate,
+      graceDays: params.graceDays,
+      asOfDate: asOf,
+      interestCapRatio: params.interestCapRatio,
+    });
+    // 筛选发生在重算之后：只汇总被筛出的行，但读的是重算后的派生值
+    const scoped = query.settlementMonth
+      ? fresh.filter((r) => r.settlementMonth === query.settlementMonth)
+      : fresh;
     const supplierName = params.supplierName;
-    // 汇总口径与逾期利息引擎（recalculate().stats）**共用一份实现**，避免两处「上期开累」规则漂移；
-    // 注意 where 里可能带 settlementMonth：筛选视图只汇总被筛出的行（范围由调用方决定，汇总规则不变）
-    const summary = summarizeOverdue(rows, (r) => interestOf(r));
+    const summary = summarizeOverdue(scoped, (r) => interestOf(r));
     return {
       contract: params,
-      list: pageSlice(rows.map((r: any) => ({ ...r, supplierName })), query),
-      total: rows.length,
-      // stats 构造与 recalculate() 共用 buildOverdueStats：cap/占比不会再有两份公式
+      list: pageSlice(scoped.map((r: any) => ({ ...r, supplierName })), query),
+      total: scoped.length,
       stats: buildOverdueStats(summary, params.interestCapRatio),
     };
   }

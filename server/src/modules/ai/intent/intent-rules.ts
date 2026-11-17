@@ -220,10 +220,9 @@ function parseDetail(text: string): AiDetailLevel {
   return 'summary';
 }
 
-function parseGroupBy(text: string): AiGroupBy {
-  if (/(按月|分月)/.test(text)) return 'month';
-  if (/按供应商/.test(text)) return 'supplier';
-  if (/按合同/.test(text)) return 'contract';
+function parseGroupBy(_text: string): AiGroupBy {
+  // 当前只有「按项目汇总」一种实现；按月/供应商/合同不再作为可选值暴露，
+  // 文本里出现这些说法时由 parseIntentRules 给出明确提示，而不是静默接受一个无效枚举。
   return 'project';
 }
 
@@ -292,6 +291,9 @@ export function parseIntentRules(
     const picked = pickEnum(input.reportKind, AI_REPORT_KINDS);
     if (picked) reportKind = picked;
     else warnings.push(`忽略未知的报告类型：${input.reportKind}`);
+  }
+  if (/(按月|分月|按供应商|按合同)/.test(text)) {
+    warnings.push('当前仅支持按项目汇总，已忽略文本中的分组要求');
   }
   let groupBy: AiGroupBy = parseGroupBy(text);
   if (modelPatch?.groupBy) groupBy = modelPatch.groupBy;

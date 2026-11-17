@@ -13,7 +13,7 @@
  */
 
 import { round } from '../../common/calc/money';
-import { buildOverdueStats, summarizeOverdue } from '../../common/utils/overdue-summary';
+import { buildOverdueStats, summarizeOverdue, type OverdueStats } from '../../common/utils/overdue-summary';
 import { modeTranchesOf } from '../../common/utils/pay-ratio';
 
 export { round };
@@ -240,5 +240,36 @@ export function recalculate(rows: OverdueRowInput[], opts: EngineOptions) {
     derived,
     // 与 listOverdue() 返回完全同形的 stats（含 cap 字段），避免两处各自拼装导致口径漂移
     stats: buildOverdueStats(summary, opts.interestCapRatio),
+  };
+}
+
+/** 无派生值时各列的空值——与 finance.service 写库 `d?.xxx ?? null` 口径严格一致 */
+const EMPTY_DERIVED: OverdueDerived = {
+  payableAmount: null,
+  overdueStartDate: null,
+  interestAmount: null,
+  overdueDays: null,
+  overdueInterest: null,
+};
+
+/**
+ * 读时重算（不写库）：把引擎按 asOfDate 算出的派生列覆盖到每一行，返回可直接展示的行。
+ *
+ * 为什么需要：逾期派生列（overdueDays / overdueInterest 等）此前只在增删改时重算并持久化，
+ * 之后每过一天，未付完的剩余金额本应继续计息，库内值却停在上次写入那天 → 台账陈旧。
+ * 读接口改为「查询时按当前 asOfDate 走**同一个 recalculate 引擎**重算一遍再展示」，
+ * 无需引入定时刷新任务，也不产生第二套计算口径；库内持久化列退化为写入时的快照/缓存。
+ *
+ * `derived` 的 key 是入参下标（不依赖 row.id，故前端复算/无 id 场景同样可用）；
+ * 引擎判定该行当前不应有派生值时用 EMPTY_DERIVED 置空，与写库口径一致，杜绝"行已不逾期利息还在"。
+ */
+export function recomputeOverdueRows(
+  rows: OverdueRowInput[],
+  opts: EngineOptions,
+): { rows: Array<OverdueRowInput & { supplierName?: string | null } & OverdueDerived>; stats: OverdueStats } {
+  const { derived, stats } = recalculate(rows, opts);
+  return {
+    rows: rows.map((r, idx) => ({ ...r, ...(derived.get(idx) ?? EMPTY_DERIVED) })),
+    stats,
   };
 }
