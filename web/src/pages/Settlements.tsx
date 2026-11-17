@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
+import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '../../../server/src/common/calc/amounts.ts';
 import {
   Alert,
   Button,
@@ -379,11 +380,16 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
    * **不能**用 `priceWithTax`——那是服务端 normalizeItem 才写的派生列，
    * 新加行/改过税率的行在前端恒为空，会把合计算成 0 或旧值。
    */
-  const itemsTotal = items.reduce((sum, r) => {
-    if (r.priceBeforeTax == null || r.qty == null) return sum;
-    const rate = Number(r.taxRatePct) || 0;
-    return sum + Number(r.qty) * Number(r.priceBeforeTax) * (1 + rate / 100);
-  }, 0);
+  const itemsTotal = sumRounded(
+    items.map((r) => {
+      if (r.priceBeforeTax == null || r.qty == null) return null;
+      // 就地按统一引擎算（含税单价 4 位、合价 2 位），与服务端 settlement.service 同口径；
+      // 仍不读 priceWithTax 派生列——新加行/改税率行在前端恒为空，读它仍会算成 0 或旧值。
+      const withTax = calcPriceWithTax(r.priceBeforeTax, r.taxRatePct ?? 0);
+      return withTax == null ? null : calcTotalWithTax(withTax, r.qty, 2);
+    }),
+    2,
+  );
 
   const submit = async () => {
     // 明细还在拉取时提交会让 items 为空 → 后端按空数组清空明细，必须挡住
@@ -542,9 +548,9 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
                 render: (_: any, r: any) => {
                   const withTax =
                     r.priceBeforeTax != null && r.taxRatePct != null
-                      ? Number(r.priceBeforeTax) * (1 + Number(r.taxRatePct) / 100)
+                      ? calcPriceWithTax(r.priceBeforeTax, r.taxRatePct)
                       : null;
-                  const total = withTax != null && r.qty != null ? Number(r.qty) * withTax : null;
+                  const total = withTax != null && r.qty != null ? calcTotalWithTax(withTax, r.qty, 2) : null;
                   return total == null ? '-' : <b>{total.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>;
                 },
               },

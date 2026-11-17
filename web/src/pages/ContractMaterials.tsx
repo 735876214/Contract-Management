@@ -13,7 +13,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { LIST_PATHS } from '@/constants/listPaths';
-import { round4 } from '../../../server/src/common/calc/money.ts';
+import { calcPriceWithTax, calcTotalWithTax } from '../../../server/src/common/calc/amounts.ts';
 
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
 const LIST_PATH = LIST_PATHS.contractMaterial;
@@ -453,8 +453,9 @@ function MaterialRowEditor({ seed }: { seed: unknown }) {
     const qty = watched.qty;
     const p = watched.priceBeforeTax;
     const pct = watched.taxRatePct;
-    const withTax = p != null ? round4(Number(p) * (1 + (Number(pct) || 0) / 100)) : null;
-    const total = withTax != null && qty != null ? round4(Number(qty) * withTax) : null;
+    // 统一引擎：与服务端 material.service 的 calcPriceWithTax/calcTotalWithTax 同口径
+    const withTax = p != null ? calcPriceWithTax(p, pct ?? 0) : null;
+    const total = withTax != null && qty != null ? calcTotalWithTax(withTax, qty) : null;
     return { withTax, total };
   }, [watched]);
 

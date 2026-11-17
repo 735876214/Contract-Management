@@ -15,7 +15,7 @@ import { DeleteOutlined, PlusOutlined, SaveOutlined, SendOutlined } from '@ant-d
 import { dictApi, type DictOption } from '@/api/dict';
 import { materialApi, procurementTaskApi } from '@/api/modules';
 import { taskStatusLabel } from '@/constants/procurementWorkflow';
-import { calcAmount } from '@/utils/procurementPriceCompare';
+import { calcAmount, round2 } from '@/utils/procurementPriceCompare';
 
 /** 物资基础库选项（物资名称/规格型号只能从基础库选择，需求 2.2.1） */
 interface MaterialOption {
@@ -208,8 +208,9 @@ export const TotalListEditorContent = forwardRef<TotalListContentRef, TotalListE
 
   /** 合价汇总（需求修正 修改一：表底汇总行） */
   const totals = useMemo(() => {
+    // 统一引擎：逐行 calcAmount 已精确乘，累加走共享 round2（此前外层 Math.round 是旧式浮点尾差口径）
     const sum = (pick: (r: TotalRow) => number | null | undefined) =>
-      Math.round(rows.reduce((s, r) => s + calcAmount(pick(r), r.qty), 0) * 100) / 100;
+      round2(rows.reduce((s, r) => s + calcAmount(pick(r), r.qty), 0));
     return {
       income: sum((r) => r.incomePrice),
       stdCost: sum((r) => r.stdCost),

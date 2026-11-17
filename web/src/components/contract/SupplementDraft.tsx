@@ -10,6 +10,7 @@ import { contractApi, templateApi } from '@/api/business';
 import { dailyApi } from '@/api/modules';
 import RichTextEditor from '@/components/RichTextEditor';
 import { amountToChineseCapital } from '../../../../server/src/common/calc/money.ts';
+import { calcPriceWithTax, calcTotalWithTax } from '../../../../server/src/common/calc/amounts.ts';
 import { DictTag } from '@/components/DictSelect';
 
 const SUPP_TYPES = [
@@ -294,8 +295,9 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
       base['累计补充协议占比'] = fmtPct(parentAmount ? addTotal / parentAmount : 0);
     } else if (suppType === 'ITEM_ADD') {
       const newRows = itemNew.map((r, i) => {
-        const priceWithTax = num(r.priceBeforeTax) * (1 + num(r.taxRate) / 100);
-        const amount = priceWithTax * num(r.addQty);
+        // 统一引擎：与服务端 contract.service 的含税公式同口径（含税单价 4 位、合价 4 位）
+        const priceWithTax = calcPriceWithTax(num(r.priceBeforeTax), num(r.taxRate)) ?? 0;
+        const amount = calcTotalWithTax(priceWithTax, num(r.addQty)) ?? 0;
         return { ...r, priceWithTax, amount, i };
       });
       const addTotal = newRows.reduce((s, r) => s + r.amount, 0);
@@ -464,9 +466,9 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
     { title: '计量单位', render: (_, r, i) => <Input value={r.unit} onChange={(e) => update(itemNew, setItemNew, i, 'unit', e.target.value)} /> },
     { title: '税前单价', render: (_, r, i) => <InputNumber value={r.priceBeforeTax} onChange={(v) => update(itemNew, setItemNew, i, 'priceBeforeTax', num(v))} /> },
     { title: '税率(%)', render: (_, r, i) => <InputNumber value={r.taxRate} onChange={(v) => update(itemNew, setItemNew, i, 'taxRate', num(v))} /> },
-    { title: '含税单价', render: (_, r) => fmt(num(r.priceBeforeTax) * (1 + num(r.taxRate) / 100)) },
+    { title: '含税单价', render: (_, r) => fmt(calcPriceWithTax(num(r.priceBeforeTax), num(r.taxRate)) ?? 0) },
     { title: '暂定新增数量', render: (_, r, i) => <InputNumber value={r.addQty} onChange={(v) => update(itemNew, setItemNew, i, 'addQty', num(v))} /> },
-    { title: '暂定新增含税金额', render: (_, r) => fmt(num(r.priceBeforeTax) * (1 + num(r.taxRate) / 100) * num(r.addQty)) },
+    { title: '暂定新增含税金额', render: (_, r) => fmt(calcTotalWithTax(calcPriceWithTax(num(r.priceBeforeTax), num(r.taxRate)), num(r.addQty)) ?? 0) },
     { title: '备注', render: (_, r, i) => <Input value={r.remark} onChange={(e) => update(itemNew, setItemNew, i, 'remark', e.target.value)} /> },
   ];
 
