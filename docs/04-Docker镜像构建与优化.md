@@ -34,7 +34,7 @@ docker-compose.yml
 | `backend-deps` | COPY `server/package.json` → `npm install --legacy-peer-deps` | 只带 package.json，依赖层可缓存 |
 | `backend-build` | COPY `server/` → `prisma generate` + `nest build` | 产出 `dist/` |
 | `backend-proddeps` | 生产依赖 + Prisma CLI | 见 §3.1、§3.2 |
-| `frontend-build` | COPY `web/` → `VITE_API_BASE=/api` + `vite build` | 产出 `web/dist` |
+| `frontend-build` | COPY `web/` + `server/src/common/calc` → `VITE_API_BASE=/api` + `vite build` | 产出 `web/dist`；前端运行时复用后端零依赖计算原语，见 §2.2 |
 | `runtime` | 装 openssl/nginx/tzdata，合并上述产物 | 见 §2.1 |
 
 ### 2.1 runtime 合并了哪些产物
@@ -55,6 +55,15 @@ deploy/single/start.sh   → /usr/local/bin/start.sh
   否则只是在运行层"看不见"，体积不变。
 - `EXPOSE 8080`；`HEALTHCHECK` 用 `node -e "require('net').connect(8080,...)"` 探测对外端口
   （`node:20-slim` **不带 wget**，不能用 wget 探针）。
+
+### 2.2 前端复用后端 `server/src/common/calc`
+
+前端的金额/税率/时间计算直接 import 后端零依赖原语，写法是
+`import { round2 } from '../../../server/src/common/calc/money.ts'`（相对**仓库根**解析）。
+CI 的 `web` job 全仓检出所以能过，但 `frontend-build` 阶段只 COPY `web/` ——
+必须额外 `COPY server/src/common/calc /app/server/src/common/calc` 到镜像内**同一相对位置**，
+否则镜像构建在 `tsc` 阶段报 `TS2307: Cannot find module '.../server/src/common/calc/...'`。
+新增跨包共享目录时，同样要在该阶段补齐 COPY。
 
 ## 3. 关键踩坑
 
