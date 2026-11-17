@@ -52,6 +52,10 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
 COPY web/ ./
+# 前端直接复用后端零依赖计算原语：web/src/** 里写的是 `../../../server/src/common/calc/...`
+# （相对仓库根解析）。本阶段只 COPY 了 web/，必须把该目录放到镜像内**同一相对位置**，
+# 否则 tsc 报 TS2307（CI 的 web job 全仓检出能过，镜像构建过不了）。
+COPY server/src/common/calc /app/server/src/common/calc
 ENV VITE_API_BASE=/api
 RUN npm run build
 
