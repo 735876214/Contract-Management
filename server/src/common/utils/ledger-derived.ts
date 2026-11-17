@@ -26,14 +26,15 @@
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
 
+/** 金额舍入走全站唯一实现（字符串位移法，模拟 Excel ROUND，见 money.ts 文件头） */
+import { round2 } from './money.ts';
+
 /** 值是否"已填"（`0` 算已填；空串/空白算未填） */
 export function isFilledNumber(v: unknown): boolean {
   if (v === null || v === undefined) return false;
   if (typeof v === 'string' && v.trim() === '') return false;
   return Number.isFinite(Number(v));
 }
-
-const round2 = (n: number) => Number((Number(n) || 0).toFixed(2));
 
 /** 百分比（两位小数）；分母缺失或为 0 时返回 `null`（**不返回 0**，0 是个断言） */
 export function ratioPctOrNull(numerator: number, denominator: number): number | null {
@@ -118,8 +119,31 @@ export function deriveTaxSplit(
  * ⚠️ 补充协议行的 `amount` 是手填自由值（涨价/降价时常填"剩余数量的全价"），逐行相加会**重复计入**；
  * 补充协议的影响已经包含在主合同的 `currentAmount`（主合同 + Σ changeAmount）里。
  */
-export function chainContractTotal(
-  rows: Array<{ currentAmount: number | null; isSupplement: boolean }>,
-): number {
-  return round2(rows.reduce((s, r) => s + (r.isSupplement ? 0 : Number(r.currentAmount) || 0), 0));
+export interface ChainRowAmount {
+  /** 本行合同 id */
+  id: string;
+  /** 链根（主合同）id：来自 `resolveChainAmounts().rootId` */
+  rootId: string | null;
+  /** 本行展示的链金额（同一链上的行值相同；主合同未填金额时为 null） */
+  currentAmount: number | null;
+}
+
+/**
+ * 按**链根**去重后的链金额表（key = 链根 id，value = 该链当前金额）。
+ *
+ * 判定只看 `rootId`（与 `contract-chain.ts` 的链定义同源），**不再依赖 `isSupplement` 字典值**——
+ * 两份判据不一致时（有 `parentContractId` 但 `isSupplement≠'Y'`）会重复计入或漏计。
+ */
+export function chainRootAmounts(rows: ChainRowAmount[]): Map<string, number | null> {
+  const byRoot = new Map<string, number | null>();
+  for (const r of rows) {
+    const key = r.rootId ?? r.id;
+    if (!byRoot.has(key)) byRoot.set(key, r.currentAmount ?? null);
+  }
+  return byRoot;
+}
+
+/** 项目「合同额」合计：每条链只计一次（未填金额的链按 0 参与合计，调用方可另计"未填"条数） */
+export function chainContractTotal(rows: ChainRowAmount[]): number {
+  return round2([...chainRootAmounts(rows).values()].reduce((s, v) => s + (v ?? 0), 0));
 }

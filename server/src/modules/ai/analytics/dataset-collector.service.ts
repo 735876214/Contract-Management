@@ -13,6 +13,14 @@ import {
 import { deriveContractFulfillment } from '../../../common/utils/contract-fulfillment';
 import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../common/utils/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
+import {
+  loadContractChainFacts,
+  loadDailyReportCounts,
+  loadInvoiceFacts,
+  loadPaymentFacts,
+  loadProcurementTaskCounts,
+  loadSettlementFacts,
+} from '../../../query';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots';
 import { datasetColumnsOf } from './dataset-columns';
 import { datasetByKey } from './dataset-registry';
@@ -110,65 +118,37 @@ export class DatasetCollector {
     const monthRange = monthBetween(range);
     const [contracts, settlements, payments, invoices, daily, tasks, profitLosses, factoring, overdue, assets] =
       await Promise.all([
-      this.prisma.contract.findMany({
-        where: { projectId: { in: ids } },
-        select: { id: true, projectId: true, parentContractId: true, amount: true, changeAmount: true, signDate: true, status: true },
-      }),
-      this.prisma.settlement.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { settleDate: { gte: range.from, lte: range.to } } : {}), ...notDraft },
-        select: { projectId: true, amount: true, actualAmount: true },
-      }),
-      this.prisma.paymentRecord.findMany({
-        where: {
-          projectId: { in: ids },
-          AND: [
-            paidPaymentWhere(),
-            ...(range.from
-              ? [{ OR: [{ payDate: { gte: range.from, lte: range.to } }, { payDate: null, payMonth: monthBetween(range) ?? undefined }] }]
-              : []),
-          ],
-        },
-        select: { projectId: true, amount: true },
-      }),
-      this.prisma.invoice.findMany({
-        where: { projectId: { in: ids }, ...countedInvoiceWhere(), ...(range.from ? { invoiceDate: { gte: range.from, lte: range.to } } : {}) },
-        select: { projectId: true, amountWithTax: true },
-      }),
-      this.prisma.dailyReport.groupBy({
-        by: ['projectId'],
-        where: {
-          projectId: { in: ids },
-          ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
-          ...(range.from ? { entryDate: { gte: range.from, lte: range.to } } : {}),
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.procurementTask.groupBy({
-        by: ['projectId'],
-        where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
-        _count: { _all: true },
-      }),
-      this.prisma.monthlyProfitLoss.findMany({
-        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: { projectId: true, sixSavingsAmount: true },
-      }),
-      this.prisma.factoringCost.findMany({
-        where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
-        select: { totalCost: true, contract: { select: { projectId: true } } },
-      }),
-      this.prisma.overdueInterest.findMany({
-        where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: { overdueInterest: true, contract: { select: { projectId: true } } },
-      }),
-      this.prisma.assetLedger.findMany({
-        where: {
-          projectId: { in: ids },
-          sourceCode: { in: [...ASSET_IN_SOURCES] },
-          ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}),
-        },
-        select: { projectId: true, totalAmount: true },
-      }),
-    ]);
+        loadContractChainFacts(this.prisma, ids),
+        loadSettlementFacts(this.prisma, ids, { range, excludeDraft: true }),
+        loadPaymentFacts(this.prisma, ids, {
+          range,
+          excludeFailed: true,
+          payMonthRange: monthRange,
+        }),
+        loadInvoiceFacts(this.prisma, ids, { range, excludeTerminal: true }),
+        loadDailyReportCounts(this.prisma, ids, { range, confirmedOnly: gated }),
+        loadProcurementTaskCounts(this.prisma, ids, { range }),
+        this.prisma.monthlyProfitLoss.findMany({
+          where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
+          select: { projectId: true, sixSavingsAmount: true },
+        }),
+        this.prisma.factoringCost.findMany({
+          where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
+          select: { totalCost: true, contract: { select: { projectId: true } } },
+        }),
+        this.prisma.overdueInterest.findMany({
+          where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
+          select: { overdueInterest: true, contract: { select: { projectId: true } } },
+        }),
+        this.prisma.assetLedger.findMany({
+          where: {
+            projectId: { in: ids },
+            sourceCode: { in: [...ASSET_IN_SOURCES] },
+            ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}),
+          },
+          select: { projectId: true, totalAmount: true },
+        }),
+      ]);
 
     const map = new Map<string, AiAnalyticsProjectFact>();
     for (const p of projects) {

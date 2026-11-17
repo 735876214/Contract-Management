@@ -155,3 +155,9 @@ export function formatDay(d: unknown): string | null {
   if (isNaN(dt.getTime())) return null;
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
+
+/** 结算期标签 `YYYY-MM` → 中文展示 `YYYY年M月`；认不出原样返回（导出表头用） */
+export function periodLabel(period: string): string {
+  const m = String(period).match(/^(\d{4})-(\d{2})$/);
+  return m ? `${m[1]}年${Number(m[2])}月` : period;
+}

@@ -46,14 +46,8 @@ const CLAUSE_FIELDS: { type: string; field: string }[] = [
   { type: 'acceptance', field: 'acceptanceClauseId' },
 ];
 
-export default function ContractEditor({
-  seed,
-  listPath = LIST_PATHS.contractLedger,
-}: {
-  seed: unknown;
-  listPath?: string;
-}) {
-  const editorTab = useEditorTab(listPath);
+export default function ContractEditor({ seed }: { seed: unknown }) {
+  const editorTab = useEditorTab(LIST_PATHS.contractLedger);
   const [form] = Form.useForm();
   const [extForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -221,7 +215,7 @@ export default function ContractEditor({
 
   return (
     <EditorTabPage
-      listPath={listPath}
+      listPath={LIST_PATHS.contractLedger}
       title={editing ? '编辑合同' : '新建合同'}
       saving={saving}
       dirty={dirty}

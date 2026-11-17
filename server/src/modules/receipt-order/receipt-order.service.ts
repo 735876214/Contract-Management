@@ -110,16 +110,19 @@ export class ReceiptOrderService {
         ? data.materialContractId || null
         : (fallback?.materialContractId ?? null);
     const date = data.orderDate !== undefined ? data.orderDate : fallback?.orderDate;
-    if (data.settlementId !== undefined) {
-      if (!data.settlementId) return null; // 显式解绑
-      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
-      return data.settlementId;
-    }
     // 2026-10-18 业务流审计：改了物资合同或日期时，旧的自动匹配可能已违反「同合同同期」——
     // 必须按新合同/新日期重算（显式传 settlementId 的人工指定仍优先）。current 只在
     // 合同与日期都未变时才保留。
     const contractChanged = data.materialContractId !== undefined && data.materialContractId !== fallback?.materialContractId;
     const dateChanged = data.orderDate !== undefined && new Date(data.orderDate ?? 0).getTime() !== new Date(fallback?.orderDate ?? 0).getTime();
+    if (data.settlementId !== undefined) {
+      if (!data.settlementId) return null; // 显式解绑
+      // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
+      // 重新跑严格同合同校验会 400，导致整张单据存不了
+      if (current === data.settlementId && !contractChanged && !dateChanged) return current;
+      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
+      return data.settlementId;
+    }
     if (current && !contractChanged && !dateChanged) return current;
     return this.settlement.findSettlementIdFor(contractId, date);
   }
@@ -500,13 +503,14 @@ export class ReceiptOrderService {
       },
     });
 
-    // 按「材料名+规格」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    // 按「材料名+规格+单位」去重，保留最近一条明细的骨架字段；税率回退合同/无 → null（手填）
+    // 单位是行身份的一部分：同名同规格按米/根的领用是两条独立材料行
     const byKey = new Map<string, any>();
     outer: for (const o of orders) {
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
-        const key = `${name}\u0002${d.specModel || ''}`;
+        const key = `${name}\u0002${d.specModel || ''}\u0002${String(d.unit ?? '').trim()}`;
         if (byKey.has(key)) continue outer; // 订单已按日期倒序 → 首见即最近
         byKey.set(key, d);
       }

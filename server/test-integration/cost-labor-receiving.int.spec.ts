@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { BadRequestException } from '@nestjs/common';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';
 import { LaborReceivingService } from '../src/modules/cost/labor-receiving.service';
 import { MonthlyProfitLossService } from '../src/modules/cost/monthly-profit-loss.service';
@@ -125,7 +126,7 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
 
     await labor.updateDoc(doc.id, {
       version: doc.version,
-      details: [{ materialName: '砂子', spec: before.spec, unitPrice: 999, returnQty: 2 }],
+      details: [{ materialName: '砂子', spec: before.spec, unit: before.unit, unitPrice: 999, returnQty: 2 }],
     }, project.id);
 
     const afterRow = rowOf((await labor.docDetail(doc.id, project.id)).details, '砂子');
@@ -140,7 +141,7 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     // 先落一行手填骨架（设计量），再放一张实收为空的收领单
     await labor.updateDoc(doc.id, {
       version: doc.version,
-      details: [{ materialName: '碎石', spec: '', designQtyCum: 50 }],
+      details: [{ materialName: '碎石', spec: '', unit: '吨', designQtyCum: 50 }],
     }, project.id);
     await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 12), receivingUnitId: auth.id, materialName: '碎石', receivedQty: null, priceBeforeTax: 100 });
 
@@ -175,5 +176,88 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     assert.equal(next.unitPrice, 200);
     assert.notEqual(next.saveOverAmount, oldAmount);
     assert.equal(next.saveOverAmount, Number((Number(next.saveOverQty) * 200).toFixed(2)));
+  });
+
+  it('盈亏快照冻结：单价/数量不可手改，只有责任人/劳务计价已扣/备注生效', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-FROZEN');
+    const auth = await makeAuth(project.id, '冻结分包商');
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 10), receivingUnitId: auth.id, materialName: '砂浆', receivedQty: 10, priceBeforeTax: 50 });
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    await labor.updateDoc(doc.id, {
+      version: doc.version,
+      details: [{ materialName: '砂浆', spec: '', unit: '吨', designQtyCum: 8 }],
+    }, project.id);
+
+    const created: any = await profit.create({ period: '2026-10' }, project.id, { userId: 'int' });
+    const snapshot = created.details.find((d: any) => d.materialName === '砂浆');
+    assert.ok(snapshot, '应生成砂浆快照');
+
+    const updated: any = await profit.update(created.id, {
+      version: created.version,
+      details: [{
+        id: snapshot.id,
+        unitPrice: 999, // 快照列：必须被忽略
+        entryQty: 999, // 快照列：必须被忽略
+        owner: '张三',
+        deductAmount: 12.5,
+        remark: '已核',
+      }],
+    }, project.id);
+    const row = updated.details.find((d: any) => d.id === snapshot.id);
+    assert.equal(row.unitPrice, 50, '单价是快照，不允许手改');
+    assert.equal(row.entryQty, snapshot.entryQty, '进场量是快照，不允许手改');
+    assert.equal(row.owner, '张三');
+    assert.equal(row.deductAmount, 12.5);
+    assert.equal(row.remark, '已核');
+  });
+
+  it('单据状态只接受 DRAFT/COMPLETED；材料名保存时 trim', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-STATUS');
+    const auth = await makeAuth(project.id, '状态分包商');
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+
+    await assert.rejects(
+      () => labor.updateDoc(doc.id, { version: doc.version, status: 'BOGUS' }, project.id),
+      (e: any) => e instanceof BadRequestException,
+      '非法状态必须 400，不能靠 pickFields 静默落库',
+    );
+
+    const saved = await labor.updateDoc(doc.id, {
+      version: doc.version,
+      status: 'COMPLETED',
+      details: [{ materialName: '  砂浆  ', spec: 'M5', returnQty: 1 }],
+    }, project.id);
+    assert.equal(saved.status, 'COMPLETED');
+    assert.ok(rowOf(saved.details, '砂浆'), '材料名应 trim 后落库，并按 trim 后的键取到');
+  });
+
+  it('行键含计量单位：同材料+规格、不同单位分成两行，不合并数量/均价', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-UNIT');
+    const auth = await makeAuth(project.id, '单位分包商');
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 10), receivingUnitId: auth.id, materialName: '钢管', specModel: 'DN50', unit: '米', receivedQty: 10, priceBeforeTax: 20 });
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 11), receivingUnitId: auth.id, materialName: '钢管', specModel: 'DN50', unit: '根', receivedQty: 5, priceBeforeTax: 30 });
+
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    const rows = (await labor.docDetail(doc.id, project.id)).details.filter((d) => d.materialName === '钢管');
+    assert.equal(rows.length, 2, '同材料同规格但单位不同必须是两行');
+    const byUnit = new Map(rows.map((d) => [d.unit, d]));
+    assert.equal(byUnit.get('米').receivedQty, 10);
+    assert.equal(byUnit.get('米').unitPrice, 20);
+    assert.equal(byUnit.get('根').receivedQty, 5);
+    assert.equal(byUnit.get('根').unitPrice, 30);
+
+    // 两行手填值分别落库：唯一键与 upsert 定位都含单位，不会互相覆盖
+    const saved = await labor.updateDoc(doc.id, {
+      version: doc.version,
+      details: [
+        { materialName: '钢管', spec: 'DN50', unit: '米', returnQty: 1 },
+        { materialName: '钢管', spec: 'DN50', unit: '根', returnQty: 2 },
+      ],
+    }, project.id);
+    const savedRows = saved.details.filter((d) => d.materialName === '钢管');
+    assert.equal(savedRows.length, 2);
+    const savedByUnit = new Map(savedRows.map((d) => [d.unit, d]));
+    assert.equal(savedByUnit.get('米').returnQty, 1);
+    assert.equal(savedByUnit.get('根').returnQty, 2);
   });
 });

@@ -27,7 +27,6 @@ import { AssetService } from '../asset';
 import { DailyReportService } from '../daily-report';
 import { RepaymentService } from '../repayment';
 import { FinanceService } from '../finance';
-import { CostService } from '../cost';
 import { MonthlyProfitLossService } from '../cost';
 import { LaborReceivingService } from '../cost';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
@@ -70,7 +69,6 @@ export class ArchiveService {
     private dailyReportService: DailyReportService,
     private repaymentService: RepaymentService,
     private financeService: FinanceService,
-    private costService: CostService,
     private monthlyProfitLossService: MonthlyProfitLossService,
     private laborReceivingService: LaborReceivingService,
   ) {}
