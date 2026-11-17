@@ -159,8 +159,10 @@
   **草稿**（`settleDate` = **期末** → 台账月份由它派生，两边必须同口径），明细按 `materialBaseId` 从日报带出、
   **允许人工修改**；期内收领单回挂 `settlementId`（发票/台账按关联归集），但**不参与明细金额计算**。
   该合同本期**已有结算单 → 跳过并补挂**迟到的收领单（**只补关联、不改金额**：金额可能已定稿甚至已提交）。
-  ⚠️ 明细金额 = Σ 日报金额；缺 `materialBaseId` 的行计入 `skippedRows`，**有金额但 `settleQty` 为空/≤0**
-  的行计入 `skippedNoQtyRows`，两类都返回 `warnings`（不静默丢；无数量行也不得混入加权平均）。
+  ⚠️ 明细金额 = Σ 日报金额；缺 `materialBaseId` 的行计入 `skippedRows`，**`settleQty` 为空或为 0** 的行
+  计入 `skippedNoQtyRows`，两类都返回 `warnings`（不静默丢；无数量行也不得混入加权平均）。
+  **负数是退货 / 材料调出**（业务 2026-11-17）：照常参与同物资聚合、按净额冲减本期结算；正负完全抵消
+  （净数量 0）的分组无法表示成「单价 × 数量」，计入 `skippedNetZeroRows` 并告警，不生成 0 数量明细。
   纯函数在 `common/utils/settlement-from-daily.ts`（价格公式与 `SettlementService.normalizeItem()` 同一份，
   保证表头金额 = Σ 明细合价）；生成时「单头 + 明细 + 收领单回挂」在同一事务内，失败不留孤儿结算单。
   ⚠️ 它是**手动按钮**触发的（仓库不引入调度器），前端另有「上一期未生成」提示。

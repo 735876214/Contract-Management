@@ -101,7 +101,8 @@ export class AssetService {
   private validate(data: any) {
     // 调入费/维保费行只填金额，不填数量（数量可空）
     if (['TRANSFER_IN_FEE', 'MAINTENANCE'].includes(data.sourceCode)) return;
-    if (data.qty !== undefined && data.qty !== null && Number(data.qty) < 0) throw new BadRequestException('进/出场数量不能为负数');
+    // 负数 = 退货/材料调出（业务口径 2026-11-17）：收领单同步过来的负数行必须可保存/可编辑。
+    // 下方状态数量合计只在 qty > 0 时校验，负数行不受影响。
     const statusSum = (num(data.inUseQty) || 0) + (num(data.idleQty) || 0) + (num(data.scrapQty) || 0) + (num(data.lostQty) || 0);
     const qty = num(data.qty) || 0;
     if (statusSum > 0 && qty > 0 && Math.abs(statusSum - qty) > 0.0001) {

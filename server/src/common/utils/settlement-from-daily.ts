@@ -8,6 +8,10 @@
  * 价格口径：同物资多条日报行（多张收领单/多次进场）按数量加权平均出税前单价与税率；
  * 明细的含税单价/合价与 `SettlementService.normalizeItem()` 使用**同一个公式**，
  * 保证「表头金额 = Σ 明细合价」，不会被两边各算一遍算岔。
+ *
+ * **负数口径（业务 2026-11-17）**：数量为负 = 退货/材料调出，参与同物资聚合并按净额
+ * 冲减本期结算；只有「数量为空或为 0」才算缺数量。正负完全抵消（净数量 0）的分组
+ * 无法用「单价 × 数量」表示，跳过并单独计数，不静默丢。
  */
 
 import { round2, round4 } from '../calc/money.ts';
@@ -48,8 +52,10 @@ export interface DailyToItemsResult {
   skippedRowCount: number;
   /** 被跳过的行用到的物资名称（去重，最多 5 个） */
   skippedNames: string[];
-  /** 有物资主数据但结算数量为空/≤0 的行数（金额无法按数量口径结算，需人工补数量） */
+  /** 有物资主数据但结算数量为空/0 的行数（金额无法按数量口径结算，需人工补数量） */
   skippedNoQtyRowCount: number;
+  /** 按物资聚合后净数量为 0（收退货互相抵消）而被跳过的行数 */
+  skippedNetZeroRowCount: number;
   /** 单价/税率推导异常（税率超出 Decimal(5,2) 可存范围等）的行数 */
   skippedInvalidPriceRowCount: number;
 }
@@ -77,8 +83,10 @@ interface Group {
  * 把一期内的总日报行按物资（`materialBaseId`）聚合成结算明细草稿。
  *
  * - 数量：Σ `settleQty`（空值按 0 计，与旧实现一致；显式 0 仍是 0）。
+ *   负数是退货/调出，照常参与聚合，净额可为负。
  * - 金额：优先取行上的 `amountBeforeTax` / `amountAfterTax`，缺失时用「单价 × 数量」补算。
  * - 单价：按数量加权平均；税率由加权后的税前/含税单价反推，保证合价与总额一致。
+ * - 净数量为 0 的分组（收退货完全抵消）计入 `skippedNetZeroRowCount`，不生成 0 数量明细。
  * - `materialBaseId` 为空的行**无法**形成清单项级明细（`SettlementItem` 必填），
  *   计入 `skippedRowCount` 并由调用方在结算单备注/提示里说明，不静默吞掉。
  */
@@ -98,9 +106,10 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     }
 
     const qty = num(r.settleQty);
-    // 结算明细是**数量口径**：没有结算数量（空/0/负数）的行不能形成合价，
-    // 也不能把它的金额混进同物资的加权平均（否则会算出异常税率/单价）。
-    if (qty == null || qty <= 0) {
+    // 结算明细是**数量口径**：数量为空/0 的行不能形成合价，也不能混进同物资的加权平均。
+    // **负数不是缺数量**（业务口径 2026-11-17）：负数 = 退货/材料调出，必须参与聚合，
+    // 按净额冲减本期该物资的结算数量与金额。
+    if (qty == null || qty === 0) {
       skippedNoQtyRowCount++;
       continue;
     }
@@ -141,9 +150,14 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
 
   const items: SettlementItemDraft[] = [];
   let skippedInvalidPriceRowCount = 0;
+  let skippedNetZeroRowCount = 0;
   for (const g of groups.values()) {
-    // 分组阶段已排除无数量行；这里保留防御性判断
-    if (g.qty <= 0) continue;
+    // 正负完全抵消（净数量为 0）的分组无法表示成「单价 × 数量」，跳过并计数告警，
+    // 不静默丢。负数是退货，照常生成负数量/负金额明细。
+    if (round4(g.qty) === 0) {
+      skippedNetZeroRowCount += g.count;
+      continue;
+    }
     // 税前单价：优先加权平均，缺金额时退回最近一条非空单价
     let priceBeforeTax =
       g.sumBefore != null ? round4(g.sumBefore / g.qty) : g.lastBefore;
@@ -153,7 +167,8 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     let taxRatePct: number | null = null;
     if (priceBeforeTax != null && priceBeforeTax > 0 && targetAfter != null) {
       taxRatePct = round2(((targetAfter - priceBeforeTax) / priceBeforeTax) * 100);
-    } else if (g.taxQty > 0) {
+    } else if (g.taxQty !== 0) {
+      // 退货组的数量与税额同为负，比值仍是正确的加权税率
       taxRatePct = round2(g.sumTaxQty / g.taxQty);
     } else {
       taxRatePct = g.lastTax;
@@ -192,5 +207,13 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
   }
 
   const amount = round2(items.reduce((s, it) => s + (it.totalWithTax ?? 0), 0));
-  return { items, amount, skippedRowCount, skippedNames, skippedNoQtyRowCount, skippedInvalidPriceRowCount };
+  return {
+    items,
+    amount,
+    skippedRowCount,
+    skippedNames,
+    skippedNoQtyRowCount,
+    skippedNetZeroRowCount,
+    skippedInvalidPriceRowCount,
+  };
 }
