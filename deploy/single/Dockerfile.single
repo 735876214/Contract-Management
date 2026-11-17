@@ -52,6 +52,10 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
 COPY web/ ./
+# 前端直接引用后端共用的计算原语（`web/src/**` → `server/src/common/calc/*.ts`）：
+# 本阶段只 COPY 了 web/，这些相对路径 import 会在镜像里解析失败（TS2307）。
+# 把共用计算目录放到与仓库一致的相对位置，保证本地 `npm run build` 与镜像构建同源。
+COPY server/src/common/calc /app/server/src/common/calc
 ENV VITE_API_BASE=/api
 RUN npm run build
 
