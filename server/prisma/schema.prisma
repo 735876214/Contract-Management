@@ -273,8 +273,8 @@ model LaborReceivingSummary {
   materialName      String
   spec              String
   unit              String    @default("") // 计量单位（行键的一部分；未填归一为空串）
-  unitPrice         Decimal?  @db.Decimal(18, 4) // 平均单价（服务端按 Σ税前总价÷Σ数量 带出；手改后不再回写）
-  priceOverridden   Boolean   @default(false) // true = 手改过单价，刷新领用时保留手填值
+  unitPrice         Decimal?  @db.Decimal(18, 4) // 平均单价（已废弃落库：改由收领单聚合实时派生；列保留兼容历史数据）
+  priceOverridden   Boolean   @default(false) // 已废弃（单价改为只读自动聚合；列保留兼容历史数据）
   designQtyCum      Decimal?  @db.Decimal(18, 3) // 设计量 · 至本期末开累（手填）
   lossRate          Decimal?  @db.Decimal(9, 4) // 损耗率 %（手填）
   returnQty         Decimal?  @db.Decimal(18, 3) // 本期退库数量（手填）
@@ -317,7 +317,8 @@ model MonthlyProfitLoss {
   @@index([projectId])
 }
 
-// 月度盈亏分析明细行（节超分析快照；owner/deductAmount/remark 及各数量列可手改覆盖）
+// 月度盈亏分析明细行（节超分析快照；只有 owner/deductAmount/remark 可手改，
+// 单价/数量/金额是快照派生物，服务端收到改值一律 400）
 model MonthlyProfitLossDetail {
   id             String    @id @default(cuid())
   profitLossId   String // 归属月度记录（删除 Cascade）

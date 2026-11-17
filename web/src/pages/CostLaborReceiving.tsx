@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
+import { LABOR_RECEIVING_DOC_STATUS as DOC_STATUS } from '@/constants/laborReceivingStatus';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
@@ -16,9 +17,6 @@ import { withToken } from '@/utils/download';
  * 劳务合同名称为单据级字段。导出 Excel = 盘点表 + 月度汇总 + 节超分析三 sheet（CSCEC 表样）。
  */
 const LIST_PATH = '/cost/labor-receiving';
-
-/** 与后端 `LABOR_RECEIVING_DOC_STATUS` 镜像（非字典驱动，只有两态） */
-const DOC_STATUS = { DRAFT: 'DRAFT', COMPLETED: 'COMPLETED' } as const;
 
 export default function CostLaborReceiving() {
   const editorTab = useEditorTab(LIST_PATH);

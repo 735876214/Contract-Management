@@ -4,6 +4,7 @@ import { BadRequestException } from '@nestjs/common';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';
 import { LaborReceivingService } from '../src/modules/cost/labor-receiving.service';
 import { MonthlyProfitLossService } from '../src/modules/cost/monthly-profit-loss.service';
+import { ReceiptOrderService } from '../src/modules/receipt-order/receipt-order.service';
 
 /**
  * 集成测试 · 成本管理「分包单位领用」的**数据准确性**（真库、真 service）。
@@ -18,11 +19,13 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
   let ctx: IntContext;
   let labor: LaborReceivingService;
   let profit: MonthlyProfitLossService;
+  let receipts: ReceiptOrderService;
 
   before(async () => {
     ctx = await bootIntApp();
     labor = ctx.get<LaborReceivingService>(LaborReceivingService);
     profit = ctx.get<MonthlyProfitLossService>(MonthlyProfitLossService);
+    receipts = ctx.get<ReceiptOrderService>(ReceiptOrderService);
   });
   after(async () => {
     await ctx.app.close();
@@ -178,7 +181,7 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     assert.equal(next.saveOverAmount, Number((Number(next.saveOverQty) * 200).toFixed(2)));
   });
 
-  it('盈亏快照冻结：单价/数量不可手改，只有责任人/劳务计价已扣/备注生效', async () => {
+  it('盈亏快照冻结：改单价/数量一律 400，只有责任人/劳务计价已扣/备注生效', async () => {
     const project = await makeProject(ctx.prisma, 'COST-FROZEN');
     const auth = await makeAuth(project.id, '冻结分包商');
     await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 10), receivingUnitId: auth.id, materialName: '砂浆', receivedQty: 10, priceBeforeTax: 50 });
@@ -192,20 +195,24 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     const snapshot = created.details.find((d: any) => d.materialName === '砂浆');
     assert.ok(snapshot, '应生成砂浆快照');
 
+    // 快照列被显式改值 → 400（与台账“只读派生列不静默忽略”同一口径）
+    await assert.rejects(
+      () => profit.update(created.id, {
+        version: created.version,
+        details: [{ id: snapshot.id, unitPrice: 999, entryQty: 999 }],
+      }, project.id),
+      (e: any) => e instanceof BadRequestException && /快照派生物/.test(e.message),
+      '改快照单价/数量必须 400，不能静默忽略',
+    );
+
+    // 只改手填字段 → 正常保存；快照列原值不变
     const updated: any = await profit.update(created.id, {
       version: created.version,
-      details: [{
-        id: snapshot.id,
-        unitPrice: 999, // 快照列：必须被忽略
-        entryQty: 999, // 快照列：必须被忽略
-        owner: '张三',
-        deductAmount: 12.5,
-        remark: '已核',
-      }],
+      details: [{ id: snapshot.id, owner: '张三', deductAmount: 12.5, remark: '已核' }],
     }, project.id);
     const row = updated.details.find((d: any) => d.id === snapshot.id);
-    assert.equal(row.unitPrice, 50, '单价是快照，不允许手改');
-    assert.equal(row.entryQty, snapshot.entryQty, '进场量是快照，不允许手改');
+    assert.equal(row.unitPrice, 50);
+    assert.equal(row.entryQty, snapshot.entryQty);
     assert.equal(row.owner, '张三');
     assert.equal(row.deductAmount, 12.5);
     assert.equal(row.remark, '已核');
@@ -259,5 +266,109 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     const savedByUnit = new Map(savedRows.map((d) => [d.unit, d]));
     assert.equal(savedByUnit.get('米').returnQty, 1);
     assert.equal(savedByUnit.get('根').returnQty, 2);
+  });
+
+  it('历史空单位行回落到唯一聚合单位，不产生幽灵行', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-LEGACY-UNIT');
+    const auth = await makeAuth(project.id, '历史单位分包商');
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    // 模拟迁移未覆盖到的历史行：unit = ''，带手填退库
+    await ctx.prisma.laborReceivingSummary.create({
+      data: {
+        projectId: project.id,
+        docId: doc.id,
+        laborAuthId: auth.id,
+        subcontractorName: auth.subcontractorName,
+        period: '2026-10',
+        materialName: '钢板',
+        spec: 'Q235',
+        unit: '',
+        returnQty: 3,
+      } as any,
+    });
+    await makeReceipt({
+      projectId: project.id,
+      orderDate: new Date(2026, 9, 12),
+      receivingUnitId: auth.id,
+      materialName: '钢板',
+      specModel: 'Q235',
+      unit: '吨',
+      receivedQty: 10,
+      priceBeforeTax: 100,
+    });
+
+    const rows = (await labor.docDetail(doc.id, project.id)).details.filter((d) => d.materialName === '钢板');
+    assert.equal(rows.length, 1, '空单位历史行应回落到唯一聚合单位，不能出现两行');
+    assert.equal(rows[0].unit, '吨');
+    assert.equal(rows[0].returnQty, 3, '手填退库应挂到聚合行上');
+    assert.equal(rows[0].receivedQty, 10);
+  });
+
+  it('已存行改计量单位 → 400，不新建孤儿行', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-UNIT-LOCK');
+    const auth = await makeAuth(project.id, '单位锁定分包商');
+    await makeReceipt({
+      projectId: project.id,
+      orderDate: new Date(2026, 9, 12),
+      receivingUnitId: auth.id,
+      materialName: '型钢',
+      specModel: 'I20',
+      unit: '吨',
+      receivedQty: 10,
+      priceBeforeTax: 100,
+    });
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    const afterSave: any = await labor.updateDoc(doc.id, {
+      version: doc.version,
+      details: [{ materialName: '型钢', spec: 'I20', unit: '吨', returnQty: 1 }],
+    }, project.id);
+    const savedRow = afterSave.details.find((d: any) => d.materialName === '型钢');
+    assert.ok(savedRow?.id, '第一次保存应落一行');
+
+    await assert.rejects(
+      () => labor.updateDoc(doc.id, {
+        version: afterSave.version,
+        details: [{ id: savedRow.id, materialName: '型钢', spec: 'I20', unit: '米', returnQty: 2 }],
+      }, project.id),
+      (e: any) => e instanceof BadRequestException && /计量单位不可修改/.test(e.message),
+      '改单位必须 400，不能静默新建一行让旧行手填值孤立',
+    );
+  });
+
+  it('聚合侧规格 trim：收领单规格带空格仍与保存行合并', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-SPEC-TRIM');
+    const auth = await makeAuth(project.id, '规格分包商');
+    await makeReceipt({
+      projectId: project.id,
+      orderDate: new Date(2026, 9, 12),
+      receivingUnitId: auth.id,
+      materialName: '钢管',
+      specModel: '  DN50  ',
+      unit: '吨',
+      receivedQty: 10,
+      priceBeforeTax: 20,
+    });
+    const doc = await makeDoc(project.id, auth.id, '2026-10');
+    await labor.updateDoc(doc.id, {
+      version: doc.version,
+      details: [{ materialName: '钢管', spec: 'DN50', unit: '吨', returnQty: 1 }],
+    }, project.id);
+    const rows = (await labor.docDetail(doc.id, project.id)).details.filter((d) => d.materialName === '钢管');
+    assert.equal(rows.length, 1, '规格两侧 trim 后应合并为一行');
+    assert.equal(rows[0].receivedQty, 10);
+    assert.equal(rows[0].returnQty, 1);
+  });
+
+  it('收领单材料清单按单位去重，行 key 唯一', async () => {
+    const project = await makeProject(ctx.prisma, 'COST-MATERIAL-KEY');
+    const auth = await makeAuth(project.id, '材料清单分包商');
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 10), receivingUnitId: auth.id, materialName: '钢管', specModel: 'DN50', unit: '米', receivedQty: 1, priceBeforeTax: 10 });
+    await makeReceipt({ projectId: project.id, orderDate: new Date(2026, 9, 11), receivingUnitId: auth.id, materialName: '钢管', specModel: 'DN50', unit: '根', receivedQty: 1, priceBeforeTax: 20 });
+
+    const res: any = await receipts.subcontractorMaterials(auth.id, project.id);
+    const list: any[] = res.list || res || [];
+    const steel = list.filter((x) => x.materialName === '钢管');
+    assert.equal(steel.length, 2, '同材料同规格不同单位应两行');
+    assert.equal(new Set(steel.map((x) => x.key)).size, 2, '两行 key 必须不同（否则前端 patch/delete 会同时命两行）');
   });
 });

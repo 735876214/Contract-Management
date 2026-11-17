@@ -18,7 +18,7 @@ import { ContractLockService } from '../../common/services/contract-lock.service
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { projectWhere } from '../../common/utils/project-scope';
-import { laborReceivingReceiptWhere } from '../../common/utils/labor-receiving';
+import { laborReceivingReceiptWhere, laborRowKey } from '../../common/utils/labor-receiving';
 
 
 /** 明细中需要按 Decimal 落库的数值字段 */
@@ -510,7 +510,11 @@ export class ReceiptOrderService {
       for (const d of o.details) {
         const name = String(d.materialName || '').trim();
         if (!name) continue;
-        const key = `${name}\u0002${d.specModel || ''}\u0002${String(d.unit ?? '').trim()}`;
+        const key = laborRowKey(
+          name,
+          String(d.specModel ?? '').trim(),
+          String(d.unit ?? '').trim(),
+        );
         if (byKey.has(key)) continue outer; // 订单已按日期倒序 → 首见即最近
         byKey.set(key, d);
       }
@@ -527,7 +531,12 @@ export class ReceiptOrderService {
       const priceBeforeTax = num(d.priceBeforeTax);
       const taxRate = num(d.taxRatePct);
       return {
-        key: d.materialId || `m-${sort}`,
+        // 行身份含单位：同 materialId 按米/根是两条独立明细，key 不能再用 materialId
+        key: laborRowKey(
+          String(d.materialName || base?.name || ''),
+          String(d.specModel || base?.spec || ''),
+          String(d.unit || base?.unit || ''),
+        ),
         materialId: d.materialId || null,
         categoryLevel1: d.categoryLevel1 || base?.categoryLevel1 || null,
         categoryLevel2: d.categoryLevel2 || base?.categoryLevel2 || null,
