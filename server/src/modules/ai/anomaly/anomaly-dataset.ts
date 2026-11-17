@@ -1,4 +1,9 @@
 import type { MaterialQtyRow, PaymentAnomalyInput } from './anomaly-types.ts';
+import {
+  indexContractRows,
+  resolveChainRoot,
+  type ContractChainRowLike,
+} from '../../../common/utils/contract-chain.ts';
 
 /**
  * **取数形状的唯一事实源**：Prisma `select` / `where` / 行 → 规则入参的映射。
@@ -247,34 +252,23 @@ export interface AnomalyDataset {
   sample: Record<string, number>;
 }
 
-/** 合同链上溯上限（与 `contract-chain.ts` 的 CHAIN_MAX_DEPTH 同口径，防环） */
-export const CHAIN_MAX_DEPTH = 8;
-
 /**
  * 合同 id → 链根 id（父链上溯；不在集合里的返回 null）。
  *
  * 清单量必须按**链根**聚合：补充协议自己不带 `ContractMaterial`，它是共享母合同的清单量；
  * 若按签约主体各自算，补充协议永远"超额结算"，会把正常业务报成异常。
  */
-export function makeChainRootResolver(contracts: ReadonlyArray<{ id: string; parentContractId?: string | null }>) {
-  const byId = new Map<string, { id: string; parentContractId?: string | null }>(
-    contracts.map((c) => [String(c.id), c]),
-  );
+export function makeChainRootResolver(contracts: ReadonlyArray<ContractChainRowLike>) {
+  const byId = indexContractRows(contracts);
   const memo = new Map<string, string | null>();
   return (id: string): string | null => {
     const key = String(id);
     if (memo.has(key)) return memo.get(key)!;
-    let cur = byId.get(key);
-    if (!cur) {
+    if (!byId.has(key)) {
       memo.set(key, null);
       return null;
     }
-    for (let depth = 0; depth < CHAIN_MAX_DEPTH; depth++) {
-      const parentId = cur.parentContractId ? String(cur.parentContractId) : '';
-      if (!parentId || !byId.has(parentId)) break;
-      cur = byId.get(parentId)!;
-    }
-    const rootId = String(cur.id);
+    const rootId = resolveChainRoot(byId, key).rootId;
     memo.set(key, rootId);
     return rootId;
   };

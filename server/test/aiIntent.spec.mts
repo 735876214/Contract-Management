@@ -104,7 +104,7 @@ describe('AI 经营数据助手 · 规则意图', () => {
   });
 
   it('模型补丁只认白名单：ID/日期/金额/未知枚举一律忽略', () => {
-    const { patch } = normalizeModelIntent({
+    const { patch, warnings } = normalizeModelIntent({
       scope: { mode: 'all', mentions: ['甲项目', '  '], projectId: 'p-ID-123' },
       period: { preset: 'this_year', from: '2020-01-01', to: '2020-12-31' },
       compare: 'yoy',
@@ -125,7 +125,8 @@ describe('AI 经营数据助手 · 规则意图', () => {
     assert.deepEqual(patch.focus, ['payment_risk']);
     assert.equal(patch.reportKind, 'brief');
     assert.equal(patch.detail, 'both');
-    assert.equal(patch.groupBy, 'month');
+    assert.equal(patch.groupBy, undefined, 'month 已不再支持，模型补丁必须忽略');
+    assert.ok(warnings.some((w) => w.includes('分组维度')), '未知分组维度要给出提示');
     assert.deepEqual(patch.outputs, { report: true, workbook: true });
     assert.ok(!('amount' in patch), '模型给出的金额不进补丁');
     assert.ok(!('from' in patch) && !('to' in patch), '模型给出的日期不进补丁');
