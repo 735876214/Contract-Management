@@ -6,6 +6,7 @@ import {
   payableDateOf,
   modeTranches,
   recalculate,
+  recomputeOverdueRows,
   type OverdueRowInput,
 } from '../src/modules/finance/overdue-calculator';
 
@@ -258,5 +259,61 @@ describe('recalculate · 多月份开累与上期开累', () => {
       () => recalculate(rows, { monthlyRate: 0.006, graceDays: 7 } as any),
       /asOfDate/,
     );
+  });
+});
+
+describe('recomputeOverdueRows · 读时重算消除派生列陈旧值', () => {
+  const rows: OverdueRowInput[] = [
+    // 主行：材料款 10000，另带一个库内上次写入的陈旧 overdueInterest=99（读时必须被覆盖，不能沿用）
+    { id: 'r1', settlementMonth: '2026-01', materialAmount: 10000, payableDate: '2026-01-25', periodSeq: 0, overdueInterest: 99 } as any,
+    // 承载行：承担剩余未付计息；库内陈旧 overdueDays=1 / overdueInterest=2
+    { id: 'r2', settlementMonth: '2026-01', materialAmount: 0, paymentAmount: 0, periodSeq: 1, overdueDays: 1, overdueInterest: 2 } as any,
+  ];
+  const opts = { monthlyRate: 0.006, graceDays: 7, interestCapRatio: 0.05 };
+
+  it('按 asOfDate 现算派生列并覆盖库内陈旧值（不是读上次写入）', () => {
+    const { rows: fresh } = recomputeOverdueRows(rows.map((r) => ({ ...r })), {
+      ...opts,
+      asOfDate: new Date(2026, 3, 1),
+    });
+    // 库内陈旧值 99 / 2 被覆盖：主行不计息=0，承载行按 59 天算出 118
+    assert.equal(fresh[0].overdueInterest, 0);
+    assert.equal(fresh[1].overdueDays, 59);
+    assert.equal(fresh[1].overdueInterest, 118);
+    assert.equal(fresh[1].interestAmount, 10000);
+  });
+
+  it('同一批行，截止日越晚未付完的利息越大（读时重算随日期增长）', () => {
+    const at = (d: Date) => recomputeOverdueRows(rows.map((r) => ({ ...r })), { ...opts, asOfDate: d }).rows[1].overdueInterest;
+    const apr1 = at(new Date(2026, 3, 1)); // 59 天
+    const may1 = at(new Date(2026, 4, 1)); // 89 天（DAYS360: 2/02 → 5/01）
+    const jun1 = at(new Date(2026, 5, 1)); // 119 天
+    assert.equal(apr1, 118); // 10000 × 59 × 0.006 ÷ 30
+    assert.equal(may1, 178); // 10000 × 89 × 0.006 ÷ 30
+    assert.equal(jun1, 238); // 10000 × 119 × 0.006 ÷ 30
+    assert.ok(apr1 < may1 && may1 < jun1, '未付完的利息必须随 asOfDate 单调增长');
+  });
+
+  it('引擎判定无派生值的行被置空，杜绝"行已不逾期利息还在"', () => {
+    const stale = [
+      { id: 'r1', settlementMonth: '2026-01', materialAmount: 0, paymentAmount: 0, periodSeq: 0,
+        payableAmount: 500, overdueDays: 30, overdueInterest: 99 } as any, // 无 material>0 主行 → 引擎不派生
+    ];
+    const { rows: fresh } = recomputeOverdueRows(stale, { ...opts, asOfDate: new Date(2026, 3, 1) });
+    assert.equal(fresh[0].payableAmount, null);
+    assert.equal(fresh[0].overdueDays, null);
+    assert.equal(fresh[0].overdueInterest, null);
+  });
+
+  it('重算返回的 stats 与引擎 recalculate 完全一致（同一口径）', () => {
+    const { stats: viaView } = recomputeOverdueRows(rows.map((r) => ({ ...r })), {
+      ...opts,
+      asOfDate: new Date(2026, 3, 1),
+    });
+    const { stats: viaEngine } = recalculate(rows.map((r) => ({ ...r })), {
+      ...opts,
+      asOfDate: new Date(2026, 3, 1),
+    });
+    assert.deepEqual(viaView, viaEngine);
   });
 });
