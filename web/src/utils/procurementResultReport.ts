@@ -1,6 +1,9 @@
 /**
  * 成交报告 · 文档构建与变量取值（批次二 · 任务 3.5）
  *
+ * 计算规则已收敛到统一引擎 `server/src/common/calc/procurement.ts`（前后端单一实现）：
+ * defaultFinalPrice / isYes 从那里委托，禁止在本文件再写一份公式。
+ *
  * 适用范围：仅「单项采购」采购任务，入口条件为「采购文件已完成」；
  * 状态：编辑中 → 已完成（发布后）。
  *
@@ -26,6 +29,10 @@
  * {{成交报告-响应单位情况汇总表}} {{成交报告-开启报价情况表}}
  * {{成交报告-第二轮报价情况表}} {{成交报告-拟推荐成交候选人表}}（表格变量）
  */
+import {
+  defaultFinalPrice as defaultFinalPriceShared,
+  isYesFlag,
+} from '../../../server/src/common/calc/index.ts';
 
 /** 响应单位明细行（导入「响应单位情况汇总表」，10 列） */
 export interface ResultSupplier {
@@ -145,11 +152,8 @@ export function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 「是」判定：兼容 是 / Y / YES / TRUE / 1 等写法 */
-export const isYes = (v: unknown): boolean => {
-  const s = String(v ?? '').trim().toUpperCase();
-  return s === '是' || s === 'Y' || s === 'YES' || s === 'TRUE' || s === '1';
-};
+/** 「是」判定：兼容 是 / Y / YES / TRUE / 1（统一引擎口径） */
+export const isYes = isYesFlag;
 
 /* ---------------- 排序规则 ---------------- */
 
@@ -198,13 +202,9 @@ export function rankBySecondRound(suppliers: ResultSupplier[] = []): RankedSuppl
 /**
  * 候选人的最终确认不含税价格默认取值：
  * 优先取第二轮报价不含税总额（通过第一轮且有报价时），否则回退到第一轮报价。
+ * 规则实现已下沉到统一引擎，这里仅保留导出名（调用方零改动）。
  */
-export function defaultFinalPrice(supplier: ResultSupplier | null | undefined): number | null {
-  if (!supplier) return null;
-  const second = numOrNull(supplier.secondPreTaxTotal);
-  if (isYes(supplier.passedFirst) && second != null) return second;
-  return numOrNull(supplier.firstPreTaxTotal);
-}
+export const defaultFinalPrice = defaultFinalPriceShared;
 
 /* ---------------- 表格 HTML ---------------- */
 

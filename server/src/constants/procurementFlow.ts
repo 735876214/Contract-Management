@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 // 合同状态 code 的事实源在 ./statuses.ts（2026-10-17 解除 .mts 零依赖限制后，
 // 本文件可直接 import——nest build / ts-node 会在 emit 时把 .ts 后缀改写为 .js）
 import { CONTRACT_STATUS } from './statuses.ts';
-import { num as numOrNull } from '../common/calc/numeric.ts';
+import { defaultFinalPrice } from '../common/calc/procurement.ts';
 
 // 合同状态 → 采购任务状态的映射用 CONTRACT_STATUS 常量（不再裸写状态码字面量）；
 // 两侧漂移由 `server/test/statusCodes.spec.mts` 与 `frontendChainParity.spec.mts` 锁定。
@@ -305,7 +305,7 @@ export function bidderStatusWhenNotWon(passedFirst?: string | null): string {
  *
  * 事实源是**结构化行**（`ProcurementBidder.status = WON`），JSON `candidates` 只作发布快照。
  * 取价口径：用户填的最终确认不含税价格优先；缺省时回退「第二轮（仅当通过第一轮）→ 第一轮」，
- * 与前端 `defaultFinalPrice()` 同口径。
+ * 回退规则直接调用统一引擎 `defaultFinalPrice()`（与前端同一份实现），杜绝两处同口径公式漂移。
  * 传入顺序即输出顺序（服务端按 `seq` / 创建时间排序后传入）。
  */
 export function candidatesFromBidders(
@@ -316,11 +316,9 @@ export function candidatesFromBidders(
     .map((b) => {
       const name = String(b?.bidderName ?? '').trim();
       if (!name) return null;
-      const explicit = numOrNull(b?.finalPreTaxTotal);
-      const second = numOrNull(b?.secondPreTaxTotal);
-      const passed = String(b?.passedFirst ?? '').trim() === YES;
-      const fallback = passed && second != null ? second : numOrNull(b?.firstPreTaxTotal);
-      return { name, finalPreTaxPrice: explicit ?? fallback };
+      const explicit = b?.finalPreTaxTotal == null || b.finalPreTaxTotal === '' ? null : Number(b.finalPreTaxTotal);
+      const price = explicit !== null && Number.isFinite(explicit) ? explicit : defaultFinalPrice(b);
+      return { name, finalPreTaxPrice: price };
     })
     .filter((v): v is { name: string; finalPreTaxPrice: number | null } => v !== null);
 }

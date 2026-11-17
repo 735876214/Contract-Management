@@ -279,6 +279,26 @@ describe('procurementFlow 单一事实源', () => {
       );
     });
 
+    it('candidatesFromBidders：用户手工确认价优先于统一引擎回退值（派生规则统一 ≠ 覆盖谈判价）', () => {
+      // 谈判后用户把确认价改成 88（低于第二轮 90），服务端必须尊重用户值，不得用 defaultFinalPrice 覆盖
+      assert.deepEqual(
+        candidatesFromBidders([
+          {
+            bidderName: '谈判单位', status: 'WON', passedFirst: '是',
+            firstPreTaxTotal: 100, secondPreTaxTotal: 90, finalPreTaxTotal: 88,
+          },
+        ]),
+        [{ name: '谈判单位', finalPreTaxPrice: 88 }],
+      );
+      // 用户确认价为 0（合法谈判结果）时同样优先，不能被误判为"缺失"而回退
+      assert.deepEqual(
+        candidatesFromBidders([
+          { bidderName: '零价单', status: 'WON', passedFirst: '是', firstPreTaxTotal: 100, secondPreTaxTotal: 90, finalPreTaxTotal: 0 },
+        ]),
+        [{ name: '零价单', finalPreTaxPrice: 0 }],
+      );
+    });
+
     it('candidatesFromBidders：空名与无名单位被剔除（不生成无主体合同）', () => {
       assert.deepEqual(
         candidatesFromBidders([

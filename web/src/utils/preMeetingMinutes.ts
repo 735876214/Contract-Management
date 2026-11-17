@@ -15,11 +15,22 @@
  * {{采前会-采购清单}} {{采前会-采购成本分析表}} {{会议时间}} {{主持人}} {{参会人员}}
  * 以及 {{项目名称}} {{采购内容}} {{预计采购金额(万元)}} {{编写人}} {{审核人}}
  *      {{技术质量标准}} {{验收方式}} {{付款方式}}
+ *
+ * 计算规则已收敛到统一引擎 `server/src/common/calc/procurement.ts`（前后端单一实现）：
+ * calcIncomeWan/calcCostWan/calcBenefitWan/calcBenefitRate/deriveCostRow/summarizeCost/costRowsFromTotalList
+ * 从那里委托，禁止在本文件再写一份公式。
  */
 import {
   fmtAmount,
   fmtRate as fmtRateShared,
   round2,
+  calcIncomeWan as calcIncomeWanShared,
+  calcCostWan as calcCostWanShared,
+  calcBenefitWan as calcBenefitWanShared,
+  calcBenefitRate as calcBenefitRateShared,
+  deriveCostRow as deriveCostRowShared,
+  summarizeCost as summarizeCostShared,
+  costRowsFromTotalList as costRowsFromTotalListShared,
 } from '../../../server/src/common/calc/index.ts';
 
 /** 采购清单行（序号由表格渲染，表头：序号|物资名称|规格型号|计量单位|暂定数量） */
@@ -91,67 +102,26 @@ export const fmtRate = (v: number | null | undefined): string => fmtRateShared(v
 
 /* ---------------- 采购成本分析表计算规则 ---------------- */
 
-/** 清单收入（万元）= 收入单价（元）× 暂定数量 ÷ 10000 */
-export const calcIncomeWan = (incomePrice: unknown, qty: unknown): number =>
-  round2(((Number(incomePrice) || 0) * (Number(qty) || 0)) / 10000);
+/** 清单收入（万元）= 收入单价（元）× 暂定数量 ÷ 10000（统一引擎口径） */
+export const calcIncomeWan = calcIncomeWanShared;
 
-/** 预计采购成本（万元）= 控制价（元）× 暂定数量 ÷ 10000 */
-export const calcCostWan = (planPrice: unknown, qty: unknown): number =>
-  round2(((Number(planPrice) || 0) * (Number(qty) || 0)) / 10000);
+/** 预计采购成本（万元）= 控制价（元）× 暂定数量 ÷ 10000（统一引擎口径） */
+export const calcCostWan = calcCostWanShared;
 
-/** 预计效益额（万元）= 清单收入 − 预计采购成本 */
-export const calcBenefitWan = (income: unknown, cost: unknown): number =>
-  round2((Number(income) || 0) - (Number(cost) || 0));
+/** 预计效益额（万元）= 清单收入 − 预计采购成本（统一引擎口径） */
+export const calcBenefitWan = calcBenefitWanShared;
 
-/** 效益率（%）= 预计效益额 ÷ 清单收入 × 100，保留 2 位小数（清单收入为 0 时按 0 处理） */
-export const calcBenefitRate = (income: unknown, benefit: unknown): number => {
-  const i = Number(income) || 0;
-  if (i === 0) return 0;
-  return round2(((Number(benefit) || 0) / i) * 100);
-};
+/** 效益率（%）= 效益额 ÷ 收入 × 100；收入为 0 按 0（统一引擎口径） */
+export const calcBenefitRate = calcBenefitRateShared;
 
-/** 单行派生值：清单收入 / 预计采购成本 / 预计效益额 / 效益率 */
-export function deriveCostRow(row: CostAnalysisRow) {
-  const income = round2(row?.income ?? 0);
-  const cost = round2(row?.cost ?? 0);
-  const benefit = calcBenefitWan(income, cost);
-  return { income, cost, benefit, rate: calcBenefitRate(income, benefit) };
-}
+/** 单行派生值：清单收入 / 预计采购成本 / 预计效益额 / 效益率（统一引擎口径） */
+export const deriveCostRow = deriveCostRowShared;
 
-/** 表底汇总：清单收入、预计采购成本、预计效益额（效益率按合计口径计算） */
-export function summarizeCost(rows: CostAnalysisRow[] = []) {
-  const total = rows.reduce<{ income: number; cost: number; benefit: number }>(
-    (acc, r) => {
-      const d = deriveCostRow(r);
-      acc.income = round2(acc.income + d.income);
-      acc.cost = round2(acc.cost + d.cost);
-      acc.benefit = round2(acc.benefit + d.benefit);
-      return acc;
-    },
-    { income: 0, cost: 0, benefit: 0 },
-  );
-  return { ...total, rate: calcBenefitRate(total.income, total.benefit) };
-}
+/** 表底汇总（效益率按合计口径计算，统一引擎口径） */
+export const summarizeCost = summarizeCostShared;
 
-/** 由「总采购清单」明细换算成本分析表的初始行（income/cost 单位：万元） */
-export function costRowsFromTotalList(
-  items: {
-    materialName?: string | null;
-    spec?: string | null;
-    qty?: number | null;
-    /** 收入单价（元） */
-    incomePrice?: number | null;
-    /** 控制价 / 预计采购单价（元） */
-    planPrice?: number | null;
-  }[] = [],
-): CostAnalysisRow[] {
-  return items.map((i) => ({
-    materialName: i.materialName ?? '',
-    spec: i.spec ?? '',
-    income: calcIncomeWan(i.incomePrice, i.qty),
-    cost: calcCostWan(i.planPrice, i.qty),
-  }));
-}
+/** 由「总采购清单」明细换算成本分析表的初始行（income/cost 单位：万元，统一引擎口径） */
+export const costRowsFromTotalList = costRowsFromTotalListShared;
 
 /* ---------------- HTML 构建（预览 / 导出 Word 共用） ---------------- */
 

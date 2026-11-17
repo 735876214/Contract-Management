@@ -20,6 +20,19 @@ import {
 } from '../../web/src/utils/procurementPriceCompare.ts';
 import { amountToChineseCapital, round2 } from '../src/common/calc/money.ts';
 import { calcAmount } from '../src/common/calc/amounts.ts';
+import {
+  defaultFinalPrice as sharedDefaultFinalPrice,
+  calcIncomeWan as sharedCalcIncomeWan,
+  calcCostWan as sharedCalcCostWan,
+  summarizeCost as sharedSummarizeCost,
+  lowestPriceSuppliers as sharedLowestPriceSuppliers,
+} from '../src/common/calc/procurement.ts';
+import { defaultFinalPrice as feDefaultFinalPrice } from '../../web/src/utils/procurementResultReport.ts';
+import {
+  calcIncomeWan as feCalcIncomeWan,
+  calcCostWan as feCalcCostWan,
+  summarizeCost as feSummarizeCost,
+} from '../../web/src/utils/preMeetingMinutes.ts';
 
 /**
  * 优化点 2：前后端阶段链/状态定义「漂移锁」。
@@ -113,5 +126,39 @@ describe('前后端计算原语一致性（漂移锁）', () => {
     assert.equal(feCalcAmount('1.005', 3), calcAmount('1.005', 3));
     assert.equal(calcAmount('1.005', 3), 3.02, '整数分精确乘法须得 3.02（与 Excel ROUND 一致）');
     assert.equal(feCalcAmount(10, 13), calcAmount(10, 13));
+  });
+
+  it('采购派生规则前后端同源：最终价回退 / 万元换算 / 成本汇总 / 最低价', () => {
+    // 最终确认价：通过第一轮取第二轮，否则回退第一轮
+    for (const s of [
+      { passedFirst: '是', firstPreTaxTotal: 100, secondPreTaxTotal: 90 },
+      { passedFirst: '否', firstPreTaxTotal: 100, secondPreTaxTotal: 90 },
+      { passedFirst: '是', firstPreTaxTotal: 100, secondPreTaxTotal: null },
+      { passedFirst: 'Y', firstPreTaxTotal: 100, secondPreTaxTotal: 88 },
+    ]) {
+      assert.equal(feDefaultFinalPrice(s), sharedDefaultFinalPrice(s), `最终价漂移：${JSON.stringify(s)}`);
+    }
+    assert.equal(sharedDefaultFinalPrice({ passedFirst: '是', firstPreTaxTotal: 100, secondPreTaxTotal: 90 }), 90);
+    assert.equal(sharedDefaultFinalPrice({ passedFirst: '否', firstPreTaxTotal: 100, secondPreTaxTotal: 90 }), 100);
+    // 万元换算（含 1.005 类浮点边界，整数分口径）
+    for (const [p, q] of [[100, 10], [1.005, 3], [1234.56, 7]]) {
+      assert.equal(feCalcIncomeWan(p, q), sharedCalcIncomeWan(p, q), `清单收入漂移：${p}×${q}`);
+      assert.equal(feCalcCostWan(p, q), sharedCalcCostWan(p, q), `预计成本漂移：${p}×${q}`);
+    }
+    // 成本汇总
+    const rows = [{ income: 10, cost: 9 }, { income: 20, cost: 15 }];
+    assert.deepEqual(feSummarizeCost(rows), sharedSummarizeCost(rows));
+    // 询价最低价（并列保留、过滤空行）
+    const inquiry = [
+      { unit: 'A', totalPrice: 100 },
+      { unit: 'B', totalPrice: 80 },
+      { unit: 'C', totalPrice: 80 },
+      { unit: '', totalPrice: 10 },
+      { unit: 'D', totalPrice: null },
+    ];
+    assert.deepEqual(sharedLowestPriceSuppliers(inquiry), [
+      { supplier: 'B', amount: 80 },
+      { supplier: 'C', amount: 80 },
+    ]);
   });
 });

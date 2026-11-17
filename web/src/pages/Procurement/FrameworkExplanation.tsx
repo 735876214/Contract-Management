@@ -53,6 +53,8 @@ import {
   type InquiryRow,
   type PriceCompareRow,
 } from '@/utils/frameworkExplanation';
+// 询价最低价规则收敛到统一引擎（前后端单一实现，避免前端 Math.min 与服务端口径漂移）
+import { lowestPriceSuppliers } from '../../../../server/src/common/calc/procurement.ts';
 
 /** 采购任务行（列表精简） */
 interface TaskRow {
@@ -625,25 +627,19 @@ export default function FrameworkExplanation() {
     ...opColumn<ReferenceSupplier>('referenceSuppliers'),
   ];
 
-  /** 自动填充：从询价情况表取报价最低的单位与金额（可多行手动增改） */
+  /** 自动填充：从询价情况表取报价最低的单位与金额（规则走统一引擎，可多行手动增改） */
   const autoFillRefSuppliers = () => {
-    const priced = form.inquiryRows.filter((r) => String(r.unit ?? '').trim() && r.totalPrice != null);
-    if (!priced.length) {
+    const winners = lowestPriceSuppliers(form.inquiryRows);
+    if (!winners.length) {
       message.warning('询价情况表中暂无有效报价（单位 + 总价），无法自动填充');
       return;
     }
-    const min = Math.min(...priced.map((r) => Number(r.totalPrice)));
-    const winners = priced.filter((r) => Number(r.totalPrice) === min);
     setForm((f) => ({
       ...f,
-      referenceSuppliers: winners.map((r) => ({
-        key: nextKey(),
-        supplier: String(r.unit),
-        amount: Number(r.totalPrice),
-      })),
+      referenceSuppliers: winners.map((r) => ({ key: nextKey(), supplier: r.supplier, amount: r.amount })),
     }));
     message.success(
-      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${min.toLocaleString('zh-CN')} 元），可继续手动增改`,
+      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${winners[0].amount.toLocaleString('zh-CN')} 元），可继续手动增改`,
     );
   };
 
