@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
-import { round4 } from '../../common/calc/money';
+import { round2, round4 } from '../../common/calc/money';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { periodMonthKey } from '../../common/calc/time';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -356,8 +356,9 @@ export class DailyReportService {
     const rows = (res.list as any[]).map((r) => {
       const priceAfterTax = num(r.priceAfterTax);
       const stdPrice = num(r.stdPrice);
-      const reduceAmount = stdPrice !== null && priceAfterTax !== null ? Math.round((stdPrice - priceAfterTax) * 100) / 100 : null;
-      const reduceRatio = stdPrice && reduceAmount !== null ? Math.round((reduceAmount / stdPrice) * 10000) / 10000 : null;
+      // 统一引擎：审减额 2 位、审减率 4 位（此前用 Math.round(x*p)/p，1.005 类边界会与页面口径漂移）
+      const reduceAmount = stdPrice !== null && priceAfterTax !== null ? round2(stdPrice - priceAfterTax) : null;
+      const reduceRatio = stdPrice && reduceAmount !== null ? round4(reduceAmount / stdPrice) : null;
       return {
         // 账期导出为可往返数值：写 `2026年8月` 时导入端 Number() 得 NaN → 账期被清空。
         // 拆成「账期/年=2026」「账期/月=8」两列纯数字，导出→导入闭环不再丢月份。

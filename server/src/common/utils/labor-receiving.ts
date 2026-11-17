@@ -16,6 +16,10 @@
  * 不兜成 0；显式 0 是真实 0，照常参与计算。
  */
 
+// 舍入唯一实现在 calc 引擎（字符串位移，半值远离零）；此前私有 r() 用 Math.round(v*p)/p，
+// 8.165→8.16、1234567.005 丢 1 分，与全站口径漂移。money.ts 零第三方依赖，不破坏 .mts 可加载性。
+import { round } from '../calc/money.ts';
+
 export interface DeriveReceivingInput {
   /** 上期末累计（由 service 按期链式推出；首期 0） */
   prevCum?: number | null;
@@ -59,11 +63,9 @@ function n(v: unknown): number | null {
   return Number.isFinite(x) ? x : null;
 }
 
-/** 四舍五入到指定位数；入参 null → null */
+/** 四舍五入到指定位数；入参 null → null（委托 calc 统一引擎） */
 function r(v: number | null, digits: number): number | null {
-  if (v == null) return null;
-  const p = Math.pow(10, digits);
-  return Math.round(v * p) / p;
+  return round(v, digits);
 }
 
 export function deriveReceivingRow(input: DeriveReceivingInput): DerivedReceivingRow {

@@ -4,6 +4,7 @@ type JsonValue = Prisma.JsonValue;
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { round2 } from '../../common/calc/money';
+import { mulDecimal, sumRounded } from '../../common/calc/amounts';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
@@ -1014,7 +1015,7 @@ export class ProcurementTaskService {
     const amountYuan = await this.estimatedAmountYuan(taskId);
     return {
       ...list,
-      estimatedAmountYuan: Math.round(amountYuan * 100) / 100,
+      estimatedAmountYuan: round2(amountYuan),
       estimatedAmountWan: toWan(amountYuan),
       preMeetingRequired,
     };
@@ -1047,7 +1048,10 @@ export class ProcurementTaskService {
       where: { taskId },
       select: { qty: true, planPrice: true },
     });
-    return items.reduce((sum, i) => sum + (num(i.planPrice) ?? 0) * (num(i.qty) ?? 0), 0);
+    // 统一引擎：精确十进制乘法（消除 1.005×3 类浮点边界）+ 逐项 2 位累加。
+    // 此前是裸浮点乘 `num(planPrice)*num(qty)` 再在返回处 Math.round，
+    // 会让「同一批清单在不同阶段（列表/详情/采前会判定/导出）算出不同金额」。
+    return sumRounded(items.map((i) => mulDecimal(i.planPrice, i.qty)), 2);
   }
 
   /** 批量计算预计采购金额（元），key = taskId（列表页避免 N+1 查询） */

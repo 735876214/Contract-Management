@@ -33,6 +33,15 @@ test('扣款单价 = 单价 × 1.2', () => {
   assert.equal(deriveReceivingRow({}).deductPrice, null);
 });
 
+test('扣款金额走统一舍入引擎（旧 Math.round(v*100)/100 会把 0.145 算成 0.14）', () => {
+  // saveOver=0.29、扣款单价=0.5 → 0.145，半值远离零应得 0.15
+  // 这是 A3 修复（r() 委托 calc 的 round）的回归锁：退化回 Math.round 即失败
+  const d = deriveReceivingRow({ receivedQty: 0.29, designQtyCum: 0, unitPrice: 0.5 / 1.2 });
+  assert.equal(d.saveOver, 0.29);
+  assert.equal(d.deductPrice, 0.5);
+  assert.equal(d.deductAmount, 0.15);
+});
+
 test('设计量小计 = 开累 × (1 + 损耗率/100)', () => {
   assert.equal(deriveReceivingRow({ designQtyCum: 100, lossRate: 5 }).designSubtotal, 105);
   assert.equal(deriveReceivingRow({ designQtyCum: 100 }).designSubtotal, 100); // 损耗率未填按 0
