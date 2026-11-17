@@ -238,4 +238,25 @@ describe('recalculate · 多月份开累与上期开累', () => {
     assert.equal(stats.totalInterest, 0);
     assert.equal(stats.currentSettlement, 0);
   });
+
+  it('引擎 stats 与列表接口同形：含 cap 字段；截止日必须显式注入', () => {
+    const rows: OverdueRowInput[] = [
+      { settlementMonth: '2026-01', materialAmount: 10000, payableDate: '2026-01-25', periodSeq: 0 },
+      { settlementMonth: '2026-01', materialAmount: 0, paymentAmount: 0, periodSeq: 1 },
+    ];
+    const { stats } = recalculate(rows, {
+      monthlyRate: 0.006,
+      graceDays: 7,
+      asOfDate: new Date(2026, 3, 1),
+      interestCapRatio: 0.05,
+    });
+    assert.equal(stats.capRatio, 0.05);
+    assert.equal(stats.capAmount, 500);
+    assert.equal(stats.capUsage, 23.6);
+    assert.equal(stats.currentMonth, '2026-01');
+    assert.throws(
+      () => recalculate(rows, { monthlyRate: 0.006, graceDays: 7 } as any),
+      /asOfDate/,
+    );
+  });
 });

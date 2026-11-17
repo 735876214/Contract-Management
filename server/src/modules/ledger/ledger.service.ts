@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, fmtDate } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { fmtDate } from '../../common/calc/time';
+import { paginate, buildResult } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, deriveTaxSplit, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
+import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
 import { DictService } from '../dict';
@@ -123,7 +126,7 @@ export class LedgerService {
     let rows = contracts.map((c: any, idx: number) => {
       const sup: any = c.supplier || {};
       const ext: any = c.ext || {};
-      const taxRate = num(c.taxRate);
+      const taxRate = num(c.taxRatePct);
       /** 合同额：未填（NULL/空串）时留 `null`，**不要**当成 0 —— 见 ledger-derived.ts 的口径说明 */
       // 「是否已填」与全站同一判定（显式 0 算已填，空串/空白算未填）
       const amountFilled = isFilledNumber(c.amount);
@@ -138,33 +141,31 @@ export class LedgerService {
 
       // 开累结算金额：结算台账「本月结算额」之和
       const cumSettleAmount = (ledgerMap[c.id] || []).reduce((s, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
-      // 审定结算额：非草稿结算单的实际结算金额（缺失时回退合同额，与 chainSettledTotal 同口径）
+      // 审定/送审金额来源优先级统一在 calc 层声明：actual ?? amount / amount ?? actual，
+      // 避免审减额两端口径漂移（与台账自动抓取、合同链取数同一原语）
       const auditedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (num(x.actualAmount ?? x.amount) || 0),
+        (s, x: any) => s + (settlementAmountOf(x, 'actual') || 0),
         0,
       );
-      // 送审结算额（同口径、非草稿）：审减额 = 送审 − 审定，两边必须同一口径
       const submittedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (num(x.amount ?? x.actualAmount) || 0),
+        (s, x: any) => s + (settlementAmountOf(x, 'submitted') || 0),
         0,
       );
       // 开累税前结算金额 / 进项税：税率未填 → 两列都留 null（不要兜成 0%），显式 0 参与计算
-      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRate);
+      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRatePct);
       const cumSettleBeforeTax = taxSplit.beforeTax;
       const cumInputTax = taxSplit.inputTax;
       const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
       const cumPaidAmount = (payMap[c.id] || []).reduce((s, p: any) => s + (num(p.amount) || 0), 0);
 
-      // 每年结算金额 / 每年付款金额
-      const yearSettle: Record<string, number> = {};
-      (ledgerMap[c.id] || []).forEach((l: any) => {
-        const y = (l.settleMonth || '').slice(0, 4);
-        if (y) yearSettle[y] = Number(((yearSettle[y] || 0) + (num(l.monthSettleAmount) || 0)).toFixed(2));
+      // 每年结算金额 / 每年付款金额：月份归一 + 分组求和统一走 calc，年份键按时间升序
+      const yearSettle = groupSumByYear(ledgerMap[c.id] || [], {
+        monthOf: (l: any) => l.settleMonth,
+        amountOf: (l: any) => l.monthSettleAmount,
       });
-      const yearPaid: Record<string, number> = {};
-      (payMap[c.id] || []).forEach((p: any) => {
-        const y = (p.payMonth || '').slice(0, 4);
-        if (y) yearPaid[y] = Number(((yearPaid[y] || 0) + (num(p.amount) || 0)).toFixed(2));
+      const yearPaid = groupSumByYear(payMap[c.id] || [], {
+        monthOf: (p: any) => p.payMonth,
+        amountOf: (p: any) => p.amount,
       });
 
       /**
@@ -198,7 +199,8 @@ export class LedgerService {
         contactPhone: sup.contactPhone,
         amount, // 本行合同额；null = 未填（前端显示 '-'、导出留白）
         currentAmount, // 合同当前金额（链口径）：比例与欠款的分母
-        taxRate,
+        taxRate, // 前端展示键（百分数口径）
+        taxRatePct: taxRate, // 导出列键，与全站税率单轨字段名一致
         currentPayRatio: num(ext.currentPayRatio),
         paymentMethod: payMethodMap[c.paymentMethodCode]?.name || c.paymentMethodCode || '',
         isSupplement: yesNoMap[c.isSupplement]?.name || c.isSupplement || '',
@@ -388,7 +390,7 @@ export class LedgerService {
         { header: '联系人', key: 'contactName', width: 90, type: 'center' },
         { header: '联系电话', key: 'contactPhone', width: 120, type: 'center' },
         { header: '合同额', key: 'amount', width: 130, type: 'money' },
-        { header: '税率', key: 'taxRate', width: 70, type: 'pct' },
+        { header: '税率', key: 'taxRatePct', width: 70, type: 'pctVal' },
         { header: '当前合同付款比例', key: 'currentPayRatio', width: 140, type: 'pct' },
         { header: '合同约定付款方式', key: 'paymentMethod', width: 160, type: 'center' },
         { header: '是否补充协议', key: 'isSupplement', width: 110, type: 'center' },

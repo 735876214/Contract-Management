@@ -10,7 +10,9 @@
  * 保证「表头金额 = Σ 明细合价」，不会被两边各算一遍算岔。
  */
 
-import { round2, round4 } from './money.ts';
+import { round2, round4 } from '../calc/money.ts';
+import { num } from '../calc/numeric.ts';
+import { calcPriceWithTax } from '../calc/amounts.ts';
 
 /** 日报行中参与结算带出的字段（Prisma 查询按这些列 select） */
 export interface DailySettlementRow {
@@ -19,7 +21,7 @@ export interface DailySettlementRow {
   receiptNo?: string | null;
   settleQty?: unknown;
   priceBeforeTax?: unknown;
-  taxRate?: unknown;
+  taxRatePct?: unknown;
   priceAfterTax?: unknown;
   amountBeforeTax?: unknown;
   amountAfterTax?: unknown;
@@ -52,19 +54,9 @@ export interface DailyToItemsResult {
   skippedInvalidPriceRowCount: number;
 }
 
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-/** 与 `SettlementService.normalizeItem()` 完全一致的单价/合价公式 */
+/** 与 `SettlementService.normalizeItem()` 完全一致的单价公式（共享原语，4 位精度） */
 function normalizePrice(priceBeforeTax: number | null, taxRatePct: number | null) {
-  const priceWithTax =
-    priceBeforeTax != null && taxRatePct != null
-      ? Number((priceBeforeTax * (1 + taxRatePct / 100)).toFixed(4))
-      : priceBeforeTax;
-  return priceWithTax;
+  return calcPriceWithTax(priceBeforeTax, taxRatePct, 4) ?? priceBeforeTax;
 }
 
 interface Group {
@@ -114,7 +106,7 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     }
     const before = num(r.priceBeforeTax);
     const after = num(r.priceAfterTax);
-    const tax = num(r.taxRate);
+    const tax = num(r.taxRatePct);
     const amountBefore = num(r.amountBeforeTax) ?? (before != null ? before * qty : null);
     const amountAfter = num(r.amountAfterTax) ?? (after != null ? after * qty : null);
 

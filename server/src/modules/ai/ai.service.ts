@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { localDayKey } from '../../common/utils/helpers';
+import { localDayKey } from '../../common/calc/time';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { projectScopeWhere } from './common/project-scope';
 import { loadProjectScope } from '../../query';

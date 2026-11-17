@@ -17,6 +17,7 @@
  *
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
+import { round2 } from '../calc/money.ts';
 
 /** 链计算所需的合同行（`db.contract.findMany` 的 select 结果形状） */
 export interface ContractChainRow {
@@ -53,8 +54,6 @@ const isFilled = (v: unknown): boolean => {
   if (typeof v === 'string' && v.trim() === '') return false;
   return Number.isFinite(Number(v));
 };
-
-const round2 = (n: number) => Number((Number(n) || 0).toFixed(2));
 
 /** 最大上溯深度（防数据自指成环）；链根解析与金额计算共用同一上限 */
 export const CHAIN_MAX_DEPTH = 8;

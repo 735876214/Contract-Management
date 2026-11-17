@@ -5,14 +5,14 @@
  *
  * 本文件只做**不碰数据库**的事：策略归一 + 「已占用 + 本次」与上限的比较。
  * 链口径与所需的 db 查询（合同当前金额 / 累计结算 / 累计付款）自 2026-10-15 起
- * 全部在 `common/utils/contract-chain.ts`——因为"上限"必须与"合同当前金额"是同一个口径，
- * 而本文件被 `.mts` spec 加载、**不能新增相对 import**（见 .claude/rules/testing.md 第一条硬约束）。
+ * 全部在 `common/utils/contract-chain.ts`——因为"上限"必须与"合同当前金额"是同一个口径。
+ * .mts spec 可加载带 .ts 后缀的相对 import（testing.md 第 1 条已于 2026-10-17 解除限制），
+ * 舍入统一走共享原语，不再本地复制。
  */
+import { round2 } from '../calc/money.ts';
 
 /** 超限策略：BLOCK 拦截 / WARN 仅提示 / OFF 不校验 */
 export type OverAmountPolicy = 'BLOCK' | 'WARN' | 'OFF';
-
-const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 /** 数值归一：非法/空 → 0（避免 NaN 渗入金额比较） */
 const toNum = (v: unknown): number => (Number.isFinite(Number(v)) ? Number(v) : 0);

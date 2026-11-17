@@ -361,7 +361,7 @@ model Contract {
   supplierId          String?
   signDate            DateTime?
   amount              Decimal?  @db.Decimal(18, 2)
-  taxRate             Decimal?  @db.Decimal(9, 4)
+  taxRatePct          Decimal?  @db.Decimal(9, 4) // 税率（百分数，如 13.00）
   paymentMethodCode   String? // dict: payment_method
   isFramework         String? // dict: yes_no
   isSupplement        String? // dict: yes_no
@@ -623,7 +623,7 @@ model DailyReport {
   isWeighed         String? // dict: yes_no
   noAcceptReason    String? // 未云筑验收原因
   priceBeforeTax    Decimal?  @db.Decimal(18, 4)
-  taxRate           Decimal?  @db.Decimal(9, 4)
+  taxRatePct        Decimal?  @db.Decimal(9, 4) // 税率（百分数，如 13.00）
   priceAfterTax     Decimal?  @db.Decimal(18, 4)
   amountBeforeTax   Decimal?  @db.Decimal(18, 2)
   amountAfterTax    Decimal?  @db.Decimal(18, 2)
@@ -997,7 +997,7 @@ model Invoice {
   issuer                String? // 开票单位
   receiver              String?
   amountBeforeTax       Decimal?  @db.Decimal(18, 2)
-  taxRate               Decimal?  @db.Decimal(9, 4)
+  taxRatePct            Decimal?  @db.Decimal(9, 4) // 税率（百分数，如 13.00）
   amountWithTax         Decimal?  @db.Decimal(18, 2)
   receiveDate           DateTime? // 发票收取时间
   reviewStatus          String? // dict: invoice_review_status
@@ -1405,7 +1405,7 @@ model ReceiptOrderDetail {
   deliveryQty     Decimal? @db.Decimal(18, 4) // 送货数量（手动填写）
   receivedQty     Decimal? @db.Decimal(18, 4) // 实收数量（手动填写）
   priceBeforeTax  Decimal? @db.Decimal(18, 4) // 税前单价
-  taxRate         Decimal? @db.Decimal(9, 4) // 税率（百分比，如 13.00）
+  taxRatePct      Decimal? @db.Decimal(9, 4) // 税率（百分比，如 13.00）
   priceWithTax    Decimal? @db.Decimal(18, 4) // 综合单价 = 税前单价 × (1 + 税率/100)
   totalPrice      Decimal? @db.Decimal(18, 2) // 综合总价 = 实收数量 × 综合单价
   usagePart       String? // 使用部位
@@ -1526,12 +1526,12 @@ model ProcurementTotalItem {
   materialName   String
   spec           String
   unit           String // 计量单位（默认带出，可改为字典值；提交时同步回基础库）
-  qty            Float? // 暂定数量
-  incomePrice    Float? // 收入单价
-  stdCost        Float? // 标准成本
-  marketPrice    Float? // 市场单价
-  infoPrice      Float? // 信息价
-  planPrice      Float? // 预计采购单价（控制价）
+  qty            Decimal? @db.Decimal(18, 4) // 暂定数量
+  incomePrice    Decimal? @db.Decimal(18, 4) // 收入单价
+  stdCost        Decimal? @db.Decimal(18, 4) // 标准成本
+  marketPrice    Decimal? @db.Decimal(18, 4) // 市场单价
+  infoPrice      Decimal? @db.Decimal(18, 4) // 信息价
+  planPrice      Decimal? @db.Decimal(18, 4) // 预计采购单价（控制价）
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
   version        Int      @default(0)
@@ -1679,7 +1679,7 @@ model ProcurementDocument {
   projectId        String
   taskId           String    @unique // 一个采购任务仅一份采购文件
   procurementTime  DateTime? // 采购时间（日期）
-  responseDeposit  Float? // 响应保证金（金额，元）
+  responseDeposit  Decimal? @db.Decimal(18, 2) // 响应保证金（金额，元）
   quoteDescription String? // 报价说明（富文本 HTML）
   publishedAt      DateTime? // 发布时间（采购文件阶段发布后回填）
   createdAt        DateTime  @default(now())

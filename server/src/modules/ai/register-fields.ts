@@ -11,6 +11,8 @@
  *    这样本文件可以对同一份输入反复断言而不涉及浮点格式差异。
  */
 
+import { round2, round4 } from '../../common/calc/money.ts';
+
 export type RegisterGroup = 'supplier' | 'contract';
 export type RegisterFieldType = 'text' | 'code' | 'date' | 'money' | 'percent' | 'enum';
 
@@ -195,15 +197,13 @@ export function normalizePercentText(v: unknown): string | null {
 }
 
 /**
- * 税率**百分数 → 存库小数**（`13` → `0.13`，`Decimal(9,4)`）。
+ * 税率归一为**百分数**（`13` → `13`，`13.5%` → `13.5`），与全站税率单轨口径一致。
  *
- * 为什么要单独一层（2026-10-20 审计 P1-3）：落库前原来是 `Math.round(pct)/100`，
- * 于是 `0.13`（模型按小数给）被 round 成 0 → 税率变 **0%**，`13.5` 变 `0.14`（13.5% 被篡改）。
- * 这里与 `normalizePercentText` 同口径：`≤1` 视为「小数形式的百分数」先 ×100，再校验 `0..100`，
- * 最后保留 4 位小数（`13.5%` → `0.135`）。超界**拒绝**而不是截断——税率错了会连锁污染
- * 不含税单价、税额与台账「开累进项税额」。
+ * 与 `normalizePercentText` 同口径：`≤1` 的正数视为「小数形式的百分数」（AI 常按 0.13 给）
+ * 先 ×100，再校验 `0..100`。超界**拒绝**而不是截断——税率错了会连锁污染不含税单价、
+ * 税额与台账「开累进项税额」。落库字段为 `taxRatePct`，不再有百分数↔小数双轨转换。
  */
-export function taxRateFraction(pct: number | null | undefined): { value: number | null; error?: string } {
+export function taxRatePctValue(pct: number | null | undefined): { value: number | null; error?: string } {
   if (pct === null || pct === undefined) return { value: null };
   const n = Number(pct);
   if (!Number.isFinite(n)) return { value: null, error: `税率不是有效数字（收到 ${pct}）` };
@@ -213,8 +213,7 @@ export function taxRateFraction(pct: number | null | undefined): { value: number
   if (normalized > 100) {
     return { value: null, error: `税率超过 100%（收到 ${n}）：这里要填百分数，13 表示 13%` };
   }
-  // 百分数 → 小数（13.5 → 0.135）；这里不能只做四舍五入，必须先 /100 再保留 4 位
-  return { value: round4(normalized / 100) };
+  return { value: round4(normalized) };
 }
 
 /** 文本归一：全角括号/空格/换行统一，便于在原文里做子串核对 */
@@ -395,15 +394,16 @@ export function normalizeExtraction(raw: unknown, text: string): RegisterDraft {
     }
   }
   // 税率缺失时用 税额 / 不含税 补
-  const taxRate = byKey.get('contract.taxRatePct')!;
-  if (!taxRate.value) {
+  const taxRatePct = byKey.get('contract.taxRatePct')!;
+  if (!taxRatePct.value) {
     const tax = numOrNull(byKey.get('contract.taxAmount')?.value);
     const noTax = numOrNull(byKey.get('contract.amountWithoutTax')?.value);
     if (tax !== null && noTax && noTax > 0) {
-      taxRate.value = String(Math.round((tax / noTax) * 10000) / 100);
-      taxRate.verified = false;
-      taxRate.note = '按「税额 ÷ 不含税金额」推算';
-      taxRate.warn = 'unverified';
+      // 税额 ÷ 不含税金额 × 100 = 税率百分数
+      taxRatePct.value = String(round2((tax / noTax) * 100));
+      taxRatePct.verified = false;
+      taxRatePct.note = '按「税额 ÷ 不含税金额」推算';
+      taxRatePct.warn = 'unverified';
     }
   }
 
@@ -456,16 +456,6 @@ function base(def: RegisterFieldDef): ExtractedField {
     confidence: null,
   };
 }
-
-/**
- * 四舍五入（与 `common/utils/money.ts` 的 `round2/round4` 同一算法，含 EPSILON 修正）。
- *
- * 为什么不在本文件 import money.ts（2026-10-20 审计 P2-9 曾想统一）：
- * 本文件是「零依赖纯函数」，被 `test/*.spec.mts` 以 `node --experimental-strip-types`
- * 直接加载；跨目录 import 需要带扩展名才能被 ESM 解析，反而把单测弄脆。语义靠注释对齐。
- */
-const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
-const round4 = (n: number): number => Math.round((n + Number.EPSILON) * 10000) / 10000;
 
 function toItems(raw: unknown): RegisterItem[] {
   if (!Array.isArray(raw)) return [];

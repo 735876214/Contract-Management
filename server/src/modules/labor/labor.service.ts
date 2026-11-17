@@ -2,7 +2,8 @@ import { checkFileUrl } from '../../common/utils/safe-url';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, assertVersion, toDate } from '../../common/utils/helpers';
+import { toDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 
 /** 允许从前端写入的字段白名单（原分包商库字段 + 台账独有的授权期间） */

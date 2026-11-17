@@ -12,7 +12,7 @@ import {
   summarizeCost,
 } from '../../web/src/utils/preMeetingMinutes.ts';
 import { buildResultReportVariableValues, fmtAmount, numOrNull } from '../../web/src/utils/procurementResultReport.ts';
-import { amountToChineseCapital } from '../../web/src/utils/money.ts';
+import { amountToChineseCapital } from '../src/common/calc/money.ts';
 import { highlightPlaceholders } from '../../web/src/utils/docExport.ts';
 
 /**

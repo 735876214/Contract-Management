@@ -1,7 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, assertYearMonth } from '../../common/utils/helpers';
-import { round2 } from '../../common/utils/money';
+import { num } from '../../common/calc/numeric';
+import { toDate } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { round2 } from '../../common/calc/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import {
+  canonicalMonthKey,
+  compareMonthKey,
+  round2 as calcRound2,
+  settlementAmountOf,
+  sumAmounts,
+} from '../../common/calc/index.ts';
 
 /**
  * 导出件末尾的合计行标记（`styled.exportTable({ totalsLabel: '汇总' })` 写进「项目」列）。
@@ -125,12 +135,9 @@ export class SettlementService {
     out.qty = num(out.qty);
     out.priceBeforeTax = num(out.priceBeforeTax);
     out.taxRatePct = num(out.taxRatePct);
-    out.priceWithTax =
-      out.priceBeforeTax != null && out.taxRatePct != null
-        ? Number((out.priceBeforeTax * (1 + out.taxRatePct / 100)).toFixed(4))
-        : out.priceBeforeTax;
-    out.totalWithTax =
-      out.priceWithTax != null && out.qty != null ? round2(out.priceWithTax * out.qty) : null;
+    // 税率未填时沿用旧口径：按 0% 处理（含税单价 = 税前单价），不把整行置空
+    out.priceWithTax = calcPriceWithTax(out.priceBeforeTax, out.taxRatePct ?? 0, 4);
+    out.totalWithTax = calcTotalWithTax(out.priceWithTax, out.qty, 2);
     out.sortOrder = out.sortOrder ?? index + 1;
     return out;
   }
@@ -538,7 +545,9 @@ export class SettlementService {
       this.prisma.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
       this.prisma.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
     ]);
-    const monthSettleAmount = round2(settlements.reduce((s: number, r: any) => s + (num(r.actualAmount ?? r.amount) || 0), 0));
+    // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
+    const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
+
     /** 该行对应的结算单数：同合同同月唯一 → 恒为 0（仅费用行）或 1（字段保留兼容导出/列定义） */
     const settleCount = settlements.length;
     const monthInvoiceAmount = round2(
@@ -556,7 +565,9 @@ export class SettlementService {
         return s + (cost || 0);
       }, 0),
     );
-    const overdueSum = round2(overdue.reduce((s: number, r: any) => (r.waived ? s : s + (num(r.overdueInterest) || 0)), 0));
+    // waived 行按 0 排除，与逾期汇总 interestOf 同口径
+    const overdueSum = sumAmounts(overdue, (r: any) => (r.waived ? 0 : r.overdueInterest));
+
     return {
       monthSettleAmount,
       monthInvoiceAmount,
@@ -1089,7 +1100,7 @@ export class SettlementService {
         receiptNo: true,
         settleQty: true,
         priceBeforeTax: true,
-        taxRate: true,
+        taxRatePct: true,
         priceAfterTax: true,
         amountBeforeTax: true,
         amountAfterTax: true,
@@ -1652,12 +1663,17 @@ export class SettlementService {
       byContract.set(r.contractId, list);
     }
     for (const list of byContract.values()) {
-      list.sort((x, y) => String(x.settleMonth || '').localeCompare(String(y.settleMonth || '')));
+      // 归一后按月份键排序：`2026-9` 与 `2026-09` 同月，`2026-10` 不再被 localeCompare 排在 `2026-9` 前
+      list.sort((x, y) => {
+        const a = canonicalMonthKey(x.settleMonth) ?? '';
+        const b = canonicalMonthKey(y.settleMonth) ?? '';
+        return compareMonthKey(a, b);
+      });
       let prevCum: number | null = null;
       for (const r of list) {
         const cum = num(r.cumPurchaseAmount);
         if (cum === null || prevCum === null) reviewOf.set(r.id, null);
-        else reviewOf.set(r.id, Number((cum - prevCum).toFixed(2)));
+        else reviewOf.set(r.id, calcRound2(cum - prevCum));
         if (cum !== null) prevCum = cum;
       }
     }

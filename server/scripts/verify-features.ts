@@ -1,4 +1,4 @@
-import { amountToChineseCapital } from '../src/common/utils/money';
+import { amountToChineseCapital } from '../src/common/calc/money';
 import { patchDocx } from '../src/common/utils/docx-patch';
 import HTMLtoDOCX from 'html-to-docx';
 import JSZip from 'jszip';

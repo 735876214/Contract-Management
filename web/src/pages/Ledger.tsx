@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -52,14 +51,14 @@ const renderCompliance = (v: any) => {
   return <span style={{ color: 'var(--cms-error)' }}>{v}</span>;
 };
 
-/**
- * 百分比列：后端存的是**小数**（税率 0.13、付款比例 0.65），导出侧用的也是 `0.00%` 格式；
- * 这里必须乘 100，否则页面显示 0.13%（合同页/导出显示 13.00%），同一份数据两种口径。
- */
+/** 小数比例列（如付款比例 0.65）：页面乘 100 显示为 65.00%，与导出 `0.00%` 格式一致 */
 const pct = (v: any) => (v == null || v === '' ? '-' : `${(Number(v) * 100).toFixed(2)}%`);
+/** 百分数口径列（税率 13 = 13%）：单轨后直接拼 %，不再乘 100 */
+const pctVal = (v: any) => (v == null || v === '' ? '-' : `${Number(v).toFixed(2)}%`);
 
 const renderCell = (key: string, v: any) => {
-  if (key === 'taxRate' || key === 'currentPayRatio') return pct(v);
+  if (key === 'taxRate' || key === 'taxRatePct') return pctVal(v);
+  if (key === 'currentPayRatio') return pct(v);
   if (/amount$/i.test(key) || /debt/i.test(key) || key === 'amount') return money(v);
   if (key === 'yearSettle' || key === 'yearPaid') return renderYearMap(v);
   if (key === 'compliance') return renderCompliance(v);
@@ -96,31 +95,6 @@ function LedgerList() {
   const [colChecked, setColChecked] = useState<string[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
 
-  /**
-   * 旧合同编辑深链：起草页「继续编辑」曾用 `/contracts?edit=<id>`（/contracts 已保号重定向到本页）。
-   * 取到详情后转成编辑器页签 `?editor=<id>`，再清掉 `edit` 参数。
-   */
-  const [searchParams, setSearchParams] = useSearchParams();
-  const editParam = searchParams.get('edit');
-  useEffect(() => {
-    if (!editParam) return;
-    let alive = true;
-    contractApi
-      .detail(editParam)
-      .then((res: any) => {
-        if (!alive) return;
-        // 先清掉 edit 参数，再导航到 ?editor=<id>：顺序反了会被「清参数」覆盖回列表
-        setSearchParams({}, { replace: true });
-        if (res) editorTab.openEdit(res.id, res);
-      })
-      .catch(() => {
-        if (alive) setSearchParams({}, { replace: true });
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editParam]);
 
   /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
   const fetcher = useMemo(

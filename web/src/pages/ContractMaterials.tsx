@@ -13,12 +13,12 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { LIST_PATHS } from '@/constants/listPaths';
+import { round4 } from '../../../server/src/common/calc/money.ts';
 
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
 const LIST_PATH = LIST_PATHS.contractMaterial;
 
-/** 前端实时计算（与服务端同口径：4 位小数） */
-const round4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
+/** 前端实时计算（与服务端共用同一份 4 位舍入实现） */
 const fmtNum = (v: any, digits = 4) =>
   v == null || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: digits });
 

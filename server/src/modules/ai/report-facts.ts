@@ -1,5 +1,7 @@
+import { round2 } from '../../common/calc/money.ts';
+
 /**
- * 汇报材料的「事实包」与产出校验（**零依赖纯函数**，`.mts` 单测直接加载）。
+ * 汇报材料的「事实包」与产出校验（**纯函数**，舍入走共享原语）。
  *
  * 设计底线：**数字只能来自系统数据**。
  * 模型写作能力足够，但它有个致命习惯——为了让句子更顺，顺手编一个「同比增长 15%」。
@@ -85,7 +87,7 @@ export interface ReportFacts {
 
 const money = (n: number | null | undefined): string => {
   if (n === null || n === undefined || !Number.isFinite(n)) return '-';
-  return (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2);
+  return round2(n).toFixed(2);
 };
 
 const pctText = (d: ReportDelta): string =>
@@ -171,7 +173,7 @@ export function factNumbers(f: ReportFacts): number[] {
   }
   if (f.project.selfContractAmount !== null && f.project.selfContractAmount !== undefined) {
     out.push(f.project.selfContractAmount);
-    out.push(Math.round(f.project.selfContractAmount * 10000 * 100) / 100); // 万元 → 元
+    out.push(round2(f.project.selfContractAmount * 10000)); // 万元 → 元
   }
   return out.filter((n) => Number.isFinite(n));
 }

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, num, toDate, assertVersion, IMPORT_MAX_ROWS, localDayKey } from '../../common/utils/helpers';
+import { num } from '../../common/calc/numeric';
+import { toDate, localDayKey } from '../../common/calc/time';
+import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -20,11 +22,12 @@ import { SettlementService } from '../settlement';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
+import { calcAmount } from '../../common/calc/amounts';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
 const INVOICE_FIELDS = [
   'projectId', 'contractId', 'settlementId', 'goodsCategory', 'settlePeriod', 'invoiceCode', 'invoiceNo',
-  'typeCode', 'invoiceDate', 'issuer', 'receiver', 'amountBeforeTax', 'taxRate',
+  'typeCode', 'invoiceDate', 'issuer', 'receiver', 'amountBeforeTax', 'taxRatePct',
   'amountWithTax', 'receiveDate', 'reviewStatus', 'responsiblePerson', 'financeTransferStatus',
   'imageUrl', 'statusCode', 'redOfInvoiceId', 'remark',
 ];
@@ -196,7 +199,7 @@ export class InvoiceService {
     const payload: any = { ...pickFields(data, INVOICE_FIELDS, { label: '发票' }), projectId };
     // 空串不是合法的原票外键：归一为 null（否则落库触发外键错误 → 500）
     if (payload.redOfInvoiceId === '') payload.redOfInvoiceId = null;
-    ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
+    ['amountBeforeTax', 'taxRatePct', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     // 负金额是录入错误（与导入路径同一口径，2026-10-18 审计）
@@ -337,7 +340,7 @@ export class InvoiceService {
     const payload: any = pickFields(data, INVOICE_UPDATE_FIELDS, { label: '发票' });
     // 空串不是合法的原票外键：归一为 null（否则落库触发外键错误 → 500）
     if (payload.redOfInvoiceId === '') payload.redOfInvoiceId = null;
-    ['amountBeforeTax', 'taxRate', 'amountWithTax'].forEach((f) => {
+    ['amountBeforeTax', 'taxRatePct', 'amountWithTax'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     this.assertNoNegativeAmounts(payload);
@@ -473,10 +476,11 @@ export class InvoiceService {
         // 合同归属校验：不校验的话可把别项目的合同挂到本项目发票上，
         // 之后按合同汇总的开票额、台账同步都会串到别的项目
         if (contract && (contract as any).projectId !== projectId) throw new Error('关联合同不属于当前项目');
-        const rate = num(it.taxRate);
+        const ratePct = num(it.taxRatePct);
         const beforeTax = num(it.amountBeforeTax);
-        const withTax = rate !== null && beforeTax !== null
-          ? Number((beforeTax * (1 + rate)).toFixed(2))
+        // 含税金额 = 税前金额 × (1 + 税率百分数/100)，单轨百分数口径
+        const withTax = ratePct !== null && beforeTax !== null
+          ? calcAmount(beforeTax, 1 + ratePct / 100, 2)
           : (num(it.amountWithTax) ?? null);
         const invoiceDate = it.invoiceDate ? new Date(it.invoiceDate) : null;
         const d = invoiceDate && !isNaN(invoiceDate.getTime()) ? invoiceDate : null;
@@ -492,7 +496,7 @@ export class InvoiceService {
             invoiceDate: d,
             issuer: it.issuer || null,
             amountBeforeTax: beforeTax,
-            taxRate: rate,
+            taxRatePct: ratePct,
             amountWithTax: withTax,
             receiveDate: new Date(),
             reviewStatus: INVOICE_REVIEW_STATUS.PENDING,
@@ -550,7 +554,7 @@ export class InvoiceService {
       invoiceCode: i.invoiceCode, invoiceNo: i.invoiceNo, amountBeforeTax: num(i.amountBeforeTax),
       // 红冲票指向的原发票号码（业务口径 2026-11-12：录红冲票时原票同步作废）
       redOfInvoiceNo: i.redOf?.invoiceNo || '',
-      taxRate: num(i.taxRate), amountWithTax: num(i.amountWithTax), receiveDate: fmt(i.receiveDate),
+      taxRatePct: num(i.taxRatePct), amountWithTax: num(i.amountWithTax), receiveDate: fmt(i.receiveDate),
       reviewStatusName: review[i.reviewStatus]?.name || '', responsiblePerson: i.responsiblePerson,
       financeTransferName: finance[i.financeTransferStatus]?.name || '', remark: i.remark,
     }));
@@ -572,7 +576,7 @@ export class InvoiceService {
         { header: '发票号码', key: 'invoiceNo', width: 140, type: 'center' },
         { header: '红冲原发票', key: 'redOfInvoiceNo', width: 140, type: 'center' },
         { header: '税前金额', key: 'amountBeforeTax', width: 140, type: 'money' },
-        { header: '税率', key: 'taxRate', width: 80, type: 'pct' },
+        { header: '税率', key: 'taxRatePct', width: 80, type: 'pctVal' },
         { header: '含税金额', key: 'amountWithTax', width: 140, type: 'money' },
         { header: '发票收取时间', key: 'receiveDate', width: 120, type: 'center' },
         { header: '发票信息审核', key: 'reviewStatusName', width: 110, type: 'center' },
@@ -635,18 +639,11 @@ export class InvoiceService {
         notDup(invoiceNo, `发票号码「${invoiceNo}」在本次导入中重复`, '发票号码');
         const dupNo = await this.prisma.invoice.findFirst({ where: { projectId, invoiceNo }, select: { id: true } });
         if (dupNo) throw new RowError(`发票号码「${invoiceNo}」在当前项目中已存在`, '发票号码');
-        // 税率统一取自合同台账（需求 2.4）：子表未填时继承合同税率
-        // 口径按列名定，不靠数值猜（第 4 轮审计）：「税率(%)」是百分数（13 = 13%），
-        // 「税率」是小数（0.13 = 13%）。旧写法 > 1 ? /100 : 原值 会把 1% 存成 100%、0.5% 存成 50%，
-        // 含税金额随之翻倍。
-        const pctRaw = num(r['税率(%)']);
-        const fracRaw = num(r['税率']);
-        let taxRate = pctRaw !== null ? pctRaw / 100 : fracRaw;
-        if (taxRate === null && (contract as any).taxRate != null) {
-          // 合同台账是小数口径（0.13）；历史库里有脏数据存成 13.0000，这里按 ≥1 视为百分数兜底，
-          // 避免把 13 当 1300% 用。
-          const ct = Number((contract as any).taxRate);
-          taxRate = ct >= 1 ? ct / 100 : ct;
+        // 税率单轨百分数（13 = 13%）：模板列「税率(%)」直接落库，不再解析小数双轨入口；
+        // 子表未填时继承合同台账税率（合同字段同为百分数口径）。
+        let taxRatePct = num(r['税率(%)']);
+        if (taxRatePct === null && contract?.taxRatePct != null) {
+          taxRatePct = num(contract.taxRatePct);
         }
         const amtBefore = num(r['税前金额']);
         const amtWith = num(r['含税金额']);
@@ -662,7 +659,7 @@ export class InvoiceService {
             invoiceCode: r['发票代码'] || null,
             invoiceNo,
             amountBeforeTax: amtBefore,
-            taxRate,
+            taxRatePct,
             amountWithTax: amtWith,
             receiveDate: dateOf(r['发票收取时间'], '发票收取时间'),
             reviewStatus: codeOf(review, r['发票信息审核'], '发票信息审核'),

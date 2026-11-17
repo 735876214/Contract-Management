@@ -133,7 +133,7 @@
   （`100`/`3382` → 1，`M65_1`/`M65_3` → 0.65）；③ `CUSTOM` → 用 `ContractExt.settlementPayRatio`（合同上手填）；
   ④ **推不出来 → `null` 且保持原值不动**（"未知"不该被改写成某个数；手填 0 也算推不出来）。
   ⚠️ 台账「当前合同付款比例」列、逾期引擎的 `paymentRatio`、工作台付款预警**都读这一列**。
-  ⚠️ 合同表单里它已改为**只读展示**、提交时前端会把它剥掉（`Contracts.tsx` 的 `submit`）。
+  ⚠️ 合同表单里它已改为**只读展示**、提交时前端会把它剥掉（`web/src/components/contract/ContractEditor.tsx` 的 `submit`）。
 - **付款超比例预警**（工作台）：纯函数 `common/utils/amount-alert.ts` 的 `evaluatePaymentRatioAlert()`
   —— 开累付款 > 开累结算 × 生效比例；**单级**（业务只给了"超过就报"）；比例未填/为 0 或开累结算为 0
   → **不报**；"恰好等于上限"不算超。开累付款的分子排除 `PAYMENT_EXCLUDED_STATUSES`（失败/退款，

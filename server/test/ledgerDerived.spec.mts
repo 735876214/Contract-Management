@@ -148,7 +148,8 @@ describe('台账税率拆分与合同额合计（链口径）', () => {
     assert.deepEqual(deriveTaxSplit(113000, null), { beforeTax: null, inputTax: null });
     assert.deepEqual(deriveTaxSplit(113000, ''), { beforeTax: null, inputTax: null });
     assert.deepEqual(deriveTaxSplit(113000, 0), { beforeTax: 113000, inputTax: 0 });
-    assert.deepEqual(deriveTaxSplit(113000, 0.13), { beforeTax: 100000, inputTax: 13000 });
+    // 税率单轨百分数：13 = 13%（旧小数口径 0.13 已废弃）
+    assert.deepEqual(deriveTaxSplit(113000, 13), { beforeTax: 100000, inputTax: 13000 });
   });
 
   it('合同额合计：同一链只计一次（按链根，不看 isSupplement 标志）', () => {

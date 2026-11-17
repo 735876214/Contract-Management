@@ -3,13 +3,12 @@ import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Tab
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
+import {
+  calcPriceWithTax,
+  calcTotalWithTax as calcTotal,
+} from '../../../../server/src/common/calc/amounts.ts';
 
-/** 4 位精度计算：含税单价 = 税前单价 × (1 + 税率/100)；暂定含税合价 = 含税单价 × 暂定数量 */
-const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
-const calcPriceWithTax = (price?: number | null, tax?: number | null) =>
-  price == null || tax == null ? null : round4(price * (1 + tax / 100));
-const calcTotal = (priceWithTax?: number | null, qty?: number | null) =>
-  priceWithTax == null || qty == null ? null : round4(priceWithTax * qty);
+/** 含税单价/含税合价统一走共享原语（4 位精度），不再本地复制公式 */
 
 /**
  * 合同起草 · Tab2：合同清单（交易明细 / 执行池）

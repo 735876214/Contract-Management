@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { localDayKey } from '../../common/utils/helpers';
+import { localDayKey } from '../../common/calc/time';
+import { round2 } from '../../common/calc/money';
 import { PrismaClient } from '@prisma/client';
 import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
 import {
@@ -146,7 +147,7 @@ export class FieldResolverService {
     put('contract.chainAmount', money(chain.currentAmount));
     put('contract.changeTotal', money(chain.supplementTotal));
     put('contract.supplementCount', count(chain.supplementCount));
-    put('contract.taxRatePct', pct(contract?.taxRate));
+    put('contract.taxRatePct', money(contract?.taxRatePct));
     // 当前付款比例读服务端派生列（唯一实现 contract.service.syncPayRatio），不在这里重算
     put('contract.payRatioPct', pct(contract?.ext?.currentPayRatio));
     put('contract.execStatusName', execStatusDict?.get(text(contract?.execStatus)) ?? '');
@@ -287,20 +288,19 @@ export class FieldResolverService {
 
     const sum = (rows: any[], pick: (r: any) => unknown): number =>
       rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0);
-    const r2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
-    const settlementAmountTotal = r2(sum(settlements, (r) => r.actualAmount ?? r.amount));
-    const paymentAmountTotal = r2(sum(payments, (r) => r.amount));
-    const invoiceAmountTotal = r2(sum(invoices, (r) => r.amountWithTax));
+    const settlementAmountTotal = round2(sum(settlements, (r) => r.actualAmount ?? r.amount));
+    const paymentAmountTotal = round2(sum(payments, (r) => r.amount));
+    const invoiceAmountTotal = round2(sum(invoices, (r) => r.amountWithTax));
 
     return {
       contractCount: chainRows.length,
-      contractAmountTotal: r2(contractAmountTotal),
+      contractAmountTotal: round2(contractAmountTotal),
       settlementAmountTotal,
       paymentAmountTotal,
       invoiceAmountTotal,
       // 应付未付 = 累计结算 − 累计付款（与台账「应付未付」同口径）；可为负（多付了，正是该被看见的异常）
-      unpaidAmount: r2(settlementAmountTotal - paymentAmountTotal),
+      unpaidAmount: round2(settlementAmountTotal - paymentAmountTotal),
     };
   }
 }

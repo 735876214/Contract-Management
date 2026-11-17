@@ -19,12 +19,14 @@
  *
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
+import {
+  formatDay as calcFormatDay,
+  monthKey as calcMonthKey,
+  periodMonthKey as calcPeriodMonthKey,
+} from '../calc/time.ts';
 
 /** 月份键，`YYYY-MM` */
 export type MonthKey = string;
-
-/** 数字补零 */
-const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /** 某年某月（`monthIndex` 为 0 基）的天数 */
 const daysInMonth = (year: number, monthIndex: number): number => new Date(year, monthIndex + 1, 0).getDate();
@@ -36,12 +38,7 @@ const daysInMonth = (year: number, monthIndex: number): number => new Date(year,
  * 形参取 `unknown`：调用方常直接把手里的任意值（Prisma 字段、请求体、`any`）丢进来，
  * 让每个调用点各自断言类型只会把噪音摊开，这里统一做兜底。
  */
-export function monthKey(d: unknown): MonthKey | null {
-  if (d === null || d === undefined || d === '') return null;
-  const dt = d instanceof Date ? d : new Date(d as any);
-  if (isNaN(dt.getTime())) return null;
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}`;
-}
+export const monthKey = (d: unknown): MonthKey | null => calcMonthKey(d);
 
 /**
  * 「结算账期」这类**自由文本** → 月份键。发票的 `settlePeriod` 是手工输入的长文本字段
@@ -49,21 +46,7 @@ export function monthKey(d: unknown): MonthKey | null {
  * `2026-09` / `2026/9` / `2026.09` / `2026年9月` / `202609` / `2026-09-01` 都能认出来。
  * 认不出 → `null`（调用方回落到按开票日期归集）。
  */
-export function periodMonthKey(text: string | null | undefined): MonthKey | null {
-  if (!text) return null;
-  const s = String(text).trim();
-  // 年 + 分隔符（- / . 年月）+ 月
-  let m = s.match(/(\d{4})\s*[-/.年]\s*(\d{1,2})/);
-  if (!m) {
-    // 纯 6 位：202609
-    m = s.match(/^(\d{4})(\d{2})$/);
-  }
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  if (!y || !mo || mo < 1 || mo > 12) return null;
-  return `${y}-${pad2(mo)}`;
-}
+export const periodMonthKey = (text: string | null | undefined): MonthKey | null => calcPeriodMonthKey(text);
 
 /** 该期起始日（项目上填的「月度结算起始日期」的日，1~31） */
 export function startDayOf(startDate: Date | string | null | undefined): number {
@@ -149,12 +132,7 @@ export function periodKeyOf(startDay: number, date: unknown): MonthKey | null {
  * → **差一天**（2026-10-16 真渲染验收时实测到：「结算期 2026-08-31 ~ 2026-09-29」）。
  * 输出成字符串后，前端无需做任何时区换算，与 `settleDate` 等既有字段的展示口径也一致。
  */
-export function formatDay(d: unknown): string | null {
-  if (d === null || d === undefined || d === '') return null;
-  const dt = d instanceof Date ? d : new Date(d as any);
-  if (isNaN(dt.getTime())) return null;
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
-}
+export const formatDay = (d: unknown): string | null => calcFormatDay(d);
 
 /** 结算期标签 `YYYY-MM` → 中文展示 `YYYY年M月`；认不出原样返回（导出表头用） */
 export function periodLabel(period: string): string {

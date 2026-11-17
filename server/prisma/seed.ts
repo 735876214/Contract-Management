@@ -295,28 +295,28 @@ async function main() {
   const contractSeed = [
     {
       code: 'HT-2026-0001', name: '滨江项目钢筋采购合同', typeCode: 'PURCHASE_EXEC',
-      supplierIdx: 1, amount: 8600000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
+      supplierIdx: 1, amount: 8600000, taxRatePct: 13, paymentMethodCode: 'TRANSFER',
       isFramework: 'N', isSupplement: 'N', signDate: new Date('2026-01-15'),
       execStatus: 'EXECUTING',
       ext: { financeCode: 'FIN-2026-0001', procurementSrc: 'BID', isDirectPurchase: 'N', bidName: '滨江项目钢筋招标', currentPayRatio: 0.75, supplierCategory: 'MATERIAL', bidStartDate: new Date('2025-12-01'), bidWinDate: new Date('2025-12-20'), disclosureDate: new Date('2026-01-10') },
     },
     {
       code: 'HT-2026-0002', name: '滨江项目塔吊租赁合同', typeCode: 'LEASE_EXEC',
-      supplierIdx: 2, amount: 2400000, taxRate: 0.09, paymentMethodCode: 'ACCEPTANCE',
+      supplierIdx: 2, amount: 2400000, taxRatePct: 9, paymentMethodCode: 'ACCEPTANCE',
       isFramework: 'N', isSupplement: 'N', signDate: new Date('2026-02-01'),
       execStatus: 'EXECUTING',
       ext: { financeCode: 'FIN-2026-0002', procurementSrc: 'INQUIRY', isDirectPurchase: 'N', bidName: '塔吊租赁询价', currentPayRatio: 0.6, supplierCategory: 'LEASE', bidStartDate: new Date('2026-01-05'), bidWinDate: new Date('2026-01-20') },
     },
     {
       code: 'HT-2026-0003', name: '滨江项目商品砼框架协议', typeCode: 'FRAMEWORK',
-      supplierIdx: 0, amount: 15000000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
+      supplierIdx: 0, amount: 15000000, taxRatePct: 13, paymentMethodCode: 'TRANSFER',
       isFramework: 'Y', isSupplement: 'N', signDate: new Date('2026-01-05'),
       execStatus: 'EXECUTING',
       ext: { procurementSrc: 'FRAMEWORK', isDirectPurchase: 'Y', supplierCategory: 'MATERIAL' },
     },
     {
       code: 'HT-2026-0004', name: '钢筋采购合同涨价补充协议', typeCode: 'PURCHASE',
-      supplierIdx: 1, amount: 600000, taxRate: 0.13, paymentMethodCode: 'TRANSFER',
+      supplierIdx: 1, amount: 600000, taxRatePct: 13, paymentMethodCode: 'TRANSFER',
       isFramework: 'N', isSupplement: 'Y', supplementTypeCode: 'PRICE_UP', signDate: new Date('2026-03-10'),
       execStatus: 'DRAFT',
       ext: { supplierCategory: 'MATERIAL' },
@@ -331,7 +331,7 @@ async function main() {
         projectId: project.id,
         code: c.code, name: c.name, typeCode: c.typeCode,
         supplierId: suppliers[c.supplierIdx].id,
-        amount: c.amount, taxRate: c.taxRate, paymentMethodCode: c.paymentMethodCode,
+        amount: c.amount, taxRatePct: c.taxRatePct, paymentMethodCode: c.paymentMethodCode,
         isFramework: c.isFramework, isSupplement: c.isSupplement, supplementTypeCode: (c as any).supplementTypeCode,
         signDate: c.signDate, execStatus: c.execStatus,
         createdBy: admin.id,
@@ -371,10 +371,10 @@ async function main() {
   if ((await prisma.dailyReport.count({ where: { projectId: project.id } })) === 0) {
     await prisma.dailyReport.createMany({
       data: [
-        { projectId: project.id, periodYear: 2026, periodMonth: 1, entryDate: new Date('2026-01-10'), contractId: contracts[0].id, isAsset: 'Y', department: '工程部', personnel: '王强', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'STEEL', materialName: '螺纹钢 HRB400E Φ20', steelBrand: '沙钢', steelCount: 120, spec: 'Φ20', unit: 'T', weighQty: 320.5, deductQty: 1.2, settleQty: 319.3, isWeighed: 'Y', priceBeforeTax: 3850, taxRate: 0.13, priceAfterTax: 4350.5, amountBeforeTax: 1229305, amountAfterTax: 1389114.65, supplierId: suppliers[1].id, receiveUnit: '一标段', receiver: '李强', usePosition: '3#楼基础', isProxy: 'N', plateNo: '沪A12345', receiptNo: 'SL-2026-0001' },
-        { projectId: project.id, periodYear: 2026, periodMonth: 2, entryDate: new Date('2026-02-05'), contractId: contracts[0].id, isAsset: 'Y', department: '工程部', personnel: '王强', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'STEEL', materialName: '盘螺 HRB400E Φ8', spec: 'Φ8', unit: 'T', weighQty: 180, deductQty: 0.8, settleQty: 179.2, isWeighed: 'Y', priceBeforeTax: 3720, taxRate: 0.13, priceAfterTax: 4203.6, amountBeforeTax: 666624, amountAfterTax: 753485.12, supplierId: suppliers[1].id, receiveUnit: '二标段', receiver: '赵磊', usePosition: '5#楼主体', isProxy: 'N', plateNo: '沪B67890', receiptNo: 'SL-2026-0002' },
-        { projectId: project.id, periodYear: 2026, periodMonth: 2, entryDate: new Date('2026-02-08'), contractId: contracts[1].id, isAsset: 'Y', department: '设备部', personnel: '周涛', assetStatus: 'IN_USE', sourceCode: 'LEASE', materialCategory: 'LEASE', materialType: 'LEASE_MACHINE', materialName: '塔吊 QTZ63', spec: 'QTZ63', unit: 'UNIT', settleQty: 2, priceBeforeTax: 28000, taxRate: 0.09, priceAfterTax: 30520, amountBeforeTax: 56000, amountAfterTax: 61040, supplierId: suppliers[2].id, receiveUnit: '一标段', receiver: '孙立', usePosition: '1#楼', isProxy: 'N' },
-        { projectId: project.id, periodYear: 2026, periodMonth: 3, entryDate: new Date('2026-02-20'), contractId: contracts[2].id, isAsset: 'N', department: '工程部', personnel: '陈静', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'CONCRETE', materialName: '商品砼 C30', spec: 'C30', unit: 'M3', weighQty: 1500, settleQty: 1500, isWeighed: 'N', priceBeforeTax: 420, taxRate: 0.13, priceAfterTax: 474.6, amountBeforeTax: 630000, amountAfterTax: 711900, supplierId: suppliers[0].id, receiveUnit: '三标段', receiver: '陈静', usePosition: '地下室', isProxy: 'N' },
+        { projectId: project.id, periodYear: 2026, periodMonth: 1, entryDate: new Date('2026-01-10'), contractId: contracts[0].id, isAsset: 'Y', department: '工程部', personnel: '王强', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'STEEL', materialName: '螺纹钢 HRB400E Φ20', steelBrand: '沙钢', steelCount: 120, spec: 'Φ20', unit: 'T', weighQty: 320.5, deductQty: 1.2, settleQty: 319.3, isWeighed: 'Y', priceBeforeTax: 3850, taxRatePct: 13, priceAfterTax: 4350.5, amountBeforeTax: 1229305, amountAfterTax: 1389114.65, supplierId: suppliers[1].id, receiveUnit: '一标段', receiver: '李强', usePosition: '3#楼基础', isProxy: 'N', plateNo: '沪A12345', receiptNo: 'SL-2026-0001' },
+        { projectId: project.id, periodYear: 2026, periodMonth: 2, entryDate: new Date('2026-02-05'), contractId: contracts[0].id, isAsset: 'Y', department: '工程部', personnel: '王强', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'STEEL', materialName: '盘螺 HRB400E Φ8', spec: 'Φ8', unit: 'T', weighQty: 180, deductQty: 0.8, settleQty: 179.2, isWeighed: 'Y', priceBeforeTax: 3720, taxRatePct: 13, priceAfterTax: 4203.6, amountBeforeTax: 666624, amountAfterTax: 753485.12, supplierId: suppliers[1].id, receiveUnit: '二标段', receiver: '赵磊', usePosition: '5#楼主体', isProxy: 'N', plateNo: '沪B67890', receiptNo: 'SL-2026-0002' },
+        { projectId: project.id, periodYear: 2026, periodMonth: 2, entryDate: new Date('2026-02-08'), contractId: contracts[1].id, isAsset: 'Y', department: '设备部', personnel: '周涛', assetStatus: 'IN_USE', sourceCode: 'LEASE', materialCategory: 'LEASE', materialType: 'LEASE_MACHINE', materialName: '塔吊 QTZ63', spec: 'QTZ63', unit: 'UNIT', settleQty: 2, priceBeforeTax: 28000, taxRatePct: 9, priceAfterTax: 30520, amountBeforeTax: 56000, amountAfterTax: 61040, supplierId: suppliers[2].id, receiveUnit: '一标段', receiver: '孙立', usePosition: '1#楼', isProxy: 'N' },
+        { projectId: project.id, periodYear: 2026, periodMonth: 3, entryDate: new Date('2026-02-20'), contractId: contracts[2].id, isAsset: 'N', department: '工程部', personnel: '陈静', assetStatus: 'IN_USE', sourceCode: 'PURCHASE', materialCategory: 'ENG', materialType: 'CONCRETE', materialName: '商品砼 C30', spec: 'C30', unit: 'M3', weighQty: 1500, settleQty: 1500, isWeighed: 'N', priceBeforeTax: 420, taxRatePct: 13, priceAfterTax: 474.6, amountBeforeTax: 630000, amountAfterTax: 711900, supplierId: suppliers[0].id, receiveUnit: '三标段', receiver: '陈静', usePosition: '地下室', isProxy: 'N' },
       ],
     });
   }
@@ -413,9 +413,9 @@ async function main() {
   if ((await prisma.invoice.count({ where: { projectId: project.id } })) === 0) {
     await prisma.invoice.createMany({
       data: [
-        { projectId: project.id, contractId: contracts[0].id, goodsCategory: 'MATERIAL', settlePeriod: '2026-01', invoiceCode: '011002600111', invoiceNo: '08812345', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-01-28'), issuer: suppliers[1].name, receiver: '滨江项目部', amountBeforeTax: 1229305, taxRate: 0.13, amountWithTax: 1389114.65, receiveDate: new Date('2026-01-30'), reviewStatus: 'PASSED', responsiblePerson: '李娜', financeTransferStatus: 'TRANSFERRED', statusCode: 'DEDUCTED' },
-        { projectId: project.id, contractId: contracts[0].id, goodsCategory: 'MATERIAL', settlePeriod: '2026-02', invoiceCode: '011002600111', invoiceNo: '08812678', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-02-26'), issuer: suppliers[1].name, receiver: '滨江项目部', amountBeforeTax: 661846.13, taxRate: 0.13, amountWithTax: 748485.12, receiveDate: new Date('2026-02-28'), reviewStatus: 'PENDING', responsiblePerson: '李娜', financeTransferStatus: 'NOT_TRANSFERRED', statusCode: 'WAIT_VERIFY' },
-        { projectId: project.id, contractId: contracts[1].id, goodsCategory: 'LEASE', settlePeriod: '2026-02', invoiceCode: '011002600112', invoiceNo: '08813001', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-02-27'), issuer: suppliers[2].name, receiver: '滨江项目部', amountBeforeTax: 56000, taxRate: 0.09, amountWithTax: 61040, receiveDate: new Date('2026-03-02'), reviewStatus: 'PASSED', responsiblePerson: '李娜', financeTransferStatus: 'TRANSFERRING', statusCode: 'VERIFIED' },
+        { projectId: project.id, contractId: contracts[0].id, goodsCategory: 'MATERIAL', settlePeriod: '2026-01', invoiceCode: '011002600111', invoiceNo: '08812345', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-01-28'), issuer: suppliers[1].name, receiver: '滨江项目部', amountBeforeTax: 1229305, taxRatePct: 13, amountWithTax: 1389114.65, receiveDate: new Date('2026-01-30'), reviewStatus: 'PASSED', responsiblePerson: '李娜', financeTransferStatus: 'TRANSFERRED', statusCode: 'DEDUCTED' },
+        { projectId: project.id, contractId: contracts[0].id, goodsCategory: 'MATERIAL', settlePeriod: '2026-02', invoiceCode: '011002600111', invoiceNo: '08812678', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-02-26'), issuer: suppliers[1].name, receiver: '滨江项目部', amountBeforeTax: 661846.13, taxRatePct: 13, amountWithTax: 748485.12, receiveDate: new Date('2026-02-28'), reviewStatus: 'PENDING', responsiblePerson: '李娜', financeTransferStatus: 'NOT_TRANSFERRED', statusCode: 'WAIT_VERIFY' },
+        { projectId: project.id, contractId: contracts[1].id, goodsCategory: 'LEASE', settlePeriod: '2026-02', invoiceCode: '011002600112', invoiceNo: '08813001', typeCode: 'VAT_SPECIAL', invoiceDate: new Date('2026-02-27'), issuer: suppliers[2].name, receiver: '滨江项目部', amountBeforeTax: 56000, taxRatePct: 9, amountWithTax: 61040, receiveDate: new Date('2026-03-02'), reviewStatus: 'PASSED', responsiblePerson: '李娜', financeTransferStatus: 'TRANSFERRING', statusCode: 'VERIFIED' },
       ],
     });
   }

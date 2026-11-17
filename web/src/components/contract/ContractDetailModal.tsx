@@ -42,6 +42,7 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
   const [detail, setDetail] = useState<any>(null);
   const [changes, setChanges] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [supOpen, setSupOpen] = useState(false);
   const [supForm] = Form.useForm();
   /** 写入口门禁：只读用户与已归档合同不得发起「新增补充协议」（后端仍有 `contract:edit` 403 兜底） */
@@ -49,12 +50,18 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
   const canWrite = canEdit && !!detail && !detail.archivedAt;
 
   useEffect(() => {
+    // 关详情 / 换合同时，内层的「新增补充协议」弹窗必须一起收起（否则会挂在已清空的上文上）。
+    // 表单值不用手动清：补充协议 Modal 带 `destroyOnHidden`，关闭即卸载。
+    setSupOpen(false);
     if (!contractId) {
       setDetail(null);
       setChanges([]);
+      setError(false);
+      setLoading(false);
       return;
     }
     let alive = true;
+    setError(false);
     setLoading(true);
     Promise.all([contractApi.detail(contractId), contractApi.changes(contractId)])
       .then(([d, ch]: any[]) => {
@@ -62,12 +69,17 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
         setDetail(d);
         setChanges(ch || []);
       })
+      .catch(() => {
+        // 取不到 ≠ 没有：失败要显示失败，不能渲染成「暂无合同数据」
+        if (alive) setError(true);
+      })
       .finally(() => {
         if (alive) setLoading(false);
       });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractId]);
 
   const openSupplement = async () => {
@@ -82,7 +94,14 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
   };
 
   const createSupplement = async () => {
-    if (!detail || !canWrite) return;
+    if (!detail) {
+      message.warning('合同详情已关闭，请重新打开后再新增补充协议');
+      return;
+    }
+    if (!canWrite) {
+      message.warning('合同已归档或无编辑权限，不能新增补充协议');
+      return;
+    }
     const v = await supForm.validateFields();
     await contractApi.create({
       ...v,
@@ -168,7 +187,7 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
             )}
           </>
         ) : (
-          <Empty description="暂无合同数据" />
+          <Empty description={error ? '合同详情加载失败，请稍后重试' : '暂无合同数据'} />
         )}
       </Modal>
 
@@ -218,7 +237,7 @@ function ContractDetailInfo({ detail }: { detail: any }) {
         <Descriptions.Item label="联系人">{detail.supplier?.contactName || '-'}</Descriptions.Item>
         <Descriptions.Item label="联系人电话">{detail.supplier?.contactPhone || '-'}</Descriptions.Item>
         <Descriptions.Item label="合同额">{money(detail.amount)}</Descriptions.Item>
-        <Descriptions.Item label="税率">{detail.taxRate != null ? `${(Number(detail.taxRate) * 100).toFixed(2)}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="税率">{detail.taxRatePct != null ? `${Number(detail.taxRatePct).toFixed(2)}%` : '-'}</Descriptions.Item>
         <Descriptions.Item label="签订日期">{detail.signDate?.slice(0, 10)}</Descriptions.Item>
         <Descriptions.Item label="执行情况"><DictTag typeCode="contract_execution_status" value={detail.execStatus} /></Descriptions.Item>
         <Descriptions.Item label="备注" span={size.isNarrow ? 1 : 2}>{detail.remark || '-'}</Descriptions.Item>

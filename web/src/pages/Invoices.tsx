@@ -169,7 +169,7 @@ function InvoiceList({
       render: (v: any[]) => (v?.length ? v.map((x) => x.invoiceNo || '(无号码)').join('、') : '-'),
     },
     { title: '税前金额', dataIndex: 'amountBeforeTax', width: 140, align: 'right', render: money },
-    { title: '税率', dataIndex: 'taxRate', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`) },
+    { title: '税率', dataIndex: 'taxRatePct', width: 90, align: 'right', render: (v: any) => (v == null ? '-' : `${Number(v).toFixed(2)}%`) },
     { title: '含税金额', dataIndex: 'amountWithTax', width: 140, align: 'right', render: money },
     { title: '发票收取时间', dataIndex: 'receiveDate', width: 130, render: (v: any) => v?.slice(0, 10) },
     { title: '发票信息审核', dataIndex: 'reviewStatus', width: 130, render: (v: any) => <DictTag typeCode="invoice_review_status" value={v} /> },
@@ -449,7 +449,7 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
             </Form.Item>
           </Col>
           <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="taxRate" label="税率"><InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01} precision={4} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="taxRatePct" label="税率(%)"><InputNumber style={{ width: '100%' }} min={0} max={100} step={0.01} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="reviewStatus" label="发票信息审核"><DictSelect typeCode="invoice_review_status" /></Form.Item></Col>
@@ -563,7 +563,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
           error: r.error,
           ...(r.ok ? r.data : {}),
           contractId: undefined,
-          taxRate: 0.13,
+          taxRatePct: 13,
           goodsCategory: undefined,
         })),
       );
@@ -597,7 +597,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
           invoiceCode: it.invoiceCode,
           invoiceNo: it.invoiceNo,
           amountBeforeTax: it.amountBeforeTax,
-          taxRate: it.taxRate,
+          taxRatePct: it.taxRatePct,
           invoiceDate: it.invoiceDate,
           remark: '批量识别导入',
         })),
@@ -713,11 +713,11 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
                   <InputNumber
                     style={{ width: '100%' }}
                     min={0}
-                    max={1}
+                    max={100}
                     step={0.01}
-                    precision={4}
-                    value={it.taxRate}
-                    onChange={(v) => patch(it.key, { taxRate: v })}
+                    precision={2}
+                    value={it.taxRatePct}
+                    onChange={(v) => patch(it.key, { taxRatePct: v })}
                   />
                 ) : null,
             },
