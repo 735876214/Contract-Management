@@ -532,8 +532,8 @@ export class SettlementService {
         where: {
           AND: [
             settlementId
-              ? // 已挂本行的发票必须同时属于本合同（或历史/手填时**未挂合同**的发票——
-                // `assertLinkable` 在合同为空时放行，不能因为本次防御把这类票静默漏计）；
+              ? // 已挂本行的发票必须同时属于本合同（或历史数据里**未挂合同**、但已挂在结算单上的发票——
+                // `assertLinkable` 现已要求合同完全一致，这类只可能是改造前的存量关联，不能静默漏计）；
                 // 结算单改过合同后遗留的旧关联不能算进新合同的「本月开票额」（解绑由 linkOrphansForContract 兜底）
                 { OR: [{ settlementId, OR: [{ contractId }, { contractId: null }] }, { contractId, settlementId: null }] }
               : { contractId, settlementId: null },
@@ -733,12 +733,48 @@ export class SettlementService {
       });
       // ② 再逐月 upsert：每行重新挂上它**当月**的那张结算单（或保持 null = 仅费用行）
       for (const m of months) await this.upsertLedgerRow(contractId, projectId, m, exec);
+      // ③ 收尾：把「只由发票撑起来、现已归零」的空行剪掉（作废/红冲后月份不该留 0 元行）
+      await this.pruneEmptyLedgerRows(exec, contractId);
     };
     // 整体放在一个事务里：清空与重挂之间不能有窗口（否则中途失败会留下"全部无关联"的台账）
     if (tx) await run(tx);
     else await this.prisma.$transaction(async (t) => run(t), { timeout: 30000 });
 
     return months.size;
+  }
+
+  /**
+   * 剪除「空行」：无结算单、四个自动金额列全 0/空、且没有任何手填内容的台账行。
+   *
+   * 场景：某月原本只有一张有效发票 → 发票作废/红冲后，该行自动字段归 0，但
+   * `syncLedgerByContract()` 只 upsert 不删行；而「先作废再刷新」又不会建行 →
+   * 同一业务状态出现两种库形（有 0 元行 / 无行）。这里在同一个事务里收口。
+   * ⚠️ 只删**纯自动**行：任一手填列（挂账/备注/开工结算额/盘点量/年度收入…）非空都保留。
+   */
+  private async pruneEmptyLedgerRows(exec: any, contractId: string) {
+    const zeroOrNull = (field: string) => ({ OR: [{ [field]: null }, { [field]: 0 }] });
+    await exec.settlementLedger.deleteMany({
+      where: {
+        contractId,
+        settlementId: null,
+        AND: [
+          zeroOrNull('monthSettleAmount'),
+          zeroOrNull('monthInvoiceAmount'),
+          zeroOrNull('factoringDiscount'),
+          zeroOrNull('overdueInterest'),
+          // settleCount 由自动派生写入 0（不是 null），手填列一律要求 null 才算「纯自动空行」
+          zeroOrNull('settleCount'),
+        ],
+        isOnAccount: null,
+        remark: null,
+        startSettleAmount: null,
+        cumPurchaseAmount: null,
+        monthActualPurchase: null,
+        yearSettleAmount: null,
+        yearSettleIncome: null,
+        cumSettleIncome: null,
+      },
+    });
   }
 
   /** 一键自动生成/刷新台账：扫描结算单、收票登记、资金费用台账中的合同+月份组合，自动生成缺失行并刷新自动字段 */
@@ -986,7 +1022,8 @@ export class SettlementService {
     let invoices = 0;
     let receiptOrders = 0;
     const orphanInv: any[] = await db.invoice.findMany({
-      where: { settlementId: null, contractId },
+      // 作废/红冲票不参与自动挂载（与期组合发现同口径）：否则审计视图会出现「作废票已挂当期结算单」
+      where: { settlementId: null, contractId, ...countedInvoiceWhere() },
       select: { id: true, settlePeriod: true, invoiceDate: true },
     });
     const orphanRo: any[] = await db.receiptOrder.findMany({

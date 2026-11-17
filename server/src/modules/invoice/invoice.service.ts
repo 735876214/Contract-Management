@@ -65,6 +65,8 @@ export class InvoiceService {
     if (query.goodsCategory) where.goodsCategory = query.goodsCategory;
     if (query.invoiceNo) where.invoiceNo = { contains: query.invoiceNo };
     if (query.keyword) where.OR = [{ invoiceNo: { contains: query.keyword } }, { issuer: { contains: query.keyword } }];
+    // 红冲原票候选：只要有效票（终态票不能再作为红冲对象）。用 AND 包住上面可能已有的 OR
+    if (query.excludeTerminal) where.AND = [...(where.AND ?? []), countedInvoiceWhere()];
     const [list, total] = await Promise.all([
       this.prisma.invoice.findMany({
         where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -329,6 +331,14 @@ export class InvoiceService {
     }
     const nextStatus = data.statusCode !== undefined ? (data.statusCode ?? null) : (before.statusCode ?? null);
     this.assertStatusTransition(before.statusCode ?? null, nextStatus);
+    /**
+     * 红冲关联**只能在新建红冲票时建立**（计划 §4）。编辑态允许改关联，等于
+     * 「PUT 一条 RED 记录 + redOfInvoiceId」就能把任意同合同有效票作废，且没有二次确认。
+     */
+    const nextRedOfId = data.redOfInvoiceId !== undefined ? (data.redOfInvoiceId || null) : (before.redOfInvoiceId ?? null);
+    if (nextRedOfId !== (before.redOfInvoiceId ?? null)) {
+      throw new BadRequestException('红冲关联只能在新建红冲票时建立，创建后不可修改');
+    }
     await this.validate({ ...before, ...data });
     if (data.contractId !== undefined) {
       await this.scope.assertContractInProject(data.contractId, projectId ?? before.projectId, '关联合同');
@@ -349,20 +359,11 @@ export class InvoiceService {
     delete payload.version;
     const link = await this.resolveSettlementId(payload, before.projectId, before);
     if (link !== undefined) payload.settlementId = link;
-    const redLink = await this.resolveRedLink(payload, before.projectId, before);
-    if (redLink) payload.redOfInvoiceId = redLink.id;
-    const updateAndVoid = async (exec: TxClient | PrismaClient) => {
-      const updated = await exec.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
-      if (redLink) await this.voidOriginal(exec, redLink.id);
-      return updated;
-    };
-    const updated = redLink
-      ? await this.prisma.$transaction(updateAndVoid, { timeout: 30000 })
-      : await updateAndVoid(this.prisma);
-    // 合同可能被改到别的合同上 → 相关合同的开票额都要重算（含原票所属合同）
-    for (const cid of new Set(
-      [before.contractId, payload.contractId ?? before.contractId, redLink?.contractId].filter(Boolean),
-    )) {
+    // 关联不可变（上面已拦）：这里只校验「已有关联仍在同合同」，不再触发作废原票
+    await this.resolveRedLink(payload, before.projectId, before);
+    const updated = await this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    // 合同可能被改到别的合同上 → 两个合同的开票额都要重算
+    for (const cid of new Set([before.contractId, payload.contractId ?? before.contractId].filter(Boolean))) {
       await this.syncLedger(cid as string);
     }
     return updated;
@@ -396,17 +397,20 @@ export class InvoiceService {
     return this.markTerminal(id, INVOICE_STATUS.RED, projectId);
   }
 
+  /** 终态重复/互转的统一报错（预检与并发条件更新失败共用，避免同一文案两处维护） */
+  private throwTerminalConflict(current: string | null, target: string): never {
+    if (current === target) {
+      throw new BadRequestException(
+        target === INVOICE_STATUS.CANCELLED ? '该发票已作废，不能重复作废' : '该发票已红冲，不能重复红冲',
+      );
+    }
+    throw new BadRequestException('该发票已处于终态（作废/红冲），不能再变更状态');
+  }
+
   private async markTerminal(id: string, target: string, projectId?: string) {
     const inv: any = await this.findOne(id, projectId);
     const current = inv.statusCode ?? null;
-    if (isInvoiceTerminalStatus(current)) {
-      if (current === target) {
-        throw new BadRequestException(
-          target === INVOICE_STATUS.CANCELLED ? '该发票已作废，不能重复作废' : '该发票已红冲，不能重复红冲',
-        );
-      }
-      throw new BadRequestException('该发票已处于终态（作废/红冲），不能再变更状态');
-    }
+    if (isInvoiceTerminalStatus(current)) this.throwTerminalConflict(current, target);
     /**
      * 条件更新：并发下（如一人作废、一人红冲同时点击）只有第一个请求能改成功，
      * 后者按最新状态报错，避免「响应说已作废、库里却是红冲」的假成功。
@@ -417,13 +421,7 @@ export class InvoiceService {
     });
     if (res.count !== 1) {
       const latest: any = await this.findOne(id, projectId);
-      const cur = latest.statusCode ?? null;
-      if (cur === target) {
-        throw new BadRequestException(
-          target === INVOICE_STATUS.CANCELLED ? '该发票已作废，不能重复作废' : '该发票已红冲，不能重复红冲',
-        );
-      }
-      throw new BadRequestException('该发票已处于终态（作废/红冲），不能再变更状态');
+      this.throwTerminalConflict(latest.statusCode ?? null, target);
     }
     const updated = await this.prisma.invoice.findUnique({ where: { id } });
     await this.settlement.syncLedgerByContract(inv.contractId);

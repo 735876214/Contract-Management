@@ -31,7 +31,7 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import { useTabsStore } from '@/store/tabs';
-import { INVOICE_STATUS, INVOICE_TERMINAL_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
+import { INVOICE_STATUS, INVOICE_EXCLUDED_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 import { LIST_PATHS } from '@/constants/listPaths';
 
 const money = (v: number) =>
@@ -267,6 +267,13 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
   const editingTerminal = isInvoiceTerminalStatus(editing?.statusCode);
   const isCreate = !editingId;
   const statusIsRed = (formStatus ?? editing?.statusCode) === INVOICE_STATUS.RED;
+  /** 保存后唤醒被缓存的台账/合同台账/工作台标签（红冲票会联动作废原票，金额归集会变） */
+  const refreshRelated = () => {
+    const bump = useTabsStore.getState().bumpRefresh;
+    bump(LIST_PATHS.settlementLedger);
+    bump(LIST_PATHS.contractLedger);
+    bump(LIST_PATHS.dashboard);
+  };
   /** 红冲关系两侧都不能换合同：红冲票（有原票）与原票（已有红冲票） */
   const contractLocked = !!editing?.redOfInvoiceId || (editing?.redInvoices?.length ?? 0) > 0;
 
@@ -286,21 +293,24 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
       const pageSize = 500;
       const all: any[] = [];
       for (let page = 1; page <= 20; page++) {
-        const res: any = await invoiceApi.list({ contractId: formContractId, page, pageSize });
+        // excludeTerminal：服务端只回有效票（终态票不可能再作为原票），减少传输与前端过滤
+        const res: any = await invoiceApi.list({ contractId: formContractId, page, pageSize, excludeTerminal: 1 });
         const list: any[] = res?.list || [];
         all.push(...list);
         if (list.length < pageSize || all.length >= Number(res?.total ?? all.length)) break;
+      }
+      // 编辑红冲票时它已关联的原票已是 CANCELLED（被服务端排除），单独补回用于只读回显
+      const linkedId = editing?.redOfInvoiceId;
+      if (linkedId && !all.some((x) => x.id === linkedId)) {
+        const linked: any = await invoiceApi.detail(linkedId).catch(() => null);
+        if (linked) all.push(linked);
       }
       return all;
     };
     loadAll()
       .then((list) => {
         if (!alive) return;
-        setRedCandidates(
-          list.filter(
-            (x) => x.id !== editingId && (!isInvoiceTerminalStatus(x.statusCode) || x.id === editing?.redOfInvoiceId),
-          ),
-        );
+        setRedCandidates(list.filter((x) => x.id !== editingId));
       })
       .catch(() => alive && setRedCandidates([]))
       .finally(() => alive && setRedLoading(false));
@@ -367,6 +377,8 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
       message.error('发票号码已存在，请修改');
       return;
     }
+    // 详情回填带出的关系对象不进 PUT（后端有 pickFields 兜底，这里从源头去掉）
+    for (const k of ['redOf', 'redInvoices', 'contract', 'settlement']) delete (v as any)[k];
     const payload = {
       ...v,
       invoiceDate: v.invoiceDate ? dayjs(v.invoiceDate).format('YYYY-MM-DD') : null,
@@ -379,6 +391,8 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
       if (editingId) await invoiceApi.update(editingId, { ...payload, version: editing?.version });
       else await invoiceApi.create(payload);
       message.success('保存成功');
+      // 新建红冲票会联动作废原票 / 改动台账归集：台账、合同台账、工作台一并刷新
+      refreshRelated();
     } finally {
       setSaving(false);
     }
@@ -471,21 +485,21 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
                 typeCode="invoice_status"
                 disabled={editingTerminal}
                 excludeValues={
-                  editingTerminal ? [] : isCreate ? [INVOICE_STATUS.CANCELLED] : INVOICE_TERMINAL_STATUSES
+                  editingTerminal ? [] : isCreate ? [INVOICE_STATUS.CANCELLED] : INVOICE_EXCLUDED_STATUSES
                 }
               />
             </Form.Item>
           </Col>
-          {statusIsRed && (
+          {statusIsRed && (isCreate || editing?.redOfInvoiceId) && (
             <Col xs={24} md={12}>
               <Form.Item
                 name="redOfInvoiceId"
                 label="红冲原发票"
                 preserve={false}
                 extra={
-                  editing?.redOfInvoiceId
-                    ? '红冲关联创建后不可修改'
-                    : '选择后原发票将自动作废（同一事务）；留空表示只把本票标记为红冲'
+                  isCreate
+                    ? '选择后原发票将自动作废（同一事务）；留空表示只把本票标记为红冲'
+                    : '红冲关联只能在新建红冲票时建立，创建后不可修改'
                 }
               >
                 <Select
@@ -493,7 +507,7 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
                   showSearch
                   optionFilterProp="label"
                   loading={redLoading}
-                  disabled={!!editing?.redOfInvoiceId}
+                  disabled={!isCreate}
                   placeholder="选择被红冲的原发票（可选）"
                   options={redCandidates.map((x) => ({
                     value: x.id,

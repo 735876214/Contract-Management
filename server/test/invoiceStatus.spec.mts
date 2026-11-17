@@ -11,7 +11,7 @@ import {
 } from '../src/constants/statuses.ts';
 import {
   INVOICE_STATUS as FE_INVOICE_STATUS,
-  INVOICE_TERMINAL_STATUSES,
+  INVOICE_EXCLUDED_STATUSES as FE_INVOICE_EXCLUDED_STATUSES,
   isInvoiceTerminalStatus as feIsInvoiceTerminalStatus,
 } from '../../web/src/constants/invoiceStatus.ts';
 
@@ -62,7 +62,7 @@ describe('发票终态口径（作废/红冲）', () => {
 
   it('前后端镜像一致（状态取值与终态清单逐条相等）', () => {
     assert.deepEqual(Object.values(FE_INVOICE_STATUS).sort(), Object.values(INVOICE_STATUS).sort());
-    assert.deepEqual([...INVOICE_TERMINAL_STATUSES].sort(), [...INVOICE_EXCLUDED_STATUSES].sort());
+    assert.deepEqual([...FE_INVOICE_EXCLUDED_STATUSES].sort(), [...INVOICE_EXCLUDED_STATUSES].sort());
     for (const s of Object.values(INVOICE_STATUS)) {
       assert.equal(
         feIsInvoiceTerminalStatus(s),
@@ -80,6 +80,7 @@ describe('发票终态口径（作废/红冲）', () => {
       ['../src/modules/contract/contract-fulfillment.service.ts', 2],
       ['../src/modules/dashboard/dashboard.service.ts', 3], // overview + invoiceStats.byType
       ['../src/query/ai-fact-queries.ts', 2], // AI 读取层的 loadInvoiceFacts 统一接口径
+      ['../src/modules/ai/analytics/dataset-collector.service.ts', 3], // 发票记录 + 履约/台账聚合
     ];
     for (const [file, min] of consumers) {
       const src = read(file);
@@ -121,10 +122,10 @@ describe('发票终态口径（作废/红冲）', () => {
     }
   });
 
-  it('AI 两处私有谓词已收敛到共享实现', () => {
+  it('AI 两处谓词收敛到 ai/common/invoice-facts（该文件因此有生产调用）', () => {
     for (const file of ['../src/modules/ai/analysis/scm-facts.ts', '../src/modules/ai/anomaly/rules-payment.ts']) {
       const src = read(file);
-      assert.ok(src.includes('isCountedInvoiceStatus'), `${file} 未使用共享谓词 isCountedInvoiceStatus`);
+      assert.ok(src.includes('invoice-facts'), `${file} 未使用 AI 侧共享谓词 isCountedInvoice（invoice-facts）`);
       assert.ok(!/function\s+isCountedInvoice\s*\(/.test(src), `${file} 仍有私有 isCountedInvoice 实现`);
     }
   });

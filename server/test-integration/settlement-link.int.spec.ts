@@ -83,7 +83,7 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     assert.equal(await ctx.prisma.settlementLedger.count({ where: { contractId: contract.id } }), 2, '两个月 → 两行台账');
   });
 
-  it('③ 改月份 → 旧月行退回「仅费用行」，新月行建立', async () => {
+  it('③ 改月份 → 旧月行保留（承载资金费用）、关联解除，新月行建立', async () => {
     const project = await makeProject(ctx.prisma, 'LINK-3');
     const supplier = await makeSupplier(ctx.prisma, project.id);
     const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
@@ -92,18 +92,23 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
       { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 5000, settleDate: month(2026, 4) },
       project.id,
     );
+    // 旧月份还有资金费用 → 不是「纯自动空行」，剪除时必须保留
+    await ctx.prisma.factoringCost.create({
+      data: { contractId: contract.id, settlementMonth: '2026-04', financingInterest: 500, handlingFee: 100, totalCost: 600 },
+    });
     await settle.update(s.id, { settleDate: month(2026, 5), version: 0 });
 
     const oldRow = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-04' } });
-    assert.ok(oldRow, '旧月份的台账行要保留（可能还有资金费用/发票）');
+    assert.ok(oldRow, '旧月份仍承载资金费用，台账行要保留');
     assert.equal(oldRow!.settlementId, null, '关联必须解除');
     assert.equal(Number(oldRow!.monthSettleAmount), 0, '结算额随之归零');
+    assert.equal(Number(oldRow!.factoringDiscount), 600, '资金费用仍在');
 
     const newRow = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-05' } });
     assert.equal(newRow?.settlementId, s.id, '新月份应挂上该结算单');
   });
 
-  it('④ 删结算单 → 台账行保留、关联解除、金额归零', async () => {
+  it('④ 删结算单 → 承载资金费用的台账行保留、关联解除、结算额归零', async () => {
     const project = await makeProject(ctx.prisma, 'LINK-4');
     const supplier = await makeSupplier(ctx.prisma, project.id);
     const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
@@ -112,13 +117,17 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
       { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount: 8000, settleDate: month(2026, 6) },
       project.id,
     );
+    await ctx.prisma.factoringCost.create({
+      data: { contractId: contract.id, settlementMonth: '2026-06', financingInterest: 500, handlingFee: 100, totalCost: 600 },
+    });
     await settle.remove(s.id);
 
     const row = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-06' } });
-    assert.ok(row, '台账行不随结算单物理删除（它可能承载发票/资金费用）');
+    assert.ok(row, '台账行不随结算单物理删除（它承载资金费用）');
     assert.equal(row!.settlementId, null);
     assert.equal(Number(row!.monthSettleAmount), 0);
     assert.equal(row!.settleCount, 0);
+    assert.equal(Number(row!.factoringDiscount), 600);
   });
 
   it('⑤ 只有资金费用、没有结算单时，台账行照样生成（settlementId 为空）', async () => {
@@ -452,5 +461,31 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
         ),
       /结算起始日/,
     );
+  });
+
+  it('⑱ 只由发票撑起的月份：发票作废后空台账行被剪除（不留 0 元幽灵行）', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-16');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const inv = await ctx.prisma.invoice.create({
+      data: {
+        projectId: project.id,
+        contractId: contract.id,
+        settlePeriod: '2026-08',
+        amountWithTax: 4000,
+        statusCode: 'VERIFIED',
+      },
+    });
+    await settle.refreshLedger(project.id);
+    const row = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-08' } });
+    assert.ok(row, '发票月份应生成台账行');
+    assert.equal(Number(row!.monthInvoiceAmount), 4000);
+
+    await ctx.prisma.invoice.update({ where: { id: inv.id }, data: { statusCode: 'CANCELLED' } });
+    await settle.syncLedgerByContract(contract.id);
+
+    const after = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-08' } });
+    assert.equal(after, null, '纯发票驱动的空行应被剪除，与「先作废再刷新不会建行」保持同一种库形');
   });
 });

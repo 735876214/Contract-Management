@@ -245,6 +245,7 @@ describe('集成 · 发票作废/红冲联动', () => {
     const stats: any = await dashboard.invoiceStats(project.id);
     const typeRow = stats.byType.find((r: any) => r.typeCode === 'VAT_SPECIAL');
     assert.equal(Number(typeRow.amount), 100, 'byType 金额只统计有效发票');
+    assert.equal(typeRow.count, 1, 'byType 张数也只统计有效票（与金额同口径）');
     const cancelledCount = stats.byStatus.find((r: any) => r.statusCode === INVOICE_STATUS.CANCELLED)?.count ?? 0;
     const redCount = stats.byStatus.find((r: any) => r.statusCode === INVOICE_STATUS.RED)?.count ?? 0;
     assert.ok(cancelledCount >= 1 && redCount >= 1, '状态分布要能看到作废/红冲张数');
@@ -501,5 +502,25 @@ describe('集成 · 发票作废/红冲联动', () => {
     );
     const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
     assert.notEqual(o!.statusCode, INVOICE_STATUS.CANCELLED, '被拒绝的请求不能顺手作废原票');
+  });
+
+  it('⑳ 红冲关联只能在新建时建立：编辑既有红冲票补关联被拒', async () => {
+    const { project, contract } = await setupContract('INV-RED-LATE');
+    const original: any = await makeInvoice(project.id, contract.id);
+    // 先有红冲票（无关联），再试图通过编辑补上原票 → 必须拒绝，且不能作废原票
+    const red: any = await makeInvoice(project.id, contract.id, { statusCode: INVOICE_STATUS.RED });
+    const redRow = await ctx.prisma.invoice.findUnique({ where: { id: red.id } });
+
+    await assert.rejects(
+      () =>
+        invoices.update(
+          red.id,
+          { redOfInvoiceId: original.id, version: redRow!.version },
+          project.id,
+        ),
+      /只能在新建红冲票时建立/,
+    );
+    const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
+    assert.notEqual(o!.statusCode, INVOICE_STATUS.CANCELLED, '被拒绝的编辑不能作废原票');
   });
 });

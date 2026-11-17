@@ -13,11 +13,11 @@
 
 import {
   CONTRACT_STATUS,
-  isCountedInvoiceStatus,
   LEGACY_CONTRACT_STATUS_COMPLETED,
   PAYMENT_EXCLUDED_STATUSES,
   SETTLEMENT_STATUS,
 } from '../../../constants/statuses.ts';
+import { isCountedInvoice } from '../common/invoice-facts.ts';
 import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
 import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
@@ -199,7 +199,7 @@ export function buildScmFacts(
 
   const invoicedByProject = new Map<string, Cents[]>();
   for (const row of rows.invoices) {
-    if (!isCountedInvoiceStatus(row.statusCode)) continue;
+    if (!isCountedInvoice(row)) continue;
     const cents = moneyToCents(row.amountWithTax);
     if (cents === null) continue;
     const list = invoicedByProject.get(row.projectId) ?? [];

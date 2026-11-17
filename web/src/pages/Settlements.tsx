@@ -662,6 +662,9 @@ function LedgerTab({
         editPermission="settlement:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
+        // 台账行与结算单 1:1：已挂结算单的行由 `syncLedgerByContract()` 自动维护，
+        // 后端会 400（删了也会被重建）——UI 只允许删「仅费用行」，与后端同口径
+        rowDeletable={(row) => !(row as any).settlementId}
         toolbarLeft={
           <Space wrap size={8}>
             <Can code="settlement:edit">

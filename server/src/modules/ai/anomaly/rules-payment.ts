@@ -24,11 +24,11 @@
 import { monthKey } from '../../../common/utils/settlement-period.ts';
 import {
   CONTRACT_STATUS,
-  isCountedInvoiceStatus,
   LEGACY_CONTRACT_STATUS_COMPLETED,
   PAYMENT_EXCLUDED_STATUSES,
   SETTLEMENT_STATUS,
 } from '../../../constants/statuses.ts';
+import { isCountedInvoice } from '../common/invoice-facts.ts';
 import {
   ANOMALY_CODES,
   ANOMALY_LEVEL,
@@ -652,7 +652,7 @@ export function r4InvoiceMismatch(input: PaymentAnomalyInput, ctx: RuleContext):
   const cumulative = input.cumulativeSettlements?.length ? input.cumulativeSettlements : input.settlements;
   const settlements = new Map(cumulative.filter(isCountedSettlement).map((s) => [s.id, s]));
   const bySettlement = groupBy(
-    input.invoices.filter((i) => isCountedInvoiceStatus(i.statusCode) && i.settlementId),
+    input.invoices.filter((i) => isCountedInvoice(i) && i.settlementId),
     (i) => i.settlementId as string,
   );
 

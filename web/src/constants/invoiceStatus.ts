@@ -19,9 +19,9 @@ export const INVOICE_STATUS = {
 
 export type InvoiceStatus = (typeof INVOICE_STATUS)[keyof typeof INVOICE_STATUS];
 
-/** 终态：作废 / 红冲（后端 `INVOICE_EXCLUDED_STATUSES` 的镜像） */
-export const INVOICE_TERMINAL_STATUSES: string[] = [INVOICE_STATUS.CANCELLED, INVOICE_STATUS.RED];
+/** 终态：作废 / 红冲（后端 `INVOICE_EXCLUDED_STATUSES` 的镜像，**同名同义**） */
+export const INVOICE_EXCLUDED_STATUSES: string[] = [INVOICE_STATUS.CANCELLED, INVOICE_STATUS.RED];
 
 export function isInvoiceTerminalStatus(statusCode?: string | null): boolean {
-  return INVOICE_TERMINAL_STATUSES.includes(String(statusCode ?? ''));
+  return INVOICE_EXCLUDED_STATUSES.includes(String(statusCode ?? ''));
 }
