@@ -427,15 +427,17 @@
 |---|---|---|---|
 | GET | `/finance/contract-params/:contractId` | 合同的资金参数（付款模式/月利率/宽限天数/利息上限） | `finance:view` |
 | PUT | `/finance/contract-params/:contractId` | 保存资金参数 | `finance:edit` |
-| GET | `/finance/factoring-costs` | 保理费用台账 | `finance:view` |
-| GET | `/finance/factoring-costs/export` | 导出 | `finance:view` |
+| GET | `/finance/factoring-costs` | 保理费用台账（`contractId` 可选：不传 = 本项目全部合同） | `finance:view` |
+| GET | `/finance/factoring-costs/export` | 导出（不传 `contractId` 导出本项目全部合同，多出「供应商/合同」两列） | `finance:view` |
 | POST / PUT / DELETE | `/finance/factoring-costs[/:id]` | CRUD | `finance:edit` |
-| GET | `/finance/overdue-interests` | 逾期利息台账 | `finance:view` |
-| GET | `/finance/overdue-interests/export` | 导出 | `finance:view` |
+| GET | `/finance/overdue-interests` | 逾期利息台账（`contractId` 可选：不传 = 本项目全部合同，各合同用自身利率重算） | `finance:view` |
+| GET | `/finance/overdue-interests/export` | 导出逾期利息计算表（**必须**传 `contractId`，统计区/签字区是合同级口径） | `finance:view` |
 | POST | `/finance/overdue-interests/generate` | 按合同 + 结算月生成逾期利息 | `finance:edit` |
 | POST / PUT / DELETE | `/finance/overdue-interests[/:id]` | CRUD | `finance:edit` |
 
 > 项目隔离：按 `contractId` 归属（合同已在项目内），**查询不带 `projectId` 过滤**——这是有意例外。
+> 例外中的例外：上述两个台账的列表/导出 `contractId` 可选，不传时按 `where.contract.projectId`
+> 出本项目全量（跨合同视图），新增的这条读路径不受上面"不带 projectId"的说法约束。
 
 ## 19. 合同台账 `/ledger`
 

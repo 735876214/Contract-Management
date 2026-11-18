@@ -436,16 +436,25 @@ export const financeApi = {
   // 合同资金参数（付款模式/月利率/宽限期/上限比例）
   contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),
   saveContractParams: (contractId: string, data: any) => http.put<any, any>(`/finance/contract-params/${contractId}`, data),
-  // 保理费用台账
-  factoring: (contractId: string, params?: any) =>
-    http.get<any, any>('/finance/factoring-costs', { params: { contractId, ...(params ?? {}) } }),
+  // 保理费用台账（不传 contractId = 本项目全部合同，与结算台账一样打开即看全量）
+  factoring: (contractId?: string, params?: any) => {
+    const query: any = { ...(params ?? {}) };
+    if (contractId) query.contractId = contractId;
+    else delete query.contractId;
+    return http.get<any, any>('/finance/factoring-costs', { params: query });
+  },
   createFactoring: (data: any) => http.post<any, any>('/finance/factoring-costs', data),
   updateFactoring: (id: string, data: any) => http.put<any, any>(`/finance/factoring-costs/${id}`, data),
   removeFactoring: (id: string) => http.delete<any, any>(`/finance/factoring-costs/${id}`),
-  exportFactoringUrl: (contractId: string) => `${http.defaults.baseURL}/finance/factoring-costs/export?contractId=${contractId}`,
-  // 逾期利息台账
-  overdue: (contractId: string, params?: any) =>
-    http.get<any, any>('/finance/overdue-interests', { params: { contractId, ...(params ?? {}) } }),
+  exportFactoringUrl: (contractId?: string) =>
+    `${http.defaults.baseURL}/finance/factoring-costs/export${contractId ? `?contractId=${contractId}` : ''}`,
+  // 逾期利息台账（同上：不传 contractId = 本项目全部合同）
+  overdue: (contractId?: string, params?: any) => {
+    const query: any = { ...(params ?? {}) };
+    if (contractId) query.contractId = contractId;
+    else delete query.contractId;
+    return http.get<any, any>('/finance/overdue-interests', { params: query });
+  },
   generateOverdue: (data: { contractId: string; settlementMonth: string; materialAmount: number }) =>
     http.post<any, any>('/finance/overdue-interests/generate', data),
   createOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests', data),

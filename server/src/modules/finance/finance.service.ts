@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { num } from '../../common/calc/numeric';
+import { canonicalMonthKey } from '../../common/calc/aggregate';
+import { compareMonthKey } from '../../common/calc/time';
 import { assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
@@ -47,6 +49,11 @@ function pageSlice<T>(rows: T[], query: any = {}): T[] {
  * 若在此再加一层 `projectId` 过滤，会导致「合同在 A 项目、费用记录查不到」的割裂。
  * 同一例外清单亦见 `docs/architecture.md` §5 与 `docs/03-API接口清单.md` §18。
  * 另两处同类例外：`dict`（全局字典）、`supplier`（受 `supplier.share.scope` 控制）。
+ *
+ * 补充（2026-11-18）：两个台账的**列表/导出**接口 `contractId` 为可选。不传时（前端默认视图，
+ * 与结算台账一致）按 `where.contract.projectId = 当前项目` 出**跨合同全量**，这是本项目内
+ * 唯一按 `projectId` 过滤的地方——它是**新增的读路径**，不改变上面"按 contractId 归属"的原则，
+ * 也不是给旧查询补过滤。
  */
 
 const FACTORING_FIELDS = [
@@ -222,22 +229,38 @@ export class FinanceService {
   }
 
   /**
-   * 保理费用列表（按合同 + 分页）。
+   * 保理费用列表（分页）。
    *
-   * ⚠️ 分页是**在内存里切片**的：合计 `totals` 必须覆盖**该合同全部**行（页面底部就是"这个合同的
-   * 保理费用一共多少"），若走 SQL 的 `skip/take` 就只能对当前页求和、口径会错。
-   * 行数按月增长但量级很小（一个合同几十行），先取全量再切片是这里最不容易出错的写法。
+   * `contractId` **可选**：不传时按项目返回**全部合同**的保理费用行（页面与结算台账一样，
+   * 打开即看全量，不需要先选合同）。项目隔离由 `where.contract.projectId` 保证；传了合同
+   * 仍走 `contractScope` 的 404 校验（含跨项目防御）。
+   *
+   * ⚠️ 分页是**在内存里切片**的：合计 `totals` 必须覆盖**筛选后的全部行**（合计行就是"这些行
+   * 一共多少"），若走 SQL 的 `skip/take` 就只能对当前页求和、口径会错。行数量级很小，
+   * 先取全量再切片是这里最不容易出错的写法。
    */
-  async listFactoring(contractId: string, query: any = {}, projectId?: string) {
-    const contract = await this.contractScope(contractId, projectId);
-    const list = await this.prisma.factoringCost.findMany({
-      where: { contractId },
-      orderBy: [{ seqNo: 'asc' }, { createdAt: 'asc' }],
+  async listFactoring(contractId?: string, query: any = {}, projectId?: string) {
+    const contract = contractId ? await this.contractScope(contractId, projectId) : null;
+    if (!contractId && !projectId) throw new BadRequestException('缺少合同ID或项目上下文');
+    // 不选合同 = 本项目全部合同的费用行；选了合同则锁定该合同
+    const where: any = contractId ? { contractId } : { contract: { projectId } };
+    const all = await this.prisma.factoringCost.findMany({
+      where,
+      orderBy: [{ contractId: 'asc' }, { seqNo: 'asc' }, { createdAt: 'asc' }],
+      include: { contract: { select: { id: true, code: true, name: true, supplier: { select: { name: true } } } } },
     });
-    const rows = list.map((r: any) => ({
-      ...r,
-      supplierName: contract.supplier?.name || '',
-    }));
+    // 筛选放在服务端：`settlementMonth` / `keyword`（备注）此前只在界面上有输入框、后端没生效
+    const month = canonicalMonthKey(String(query.settlementMonth ?? '').trim());
+    const keyword = String(query.keyword ?? '').trim().toLowerCase();
+    const rows = all
+      .filter((r: any) => !month || canonicalMonthKey(r.settlementMonth) === month)
+      .filter((r: any) => !keyword || String(r.remark ?? '').toLowerCase().includes(keyword))
+      .map((r: any) => ({
+        ...r,
+        supplierName: r.contract?.supplier?.name || '',
+        contractCode: r.contract?.code || '',
+        contractName: r.contract?.name || '',
+      }));
     const totals = {
       financingAmount: round(rows.reduce((a: number, r: any) => a + (num(r.financingAmount) || 0), 0), 2),
       actualReceipt: round(rows.reduce((a: number, r: any) => a + (num(r.actualReceipt) || 0), 0), 2),
@@ -246,7 +269,9 @@ export class FinanceService {
       totalCost: round(rows.reduce((a: number, r: any) => a + (num(r.totalCost) || 0), 0), 2),
     };
     return {
-      contract: { id: contract.id, code: contract.code, name: contract.name, supplierName: contract.supplier?.name || '' },
+      contract: contract
+        ? { id: contract.id, code: contract.code, name: contract.name, supplierName: contract.supplier?.name || '' }
+        : null,
       list: pageSlice(rows, query),
       total: rows.length,
       totals,
@@ -318,11 +343,54 @@ export class FinanceService {
     return true;
   }
 
-  async exportFactoring(contractId: string, projectId?: string) {
+  async exportFactoring(contractId?: string, projectId?: string) {
     // 只用 listFactoring 的返回值：它的 `contract` 是精简版（id/code/name/supplierName），
     // 若与 contractScope 的完整合同对象做展开合并，后者会被覆盖掉，`contract.supplier?.name`
     // 恒为 undefined —— 导出标题会显示成「保理费用台账（）」。
     const { contract, list, totals } = await this.listFactoring(contractId, {}, projectId);
+    // 不选合同 = 导整个项目的保理费用（页面「打开即看全量」自然也要能一次导全量）；
+    // 此时标题里的合同换成项目，并补上供应商/合同两列，否则看不出某行属于哪个合同。
+    if (!contract) {
+      const project = projectId
+        ? await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } })
+        : null;
+      const buffer = await this.styled.exportTable({
+        sheetName: '保理费用台账',
+        logoColumn: true,
+        title: `保理费用台账（${project?.name || '全部合同'}）`,
+        columns: [
+          { header: '供应商名称', key: 'supplierName', width: 180 },
+          { header: '合同名称', key: 'contractName', width: 200 },
+          { header: '合同编号', key: 'contractCode', width: 180 },
+          { header: '序号', key: 'seqNo', width: 60, type: 'int' },
+          { header: '融资到账时间', key: 'financingDate', width: 120, type: 'center' },
+          { header: '融资金额', key: 'financingAmount', width: 130, type: 'money' },
+          { header: '实际到账金额', key: 'actualReceipt', width: 130, type: 'money' },
+          { header: '融资利息', key: 'financingInterest', width: 120, type: 'money' },
+          { header: '手续费', key: 'handlingFee', width: 110, type: 'money' },
+          { header: '费用合计（含税）', key: 'totalCost', width: 150, type: 'money' },
+          { header: '结算月份', key: 'settlementMonth', width: 110, type: 'center' },
+          { header: '备注', key: 'remark', width: 240 },
+        ],
+        rows: list.map((r: any) => ({
+          supplierName: r.supplierName || '',
+          contractName: r.contractName || '',
+          contractCode: r.contractCode || '',
+          seqNo: num(r.seqNo),
+          financingDate: fmt(r.financingDate),
+          financingAmount: num(r.financingAmount),
+          actualReceipt: num(r.actualReceipt),
+          financingInterest: num(r.financingInterest),
+          handlingFee: num(r.handlingFee),
+          totalCost: num(r.totalCost),
+          settlementMonth: r.settlementMonth || '',
+          remark: r.remark || '',
+        })),
+        totalsKeys: ['financingAmount', 'actualReceipt', 'financingInterest', 'handlingFee', 'totalCost'],
+        totalsLabel: '合计',
+      });
+      return { buffer, filename: `保理费用台账-${project?.name || '全部合同'}.xlsx` };
+    }
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('保理费用台账');
     const n = list.length + 4;
@@ -404,6 +472,11 @@ export class FinanceService {
   /**
    * 逾期利息台账列表（页面与导出共用）。
    *
+   * `contractId` **可选**：传了就是「某个合同的逾期利息计算表」（导出、签字区、上限比例都是
+   * 合同级的，语义不变）；不传则按项目返回**全部合同**的行——页面与结算台账一样，打开即看全量。
+   * 跨合同时**每个合同用自己的月利率/宽限期/上限比例重算**（共用一套参数会算错利息），
+   * `stats` 上限金额取各行「材料款 × 本合同中比例」之和，展示的 `capRatio` 是对应的加权比例。
+   *
    * 读时重算：派生列（overdueDays / overdueInterest 等）不再读库内上次写入的快照，
    * 而是按本次查询的 asOfDate 走**同一个 recalculate 引擎**现算一遍再展示，彻底消除
    * "过了几天没再编辑，未付完的利息却停在旧日期"的陈旧值问题；库内列退化为写入快照。
@@ -415,16 +488,134 @@ export class FinanceService {
    *    但读的是刚算出的派生值（interestOf 从重算后的行取），不再是库内旧值。
    * 3. asOfDate 由 service 边界取一次并注入；单测可显式传入固定日期复现任意时点口径。
    */
-  async listOverdue(contractId: string, query: any = {}, projectId?: string, asOfDate?: Date) {
-    const params = await this.contractParams(contractId, projectId);
-    // 全量取行（不在此处按 settlementMonth 过滤，理由见方法注释第 1 点）
-    const rows = await this.prisma.overdueInterest.findMany({
-      where: { contractId },
+  async listOverdue(contractId?: string, query: any = {}, projectId?: string, asOfDate?: Date) {
+    const asOf = asOfDate instanceof Date && !isNaN(asOfDate.getTime()) ? asOfDate : new Date();
+    const monthFilter = canonicalMonthKey(String(query.settlementMonth ?? '').trim());
+    const pick = <T extends { settlementMonth?: string | null }>(rows: T[]): T[] =>
+      monthFilter ? rows.filter((r) => canonicalMonthKey(r.settlementMonth) === monthFilter) : rows;
+
+    if (contractId) {
+      const params = await this.contractParams(contractId, projectId);
+      // 全量取行（不在此处按 settlementMonth 过滤，理由见方法注释第 1 点）
+      const rows = await this.prisma.overdueInterest.findMany({
+        where: { contractId },
+        orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }, { createdAt: 'asc' }],
+      });
+      // 读时重算：基准日缺省取当前时刻（边界取一次），显式注入时用于单测/定时刷新等稳定口径
+      const { rows: fresh } = recomputeOverdueRows(rows.map((r: any) => this.toOverdueInput(r)), {
+        monthlyRate: params.monthlyRate,
+        graceDays: params.graceDays,
+        asOfDate: asOf,
+        interestCapRatio: params.interestCapRatio,
+      });
+      // 筛选发生在重算之后：只汇总被筛出的行，但读的是重算后的派生值
+      const scoped = pick(fresh as any[]);
+      const summary = summarizeOverdue(scoped, (r) => interestOf(r));
+      return {
+        contract: params,
+        list: pageSlice(
+          scoped.map((r: any) => ({
+            ...r,
+            supplierName: params.supplierName,
+            contractCode: params.contractCode,
+            contractName: params.contractName,
+          })),
+          query,
+        ),
+        total: scoped.length,
+        stats: buildOverdueStats(summary, params.interestCapRatio),
+      };
+    }
+
+    if (!projectId) throw new BadRequestException('缺少合同ID或项目上下文');
+    return this.listOverdueByProject(projectId, query, asOf, pick);
+  }
+
+  /** 系统参数里的逾期默认值（跨合同批量视图一次取齐，避免逐合同重复查参数表） */
+  private async overdueDefaults() {
+    const [defRate, defGrace, defCap] = await Promise.all([
+      this.sysParam.get('finance.overdue.default_monthly_rate', '0.006'),
+      this.sysParam.get('finance.overdue.default_grace_days', '7'),
+      this.sysParam.get('finance.overdue.interest_cap_ratio', '0.05'),
+    ]);
+    return { rate: Number(defRate) || 0.006, grace: Number(defGrace) || 7, cap: Number(defCap) || 0.05 };
+  }
+
+  /**
+   * 跨合同视图：本项目全部合同的逾期利息行，按合同分组各用自己的参数重算后合并。
+   * 与单合同路径共用同一套重算引擎与汇总口径（`recomputeOverdueRows` / `summarizeOverdue`），
+   * 保证「选一个合同看」与「看全部」对同一行给出相同数字。
+   */
+  private async listOverdueByProject(
+    projectId: string,
+    query: any,
+    asOf: Date,
+    pick: <T extends { settlementMonth?: string | null }>(rows: T[]) => T[],
+  ) {
+    const defaults = await this.overdueDefaults();
+    const contracts: any[] = await this.prisma.contract.findMany({
+      where: { projectId },
+      select: {
+        id: true, code: true, name: true, graceDays: true,
+        monthlyRate: true, interestCapRatio: true,
+        supplier: { select: { name: true } },
+      },
+    });
+    const byId = new Map<string, any>(contracts.map((c) => [c.id, c]));
+    const raw = await this.prisma.overdueInterest.findMany({
+      where: { contractId: { in: contracts.map((c) => c.id) } },
       orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }, { createdAt: 'asc' }],
     });
-    // 展开原始行保留全部字段（monthlyRate/version/createdAt 等供前端与导出使用），
-    // 同时把 Prisma Decimal 数值字段归一为 number 供引擎计算。
-    const input = rows.map((r: any) => ({
+    const groups = new Map<string, any[]>();
+    for (const r of raw) {
+      const list = groups.get(r.contractId) || [];
+      list.push(r);
+      groups.set(r.contractId, list);
+    }
+    const merged: any[] = [];
+    let capAmountSum = 0;
+    for (const [cid, rowsOfContract] of groups) {
+      const c = byId.get(cid);
+      if (!c) continue; // 合同被删/跨项目残留行：不展示，避免把越权数据带出
+      const interestCapRatio = num(c.interestCapRatio) ?? defaults.cap;
+      const { rows: fresh } = recomputeOverdueRows(rowsOfContract.map((r: any) => this.toOverdueInput(r)), {
+        monthlyRate: num(c.monthlyRate) ?? defaults.rate,
+        graceDays: c.graceDays ?? defaults.grace,
+        asOfDate: asOf,
+        interestCapRatio,
+      });
+      const scoped = pick(fresh as any[]);
+      capAmountSum += scoped.reduce((a, r: any) => a + (num(r.materialAmount) || 0) * interestCapRatio, 0);
+      merged.push(
+        ...scoped.map((r: any) => ({
+          ...r,
+          supplierName: c.supplier?.name || '',
+          contractCode: c.code,
+          contractName: c.name,
+        })),
+      );
+    }
+    // 分组合并后按「结算月 → 期次」重排：汇总的「上期开累」取当前结算月首行，顺序不能乱
+    merged.sort(
+      (a, b) =>
+        compareMonthKey(canonicalMonthKey(a.settlementMonth), canonicalMonthKey(b.settlementMonth)) ||
+        (Number(a.periodSeq) || 0) - (Number(b.periodSeq) || 0),
+    );
+    const summary = summarizeOverdue(merged, (r) => interestOf(r));
+    // 上限比例各合同可能不同 → 展示加权比例（Σ材料款×本合同中比例 ÷ Σ材料款）；
+    // 于是 `buildOverdueStats` 用 材料款合计 × 加权比例 得到的上限金额 = 各合同上限之和。
+    const weightedRatio = summary.totalMaterial ? capAmountSum / summary.totalMaterial : 0;
+    return {
+      contract: null,
+      list: pageSlice(merged, query),
+      total: merged.length,
+      stats: buildOverdueStats(summary, weightedRatio),
+    };
+  }
+
+  /** Prisma 行 → 计息引擎入参（Decimal 归一为 number；单合同/跨合同两条路径共用） */
+  private toOverdueInput(r: any): OverdueRowInput {
+    return {
       ...r,
       materialAmount: num(r.materialAmount),
       paymentRatio: num(r.paymentRatio),
@@ -437,27 +628,7 @@ export class FinanceService {
       overdueDays: r.overdueDays,
       overdueInterest: num(r.overdueInterest),
       monthlyRate: num(r.monthlyRate),
-    })) as OverdueRowInput[];
-    // 读时重算：基准日缺省取当前时刻（边界取一次），显式注入时用于单测/定时刷新等稳定口径
-    const asOf = asOfDate instanceof Date && !isNaN(asOfDate.getTime()) ? asOfDate : new Date();
-    const { rows: fresh } = recomputeOverdueRows(input, {
-      monthlyRate: params.monthlyRate,
-      graceDays: params.graceDays,
-      asOfDate: asOf,
-      interestCapRatio: params.interestCapRatio,
-    });
-    // 筛选发生在重算之后：只汇总被筛出的行，但读的是重算后的派生值
-    const scoped = query.settlementMonth
-      ? fresh.filter((r) => r.settlementMonth === query.settlementMonth)
-      : fresh;
-    const supplierName = params.supplierName;
-    const summary = summarizeOverdue(scoped, (r) => interestOf(r));
-    return {
-      contract: params,
-      list: pageSlice(scoped.map((r: any) => ({ ...r, supplierName })), query),
-      total: scoped.length,
-      stats: buildOverdueStats(summary, params.interestCapRatio),
-    };
+    } as OverdueRowInput;
   }
 
   private async validateOverdue(data: any, keep?: any) {
@@ -542,7 +713,10 @@ export class FinanceService {
   }
 
   /** 逾期利息计算表导出（含标题、统计区、签字区，格式与 Excel 模板一致） */
-  async exportOverdue(contractId: string, query: any = {}, projectId?: string) {
+  async exportOverdue(contractId?: string, query: any = {}, projectId?: string) {
+    // 计算表的统计区/签字区/上限比例都是**合同级**口径（表头还写着该合同的付款条件），
+    // 跨合同导出一张表没有业务意义，这里明确要求先选合同，而不是静默导出一份混着多合同的表。
+    if (!contractId) throw new BadRequestException('导出逾期利息计算表需要先选择合同');
     const { contract, list, stats } = await this.listOverdue(contractId, query, projectId);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('逾期利息计算表');

@@ -155,6 +155,8 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
    - `finance` 按 `contractId` 归属：查询本身不按 `projectId` 过滤，但每个入口都用
      `contractScope(contractId, projectId)` 校验合同属于当前项目（不属于一律 404「合同不存在」），
      见 `finance.service.ts` 顶部注释与 controller 的 `@ProjectId()`；
+     两个台账的列表/导出接口 `contractId` 为**可选**：不传（页面默认，与结算台账一致）时
+     按 `where.contract.projectId = 当前项目` 出**跨合同全量**，传了仍是上面的归属校验；
    - `supplier` 受系统参数 `supplier.share.scope` 控制：`GLOBAL`（默认）不过滤且 `projectId=null`；`PROJECT` 按项目过滤；
    - `Subcontractor` / `ContractTemplate` 的 `projectId = null` 表示全局共享。
    完整口径表另见 [docs/03-API接口清单.md](03-API接口清单.md) §0。
