@@ -766,7 +766,7 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
           </Col>
           <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（纯派生·本期结算单合计，不可编辑）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（纯派生·本期结算单张数，恒为 0 或 1）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（系统派生·按结算期时间顺序第 N 次结算）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>

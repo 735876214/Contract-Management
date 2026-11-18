@@ -509,13 +509,12 @@ export class SettlementService {
     // 按 settleDate 倒序取单：同月多张（历史数据）时稳定取最近一张作为关联目标。
     const owner = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
     const startDay = owner ? await this.startDayOf(owner.projectId, db) : 1;
-    const settlements = (
-      await db.settlement.findMany({
-        where: { contractId },
-        // 同一账期多张结算单（历史数据）时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
-        orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
-      })
-    ).filter((r: any) => periodKeyOf(startDay, r.settleDate) === period);
+    const allSettlements = await db.settlement.findMany({
+      where: { contractId },
+      // 同一账期多张结算单（历史数据）时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
+      orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
+    });
+    const settlements = allSettlements.filter((r: any) => periodKeyOf(startDay, r.settleDate) === period);
     /** 该行对应的结算单（同合同同月唯一 → 至多一张）；无则 null = 「仅费用行」 */
     const settlementId = (settlements[0] as any)?.id ?? null;
     const [invoices, factoring, overdue] = await Promise.all([
@@ -548,8 +547,19 @@ export class SettlementService {
     // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
     const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
 
-    /** 该行对应的结算单数：同合同同月唯一 → 恒为 0（仅费用行）或 1（字段保留兼容导出/列定义） */
-    const settleCount = settlements.length;
+    /**
+     * 结算次数：该合同按结算期（账期/自然月）**时间顺序的第几次结算**（1、2、3…），供导出/列定义展示；
+     * 当期无结算单（仅费用行）→ 0。序号依据本合同全部结算单去重后的结算期升序确定，
+     * 与 Excel 源表「结算次数」以时间顺序编号的口径一致（用户 2026-11-18 口径）。
+     */
+    const settlementPeriods = Array.from(
+      new Set(
+        allSettlements
+          .map((r: any) => periodKeyOf(startDay, r.settleDate))
+          .filter((k): k is string => Boolean(k)),
+      ),
+    ).sort();
+    const settleCount = settlements.length ? settlementPeriods.indexOf(period) + 1 : 0;
     const monthInvoiceAmount = round2(
       invoices
         .filter(
@@ -762,7 +772,7 @@ export class SettlementService {
           zeroOrNull('monthInvoiceAmount'),
           zeroOrNull('factoringDiscount'),
           zeroOrNull('overdueInterest'),
-          // settleCount 由自动派生写入 0（不是 null），手填列一律要求 null 才算「纯自动空行」
+          // settleCount 由自动派生写入 0（当期无结算单时；有结算单则为时间顺序序号），手填列一律要求 null 才算「纯自动空行」
           zeroOrNull('settleCount'),
         ],
         isOnAccount: null,
@@ -1764,7 +1774,7 @@ export class SettlementService {
       { label: '结算月份', key: 'settleMonth', required: true, type: 'text', width: 14, example: '2026-08', desc: '格式 YYYY-MM，填**账期标签**（期末所在月）：月度结算起始日不是 1 号时，一期跨两个自然月，按后一个月填' },
       { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '**系统派生**：本期结算单实际金额合计（本期无结算单即为 0）。此列填了也不生效，导入时忽略' },
       { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72, desc: '当月有发票时以系统抓取值为准；无发票时才用手填值' },
-      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '**系统派生**：本期结算单张数（同一合同同一账期恒为 0 或 1）。此列填了也不生效，导入时忽略' },
+      { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '**系统派生**：该合同按结算期时间顺序的第几次结算（1、2、3…；当期无结算单为 0）。此列填了也不生效，导入时忽略' },
       { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000 },
       { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000 },
       { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000 },
@@ -1814,7 +1824,7 @@ export class SettlementService {
             // 「本月结算额」纯派生（业务口径 2026-10-22）：表里填的一律忽略，写入时由系统按账期结算单重算
             monthSettleAmount: undefined,
             monthInvoiceAmount: num(r['本月开票额']),
-            settleCount: undefined, // 结算次数同样纯派生（该账期结算单张数）
+            settleCount: undefined, // 结算次数同样纯派生（该合同按时间顺序的第几次结算）
             cumPurchaseAmount: num(pickAny(r, '开累采购额', '截止当月开累采购额')),
             startSettleAmount: num(r['开工结算额']),
             monthActualPurchase: num(pickAny(r, '本月实际采购额', '当月实际采购额 b')),
