@@ -60,6 +60,17 @@ function aliasRoot(file) {
 /** 纯文本候选后缀（按 TS 解析顺序；目录 index 另行处理） */
 const SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.d.ts', '.js', '.json'];
 
+/**
+ * TS 的 NodeNext/ESM 约定：源码里写 `import './x.js'`，实际目标文件是 `./x.ts`（运行时才变 .js）。
+ * 因此若 specifier 以 .js/.mjs/.cjs 结尾，需把扩展名换回 TS 源扩展名再试，否则会误报断裂。
+ */
+function tsSourceSiblings(p) {
+  const m = /\.(m?js|cjs)$/.exec(p);
+  if (!m) return [];
+  const stem = p.slice(0, m.index);
+  return [stem + '.ts', stem + '.tsx', stem + '.mts', stem + '.cts'];
+}
+
 /** 明确带扩展名的资源（vite 支持直接 import） */
 const ASSET = /\.(css|less|scss|sass|svg|png|jpg|jpeg|gif|webp|ico|txt|md|xlsx|docx|woff2?)$/i;
 
@@ -81,6 +92,8 @@ function resolveSpecifier(importer, rawSpec) {
     candidates.push(base);
   } else {
     for (const s of SUFFIXES) candidates.push(base + s);
+    // TS ESM：`./x.js` 可能对应源文件 `./x.ts`（编译产物扩展名）
+    candidates.push(...tsSourceSiblings(base));
   }
   for (const c of candidates) {
     if (!existsSync(c)) continue;
