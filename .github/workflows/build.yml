@@ -5,6 +5,8 @@
 # 三个门禁 job（2026-11-13 按模块拆分）：server（迁移门禁 + 单测 + 集成测试 + 构建）、
 # web（类型检查 + 构建）并行执行 → 聚合 job `test`（保留原必需 check 名）→ build（镜像构建推送，needs: test）
 #   → 任一门禁失败时**不发布新镜像**，避免带病镜像进 NAS。
+# 2026-11-18：新增 mcp（MCP 服务端构建 + 单测 + 协议冒烟）纳入门禁；runner 固定 ubuntu-24.04；
+#             actions/checkout、setup-node 升级到 v5（消除 Node20 弃用告警）。
 #
 # 提速与稳定性要点（2026-09-14 修订）：
 #   - 仅构建 linux/amd64：群晖/威联通主流 NAS 均为 x86_64；arm64 需在 x86 runner 上用
@@ -57,7 +59,7 @@ jobs:
   # Node 24：`.spec.mts` 依赖 Node≥22.18 的「类型擦除」直接加载 .mts/.ts；node:20 会直接报无法识别。
   # 包管理统一 npm（package-lock.json + `npm ci --legacy-peer-deps`），与镜像构建同一套。
   server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -80,10 +82,10 @@ jobs:
       SHADOW_DATABASE_URL: postgresql://cms:cms123456@localhost:5432/cms_shadow?schema=public
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -131,13 +133,13 @@ jobs:
         run: npm run build
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -151,20 +153,43 @@ jobs:
         working-directory: web
         run: npm run build
 
-  # 聚合门：保持名为 `test` 的必需 check 不消失；真正的断言在 server / web。
+  # MCP 服务端（mcp/）：独立 Node 包，构建 + 纯函数单测 + stdio/HTTP 协议冒烟（无需后端/DB）。
+  # 此前 CI 未覆盖 mcp/，新增本 job 后纳入聚合门 `test`。
+  mcp:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Install mcp dependencies
+        working-directory: mcp
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: MCP build + tests
+        working-directory: mcp
+        run: npm test
+
+  # 聚合门：保持名为 `test` 的必需 check 不消失；真正的断言在 server / web / mcp。
   test:
-    needs: [server, web]
-    runs-on: ubuntu-latest
+    needs: [server, web, mcp]
+    runs-on: ubuntu-24.04
     steps:
       - name: 汇总
-        run: echo "server 与 web 均通过"
+        run: echo "server / web / mcp 均通过"
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve image owner
         id: repo
