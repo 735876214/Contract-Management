@@ -40,13 +40,13 @@ export class FinanceController {
 
   @RequirePermissions('finance:view')
   @Get('factoring-costs')
-  listFactoring(@Query('contractId') contractId: string, @Query() query: any, @ProjectId() projectId: string) {
+  listFactoring(@Query('contractId') contractId: string | undefined, @Query() query: any, @ProjectId() projectId: string) {
     return this.service.listFactoring(contractId, query, projectId);
   }
 
   @RequirePermissions('finance:view')
   @Get('factoring-costs/export')
-  async exportFactoring(@Query('contractId') contractId: string, @Res() res: Response, @ProjectId() projectId: string) {
+  async exportFactoring(@Query('contractId') contractId: string | undefined, @Res() res: Response, @ProjectId() projectId: string) {
     const { buffer, filename } = await this.service.exportFactoring(contractId, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
@@ -75,13 +75,13 @@ export class FinanceController {
 
   @RequirePermissions('finance:view')
   @Get('overdue-interests')
-  listOverdue(@Query('contractId') contractId: string, @Query() query: any, @ProjectId() projectId: string) {
+  listOverdue(@Query('contractId') contractId: string | undefined, @Query() query: any, @ProjectId() projectId: string) {
     return this.service.listOverdue(contractId, query, projectId);
   }
 
   @RequirePermissions('finance:view')
   @Get('overdue-interests/export')
-  async exportOverdue(@Query('contractId') contractId: string, @Query() query: any, @Res() res: Response, @ProjectId() projectId: string) {
+  async exportOverdue(@Query('contractId') contractId: string | undefined, @Query() query: any, @Res() res: Response, @ProjectId() projectId: string) {
     const { buffer, filename } = await this.service.exportOverdue(contractId, query, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);

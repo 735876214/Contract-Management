@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Button, Form, Input, InputNumber, Select, Space, Modal, message, DatePicker, Table, Row, Col } from 'antd';
+import {
+  Button,
+  Card,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Space,
+  Modal,
+  message,
+  DatePicker,
+  Table,
+  Row,
+  Col,
+  Statistic,
+} from 'antd';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';
@@ -11,8 +26,9 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
+/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
 const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 
@@ -47,15 +63,16 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [contractId, setContractId] = useState('');
   const [totals, setTotals] = useState<any>({});
+  const [rowCount, setRowCount] = useState(0);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
-  /** 未选合同时不去打接口（后端按合同取数，没有合同可查），直接给空结果 */
+  /**
+   * 不选合同也取数：后端不传 `contractId` 时返回**本项目全部合同**的保理费用行
+   * （与结算台账一致，打开即看全量）；选中合同则只取该合同。
+   */
   const fetcher = useCallback(
-    async (params: Record<string, any>) => {
-      if (!params.contractId) return { list: [], total: 0 };
-      return financeApi.factoring(params.contractId, params);
-    },
+    async (params: Record<string, any>) => financeApi.factoring(params.contractId || undefined, params),
     [],
   );
 
@@ -84,8 +101,16 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
     { key: 'keyword', label: '关键词', control: 'input', placeholder: '备注' },
   ];
 
+  /** 未选合同 = 跨合同视图：必须带上「供应商 / 合同」，否则看不出某行属于哪个合同 */
+  const showContractCols = !contractId;
   const extraColumns: any[] = [
-    { title: '序号', dataIndex: 'seqNo', width: 60, fixed: 'left' },
+    ...(showContractCols
+      ? [
+          { title: '供应商', dataIndex: 'supplierName', width: 180, fixed: 'left' as const, ellipsis: true, render: (v: any) => v || '-' },
+          { title: '合同', dataIndex: 'contractName', width: 240, fixed: 'left' as const, ellipsis: true, render: (v: any, row: any) => (v ? `${row.contractCode ?? ''} ${v}`.trim() : '-') },
+        ]
+      : []),
+    { title: '序号', dataIndex: 'seqNo', width: 60, fixed: 'left' as const },
     { title: '融资到账时间', dataIndex: 'financingDate', width: 120, render: dateStr },
     { title: '融资金额', dataIndex: 'financingAmount', width: 120, align: 'right' as const, render: money },
     { title: '实际到账金额', dataIndex: 'actualReceipt', width: 130, align: 'right' as const, render: money },
@@ -102,9 +127,38 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
     { title: '备注', dataIndex: 'remark', width: 200, ellipsis: true, render: (v: any) => v || '-' },
   ];
 
+  /**
+   * 合计行的列偏移：跨合同视图在「序号」前多了「供应商 / 合同」两列，
+   * 合计行每个 Cell 的 index 都要跟着右移，否则整行错位。
+   */
+  const off = showContractCols ? 2 : 0;
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {contractId && <ContractFundParams contractId={contractId} />}
+
+      {/* 汇总卡：与「结算台账/合同台账」顶部统计卡同款式（Card.stat-card + Statistic），
+          数据取自后端 `totals`（覆盖筛选后的全部行，不受分页影响）。不选合同时是项目合计。 */}
+      <Row gutter={16}>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="记录数" value={rowCount} /></Card>
+        </Col>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="融资金额合计" value={money(totals.financingAmount)} /></Card>
+        </Col>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="实际到账合计" value={money(totals.actualReceipt)} /></Card>
+        </Col>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="融资利息合计" value={money(totals.financingInterest)} /></Card>
+        </Col>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="手续费合计" value={money(totals.handlingFee)} /></Card>
+        </Col>
+        <Col xs={12} md={8} lg={4}>
+          <Card size="small" className="stat-card"><Statistic title="费用合计（含税）" value={money(totals.totalCost)} /></Card>
+        </Col>
+      </Row>
 
       <ModuleListPage
         mode="generic"
@@ -113,23 +167,33 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
-        emptyText={contractId ? '暂无保理费用记录' : '请先在筛选区选择合同'}
+        emptyText="暂无保理费用记录"
         autoSearchOnChange={['contractId']}
         onFilterChange={(values, changed) => {
           if ('contractId' in changed) setContractId(values.contractId ?? '');
         }}
-        onFetched={(res: any) => setTotals(res?.totals ?? {})}
+        mobileDefaultKeys={
+          showContractCols
+            ? ['contractName', 'financingDate', 'financingAmount', 'totalCost']
+            : ['financingDate', 'financingAmount', 'actualReceipt', 'totalCost']
+        }
+        onFetched={(res: any) => {
+          setTotals(res?.totals ?? {});
+          setRowCount(Number(res?.total ?? 0));
+        }}
         tableSummary={
           <Table.Summary fixed>
             <Table.Summary.Row style={{ fontWeight: 600 }}>
-              <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
-              <Table.Summary.Cell index={1} />
-              <Table.Summary.Cell index={2} align="right">{money(totals.financingAmount)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={3} align="right">{money(totals.actualReceipt)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={4} align="right">{money(totals.financingInterest)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={5} align="right">{money(totals.handlingFee)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={6} align="right">{money(totals.totalCost)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={7} colSpan={3} />
+              {/* 跨合同视图多了「供应商 / 合同」两列：合计格的 colSpan 必须跟着算，
+                  否则合计行会整体错位一格 */}
+              <Table.Summary.Cell index={0} colSpan={2 + off}>合计</Table.Summary.Cell>
+              <Table.Summary.Cell index={2 + off} align="right">{money(totals.financingAmount)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={3 + off} align="right">{money(totals.actualReceipt)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={4 + off} align="right">{money(totals.financingInterest)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={5 + off} align="right">{money(totals.handlingFee)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={6 + off} align="right">{money(totals.totalCost)}</Table.Summary.Cell>
+              {/* 余下「结算月份 / 备注」两列，colSpan 必须等于剩余列数，否则合计行会多出一格错位 */}
+              <Table.Summary.Cell index={7 + off} colSpan={2} />
             </Table.Summary.Row>
           </Table.Summary>
         }
@@ -139,21 +203,15 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
         toolbarLeft={
           <Space wrap size={8}>
             <Can code="finance:edit">
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                disabled={!contractId}
-                onClick={() => editorTab.openCreate()}
-              >
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                 新增记录
               </Button>
             </Can>
             <Button
               icon={<ExportOutlined />}
-              disabled={!contractId}
-              onClick={() => window.open(withToken(financeApi.exportFactoringUrl(contractId)))}
+              onClick={() => window.open(withToken(financeApi.exportFactoringUrl(contractId || undefined)))}
             >
-              导出 Excel
+              {contractId ? '导出 Excel' : '导出全部 Excel'}
             </Button>
           </Space>
         }

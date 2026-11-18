@@ -13,8 +13,9 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
+/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
 const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 
@@ -53,12 +54,12 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
-  /** 未选合同时不去打接口（后端按合同取数，没有合同可查），直接给空结果 */
+  /**
+   * 不选合同也取数：后端不传 `contractId` 时返回**本项目全部合同**的逾期利息行，
+   * 每个合同用它自己的月利率/宽限期/上限比例重算（与结算台账一致，打开即看全量）。
+   */
   const fetcher = useCallback(
-    async (params: Record<string, any>) => {
-      if (!params.contractId) return { list: [], total: 0 };
-      return financeApi.overdue(params.contractId, params);
-    },
+    async (params: Record<string, any>) => financeApi.overdue(params.contractId || undefined, params),
     [],
   );
 
@@ -103,8 +104,19 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
     { key: 'settlementMonth', label: '结算月份', control: 'input', placeholder: 'YYYY-MM' },
   ];
 
+  /** 未选合同 = 跨合同视图：必须带上「供应商 / 合同」，否则看不出某行属于哪个合同 */
+  const showContractCols = !contractId;
+  /** 合计行列偏移：跨合同视图在「结算月份」前多了「供应商 / 合同」两列 */
+  const off = showContractCols ? 2 : 0;
+
   const extraColumns: any[] = [
-    { title: '结算月份', dataIndex: 'settlementMonth', width: 100, fixed: 'left' },
+    ...(showContractCols
+      ? [
+          { title: '供应商', dataIndex: 'supplierName', width: 180, fixed: 'left' as const, ellipsis: true, render: (v: any) => v || '-' },
+          { title: '合同', dataIndex: 'contractName', width: 240, fixed: 'left' as const, ellipsis: true, render: (v: any, row: any) => (v ? `${row.contractCode ?? ''} ${v}`.trim() : '-') },
+        ]
+      : []),
+    { title: '结算月份', dataIndex: 'settlementMonth', width: 100, fixed: 'left' as const },
     { title: '材料款金额', dataIndex: 'materialAmount', width: 120, align: 'right' as const, render: money },
     {
       title: '付款比例',
@@ -147,36 +159,48 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {contractId && <ContractFundParams contractId={contractId} />}
 
-      {contractId && (
-        <Row gutter={[24, 16]}>
-          <Col xs={12} md={8} lg={6}>
-            <Statistic title="材料款金额合计" value={stats.totalMaterial || 0} precision={2} prefix="¥" />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
-            <Statistic title="付款金额合计" value={stats.totalPayment || 0} precision={2} prefix="¥" />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
-            <Statistic title="本期开累逾期利息" value={stats.currentCumulative || 0} precision={2} prefix="¥" />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
+      {/* 统计卡：与「结算台账/合同台账」同款式；不选合同时是**项目全量**口径
+          （跨合同各用自己的利率重算后相加，上限金额取各合同上限之和） */}
+      <Row gutter={16}>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
+            <Statistic title="材料款金额合计" value={money(stats.totalMaterial)} />
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
+            <Statistic title="付款金额合计" value={money(stats.totalPayment)} />
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
+            <Statistic title="本期开累逾期利息" value={money(stats.currentCumulative)} />
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
             <Statistic
-              title={`上限金额（${((stats.capRatio || 0) * 100).toFixed(1)}%）`}
-              value={stats.capAmount || 0}
-              precision={2}
-              prefix="¥"
+              title={showContractCols ? '上限金额合计（各合同加权）' : `上限金额（${((stats.capRatio || 0) * 100).toFixed(1)}%）`}
+              value={money(stats.capAmount)}
             />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
             <Statistic title="开累利息占材料款比例" value={stats.interestRatio || 0} precision={2} suffix="%" />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
-            <Statistic title="上期开累逾期利息" value={stats.prevCumulative || 0} precision={2} prefix="¥" />
-          </Col>
-          <Col xs={12} md={8} lg={6}>
-            <Statistic title="本月结算逾期利息" value={stats.currentSettlement || 0} precision={2} prefix="¥" />
-          </Col>
-        </Row>
-      )}
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
+            <Statistic title="上期开累逾期利息" value={money(stats.prevCumulative)} />
+          </Card>
+        </Col>
+        <Col xs={12} md={8} lg={6}>
+          <Card size="small" className="stat-card">
+            <Statistic title="本月结算逾期利息" value={money(stats.currentSettlement)} />
+          </Card>
+        </Col>
+      </Row>
 
       <ModuleListPage
         mode="generic"
@@ -185,22 +209,30 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
         extraFilters={extraFilters}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
-        emptyText={contractId ? '暂无逾期利息记录' : '请先在筛选区选择合同'}
+        emptyText="暂无逾期利息记录"
         autoSearchOnChange={['contractId']}
         onFilterChange={(values, changed) => {
           if ('contractId' in changed) setContractId(values.contractId ?? '');
         }}
+        mobileDefaultKeys={
+          showContractCols
+            ? ['contractName', 'settlementMonth', 'materialAmount', 'overdueInterest']
+            : ['settlementMonth', 'materialAmount', 'payableAmount', 'overdueInterest']
+        }
         onFetched={(res: any) => setStats(res?.stats ?? {})}
         tableSummary={
           <Table.Summary fixed>
             <Table.Summary.Row style={{ fontWeight: 600 }}>
-              <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
-              <Table.Summary.Cell index={1} align="right">{money(stats.totalMaterial)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={2} colSpan={4} />
-              <Table.Summary.Cell index={6} align="right">{money(stats.totalPayment)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={7} colSpan={2} />
-              <Table.Summary.Cell index={9} align="right">{money(stats.currentCumulative)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={10} colSpan={2} />
+              {/* 跨合同视图多了「供应商 / 合同」两列，合计行 index 全部右移 `off` */}
+              <Table.Summary.Cell index={0} colSpan={1 + off}>合计</Table.Summary.Cell>
+              <Table.Summary.Cell index={1 + off} align="right">{money(stats.totalMaterial)}</Table.Summary.Cell>
+              {/* 付款比例 / 应付款金额 / 应付款日期 / 逾期起始日期 / 付款日期 */}
+              <Table.Summary.Cell index={2 + off} colSpan={5} />
+              <Table.Summary.Cell index={7 + off} align="right">{money(stats.totalPayment)}</Table.Summary.Cell>
+              {/* 计息金额 / 逾期天数 / 延期月利率 */}
+              <Table.Summary.Cell index={8 + off} colSpan={3} />
+              <Table.Summary.Cell index={11 + off} align="right">{money(stats.currentCumulative)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={12 + off} />
             </Table.Summary.Row>
           </Table.Summary>
         }
@@ -211,6 +243,8 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
           <Space wrap size={8}>
             <Can code="finance:edit">
               <>
+                {/* 「按付款模式生成应付款行」是**合同级**动作（要读该合同的付款模式/应付款日），
+                    必须先在筛选区选定合同；手动新增行不受限（表单里自己选合同） */}
                 <Button
                   type="primary"
                   disabled={!contractId}
@@ -221,11 +255,12 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
                 >
                   按付款模式生成应付款行
                 </Button>
-                <Button icon={<PlusOutlined />} disabled={!contractId} onClick={() => editorTab.openCreate()}>
+                <Button icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
                   手动新增行
                 </Button>
               </>
             </Can>
+            {/* 计算表带统计区/签字区/合同付款条件，是合同级单据，不能跨合同导出 */}
             <Button
               icon={<ExportOutlined />}
               disabled={!contractId}
