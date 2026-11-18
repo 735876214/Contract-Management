@@ -130,7 +130,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-对外端口 `9080`（被占用就改 compose 里 ports 左侧）；PostgreSQL 数据与上传附件分别落在
+对外端口 `9080`（被占用就改 `.env` 里的 `CMS_PORT`）；PostgreSQL 数据与上传附件分别落在
 compose 里指定的两个 NAS 绝对路径（bind mount，NAS 文件管理器直接可见、可纳入 NAS 备份计划），
 容器重建不丢数据。
 容器设置 `restart: unless-stopped`、`healthcheck`、`init: true`，被平台回收后会自动重启并正确回收僵尸进程。
@@ -174,7 +174,7 @@ docker compose up -d --build    # 构建并启动，产出同一个 ghcr.io/7358
 ## 备份与恢复（2026-10-17 起，已演练验证）
 
 **每天一次**：首次全量、之后**硬链接增量**（rsync `--link-dest`，未变文件是到前一日的硬链接，不占额外空间），
-**保留 7 天**滚动清理。范围 = **PostgreSQL 数据库**（`pg_dump -Fc` 自定义格式）+ **上传附件**（docker-compose.yml 里 cms 服务挂载的 NAS 路径，默认 `${CMS_DIR}/data`，可用环境变量 `DATA_DIR` 覆盖）。
+**保留 7 天**滚动清理。范围 = **PostgreSQL 数据库**（`pg_dump -Fc` 自定义格式）+ **上传附件**（上传目录按优先级取值：显式 `DATA_DIR` > docker-compose.yml 里 cms 服务 `/data` 挂载解析出的宿主路径 > `${CMS_DIR}/data` 兜底，兜底时会告警——生产请务必配置 `DATA_DIR`）。
 
 ### 产物结构
 
