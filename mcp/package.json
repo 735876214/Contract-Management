@@ -1,6 +1,6 @@
 {
   "name": "cms-mcp-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "CMS 合同管理系统的 MCP 服务端：让外部 AI 通过 MCP 协议查询 / 导出 / 导入数据（走既有 /api，复用 RBAC 与项目隔离）",
   "type": "module",
