@@ -23,6 +23,7 @@ import { ProjectScopeService } from '../../common/services/project-scope.service
 import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { calcAmount } from '../../common/calc/amounts';
+import { isFilledNumber } from '../../common/utils/ledger-derived';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
 const INVOICE_FIELDS = [
@@ -186,6 +187,15 @@ export class InvoiceService {
   }
 
   /**
+   * 税前金额为必填项（业务口径 2026-11-18）：合同台账的「开累发票税前金额 / 进项税额」改由发票派生，
+   * 一张票缺税前就既算不出税前也算不出进项税，故**新增时**必须填写（显式 0 是合法值）。
+   * 编辑时只在「把已填的税前清空」时拦截——历史票保留原状，编辑其他字段不受阻。
+   */
+  private assertBeforeTaxRequired(amountBeforeTax: unknown) {
+    if (!isFilledNumber(amountBeforeTax)) throw new BadRequestException('税前金额为必填项，不能为空');
+  }
+
+  /**
    * 新建发票。⚠️ `create` / `batchCreate` / `import` **有意不收紧终态**：
    * 历史数据/导入允许直接落 `CANCELLED`/`RED`（导入路径还经 `tx` 复用本方法）；
    * 只有交互式 `PUT` 被 `assertStatusTransition` 拦在终态之外。别把这里的宽松当漏网收紧。
@@ -206,6 +216,8 @@ export class InvoiceService {
     });
     // 负金额是录入错误（与导入路径同一口径，2026-10-18 审计）
     this.assertNoNegativeAmounts(payload);
+    // 税前金额必填（台账「开累发票税前金额/进项税额」由发票派生，缺税前就算不出来）
+    this.assertBeforeTaxRequired(payload.amountBeforeTax);
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     // 开票单位可通过合同关联供应商库自动带出
@@ -354,6 +366,10 @@ export class InvoiceService {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
     this.assertNoNegativeAmounts(payload);
+    // 编辑时**把已填的税前金额清空** → 拦下；历史票本就为空时编辑其他字段不受阻（税前必填只约束新增）
+    if (payload.amountBeforeTax !== undefined && isFilledNumber(before.amountBeforeTax)) {
+      this.assertBeforeTaxRequired(payload.amountBeforeTax);
+    }
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     delete payload.version;
@@ -476,6 +492,8 @@ export class InvoiceService {
         if (contract && (contract as any).projectId !== projectId) throw new Error('关联合同不属于当前项目');
         const ratePct = num(it.taxRatePct);
         const beforeTax = num(it.amountBeforeTax);
+        // 税前金额必填（与 create/import 同一口径：台账「开累发票税前金额/进项税额」由发票派生）
+        if (beforeTax === null) throw new Error('税前金额为空（必填）');
         // 含税金额 = 税前金额 × (1 + 税率百分数/100)，单轨百分数口径
         const withTax = ratePct !== null && beforeTax !== null
           ? calcAmount(beforeTax, 1 + ratePct / 100, 2)
@@ -645,7 +663,9 @@ export class InvoiceService {
         }
         const amtBefore = num(r['税前金额']);
         const amtWith = num(r['含税金额']);
-        if (amtBefore !== null && amtBefore < 0) throw new RowError('税前金额不能为负数', '税前金额');
+        // 税前金额必填（与交互式 create 同一口径）；缺了台账「开累发票税前金额/进项税额」就算不出来
+        if (amtBefore === null) throw new RowError('税前金额为必填项（请填票面不含税金额）', '税前金额');
+        if (amtBefore < 0) throw new RowError('税前金额不能为负数', '税前金额');
         if (amtWith !== null && amtWith < 0) throw new RowError('含税金额不能为负数', '含税金额');
         return {
           data: {
@@ -703,7 +723,7 @@ export class InvoiceService {
       { label: '开票日期', key: 'invoiceDate', type: 'date', width: 14, example: '2026-09-01' },
       { label: '发票代码', key: 'invoiceCode', type: 'text', width: 18, example: '5110231140', desc: '全电发票可留空' },
       { label: '发票号码', key: 'invoiceNo', required: true, type: 'text', width: 18, example: '26358871', desc: '同项目内唯一' },
-      { label: '税前金额', key: 'amountBeforeTax', type: 'money', width: 14, example: 12345.67 },
+      { label: '税前金额', key: 'amountBeforeTax', required: true, type: 'money', width: 14, example: 12345.67, desc: '票面不含税金额，必填' },
       { label: '税率(%)', key: 'taxRatePct', type: 'number', width: 10, example: 13, desc: '百分比数字，如 13 表示 13%' },
       { label: '含税金额', key: 'amountWithTax', type: 'money', width: 14, example: 13950.61 },
       { label: '发票收取时间', key: 'receiveDate', type: 'date', width: 14, example: '2026-09-05' },

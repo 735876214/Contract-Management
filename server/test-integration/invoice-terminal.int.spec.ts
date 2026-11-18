@@ -71,6 +71,7 @@ describe('集成 · 发票作废/红冲联动', () => {
         statusCode: INVOICE_STATUS.WAIT_VERIFY,
         settlePeriod: '2026-09',
         invoiceDate: day(8, 20),
+        amountBeforeTax: 7787.61, // 税前金额必填（业务口径 2026-11-18）
         amountWithTax: 8800,
         invoiceNo: uniq('INV').toUpperCase(),
         ...data,
@@ -522,5 +523,35 @@ describe('集成 · 发票作废/红冲联动', () => {
     );
     const o = await ctx.prisma.invoice.findUnique({ where: { id: original.id } });
     assert.notEqual(o!.statusCode, INVOICE_STATUS.CANCELLED, '被拒绝的编辑不能作废原票');
+  });
+
+  /**
+   * ㉑ 税前金额必填（业务口径 2026-11-18）：台账「开累发票税前金额/进项税额」改为发票派生，
+   *    缺税前就两列都算不出来。新增必须填；编辑时把已填的清空同样拒绝。
+   */
+  it('㉑ 税前金额必填：新增缺税前被拒；编辑清空已填税前被拒', async () => {
+    const { project, contract } = await setupContract('INV-BEFORETAX');
+    await assert.rejects(
+      () =>
+        invoices.create(
+          {
+            contractId: contract.id,
+            typeCode: 'VAT_SPECIAL',
+            statusCode: INVOICE_STATUS.WAIT_VERIFY,
+            invoiceNo: uniq('NOTAX').toUpperCase(),
+            amountWithTax: 1130,
+          },
+          project.id,
+        ),
+      /税前金额为必填项/,
+    );
+
+    const inv: any = await makeInvoice(project.id, contract.id);
+    const row = await ctx.prisma.invoice.findUnique({ where: { id: inv.id } });
+    await assert.rejects(
+      () => invoices.update(inv.id, { amountBeforeTax: null, version: row!.version }, project.id),
+      /税前金额为必填项/,
+      '不能把已填的税前清空（否则该票的税前/进项税变成未知）',
+    );
   });
 });

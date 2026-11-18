@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { fmtDate } from '../../common/calc/time';
 import { paginate, buildResult } from '../../common/utils/helpers';
-import { deriveLedgerAmounts, deriveTaxSplit, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
+import { deriveLedgerAmounts, sumInvoiceTax, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
 import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
@@ -75,9 +75,10 @@ export class LedgerService {
         select: { contractId: true, actualAmount: true, amount: true },
       }),
       // 作废/红冲发票不计入「开累发票金额」（业务口径 2026-11-12；空状态历史票仍计入）
+      // 另取税前/税率：2026-11-18 起「开累发票税前金额 / 进项税额」也由这批票逐张派生
       this.prisma.invoice.findMany({
         where: { contractId: { in: contractIds }, ...countedInvoiceWhere() },
-        select: { contractId: true, amountWithTax: true },
+        select: { contractId: true, amountBeforeTax: true, amountWithTax: true, taxRatePct: true },
       }),
       // 排除"不构成实际出资"的状态（付款失败/已退款）——与防超付闸门用**同一份**清单，
       // 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论
@@ -151,10 +152,11 @@ export class LedgerService {
         (s, x: any) => s + (settlementAmountOf(x, 'submitted') || 0),
         0,
       );
-      // 开累税前结算金额 / 进项税：税率未填 → 两列都留 null（不要兜成 0%），显式 0 参与计算
-      const taxSplit = deriveTaxSplit(cumSettleAmount, c.taxRatePct);
-      const cumSettleBeforeTax = taxSplit.beforeTax;
-      const cumInputTax = taxSplit.inputTax;
+      // 开累税前结算金额 / 进项税：**发票派生**（业务口径 2026-11-18）——逐张取票面税前/含税−税前，
+      // 无票 → 0，有票但算不出 → null。键名沿用 cumSettleBeforeTax/cumInputTax 以兼容既有前端/导出。
+      const invoiceTax = sumInvoiceTax(invoiceMap[c.id] || []);
+      const cumSettleBeforeTax = invoiceTax.beforeTax;
+      const cumInputTax = invoiceTax.inputTax;
       const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
       const cumPaidAmount = (payMap[c.id] || []).reduce((s, p: any) => s + (num(p.amount) || 0), 0);
 
@@ -356,9 +358,9 @@ export class LedgerService {
     const chainTotal = chainContractTotal(
       list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),
     );
-    /** 有结算但税率未填的行：税前/进项税是 null（未知），合计只含已知部分，必须在标题里说清 */
+    /** 有发票但金额不完整（缺税前且无税率可反推）的行：两列是 null（未知），合计只含已知部分 */
     const taxMissingCount = list.filter(
-      (r) => Number(r.cumSettleAmount) > 0 && r.cumSettleBeforeTax === null,
+      (r) => Number(r.cumInvoiceAmount) > 0 && r.cumSettleBeforeTax === null,
     ).length;
     const rows = list.map((r) => ({
       ...r,
@@ -371,7 +373,7 @@ export class LedgerService {
       sheetName: '合同台账',
       logoColumn: true,
       title: `合同台账（${project?.name || ''}）${
-        taxMissingCount ? `（另有 ${taxMissingCount} 行有结算但未填税率，税前/进项税合计不含）` : ''
+        taxMissingCount ? `（另有 ${taxMissingCount} 行有发票但金额不完整（缺税前/含税），税前/进项税合计不含）` : ''
       }`,
       columns: [
         { header: '序号', key: 'index', width: 60, type: 'int' },
@@ -404,8 +406,8 @@ export class LedgerService {
         { header: '投诉情况', key: 'complaint', width: 120 },
         { header: '开累结算金额', key: 'cumSettleAmount', width: 140, type: 'money' },
         { header: '审定结算额', key: 'auditedSettleAmount', width: 140, type: 'money' },
-        { header: '开累税前结算金额', key: 'cumSettleBeforeTax', width: 150, type: 'money' },
-        { header: '开累进项税额', key: 'cumInputTax', width: 130, type: 'money' },
+        { header: '开累发票税前金额', key: 'cumSettleBeforeTax', width: 150, type: 'money' },
+        { header: '开累发票进项税额', key: 'cumInputTax', width: 130, type: 'money' },
         { header: '开累发票金额', key: 'cumInvoiceAmount', width: 140, type: 'money' },
         { header: '开累付款金额', key: 'cumPaidAmount', width: 140, type: 'money' },
         { header: '应付款金额', key: 'payableAmount', width: 130, type: 'money' },

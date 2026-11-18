@@ -462,7 +462,7 @@ function InvoiceEditor({ contractOptions, seed }: { contractOptions: any[]; seed
               <Input onChange={(e) => checkNo(e.target.value)} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="amountBeforeTax" label="税前金额" rules={isCreate ? [{ required: true, message: '请填写税前金额' }] : []}><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="taxRatePct" label="税率(%)"><InputNumber style={{ width: '100%' }} min={0} max={100} step={0.01} precision={2} /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="amountWithTax" label="含税金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="receiveDate" label="发票收取时间"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item></Col>
