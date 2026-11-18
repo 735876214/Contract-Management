@@ -6,13 +6,23 @@
  * 与 server 端 controller 路由一一对应，改动后端路由时同步这里即可。
  */
 
+/** 按能力区分「必填查询参数」：模板下载通常不依赖业务 id，避免过度拦截 */
+export interface RequiredQueryByCapability {
+  query?: string[];
+  export?: string[];
+  template?: string[];
+  import?: string[];
+}
+
 export interface CmsResource {
   /** 工具里使用的资源 key（同时也作为 MCP 的 enum 值） */
   key: string;
   /** 中文名，便于 AI 理解 */
   label: string;
-  /** 列表/详情基路径 */
+  /** 列表基路径 */
   path: string;
+  /** 单条详情的基路径；缺省表示后端无详情路由，cms_get 不支持该资源 */
+  detailPath?: string;
   /** 是否需要项目上下文（x-project-id） */
   needsProject: boolean;
   /** Excel 导出路径（返回二进制），无则不支持导出 */
@@ -23,17 +33,20 @@ export interface CmsResource {
   importPath?: string;
   /** 导入预校验路径（只校验不写库） */
   importValidatePath?: string;
-  /** 该资源的列表接口是否有必填查询参数（如 dict 需要 typeCode） */
-  requiredQuery?: string[];
+  /** 各能力下的必填查询参数（如 dict 需要 typeCode） */
+  requiredQuery?: RequiredQueryByCapability;
   /** 备注：给 AI 的口径提示 */
   note?: string;
 }
+
+export type Capability = 'query' | 'export' | 'template' | 'import';
 
 export const RESOURCES: CmsResource[] = [
   {
     key: 'projects',
     label: '项目',
     path: 'projects',
+    detailPath: 'projects',
     needsProject: false,
     templateUrl: 'projects/template',
     importPath: 'projects/import',
@@ -44,17 +57,21 @@ export const RESOURCES: CmsResource[] = [
     key: 'suppliers',
     label: '供应商/分包商',
     path: 'suppliers',
-    needsProject: false,
+    detailPath: 'suppliers',
+    // 后端 SupplierController.findAll/export 用 @ProjectId() 取值，无项目头直接 1001，
+    // 即便系统参数 supplier.share.scope=GLOBAL 也在参数装饰器层被拦，故这里必须为 true。
+    needsProject: true,
     exportPath: 'suppliers/export',
     templateUrl: 'suppliers/template',
     importPath: 'suppliers/import',
     importValidatePath: 'suppliers/import/validate',
-    note: '受系统参数 supplier.share.scope 控制：GLOBAL 全局共享 / PROJECT 按项目隔离。',
+    note: '需要 x-project-id；受系统参数 supplier.share.scope 控制：GLOBAL 时数据全局可见，PROJECT 时按项目隔离。',
   },
   {
     key: 'contracts',
     label: '合同',
     path: 'contracts',
+    detailPath: 'contracts',
     needsProject: true,
     templateUrl: 'contracts/template',
     importPath: 'contracts/import',
@@ -70,6 +87,7 @@ export const RESOURCES: CmsResource[] = [
     templateUrl: 'materials/template',
     importPath: 'materials/import',
     importValidatePath: 'materials/import/validate',
+    note: '无单条详情路由，cms_get 不支持。',
   },
   {
     key: 'contract-materials',
@@ -80,13 +98,19 @@ export const RESOURCES: CmsResource[] = [
     templateUrl: 'contract-materials/template',
     importPath: 'contract-materials/import',
     importValidatePath: 'contract-materials/import/validate',
-    requiredQuery: ['contractId'],
-    note: '导入时 contractId 必填，通过 query 传入。',
+    // 列表/导出/导入按合同取数需 contractId；模板是通用空模板，不依赖合同。
+    requiredQuery: {
+      query: ['contractId'],
+      export: ['contractId'],
+      import: ['contractId'],
+    },
+    note: '无单条详情路由，cms_get 不支持。查询/导出/导入需 contractId；模板下载不需要。',
   },
   {
     key: 'daily-reports',
     label: '日报',
     path: 'daily-reports',
+    detailPath: 'daily-reports',
     needsProject: true,
     exportPath: 'daily-reports/export',
     importPath: 'daily-reports/import',
@@ -101,11 +125,13 @@ export const RESOURCES: CmsResource[] = [
     templateUrl: 'assets/template',
     importPath: 'assets/import',
     importValidatePath: 'assets/import/validate',
+    note: '无单条详情路由，cms_get 不支持。',
   },
   {
     key: 'settlements',
     label: '结算（结算台账）',
     path: 'settlements',
+    detailPath: 'settlements',
     needsProject: true,
     exportPath: 'settlements/ledger/export',
     templateUrl: 'settlements/ledger/template',
@@ -121,11 +147,13 @@ export const RESOURCES: CmsResource[] = [
     templateUrl: 'payments/records/template',
     importPath: 'payments/records/import',
     importValidatePath: 'payments/records/import/validate',
+    note: '控制器只有 records 列表，无 /records/:id 详情，cms_get 不支持。',
   },
   {
     key: 'invoices',
     label: '发票',
     path: 'invoices',
+    detailPath: 'invoices',
     needsProject: true,
     exportPath: 'invoices/export',
     templateUrl: 'invoices/template',
@@ -138,12 +166,13 @@ export const RESOURCES: CmsResource[] = [
     path: 'ledger/contracts',
     needsProject: true,
     exportPath: 'ledger/export',
-    note: '台账按当前列配置导出；列表走 /ledger/contracts。',
+    note: '台账按当前列配置导出；列表走 /ledger/contracts，无单条详情路由，cms_get 不支持。',
   },
   {
     key: 'repayments',
     label: '还款协议',
     path: 'repayments',
+    detailPath: 'repayments',
     needsProject: true,
     exportPath: 'repayments/export',
   },
@@ -151,6 +180,7 @@ export const RESOURCES: CmsResource[] = [
     key: 'procurement-tasks',
     label: '采购任务',
     path: 'procurement-tasks',
+    detailPath: 'procurement-tasks',
     needsProject: true,
     note: '采购订单/对账在外部系统，这里只读任务与投标结果。',
   },
@@ -162,8 +192,12 @@ export const RESOURCES: CmsResource[] = [
     exportPath: 'dict/export',
     importPath: 'dict/import',
     importValidatePath: 'dict/import/validate',
-    requiredQuery: ['typeCode'],
-    note: '字典是全局共享；查询/导入需带 typeCode（字典类型编码）。',
+    requiredQuery: {
+      query: ['typeCode'],
+      export: ['typeCode'],
+      import: ['typeCode'],
+    },
+    note: '字典是全局共享；查询/导出/导入需带 typeCode（字典类型编码）。无单条详情路由，cms_get 不支持。',
   },
 ];
 
@@ -175,4 +209,8 @@ export function getResource(key: string): CmsResource {
   const r = RESOURCE_MAP[key];
   if (!r) throw new Error(`未知资源：${key}（可用：${RESOURCES.map((x) => x.key).join(', ')}）`);
   return r;
+}
+
+export function requiredQueryFor(resource: CmsResource, capability: Capability): string[] {
+  return resource.requiredQuery?.[capability] ?? [];
 }

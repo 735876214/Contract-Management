@@ -33,6 +33,34 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 async function runHttp(port: number): Promise<void> {
   const config = loadConfig();
+  // 安全：HTTP 模式对外暴露了一条「以本机 MCP 身份操作用户数据」的通道，
+  // 必须默认只监听回环地址，并要求 Bearer Token（CMS_MCP_HTTP_TOKEN）。
+  // 若显式设置 CMS_MCP_HTTP_HOST=0.0.0.0 对外暴露，强烈建议同时设置强 Token。
+  const host = process.env.CMS_MCP_HTTP_HOST?.trim() || '127.0.0.1';
+  const token = process.env.CMS_MCP_HTTP_TOKEN?.trim() || '';
+  const isLoopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
+  if (!token && !isLoopback) {
+    console.error(
+      '[cms-mcp] 拒绝启动：CMS_MCP_HTTP_HOST 非回环地址时必须设置 CMS_MCP_HTTP_TOKEN，' +
+        '否则任何能访问该端口的人都能读写本系统数据。',
+    );
+    process.exit(1);
+  }
+  if (!token) {
+    console.error(
+      '[cms-mcp] 警告：HTTP 模式未设置 CMS_MCP_HTTP_TOKEN，仅能本机访问（' + host + '），不做鉴权。',
+    );
+  }
+
+  function authorized(req: http.IncomingMessage): boolean {
+    if (!token) return true; // 仅回环且无 token 时放行（已在上方警告）
+    const auth = req.headers['authorization'];
+    const bearer =
+      typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    const headerToken = req.headers['x-mcp-token'];
+    const alt = typeof headerToken === 'string' ? headerToken.trim() : '';
+    return bearer === token || alt === token;
+  }
 
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
@@ -40,6 +68,13 @@ async function runHttp(port: number): Promise<void> {
       res.statusCode = 404;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: 'not found, use /mcp' }));
+      return;
+    }
+    if (!authorized(req)) {
+      res.statusCode = 401;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('WWW-Authenticate', 'Bearer');
+      res.end(JSON.stringify({ error: 'unauthorized: 需要 Bearer Token（CMS_MCP_HTTP_TOKEN）' }));
       return;
     }
     try {
@@ -67,8 +102,11 @@ async function runHttp(port: number): Promise<void> {
     }
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(port, resolve));
-  console.error(`[cms-mcp] HTTP 就绪：http://localhost:${port}/mcp （POST/GET/DELETE，后端=${config.baseUrl}）`);
+  await new Promise<void>((resolve) => httpServer.listen(port, host, resolve));
+  console.error(
+    `[cms-mcp] HTTP 就绪：http://${host}:${port}/mcp （POST/GET/DELETE，后端=${config.baseUrl}，` +
+      (token ? '已启用 Token 鉴权）' : '未鉴权·仅回环）'),
+  );
 }
 
 const arg = process.argv.slice(2);

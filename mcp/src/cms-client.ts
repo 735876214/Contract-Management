@@ -208,16 +208,30 @@ export class CmsClient {
     if (!existsSync(filePath)) throw new Error(`文件不存在：${filePath}`);
     const abs = isAbsolute(filePath) ? filePath : resolve(filePath);
     const buf = await readFile(abs);
-    const form = new FormData();
-    form.append('file', new Blob([buf]), basename(abs));
-    await this.ensureToken();
     const url = this.buildUrl(path, opts.query);
-    const init: RequestInit = {
-      method: 'POST',
-      headers: this.headers(this.projectHeader(opts)),
-      body: form,
+    const doFetch = async (): Promise<Response> => {
+      await this.ensureToken();
+      // 每次重试都新建 FormData（流式 body 不能复用）
+      const form = new FormData();
+      form.append('file', new Blob([buf]), basename(abs));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? this.config.timeoutMs);
+      try {
+        return await fetch(url, {
+          method: 'POST',
+          headers: this.headers(this.projectHeader(opts)),
+          body: form,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
     };
-    const res = await fetch(url, init);
+    let res = await doFetch();
+    if (res.status === 401) {
+      this.token = undefined;
+      res = await doFetch();
+    }
     const text = await res.text();
     let env: ApiEnvelope;
     try {

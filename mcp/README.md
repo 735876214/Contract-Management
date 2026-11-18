@@ -35,9 +35,15 @@ node dist/index.js
 或起 HTTP 模式（多客户端可连，无状态）：
 
 ```bash
-node dist/index.js --http 8787
-# 端点：http://localhost:8787/mcp （POST/GET/DELETE）
+# 默认仅监听 127.0.0.1；设置 CMS_MCP_HTTP_TOKEN 后客户端需带 Bearer 头
+CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
+# 端点：http://127.0.0.1:8787/mcp （POST/GET/DELETE，需 Authorization: Bearer <token>）
 ```
+
+> ⚠️ HTTP 模式等价于「以本机 MCP 身份读写本系统数据」的通道：
+> - 默认只监听 `127.0.0.1`，仅本机可连；
+> - 监听非回环地址（`CMS_MCP_HTTP_HOST=0.0.0.0`）时**必须**设置 `CMS_MCP_HTTP_TOKEN`，否则拒绝启动；
+> - 客户端请求时带 `Authorization: Bearer <token>` 或 `x-mcp-token: <token>`。
 
 ## 接入 MCP 客户端
 
@@ -73,6 +79,8 @@ node dist/index.js --http 8787
 | `CMS_EXPORT_DIR` | 否 | 导出/下载落盘目录，默认 `<cwd>/exports` |
 | `CMS_TIMEOUT_MS` | 否 | 单次请求超时，默认 `30000` |
 | `CMS_MCP_HTTP_PORT` | 否 | `--http` 模式端口，默认 `8787` |
+| `CMS_MCP_HTTP_HOST` | 否 | `--http` 监听地址，默认 `127.0.0.1`；设 `0.0.0.0` 对外时必须配 Token |
+| `CMS_MCP_HTTP_TOKEN` | HTTP 模式建议 | Bearer Token 鉴权；未设时仅回环可访问，非回环则拒绝启动 |
 
 ## 工具一览
 

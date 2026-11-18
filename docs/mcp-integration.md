@@ -41,6 +41,14 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 
 建议给外部 AI 配**最小权限专用账号**（只读场景仅 `*:view`）。
 
+**MCP 通道自身的安全**：
+- stdio 模式：由本机 MCP 客户端拉起子进程，天然只有本机使用者可连；
+- HTTP 模式：默认只监听 `127.0.0.1`；监听非回环地址（`CMS_MCP_HTTP_HOST=0.0.0.0`）**必须**设置
+  `CMS_MCP_HTTP_TOKEN`，否则拒绝启动；客户端请求 `/mcp` 需带 `Authorization: Bearer <token>`
+  或 `x-mcp-token: <token>`。等价于「以本机 MCP 身份读写系统数据」，对外暴露前务必设强随机 Token。
+- `cms_whoami` 会对 `/auth/profile` 返回体做递归脱敏（`apiKey`/`secret`/`password`/`token` 等字段替换为 `***`），
+  避免系统参数里的机密透传给外部 AI。后端 `/auth/profile` 的 `params` 建议另行做服务端白名单（纵深防御）。
+
 ## 4. 资源 → 接口映射（单一事实源：`mcp/src/resources.ts`）
 
 | 资源 key | 列表/详情 | 导出 | 模板 | 导入 |
@@ -49,7 +57,7 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 | suppliers | `GET /suppliers` | `GET /suppliers/export` | `…/template` | `…/import` |
 | contracts | `GET /contracts` | Word: `GET /contracts/:id/export-word` | `…/template` | `…/import` |
 | materials | `GET /materials` | `GET /materials/export` | `…/template` | `…/import` |
-| contract-materials | `GET /contract-materials` | `…/export` | `…/template` | `…/import`（需 contractId） |
+| contract-materials | `GET /contract-materials`（需 contractId） | `…/export`（需 contractId） | `…/template`（**不需** contractId） | `…/import`（需 contractId） |
 | daily-reports | `GET /daily-reports` | `…/export` | — | `…/import` |
 | assets | `GET /assets` | `…/export` | `…/template` | `…/import` |
 | settlements | `GET /settlements` | `GET /settlements/ledger/export` | `…/template` | `…/import` |
@@ -61,6 +69,9 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 | dict | `GET /dict/items`（需 typeCode） | `GET /dict/export` | — | `…/import`（需 typeCode） |
 
 > 后端路由改动时，只需同步 `mcp/src/resources.ts` 一处。
+> `cms_get`（单条详情）仅对 `resources.ts` 里有 `detailPath` 的资源可用
+> （projects / suppliers / contracts / daily-reports / settlements / invoices / repayments / procurement-tasks），
+> 其余资源无详情路由，调用会得到明确提示（可用 `cms_list_resources` 的 `canGet` 判断）。
 
 ## 5. 工具
 

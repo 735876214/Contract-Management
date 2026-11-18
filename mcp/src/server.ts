@@ -9,7 +9,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { CmsClient } from './cms-client.js';
-import { RESOURCES, getResource } from './resources.js';
+import { RESOURCES, getResource, requiredQueryFor, type Capability } from './resources.js';
 import type { CmsConfig } from './config.js';
 
 type ToolResult = {
@@ -46,13 +46,41 @@ function buildQuery(args: {
   return q;
 }
 
-function assertRequiredQuery(resourceKey: string, query: Record<string, unknown>): void {
+function assertRequiredQuery(
+  resourceKey: string,
+  capability: Capability,
+  query: Record<string, unknown>,
+): void {
   const r = getResource(resourceKey);
-  for (const key of r.requiredQuery ?? []) {
+  for (const key of requiredQueryFor(r, capability)) {
     if (query[key] === undefined || query[key] === null || query[key] === '') {
-      throw new Error(`资源「${r.label}(${r.key})」缺少必填查询参数 ${key}（通过 query/filter 或工具参数传入）`);
+      throw new Error(
+        `资源「${r.label}(${r.key})」的${capability}操作缺少必填查询参数 ${key}（通过 query/filter 或工具参数传入）`,
+      );
     }
   }
+}
+
+/**
+ * 递归剔除机密字段（apiKey/secret/password/token 等），
+ * 避免把 /auth/profile 返回的系统参数里的机密透传给外部 AI。
+ * 未命中机密的字段原样保留（user/permissions/projects 等对 AI 有用）。
+ */
+const SECRET_KEY_RE = /(api[-_]?key|secret|password|passwd|token|credential|private)/i;
+function redactSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SECRET_KEY_RE.test(k)) {
+        out[k] = '***';
+      } else {
+        out[k] = redactSecrets(v);
+      }
+    }
+    return out;
+  }
+  return value;
 }
 
 export function createServer(config: CmsConfig, client = new CmsClient(config)): McpServer {
@@ -83,10 +111,11 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
             label: r.label,
             needsProject: r.needsProject,
             canQuery: true,
+            canGet: !!r.detailPath,
             canExport: !!r.exportPath,
             canDownloadTemplate: !!r.templateUrl,
             canImport: !!r.importPath,
-            requiredQuery: r.requiredQuery ?? [],
+            requiredQuery: r.requiredQuery ?? {},
             note: r.note ?? null,
           })),
         });
@@ -105,7 +134,8 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     },
     async () => {
       try {
-        return ok(await client.profile());
+        const profile = await client.profile();
+        return ok(redactSecrets(profile));
       } catch (e) {
         return fail(e);
       }
@@ -134,7 +164,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
       try {
         const r = getResource(args.resource);
         const query = buildQuery(args);
-        assertRequiredQuery(args.resource, query);
+        assertRequiredQuery(args.resource, 'query', query);
         const data = await client.requestJson(r.path, { method: 'GET', query, projectId: args.projectId });
         return ok(data);
       } catch (e) {
@@ -157,7 +187,12 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     async (args) => {
       try {
         const r = getResource(args.resource);
-        const data = await client.requestJson(`${r.path}/${encodeURIComponent(args.id)}`, {
+        if (!r.detailPath) {
+          throw new Error(
+            `资源「${r.label}(${r.key})」没有单条详情接口，cms_get 不支持；请用 cms_query 按筛选条件检索`,
+          );
+        }
+        const data = await client.requestJson(`${r.detailPath}/${encodeURIComponent(args.id)}`, {
           method: 'GET',
           projectId: args.projectId,
         });
@@ -188,7 +223,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
         const r = getResource(args.resource);
         if (!r.exportPath) throw new Error(`资源「${r.label}(${r.key})」不支持 Excel 导出`);
         const query = args.query ?? {};
-        assertRequiredQuery(args.resource, query);
+        assertRequiredQuery(args.resource, 'export', query);
         const result = await client.download(r.exportPath, {
           query,
           projectId: args.projectId,
@@ -218,7 +253,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
         const r = getResource(args.resource);
         if (!r.templateUrl) throw new Error(`资源「${r.label}(${r.key})」没有导入模板`);
         const query = args.query ?? {};
-        assertRequiredQuery(args.resource, query);
+        assertRequiredQuery(args.resource, 'template', query);
         const result = await client.download(r.templateUrl, {
           query,
           projectId: args.projectId,
@@ -279,7 +314,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
         const r = getResource(args.resource);
         if (!r.importPath) throw new Error(`资源「${r.label}(${r.key})」不支持导入`);
         const query = args.query ?? {};
-        assertRequiredQuery(args.resource, query);
+        assertRequiredQuery(args.resource, 'import', query);
         const path = args.validateOnly
           ? r.importValidatePath ?? `${r.importPath}/validate`
           : r.importPath;
