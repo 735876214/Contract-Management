@@ -66,3 +66,7 @@ backups/
 
 # Claude Code / DSH 的本地设置（含本机路径与环境切换器状态，因人而异）
 .claude/settings.local.json
+
+# MCP 服务端的本地导出/下载产物
+mcp/exports/
+mcp/exports-e2e/

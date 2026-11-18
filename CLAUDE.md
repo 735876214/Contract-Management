@@ -48,6 +48,7 @@ Contract-Management/
 │   ├── test/           # node:test 纯函数单测（89 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（24 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
+├── mcp/                # 独立 MCP 服务端：外部 AI 经 MCP 协议查询/导出/导入（走既有 /api，复用 RBAC）
 ├── deploy/single/  docker-compose.yml  docker-compose.dev.yml  scripts/  .github/
 ```
 
@@ -99,6 +100,7 @@ cd server && npm run test:int  # DB 集成测试（24 个 spec，改金额/状�
 | [docs/component-api.md](docs/component-api.md) | 前端组件与后端通用服务的接口 |
 | [docs/local-storage-structure.md](docs/local-storage-structure.md) | **本地文件存储结构**：目录/命名/字段映射/读写路径/生命周期/只读审计脚本 |
 | [docs/02-数据库ER设计.md](docs/02-数据库ER设计.md) / [03-API接口清单.md](docs/03-API接口清单.md) | 数据模型 / REST 接口清单 |
+| [docs/mcp-integration.md](docs/mcp-integration.md) · [mcp/README.md](mcp/README.md) | **MCP 接入**：外部 AI 查询/导出/导入的架构决策、接口映射与用法 |
 | [docs/04-Docker镜像构建与优化.md](docs/04-Docker镜像构建与优化.md) | 镜像构建 |
 | [README.md](README.md) | 部署与运维（Docker/NAS/CI） |
 
