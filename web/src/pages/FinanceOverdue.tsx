@@ -13,8 +13,9 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
+/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
 const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 
@@ -148,32 +149,44 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
       {contractId && <ContractFundParams contractId={contractId} />}
 
       {contractId && (
-        <Row gutter={[24, 16]}>
+        <Row gutter={16}>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="材料款金额合计" value={stats.totalMaterial || 0} precision={2} prefix="¥" />
+            <Card size="small" className="stat-card">
+              <Statistic title="材料款金额合计" value={money(stats.totalMaterial)} />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="付款金额合计" value={stats.totalPayment || 0} precision={2} prefix="¥" />
+            <Card size="small" className="stat-card">
+              <Statistic title="付款金额合计" value={money(stats.totalPayment)} />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="本期开累逾期利息" value={stats.currentCumulative || 0} precision={2} prefix="¥" />
+            <Card size="small" className="stat-card">
+              <Statistic title="本期开累逾期利息" value={money(stats.currentCumulative)} />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic
-              title={`上限金额（${((stats.capRatio || 0) * 100).toFixed(1)}%）`}
-              value={stats.capAmount || 0}
-              precision={2}
-              prefix="¥"
-            />
+            <Card size="small" className="stat-card">
+              <Statistic
+                title={`上限金额（${((stats.capRatio || 0) * 100).toFixed(1)}%）`}
+                value={money(stats.capAmount)}
+              />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="开累利息占材料款比例" value={stats.interestRatio || 0} precision={2} suffix="%" />
+            <Card size="small" className="stat-card">
+              <Statistic title="开累利息占材料款比例" value={stats.interestRatio || 0} precision={2} suffix="%" />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="上期开累逾期利息" value={stats.prevCumulative || 0} precision={2} prefix="¥" />
+            <Card size="small" className="stat-card">
+              <Statistic title="上期开累逾期利息" value={money(stats.prevCumulative)} />
+            </Card>
           </Col>
           <Col xs={12} md={8} lg={6}>
-            <Statistic title="本月结算逾期利息" value={stats.currentSettlement || 0} precision={2} prefix="¥" />
+            <Card size="small" className="stat-card">
+              <Statistic title="本月结算逾期利息" value={money(stats.currentSettlement)} />
+            </Card>
           </Col>
         </Row>
       )}
@@ -190,17 +203,20 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
         onFilterChange={(values, changed) => {
           if ('contractId' in changed) setContractId(values.contractId ?? '');
         }}
+        mobileDefaultKeys={['settlementMonth', 'materialAmount', 'payableAmount', 'overdueInterest']}
         onFetched={(res: any) => setStats(res?.stats ?? {})}
         tableSummary={
           <Table.Summary fixed>
             <Table.Summary.Row style={{ fontWeight: 600 }}>
               <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
               <Table.Summary.Cell index={1} align="right">{money(stats.totalMaterial)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={2} colSpan={4} />
-              <Table.Summary.Cell index={6} align="right">{money(stats.totalPayment)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={7} colSpan={2} />
-              <Table.Summary.Cell index={9} align="right">{money(stats.currentCumulative)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={10} colSpan={2} />
+              {/* 付款比例 / 应付款金额 / 应付款日期 / 逾期起始日期 / 付款日期 */}
+              <Table.Summary.Cell index={2} colSpan={5} />
+              <Table.Summary.Cell index={7} align="right">{money(stats.totalPayment)}</Table.Summary.Cell>
+              {/* 计息金额 / 逾期天数 / 延期月利率 */}
+              <Table.Summary.Cell index={8} colSpan={3} />
+              <Table.Summary.Cell index={11} align="right">{money(stats.currentCumulative)}</Table.Summary.Cell>
+              <Table.Summary.Cell index={12} />
             </Table.Summary.Row>
           </Table.Summary>
         }

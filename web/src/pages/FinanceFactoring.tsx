@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Button, Form, Input, InputNumber, Select, Space, Modal, message, DatePicker, Table, Row, Col } from 'antd';
+import {
+  Button,
+  Card,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Space,
+  Modal,
+  message,
+  DatePicker,
+  Table,
+  Row,
+  Col,
+  Statistic,
+} from 'antd';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';
@@ -11,8 +26,9 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
+/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
 const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 
@@ -47,6 +63,7 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   const tabRefresh = useTabRefresh(LIST_PATH);
   const [contractId, setContractId] = useState('');
   const [totals, setTotals] = useState<any>({});
+  const [rowCount, setRowCount] = useState(0);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
@@ -106,6 +123,31 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {contractId && <ContractFundParams contractId={contractId} />}
 
+      {/* 合同级汇总卡：与「结算台账/合同台账」顶部统计卡同款式（Card.stat-card + Statistic），
+          数据取自后端 `totals`（覆盖该合同全部行，不受分页影响） */}
+      {contractId && (
+        <Row gutter={16}>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="记录数" value={rowCount} /></Card>
+          </Col>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="融资金额合计" value={money(totals.financingAmount)} /></Card>
+          </Col>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="实际到账合计" value={money(totals.actualReceipt)} /></Card>
+          </Col>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="融资利息合计" value={money(totals.financingInterest)} /></Card>
+          </Col>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="手续费合计" value={money(totals.handlingFee)} /></Card>
+          </Col>
+          <Col xs={12} md={8} lg={4}>
+            <Card size="small" className="stat-card"><Statistic title="费用合计（含税）" value={money(totals.totalCost)} /></Card>
+          </Col>
+        </Row>
+      )}
+
       <ModuleListPage
         mode="generic"
         columnConfigKey="finance.factoring"
@@ -118,7 +160,11 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
         onFilterChange={(values, changed) => {
           if ('contractId' in changed) setContractId(values.contractId ?? '');
         }}
-        onFetched={(res: any) => setTotals(res?.totals ?? {})}
+        mobileDefaultKeys={['financingDate', 'financingAmount', 'actualReceipt', 'totalCost']}
+        onFetched={(res: any) => {
+          setTotals(res?.totals ?? {});
+          setRowCount(Number(res?.total ?? 0));
+        }}
         tableSummary={
           <Table.Summary fixed>
             <Table.Summary.Row style={{ fontWeight: 600 }}>
@@ -129,7 +175,8 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
               <Table.Summary.Cell index={4} align="right">{money(totals.financingInterest)}</Table.Summary.Cell>
               <Table.Summary.Cell index={5} align="right">{money(totals.handlingFee)}</Table.Summary.Cell>
               <Table.Summary.Cell index={6} align="right">{money(totals.totalCost)}</Table.Summary.Cell>
-              <Table.Summary.Cell index={7} colSpan={3} />
+              {/* 余下「结算月份 / 备注」两列，colSpan 必须等于剩余列数，否则合计行会多出一格错位 */}
+              <Table.Summary.Cell index={7} colSpan={2} />
             </Table.Summary.Row>
           </Table.Summary>
         }

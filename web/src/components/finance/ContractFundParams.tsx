@@ -65,11 +65,18 @@ export default function ContractFundParams({ contractId }: { contractId: string 
 
   return (
     <div className="page-card" style={{ marginBottom: 16 }}>
-      <Descriptions size="small" column={4} bordered>
+      {/* 窄容器（手机/窄窗口）按 1 列堆叠：固定 4 列会把「供应商」等标签挤成竖排文字 */}
+      <Descriptions
+        size="small"
+        column={{ xs: 1, sm: 1, md: 2, lg: 4, xl: 4, xxl: 4 }}
+        bordered
+        labelStyle={{ whiteSpace: 'nowrap' }}
+      >
         <Descriptions.Item label="供应商">{params.supplierName || '-'}</Descriptions.Item>
         <Descriptions.Item label="付款模式">
-          <Space>
-            <Tag color="blue">
+          {/* 付款模式描述较长：窄容器下要能换行，否则会把标签/卡片挤破 */}
+          <Space wrap size={4}>
+            <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', lineHeight: 1.4 }}>
               {PAYMENT_MODE_OPTIONS.find((o) => o.value === params.paymentMode)?.label ?? '自定义'}
             </Tag>
             <Button size="small" type="link" icon={<SettingOutlined />} onClick={openModal}>
