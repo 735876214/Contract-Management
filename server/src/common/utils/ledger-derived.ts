@@ -96,7 +96,10 @@ export function deriveLedgerAmounts(input: LedgerDerivedInput): LedgerDerivedFie
 }
 
 /**
- * 含税金额 → 税前 / 进项税额（台账「开累税前结算金额」「开累进项税额」的单一实现）。
+ * 含税金额 → 税前 / 进项税额（**旧口径**：结算额 × 合同税率倒推）。
+ *
+ * 2026-11-18 起台账两列已改由发票派生（见 `sumInvoiceTax`），本函数仅保留作历史兜底/单测基线，
+ * 台账 `findAll()` **不再调用**。
  *
  * 税率未填（NULL / 空串）→ 两列都返回 `null`（"未知"不兜成 0%，与其余派生列的三态一致）；
  * **显式填 `0` 是真实的 0%**，照常算出"税前 = 含税、税额 = 0"。
@@ -112,6 +115,75 @@ export function deriveTaxSplit(
   const total = round2(amountWithTax);
   const beforeTax = round2(total / denominator);
   return { beforeTax, inputTax: round2(total - beforeTax) };
+}
+
+/** 参与税额汇总的发票行（只取三列；原始值，允许 `null`/`''`） */
+export interface InvoiceTaxSource {
+  amountBeforeTax: unknown;
+  amountWithTax: unknown;
+  taxRatePct: unknown;
+}
+
+export interface InvoiceTaxSum {
+  /** 开累发票税前金额；**无有效发票**时为 0（真值：没开票就是 0），有票但全算不出时 `null` */
+  beforeTax: number | null;
+  /** 开累发票进项税额；同上三态 */
+  inputTax: number | null;
+  /** 有票但税前或进项税算不出来的行数（导出时在标题提示"合计不含"） */
+  incomplete: number;
+}
+
+/** 单张票的税前：票面优先，其次 含税 ÷ (1 + 税率) 反推（税率单轨百分数：13 = 13%） */
+function invoiceBeforeTaxOf(r: InvoiceTaxSource): number | null {
+  if (isFilledNumber(r.amountBeforeTax)) return round2(Number(r.amountBeforeTax));
+  if (isFilledNumber(r.amountWithTax) && isFilledNumber(r.taxRatePct)) {
+    const denominator = 1 + Number(r.taxRatePct) / 100;
+    if (Number.isFinite(denominator) && denominator !== 0) return round2(Number(r.amountWithTax) / denominator);
+  }
+  return null;
+}
+
+/** 单张票的进项税：**含税 − 税前**（票面税率口径）；含税缺失时退回 税前 × 税率 */
+function invoiceInputTaxOf(r: InvoiceTaxSource, beforeTax: number | null): number | null {
+  if (beforeTax === null) return null;
+  if (isFilledNumber(r.amountWithTax)) return round2(Number(r.amountWithTax) - beforeTax);
+  if (isFilledNumber(r.taxRatePct)) return round2((beforeTax * Number(r.taxRatePct)) / 100);
+  return null;
+}
+
+/**
+ * 台账「开累发票税前金额」「开累发票进项税额」的**单一实现**（业务口径 2026-11-18：
+ * 两列改由**发票模块自动派生**，不再用结算额 × 合同税率倒推）。
+ *
+ * - 逐张发票取「税前 / 进项税」后求和（先逐张舍入再加总，与票面税额一致）；
+ * - `rows` 为空（该合同无有效发票）→ 两列都返回 **0**：没开票就是 0，是事实而非"未知"；
+ * - 有票但税额算不出（税前与含税都为空，或税前为空且无税率反推）→ 该票不参与合计，
+ *   且若全部票都算不出则对应列为 `null`（"未知"沿用全站三态，不兜成 0）。
+ */
+export function sumInvoiceTax(rows: InvoiceTaxSource[]): InvoiceTaxSum {
+  let beforeSum = 0;
+  let taxSum = 0;
+  let beforeKnown = 0;
+  let taxKnown = 0;
+  let incomplete = 0;
+  for (const r of rows) {
+    const before = invoiceBeforeTaxOf(r);
+    const tax = invoiceInputTaxOf(r, before);
+    if (before !== null) {
+      beforeSum += before;
+      beforeKnown += 1;
+    }
+    if (tax !== null) {
+      taxSum += tax;
+      taxKnown += 1;
+    }
+    if (before === null || tax === null) incomplete += 1;
+  }
+  return {
+    beforeTax: rows.length === 0 ? 0 : beforeKnown ? round2(beforeSum) : null,
+    inputTax: rows.length === 0 ? 0 : taxKnown ? round2(taxSum) : null,
+    incomplete,
+  };
 }
 
 /**

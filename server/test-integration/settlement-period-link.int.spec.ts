@@ -116,7 +116,11 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   };
 
   const makeInvoice = (projectId: string, contractId: string, data: any) =>
-    invoices.create({ contractId, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, ...data }, projectId);
+    invoices.create(
+      // 税前金额必填（业务口径 2026-11-18）；个别用例会覆盖
+      { contractId, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, amountBeforeTax: 100, ...data },
+      projectId,
+    );
 
   it('① 发票自动挂同期结算单，台账「本月开票额」按关联归集（账期与开票日期可不同月）', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-1');
@@ -448,10 +452,10 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('数据');
-    ws.addRow(['合同编号', '发票号码']);
+    ws.addRow(['合同编号', '发票号码', '税前金额']);
     ws.addRow(['示例行：导入时自动忽略']); // 第 2 行是模板示例行（parse 跳过）
-    ws.addRow([contract.code, 'DUP-9001']);
-    ws.addRow([contract.code, 'DUP-9001']);
+    ws.addRow([contract.code, 'DUP-9001', 100]);
+    ws.addRow([contract.code, 'DUP-9001', 100]);
     const buf = Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
 
     const outcome: any = await invoices.import(buf, project.id, { fileName: 'dup.xlsx' });
@@ -496,7 +500,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     await assert.rejects(
       () =>
         invoices.create(
-          { contractId: contractB.id, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, invoiceNo: uniq('XPROJ').toUpperCase(), amountWithTax: 1 },
+          { contractId: contractB.id, typeCode: 'VAT_SPECIAL', statusCode: INVOICE_STATUS.WAIT_VERIFY, invoiceNo: uniq('XPROJ').toUpperCase(), amountBeforeTax: 1, amountWithTax: 1 },
           projectA.id,
         ),
       isScopeError,

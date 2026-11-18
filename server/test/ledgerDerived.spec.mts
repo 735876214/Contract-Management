@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   deriveLedgerAmounts,
   deriveTaxSplit,
+  sumInvoiceTax,
   chainContractTotal,
   isFilledNumber,
   ratioPctOrNull,
@@ -177,5 +178,51 @@ describe('台账税率拆分与合同额合计（链口径）', () => {
       0,
       '主合同未填金额按未知处理（不计入），但也不能报错',
     );
+  });
+});
+
+/**
+ * 台账「开累发票税前金额 / 开累发票进项税额」= 发票派生（业务口径 2026-11-18）。
+ * 取代旧的「开累结算额 × 合同税率」倒推；口径锁死在这里，service 只负责把有效票喂进来。
+ */
+describe('台账 · 开累发票税前金额与进项税额（发票派生）', () => {
+  it('无有效发票 → 两列都是 0（没开票就是 0，不是"未知"）', () => {
+    assert.deepEqual(sumInvoiceTax([]), { beforeTax: 0, inputTax: 0, incomplete: 0 });
+  });
+
+  it('票面税前齐全：逐张求和，进项税 = 含税 − 税前（逐张舍入再相加）', () => {
+    const got = sumInvoiceTax([
+      { amountBeforeTax: 100000, amountWithTax: 113000, taxRatePct: 13 },
+      // 尾差票：13% 下 12345.67 × 1.13 = 13950.6071 → 票面 13950.61，进项税按票面倒扣
+      { amountBeforeTax: 12345.67, amountWithTax: 13950.61, taxRatePct: 13 },
+    ]);
+    assert.equal(got.beforeTax, 112345.67);
+    assert.equal(got.inputTax, 13000 + 1604.94, '进项税按票面 含税−税前，不用税前×税率（会差分位）');
+    assert.equal(got.incomplete, 0);
+  });
+
+  it('缺税前但有 含税+税率 → 按 含税÷(1+税率) 反推（兼容历史/未填票面的票）', () => {
+    const got = sumInvoiceTax([{ amountBeforeTax: null, amountWithTax: 109000, taxRatePct: 9 }]);
+    assert.equal(got.beforeTax, 100000);
+    assert.equal(got.inputTax, 9000);
+    assert.equal(got.incomplete, 0);
+  });
+
+  it('税前、含税都没有 → 该票不计入；全批都算不出时两列为 null（未知不兜 0）', () => {
+    const none = sumInvoiceTax([{ amountBeforeTax: null, amountWithTax: null, taxRatePct: 13 }]);
+    assert.deepEqual(none, { beforeTax: null, inputTax: null, incomplete: 1 });
+    // 同一批里有一张能算 → 合计只含已知部分，并报出算不出的行数
+    const mixed = sumInvoiceTax([
+      { amountBeforeTax: 100000, amountWithTax: 113000, taxRatePct: 13 },
+      { amountBeforeTax: null, amountWithTax: null, taxRatePct: null },
+    ]);
+    assert.equal(mixed.beforeTax, 100000);
+    assert.equal(mixed.inputTax, 13000);
+    assert.equal(mixed.incomplete, 1, '算不出的行要报出来，导出标题据此提示"合计不含"');
+  });
+
+  it('显式 0 的税前是合法值（免税/零税率票），不当作未填', () => {
+    const got = sumInvoiceTax([{ amountBeforeTax: 0, amountWithTax: 0, taxRatePct: 0 }]);
+    assert.deepEqual(got, { beforeTax: 0, inputTax: 0, incomplete: 0 });
   });
 });
