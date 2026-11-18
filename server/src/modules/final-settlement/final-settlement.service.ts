@@ -69,11 +69,16 @@ export class FinalSettlementService {
     return buildResult(list, total, query);
   }
 
-  async findOne(id: string) {
-    // 项目隔离（第 3 轮审计）：按 id 直达的读/改/删/导出/传附件都走这里，统一带 projectId
-    const projectId = requestContext.projectId;
+  /**
+   * 按 id 取单据：必须带项目隔离（结算模块审计 P1-2）。
+   * projectId 由 controller 的 @ProjectId() 显式传入；内部调用未传时回退请求上下文，
+   * 但两者都没有就拒绝读取——绝不允许退化成「只按 id」的跨项目直达。
+   */
+  async findOne(id: string, projectId?: string) {
+    const pid = projectId ?? requestContext.projectId;
+    if (!pid) throw new BadRequestException('缺少项目上下文（x-project-id），请刷新页面或重新登录选择项目');
     const row = await this.prisma.finalSettlement.findFirst({
-      where: { id, ...(projectId ? { projectId } : {}) },
+      where: { id, projectId: pid },
       include: {
         contract: { select: { id: true, code: true, name: true, execStatus: true } },
         items: { orderBy: { sortOrder: 'asc' } },
@@ -160,8 +165,8 @@ export class FinalSettlementService {
     }
   }
 
-  async update(id: string, data: any) {
-    const before: any = await this.findOne(id);
+  async update(id: string, data: any, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     assertVersion(before, data);
     await this.lock.assertWritable(before.contractId, '修改总结算单');
     const payload: any = pickFields(data, FIELDS, { label: '总结算单' });
@@ -175,8 +180,8 @@ export class FinalSettlementService {
    * 写入附件（键由前端经 `POST /files/upload` 落盘后传回，落盘唯一入口是 `StorageService`）
    * → 状态 `SETTLED` + `settledAt` → 合同 `execStatus = DONE_SETTLED` → 重算付款比例（→ 100%）。
    */
-  async attach(id: string, file: { url: string; fileName: string }, user?: any) {
-    const before: any = await this.findOne(id);
+  async attach(id: string, file: { url: string; fileName: string }, user?: any, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.contractId, '上传总结算单附件');
     if (!file?.url) throw new BadRequestException('缺少附件');
     await this.dict.validate('contract_execution_status', CONTRACT_EXECUTION_STATUS.DONE_SETTLED);
@@ -207,8 +212,8 @@ export class FinalSettlementService {
     return updated;
   }
 
-  async remove(id: string) {
-    const before: any = await this.findOne(id);
+  async remove(id: string, projectId?: string) {
+    const before: any = await this.findOne(id, projectId);
     await this.lock.assertWritable(before.contractId, '删除总结算单');
     // 「删单据」与「合同执行情况回退」同一事务：只删成功而回退失败会留下
     // 「没有任何单据却显示已完已结」的假状态（付款比例卡在 100%）。
@@ -231,8 +236,8 @@ export class FinalSettlementService {
   }
 
   /** 导出总结算单 Word（模板分类 `FINAL_SETTLEMENT`；明细表走 `{{结算明细表}}` 表格占位符） */
-  async export(id: string, templateId?: string) {
-    const doc: any = await this.findOne(id);
+  async export(id: string, templateId?: string, projectId?: string) {
+    const doc: any = await this.findOne(id, projectId);
     const [contract, project] = await Promise.all([
       this.prisma.contract.findUnique({
         where: { id: doc.contractId },

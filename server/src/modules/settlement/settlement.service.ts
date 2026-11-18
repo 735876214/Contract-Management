@@ -484,7 +484,7 @@ export class SettlementService {
       await this.linkOrphansForContract(before.contractId);
       await this.syncLedgerByContract(before.contractId);
     }
-    return this.findOne(id);
+    return this.findOne(id, projectId);
   }
 
   // ---------------- 结算台账 ----------------
@@ -496,7 +496,7 @@ export class SettlementService {
    * - 保理贴息：从资金费用台账保理费用（FactoringCost，融资利息 + 手续费）按结算月份抓取
    * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
    */
-  async computeLedgerAutoFields(contractId: string, settleMonth: string) {
+  async computeLedgerAutoFields(contractId: string, settleMonth: string, db: any = this.prisma) {
     /**
      * 结算单按**账期**筛选（第 21 轮审计）：原来用「自然月窗口」`[M-01, M+1-01)` 查 settleDate，
      * 起始日不是 1 日时，一张落在期初（如前一个月月末几天）的结算单会被算到相邻月份的行上，
@@ -507,10 +507,10 @@ export class SettlementService {
     // 见 backend-conventions.md「累计结算有两个口径」：台账回答“这条链的账现在是多少”，
     // 自动生成的草稿也是账面数据；防超结/履约才排除草稿）。
     // 按 settleDate 倒序取单：同月多张（历史数据）时稳定取最近一张作为关联目标。
-    const owner = await this.prisma.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
-    const startDay = owner ? await this.startDayOf(owner.projectId) : 1;
+    const owner = await db.contract.findUnique({ where: { id: contractId }, select: { projectId: true } });
+    const startDay = owner ? await this.startDayOf(owner.projectId, db) : 1;
     const settlements = (
-      await this.prisma.settlement.findMany({
+      await db.settlement.findMany({
         where: { contractId },
         // 同一账期多张结算单（历史数据）时取「最近一张」，并带 id 兜底保证与 linkOrphansForContract 完全同一张（第 22 轮审计 P1-4）
         orderBy: [{ settleDate: 'desc' }, { id: 'desc' }],
@@ -528,7 +528,7 @@ export class SettlementService {
        * 历史/导入的空状态发票仍计入。这里必须用 `AND` 包裹：原条件本身就是 `OR`，
        * 直接展开 `{ OR }` 会把两个条件互相覆盖。
        */
-      this.prisma.invoice.findMany({
+      db.invoice.findMany({
         where: {
           AND: [
             settlementId
@@ -542,8 +542,8 @@ export class SettlementService {
         },
         select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
       }),
-      this.prisma.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
-      this.prisma.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
+      db.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
+      db.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
     ]);
     // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
     const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
@@ -664,7 +664,7 @@ export class SettlementService {
     tx?: TxClient,
   ) {
     const db: any = tx || this.prisma;
-    const auto = await this.computeLedgerAutoFields(contractId, settleMonth);
+    const auto = await this.computeLedgerAutoFields(contractId, settleMonth, db);
     const exist = await db.settlementLedger.findFirst({ where: { projectId, contractId, settleMonth } });
     if (exist) {
       return db.settlementLedger.update({
@@ -1401,7 +1401,7 @@ export class SettlementService {
     });
     if (payload.settleCount !== undefined) payload.settleCount = Number(payload.settleCount) || null;
     if (payload.contractId && payload.settleMonth) {
-      const auto: any = await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth);
+      const auto: any = await this.computeLedgerAutoFields(payload.contractId, payload.settleMonth, db);
       /**
        * **填充式**合并（第 22 轮审计 P1-1）：自动抓取只补空值，不再无条件覆盖。
        * 原来 `Object.assign(payload, auto)` 有两个后果：
@@ -1528,7 +1528,8 @@ export class SettlementService {
       where: { id: contractId },
       include: { supplier: { select: { name: true } }, project: { select: { name: true } } },
     });
-    if (!contract) throw new NotFoundException('合同不存在');
+    // 项目隔离（结算模块审计 P1-1）：合同必须属于当前项目，否则按 id 直达可导出别的项目的合规表
+    if (!contract || contract.projectId !== projectId) throw new NotFoundException('合同不存在');
     const project = contract.project || (await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }));
     const info = [
       ['项目名称', project?.name || ''],
@@ -1833,7 +1834,7 @@ export class SettlementService {
           if (upsert && p.existingId) {
             // 覆盖模式：只更新模板里的可写列（自动抓取字段仍是「系统算得出就用系统的」），并推进乐观锁版本
             const auto: any = p.data.contractId && p.data.settleMonth
-              ? await this.computeLedgerAutoFields(p.data.contractId, p.data.settleMonth)
+              ? await this.computeLedgerAutoFields(p.data.contractId, p.data.settleMonth, tx)
               : {};
             const payload: any = { ...p.data };
             for (const [k, v] of Object.entries(auto)) if (payload[k] === undefined || payload[k] === null) payload[k] = v;

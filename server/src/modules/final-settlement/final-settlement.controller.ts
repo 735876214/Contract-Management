@@ -30,8 +30,13 @@ export class FinalSettlementController {
 
   @RequirePermissions('settlement:view')
   @Get(':id/export')
-  async export(@Param('id') id: string, @Query('templateId') templateId: string, @Res() res: Response) {
-    const { buffer, filename } = await this.service.export(id, templateId || undefined);
+  async export(
+    @Param('id') id: string,
+    @Query('templateId') templateId: string,
+    @ProjectId() projectId: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.service.export(id, templateId || undefined, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);
@@ -39,26 +44,31 @@ export class FinalSettlementController {
 
   @RequirePermissions('settlement:view')
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.findOne(id, projectId);
   }
 
   @RequirePermissions('settlement:edit')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.update(id, body, projectId);
   }
 
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
   @RequirePermissions('settlement:edit')
   @Post(':id/attach')
-  attach(@Param('id') id: string, @Body() body: { url: string; fileName: string }, @CurrentUser() user: any) {
-    return this.service.attach(id, body, user);
+  attach(
+    @Param('id') id: string,
+    @Body() body: { url: string; fileName: string },
+    @CurrentUser() user: any,
+    @ProjectId() projectId: string,
+  ) {
+    return this.service.attach(id, body, user, projectId);
   }
 
   @RequirePermissions('settlement:edit')
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.remove(id, projectId);
   }
 }
