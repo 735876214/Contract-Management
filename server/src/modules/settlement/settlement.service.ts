@@ -6,9 +6,7 @@ import { paginate, buildResult, assertVersion, assertYearMonth } from '../../com
 import { round2 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
-  canonicalMonthKey,
   compareMonthKey,
-  round2 as calcRound2,
   settlementAmountOf,
   sumAmounts,
 } from '../../common/calc/index.ts';
@@ -495,6 +493,7 @@ export class SettlementService {
    * - 本月开票额：**优先按 `settlementId` 精确归集**（发票与结算单对应），未关联的退回按「合同 + 月份」
    * - 保理贴息：从资金费用台账保理费用（FactoringCost，融资利息 + 手续费）按结算月份抓取
    * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
+   * - 截止当月开累采购额 / 开工结算额 / 当月实际采购额：按 Excel 源表公式、用本项目实际结算单重算（用户 2026-11-19 口径）
    */
   async computeLedgerAutoFields(contractId: string, settleMonth: string, db: any = this.prisma) {
     /**
@@ -595,11 +594,31 @@ export class SettlementService {
     // waived 行按 0 排除，与逾期汇总 interestOf 同口径
     const overdueSum = sumAmounts(overdue, (r: any) => (r.waived ? 0 : r.overdueInterest));
 
+    /**
+     * 截止当月开累采购额 / 开工结算额 / 当月实际采购额：按 Excel 源表公式、用本项目实际结算单重算（用户 2026-11-19 口径）：
+     * - 开工结算额 = Σ 该合同**全部结算期**「本月结算额」（= 合同累计结算额，各行相同）；
+     *   对应 Excel `SUMIFS(本月结算额, 合同=本)`。
+     * - 截止当月开累采购额 = Σ **结算期 ≤ 本行** 的「本月结算额」；对应 `SUMIFS(本月结算额, 合同=本, 结算月份<=本)`。
+     * - 当月实际采购额 b = 本月结算额 a − 保理贴息 c − 逾期利息 d（对应 `b = a - c - d`）。
+     */
+    let startSettleAmount = 0;
+    let cumPurchaseAmount = 0;
+    for (const [k, v] of settleAmountByPeriod) {
+      startSettleAmount += v;
+      if (compareMonthKey(k, settleMonth) <= 0) cumPurchaseAmount += v;
+    }
+    startSettleAmount = round2(startSettleAmount);
+    cumPurchaseAmount = round2(cumPurchaseAmount);
+    const monthActualPurchase = round2(monthSettleAmount - factoringDiscount - overdueSum);
+
     return {
       monthSettleAmount,
       monthInvoiceAmount,
       settleCount,
       yearSettleAmount,
+      cumPurchaseAmount,
+      startSettleAmount,
+      monthActualPurchase,
       factoringDiscount,
       overdueInterest: overdueSum,
       settlementId,
@@ -795,12 +814,13 @@ export class SettlementService {
           // yearSettleAmount 现为纯派生列（无结算单时写入 0，同 settleCount），故按「0 或 null」判空，
           // 不能要求必须 null——否则空行永远剪不掉（2026-11-19 本年结算额改自动后修正）
           zeroOrNull('yearSettleAmount'),
+          // 截止当月开累采购额 / 开工结算额 / 当月实际采购额 同为纯派生列（2026-11-19 改按结算单重算）
+          zeroOrNull('startSettleAmount'),
+          zeroOrNull('cumPurchaseAmount'),
+          zeroOrNull('monthActualPurchase'),
         ],
         isOnAccount: null,
         remark: null,
-        startSettleAmount: null,
-        cumPurchaseAmount: null,
-        monthActualPurchase: null,
         yearSettleIncome: null,
         cumSettleIncome: null,
       },
@@ -1451,6 +1471,9 @@ export class SettlementService {
       payload.monthSettleAmount = auto.monthSettleAmount;
       payload.settleCount = auto.settleCount;
       payload.yearSettleAmount = auto.yearSettleAmount;
+      payload.cumPurchaseAmount = auto.cumPurchaseAmount;
+      payload.startSettleAmount = auto.startSettleAmount;
+      payload.monthActualPurchase = auto.monthActualPurchase;
       payload.settlementId = auto.settlementId;
     }
     // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
@@ -1515,7 +1538,9 @@ export class SettlementService {
          * 在 create 上修过的是同一个坑，update 漏了）。
          * 例外：三个纯派生列始终取系统值；改合同/改月份时旧月份的自动值不再适用，也一律取系统值。
          */
-        const forced = k === 'monthSettleAmount' || k === 'settleCount' || k === 'yearSettleAmount' || k === 'settlementId' || monthChanged;
+        const forced = k === 'monthSettleAmount' || k === 'settleCount' || k === 'yearSettleAmount'
+          || k === 'cumPurchaseAmount' || k === 'startSettleAmount' || k === 'monthActualPurchase'
+          || k === 'settlementId' || monthChanged;
         if (forced || payload[k] === undefined || payload[k] === null) payload[k] = v;
       }
     }
@@ -1718,39 +1743,11 @@ export class SettlementService {
     const res: any = { list: all, total: all.length };
     const yesNo = await this.dict.nameMap('yes_no');
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
-    /**
-     * 「本月采购额（公式复核）」原来直接取月采购额同一字段，等于把值抄了一遍、什么都没复核（第 22 轮审计 P2-16）。
-     * 现在按台账**自身累计值**做一次独立核对：本月采购额 = 本月累计采购额 − 上月累计采购额。
-     * 首个有累计值的月份无所谓复核对象，留空（不硬编 0，避免把"算不出来"和"确实是 0"混为一谈）。
-     */
-    const reviewOf = new Map<string, number | null>();
-    const byContract = new Map<string, any[]>();
-    for (const r of res.list as any[]) {
-      if (!r.contractId) continue;
-      const list = byContract.get(r.contractId) || [];
-      list.push(r);
-      byContract.set(r.contractId, list);
-    }
-    for (const list of byContract.values()) {
-      // 归一后按月份键排序：`2026-9` 与 `2026-09` 同月，`2026-10` 不再被 localeCompare 排在 `2026-9` 前
-      list.sort((x, y) => {
-        const a = canonicalMonthKey(x.settleMonth) ?? '';
-        const b = canonicalMonthKey(y.settleMonth) ?? '';
-        return compareMonthKey(a, b);
-      });
-      let prevCum: number | null = null;
-      for (const r of list) {
-        const cum = num(r.cumPurchaseAmount);
-        if (cum === null || prevCum === null) reviewOf.set(r.id, null);
-        else reviewOf.set(r.id, calcRound2(cum - prevCum));
-        if (cum !== null) prevCum = cum;
-      }
-    }
     const rows = (res.list as any[]).map((r) => ({
       projectName: project?.name || '',
       supplierName: r.contract?.supplier?.name, contractName: r.contract?.name, contractCode: r.contract?.code,
       settleMonth: r.settleMonth, monthSettleAmount: num(r.monthSettleAmount), monthInvoiceAmount: num(r.monthInvoiceAmount),
-      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount), monthActualPurchaseReview: reviewOf.get(r.id) ?? null,
+      settleCount: r.settleCount, yearSettleAmount: num(r.yearSettleAmount),
       cumPurchaseAmount: num(r.cumPurchaseAmount),
       startSettleAmount: num(r.startSettleAmount), monthActualPurchase: num(r.monthActualPurchase),
       factoringDiscount: num(r.factoringDiscount), overdueInterest: num(r.overdueInterest),
@@ -1771,7 +1768,6 @@ export class SettlementService {
         { header: '本月开票额', key: 'monthInvoiceAmount', width: 130, type: 'money' },
         { header: '结算次数', key: 'settleCount', width: 80, type: 'int' },
         { header: '本年结算额', key: 'yearSettleAmount', width: 140, type: 'money' },
-        { header: '本月采购额（公式复核）', key: 'monthActualPurchaseReview', width: 160, type: 'money' },
         { header: '截止当月开累采购额', key: 'cumPurchaseAmount', width: 160, type: 'money' },
         { header: '开工结算额', key: 'startSettleAmount', width: 130, type: 'money' },
         { header: '当月实际采购额 b', key: 'monthActualPurchase', width: 140, type: 'money' },
@@ -1796,9 +1792,9 @@ export class SettlementService {
       { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '**系统派生**：本期结算单实际金额合计（本期无结算单即为 0）。此列填了也不生效，导入时忽略' },
       { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72, desc: '当月有发票时以系统抓取值为准；无发票时才用手填值' },
       { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '**系统派生**：该合同按结算期时间顺序的第几次结算（1、2、3…；当期无结算单为 0）。此列填了也不生效，导入时忽略' },
-      { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000 },
-      { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000 },
-      { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000 },
+      { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000, desc: '**系统派生**：结算期 ≤ 本行的「本月结算额」累计。此列填了也不生效，导入时忽略' },
+      { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000, desc: '**系统派生**：该合同全部结算期「本月结算额」合计。此列填了也不生效，导入时忽略' },
+      { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000, desc: '**系统派生**：本月结算额 − 保理贴息 − 逾期利息。此列填了也不生效，导入时忽略' },
       { label: '保理贴息', key: 'factoringDiscount', type: 'money', width: 14, example: 12345.67, desc: '系统从资金费用台账抓取，手填不生效' },
       { label: '逾期利息', key: 'overdueInterest', type: 'money', width: 14, example: 0, desc: '系统从逾期利息台账抓取，手填不生效' },
       { label: '本年结算收入', key: 'yearSettleIncome', type: 'money', width: 16, example: 8000000 },
@@ -1846,9 +1842,10 @@ export class SettlementService {
             monthSettleAmount: undefined,
             monthInvoiceAmount: num(r['本月开票额']),
             settleCount: undefined, // 结算次数同样纯派生（该合同按时间顺序的第几次结算）
-            cumPurchaseAmount: num(pickAny(r, '开累采购额', '截止当月开累采购额')),
-            startSettleAmount: num(r['开工结算额']),
-            monthActualPurchase: num(pickAny(r, '本月实际采购额', '当月实际采购额 b')),
+            // 截止当月开累采购额 / 开工结算额 / 当月实际采购额 均为纯派生（2026-11-19，按结算单重算）：表里填的一律忽略
+            cumPurchaseAmount: undefined,
+            startSettleAmount: undefined,
+            monthActualPurchase: undefined,
             factoringDiscount: num(pickAny(r, '保理贴息', '保理贴息 c')),
             overdueInterest: num(pickAny(r, '逾期利息', '逾期利息 d')),
             yearSettleIncome: num(pickAny(r, '本年结算收入', '本年结算对应收入（含税）')),
@@ -1873,6 +1870,9 @@ export class SettlementService {
             payload.monthSettleAmount = auto.monthSettleAmount;
             payload.settleCount = auto.settleCount;
             payload.yearSettleAmount = auto.yearSettleAmount;
+            payload.cumPurchaseAmount = auto.cumPurchaseAmount;
+            payload.startSettleAmount = auto.startSettleAmount;
+            payload.monthActualPurchase = auto.monthActualPurchase;
             payload.settlementId = auto.settlementId;
             await tx.settlementLedger.update({ where: { id: p.existingId }, data: { ...payload, version: { increment: 1 } } });
             updated += 1;
