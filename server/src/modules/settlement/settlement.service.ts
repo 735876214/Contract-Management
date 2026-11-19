@@ -590,6 +590,23 @@ export class SettlementService {
       ),
     ).sort();
     const settleCount = settlements.length ? settlementPeriods.indexOf(period) + 1 : 0;
+    /**
+     * 本年结算额：该合同**同一自然年内**各结算期「本月结算额」之和（业务口径 2026-11-19，用户确认，
+     * 与 Excel 源表 col9 的 `SUMIFS(本月结算额, 合同=本, 结算月份∈本行同一年)` 一致）。
+     * 按账期分月汇总后再按年（YYYY）累加；当期无结算单（仅费用行）不影响——它只贡献本年其他月份的合计。
+     */
+    const settleAmountByPeriod = new Map<string, number>();
+    for (const r of allSettlements) {
+      const k = periodKeyOf(startDay, r.settleDate);
+      if (!k) continue;
+      settleAmountByPeriod.set(k, round2((settleAmountByPeriod.get(k) || 0) + (settlementAmountOf(r, 'actual') || 0)));
+    }
+    const targetYear = String(settleMonth).slice(0, 4);
+    let yearSettleAmount = 0;
+    for (const [k, v] of settleAmountByPeriod) {
+      if (k.slice(0, 4) === targetYear) yearSettleAmount += v;
+    }
+    yearSettleAmount = round2(yearSettleAmount);
     const monthInvoiceAmount = round2(
       invoices
         .filter(
@@ -612,6 +629,7 @@ export class SettlementService {
       monthSettleAmount,
       monthInvoiceAmount,
       settleCount,
+      yearSettleAmount,
       factoringDiscount,
       overdueInterest: overdueSum,
       settlementId,
@@ -804,13 +822,15 @@ export class SettlementService {
           zeroOrNull('overdueInterest'),
           // settleCount 由自动派生写入 0（当期无结算单时；有结算单则为时间顺序序号），手填列一律要求 null 才算「纯自动空行」
           zeroOrNull('settleCount'),
+          // yearSettleAmount 现为纯派生列（无结算单时写入 0，同 settleCount），故按「0 或 null」判空，
+          // 不能要求必须 null——否则空行永远剪不掉（2026-11-19 本年结算额改自动后修正）
+          zeroOrNull('yearSettleAmount'),
         ],
         isOnAccount: null,
         remark: null,
         startSettleAmount: null,
         cumPurchaseAmount: null,
         monthActualPurchase: null,
-        yearSettleAmount: null,
         yearSettleIncome: null,
         cumSettleIncome: null,
       },
@@ -1452,6 +1472,7 @@ export class SettlementService {
        */
       payload.monthSettleAmount = auto.monthSettleAmount;
       payload.settleCount = auto.settleCount;
+      payload.yearSettleAmount = auto.yearSettleAmount;
       payload.settlementId = auto.settlementId;
     }
     // 唯一键预检（@@unique([projectId, contractId, settleMonth])）：直接 create 撞键会抛未捕获的
@@ -1516,7 +1537,7 @@ export class SettlementService {
          * 在 create 上修过的是同一个坑，update 漏了）。
          * 例外：三个纯派生列始终取系统值；改合同/改月份时旧月份的自动值不再适用，也一律取系统值。
          */
-        const forced = k === 'monthSettleAmount' || k === 'settleCount' || k === 'settlementId' || monthChanged;
+        const forced = k === 'monthSettleAmount' || k === 'settleCount' || k === 'yearSettleAmount' || k === 'settlementId' || monthChanged;
         if (forced || payload[k] === undefined || payload[k] === null) payload[k] = v;
       }
     }
@@ -1873,6 +1894,7 @@ export class SettlementService {
             // 纯派生列强制用系统值（第 22 轮审计 P1-1 之后的补充：派生列不接受手填/表填）
             payload.monthSettleAmount = auto.monthSettleAmount;
             payload.settleCount = auto.settleCount;
+            payload.yearSettleAmount = auto.yearSettleAmount;
             payload.settlementId = auto.settlementId;
             await tx.settlementLedger.update({ where: { id: p.existingId }, data: { ...payload, version: { increment: 1 } } });
             updated += 1;
