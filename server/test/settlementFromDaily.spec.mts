@@ -71,7 +71,7 @@ describe('结算明细 · 从总日报带出', () => {
     assert.equal(res.amount, 0);
   });
 
-  it('有金额但结算数量为空/0 的行不静默丢：计入 skippedNoQtyRowCount', () => {
+  it('有金额但结算数量为空或为 0 的行才计入 skippedNoQtyRowCount（负数不是缺数量）', () => {
     const res = buildSettlementItemsFromDailyRows([
       { materialBaseId: 'm7', settleQty: null, priceBeforeTax: 100, taxRatePct: 13, amountAfterTax: 500 },
       { materialBaseId: 'm8', settleQty: 0, priceBeforeTax: 50, taxRatePct: 0, amountAfterTax: 80 },
@@ -81,6 +81,62 @@ describe('结算明细 · 从总日报带出', () => {
     assert.equal(res.items.length, 1);
     assert.equal(res.items[0].materialBaseId, 'm9');
     assert.equal(res.amount, 20);
+  });
+
+  it('负数结算数量 = 退货/调出：生成负数量、负金额明细', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'r1', settleQty: -10, priceBeforeTax: 100, taxRatePct: 13, amountBeforeTax: -1000, amountAfterTax: -1130 },
+    ]);
+    assert.equal(res.items.length, 1);
+    const it = res.items[0];
+    assert.equal(it.qty, -10);
+    assert.equal(it.priceBeforeTax, 100);
+    assert.equal(it.priceWithTax, 113);
+    assert.equal(it.totalWithTax, -1130);
+    assert.equal(res.amount, -1130);
+    assert.equal(res.skippedNoQtyRowCount, 0);
+  });
+
+  it('同物资正负混合按净数量聚合，金额同口径冲减', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'r2', settleQty: 10, priceBeforeTax: 100, taxRatePct: 13, amountBeforeTax: 1000, amountAfterTax: 1130 },
+      { materialBaseId: 'r2', settleQty: -4, priceBeforeTax: 100, taxRatePct: 13, amountBeforeTax: -400, amountAfterTax: -452 },
+    ]);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].qty, 6);
+    assert.equal(res.items[0].priceBeforeTax, 100);
+    assert.equal(res.items[0].totalWithTax, 678);
+    assert.equal(res.amount, 678);
+  });
+
+  it('净数量为 0（收退货抵消）不生成明细：单独计数 skippedNetZeroRowCount', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'r3', settleQty: 10, priceBeforeTax: 100, taxRatePct: 13 },
+      { materialBaseId: 'r3', settleQty: -10, priceBeforeTax: 100, taxRatePct: 13 },
+    ]);
+    assert.deepEqual(res.items, []);
+    assert.equal(res.amount, 0);
+    assert.equal(res.skippedNetZeroRowCount, 2);
+    assert.equal(res.skippedNoQtyRowCount, 0);
+  });
+
+  it('负数单价仍视为异常单价：跳过并计数', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'r4', settleQty: 5, priceBeforeTax: -100, taxRatePct: 13 },
+    ]);
+    assert.deepEqual(res.items, []);
+    assert.equal(res.skippedInvalidPriceRowCount, 1);
+    assert.equal(res.amount, 0);
+  });
+
+  it('退货组仍按数量加权税率（数量与税额同为负）', () => {
+    const res = buildSettlementItemsFromDailyRows([
+      { materialBaseId: 'r5', settleQty: 10, priceBeforeTax: 100, taxRatePct: 13 },
+      { materialBaseId: 'r5', settleQty: -5, priceBeforeTax: 100, taxRatePct: 9 },
+    ]);
+    assert.equal(res.items.length, 1);
+    assert.equal(res.items[0].qty, 5);
+    assert.equal(res.items[0].taxRatePct, 17);
   });
 
   it('异常金额推导出超范围税率：跳过并计数，不拖垮整期生成', () => {
@@ -100,5 +156,6 @@ describe('结算明细 · 从总日报带出', () => {
     assert.equal(res.amount, 0);
     assert.equal(res.skippedRowCount, 0);
     assert.equal(res.skippedNoQtyRowCount, 0);
+    assert.equal(res.skippedNetZeroRowCount, 0);
   });
 });

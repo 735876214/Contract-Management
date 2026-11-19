@@ -232,14 +232,14 @@ const DETAIL_COLUMNS = (
   {
     title: '送货数量', dataIndex: 'deliveryQty', width: 130,
     render: (v: any, row: any) => (
-      <InputNumber style={{ width: '100%' }} min={0} precision={4} value={v} placeholder="填写"
+      <InputNumber style={{ width: '100%' }} precision={4} value={v} placeholder="填写（退货/调出可填负数）"
         onChange={(val) => patchDetail(row.key, 'deliveryQty', val)} />
     ),
   },
   {
     title: '实收数量', dataIndex: 'receivedQty', width: 130,
     render: (v: any, row: any) => (
-      <InputNumber style={{ width: '100%' }} min={0} precision={4} value={v} placeholder="填写"
+      <InputNumber style={{ width: '100%' }} precision={4} value={v} placeholder="负数表示退货/调出"
         onChange={(val) => patchDetail(row.key, 'receivedQty', val)} />
     ),
   },
