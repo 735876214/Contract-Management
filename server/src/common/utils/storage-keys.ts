@@ -41,6 +41,37 @@ export function storageFileName(ext = '', now: Date = new Date()): string {
   return `${now.getTime()}-${rand}${clean}`;
 }
 
+/**
+ * 项目级存储前缀：键形如 `p/<projectId>/<子目录>/<文件名>`（2026-11-19 审计 P1）。
+ *
+ * 为什么要有：`/api/files/<键>` 此前只校验「已登录」，键里又不含任何归属信息 ——
+ * 拿到（或猜到/从别处看到）一个键的任意登录用户，都能跨项目下载别人的合同签章件、
+ * 发票、证件。把项目 id 编进键里，`FileServeController` 才能在服务端复核成员关系。
+ *
+ * 兼容：`signed/…`、`2026-10/…` 这类**历史键**没有前缀，读取时按「无归属信息」处理
+ * （见 `projectIdOfStorageKey` 的返回 null），不做阻断，避免存量附件全部打不开。
+ */
+export const PROJECT_KEY_PREFIX = 'p';
+
+/** 项目级子目录：`p/<projectId>/<sub|YYYY-MM>`；projectId 为空直接抛（调用方须判空） */
+export function projectScopedSub(projectId: string, sub?: string, now: Date = new Date()): string {
+  const pid = String(projectId ?? '').trim();
+  if (!pid) throw new StorageKeyError('缺少项目上下文，无法归档到项目目录');
+  const base = (sub ?? '').trim() || defaultSubDir(now);
+  return `${PROJECT_KEY_PREFIX}/${pid}/${base}`;
+}
+
+/**
+ * 从存储键解析项目 id（`p/<projectId>/…`）；非项目键（历史键）/ 结构不符返回 `null`。
+ * 项目 id（cuid）只允许 `[A-Za-z0-9_-]`；其他形态一律当「无归属」，交调用方按历史键处理。
+ */
+export function projectIdOfStorageKey(key: string): string | null {
+  const segs = normalizeStorageKey(key).split('/');
+  if (segs.length < 3 || segs[0] !== PROJECT_KEY_PREFIX) return null;
+  const pid = segs[1];
+  return /^[A-Za-z0-9_-]{1,64}$/.test(pid) ? pid : null;
+}
+
 /** 规范化键：反斜杠转 `/`、去掉 `./` 与重复/首尾分隔符 */
 export function normalizeStorageKey(key: string): string {
   return String(key ?? '')

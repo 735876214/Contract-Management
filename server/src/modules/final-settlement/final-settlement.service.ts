@@ -7,7 +7,7 @@ import { notDraft } from '../../common/utils/contract-chain';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
-import { ContractService } from '../contract';
+import { ContractService, setContractExecStatus } from '../contract';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { requestContext } from '../../common/services/request-context';
 import { DocTemplateService } from '../doc-template';
@@ -201,10 +201,8 @@ export class FinalSettlementService {
         include: { items: { orderBy: { sortOrder: 'asc' } } },
       });
 
-      await tx.contract.update({
-        where: { id: before.contractId },
-        data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_SETTLED, version: { increment: 1 } },
-      });
+      // 合同行归 contract 模块所有：走对方的写入原语，不在这里直接写表
+      await setContractExecStatus(tx, before.contractId, CONTRACT_EXECUTION_STATUS.DONE_SETTLED);
       return row;
     });
     // 合同执行情况变了 → 重算「当前生效比例」（已完已结 = 100%），台账列与付款预警读的就是它
@@ -225,10 +223,7 @@ export class FinalSettlementService {
         select: { execStatus: true },
       });
       if (contract?.execStatus !== CONTRACT_EXECUTION_STATUS.DONE_SETTLED) return false;
-      await tx.contract.update({
-        where: { id: before.contractId },
-        data: { execStatus: CONTRACT_EXECUTION_STATUS.DONE_UNSETTLED, version: { increment: 1 } },
-      });
+      await setContractExecStatus(tx, before.contractId, CONTRACT_EXECUTION_STATUS.DONE_UNSETTLED);
       return true;
     });
     if (rolledBack) await this.contract.syncPayRatio(before.contractId);

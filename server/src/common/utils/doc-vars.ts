@@ -4,6 +4,10 @@
  * 2026-10-17 解除 .mts 零依赖限制后从两份各自复制的 `DocVarDef`/`formatDocMoney`/`formatDocDate`
  * 收敛而来——本模块仍保持**零第三方依赖的纯函数**（可被 .mts spec 直接加载），
  * 只是允许了 `./x.ts` 后缀的相对 import。
+ *
+ * **2026-11-19 审计 P4**：原本住在 `modules/doc-template/doc-var-shared.ts`，被
+ * `modules/final-settlement/final-settlement-vars.ts` 深层 import，绕过模块边界；两个业务模块
+ * 都要用 ⇒ 按 `.claude/rules/module-boundaries.md`「共享逻辑下沉 common」搬到此处（纯函数优先）。
  */
 
 /** 单据变量面板项（占位符名 + 说明） */

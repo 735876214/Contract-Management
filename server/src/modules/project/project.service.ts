@@ -10,6 +10,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict';
 import { ProjectAccessService } from '../../common/services/project-access.service';
+import { PROJECT_SCOPED_TABLES } from './project-scoped-tables';
 
 const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'packageLeader', 'projectManager', 'selfContractAmount', 'industryType',
@@ -139,29 +140,16 @@ export class ProjectService {
      * 项目下**所有**项目级业务表都要计入：这些表的 projectId 外键是 `onDelete: Cascade`，
      * 只看合同/日报/结算/发票会放行「已有招标或劳务/成本数据」的项目，
      * 删除时由数据库静默级联清空，事后无法追溯（操作日志里也只留项目一行）。
+     *
+     * 清单在 `project-scoped-tables.ts`，与 schema 的项目级 Cascade 关系一一对应，
+     * 由 `server/test/projectDeleteScope.spec.mts` 锁住（2026-11-19 审计 P2：此处曾只数 15 类，漏 14 张表）。
      */
-    const projectTables: Array<[string, () => Promise<number>]> = [
-      ['合同', () => this.prisma.contract.count({ where: { projectId: id } })],
-      ['总日报', () => this.prisma.dailyReport.count({ where: { projectId: id } })],
-      ['结算单', () => this.prisma.settlement.count({ where: { projectId: id } })],
-      ['结算台账', () => this.prisma.settlementLedger.count({ where: { projectId: id } })],
-      ['发票', () => this.prisma.invoice.count({ where: { projectId: id } })],
-      ['付款记录', () => this.prisma.paymentRecord.count({ where: { projectId: id } })],
-      ['收领单', () => this.prisma.receiptOrder.count({ where: { projectId: id } })],
-      ['总结算单', () => this.prisma.finalSettlement.count({ where: { projectId: id } })],
-      ['付款手续', () => this.prisma.paymentProcedure.count({ where: { projectId: id } })],
-      ['分包授权台账', () => this.prisma.laborAuthLedger.count({ where: { projectId: id } })],
-      ['分包领用单据', () => this.prisma.laborReceivingDoc.count({ where: { projectId: id } })],
-      ['月度盈亏分析', () => this.prisma.monthlyProfitLoss.count({ where: { projectId: id } })],
-      ['资产台账', () => this.prisma.assetLedger.count({ where: { projectId: id } })],
-      ['还款协议', () => this.prisma.repaymentAgreement.count({ where: { projectId: id } })],
-      ['采购任务', () => this.prisma.procurementTask.count({ where: { projectId: id } })],
-    ];
-    const counts = await Promise.all(projectTables.map(([, count]) => count()));
+    const counts = await Promise.all(
+      PROJECT_SCOPED_TABLES.map((t) => (this.prisma as any)[t.model].count({ where: { projectId: id } })),
+    );
     const total = counts.reduce((a, b) => a + b, 0);
     if (total > 0) {
-      const detail = projectTables
-        .map(([label], i) => [label, counts[i]] as const)
+      const detail = PROJECT_SCOPED_TABLES.map((t, i) => [t.label, counts[i]] as const)
         .filter(([, n]) => n > 0)
         .map(([label, n]) => `${label} ${n} 条`)
         .join('、');

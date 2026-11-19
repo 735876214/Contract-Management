@@ -490,7 +490,7 @@ export default function Notice() {
           </span>
         }
         refreshKey={listRefresh + tabRefresh}
-        editPermission="contract:edit"
+        editPermission="procurement:edit"
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}

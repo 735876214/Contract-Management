@@ -1,10 +1,12 @@
-import { BadRequestException, Controller, Post, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Req, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import * as path from 'path';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { StorageService } from '../../common/services/storage.service';
 import { isDangerousUploadName } from '../../common/utils/upload-rules';
+import { projectScopedSub } from '../../common/utils/storage-keys';
 
 /**
  * 通用文件上传。
@@ -16,6 +18,11 @@ import { isDangerousUploadName } from '../../common/utils/upload-rules';
  * - Multer 用内存存储，限制 10 个文件 × 50MB（与 nginx `client_max_body_size 50m` 一致）；
  * - 拒绝 `.html/.svg/.js/.exe` 等可执行/可脚本类型（静态服务是公开的，避免存储型 XSS）；
  * - 文件落盘仍只经 `StorageService`，模块内不再自行拼目录/文件名。
+ *
+ * **归属（2026-11-19 审计 P1）**：键里带上项目上下文（`p/<projectId>/<YYYY-MM>/…`），
+ * 下载时 `FileServeController` 才能复核调用方是否为该项目成员。此前键里没有任何归属信息，
+ * 任何登录用户拿到键就能跨项目下载别人的合同签章件/发票/证件。
+ * 请求没带项目上下文时退回旧的平铺键（历史行为），不阻断上传。
  */
 @UseGuards(JwtAuthGuard)
 @Controller('files')
@@ -36,7 +43,14 @@ export class FileController {
       },
     }),
   )
-  async upload(@UploadedFiles() files: Express.Multer.File[]) {
+  async upload(@UploadedFiles() files: Express.Multer.File[], @Req() req: Request) {
+    /**
+     * 项目上下文只从 header / query 取（与 `JwtAuthGuard` 同口径，**绝不读 body**：
+     * 守卫跑在 multer 之前，multipart 的 body 那时还是空的）。
+     */
+    const raw = (req as any).projectId || req.headers['x-project-id'] || (req.query?.projectId as string);
+    const projectId = raw ? String(raw) : '';
+    const sub = projectId ? projectScopedSub(projectId) : undefined;
     /**
      * 单请求总量兜底（第 7 轮审计）：multer 的 `limits` 是**逐文件** 50MB × 10 个，
      * 也就是一次请求最多能塞 500MB 进内存（memoryStorage），并发几发就能把进程打爆。
@@ -54,6 +68,7 @@ export class FileController {
       list.map(async (f) => {
         const saved = await this.storage.save(f.buffer, {
           ext: path.extname(f.originalname || ''),
+          ...(sub ? { sub } : {}),
         });
         return {
           fileName: f.originalname,

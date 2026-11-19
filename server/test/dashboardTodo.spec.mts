@@ -25,7 +25,7 @@ describe('我的待办：前后端分类镜像', () => {
 
   it('每个分类都声明了权限码（决定该分类对哪些用户可见）', () => {
     for (const c of TODO_CATEGORIES) {
-      assert.match(c.permission, /^(contract|settlement|payment|invoice|finance):view$/);
+      assert.match(c.permission, /^(contract|settlement|payment|invoice|finance|procurement):view$/);
     }
   });
 

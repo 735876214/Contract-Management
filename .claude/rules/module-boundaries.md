@@ -47,13 +47,35 @@ export { SettlementService } from './settlement.service';
   - `ai/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
     名称拼接、字典校验），**允许**依赖业务模块公开入口，不要"优化"掉。
 
+## 3.2 跨模块写表：只走 owner 模块的写入原语
+
+`prisma.<模型>.create/update/updateMany/upsert/delete/deleteMany` **只能由拥有该表的模块调用**
+（检查器规则 4，owner 由「谁写得最多」判定，`user` / `contractTemplate` / `contractMaterial` 三个语义归属钉死在 `MODEL_OWNER_OVERRIDES`）。
+
+别的模块确实要改这张表时，照这个范式做：
+
+```ts
+// server/src/modules/<owner>/<语义>-writes.ts —— 无状态函数，把事务句柄当第一个参数
+import type { Prisma } from '@prisma/client';
+type Db = Prisma.TransactionClient;
+export async function setXxxStatus(db: Db, id: string, status: string): Promise<void> {
+  await db.xxx.update({ where: { id }, data: { status, version: { increment: 1 } } });
+}
+// 再从 owner 的 index.ts 导出：export { setXxxStatus } from './<语义>-writes';
+```
+
+- 语义留在 owner：哪些列可改、`version` 要不要自增，由拥有者决定；调用方只表达业务意图。
+- **不要**注入对方的 Service（`AuthGuard` 与控制器会连带进来，容易成 DI 环）。
+- 例外：`ai/register.service.ts` 是刻意的写路径（复用业务 Service），由检查器白名单放行。
+
 ## 4. 不允许模块环
 
-检查器用 Tarjan SCC 检测模块级循环依赖（当前为 0）。出现环时的修法：
+检查器用 Tarjan SCC 检测模块级循环依赖（当前为 0），**依赖边只由静态 `import ... from` 构成**。出现环时的修法：
 
 1. 把共享逻辑下沉到 `server/src/common/`（纯函数优先）；
 2. 或把"聚合读取"改为查询层（read model），不要反向调用写模块；
-3. 不要用 `import type` 或延迟 `await import()` 绕过——检查器同时扫静态与动态 import。
+3. 互引确实无法拆分时（A 静态依赖 B，B 又要借 A 的写入原语），B 侧用 `await import('../a')`
+   运行期加载——它不成环，且检查器仍会校验它是否走公开入口。**静态** import 依旧会被判环。
 
 ## 5. 常见错误
 
@@ -65,6 +87,7 @@ export { SettlementService } from './settlement.service';
 | 动态 `await import('../a/a.service')` 也被判红 | 检查器覆盖动态 import | 改成 `await import('../a')` |
 | archive 里出现 `prisma.contract` 被判红 | 跨域直查绕过查询层 | 把查询移到 `server/src/query/archive-queries.ts`（或新增 `<域>-queries.ts`） |
 | AI 只读子域 import 业务模块被判红 | 分析与预警不应触发业务逻辑 | 直接查询或在 ai 内取数；写路径只允许 `register` |
+| 「跨模块直写他人表：A 写了 xxx」 | `prisma.xxx.update()` 绕过了 owner 模块 | 让 owner 导出写入原语（见 §3.2），调用方改用 `from '../<owner>'` 的函数 |
 
 ## 6. 不做的事
 - **不拆包、不拆服务、不拆库**：本项目的模块化只做"代码边界 + 验证边界"。

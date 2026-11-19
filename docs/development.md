@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（89 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（90 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（24 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
@@ -191,6 +191,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiFormScan.spec.mts` | **AI 填表槽位识别**（`server/src/modules/ai/form-scan.ts`，零依赖）：列字母/引用换算（1→A、27→AA、703→AAA，非法列号返回空串）· 标签归一（中英文冒号、全角空格）· 表头连排（`序号|名称|数量`）**不产出槽位** · 冒号结尾标签的右邻按值处理（已填的短中文公司名不会被当成另一个标签）· 纵向「标签在上值在下」· 同一格不被两个标签占用 · 截断保留前 N 个并**报告丢弃数量**（不静默截断）· **表格区识别**（行级填充）：表头连排 + 下方连续空行才成表区、数据行不被当表头、不连续列拆段、表区数量上限 |
   | `test/aiReport.spec.mts` | **汇报材料的事实包与产出对账**：`factsToMarkdown` 数字/风险/折算齐全 · `auditReport` **编造的数字必须被抓出来**、千分位与万元写法可识别、**量词（份/条/家）与百分比都参与对账**（2026-10-20 审计：原来一律跳过，等于编造的份数与百分比永远查不出来；百分数容许取整 82.38%→82%）、日期与章节序号不参与对账、**有序列表序号（`1.`/`2)`）不算数**（接真上游时实测误报过 2、3）、未知数字去重且有上限 · `markdownToHtml` 标题/列表/粗体/表格/HTML 转义/闭合 · 三种材料标签齐备 |
   | `test/aiRegisterMaterials.spec.mts` | **合同物资明细的落库映射**：`numOf` 吃千分位/货币符号/百分号且取不到返回 null（不落 0、不落 NaN）· 兼容 `unitPriceWithTax`/`amountWithTax` 与中文列名 · 合价缺失用「数量 × 单价」补齐并计数 · 缺名称与同「名称+规格」重复行被丢弃并计数 · 单位缺失兜底「项」· 税率未知时税前单价留空 · 非数组输入不抛错 · `itemsTotalWithTax` 四位小数累加 |
+  | `test/isolationGuards.spec.ts` | **数据流转隔离锁**（2026-11-19 审计 P1/P2 回归）：`DashboardController` 类级必须要求 `dashboard:view` 且挂了 `PermissionsGuard`、「我的待办」用空码表显式放开 · 文件键 `p/<projectId>/…` 的项目前缀生成与解析（历史键返回 null 不阻断）· `PROJECT_SCOPED_TABLES` 必须与 `schema.prisma` 里全部 `projectId` 级联表一一对应（多一个/漏一个都红） |
   | `test/aiReportPdf.spec.mts` | **汇报材料 PDF 排版**（pdf-lib，无文件 I/O）：标题居中与层级字号 · 列表圆点行 · 表格分隔行丢弃、单元格用 `·` 连 · 粗体标记抹掉 · `wrapText` 按宽度折行不丢字、空串给一行、超长串可切 · `renderReportPdf` 多页分页且产出合法 PDF（magic 为 `%PDF-`）、标题写进元数据 · 空正文出单页 |
   | `test/aiTtcFont.spec.mts` | **TTC 字体集 → 单字体 TTF 提取**（汇报材料 PDF 内嵌中文字体用，零依赖纯函数）：认 `ttcf` 魔数、读字体数量 · 按表记录把选中的那一支重排偏移复制成独立 sfnt（表数据字节级一致、`align4` 对齐）· 非 TTC / 序号越界 / 表数据越界一律抛错（不静默截断） |
   | `test/aiRegister.spec.mts` | **AI 文件登记的纯函数层**：金额去千分位/货币符号 · 日期接受 `2026-08-01`/`2026/8/1`/`2026年8月1日`/`2026年8月`（日缺省 1 号）· 税率吃 13 / 13% / 0.13 · `isRealDay` 拒绝「格式对但不存在」的日期（2026-02-30 / 2025-02-29 / 2026-04-31，避免被 `new Date` 静默归一成下个月）· **每个值回原文核对**（`textHasMoney`/`textHasDate` 真命中用例 + 不命中用例）· 合同类型「执行合同」优先于「采购合同」· 付款安排从条款推断、判不出返回 null · `normalizeExtraction` 规整字段并给 `cross-check`/`missing-required`/`invalid`/`unverified` 告警 · 金额三角与明细合计对账 · 非法枚举不落库 · docx XML → 带表格结构的文本（单元格 ` \| ` 分隔、实体解码、空文档不抛错）· `looksLikeContract` 不误判短文 |

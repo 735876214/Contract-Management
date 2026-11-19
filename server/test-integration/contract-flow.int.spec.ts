@@ -55,7 +55,11 @@ describe('集成 · 合同状态流转与任务联动', () => {
       '集成测试',
     );
     assert.equal(signed.status, CONTRACT_STATUS.SIGNED);
-    assert.match(String(signed.signedFilePath || ''), /^signed\/.+\.pdf$/, '签章件键应为 signed/<文件>（相对 POSIX 路径）');
+    assert.match(
+      String(signed.signedFilePath || ''),
+      /^(p\/[A-Za-z0-9_-]+\/)?signed\/.+\.pdf$/,
+      '签章件键应为 p/<projectId>/signed/<文件>（2026-11-19 审计 P1：键带项目前缀，下载时据以复核归属）；历史键无前缀',
+    );
     assert.equal(
       (await ctx.prisma.procurementTask.findUnique({ where: { id: task.id } }))?.status,
       TASK_STATUS.COMPLETED,

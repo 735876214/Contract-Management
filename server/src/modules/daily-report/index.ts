@@ -6,3 +6,5 @@
  */
 export { DailyReportModule } from './daily-report.module';
 export { DailyReportService } from './daily-report.service';
+/** 总日报的推送写入原语（给 receipt-order 的「推送总日报」用，需传入事务句柄） */
+export { clearPushedDailyRowsOfReceiptOrder, pushDailyRows } from './daily-report-push-writes';

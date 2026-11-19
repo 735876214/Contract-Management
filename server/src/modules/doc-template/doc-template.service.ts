@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { pickFields } from '../../common/pick-fields';
 import { assertVersion } from '../../common/utils/helpers';
 import { DictService } from '../dict';
+import { createContractTemplate, updateContractTemplate, deleteContractTemplate } from '../template';
 import { buildPaymentDocValues } from './doc-template-vars';
 import { renderTemplateExcel } from './doc-excel';
 import { isExcelTemplateFileName, normalizeDocTemplateFileKey } from './doc-template-file';
@@ -129,15 +130,14 @@ export class DocTemplateService {
     const payload: any = pickFields(data, DOC_EXCEL_FIELDS, { label: '单据模板' });
     // 业务 2026-10-17：单据模板**全项目通用** → 一律落全局（projectId=null）；
     // 模板内容为**上传的 Excel 文件**（fileUrl 只存相对键；历史富文本 content 字段保留但不再使用）
-    return this.prisma.contractTemplate.create({
-      data: {
-        ...payload,
-        fileUrl,
-        fileName: data?.fileName ? String(data.fileName) : fileUrl.split('/').pop() || null,
-        status: normalizeStatus(data?.status, 1),
-        projectId: null,
-        createdBy: user?.userId || user?.id || null,
-      },
+    // ContractTemplate 表归 template 模块：写入走它的原语（版本号自增口径与那边一致）
+    return createContractTemplate(this.prisma, {
+      ...payload,
+      fileUrl,
+      fileName: data?.fileName ? String(data.fileName) : fileUrl.split('/').pop() || null,
+      status: normalizeStatus(data?.status, 1),
+      projectId: null,
+      createdBy: user?.userId || user?.id || null,
     });
   }
 
@@ -159,12 +159,12 @@ export class DocTemplateService {
       payload.fileUrl = normalizeDocTemplateFileKey(before.fileUrl);
     }
     if (data.status !== undefined) payload.status = normalizeStatus(data.status, before.status);
-    return this.prisma.contractTemplate.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return updateContractTemplate(this.prisma, id, payload);
   }
 
   async remove(id: string) {
     await this.findOne(id);
-    await this.prisma.contractTemplate.delete({ where: { id } });
+    await deleteContractTemplate(this.prisma, id);
     return true;
   }
 

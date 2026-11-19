@@ -9,7 +9,7 @@ import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement';
-import { ContractService } from '../contract';
+import { ContractService, updateContractFundingParams } from '../contract';
 import { paymentModeViolation } from '../../common/utils/pay-ratio';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
@@ -159,7 +159,8 @@ export class FinanceService {
       if (v !== null && (!Number.isFinite(v) || v < 0)) throw new BadRequestException('利息上限比例必须为非负数');
       payload.interestCapRatio = v;
     }
-    await this.prisma.contract.update({ where: { id: contractId }, data: payload });
+    // 合同行归 contract 模块所有：走对方的写入原语（字段口径/校验都在那边），不直接写表
+    await updateContractFundingParams(this.prisma, contractId, payload);
     // 月利率/宽限期变了 → 先按新参数重算 OverdueInterest 的派生列（interestAmount/overdueInterest
     // 是持久化列，只有 recalcOverdue 会重算），再刷台账；付款模式变了 → 应付款日与利息起算都变，同样重算，
     // 且「当前生效付款比例」派生列（syncPayRatio 唯一实现）必须跟着切——台账列/逾期引擎/工作台预警都读它。

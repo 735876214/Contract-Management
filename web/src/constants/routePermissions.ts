@@ -13,13 +13,13 @@
  */
 export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 采购管理（后端 `/procurement-tasks` 要求 `contract:view`，菜单同一权限码）
-  '/procurement/initiate': ['contract:view'],
-  '/procurement/pre-meeting': ['contract:view'],
-  '/procurement/notice': ['contract:view'],
-  '/procurement/document': ['contract:view'],
-  '/procurement/result-report': ['contract:view'],
-  '/procurement/price-compare': ['contract:view'],
-  '/procurement/framework': ['contract:view'],
+  '/procurement/initiate': ['procurement:view'],
+  '/procurement/pre-meeting': ['procurement:view'],
+  '/procurement/notice': ['procurement:view'],
+  '/procurement/document': ['procurement:view'],
+  '/procurement/result-report': ['procurement:view'],
+  '/procurement/price-compare': ['procurement:view'],
+  '/procurement/framework': ['procurement:view'],
   // 合同管理
   '/contract/draft': ['contract:view'],
   '/contract/query': ['contract:view'],
@@ -69,7 +69,7 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/base/supplier': ['supplier:view'],
   '/base/material': ['material:view'],
   '/base/template': ['template:view'],
-  '/base/procurement-template': ['template:view'],
+  '/base/procurement-template': ['procurement-template:view'],
   '/base/clause': ['template:view'],
   // 系统管理（`/system/dict` 例外：后端允许 `dict:view` **或** `system:config`，故两者皆可进入）
   '/system/user': ['system:user'],

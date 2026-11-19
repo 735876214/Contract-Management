@@ -6,3 +6,9 @@
  */
 export { AssetModule } from './asset.module';
 export { AssetService } from './asset.service';
+/** 资产台账的写入原语（给 receipt-order 的「自动入账」用，需传入事务句柄） */
+export {
+  upsertAssetLedgerByReceiptDetail,
+  clearAssetLedgerOfReceiptOrder,
+  clearAssetLedgerExceptReceiptDetails,
+} from './asset-ledger-writes';

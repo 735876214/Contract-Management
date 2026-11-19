@@ -523,7 +523,7 @@ export default function PriceCompare() {
           </span>
         }
         refreshKey={listRefresh + tabRefresh}
-        editPermission="contract:edit"
+        editPermission="procurement:edit"
         onView={handleViewRow}
         onEdit={editRow}
         onDelete={handleDeleteModule}

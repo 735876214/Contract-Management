@@ -6,10 +6,14 @@
  *
  * ⚠️ 金额类变量名必须带单位后缀 `(元)`。
  * ⚠️ 明细表是**生成时的快照**（月度结算事后被改，不回头改已出的总结算单）。
- * 共享的 `DocVarDef` / 格式化函数在 `../doc-template/doc-var-shared.ts`（2026-10-17 收敛）。
+ * 共享的 `DocVarDef` / 格式化函数在 `server/src/common/utils/doc-vars.ts`（2026-11-19 审计 P4：
+ * 此前深层引 `../doc-template/doc-var-shared.ts`，绕过了模块边界；两人共用故按规则下沉 common）。
+ *
+ * ⚠️ 相对 import 带 `.ts` 后缀：本文件被 `.mts` 单测（`docVariables.spec.mts`）经 Node
+ * 原生类型擦除加载，无扩展名的相对 import 会 `ERR_MODULE_NOT_FOUND`（见 `test/mtsConstraints.spec.mts`）。
  */
 
-import { type DocVarDef, formatDocMoney, formatDocDate } from '../doc-template/doc-var-shared.ts';
+import { type DocVarDef, formatDocMoney, formatDocDate } from '../../common/utils/doc-vars.ts';
 
 export { formatDocMoney as formatMoney, formatDocDate as formatDate };
 export type { DocVarDef };

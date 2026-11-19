@@ -34,13 +34,13 @@ export const MENU_TREE: MenuNode[] = [
     label: '采购管理',
     icon: 'ShoppingCartOutlined',
     children: [
-      { key: 'procurement-initiate', label: '采购发起', icon: 'RocketOutlined', path: '/procurement/initiate', permission: 'contract:view' },
-      { key: 'procurement-pre-meeting', label: '采前会会议纪要', icon: 'FileDoneOutlined', path: '/procurement/pre-meeting', permission: 'contract:view' },
-      { key: 'procurement-notice', label: '采购公告', icon: 'NotificationOutlined', path: '/procurement/notice', permission: 'contract:view' },
-      { key: 'procurement-document', label: '采购文件', icon: 'FolderOpenOutlined', path: '/procurement/document', permission: 'contract:view' },
-      { key: 'procurement-result-report', label: '成交报告', icon: 'TrophyOutlined', path: '/procurement/result-report', permission: 'contract:view' },
-      { key: 'procurement-price-compare', label: '采购价格对比表', icon: 'BarChartOutlined', path: '/procurement/price-compare', permission: 'contract:view' },
-      { key: 'procurement-framework', label: '框架协议事前说明', icon: 'FileSyncOutlined', path: '/procurement/framework', permission: 'contract:view' },
+      { key: 'procurement-initiate', label: '采购发起', icon: 'RocketOutlined', path: '/procurement/initiate', permission: 'procurement:view' },
+      { key: 'procurement-pre-meeting', label: '采前会会议纪要', icon: 'FileDoneOutlined', path: '/procurement/pre-meeting', permission: 'procurement:view' },
+      { key: 'procurement-notice', label: '采购公告', icon: 'NotificationOutlined', path: '/procurement/notice', permission: 'procurement:view' },
+      { key: 'procurement-document', label: '采购文件', icon: 'FolderOpenOutlined', path: '/procurement/document', permission: 'procurement:view' },
+      { key: 'procurement-result-report', label: '成交报告', icon: 'TrophyOutlined', path: '/procurement/result-report', permission: 'procurement:view' },
+      { key: 'procurement-price-compare', label: '采购价格对比表', icon: 'BarChartOutlined', path: '/procurement/price-compare', permission: 'procurement:view' },
+      { key: 'procurement-framework', label: '框架协议事前说明', icon: 'FileSyncOutlined', path: '/procurement/framework', permission: 'procurement:view' },
     ],
   },
   {
@@ -149,7 +149,7 @@ export const MENU_TREE: MenuNode[] = [
       // 单据模板（业务口径 2026-10-17）：结算单/总结算单/保理单/逾期利息/付款单五类 Excel 模板
       { key: 'base-doc-template', label: '单据模板', icon: 'FileDoneOutlined', path: '/base/doc-template', permission: 'template:view' },
       // 批次一 · 任务 1.2：采购模板（各采购模块 Word 模板管理）
-      { key: 'base-procurement-template', label: '采购模板', icon: 'ShoppingOutlined', path: '/base/procurement-template', permission: 'template:view' },
+      { key: 'base-procurement-template', label: '采购模板', icon: 'ShoppingOutlined', path: '/base/procurement-template', permission: 'procurement-template:view' },
       { key: 'base-clause', label: '合同条款', icon: 'FileTextOutlined', path: '/base/clause', permission: 'template:view' },
     ],
   },

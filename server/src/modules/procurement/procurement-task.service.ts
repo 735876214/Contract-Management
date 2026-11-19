@@ -11,7 +11,8 @@ import {
   ImportTemplateService,
   TemplateColumn,
 } from '../../common/services/import-template.service';
-import { ContractService } from '../contract';
+import { ContractService, deleteContractsOfTask } from '../contract';
+import { updateMaterialBaseUnit } from '../material';
 import {
   TOTAL_LIST,
   PRE_MEETING,
@@ -987,10 +988,12 @@ export class ProcurementTaskService {
         });
       }
       // 计量单位与基础库默认值不符 → 提交时同步到物资基础库（唯一键为 name+spec，更新该记录单位）
+      // 需求修正（修改一 · 2.2）：计量单位与基础库默认值不符 → 提交时同步到物资基础库
+      // （唯一键为 name+spec，更新该记录单位）。物资表归 material 模块，走它的写入原语。
       for (const row of normalized) {
         const base = baseMap.get(row.materialBaseId);
         if (base && base.unit !== row.unit) {
-          await tx.materialBase.update({ where: { id: base.id }, data: { unit: row.unit } });
+          await updateMaterialBaseUnit(tx, base.id, row.unit);
         }
       }
     });
@@ -1842,8 +1845,8 @@ export class ProcurementTaskService {
       linkedContractStatus: linked?.status ?? null,
     });
     if (linked) {
-      // 清除已自动生成（草稿态）的合同，避免孤儿
-      await this.prisma.contract.deleteMany({ where: { taskId } });
+      // 清除已自动生成（草稿态）的合同，避免孤儿。合同行归 contract 模块，走它的写入原语。
+      await deleteContractsOfTask(this.prisma, taskId);
     }
     await this.prisma.procurementResultReport.updateMany({
       where: { taskId },
