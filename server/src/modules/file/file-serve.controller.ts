@@ -3,22 +3,33 @@ import type { Request, Response } from 'express';
 import * as path from 'path';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { StorageService } from '../../common/services/storage.service';
+import { ProjectAccessService } from '../../common/services/project-access.service';
+import { JwtUser } from '../../common/decorators/user.decorator';
+import { projectIdOfStorageKey } from '../../common/utils/storage-keys';
 
 /**
  * 本地文件读取（替代原来的 `useStaticAssets('/api/files')`）。
  *
  * - 需要登录（Bearer 或 httpOnly Cookie；JwtStrategy 仅对 GET 接受 Cookie）。
  *   原静态服务是**完全公开**的，敏感证件/发票/合同只要 URL 泄露就能下载；
+ * - **还须是文件所属项目的成员**（2026-11-19 审计 P1）：键里带 `p/<projectId>/` 前缀时，
+ *   按 `projectMember` 复核；此前只校验「已登录」，任一登录用户拿到键就能跨项目下载。
+ *   前缀只加在**新上传**（`FileController`）与**项目级归档**上，`signed/…`、`2026-10/…`
+ *   等历史键没有归属信息，维持「登录即可读」以免存量附件全部失效（迁移任务另开）；
  * - 保持对外 URL 形态 `/api/files/<相对键>` 不变，数据库/前端链接无需迁移；
  * - 支持单段 Range（206），保证 PDF/图片预览与大文件下载体验。
  */
 @UseGuards(JwtAuthGuard)
 @Controller('files')
 export class FileServeController {
-  constructor(private storage: StorageService) {}
+  constructor(
+    private storage: StorageService,
+    private projectAccess: ProjectAccessService,
+  ) {}
 
   @Get(':key(*)')
   async serve(@Param('key') key: string, @Req() req: Request, @Res() res: Response) {
+    await this.assertOwnership(key, req);
     const buffer = await this.storage.read(key);
     const total = buffer.length;
     res.setHeader('Content-Type', contentTypeOf(key));
@@ -49,6 +60,18 @@ export class FileServeController {
     }
     res.setHeader('Content-Length', String(total));
     res.end(buffer);
+  }
+
+  /**
+   * 归属校验：`p/<projectId>/…` → 调用方必须是该项目成员（超管放行）。
+   * 历史键（无前缀）没有归属信息，只能维持登录即可读；**不要**在这里改成一律拒绝，
+   * 否则存量合同签章件/发票附件会全部打不开（需要先做键迁移再收紧）。
+   */
+  private async assertOwnership(key: string, req: Request): Promise<void> {
+    const ownerProjectId = projectIdOfStorageKey(key);
+    if (!ownerProjectId) return;
+    const user = req.user as JwtUser | undefined;
+    await this.projectAccess.assertAccess(user?.userId, ownerProjectId, user?.isSuperAdmin);
   }
 }
 

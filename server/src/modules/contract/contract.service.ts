@@ -43,6 +43,7 @@ import { contractStageTaskStatus, stageChain } from '../../constants/procurement
 import { TemplateService } from '../template';
 import HTMLtoDOCX from 'html-to-docx';
 import { patchDocx } from '../../common/utils/docx-patch';
+import { projectScopedSub } from '../../common/utils/storage-keys';
 
 const CONTRACT_FIELDS = [
   'projectId', 'code', 'name', 'typeCode', 'subTypeCode', 'codeAbbrUsed', 'yearSeq',
@@ -1373,24 +1374,34 @@ export class ContractService {
      * 不先拦会由数据库抛 500；这里给出可操作的 400 提示。
      */
     const chainIds = await contractChainIds(this.prisma, id);
-    const [receipts, settlements, daily, finals, invoices, payments, milestones] = await Promise.all([
-      this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
-      this.prisma.settlement.count({ where: { projectId, contractId: { in: chainIds } } }),
-      this.prisma.dailyReport.count({ where: { projectId, contractId: { in: chainIds } } }),
-      this.prisma.finalSettlement.count({ where: { projectId, contractId: { in: chainIds } } }),
-      this.prisma.invoice.count({ where: { projectId, contractId: { in: chainIds } } }),
-      this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
-      // 履约节点也是登记数据：删除合同会级联清掉，须与其他下游一样先提示
-      this.prisma.contractFulfillment.count({ where: { projectId, contractId: { in: chainIds } } }),
-    ]);
+    const [receipts, settlements, daily, finals, invoices, payments, milestones, factorings, overdues] =
+      await Promise.all([
+        this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
+        this.prisma.settlement.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.dailyReport.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.finalSettlement.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.invoice.count({ where: { projectId, contractId: { in: chainIds } } }),
+        this.prisma.paymentRecord.count({ where: { projectId, contractId: { in: chainIds } } }),
+        // 履约节点也是登记数据：删除合同会级联清掉，须与其他下游一样先提示
+        this.prisma.contractFulfillment.count({ where: { projectId, contractId: { in: chainIds } } }),
+        /**
+         * 资金费用 / 逾期利息（2026-11-19 审计 P2）：这两张表**没有 projectId**，
+         * 只靠 `contractId` 级联（`onDelete: Cascade`），删合同会静默清掉已计的融资费与逾期利息，
+         * 台账与月度盈亏随之漂移且无法复算 —— 必须和别的下游一样先拦。
+         */
+        this.prisma.factoringCost.count({ where: { contractId: { in: chainIds } } }),
+        this.prisma.overdueInterest.count({ where: { contractId: { in: chainIds } } }),
+      ]);
     // 补充协议：`Contract.parentContract` 外键是 ON DELETE SET NULL（schema 未声明 onDelete），
     // 删主合同不会删子合同，只会把 parentContractId 清空 → 留下无主的补充协议，
     // 其编号还占着「主编号（N）」的位，后续按 parentContractId 计数取号会撞 code 唯一键。
     // ⚠️ 只能数**直接下级**：`contractChainIds()` 返回的恒是 [链根, …链根的补充协议]，
     //    用 `in: chainIds` 会把被删对象自己（当它本身就是补充协议时）也数进去 → 补充协议永远删不掉。
     const supplements = await this.prisma.contract.count({ where: { projectId, parentContractId: id } });
-    if (receipts + settlements + daily + finals + invoices + payments + milestones > 0) {
-      throw new BadRequestException('存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点），不能删除合同，请改为归档');
+    if (receipts + settlements + daily + finals + invoices + payments + milestones + factorings + overdues > 0) {
+      throw new BadRequestException(
+        '存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点/资金费用/逾期利息），不能删除合同，请改为归档',
+      );
     }
     if (supplements > 0) {
       throw new BadRequestException(`该合同下存在 ${supplements} 份补充协议，不能删除主合同；请先删除补充协议，或改为归档`);
@@ -1621,8 +1632,17 @@ export class ContractService {
       if (file.size > ContractService.SIGNED_MAX_SIZE) {
         throw new BadRequestException('签章文件大小不能超过 20MB');
       }
-      // 落盘统一走 StorageService（相对键 `signed/<文件名>`；目录/命名/URL 规则都收在存储层）
-      saved = await this.storage.save(file.buffer, { sub: 'signed', ext });
+      /**
+       * 落盘统一走 StorageService；**键带项目前缀** `p/<projectId>/signed/<文件名>`
+       * （2026-11-19 审计 P1）：签章件是全系统最敏感的原件，键里不带归属时，
+       * 任一登录用户拿到 `/api/files/signed/xxx.pdf` 就能跨项目下载。
+       * 旧的 `signed/…` 键仍按历史键放行（存量文件不迁移）。
+       */
+      const owner = projectId || existing.projectId;
+      saved = await this.storage.save(file.buffer, {
+        sub: owner ? projectScopedSub(owner, 'signed') : 'signed',
+        ext,
+      });
     }
     if (!signDate) throw new BadRequestException('请选择签订日期');
     const chosen = new Date(signDate);

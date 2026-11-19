@@ -8,10 +8,11 @@
  * ⚠️ **金额类变量名必须带单位后缀**（`(元)`）：同名不同单位视为缺陷（仓库既有约定）。
  * ⚠️ 未取到值时**保留占位符原文**（由 `renderTemplate()` 决定），不替换成空串 ——
  *    静默清空会让打印出来的单据看不出哪里没取到数。
- * 共享的 `DocVarDef` / 格式化函数在 `./doc-var-shared.ts`（2026-10-17 与总结算单变量收敛）。
+ * 共享的 `DocVarDef` / 格式化函数已下沉到 `server/src/common/utils/doc-vars.ts`（2026-11-19 审计 P4：
+ * 两个模块都要用，放在任一业务模块里都只能靠深层 import，故按 module-boundaries 规则下沉 common）。
  */
 
-import { type DocVarDef, formatDocMoney, formatDocDate } from './doc-var-shared.ts';
+import { type DocVarDef, formatDocMoney, formatDocDate } from '../../common/utils/doc-vars.ts';
 
 export { formatDocMoney, formatDocDate };
 export type { DocVarDef };

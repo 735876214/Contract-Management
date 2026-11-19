@@ -19,30 +19,38 @@
 
 ```
 <UPLOAD_DIR>/
-├── 2026-10/                                  # 通用上传：默认子目录 = 上传当月 YYYY-MM
-│   ├── 1730000000000-ab12cd34.pdf            # 合同附件、发票图片、收领单扫描、
-│   └── 1730000000123-ef56ab78.png            # 分包证件、投标文件、单据模板、考察照片…
-├── signed/                                   # 合同签章件（save sub='signed'）
-│   └── 1730000000456-cd34ef12.pdf
-├── ai-analytics/                             # AI 经营数据助手工作簿（sub='ai-analytics/<projectId>'）
+├── p/                                        # 项目命名空间（2026-11-19 审计 P1 起）
+│   └── <projectId>/
+│       ├── 2026-11/                          # 通用上传：默认子目录 = 上传当月 YYYY-MM
+│       │   ├── 1730000000000-ab12cd34.pdf    # 合同附件、发票图片、收领单扫描、
+│       │   └── 1730000000123-ef56ab78.png    # 分包证件、投标文件、单据模板、考察照片…
+│       ├── signed/                           # 合同签章件（projectScopedSub(projectId,'signed')）
+│       │   └── 1730000000456-cd34ef12.pdf
+│       └── ai-analytics/                     # AI 工作簿（projectScopedSub(projectId,'ai-analytics')）
+│           └── <标题>.xlsx
+├── 2026-10/                                  # 历史键（无项目前缀）：2026-11-19 之前上传的存量
+├── signed/                                   # 历史键：2026-11-19 之前签的章
+├── ai-analytics/                             # 历史键：sub='ai-analytics/<projectId>'
 │   └── <projectId>/<标题>.xlsx
-└── import-errors/                            # 导入错误报告（固定文件名）
+└── import-errors/                            # 导入错误报告（固定文件名，系统级、无项目归属）
     └── import-errors-<taskId>.xlsx
 ```
 
 - 键 = **相对 POSIX 路径**（`/` 分隔，不含根目录/盘符），落库与 URL 都基于它。
 - 文件名 = `<epochMillis>-<8位base36随机串><ext>`；`import-errors` 用固定名。
-- 所有业务附件共用“月份桶”，**不按项目/合同分目录**；业务归属只存在数据库里。
+- **一级目录是归属信息**：`p/<projectId>/…` 的键在下载时被 `FileServeController.projectIdOfStorageKey()`
+  解析出项目并复核调用方是否为该项目成员（超管放行）；**存量键（`signed/…`、`YYYY-MM/…`）没有前缀**，
+  只能维持「登录即可读」——所以在同一个桶里不要混放不同项目的文件，新代码一律走 `projectScopedSub()`。
 - 键安全：`assertSafeStorageKey` 拒绝空、绝对路径/盘符/UNC、任何 `..` 段（400）。
 
 ## 3. 写入路径（统一走 `StorageService.save()`）
 
 | 入口 | 子目录/命名 | 落库 |
 |---|---|---|
-| `POST /api/files/upload`（通用上传） | `YYYY-MM/<自动名>`；内存接收后 `save()` | 返回 `{fileName,url,key,size}`，业务自行保存 url 或 key |
-| 合同签章 `POST /contracts/:id/sign` | `signed/<自动名>` | `Contract.signedFilePath = key` |
+| `POST /api/files/upload`（通用上传） | `p/<projectId>/YYYY-MM/<自动名>`（请求带项目上下文时；否则退回 `YYYY-MM/`） | 返回 `{fileName,url,key,size}`，业务自行保存 url 或 key |
+| 合同签章 `POST /contracts/:id/sign` | `p/<projectId>/signed/<自动名>` | `Contract.signedFilePath = key` |
 | 导入错误报告 | `import-errors/import-errors-<taskId>.xlsx` | `ImportTask.errorFileUrl = url` |
-| 经营数据助手工作簿 `POST /ai/analytics/workbook` | `ai-analytics/<projectId>/<标题>.xlsx` | `AiAnalyticsReport.workbookKey = key`；下载走 `GET /ai/analytics/:id/workbook` |
+| 经营数据助手工作簿 `POST /ai/analytics/workbook` | `p/<projectId>/ai-analytics/<标题>.xlsx` | `AiAnalyticsReport.workbookKey = key`；下载走 `GET /ai/analytics/:id/workbook` |
 
 上传限制（2026-10-18 起）：单请求最多 10 个文件、单文件 ≤ 50MB（与 nginx 一致）；
 拒绝 `.html/.htm/.svg/.js/.mjs/.exe/.bat/.sh/.ps1/.php/.jsp/.jar` 等可执行/可脚本类型，
@@ -54,10 +62,10 @@
 
 | 业务 | 字段 | 备注 |
 |---|---|---|
-| 合同签章件 | `Contract.signedFilePath` | `signed/<file>`；下载走 `/contracts/:id/signed-file` |
+| 合同签章件 | `Contract.signedFilePath` | `p/<projectId>/signed/<file>`（2026-11-19 前为 `signed/<file>`）；下载走 `/contracts/:id/signed-file` |
 | 收领单扫描件 | `ReceiptOrder.scanUrl` | 保存时归一为键 |
 | 单据模板 xlsx | `ContractTemplate.fileUrl` | 创建/更新归一为键；历史 URL 读取兼容 |
-| 经营数据助手工作簿 | `AiAnalyticsReport.workbookKey` | `ai-analytics/<projectId>/<标题>.xlsx`；删除记录只删 DB，文件留给存储审计 |
+| 经营数据助手工作簿 | `AiAnalyticsReport.workbookKey` | `p/<projectId>/ai-analytics/<标题>.xlsx`（旧为 `ai-analytics/<projectId>/…`）；删除记录只删 DB，文件留给存储审计 |
 
 **`/api/files/...` URL 或 JSON 内 URL**
 
@@ -82,7 +90,7 @@
 
 | 路径 | 实现 | 权限 |
 |---|---|---|
-| `GET /api/files/**` | `FileServeController`（`server/src/modules/file/file-serve.controller.ts`）代理 `storage.read()`，支持单段 Range（206） | **需登录**（`JwtAuthGuard`；Bearer 或 httpOnly Cookie，GET 接受 Cookie） |
+| `GET /api/files/**` | `FileServeController`（`server/src/modules/file/file-serve.controller.ts`）先 `assertOwnership()` 复核归属，再代理 `storage.read()`，支持单段 Range（206） | **需登录**（`JwtAuthGuard`；Bearer 或 httpOnly Cookie，GET 接受 Cookie）；键为 `p/<projectId>/…` 时**还须是该项目成员**（超管放行，否则 403「无权访问该项目」）。历史键（无前缀）只能校验登录 |
 | `GET /contracts/:id/signed-file` | `storage.exists` + `storage.read`，Buffer 返回并设 `attachment` | `contract:view` |
 | `GET /archive/download` | 逐文件读取/图片转 PDF，`archiver` 流式打包（内存只留当前文件） | `archive:view` |
 | 单据模板生成 | 读取 xlsx 模板后渲染 | 各生成端点权限 |

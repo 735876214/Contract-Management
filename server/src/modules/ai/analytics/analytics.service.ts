@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, InternalServerErro
 import { PrismaClient } from '@prisma/client';
 import { assertPermission } from '../../../common/utils/assert-permission';
 import { StorageService } from '../../../common/services/storage.service';
+import { projectScopedSub } from '../../../common/utils/storage-keys';
 import { StyledExcelService } from '../../../common/services/styled-excel.service';
 import type { JwtUser } from '../../../common/decorators/user.decorator';
 import { datasetByKey, filterDatasets, limitDatasets, DEFAULT_DATASET_KEYS, MAX_DATASETS } from './dataset-registry';
@@ -558,7 +559,7 @@ export class AnalyticsService {
     const { buffer, model, truncated } = await this.workbookBuffer(facts);
 
     const fileName = `${title}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
-    const saved = await this.storage.save(buffer, { sub: `ai-analytics/${projectId}`, ext: '.xlsx', name: fileName });
+    const saved = await this.storage.save(buffer, { sub: projectScopedSub(projectId, 'ai-analytics'), ext: '.xlsx', name: fileName });
     const warnings = [...facts.warnings, ...truncated];
     const factsForStore = {
       ...facts,
@@ -614,7 +615,7 @@ export class AnalyticsService {
     const title = String(row.title || '经营数据表格').slice(0, 60);
     const { buffer, model, truncated } = await this.workbookBuffer(facts);
     const fileName = `${title}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
-    const saved = await this.storage.save(buffer, { sub: `ai-analytics/${row.projectId}`, ext: '.xlsx', name: fileName });
+    const saved = await this.storage.save(buffer, { sub: projectScopedSub(row.projectId, 'ai-analytics'), ext: '.xlsx', name: fileName });
     const storedWarnings = Array.isArray(row.warningsJson) ? (row.warningsJson as string[]) : facts.warnings;
     await this.store.attachWorkbook(reportId, user, { key: saved.key, name: fileName, size: saved.size });
     return {
