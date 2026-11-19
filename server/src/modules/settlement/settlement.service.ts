@@ -1281,6 +1281,7 @@ export class SettlementService {
     let skippedNoItems = 0;
     let skippedRowCount = 0;
     let skippedNoQtyRows = 0;
+    let skippedNetZeroRows = 0;
     let skippedInvalidPriceRows = 0;
     const warnings: string[] = [];
     const createdItems: any[] = [];
@@ -1316,6 +1317,7 @@ export class SettlementService {
       const built = buildSettlementItemsFromDailyRows(list);
       skippedRowCount += built.skippedRowCount;
       skippedNoQtyRows += built.skippedNoQtyRowCount;
+      skippedNetZeroRows += built.skippedNetZeroRowCount;
       skippedInvalidPriceRows += built.skippedInvalidPriceRowCount;
       if (built.skippedRowCount > 0) {
         warnings.push(
@@ -1326,7 +1328,12 @@ export class SettlementService {
       }
       if (built.skippedNoQtyRowCount > 0) {
         warnings.push(
-          `${codeOf.get(contractId) || contractId}：${built.skippedNoQtyRowCount} 条总日报行缺少结算数量，未带入结算金额，请补数量后手工调整`,
+          `${codeOf.get(contractId) || contractId}：${built.skippedNoQtyRowCount} 条总日报行结算数量为空或为 0，未带入结算金额，请补数量后手工调整`,
+        );
+      }
+      if (built.skippedNetZeroRowCount > 0) {
+        warnings.push(
+          `${codeOf.get(contractId) || contractId}：${built.skippedNetZeroRowCount} 条总日报行按物资净结算数量为 0（收退货已互相抵消），未生成明细，请核对原始日报`,
         );
       }
       if (built.skippedInvalidPriceRowCount > 0) {
@@ -1335,7 +1342,7 @@ export class SettlementService {
         );
       }
       if (!built.items.length) {
-        // 全是无法带出的行（或来源行没有可结算数据）→ 不生成空壳结算单
+        // 全是无法带出的行（无物资主数据、数量为空/0、净数量为 0）→ 不生成空壳结算单
         skippedNoItems++;
         continue;
       }
@@ -1357,7 +1364,9 @@ export class SettlementService {
               items: built.items,
               remark: `按月度结算期自动生成（${monthKey(period.start)}-${String(period.start.getDate()).padStart(2, '0')} ~ ${monthKey(period.end)}-${String(period.end.getDate()).padStart(2, '0')}，含 ${list.length} 条总日报行${
                 built.skippedRowCount ? `；${built.skippedRowCount} 条无物资主数据已跳过` : ''
-              }${built.skippedNoQtyRowCount ? `；${built.skippedNoQtyRowCount} 条缺少结算数量已跳过` : ''}${
+              }${built.skippedNoQtyRowCount ? `；${built.skippedNoQtyRowCount} 条结算数量为空或为 0 已跳过` : ''}${
+                built.skippedNetZeroRowCount ? `；${built.skippedNetZeroRowCount} 条净数量为 0 已跳过` : ''
+              }${
                 built.skippedInvalidPriceRowCount ? `；${built.skippedInvalidPriceRowCount} 条单价/税率异常已跳过` : ''
               }）`,
             },
@@ -1413,14 +1422,16 @@ export class SettlementService {
       skipped,
       /** 因合同已归档而跳过的合同数 */
       skippedArchived,
-      /** 有日报行但全部缺少物资主数据/结算数量、未能生成结算单的合同数 */
+      /** 有日报行但全部无法带出（无物资主数据 / 数量为空或 0 / 净数量为 0）、未能生成结算单的合同数 */
       skippedNoItems,
-      /** 因缺少物资主数据或结算数量而未能带出的日报行总数 */
-      skippedRows: skippedRowCount + skippedNoQtyRows + skippedInvalidPriceRows,
+      /** 因缺少物资主数据、结算数量为空/0 或净数量为 0 而未能带出的日报行总数 */
+      skippedRows: skippedRowCount + skippedNoQtyRows + skippedNetZeroRows + skippedInvalidPriceRows,
       /** 其中：缺少物资主数据的行数 */
       skippedMaterialRows: skippedRowCount,
-      /** 其中：缺少结算数量的行数 */
+      /** 其中：结算数量为空/0 的行数 */
       skippedNoQtyRows,
+      /** 其中：按物资聚合后净数量为 0（收退货抵消）的行数 */
+      skippedNetZeroRows,
       /** 其中：单价/税率异常的行数 */
       skippedInvalidPriceRows,
       warnings,

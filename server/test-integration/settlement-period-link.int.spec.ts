@@ -330,6 +330,58 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     assert.equal(Number(items[0].totalWithTax), 600);
   });
 
+  it('⑦-2 负数总日报行（退货/调出）参与结算：净 0 不生成空壳单，混合按净额结算', async () => {
+    const project = await makeProject(ctx.prisma, 'LNK-7B');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contractA = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+    const contractB = await makeContract(ctx.prisma, { status: 'SIGNED', projectId: project.id, supplierId: supplier.id, amount: 500000 });
+
+    const materialA = await ctx.prisma.materialBase.create({
+      data: { name: `净0物资 ${uniq('MAT')}`, spec: uniq('SPEC'), unit: '吨' },
+    });
+    const materialB = await ctx.prisma.materialBase.create({
+      data: { name: `混合物资 ${uniq('MAT')}`, spec: uniq('SPEC'), unit: '吨' },
+    });
+    // makeDailyRow 每次新建物资，无法让两行落在同一 materialBaseId 上；净额用例直接落库。
+    const row = (contractId: string, material: any, entryDate: Date, qty: number) => ({
+      projectId: project.id,
+      contractId,
+      materialBaseId: material.id,
+      materialName: material.name,
+      spec: material.spec,
+      unit: '吨',
+      entryDate,
+      settleQty: qty,
+      priceBeforeTax: 100,
+      taxRatePct: 0,
+      priceAfterTax: 100,
+      amountBeforeTax: qty * 100,
+      amountAfterTax: qty * 100,
+      confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED,
+    } as any);
+
+    // 合同 A：+10 / -10 完全抵消 → 净 0，不能生成 0 数量明细或空壳结算单
+    await ctx.prisma.dailyReport.create({ data: row(contractA.id, materialA, day(2026, 9, 10), 10) });
+    await ctx.prisma.dailyReport.create({ data: row(contractA.id, materialA, day(2026, 9, 11), -10) });
+    // 合同 B：+10 / -4 → 净 6，按净额生成
+    await ctx.prisma.dailyReport.create({ data: row(contractB.id, materialB, day(2026, 9, 10), 10) });
+    await ctx.prisma.dailyReport.create({ data: row(contractB.id, materialB, day(2026, 9, 11), -4) });
+
+    const res: any = await settle.generateForPeriod(project.id, { refDate: '2026-10-02' });
+    assert.equal(res.created, 1, '只有净额非 0 的合同生成结算单');
+    assert.equal(res.skippedNoItems, 1, '净 0 合同不生成空壳结算单');
+    assert.equal(res.skippedNetZeroRows, 2, '净 0 的两行日报计入告警');
+    assert.ok(res.warnings.some((w: string) => w.includes('净结算数量为 0')));
+
+    assert.equal(await ctx.prisma.settlement.count({ where: { contractId: contractA.id } }), 0);
+    const sB: any = await ctx.prisma.settlement.findFirst({ where: { contractId: contractB.id } });
+    assert.equal(Number(sB.amount), 600);
+    const itemsB = await ctx.prisma.settlementItem.findMany({ where: { settlementId: sB.id } });
+    assert.equal(itemsB.length, 1);
+    assert.equal(Number(itemsB[0].qty), 6);
+    assert.equal(Number(itemsB[0].totalWithTax), 600);
+  });
+
   it('⑧ require_confirmed 开启时，未确认的总日报行不计入结算', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-8');
     const supplier = await makeSupplier(ctx.prisma, project.id);

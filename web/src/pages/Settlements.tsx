@@ -449,13 +449,13 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
             <Form.Item name="typeCode" label="结算类型" rules={[{ required: true }]}><DictSelect typeCode="settlement_type" /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
-            <Form.Item name="amount" label="结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+            <Form.Item name="amount" label="结算金额" tooltip="负数表示退货/材料调出冲减"><InputNumber style={{ width: '100%' }} precision={2} /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
             <Form.Item name="deductAmount" label="扣款金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
-            <Form.Item name="actualAmount" label="实际结算金额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item>
+            <Form.Item name="actualAmount" label="实际结算金额" tooltip="负数表示退货/材料调出冲减"><InputNumber style={{ width: '100%' }} precision={2} /></Form.Item>
           </Col>
           <Col xs={24} md={8}>
             <Form.Item name="settleDate" label="结算日期（决定归属哪一期）" tooltip="归属账期按「结算日期」所在期计算：月度结算起始日不是 1 号时一期跨两个自然月，按后一个月归集，同一合同同一期只允许一张结算单"><DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} /></Form.Item>
@@ -525,7 +525,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
               {
                 title: '结算数量', dataIndex: 'qty', width: 130,
                 render: (v: any, r: any) => (
-                  <InputNumber style={{ width: '100%' }} min={0} precision={4} value={v}
+                  <InputNumber style={{ width: '100%' }} precision={4} value={v} placeholder="负数表示退货/调出"
                     onChange={(val) => { patchItem(r.key, 'qty', val); setDirty(true); }} />
                 ),
               },

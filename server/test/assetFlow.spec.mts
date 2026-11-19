@@ -41,6 +41,17 @@ describe('物资进出场方向与汇总', () => {
     assert.equal(s.bySource.length, 7);
   });
 
+  it('负数采购行是退货/调出：净减进场，不重分类为出场', () => {
+    const s = summarizeAssetFlow([
+      { sourceCode: 'PURCHASE', qty: 10, totalAmount: 1000 },
+      { sourceCode: 'PURCHASE', qty: -3, totalAmount: -300 },
+    ]);
+    assert.equal(s.inQty, 7);
+    assert.equal(s.inAmount, 700);
+    assert.equal(s.outQty, null);
+    assert.equal(s.outAmount, null);
+  });
+
   it('空数据返回 null（未知 ≠ 0）', () => {
     const s = summarizeAssetFlow([]);
     assert.equal(s.inQty, null);

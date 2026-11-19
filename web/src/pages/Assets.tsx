@@ -314,8 +314,8 @@ function AssetForm({
           </Form.Item>
         </Col>
         <Col xs={24} md={6}>
-          <Form.Item name="qty" label={feeMode ? '数量（该来源无需填写）' : '进/出场数量'} rules={qtyRules}>
-            <InputNumber style={{ width: '100%' }} min={0} precision={2} disabled={feeMode} />
+          <Form.Item name="qty" label={feeMode ? '数量（该来源无需填写）' : '进/出场数量'} rules={qtyRules} tooltip="负数表示退货/调出冲减">
+            <InputNumber style={{ width: '100%' }} precision={2} disabled={feeMode} />
           </Form.Item>
         </Col>
         <Col xs={24} md={6}>
@@ -344,7 +344,6 @@ function AssetForm({
             <Form.Item name={k} label={`${label}数量`} rules={feeMode ? [] : [{ required: true, message: `请填写${label}数量` }]}>
               <InputNumber
                 style={{ width: '100%' }}
-                min={0}
                 precision={2}
                 disabled={feeMode}
                 onChange={(v) => setStatusQty((s) => ({ ...s, [k]: Number(v) || 0 }))}
