@@ -543,8 +543,8 @@ export class SettlementService {
         },
         select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
       }),
-      db.factoringCost.findMany({ where: { contractId, settlementMonth: settleMonth } }),
-      db.overdueInterest.findMany({ where: { contractId, settlementMonth: settleMonth } }),
+      db.factoringCost.findMany({ where: { contractId } }),
+      db.overdueInterest.findMany({ where: { contractId } }),
     ]);
     // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
     const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
@@ -588,27 +588,50 @@ export class SettlementService {
         )
         .reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0),
     );
-    const factoringDiscount = round2(
-      factoring.reduce((s: number, r: any) => {
-        const cost = num(r.totalCost) ?? (num(r.financingInterest) || 0) + (num(r.handlingFee) || 0);
-        return s + (cost || 0);
-      }, 0),
-    );
-    // waived 行按 0 排除，与逾期汇总 interestOf 同口径
-    const overdueSum = sumAmounts(overdue, (r: any) => (r.waived ? 0 : r.overdueInterest));
+    // 保理贴息 / 逾期利息按**账期**归集（settlementMonth 可能非零补齐，统一 canonical）：
+    // 既取本行当月值（c、d），也供「截止当月开累采购额 = Σ当月实际采购额 b」按历史各期累计。
+    const costOf = (r: any) => num(r.totalCost) ?? (num(r.financingInterest) || 0) + (num(r.handlingFee) || 0);
+    const factoringByPeriod = new Map<string, number>();
+    for (const r of factoring) {
+      const k = canonicalMonthKey(r.settlementMonth);
+      if (!k) continue;
+      factoringByPeriod.set(k, round2((factoringByPeriod.get(k) || 0) + (costOf(r) || 0)));
+    }
+    const overdueByPeriod = new Map<string, number>();
+    for (const r of overdue) {
+      const k = canonicalMonthKey(r.settlementMonth);
+      if (!k) continue;
+      // waived 行按 0 排除，与逾期汇总 interestOf 同口径
+      const v = r.waived ? 0 : (num(r.overdueInterest) || 0);
+      overdueByPeriod.set(k, round2((overdueByPeriod.get(k) || 0) + v));
+    }
+    const factoringDiscount = round2(factoringByPeriod.get(period) || 0);
+    const overdueSum = round2(overdueByPeriod.get(period) || 0);
 
     /**
      * 截止当月开累采购额 / 开工结算额 / 当月实际采购额：按 Excel 源表公式、用本项目实际结算单重算（用户 2026-11-19 口径）：
      * - 开工结算额 = Σ 该合同**全部结算期**「本月结算额」（= 合同累计结算额，各行相同）；
      *   对应 Excel `SUMIFS(本月结算额, 合同=本)`。
-     * - 截止当月开累采购额 = Σ **结算期 ≤ 本行** 的「本月结算额」；对应 `SUMIFS(本月结算额, 合同=本, 结算月份<=本)`。
+     * - 截止当月开累采购额 = Σ **结算期 ≤ 本行** 的「当月实际采购额 b」(= a − c − d)
+     *   （用户 2026-11-19 修正口径：不再按「本月结算额 a」累计，而是按 b 累计）。
      * - 当月实际采购额 b = 本月结算额 a − 保理贴息 c − 逾期利息 d（对应 `b = a - c - d`）。
      */
+    // 汇总期集合 = 结算期 ∪ 保理期 ∪ 逾期期（仅费用、无结算单的账期也要计入 b 的累计，b 可能为负）
+    const allPeriods = new Set<string>([
+      ...settleAmountByPeriod.keys(),
+      ...factoringByPeriod.keys(),
+      ...overdueByPeriod.keys(),
+    ]);
     let startSettleAmount = 0;
     let cumPurchaseAmount = 0;
-    for (const [k, v] of settleAmountByPeriod) {
-      startSettleAmount += v;
-      if (compareMonthKey(k, canonicalMonthKey(settleMonth) ?? settleMonth) <= 0) cumPurchaseAmount += v;
+    for (const k of allPeriods) {
+      const a = settleAmountByPeriod.get(k) || 0;
+      startSettleAmount += a; // 开工结算额 = Σ 全部期「本月结算额」a
+      if (compareMonthKey(k, period) <= 0) {
+        // 截止当月开累采购额 = Σ 结算期≤本行的「当月实际采购额」b = a − c − d
+        const bPeriod = a - (factoringByPeriod.get(k) || 0) - (overdueByPeriod.get(k) || 0);
+        cumPurchaseAmount += bPeriod;
+      }
     }
     startSettleAmount = round2(startSettleAmount);
     cumPurchaseAmount = round2(cumPurchaseAmount);
@@ -1807,7 +1830,7 @@ export class SettlementService {
       { label: '本月结算额', key: 'monthSettleAmount', type: 'money', width: 16, example: 1234567.89, desc: '**系统派生**：本期结算单实际金额合计（本期无结算单即为 0）。此列填了也不生效，导入时忽略' },
       { label: '本月开票额', key: 'monthInvoiceAmount', type: 'money', width: 16, example: 1396621.72, desc: '当月有发票时以系统抓取值为准；无发票时才用手填值' },
       { label: '结算次数', key: 'settleCount', type: 'int', width: 10, example: 2, desc: '**系统派生**：该合同按结算期时间顺序的第几次结算（1、2、3…；当期无结算单为 0）。此列填了也不生效，导入时忽略' },
-      { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000, desc: '**系统派生**：结算期 ≤ 本行的「本月结算额」累计。此列填了也不生效，导入时忽略' },
+      { label: '开累采购额', key: 'cumPurchaseAmount', type: 'money', width: 16, example: 50000000, desc: '**系统派生**：结算期 ≤ 本行的「当月实际采购额 b」(a−c−d) 累计。此列填了也不生效，导入时忽略' },
       { label: '开工结算额', key: 'startSettleAmount', type: 'money', width: 16, example: 1000000, desc: '**系统派生**：该合同全部结算期「本月结算额」合计。此列填了也不生效，导入时忽略' },
       { label: '本月实际采购额', key: 'monthActualPurchase', type: 'money', width: 16, example: 1180000, desc: '**系统派生**：本月结算额 − 保理贴息 − 逾期利息。此列填了也不生效，导入时忽略' },
       { label: '保理贴息', key: 'factoringDiscount', type: 'money', width: 14, example: 12345.67, desc: '系统从资金费用台账抓取，手填不生效' },
