@@ -532,4 +532,34 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     assert.equal(Number((await row('2026-01'))!.yearSettleAmount), 45000, '2026 年 1+2+3 月 = 45000');
     assert.equal(Number((await row('2026-03'))!.yearSettleAmount), 45000);
   });
+
+  it('⑳ 截止当月开累采购额 = Σ当月实际采购额 b（a−c−d），非 Σ本月结算额 a', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-18');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const mk = (amount: number, y: number, m: number) =>
+      settle.create(
+        { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount, settleDate: month(y, m) },
+        project.id,
+      );
+    await mk(10000, 2026, 1);
+    await mk(10000, 2026, 2);
+    // 2026-01 保理贴息 c=1000；2026-02 逾期利息 d=500 → 当月实际采购额 b = a − c − d
+    await ctx.prisma.factoringCost.create({ data: { contractId: contract.id, settlementMonth: '2026-01', totalCost: 1000 } });
+    await ctx.prisma.overdueInterest.create({ data: { contractId: contract.id, settlementMonth: '2026-02', overdueInterest: 500 } });
+
+    await settle.refreshLedger(project.id);
+    const row = (mm: string) =>
+      ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: mm } });
+
+    // 开工结算额 = Σ 本月结算额 a = 20000（不受 c/d 影响）
+    assert.equal(Number((await row('2026-01'))!.startSettleAmount), 20000);
+    // 当月实际采购额 b = a − c − d
+    assert.equal(Number((await row('2026-01'))!.monthActualPurchase), 9000, '2026-01 b = 10000 − 1000');
+    assert.equal(Number((await row('2026-02'))!.monthActualPurchase), 9500, '2026-02 b = 10000 − 500');
+    // 截止当月开累采购额 = Σ b（而非 Σ a=10000/20000）
+    assert.equal(Number((await row('2026-01'))!.cumPurchaseAmount), 9000);
+    assert.equal(Number((await row('2026-02'))!.cumPurchaseAmount), 18500, '9000 + 9500');
+  });
 });
