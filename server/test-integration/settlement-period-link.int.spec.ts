@@ -352,7 +352,7 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
   /**
    * ⑨ 跨月账期（用户口径 2026-10-22）：月度结算起始日 ≠ 1 时，一期仍是一个月长度，
    *    只是跨两个自然月；结算单与台账行都按**后一个月**（期末所在月）归集，
-   *    且「本月结算额」「结算次数」是**纯派生**列（该期结算单合计），手填一律无效。
+   *    且「本月结算额」「结算次数」是**纯派生**列（该期结算单合计），手填一律 **400 拒绝**（不再静默覆盖）。
    */
   it('⑨ 跨月账期：10/28 的结算单归到 2026-11 的台账行；本月结算额纯派生', async () => {
     const project = await makeProject(ctx.prisma, 'LNK-9');
@@ -372,10 +372,15 @@ describe('集成 · 发票/收领单 ↔ 结算单关联 + 月度结算生成', 
     assert.equal(row!.settleCount, 1, '结算次数 = 本期结算单张数');
     assert.equal(row!.settlementId, s.id, '台账行要挂上这张结算单');
 
-    await settle.updateLedger(row!.id, { monthSettleAmount: 999, settleCount: 7, version: row!.version }, project.id);
+    // 纯派生列现在**明确 400 拒绝**（不再静默覆盖）：手填一律报错，值始终来自结算单
+    await assert.rejects(
+      () => settle.updateLedger(row!.id, { monthSettleAmount: 999, settleCount: 7, version: row!.version }, project.id),
+      (e: any) => e instanceof BadRequestException && /只读派生列/.test(e.message),
+      '本月结算额/结算次数是纯派生列，手填应被 400 拒绝',
+    );
     const after: any = await ctx.prisma.settlementLedger.findFirst({ where: { id: row!.id } });
-    assert.equal(Number(after!.monthSettleAmount), 1000, '本月结算额纯派生：手填 999 被系统值覆盖');
-    assert.equal(after!.settleCount, 1, '结算次数纯派生：手填 7 被系统值覆盖');
+    assert.equal(Number(after!.monthSettleAmount), 1000, '本月结算额保持派生值（手填未生效）');
+    assert.equal(after!.settleCount, 1, '结算次数保持派生值（手填未生效）');
   });
 
   /**

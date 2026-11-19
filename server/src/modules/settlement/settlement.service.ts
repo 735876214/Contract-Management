@@ -6,6 +6,7 @@ import { paginate, buildResult, assertVersion, assertYearMonth } from '../../com
 import { round2 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
+  canonicalMonthKey,
   compareMonthKey,
   settlementAmountOf,
   sumAmounts,
@@ -501,7 +502,9 @@ export class SettlementService {
      * 起始日不是 1 日时，一张落在期初（如前一个月月末几天）的结算单会被算到相邻月份的行上，
      * 结果「本月结算额」在本月缺失、在邻月凭空多出。账期标签由 `periodKeyOf` 给出（期末所在月）。
      */
-    const period = settleMonth;
+    // 账期统一归一为 `YYYY-MM`（历史/导入行可能是 `2026-9` 这类非零补齐格式，
+    // 直接字符串比较会把它排在 `2026-10` 之后，导致「截止当月开累采购额」多算一期）。
+    const period = canonicalMonthKey(settleMonth) ?? settleMonth;
     // 台账「本月结算额」**包含草稿**（有意与 contract-chain 的 notDraft 不同——
     // 见 backend-conventions.md「累计结算有两个口径」：台账回答“这条链的账现在是多少”，
     // 自动生成的草稿也是账面数据；防超结/履约才排除草稿）。
@@ -570,7 +573,7 @@ export class SettlementService {
       if (!k) continue;
       settleAmountByPeriod.set(k, round2((settleAmountByPeriod.get(k) || 0) + (settlementAmountOf(r, 'actual') || 0)));
     }
-    const targetYear = String(settleMonth).slice(0, 4);
+    const targetYear = String(canonicalMonthKey(settleMonth) ?? settleMonth).slice(0, 4);
     let yearSettleAmount = 0;
     for (const [k, v] of settleAmountByPeriod) {
       if (k.slice(0, 4) === targetYear) yearSettleAmount += v;
@@ -581,7 +584,7 @@ export class SettlementService {
         .filter(
           (i: any) =>
             (settlementId && i.settlementId === settlementId) ||
-            (periodMonthKey(i.settlePeriod) ?? periodKeyOf(startDay, i.invoiceDate)) === settleMonth,
+            (periodMonthKey(i.settlePeriod) ?? periodKeyOf(startDay, i.invoiceDate)) === period,
         )
         .reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0),
     );
@@ -605,7 +608,7 @@ export class SettlementService {
     let cumPurchaseAmount = 0;
     for (const [k, v] of settleAmountByPeriod) {
       startSettleAmount += v;
-      if (compareMonthKey(k, settleMonth) <= 0) cumPurchaseAmount += v;
+      if (compareMonthKey(k, canonicalMonthKey(settleMonth) ?? settleMonth) <= 0) cumPurchaseAmount += v;
     }
     startSettleAmount = round2(startSettleAmount);
     cumPurchaseAmount = round2(cumPurchaseAmount);
@@ -796,7 +799,12 @@ export class SettlementService {
    * 场景：某月原本只有一张有效发票 → 发票作废/红冲后，该行自动字段归 0，但
    * `syncLedgerByContract()` 只 upsert 不删行；而「先作废再刷新」又不会建行 →
    * 同一业务状态出现两种库形（有 0 元行 / 无行）。这里在同一个事务里收口。
-   * ⚠️ 只删**纯自动**行：任一手填列（挂账/备注/开工结算额/盘点量/年度收入…）非空都保留。
+   * ⚠️ 只删**纯自动**行：任一手填列（挂账/备注/盘点量/年度收入…）非空都保留。
+   * ⚠️ 判空**只能用行内派生列**（monthSettleAmount/monthInvoiceAmount/factoringDiscount/
+   *   overdueInterest/settleCount/monthActualPurchase）。**不可**把 `yearSettleAmount`、
+   *   `startSettleAmount`、`cumPurchaseAmount` 这 3 个**合同级/年度级汇总列**放进条件——
+   *   它们对该合同恒为合同合计（非 0），混进来会让空行永远剪不掉，与「剪除空行」目标相反
+   *   （第 23 轮审计 P2，2026-11-19）。
    */
   private async pruneEmptyLedgerRows(exec: any, contractId: string) {
     const zeroOrNull = (field: string) => ({ OR: [{ [field]: null }, { [field]: 0 }] });
@@ -811,12 +819,7 @@ export class SettlementService {
           zeroOrNull('overdueInterest'),
           // settleCount 由自动派生写入 0（当期无结算单时；有结算单则为时间顺序序号），手填列一律要求 null 才算「纯自动空行」
           zeroOrNull('settleCount'),
-          // yearSettleAmount 现为纯派生列（无结算单时写入 0，同 settleCount），故按「0 或 null」判空，
-          // 不能要求必须 null——否则空行永远剪不掉（2026-11-19 本年结算额改自动后修正）
-          zeroOrNull('yearSettleAmount'),
-          // 截止当月开累采购额 / 开工结算额 / 当月实际采购额 同为纯派生列（2026-11-19 改按结算单重算）
-          zeroOrNull('startSettleAmount'),
-          zeroOrNull('cumPurchaseAmount'),
+          // 当月实际采购额 = a−c−d，行内派生（不引入合同级汇总，见上）
           zeroOrNull('monthActualPurchase'),
         ],
         isOnAccount: null,
@@ -1410,21 +1413,33 @@ export class SettlementService {
   }
 
   /**
-   * 台账里的**只读派生字段**（业务口径 2026-10-16："资金费用在结算台账中只读，若修改需要从资金费用台账中修改"）。
-   *
-   * 两者都来自**别的台账**：`factoringDiscount ← 资金费用台账（FactoringCost）`、
-   * `overdueInterest ← 逾期利息台账（OverdueInterest）`。它们本来就会被 `computeLedgerAutoFields()`
-   * 在每次刷新时覆盖——与其"改了没用"，不如**明确报错**并把人引到正确的入口
+   * 台账里的**只读派生字段**：这些列全部由 `computeLedgerAutoFields()` 在每次保存/刷新时
+   * 覆盖写入，手工传值本就不生效。与其"改了没用"，不如**明确 400 报错**并把人引到正确入口
    * （静默忽略会让人以为改成功了，那比报错更糟）。
+   * - `factoringDiscount ← 资金费用台账（FactoringCost）`
+   * - `overdueInterest ← 逾期利息台账（OverdueInterest）`
+   * - `monthSettleAmount / settleCount / yearSettleAmount ← 结算单（Settlement）`
+   * - `cumPurchaseAmount / startSettleAmount / monthActualPurchase ← 结算单（按 Excel 公式派生）`
    */
-  private static readonly READONLY_LEDGER_FIELDS = ['factoringDiscount', 'overdueInterest'] as const;
+  private static readonly READONLY_LEDGER_FIELDS = [
+    'factoringDiscount',
+    'overdueInterest',
+    'monthSettleAmount',
+    'settleCount',
+    'yearSettleAmount',
+    'cumPurchaseAmount',
+    'startSettleAmount',
+    'monthActualPurchase',
+  ] as const;
 
   private assertLedgerWritable(data: any) {
     const bad = SettlementService.READONLY_LEDGER_FIELDS.filter((f) => data?.[f] !== undefined);
     if (bad.length) {
       throw new BadRequestException(
-        `结算台账的「${bad.join('、')}」是**只读**派生字段：` +
-          '资金费用请到「资金费用台账」修改、逾期利息请到「逾期利息」处修改，保存后结算台账会自动同步。',
+        `结算台账的「${bad.join('、')}」是**只读派生列**：` +
+          '「保理贴息/逾期利息」请分别到「资金费用台账」「逾期利息」处修改；' +
+          '「本月结算额/结算次数/本年结算额/开累采购额/开工结算额/当月实际采购额」由结算单与发票自动派生，不可手工写入。' +
+          '保存后结算台账会自动同步。',
       );
     }
   }

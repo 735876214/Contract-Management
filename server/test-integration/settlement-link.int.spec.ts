@@ -155,7 +155,16 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
       data: { projectId: project.id, contractId: contract.id, settleMonth: '2026-08' },
     });
 
-    for (const field of ['factoringDiscount', 'overdueInterest'] as const) {
+    for (const field of [
+      'factoringDiscount',
+      'overdueInterest',
+      'monthSettleAmount',
+      'settleCount',
+      'yearSettleAmount',
+      'cumPurchaseAmount',
+      'startSettleAmount',
+      'monthActualPurchase',
+    ] as const) {
       await assert.rejects(
         () => settle.updateLedger(row.id, { [field]: 1234, version: 0 }),
         (e: any) => e instanceof BadRequestException && /只读/.test(e.message),
@@ -487,5 +496,40 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
 
     const after = await ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: '2026-08' } });
     assert.equal(after, null, '纯发票驱动的空行应被剪除，与「先作废再刷新不会建行」保持同一种库形');
+  });
+
+  it('⑲ 开累采购额/开工结算额/当月实际采购额/本年结算额 按结算单自动派生', async () => {
+    const project = await makeProject(ctx.prisma, 'LINK-17');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const mk = (amount: number, y: number, m: number) =>
+      settle.create(
+        { contractId: contract.id, typeCode: 'PROGRESS', statusCode: SETTLEMENT_STATUS.CONFIRMED, amount, settleDate: month(y, m) },
+        project.id,
+      );
+    await mk(5000, 2025, 12);
+    await mk(10000, 2026, 1);
+    await mk(20000, 2026, 2);
+    await mk(15000, 2026, 3);
+
+    const row = (mm: string) =>
+      ctx.prisma.settlementLedger.findFirst({ where: { contractId: contract.id, settleMonth: mm } });
+
+    // 开工结算额 = 全部结算期合计 50000，对每一行恒定
+    for (const mm of ['2025-12', '2026-01', '2026-02', '2026-03']) {
+      assert.equal(Number((await row(mm))!.startSettleAmount), 50000, `${mm} 开工结算额应为合同累计 50000`);
+    }
+    // 截止当月开累采购额 = Σ 结算期 ≤ 本月
+    assert.equal(Number((await row('2025-12'))!.cumPurchaseAmount), 5000);
+    assert.equal(Number((await row('2026-01'))!.cumPurchaseAmount), 15000);
+    assert.equal(Number((await row('2026-02'))!.cumPurchaseAmount), 35000);
+    assert.equal(Number((await row('2026-03'))!.cumPurchaseAmount), 50000);
+    // 当月实际采购额 = a − c − d（无资金费用/逾期 → 等于本月结算额）
+    assert.equal(Number((await row('2026-02'))!.monthActualPurchase), 20000);
+    // 本年结算额 = 同合同同自然年各月合计
+    assert.equal(Number((await row('2025-12'))!.yearSettleAmount), 5000);
+    assert.equal(Number((await row('2026-01'))!.yearSettleAmount), 45000, '2026 年 1+2+3 月 = 45000');
+    assert.equal(Number((await row('2026-03'))!.yearSettleAmount), 45000);
   });
 });
