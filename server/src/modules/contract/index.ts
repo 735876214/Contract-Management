@@ -6,3 +6,5 @@
  */
 export { ContractModule } from './contract.module';
 export { ContractService } from './contract.service';
+// 合同主表写入原语：需要改合同行的模块（总结算/财务/采购）走这里，不直接写表
+export { setContractExecStatus, updateContractFundingParams, deleteContractsOfTask } from './contract-writes';

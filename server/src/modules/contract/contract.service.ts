@@ -20,7 +20,7 @@ import { collectArchiveBlockers } from '../../common/utils/contract-archive';
 import { chainSettledTotal, contractChainIds } from '../../common/utils/contract-chain';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
-import { MaterialService } from '../material';
+import { MaterialService, replaceContractMaterials } from '../material';
 import { assertContractRejectable } from '../../constants/workflowGuards';
 import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
@@ -878,23 +878,22 @@ export class ContractService {
      * 而草稿还在、状态未变，界面看不出来，结算/归档却按空清单跑。
      */
     await this.prisma.$transaction(async (tx) => {
-      await tx.contractMaterial.deleteMany({ where: { contractId } });
-      for (const [i, d] of drafts.entries()) {
-        await tx.contractMaterial.create({
-          data: {
-            contractId,
-            materialBaseId: d.materialBaseId,
-            unit: d.unit || '',
-            qty: d.qty,
-            priceBeforeTax: d.priceBeforeTax,
-            taxRatePct: d.taxRatePct,
-            priceWithTax: d.priceWithTax,
-            totalWithTax: d.totalWithTax,
-            remark: d.remark,
-            sortOrder: d.sortOrder || i + 1,
-          },
-        });
-      }
+      // 合同物资明细（ContractMaterial）归 material 模块：整表替换走它的写入原语
+      await replaceContractMaterials(
+        tx,
+        contractId,
+        drafts.map((d, i) => ({
+          materialBaseId: d.materialBaseId,
+          unit: d.unit || '',
+          qty: d.qty,
+          priceBeforeTax: d.priceBeforeTax,
+          taxRatePct: d.taxRatePct,
+          priceWithTax: d.priceWithTax,
+          totalWithTax: d.totalWithTax,
+          remark: d.remark,
+          sortOrder: d.sortOrder || i + 1,
+        })),
+      );
       await tx.contract.update({
         where: { id: contractId },
         data: { status: CONTRACT_STATUS.APPROVING, version: { increment: 1 } },
@@ -1075,10 +1074,10 @@ export class ContractService {
     if ((await this.mainContractOf(c.taskId))?.id !== contractId) return;
     const next = contractStageTaskStatus(c.status);
     if (next === task.status) return;
-    await this.prisma.procurementTask.update({
-      where: { id: task.id },
-      data: { status: next, version: { increment: 1 } },
-    });
+    // 采购任务表归 procurement 模块：走它的写入原语。这里用**动态 import**，
+    // 因为 procurement 侧静态依赖 contract（ContractService），静态互引会在模块加载期成环。
+    const { setProcurementTaskStatus } = await import('../procurement');
+    await setProcurementTaskStatus(this.prisma, task.id, next);
   }
 
   /** 合同是否存在（用于起草子资源校验）；有请求上下文时同时校验项目归属 */

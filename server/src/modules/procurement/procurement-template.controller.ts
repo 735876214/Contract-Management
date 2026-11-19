@@ -14,45 +14,45 @@ import { CurrentUser } from '../../common/decorators/user.decorator';
 export class ProcurementTemplateController {
   constructor(private service: ProcurementTemplateService) {}
 
-  @RequirePermissions('template:view')
+  @RequirePermissions('procurement-template:view')
   @Get()
   findAll(@Query() query: any) {
     return this.service.findAll(query);
   }
 
-  @RequirePermissions('template:edit')
+  @RequirePermissions('procurement-template:edit')
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
     return this.service.create(body, user?.userId || user?.id);
   }
 
-  @RequirePermissions('template:view')
+  @RequirePermissions('procurement-template:view')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }
 
   /** 版本历史（新→旧） */
-  @RequirePermissions('template:view')
+  @RequirePermissions('procurement-template:view')
   @Get(':id/versions')
   versions(@Param('id') id: string) {
     return this.service.versions(id);
   }
 
   /** 回滚：基于旧版本内容创建新版本 */
-  @RequirePermissions('template:edit')
+  @RequirePermissions('procurement-template:edit')
   @Post(':id/rollback')
   rollback(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.service.rollback(id, body?.versionId, user?.userId || user?.id);
   }
 
-  @RequirePermissions('template:edit')
+  @RequirePermissions('procurement-template:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.service.update(id, body, user?.userId || user?.id);
   }
 
-  @RequirePermissions('template:edit')
+  @RequirePermissions('procurement-template:edit')
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);

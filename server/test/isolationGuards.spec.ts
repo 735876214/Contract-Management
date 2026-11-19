@@ -4,10 +4,13 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DashboardController } from '../src/modules/dashboard/dashboard.controller';
+import { ProcurementTaskController } from '../src/modules/procurement/procurement-task.controller';
+import { ProcurementTemplateController } from '../src/modules/procurement/procurement-template.controller';
 import { PERMISSIONS_KEY } from '../src/common/decorators/permissions.decorator';
 import { PROJECT_KEY_PREFIX, projectIdOfStorageKey, projectScopedSub } from '../src/common/utils/storage-keys';
 import { PROJECT_SCOPED_TABLES } from '../src/modules/project/project-scoped-tables';
 import { MENU_TREE, flattenMenu } from '../src/constants/menuTree';
+import { clearLegacyKeyOwnerCache, resolveLegacyKeyOwner } from '../src/modules/file/legacy-key-owner';
 
 /**
  * **数据流转隔离锁**（2026-11-19 全量数据流转审计 P1/P2 的回归锁）。
@@ -121,5 +124,104 @@ describe('删除项目的清点范围（审计 P2）', () => {
     assert.equal(new Set(listed).size, listed.length, 'PROJECT_SCOPED_TABLES 的 model 有重复');
     const labels = PROJECT_SCOPED_TABLES.map((t) => t.label);
     assert.equal(new Set(labels).size, labels.length, 'PROJECT_SCOPED_TABLES 的 label 有重复');
+  });
+});
+
+describe('采购模块权限码独立（审计 P3）', () => {
+  const methodNames = (ctl: any) =>
+    Object.getOwnPropertyNames(ctl.prototype).filter((n) => n !== 'constructor' && typeof ctl.prototype[n] === 'function');
+
+  it('采购工作流端点只用 procurement:view / procurement:edit（不再借 contract:*）', () => {
+    const codes = methodNames(ProcurementTaskController)
+      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, ProcurementTaskController.prototype[n]))
+      .filter(Boolean)
+      .flat();
+    assert.ok(codes.length > 0, '采购工作流控制器没有任何权限码 —— 说明注解被删或改回了无权限');
+    const bad = codes.filter((c: string) => !c.startsWith('procurement:'));
+    assert.deepEqual(bad, [], `采购工作流仍在使用其它模块的权限码：${bad.join(', ')}`);
+  });
+
+  it('采购模板端点只用 procurement-template:view / procurement-template:edit（不再借 template:*）', () => {
+    const codes = methodNames(ProcurementTemplateController)
+      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, ProcurementTemplateController.prototype[n]))
+      .filter(Boolean)
+      .flat();
+    assert.ok(codes.length > 0, '采购模板控制器没有任何权限码');
+    const bad = codes.filter((c: string) => !c.startsWith('procurement-template:'));
+    assert.deepEqual(bad, [], `采购模板仍在使用其它模块的权限码：${bad.join(', ')}`);
+  });
+
+  it('菜单与控制器同码：采购工作流 procurement:view、采购模板 procurement-template:view', () => {
+    const byPath = new Map(flattenMenu().map((m) => [m.path, m.permission]));
+    for (const p of [
+      '/procurement/initiate',
+      '/procurement/pre-meeting',
+      '/procurement/notice',
+      '/procurement/document',
+      '/procurement/result-report',
+      '/procurement/price-compare',
+      '/procurement/framework',
+    ]) {
+      assert.equal(byPath.get(p), 'procurement:view', `${p} 菜单权限码应与后端一致`);
+    }
+    assert.equal(byPath.get('/base/procurement-template'), 'procurement-template:view');
+  });
+});
+
+describe('历史文件键归属反查（审计 P1 残留）', () => {
+  /** 桩 prisma：只实现 findFirst，按模型名返回预置行 */
+  function stubDb(rows: Record<string, any>): any {
+    const models = [
+      'contract',
+      'contractAttachment',
+      'receiptOrder',
+      'invoice',
+      'paymentRecord',
+      'finalSettlement',
+      'procurementBidder',
+      'laborAuthLedger',
+      'contractTemplate',
+      'importTask',
+    ];
+    const db: any = {};
+    for (const m of models) db[m] = { findFirst: async () => rows[m] ?? null };
+    return db;
+  }
+
+  it('命中项目业务行 → 返回该行所属项目', async () => {
+    clearLegacyKeyOwnerCache();
+    const owner = await resolveLegacyKeyOwner(stubDb({ contract: { projectId: 'clx0001' } }), '2026-10/1730-ab.pdf');
+    assert.deepEqual(owner, { projectId: 'clx0001' });
+  });
+
+  it('合同附件走 contract.projectId 推出归属', async () => {
+    clearLegacyKeyOwnerCache();
+    const owner = await resolveLegacyKeyOwner(
+      stubDb({ contractAttachment: { contract: { projectId: 'clx0002' } } }),
+      '2026-10/1730-ab.pdf',
+    );
+    assert.deepEqual(owner, { projectId: 'clx0002' });
+  });
+
+  it('全局资源（合同模板文件）→ projectId 为 null（登录即可读）', async () => {
+    clearLegacyKeyOwnerCache();
+    const owner = await resolveLegacyKeyOwner(stubDb({ contractTemplate: { id: 'tpl1' } }), '2026-10/1730-ab.docx');
+    assert.deepEqual(owner, { projectId: null });
+  });
+
+  it('没有任何业务行引用 → null（读取端据此拒绝，不再默认放行）', async () => {
+    clearLegacyKeyOwnerCache();
+    const owner = await resolveLegacyKeyOwner(stubDb({}), '2026-10/1730-ab.pdf');
+    assert.equal(owner, null);
+  });
+
+  it('结果有缓存，清缓存后按新数据重新判定', async () => {
+    clearLegacyKeyOwnerCache();
+    const key = '2026-10/1730-cache.pdf';
+    assert.deepEqual(await resolveLegacyKeyOwner(stubDb({ contract: { projectId: 'clx0003' } }), key), { projectId: 'clx0003' });
+    // 换一份「无引用」的库，命中缓存仍是旧结论
+    assert.deepEqual(await resolveLegacyKeyOwner(stubDb({}), key), { projectId: 'clx0003' });
+    clearLegacyKeyOwnerCache();
+    assert.equal(await resolveLegacyKeyOwner(stubDb({}), key), null);
   });
 });

@@ -31,6 +31,35 @@ import { ImportRunnerService, RowError, TxClient } from '../../common/services/i
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
+/**
+ * 发票/收领单的 `settlementId` 挂接关系**归各自模块所有**（第 22 轮审计 P3）：
+ * 结算单只描述「按结算期把谁挂上来」的意图，实际写表走这两个模块的公开入口。
+ *
+ * 但 invoice / receipt-order 反过来静态依赖 settlement（`InvoiceService` / `ReceiptOrderService`
+ * 注入 `SettlementService`），静态互引会让模块级依赖图成环（`scripts/check-module-boundaries.mjs`
+ * 的 SCC 检查会拦），所以这里改成**调用时动态加载**：Node 会缓存模块实例，只有首次多一次 Promise。
+ */
+const invoiceWrites = () => import('../invoice');
+const receiptOrderWrites = () => import('../receipt-order');
+
+async function attachInvoicesToSettlement(db: any, ids: string[], settlementId: string): Promise<number> {
+  return (await invoiceWrites()).attachInvoicesToSettlement(db, ids, settlementId);
+}
+async function detachInvoices(db: any, ids: string[], projectId?: string): Promise<number> {
+  return (await invoiceWrites()).detachInvoices(db, ids, projectId);
+}
+async function detachInvoicesOfSettlement(db: any, settlementId: string): Promise<number> {
+  return (await invoiceWrites()).detachInvoicesOfSettlement(db, settlementId);
+}
+async function attachReceiptOrdersToSettlement(db: any, ids: string[], settlementId: string): Promise<number> {
+  return (await receiptOrderWrites()).attachReceiptOrdersToSettlement(db, ids, settlementId);
+}
+async function detachReceiptOrders(db: any, ids: string[], projectId?: string): Promise<number> {
+  return (await receiptOrderWrites()).detachReceiptOrders(db, ids, projectId);
+}
+async function detachReceiptOrdersOfSettlement(db: any, settlementId: string): Promise<number> {
+  return (await receiptOrderWrites()).detachReceiptOrdersOfSettlement(db, settlementId);
+}
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -408,8 +437,9 @@ export class SettlementService {
        * 提交后由下方 affected 循环重新挂载（各自按自己的合同 + 结算期）。
        */
       if (payload.contractId && payload.contractId !== before.contractId) {
-        await t.invoice.updateMany({ where: { settlementId: id }, data: { settlementId: null } });
-        await t.receiptOrder.updateMany({ where: { settlementId: id }, data: { settlementId: null } });
+        // 发票/收领单的 `settlementId` 归各自模块所有：写入走 invoice / receipt-order 的公开入口
+        await detachInvoicesOfSettlement(t, id);
+        await detachReceiptOrdersOfSettlement(t, id);
       }
       const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
       if (data.items) await this.syncItems(id, items, t);
@@ -998,12 +1028,7 @@ export class SettlementService {
       .map((i: any) => i.id);
     let detached = 0;
     if (staleInv.length) {
-      detached += (
-        await db.invoice.updateMany({
-          where: { id: { in: staleInv }, projectId: contract.projectId },
-          data: { settlementId: null },
-        })
-      ).count;
+      detached += await detachInvoices(db, staleInv, contract.projectId);
     }
     const linkedRo: any[] = await db.receiptOrder.findMany({
       where: { settlementId: { in: linkedIds } },
@@ -1020,12 +1045,7 @@ export class SettlementService {
       })
       .map((r: any) => r.id);
     if (staleRo.length) {
-      detached += (
-        await db.receiptOrder.updateMany({
-          where: { id: { in: staleRo }, projectId: contract.projectId },
-          data: { settlementId: null },
-        })
-      ).count;
+      detached += await detachReceiptOrders(db, staleRo, contract.projectId);
     }
 
     // ② 挂载：未关联 + 与本合同同期
@@ -1045,11 +1065,11 @@ export class SettlementService {
         .filter((i: any) => periodKeyOf(startDay, invoiceDate(i)) === period)
         .map((i: any) => i.id);
       if (invIds.length) {
-        invoices += (await db.invoice.updateMany({ where: { id: { in: invIds } }, data: { settlementId } })).count;
+        invoices += await attachInvoicesToSettlement(db, invIds, settlementId);
       }
       const roIds = orphanRo.filter((r: any) => periodKeyOf(startDay, r.orderDate) === period).map((r: any) => r.id);
       if (roIds.length) {
-        receiptOrders += (await db.receiptOrder.updateMany({ where: { id: { in: roIds } }, data: { settlementId } })).count;
+        receiptOrders += await attachReceiptOrdersToSettlement(db, roIds, settlementId);
       }
     }
     return { invoices, receiptOrders, detached };
@@ -1216,10 +1236,11 @@ export class SettlementService {
          * `skipped` 只在确有新收领单需要补挂时 +1（与改造前语义一致：没有新数据不算“跳过一张”）。
          */
         if (contractReceipts.length) {
-          await this.prisma.receiptOrder.updateMany({
-            where: { id: { in: contractReceipts.map((o: any) => o.id) } },
-            data: { settlementId: existing },
-          });
+          await attachReceiptOrdersToSettlement(
+            this.prisma,
+            contractReceipts.map((o: any) => o.id),
+            existing,
+          );
           skipped++;
         }
         continue;
@@ -1278,10 +1299,11 @@ export class SettlementService {
             tx as any,
           );
           if (contractReceipts.length) {
-            await tx.receiptOrder.updateMany({
-              where: { id: { in: contractReceipts.map((o: any) => o.id) } },
-              data: { settlementId: created.id },
-            });
+            await attachReceiptOrdersToSettlement(
+              tx,
+              contractReceipts.map((o: any) => o.id),
+              created.id,
+            );
           }
           return created;
         });

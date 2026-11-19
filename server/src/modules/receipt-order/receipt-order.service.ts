@@ -14,6 +14,16 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
+/**
+ * 跨模块写入只走对方公开入口（第 22 轮审计 P3）：资产台账归 asset、总日报归 daily-report，
+ * 收领单只表达「该入账/该推送」的意图，具体落表由这两组原语完成。
+ */
+import {
+  upsertAssetLedgerByReceiptDetail,
+  clearAssetLedgerOfReceiptOrder,
+  clearAssetLedgerExceptReceiptDetails,
+} from '../asset';
+import { clearPushedDailyRowsOfReceiptOrder, pushDailyRows } from '../daily-report';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
@@ -850,7 +860,7 @@ export class ReceiptOrderService {
     //   「无来源但已确认」的孤儿行，继续计入结算口径 → 结算量永久虚高且无法再被清理。
     //   手工录入的日报行（receiptOrderId 为空）不受影响。
     await this.prisma.$transaction(async (tx) => {
-      await tx.dailyReport.deleteMany({ where: { receiptOrderId: id } });
+      await clearPushedDailyRowsOfReceiptOrder(tx, id);
       await tx.receiptOrder.delete({ where: { id } });
     });
     return true;
@@ -876,9 +886,7 @@ export class ReceiptOrderService {
 
     // 表头「是否为资产」= N → 一票否决：不入账，并清理该单已有台账行
     if (order.isAssetFlag === 'N') {
-      const removed = (
-        await db.assetLedger.deleteMany({ where: { receiptOrderId: orderId } })
-      ).count;
+      const removed = await clearAssetLedgerOfReceiptOrder(db, orderId);
       return { created: 0, updated: 0, removed };
     }
 
@@ -925,23 +933,13 @@ export class ReceiptOrderService {
         receiptDetailId: d.id,
       };
 
-      const exist = await db.assetLedger.findUnique({ where: { receiptDetailId: d.id } });
-      if (exist) {
-        await db.assetLedger.update({
-          where: { id: exist.id },
-          data: { ...payload, version: { increment: 1 } },
-        });
-        updated += 1;
-      } else {
-        await db.assetLedger.create({ data: payload });
-        created += 1;
-      }
+      const action = await upsertAssetLedgerByReceiptDetail(db, d.id, payload);
+      if (action === 'updated') updated += 1;
+      else created += 1;
     }
 
     // 清理：该收领单下不再需要入账的台账记录
-    const staleWhere: any = { receiptOrderId: orderId };
-    if (keep.length) staleWhere.receiptDetailId = { notIn: keep };
-    const removed = (await db.assetLedger.deleteMany({ where: staleWhere })).count;
+    const removed = await clearAssetLedgerExceptReceiptDetails(db, orderId, keep);
     return { created, updated, removed };
   }
 
@@ -1024,8 +1022,8 @@ export class ReceiptOrderService {
     // 按 receiptOrderId（显式外键）而非 receiptNo 文本匹配——收领单编号变更不会再导致残留/误删，
     // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
-      await tx.dailyReport.deleteMany({ where: { receiptOrderId: orderId } });
-      await tx.dailyReport.createMany({ data: rows });
+      await clearPushedDailyRowsOfReceiptOrder(tx, orderId);
+      await pushDailyRows(tx, rows);
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });
     return { pushed: rows.length };

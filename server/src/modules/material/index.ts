@@ -6,3 +6,9 @@
  */
 export { MaterialModule } from './material.module';
 export { MaterialService } from './material.service';
+// 物资表写入原语：回写基础库计量单位、整体替换合同物资明细走这里，不直接写表
+export {
+  updateMaterialBaseUnit,
+  replaceContractMaterials,
+  type ContractMaterialRow,
+} from './material-writes';

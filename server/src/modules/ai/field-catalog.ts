@@ -174,7 +174,7 @@ export const SCOPE_READ_PERMISSION: Record<AiFieldScope, string> = {
   cross: 'dashboard:view',
   ledger: 'ledger:view',
   cost: 'cost:view',
-  procurement: 'contract:view',
+  procurement: 'procurement:view',
   asset: 'asset:view',
   daily: 'daily:view',
 };

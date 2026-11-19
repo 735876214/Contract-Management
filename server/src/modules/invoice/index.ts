@@ -6,3 +6,9 @@
  */
 export { InvoiceModule } from './invoice.module';
 export { InvoiceService } from './invoice.service';
+/** 结算单挂接关系的写入原语（给 settlement 模块按结算期挂/解挂发票用，需传入事务句柄） */
+export {
+  attachInvoicesToSettlement,
+  detachInvoices,
+  detachInvoicesOfSettlement,
+} from './invoice-settlement-link';

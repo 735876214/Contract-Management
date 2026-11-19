@@ -135,7 +135,7 @@ export const routes: RouteObject[] = [
       { path: 'contract/query', element: perm('/contract/query', <ContractQuery />) },
 
       // —— 采购管理（批次一）——
-      // 菜单与路由守卫均为 `contract:view`（后端 `/procurement-tasks` 的权限码），三者一致
+      // 菜单、路由守卫与后端权限码三者一致：采购工作流 `procurement:view`，采购模板 `procurement-template:view`
       { path: 'procurement/initiate', element: perm('/procurement/initiate', <ProcurementInitiate />) },
       { path: 'procurement/pre-meeting', element: perm('/procurement/pre-meeting', <ProcurementPreMeetingMinutes />) },
       { path: 'procurement/notice', element: perm('/procurement/notice', <ProcurementNotice />) },

@@ -6,6 +6,14 @@ import { LogService } from '../../common/services/log.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectAccessService } from '../../common/services/project-access.service';
 import { LoginThrottle } from './login-throttle';
+/**
+ * User 表归 system 模块：登录记最后登录时间、改密码写哈希都走 system 的写入原语。
+ *
+ * 用**动态 import**：system 的控制器要引 `auth/guards/*`（横切基础设施），静态互引会让
+ * 模块级依赖图成环（`scripts/check-module-boundaries.mjs` 的 SCC 检查）。动态 import 是运行期
+ * 加载，Node 会缓存模块实例，只在首次多一个 Promise。
+ */
+const systemWrites = () => import('../system');
 
 @Injectable()
 export class AuthService {
@@ -49,7 +57,8 @@ export class AuthService {
     const permissions = await this.getPermissions(user.id, user.isSuperAdmin);
     const projects = await this.getProjects(user.id, user.isSuperAdmin);
 
-    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    // User 表归 system 模块：写最后登录时间走它的原语，不直接写表
+    await (await systemWrites()).touchUserLastLogin(this.prisma, user.id);
     await this.logService.login({ userId: user.id, username: user.username, ip, userAgent, result: 'SUCCESS' });
 
     const payload = { sub: user.id, username: user.username };
@@ -128,7 +137,7 @@ export class AuthService {
       throw new ForbiddenException('原密码不正确');
     }
     this.throttle.reset(pwdKey);
-    await this.prisma.user.update({ where: { id: userId }, data: { password: await bcrypt.hash(newPassword, 10) } });
+    await (await systemWrites()).setUserPasswordHash(this.prisma, userId, await bcrypt.hash(newPassword, 10));
     return true;
   }
 }

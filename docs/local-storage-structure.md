@@ -1,5 +1,9 @@
 # 本地文件存储结构（附件只存本地）
 
+迁移脚本只搬**能确定项目归属**的引用（合同签章件、合同附件、收领单扫描、发票图片、付款凭证、
+总结算附件、投标文件、分包证件/授权书，以及考察照片/询价单/框架说明等 JSON 附件）；
+合同模板文件、导入错误报告属全局资源，保持原键不动（读取端按「无项目」放行）。
+
 > **决策**：本项目附件**只保存在本地磁盘**，不引入 S3/MinIO 等对象存储（业务 2026-10-18 确认）。
 > 本文记录目录结构、命名规则、数据库字段映射、读写路径、生命周期与审计方式。
 
@@ -39,8 +43,11 @@
 - 键 = **相对 POSIX 路径**（`/` 分隔，不含根目录/盘符），落库与 URL 都基于它。
 - 文件名 = `<epochMillis>-<8位base36随机串><ext>`；`import-errors` 用固定名。
 - **一级目录是归属信息**：`p/<projectId>/…` 的键在下载时被 `FileServeController.projectIdOfStorageKey()`
-  解析出项目并复核调用方是否为该项目成员（超管放行）；**存量键（`signed/…`、`YYYY-MM/…`）没有前缀**，
-  只能维持「登录即可读」——所以在同一个桶里不要混放不同项目的文件，新代码一律走 `projectScopedSub()`。
+  解析出项目并复核调用方是否为该项目成员（超管放行）。
+  存量键（`signed/…`、`YYYY-MM/…`）**不再默认「登录即可读」**：读取时用 `modules/file/legacy-key-owner.ts`
+  反查数据库里谁引用这个键，推出归属项目后照样按成员校验；查不到引用即「归属不明」→ 403，
+  并提示执行 `server/scripts/storage-migrate.mjs` 迁移。全局资源（合同模板文件、未绑项目的导入错误文件）
+  反查结果为「无项目」，登录即可读。因此在同一个桶里不要混放不同项目的文件，新代码一律走 `projectScopedSub()`。
 - 键安全：`assertSafeStorageKey` 拒绝空、绝对路径/盘符/UNC、任何 `..` 段（400）。
 
 ## 3. 写入路径（统一走 `StorageService.save()`）
@@ -90,7 +97,7 @@
 
 | 路径 | 实现 | 权限 |
 |---|---|---|
-| `GET /api/files/**` | `FileServeController`（`server/src/modules/file/file-serve.controller.ts`）先 `assertOwnership()` 复核归属，再代理 `storage.read()`，支持单段 Range（206） | **需登录**（`JwtAuthGuard`；Bearer 或 httpOnly Cookie，GET 接受 Cookie）；键为 `p/<projectId>/…` 时**还须是该项目成员**（超管放行，否则 403「无权访问该项目」）。历史键（无前缀）只能校验登录 |
+| `GET /api/files/**` | `FileServeController`（`server/src/modules/file/file-serve.controller.ts`）先 `assertOwnership()` 复核归属，再代理 `storage.read()`，支持单段 Range（206） | **需登录**（`JwtAuthGuard`；Bearer 或 httpOnly Cookie，GET 接受 Cookie）；键为 `p/<projectId>/…` 时**还须是该项目成员**（超管放行，否则 403「无权访问该项目」）。历史键（无前缀）走 `resolveLegacyKeyOwner()` 反查归属：有项目 → 同样按成员校验；无项目（全局资源）→ 登录即可；查不到引用 → 403 |
 | `GET /contracts/:id/signed-file` | `storage.exists` + `storage.read`，Buffer 返回并设 `attachment` | `contract:view` |
 | `GET /archive/download` | 逐文件读取/图片转 PDF，`archiver` 流式打包（内存只留当前文件） | `archive:view` |
 | 单据模板生成 | 读取 xlsx 模板后渲染 | 各生成端点权限 |
@@ -136,7 +143,18 @@ find /data/uploads/2026-10 -type f | wc -l
 
 # 某合同的签章件键（访问 URL = /api/files/<键>）
 psql -c 'SELECT id, code, "signedFilePath" FROM "Contract" WHERE code = $1;'
+
+# 存量键迁移（先预演，确认后加 --apply）：把「能查出归属项目」的历史键搬到 p/<projectId>/
+cd server && npm run build
+DATABASE_URL="postgresql://..." UPLOAD_DIR="/data/uploads" node scripts/storage-migrate.mjs
+DATABASE_URL="postgresql://..." UPLOAD_DIR="/data/uploads" node scripts/storage-migrate.mjs --apply
+# 迁完再核对一遍（只读）
+DATABASE_URL="postgresql://..." UPLOAD_DIR="/data/uploads" node scripts/storage-audit.mjs
 ```
+
+迁移脚本只搬**能确定项目归属**的引用（合同签章件、合同附件、收领单扫描、发票图片、付款凭证、
+总结算附件、投标文件、分包证件/授权书，以及考察照片/询价单/框架说明等 JSON 附件）；
+合同模板文件、导入错误报告属全局资源，保持原键不动（读取端按「无项目」放行）。
 
 ## 9. 明确不做
 

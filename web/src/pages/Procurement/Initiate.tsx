@@ -80,7 +80,7 @@ const LIST_PATH = '/procurement/initiate';
  */
 export default function Initiate() {
   const editorTab = useEditorTab(LIST_PATH);
-  const canEdit = usePermission('contract:edit');
+  const canEdit = usePermission('procurement:edit');
   const isEditor = editorTab.isEditor;
   /** 「继续编辑」时由列表页递过来的整行 */
   const seedRow = (editorTab.seed as { row?: TaskRow } | undefined)?.row;
@@ -502,7 +502,7 @@ export default function Initiate() {
         extraFilters={extraFilters as never}
         extraColumns={extraColumns}
         refreshKey={listRefresh + tabRefresh}
-        editPermission="contract:edit"
+        editPermission="procurement:edit"
         actionBeforeSearch={
           canEdit ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>

@@ -6,3 +6,5 @@
  */
 export { TemplateModule } from './template.module';
 export { TemplateService } from './template.service';
+// 合同模板写入原语：文档模板模块维护合同模板记录时走这里，不直接写表
+export { createContractTemplate, updateContractTemplate, deleteContractTemplate } from './contract-template-writes';
