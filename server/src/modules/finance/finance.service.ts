@@ -21,6 +21,7 @@ import {
   OverdueRowInput,
 } from './overdue-calculator';
 import { summarizeOverdue, interestOf, buildOverdueStats } from '../../common/utils/overdue-summary';
+import { mergeOverdueRowsByMonth } from './overdue-merge';
 
 /**
  * 内存分页切片（保理费用 / 逾期利息共用）。
@@ -488,6 +489,14 @@ export class FinanceService {
    *    但读的是刚算出的派生值（interestOf 从重算后的行取），不再是库内旧值。
    * 3. asOfDate 由 service 边界取一次并注入；单测可显式传入固定日期复现任意时点口径。
    */
+  /**
+   * 逾期台账展示合并：同一「合同 + 结算月」的多条记录（材料款主行 + 付款行/计息承载行）
+   * 合并成一条展示行。统计/合计仍按未合并行计算，这里只影响列表与分页。
+   */
+  private mergeRows<T extends Record<string, any>>(rows: T[]): T[] {
+    return mergeOverdueRowsByMonth(rows);
+  }
+
   async listOverdue(contractId?: string, query: any = {}, projectId?: string, asOfDate?: Date) {
     const asOf = asOfDate instanceof Date && !isNaN(asOfDate.getTime()) ? asOfDate : new Date();
     const monthFilter = canonicalMonthKey(String(query.settlementMonth ?? '').trim());
@@ -510,19 +519,21 @@ export class FinanceService {
       });
       // 筛选发生在重算之后：只汇总被筛出的行，但读的是重算后的派生值
       const scoped = pick(fresh as any[]);
+      // 统计仍按未合并行汇总（金额口径不受展示合并影响）
       const summary = summarizeOverdue(scoped, (r) => interestOf(r));
+      // 展示/分页按「合同 + 结算月」合并成一行
+      const displayRows = this.mergeRows(
+        scoped.map((r: any) => ({
+          ...r,
+          supplierName: params.supplierName,
+          contractCode: params.contractCode,
+          contractName: params.contractName,
+        })),
+      );
       return {
         contract: params,
-        list: pageSlice(
-          scoped.map((r: any) => ({
-            ...r,
-            supplierName: params.supplierName,
-            contractCode: params.contractCode,
-            contractName: params.contractName,
-          })),
-          query,
-        ),
-        total: scoped.length,
+        list: pageSlice(displayRows, query),
+        total: displayRows.length,
         stats: buildOverdueStats(summary, params.interestCapRatio),
       };
     }
@@ -605,10 +616,12 @@ export class FinanceService {
     // 上限比例各合同可能不同 → 展示加权比例（Σ材料款×本合同中比例 ÷ Σ材料款）；
     // 于是 `buildOverdueStats` 用 材料款合计 × 加权比例 得到的上限金额 = 各合同上限之和。
     const weightedRatio = summary.totalMaterial ? capAmountSum / summary.totalMaterial : 0;
+    // 展示/分页按「合同 + 结算月」合并成一行（统计仍用未合并的 merged）
+    const displayRows = this.mergeRows(merged);
     return {
       contract: null,
-      list: pageSlice(merged, query),
-      total: merged.length,
+      list: pageSlice(displayRows, query),
+      total: displayRows.length,
       stats: buildOverdueStats(summary, weightedRatio),
     };
   }
