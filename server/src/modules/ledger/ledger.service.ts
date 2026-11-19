@@ -91,6 +91,13 @@ export class LedgerService {
       }),
     ]);
 
+    // 总结算书结算额：100% 欠款 = 审定结算额（本表 totalAmount）− 已付款；无总结算书时退回开累结算额
+    // （业务口径 2026-11-19，用户确认）。一合同至多一张（@@unique(projectId, contractId)）。
+    const finalSettlements = await this.prisma.finalSettlement.findMany({
+      where: { contractId: { in: contractIds } },
+      select: { contractId: true, totalAmount: true },
+    });
+
     const groupBy = (list: any[], key: string) =>
       list.reduce((acc: any, i: any) => {
         (acc[i[key]] = acc[i[key]] || []).push(i);
@@ -113,6 +120,7 @@ export class LedgerService {
     const settleMap = groupBy(settlements, 'contractId');
     const invoiceMap = groupBy(invoices, 'contractId');
     const payMap = groupBy(payments, 'contractId');
+    const finalSettleMap = groupBy(finalSettlements, 'contractId');
 
     const [execMap, payMethodMap, yesNoMap, supTypeMap, procMap, directMap, supCatMap] = await Promise.all([
       this.dict.nameMap('contract_execution_status'),
@@ -179,6 +187,11 @@ export class LedgerService {
 
       const compliance = calcLedgerCompliance(c.typeCode, firstEntryDate, ext.bidStartDate, ext.bidWinDate, c.signDate);
 
+      // 100% 欠款基数：总结算书结算额（无则退回开累结算额，见 deriveLedgerAmounts）
+      const fsRows = finalSettleMap[c.id] || [];
+      const finalSettleAmount =
+        fsRows.length && isFilledNumber(fsRows[0].totalAmount) ? num(fsRows[0].totalAmount) : null;
+
       return {
         id: c.id,
         index: idx + 1,
@@ -231,6 +244,7 @@ export class LedgerService {
           cumSettleAmount,
           cumPaidAmount,
           auditedSettleAmount,
+          finalSettleAmount,
           payRatio: ext.currentPayRatio,
         }),
         // 审减额 = 送审 − 审定（同一口径、均排除草稿）；不能再拿「含草稿的开累结算」相减
