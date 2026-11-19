@@ -23,7 +23,7 @@ import {
  */
 
 describe('台账派生金额口径（未填金额 ≠ 0）', () => {
-  it('合同额未填（NULL）→ 100% 欠款与结算比例都不可计算，而不是 0 / 负数', () => {
+  it('合同额未填（NULL）→ 结算比例不可计算；100% 欠款按开累结算额算，合同额未填不影响', () => {
     const r = deriveLedgerAmounts({
       amount: null,
       cumSettleAmount: 10000,
@@ -32,14 +32,15 @@ describe('台账派生金额口径（未填金额 ≠ 0）', () => {
       payRatio: 1,
     });
     assert.equal(r.settleRatio, null, '有 1 万结算却报 0% 是本缺陷的原始症状');
-    assert.equal(r.debt100, null, '未填金额时 0 − 已付款 会给出负数');
+    // 100% 欠款不再依赖合同额：无总结算书 → 退回开累结算额 10000 − 已付款 0 = 10000
+    assert.equal(r.debt100, 10000, '100% 欠款 = 开累结算额 − 已付款（合同额未填不影响）');
     assert.equal(r.amountFilled, false);
     // 与合同额无关的两列照常算
     assert.equal(r.payableAmount, 10000);
     assert.equal(r.paidRatio, 0, '确实没有付款 → 0% 是成立的事实');
   });
 
-  it('未填金额 + 有付款 → 不再是负数', () => {
+  it('未填金额 + 有付款 → 100% 欠款 = 开累结算 − 已付款（正数，不再是负数）', () => {
     const r = deriveLedgerAmounts({
       amount: null,
       cumSettleAmount: 5000,
@@ -47,7 +48,7 @@ describe('台账派生金额口径（未填金额 ≠ 0）', () => {
       auditedSettleAmount: 5000,
       payRatio: 1,
     });
-    assert.equal(r.debt100, null);
+    assert.equal(r.debt100, 2000, '开累结算 5000 − 已付款 3000 = 2000');
     assert.equal(r.settleRatio, null);
   });
 
@@ -109,7 +110,8 @@ describe('台账派生金额口径（未填金额 ≠ 0）', () => {
       auditedSettleAmount: 450000,
       payRatio: 0.8,
     });
-    assert.equal(r.debt100, 900000);
+    // 100% 欠款 = 开累结算 450000.56 − 已付款 300000 = 150000.56（与合同额 120 万无关）
+    assert.equal(r.debt100, 150000.56);
     assert.equal(r.settleRatio, 37.5);
     assert.equal(r.paidRatio, 66.67);
     assert.equal(r.payableAmount, 360000);
@@ -126,6 +128,30 @@ describe('台账派生金额口径（未填金额 ≠ 0）', () => {
     });
     assert.equal(r.settleRatio, 33.33);
     assert.equal(r.payableAmount, 0.33);
+  });
+
+  it('有总结算书 → 100% 欠款 = 总结算书结算额 − 已付款（优先于开累结算额）', () => {
+    const r = deriveLedgerAmounts({
+      amount: 1000000,
+      cumSettleAmount: 900000,
+      cumPaidAmount: 500000,
+      auditedSettleAmount: 900000,
+      finalSettleAmount: 875000,
+      payRatio: 1,
+    });
+    assert.equal(r.debt100, 375000, '用总结算书的 875000 − 已付款 500000（不是开累结算 900000）');
+  });
+
+  it('无总结算书（finalSettleAmount=null）→ 100% 欠款退回开累结算额', () => {
+    const r = deriveLedgerAmounts({
+      amount: 1000000,
+      cumSettleAmount: 900000,
+      cumPaidAmount: 500000,
+      auditedSettleAmount: 900000,
+      finalSettleAmount: null,
+      payRatio: 1,
+    });
+    assert.equal(r.debt100, 400000, '开累结算 900000 − 已付款 500000');
   });
 });
 

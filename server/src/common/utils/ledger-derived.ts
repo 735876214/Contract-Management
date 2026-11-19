@@ -51,6 +51,11 @@ export interface LedgerDerivedInput {
   cumPaidAmount: number;
   /** 审定结算额（= 结算单 `actualAmount` 之和） */
   auditedSettleAmount: number;
+  /**
+   * 总结算书（FinalSettlement）中的结算额 —— **100% 欠款** 的权威基数（业务口径 2026-11-19，用户确认）。
+   * 该合同尚无总结算书时传 `null`/`undefined`，此时 100% 欠款退回用「开累结算额」。
+   */
+  finalSettleAmount?: number | null;
   /** 合同约定的付款比例（`ContractExt.currentPayRatio`，**原始值**，允许 `null`/`''`/`0`） */
   payRatio: unknown;
 }
@@ -60,7 +65,11 @@ export interface LedgerDerivedFields {
   payableAmount: number | null;
   /** 应付未付 = 应付款金额 − 已付款；比例未填 → `null` */
   unpaidAmount: number | null;
-  /** 100% 欠款 = 合同额 − 已付款；合同额未填 → `null`（**不是** `−已付款`） */
+  /**
+   * 100% 欠款 = 审定结算额 − 已付款。
+   * 审定结算额取 **总结算书（FinalSettlement）中的结算额**；该合同尚无总结算书时退回「开累结算额」。
+   * （业务口径 2026-11-19，用户确认；与合同额无关，故合同未填金额时仍可计算）
+   */
   debt100: number | null;
   /** 已结算金额占合同比例（%）；合同额未填 → `null`（**不是 0%**） */
   settleRatio: number | null;
@@ -82,13 +91,19 @@ export function deriveLedgerAmounts(input: LedgerDerivedInput): LedgerDerivedFie
   const audited = round2(input.auditedSettleAmount);
   const payRatioFilled = isFilledNumber(input.payRatio);
 
+  /**
+   * 100% 欠款基数 = 审定结算额，其权威来源是**总结算书中的结算额**；无总结算书时退回「开累结算额」。
+   * （业务口径 2026-11-19，用户确认。与合同额无关 → 不再依赖 amountFilled，合同未填金额也能算。）
+   */
+  const debtBase = isFilledNumber(input.finalSettleAmount) ? round2(Number(input.finalSettleAmount)) : cumSettle;
+
   const payableAmount = payRatioFilled ? round2(audited * Number(input.payRatio)) : null;
 
   return {
     payableAmount,
     // 比例未填时"应付未付"同样不可计算：若按 0 算会得到 −已付款（负数）
     unpaidAmount: payableAmount === null ? null : round2(payableAmount - cumPaid),
-    debt100: amountFilled ? round2(amount - cumPaid) : null,
+    debt100: round2(debtBase - cumPaid),
     settleRatio: amountFilled ? ratioPctOrNull(cumSettle, amount) : null,
     paidRatio: ratioPctOrNull(cumPaid, cumSettle),
     amountFilled,
