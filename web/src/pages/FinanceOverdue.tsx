@@ -64,12 +64,14 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
   );
 
   const handleRemove = (row: ModuleListRow) => {
+    // 展示行可能由多条原始记录合并而来（材料款主行 + 付款行/计息承载行），删除需逐条处理
+    const ids: string[] = Array.isArray((row as any).ids) && (row as any).ids.length ? (row as any).ids : [row.id];
     Modal.confirm({
-      title: '确认删除该行？',
+      title: ids.length > 1 ? `确认删除该行（含 ${ids.length} 条明细）？` : '确认删除该行？',
       okText: '确认删除',
       okType: 'danger',
       onOk: async () => {
-        await financeApi.removeOverdue(row.id);
+        for (const id of ids) await financeApi.removeOverdue(id);
         message.success('已删除，已自动重算');
         refreshList();
       },

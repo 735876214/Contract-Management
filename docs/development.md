@@ -145,6 +145,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
   | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款、无金额→无上限） |
   | `test/overdueCalculator.spec.ts` | 逾期利息引擎（DAYS360 / 付款分配 / 开累；手算对照） |
+  | `test/overdueMerge.spec.ts` | 逾期台账**按「合同+结算月」合并成一行**（一个逾期项的「材料款主行 + 付款行/计息承载行」合并展示）：金额求和、日期取最早、多笔付款取最晚并在备注列出各笔、逾期天数取最大、跨月/跨合同不合并、单行原样透传 |
   | `test/ledgerCompliance.spec.mts` | 合同台账合规判定（执行类 vs 非执行类的节点比较与优先级） |
   | `test/contractChain.spec.mts` | **合同当前金额口径锁**（= 主合同 + Σ 补充协议 `changeAmount`，**不采信手填 amount**）· 主合同未填 → 当前金额未知（`null`，不是"只算补充协议"）· 只算直接补充协议、防环 · 链上累计结算（排除草稿/自身）与累计付款（排除失败/退款） |
   | `test/contractFulfillment.spec.mts` | **合同履约派生进度（零表，2026-10-18）**：已收/已结/已付/开票比例 · 分母未知或为 0 → `null`（显式 0 照常参与）· 超收/超结/超付用负数暴露 · 「有收货未结算」「有结算未付款」标记 |
