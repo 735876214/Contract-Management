@@ -721,12 +721,23 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
   const submit = async () => {
     const v = await form.validateFields();
     /**
-     * 保理贴息 / 逾期利息是**只读派生列**（业务口径 2026-10-16）：
-     * 它们分别来自「资金费用台账」与「逾期利息」，要改去源头改。
+     * 以下均为**只读派生列**：`factoringDiscount`（资金费用台账）、`overdueInterest`（逾期利息台账），
+     * 以及由结算单/发票自动派生的 `monthSettleAmount / settleCount / yearSettleAmount /
+     * cumPurchaseAmount / startSettleAmount / monthActualPurchase`。
      * 表单里虽已 `disabled`，但 antd 仍会把值放进 payload —— 服务端会**明确 400 拒绝**
      * （而不是静默忽略），故这里必须剥掉，否则每次保存台账都会报错。
      */
-    const { factoringDiscount: _fd, overdueInterest: _oi, ...payload } = v as any;
+    const {
+      factoringDiscount: _fd,
+      overdueInterest: _oi,
+      monthSettleAmount: _ms,
+      settleCount: _sc,
+      yearSettleAmount: _ys,
+      cumPurchaseAmount: _cp,
+      startSettleAmount: _ss,
+      monthActualPurchase: _map,
+      ...payload
+    } = v as any;
     // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
     if (editing) payload.version = (editing as any).version;
     setSaving(true);

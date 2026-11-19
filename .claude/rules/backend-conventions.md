@@ -52,8 +52,10 @@
   单一实现在 `common/utils/contract-chain.ts` 的 `resolveChainAmounts()` / `contractChainAmount()`。
   ⚠️ **不要用补充协议的 `amount` 参与链式求和**——它是自由填写字段，涨价/降价时往往填的是
   "剩余数量的全价"，直接相加会**重复计入**；`changeAmount` 由服务端在发布时按清单重算
-  （`common/utils/supplement-delta.ts`）。台账「已结算金额占合同比例」「100% 欠款」的分母、
+  （`common/utils/supplement-delta.ts`）。台账「已结算金额占合同比例」的分母、
   防超结上限、工作台红/黄预警**全部用这一个口径**。
+  （`100% 欠款` 例外：基数已改为「审定结算额（总结算书 `SETTLED` 的 `totalAmount`）− 已付款」，
+  无已定案总结算书时退回「开累结算额 − 已付款」，见 `deriveLedgerAmounts()` 的 `finalSettleAmount`。）
   ⚠️ 链 IO 只在 `contract-chain.ts`（不在 `amount-guard`）：`amount-guard` 被 `.mts` spec 加载，
   **不能新增相对 import**（见 `.claude/rules/testing.md`）。
 - **金额上限（防超结/防超付）**：判定在零依赖模块 `common/utils/amount-guard.ts`
@@ -101,19 +103,24 @@
 - **`settlementId` 可以为空 = 「仅费用行」**：当月**没有结算单但有资金费用/逾期利息**时，台账行照样要生成
   （`monthSettleAmount = 0`）。"结算单驱动"与"仅费用驱动"两条路径**汇合在同一个 `upsertLedgerRow()`**，
   不要在别处手拼台账的自动字段。
-- **`factoringDiscount` / `overdueInterest` 是只读派生列**：分别来自「资金费用台账」与「逾期利息」，
-  `updateLedger()` / `createLedger()` 收到它们一律 **400**（**不静默忽略**——静默会让人以为改成功了）；
-  前端台账表单也置灰并在提交前剥掉这两个 key。唯一例外是台账 **Excel 导入**
-  （`createLedger(data, projectId, tx, { fromImport: true })`：导入模板仍带这两列，
-  且它们本来就会被自动字段覆盖，行为与改造前一致）。锁定：`settlement-link.int.spec.ts`。
-- **派生金额的"三态"契约（未填 ≠ 0）**：台账里由合同额/结算额推出来的列（`100% 欠款`、
-  `已结算金额占合同比例`、`应付款金额`、`应付未付`、`已付款占结算比例`）**必须**走
+- **只读派生列（8 个）**：`factoringDiscount`（资金费用台账）、`overdueInterest`（逾期利息台账），
+  以及由结算单/发票派生的 `monthSettleAmount` / `settleCount` / `yearSettleAmount` /
+  `cumPurchaseAmount` / `startSettleAmount` / `monthActualPurchase`。
+  `computeLedgerAutoFields()` 每次保存/刷新都会覆盖它们，故 `updateLedger()` / `createLedger()` 收到一律 **400**
+  （**不静默忽略**——静默会让人以为改成功了）；前端台账表单也置灰并在提交前剥掉这 8 个 key。
+  唯一例外是台账 **Excel 导入**（`createLedger(data, projectId, tx, { fromImport: true })`：
+  导入模板仍带「保理贴息/逾期利息」，且它们本来就会被自动字段覆盖，行为与改造前一致）。
+  锁定：`settlement-link.int.spec.ts`。
+- **派生金额的"三态"契约（未填 ≠ 0）**：台账里由合同额/结算额推出来的列（`已结算金额占合同比例`、
+  `应付款金额`、`应付未付`、`已付款占结算比例`）**必须**走
   `common/utils/ledger-derived.ts` 的 `deriveLedgerAmounts()`，**不要就地写算式**：
   合同额未填（`NULL`/空串）时这些列要返回 `null`（前端显示 `-`、导出留白），
   **不能兜成 0**——`0 − 已付款` 是负数、`结算/0` 是"谎称未结算"，而同一批合同在防超结闸门里
   的口径是"上限未知"（`contractChainAmount()` 返回 `null`）→ 会造出"同一件事两个相反结论"。
   ⚠️ **显式填 `0` 是真实的 `0`**（与 `amount-guard` 一致），照常参与计算：0 元合同却有付款
   算出的负欠款**正是该被看见的数据异常**，别抹平。锁定：`ledgerDerived.spec.mts`。
+  ⚠️ `100% 欠款` 已不再依赖合同额：基数 = `finalSettleAmount ?? cumSettleAmount`（见上条），
+  无已定案总结算书时即「开累结算额 − 已付款」，故合同额未填也能算出。
 - **「累计结算」有两个口径，是有意区分的，别去"统一"**：台账列「已结算金额占合同比例」的分子用
   **开累结算金额**（`SettlementLedger.monthSettleAmount`，由结算/发票/保理/逾期派生）；
   防超结闸门与工作台预警的分子用**结算单口径**（`Settlement.actualAmount`）。前者回答"这条链的账现在是多少"，

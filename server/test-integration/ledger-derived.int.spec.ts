@@ -136,4 +136,37 @@ describe('集成 · 台账派生金额口径', () => {
     assert.equal(c.cumSettleBeforeTax, null, '有票但税额算不出 → null（未知不兜 0）');
     assert.equal(c.cumInputTax, null);
   });
+
+  it('100% 欠款 = 审定结算额(总结算书 SETTLED) − 已付款；无已定案总结算书退回开累结算额', async () => {
+    const project = await makeProject(ctx.prisma, 'LEDGER-4');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const withFinal = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const noFinal = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+    const pending = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 100000 });
+
+    const ledgerRow = (contractId: string) =>
+      ctx.prisma.settlementLedger.create({ data: { projectId: project.id, contractId, settleMonth: '2026-03', monthSettleAmount: 60000 } });
+    await ledgerRow(withFinal.id);
+    await ledgerRow(noFinal.id);
+    await ledgerRow(pending.id);
+
+    const pay = (contractId: string) =>
+      ctx.prisma.paymentRecord.create({ data: { projectId: project.id, contractId, payMonth: '2026-04', amount: 20000, statusCode: 'PAID' } });
+    await pay(withFinal.id);
+    await pay(noFinal.id);
+    await pay(pending.id);
+
+    const fs = (contractId: string, statusCode: string, totalAmount: number) =>
+      ctx.prisma.finalSettlement.create({ data: { projectId: project.id, contractId, statusCode, totalAmount } });
+    await fs(withFinal.id, 'SETTLED', 200000);
+    // 未定案（待补附件）的快照金额不得进入欠款基数
+    await fs(pending.id, 'PENDING_ATTACHMENT', 999999);
+
+    const res: any = await ledger.findAll({}, project.id);
+    const row = (id: string) => res.list.find((r: any) => r.id === id);
+
+    assert.equal(row(withFinal.id).debt100, 180000, '已定案总结算书 20 万 − 已付 2 万');
+    assert.equal(row(noFinal.id).debt100, 40000, '无总结算书 → 开累结算 6 万 − 已付 2 万');
+    assert.equal(row(pending.id).debt100, 40000, 'PENDING_ATTACHMENT 快照不计入 → 退回开累结算 6 万 − 已付 2 万');
+  });
 });

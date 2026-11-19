@@ -6,7 +6,7 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { deriveLedgerAmounts, sumInvoiceTax, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
-import { paidPaymentWhere, countedInvoiceWhere } from '../../constants/statuses';
+import { paidPaymentWhere, countedInvoiceWhere, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -93,8 +93,13 @@ export class LedgerService {
 
     // 总结算书结算额：100% 欠款 = 审定结算额（本表 totalAmount）− 已付款；无总结算书时退回开累结算额
     // （业务口径 2026-11-19，用户确认）。一合同至多一张（@@unique(projectId, contractId)）。
+    // 只取**已定案（SETTLED）**的总结算书：PENDING_ATTACHMENT（待补附件）属未定案，其 totalAmount 仅为快照，
+    // 不应进入欠款基数（第 23 轮审计 P2，2026-11-19）。
     const finalSettlements = await this.prisma.finalSettlement.findMany({
-      where: { contractId: { in: contractIds } },
+      where: {
+        contractId: { in: contractIds },
+        statusCode: FINAL_SETTLEMENT_STATUS.SETTLED,
+      },
       select: { contractId: true, totalAmount: true },
     });
 
