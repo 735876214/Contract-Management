@@ -767,10 +767,10 @@ function LedgerEditor({ contractOptions, seed }: { contractOptions: any[]; seed:
           <Col xs={24} md={8}><Form.Item name="monthSettleAmount" label="本月结算额（纯派生·本期结算单合计，不可编辑）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="monthInvoiceAmount" label="本月开票额（自动抓取收票登记）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="settleCount" label="结算次数（系统派生·按结算期时间顺序第 N 次结算）"><InputNumber style={{ width: '100%' }} min={0} precision={0} disabled /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
-          <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="yearSettleAmount" label="本年结算额（系统派生·同年各月合计）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="cumPurchaseAmount" label="截止当月开累采购额（系统派生）" tooltip="只读：结算期 ≤ 本行的「本月结算额」累计，由系统按结算单自动计算"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="startSettleAmount" label="开工结算额（系统派生）" tooltip="只读：该合同全部结算期「本月结算额」合计，由系统按结算单自动计算"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
+          <Col xs={24} md={8}><Form.Item name="monthActualPurchase" label="当月实际采购额（系统派生·本月结算额−保理贴息−逾期利息）"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="factoringDiscount" label="保理贴息（只读·自动抓取资金费用台账）" tooltip="只读：要改请到「资金费用台账」修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="overdueInterest" label="逾期利息（只读·自动抓取逾期利息）" tooltip="只读：要改请到「逾期利息」处修改，保存后这里会自动同步"><InputNumber style={{ width: '100%' }} min={0} precision={2} disabled /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="yearSettleIncome" label="本年结算对应收入"><InputNumber style={{ width: '100%' }} min={0} precision={2} /></Form.Item></Col>
