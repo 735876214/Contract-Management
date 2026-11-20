@@ -13,11 +13,9 @@ import { requestContext } from '../../common/services/request-context';
 import { DocTemplateService } from '../doc-template';
 import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
-import {
-  buildFinalSettlementDocValues,
-} from './final-settlement-vars';
+import { renderFinalSettlementXlsx } from './final-settlement-excel';
 
-const FIELDS = ['remark'];
+const FIELDS = ['remark', 'reduceAmount'];
 
 /**
  * **总结算单**（业务口径 2026-10-16）：结算及付款管理下的单据。
@@ -230,16 +228,92 @@ export class FinalSettlementService {
     return true;
   }
 
-  /** 导出总结算单 Word（模板分类 `FINAL_SETTLEMENT`；明细表走 `{{结算明细表}}` 表格占位符） */
-  async export(id: string, templateId?: string, projectId?: string) {
-    const doc: any = await this.findOne(id, projectId);
+  /**
+   * 编辑明细（月份/金额）+ 审减金额，保存即重算合计（`totalAmount` = 明细合计）。
+   *
+   * 业务口径（2026-11）：生成后允许经办人按实际调整每期月份与金额、并手工录入审减金额，
+   * 保存即生效——不再需要"先手工维护单据模板"才能出正确结算书。
+   * ⚠️ 只有「待上传附件」(`PENDING_ATTACHMENT`) 状态可编辑：一旦上传附件（已结算、合同已完已结、
+   *    付款比例已切 100%），明细/金额即为已确认快照，不再允许改动。
+   */
+  async updateItems(
+    id: string,
+    body: { items?: Array<{ id?: string; settleMonth?: string; amount?: any }>; reduceAmount?: any; version?: number },
+    projectId?: string,
+  ) {
+    const before: any = await this.findOne(id, projectId);
+    assertVersion(before, body);
+    await this.lock.assertWritable(before.contractId, '编辑总结算单明细');
+    if (before.statusCode !== FINAL_SETTLEMENT_STATUS.PENDING_ATTACHMENT) {
+      throw new BadRequestException('总结算单已上传附件（已结算），明细不可再修改');
+    }
+    const incoming = Array.isArray(body.items) ? body.items : [];
+    if (!incoming.length) throw new BadRequestException('至少保留一条结算明细');
+
+    // 参数校验 + 规范化（月份 YYYY-MM；金额保留 2 位）
+    const normalized = incoming.map((it, i) => {
+      const month = String(it.settleMonth ?? '').trim();
+      if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException(`第 ${i + 1} 行结算月份格式应为 YYYY-MM`);
+      const amount = Number(it.amount);
+      if (!Number.isFinite(amount)) throw new BadRequestException(`第 ${i + 1} 行结算金额无效`);
+      return { id: it.id, settleMonth: month, amount: round2(amount), sortOrder: i + 1 };
+    });
+
+    const existing = new Map<string, any>((before.items || []).map((x: any) => [x.id, x]));
+    const keepIds = new Set(normalized.filter((n) => n.id && existing.has(n.id)).map((n) => n.id as string));
+    const totalAmount = round2(normalized.reduce((t, i) => t + (Number(i.amount) || 0), 0));
+    const reduceAmount =
+      body.reduceAmount === undefined || body.reduceAmount === null || body.reduceAmount === ''
+        ? (before.reduceAmount ?? 0)
+        : round2(Number(body.reduceAmount) || 0);
+
+    return this.prisma.$transaction(async (tx) => {
+      // 删除不在新列表中的旧明细
+      const toDelete = [...existing.keys()].filter((eid) => !keepIds.has(eid));
+      if (toDelete.length) await tx.finalSettlementItem.deleteMany({ where: { id: { in: toDelete } } });
+
+      for (const it of normalized) {
+        if (it.id && existing.has(it.id)) {
+          await tx.finalSettlementItem.update({
+            where: { id: it.id },
+            data: { settleMonth: it.settleMonth, amount: it.amount, sortOrder: it.sortOrder },
+          });
+        } else {
+          // 新增行：无 settlementId（人工补充的明细，非快照自月度结算）
+          await tx.finalSettlementItem.create({
+            data: {
+              finalSettlementId: id,
+              settleMonth: it.settleMonth,
+              amount: it.amount,
+              sortOrder: it.sortOrder,
+            },
+          });
+        }
+      }
+
+      return tx.finalSettlement.update({
+        where: { id },
+        data: { totalAmount, reduceAmount, version: { increment: 1 } },
+        include: { items: { orderBy: { sortOrder: 'asc' } } },
+      });
+    });
+  }
+
+  /**
+   * 导出总结算书（《物资结算书》CSCEC-SW-B40806，5 个 sheet）。
+   *
+   * 业务口径 2026-11：不再依赖「单据模板」页手工上传的 xlsx（那套引擎只支持单表格占位符，产不出本合同
+   * 要求的 5-sheet 版式），改用内置模板 `assets/final-settlement-template.xlsx` 直接渲染成品。
+   */
+  async export(id: string, doc?: any, projectId?: string) {
+    const row: any = doc ?? (await this.findOne(id, projectId));
     const [contract, project] = await Promise.all([
       this.prisma.contract.findUnique({
-        where: { id: doc.contractId },
-        select: { id: true, code: true, name: true, supplierId: true },
+        where: { id: row.contractId },
+        select: { id: true, code: true, name: true, amount: true, supplierId: true },
       }),
       this.prisma.project.findUnique({
-        where: { id: doc.projectId },
+        where: { id: row.projectId },
         select: { name: true, nameAbbr: true, code: true },
       }),
     ]);
@@ -247,16 +321,11 @@ export class FinalSettlementService {
       ? await this.prisma.supplier.findUnique({ where: { id: contract.supplierId }, select: { name: true } })
       : null;
 
-    const values = buildFinalSettlementDocValues({ doc, contract, supplier, project });
-    // 业务 2026-10-17：总结算单生成路径 Word → Excel（模板为上传的 xlsx，明细占位符整格多行）
-    return this.docTemplate.renderFinalSettlement({
-      doc,
-      contract,
+    return renderFinalSettlementXlsx({
+      doc: row,
+      contract: contract ? { code: contract.code, name: contract.name, amount: contract.amount } : null,
       project,
       supplier,
-      values,
-      templateId,
-      filename: `${doc.code || '总结算单'}.xlsx`,
     });
   }
 }
