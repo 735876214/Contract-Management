@@ -66,6 +66,7 @@ import { assertSettlementProgress, assertSettlementRejectable, SETTLEMENT_STATUS
 // 总结算单状态常量（第 21 轮审计：不要再裸写 'SETTLED'）；发票金额口径统一走 countedInvoiceWhere（作废/红冲不计入）
 import { FINAL_SETTLEMENT_STATUS, countedInvoiceWhere } from '../../constants/statuses';
 import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
+import { buildSettlementItemsFromReceiptOrders } from '../../common/utils/settlement-from-receipts';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
@@ -240,6 +241,127 @@ export class SettlementService {
       where: { settlementId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+  }
+
+  /**
+   * 结算明细的来源行：该结算单**已挂收领单**的明细（明细缺失的收领单退回它推送的总日报行）。
+   * 业务口径 2026-11-21：明细不再是"只有自动生成才带得出来"，挂上收领单就能落明细。
+   */
+  private async loadItemSourceOrders(settlementId: string) {
+    const orders: any[] = await this.prisma.receiptOrder.findMany({
+      where: { settlementId },
+      orderBy: [{ orderDate: 'asc' }, { orderNo: 'asc' }],
+      select: {
+        id: true,
+        orderNo: true,
+        details: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            materialId: true,
+            receivedQty: true,
+            priceBeforeTax: true,
+            taxRatePct: true,
+            priceWithTax: true,
+            totalPrice: true,
+          },
+        },
+      },
+    });
+    if (!orders.length) return [];
+    // 兜底来源：这些收领单推送出去的总日报行（同一次查询批量取，避免 N+1）
+    const dailyRows: any[] = await this.prisma.dailyReport.findMany({
+      where: { receiptOrderId: { in: orders.map((o) => o.id) } },
+      select: {
+        receiptOrderId: true,
+        materialBaseId: true,
+        materialName: true,
+        receiptNo: true,
+        settleQty: true,
+        priceBeforeTax: true,
+        taxRatePct: true,
+        priceAfterTax: true,
+        amountBeforeTax: true,
+        amountAfterTax: true,
+      },
+    });
+    const byOrder = new Map<string, any[]>();
+    for (const r of dailyRows) {
+      const key = r.receiptOrderId as string;
+      byOrder.set(key, [...(byOrder.get(key) || []), r]);
+    }
+    return orders.map((o) => ({
+      id: o.id,
+      orderNo: o.orderNo,
+      details: o.details || [],
+      dailyRows: byOrder.get(o.id) || [],
+    }));
+  }
+
+  /**
+   * **预览**按已挂收领单能带出的结算明细（只算不写）。
+   * 供编辑器「按收领单带出明细」先看结果：明细合计与表头金额的差额一起返回，
+   * 差额非 0 时由前端提示（本功能**不改表头金额**，金额仍以人工录入为准）。
+   */
+  async previewItemsFromReceipts(id: string, projectId?: string) {
+    const s: any = await this.findOne(id, projectId);
+    const orders = await this.loadItemSourceOrders(id);
+    const built = buildSettlementItemsFromReceiptOrders(orders);
+    return this.itemsFromReceiptsPayload(s, built);
+  }
+
+  /**
+   * **落库**：按已挂收领单重建该结算单的明细（replace-all，与 syncItems 同语义）。
+   *
+   * 三条边界（业务口径 2026-11-21）：
+   * 1. 只写明细，**不动表头金额/扣款/状态**——金额可能已定稿甚至已结算，
+   *    服务端不该悄悄改；差额由返回值给出，人工确认后自行调整。
+   * 2. 没有已挂收领单、或收领单带不出任何明细 → 直接 400，**绝不清空**既有明细
+   *    （空结果清空会被误当成"按收领单重算"的正常结果）。
+   * 3. 不做量级闸门：闸门是「提交结算」时的事（`checkOverSettlementQty`），
+   *    这里的明细会参与后续提交校验，故本方法保持幂等、可反复调用。
+   */
+  async rebuildItemsFromReceipts(id: string, projectId?: string) {
+    const s: any = await this.findOne(id, projectId);
+    await this.lock.assertWritable(s.contractId, '按收领单带出结算明细');
+    const orders = await this.loadItemSourceOrders(id);
+    if (!orders.length) {
+      throw new BadRequestException('该结算单还没有挂接收领单，无法带出明细；请先在收领单上选择结算单');
+    }
+    const built = buildSettlementItemsFromReceiptOrders(orders);
+    if (!built.items.length) {
+      const why = built.ordersWithoutItems.length
+        ? `（${built.ordersWithoutItems.join('、')} 的明细缺少物资主数据或实收数量为空）`
+        : '';
+      throw new BadRequestException(`已挂收领单带不出可用明细${why}，请先在收领单上补全物资与实收数量`);
+    }
+    const rows: any[] = await this.prisma.$transaction((t) => this.syncItems(id, built.items, t));
+    return { ...this.itemsFromReceiptsPayload(s, built), items: rows, saved: true };
+  }
+
+  /** 预览/落库共用的返回体（口径一致，避免两处各拼一遍） */
+  private itemsFromReceiptsPayload(s: any, built: ReturnType<typeof buildSettlementItemsFromReceiptOrders>) {
+    const headerAmount = num(s.actualAmount);
+    return {
+      settlementId: s.id,
+      code: s.code,
+      contractId: s.contractId,
+      /** 表头金额（actualAmount）：本功能不改它 */
+      headerAmount,
+      /** 明细合计（Σ 合价，与落到明细行上的 totalWithTax 同口径） */
+      itemsAmount: built.amount,
+      /** 差额 = 明细合计 − 表头金额；非 0 说明明细与人工录入的金额不一致，需人工核对 */
+      diff: round2(built.amount - headerAmount),
+      items: built.items,
+      receiptOrderCount: built.receiptOrderCount,
+      detailRowCount: built.detailRowCount,
+      dailyFallbackOrderCount: built.dailyFallbackOrderCount,
+      ordersWithoutItems: built.ordersWithoutItems,
+      skippedRowCount: built.skippedRowCount,
+      skippedNames: built.skippedNames,
+      skippedNoQtyRowCount: built.skippedNoQtyRowCount,
+      skippedNetZeroRowCount: built.skippedNetZeroRowCount,
+      skippedInvalidPriceRowCount: built.skippedInvalidPriceRowCount,
+    };
   }
 
   async findAll(query: any = {}, projectId: string) {

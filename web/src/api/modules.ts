@@ -256,7 +256,13 @@ export const settlementApi = {
   refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
   /** 预览「上一期」待生成的结算（顶部提示用）：未挂结算单的收领单张数、还差几个合同 */
   previewGenerate: (params?: any) => http.get<any, any>('/settlements/generate/preview', { params }),
+  /** 预览：按**已挂收领单**能带出的结算明细（不写库；返回明细合计与表头金额差额） */
+  previewItemsFromReceipts: (id: string) => http.get<any, any>(`/settlements/${id}/items/from-receipts`),
   /**
+   * 落库：按已挂收领单**重建**结算明细（replace-all，不改表头金额/状态）。
+   * 收领单明细优先，没有明细的收领单退回它推送的总日报行。
+   */
+  itemsFromReceipts: (id: string) => http.post<any, any>(`/settlements/${id}/items/from-receipts`),  /**
    * 生成本期（默认上一期）结算单：抓取期间内未挂结算单的收领单，按合同各生成一张草稿结算单。
    * 幂等 —— 已有结算单的合同会被跳过（返回 `skipped`）。
    */

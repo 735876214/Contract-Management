@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（90 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（91 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（24 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
@@ -218,6 +218,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `test/csvExport.spec.ts` | **导出防护与字段长度兜底**（2026-10-21 第 16、19 轮审计）：`csvCell` 给以 `= + - @` 开头的值补单引号（Excel 打开 CSV 会把 `=cmd|'/c calc'!A1` 当公式执行），负数与小数保留为数字、按 RFC 4180 包裹引号换行 · `pickFields` 超 10 万 字符的字符串抛 400（Prisma 的 String 是 text，无 DTO 时能塞进几 MB） |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 · 负数（退货/调出）参与聚合并按净额冲减；净 0 分组计入 `skippedNetZeroRowCount` |
+  | `test/settlementFromReceipts.spec.mts` | **收领单 → 结算明细带出**（业务口径 2026-11-21：挂上收领单就能落明细，不再只有自动生成才带得出）：**明细优先**（数量取 eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· 明细缺物资主数据 → 退回该单**总日报行**（不丢数量）· 两者都带不出 → 记入 ordersWithoutItems（不静默丢）· 同物资跨多单按数量加权聚合成一行 · 负数量（退货）参与聚合、净额为负照常保留 · 数量为空/0 计入 skippedNoQtyRowCount · 价格公式复用 settlement-from-daily（单一事实源） |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |
   | `test/docVariables.spec.mts` | **单据模板变量（第三套体系）**：面板与取值表**逐条一致** · 金额类变量名必须带单位后缀 `(元)` · 面板给 `raw` 一律是 `{{key}}` · 取值表对缺失对象返回空串（不写 `undefined`）· **源码扫描**：`RichTextEditor.insertVariable` 默认插入的是**双花括号**（2026-10-16 修过：默认值曾是 `{key}`，插了不替换） |
   | `test/excelParse.spec.ts` | **Excel 解析口径与表头行探测**（2026-10-20 审计）：`detectHeaderRow` 在「导出文件（logo 占 1~2 行、表头第 3 行）」与「填写模板（表头第 1 行、必填列带 `*`）」两种布局下都定位正确、列名对不上回退第 1 行 · `parse(buf, [], headerRowNo)` 按指定行取表头且不把表头行当数据 · **导出 → 探测 → 解析闭环**（这正是字典「导出后原样导回」静默 0 行的回归点） |

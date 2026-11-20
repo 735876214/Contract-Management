@@ -25,6 +25,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // 前端少数页面直接 import 后端的共享计算引擎（`../../../server/src/common/calc/*.ts`），
+    // 该文件在 web 目录之外，需显式允许 vite 读取（宿主机跑与容器跑都指向同一相对位置）。
+    fs: { allow: ['.', path.resolve(__dirname, '../server')] },
     proxy: {
       '/api': {
         target: apiProxyTarget,
