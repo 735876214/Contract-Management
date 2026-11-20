@@ -22,7 +22,7 @@ import { SettlementService } from '../settlement';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
-import { calcAmount } from '../../common/calc/amounts';
+import { calcAmount, taxAmountDiff } from '../../common/calc/amounts';
 import { isFilledNumber } from '../../common/utils/ledger-derived';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
@@ -196,6 +196,30 @@ export class InvoiceService {
   }
 
   /**
+   * 票面金额自洽：`含税 ≈ 税前 × (1 + 税率)`（容差 1 分）。
+   *
+   * 税前/税率/含税是三个自由输入字段，服务端此前只校验「税前必填 + 非负」，任一被手改就会
+   * 落库一张自身不自洽的票（第 24 轮审计：08812678 税前 661,846.13 × 1.13 = 747,886.13，
+   * 含税却记成 748,485.12，差 598.99 → 台账「开累发票进项税额 = 含税 − 税前」随之多算 598.99）。
+   *
+   * 口径：**只报错不改数**——票面哪个数是准的只有财务知道，静默重算等于替用户改账。
+   * 无法判定（缺税率或缺含税：历史票、导入票常见）时放行，不臆造错误。
+   */
+  private assertAmountConsistent(amountBeforeTax: unknown, taxRatePct: unknown, amountWithTax: unknown) {
+    const diff = taxAmountDiff(amountBeforeTax, taxRatePct, amountWithTax);
+    if (diff === null || Math.abs(diff) <= 0.01) return;
+    const before = num(amountBeforeTax) ?? 0;
+    const pct = num(taxRatePct) ?? 0;
+    const withT = num(amountWithTax) ?? 0;
+    const expect = calcAmount(before, 1 + pct / 100, 2);
+    throw new BadRequestException(
+      `票面金额不自洽：税前 ¥${before.toFixed(2)} × (1 + ${pct}%) = ¥${expect.toFixed(2)}，` +
+        `与含税 ¥${withT.toFixed(2)} 相差 ¥${diff.toFixed(2)}。` +
+        '请核对税前金额、税率、含税金额三者中哪一个录错（三者必须自洽，否则台账的进项税额会跟着错）。',
+    );
+  }
+
+  /**
    * 新建发票。⚠️ `create` / `batchCreate` / `import` **有意不收紧终态**：
    * 历史数据/导入允许直接落 `CANCELLED`/`RED`（导入路径还经 `tx` 复用本方法）；
    * 只有交互式 `PUT` 被 `assertStatusTransition` 拦在终态之外。别把这里的宽松当漏网收紧。
@@ -218,6 +242,8 @@ export class InvoiceService {
     this.assertNoNegativeAmounts(payload);
     // 税前金额必填（台账「开累发票税前金额/进项税额」由发票派生，缺税前就算不出来）
     this.assertBeforeTaxRequired(payload.amountBeforeTax);
+    // 三字段自洽（税前 × (1+税率) 必须等于含税，容差 1 分）
+    this.assertAmountConsistent(payload.amountBeforeTax, payload.taxRatePct, payload.amountWithTax);
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
     // 开票单位可通过合同关联供应商库自动带出
@@ -369,6 +395,18 @@ export class InvoiceService {
     // 编辑时**把已填的税前金额清空** → 拦下；历史票本就为空时编辑其他字段不受阻（税前必填只约束新增）
     if (payload.amountBeforeTax !== undefined && isFilledNumber(before.amountBeforeTax)) {
       this.assertBeforeTaxRequired(payload.amountBeforeTax);
+    }
+    /**
+     * 票面金额自洽：**只在本次请求动了金额三件套时校验**（与「税前必填」同一思路）。
+     * 历史票本身可能就不自洽（如审计发现的 08812678），只改备注/状态不该被它拦住——
+     * 那会让人连备注都存不了；要改就得连带把金额改对。
+     */
+    if (['amountBeforeTax', 'taxRatePct', 'amountWithTax'].some((f) => payload[f] !== undefined)) {
+      this.assertAmountConsistent(
+        payload.amountBeforeTax ?? before.amountBeforeTax,
+        payload.taxRatePct ?? before.taxRatePct,
+        payload.amountWithTax ?? before.amountWithTax,
+      );
     }
     if (data.invoiceDate) payload.invoiceDate = toDate(data.invoiceDate);
     if (data.receiveDate) payload.receiveDate = toDate(data.receiveDate);
