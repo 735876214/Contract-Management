@@ -1373,7 +1373,7 @@ export class ContractService {
      * 不先拦会由数据库抛 500；这里给出可操作的 400 提示。
      */
     const chainIds = await contractChainIds(this.prisma, id);
-    const [receipts, settlements, daily, finals, invoices, payments, milestones, factorings, overdues] =
+    const [receipts, settlements, daily, finals, invoices, payments, milestones, factorings, overduePayables, overduePayments] =
       await Promise.all([
         this.prisma.receiptOrder.count({ where: { projectId, materialContractId: { in: chainIds } } }),
         this.prisma.settlement.count({ where: { projectId, contractId: { in: chainIds } } }),
@@ -1389,7 +1389,9 @@ export class ContractService {
          * 台账与月度盈亏随之漂移且无法复算 —— 必须和别的下游一样先拦。
          */
         this.prisma.factoringCost.count({ where: { contractId: { in: chainIds } } }),
-        this.prisma.overdueInterest.count({ where: { contractId: { in: chainIds } } }),
+        // 逾期利息台账已改为主子表（应付款项 + 付款流水），两表都没有 projectId，都要拦
+        this.prisma.overduePayable.count({ where: { contractId: { in: chainIds } } }),
+        this.prisma.overduePayment.count({ where: { contractId: { in: chainIds } } }),
       ]);
     // 补充协议：`Contract.parentContract` 外键是 ON DELETE SET NULL（schema 未声明 onDelete），
     // 删主合同不会删子合同，只会把 parentContractId 清空 → 留下无主的补充协议，
@@ -1397,7 +1399,7 @@ export class ContractService {
     // ⚠️ 只能数**直接下级**：`contractChainIds()` 返回的恒是 [链根, …链根的补充协议]，
     //    用 `in: chainIds` 会把被删对象自己（当它本身就是补充协议时）也数进去 → 补充协议永远删不掉。
     const supplements = await this.prisma.contract.count({ where: { projectId, parentContractId: id } });
-    if (receipts + settlements + daily + finals + invoices + payments + milestones + factorings + overdues > 0) {
+    if (receipts + settlements + daily + finals + invoices + payments + milestones + factorings + overduePayables + overduePayments > 0) {
       throw new BadRequestException(
         '存在下游单据（收领单/总日报/结算/总结算/发票/付款/履约节点/资金费用/逾期利息），不能删除合同，请改为归档',
       );

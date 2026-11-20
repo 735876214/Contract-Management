@@ -461,6 +461,16 @@ export const financeApi = {
   updateOverdue: (id: string, data: any) => http.put<any, any>(`/finance/overdue-interests/${id}`, data),
   removeOverdue: (id: string) => http.delete<any, any>(`/finance/overdue-interests/${id}`),
   exportOverdueUrl: (contractId: string) => `${http.defaults.baseURL}/finance/overdue-interests/export?contractId=${contractId}`,
+  /** 付款模式定义（单一事实源在后端 pay-ratio.ts）：{ mode, label, tranches:[{ratio, plusMonths, day}] } */
+  paymentModes: () => http.get<any, any>('/finance/payment-modes'),
+  /** 保存前预览派生列（直接调后端引擎，避免前端复刻一套算法导致「预览一个数、存完另一个数」） */
+  previewOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests/preview', data),
+  /** 付款流水（子表，合同级；每笔带 allocations = 抵到了哪几期、各段天数与利息） */
+  overduePayments: (contractId: string) =>
+    http.get<any, any>('/finance/overdue-payments', { params: { contractId } }),
+  createOverduePayment: (data: any) => http.post<any, any>('/finance/overdue-payments', data),
+  updateOverduePayment: (id: string, data: any) => http.put<any, any>(`/finance/overdue-payments/${id}`, data),
+  removeOverduePayment: (id: string) => http.delete<any, any>(`/finance/overdue-payments/${id}`),
 };
 
 export const notificationApi = {

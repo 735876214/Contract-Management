@@ -21,8 +21,8 @@ Contract-Management/
 ├── CLAUDE.md  DESIGN.md  TODO.md  README.md  docs/
 ├── .claude/rules/      # 规则与产品口径（按需加载，先读 rules-index.md）
 ├── server/             # NestJS 后端
-│   ├── prisma/schema.prisma        # 全量数据模型（63 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 39 个增量迁移
+│   ├── prisma/schema.prisma        # 全量数据模型（64 个 model）
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 41 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -41,11 +41,12 @@ Contract-Management/
 │   │                               #    / ai_analytics_report / invoice_red_link
 │   │                               #    / final_settlement_unique / labor_receiving_row_unit
 │   │                               #    / labor_receiving_unit_backfill
-│   │                               #    / calc_single_source / procurement_permissions）
+│   │                               #    / calc_single_source / procurement_permissions
+│   │                               #    / overdue_payable_payment / overdue_payable_material_share）
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 28 个业务模块
-│   ├── test/           # node:test 纯函数单测（91 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（90 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（24 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
 ├── mcp/                # 独立 MCP 服务端：外部 AI 经 MCP 协议查询/导出/导入（走既有 /api，复用 RBAC）
@@ -70,7 +71,7 @@ docker compose -f docker-compose.dev.yml up     # 本地开发（前端 :5173 / 
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（91 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（90 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（24 个 spec，改金额/状态/导入必跑）
 ```
 

@@ -131,7 +131,7 @@ export class DatasetCollector {
           where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
           select: { totalCost: true, contract: { select: { projectId: true } } },
         }),
-        this.prisma.overdueInterest.findMany({
+        this.prisma.overduePayable.findMany({
           where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
           select: { overdueInterest: true, contract: { select: { projectId: true } } },
         }),
@@ -417,7 +417,7 @@ export class DatasetCollector {
         select: { financingDate: true, totalCost: true, settlementMonth: true, contract: { select: { code: true, projectId: true } } },
         take: MAX_ROWS,
       })),
-      q(["finance.cost"], () => this.prisma.overdueInterest.findMany({
+      q(["finance.cost"], () => this.prisma.overduePayable.findMany({
         where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
         select: { settlementMonth: true, overdueInterest: true, contract: { select: { code: true, projectId: true } } },
         take: MAX_ROWS,

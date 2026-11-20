@@ -523,7 +523,7 @@ export class SettlementService {
    * - 本月结算额 / 结算次数：按结算月份从结算单（Settlement.settleDate）抓取实结金额
    * - 本月开票额：**优先按 `settlementId` 精确归集**（发票与结算单对应），未关联的退回按「合同 + 月份」
    * - 保理贴息：从资金费用台账保理费用（FactoringCost，融资利息 + 手续费）按结算月份抓取
-   * - 逾期利息：从资金费用台账逾期利息（OverdueInterest，未减免行）按结算月份抓取
+   * - 逾期利息：从资金费用台账逾期利息（OverduePayable，未减免行）按结算月份抓取
    * - 截止当月开累采购额 / 开工结算额 / 当月实际采购额：按 Excel 源表公式、用本项目实际结算单重算（用户 2026-11-19 口径）
    */
   async computeLedgerAutoFields(contractId: string, settleMonth: string, db: any = this.prisma) {
@@ -574,7 +574,7 @@ export class SettlementService {
         select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
       }),
       db.factoringCost.findMany({ where: { contractId } }),
-      db.overdueInterest.findMany({ where: { contractId } }),
+      db.overduePayable.findMany({ where: { contractId } }),
     ]);
     // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
     const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
@@ -901,7 +901,7 @@ export class SettlementService {
         ? this.prisma.factoringCost.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
         : [],
       contractIdList.length
-        ? this.prisma.overdueInterest.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
+        ? this.prisma.overduePayable.findMany({ where: { contractId: { in: contractIdList } }, select: { contractId: true, settlementMonth: true } })
         : [],
     ]);
     const contractIds = new Set(contracts.map((c: any) => c.id));
@@ -1473,7 +1473,7 @@ export class SettlementService {
    * 覆盖写入，手工传值本就不生效。与其"改了没用"，不如**明确 400 报错**并把人引到正确入口
    * （静默忽略会让人以为改成功了，那比报错更糟）。
    * - `factoringDiscount ← 资金费用台账（FactoringCost）`
-   * - `overdueInterest ← 逾期利息台账（OverdueInterest）`
+   * - `overdueInterest ← 逾期利息台账（OverduePayable）`
    * - `monthSettleAmount / settleCount / yearSettleAmount ← 结算单（Settlement）`
    * - `cumPurchaseAmount / startSettleAmount / monthActualPurchase ← 结算单（按 Excel 公式派生）`
    */

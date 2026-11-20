@@ -80,6 +80,8 @@ export interface ModuleListFilterField {
   placeholder?: string;
   /** 自定义控件（问题四：如 DictSelect；优先于 control，仍由 Form.Item 包裹参与查询/重置） */
   render?: () => ReactNode;
+  /** 下拉可搜索（合同这类几十上百个选项的筛选必须开，否则只能盲翻） */
+  searchable?: boolean;
 }
 
 /** 公共「模块状态」筛选项（六页相同） */
@@ -187,6 +189,13 @@ export interface ModuleListPageProps {
   onFetched?: (res: any) => void;
   /** 表格合计行（`Table.Summary` 的内容）。需要页面自己先经 `onFetched` 拿到汇总数据再拼 */
   tableSummary?: ReactNode;
+  /**
+   * 可展开行内容（2026-11-20 逾期利息台账主子结构用：一行 = 一期应付款项，展开看该期被哪些付款抵过）。
+   * 传了才启用 AntD `expandable`；窄容器卡片视图不支持展开（卡片形态另有点击入口）。
+   */
+  expandedRowRender?: (row: ModuleListRow) => ReactNode;
+  /** 哪些行可展开（不传 = 全部可展开）；用于「没有下挂明细就别给箭头」 */
+  rowExpandable?: (row: ModuleListRow) => boolean;
 }
 
 /**
@@ -230,6 +239,8 @@ export default function ModuleListPage({
   onFilterChange,
   onFetched,
   tableSummary,
+  expandedRowRender,
+  rowExpandable,
 }: ModuleListPageProps) {
   const isModuleMode = mode === 'module';
   /**
@@ -585,6 +596,7 @@ export default function ModuleListPage({
           options={(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
           placeholder={f.placeholder ?? '全部'}
           allowClear
+          {...(f.searchable ? { showSearch: true, optionFilterProp: 'label' } : {})}
         />
       );
     }
@@ -688,6 +700,14 @@ export default function ModuleListPage({
           loading={loading}
           scroll={{ x: 'max-content' }}
           {...(tableSummary ? { summary: () => tableSummary } : {})}
+          {...(expandedRowRender
+            ? {
+                expandable: {
+                  expandedRowRender: (row: ModuleListRow) => expandedRowRender(row),
+                  ...(rowExpandable ? { rowExpandable: (row: ModuleListRow) => rowExpandable(row) } : {}),
+                },
+              }
+            : {})}
           locale={{ emptyText: <EmptyState compact description={emptyText ?? '暂无数据'} /> }}
           pagination={{
             current: page,
