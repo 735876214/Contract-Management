@@ -7,18 +7,17 @@ import DictSelect, { DictTag } from '@/components/DictSelect';
 import EmptyState from '@/components/EmptyState';
 import DocTemplateExcelField from '@/components/templates/DocTemplateExcelField';
 import DocVariablePanel from '@/components/templates/DocVariablePanel';
-import { PAYMENT_DOC_VAR_GROUPS, FINAL_SETTLEMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
+import { PAYMENT_DOC_VAR_GROUPS } from '@/constants/docVariables';
 import { toFileUrl } from '@/utils/templateFile';
 import Can from '@/components/Can';
 
 /**
- * **分类 → 变量面板**：只给**已接生成路径**的分类提供变量清单
- * （当前：付款单、总结算单；其余三类插了也不会被替换，故面板层就不给）。
- * 新增生成路径时在这里加一行即可。
+ * **分类 → 变量面板**：只给**已接生成路径**的分类提供变量清单（当前仅「付款单」）。
+ * 总结算单已改为**内置模板直接渲染**（`final-settlement-excel.ts`），不再经单据模板上传，
+ * 故这里不给变量面板——在本页上传该分类的 xlsx 不会再生效。新增生成路径时在这里加一行即可。
  */
 const VAR_GROUPS_BY_CATEGORY: Record<string, typeof PAYMENT_DOC_VAR_GROUPS | undefined> = {
   PAYMENT: PAYMENT_DOC_VAR_GROUPS,
-  FINAL_SETTLEMENT: FINAL_SETTLEMENT_DOC_VAR_GROUPS,
 };
 
 /**
@@ -247,7 +246,7 @@ export default function DocTemplates() {
           <Form.Item label="该分类可用的占位符（点击复制到 Excel 单元格）">
             <DocVariablePanel
               groups={varGroups}
-              emptyHint="先选分类；「付款单」「总结算单」已接生成路径，其余三类待各自模块接入"
+              emptyHint="先选分类；仅「付款单」已接生成路径，其余待各自模块接入（总结算单已内置模板，无需在此上传）"
             />
           </Form.Item>
         </Form>

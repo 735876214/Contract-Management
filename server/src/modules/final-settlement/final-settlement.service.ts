@@ -15,7 +15,9 @@ import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../consta
 import { FINAL_SETTLEMENT_MAX_ITEMS, renderFinalSettlementXlsx } from './final-settlement-excel';
 import { formatFinalSettlementDocNumber } from './final-settlement-doc-number';
 
-const FIELDS = ['remark', 'reduceAmount'];
+// 只允许改备注；审减金额一并只走 updateItems（自带「待上传附件」状态守卫），
+// 否则已结算（已冻结快照）后仍能经 PUT /:id 单改审减，绕过冻结口径。
+const FIELDS = ['remark'];
 
 /**
  * **总结算单**（业务口径 2026-10-16）：结算及付款管理下的单据。
@@ -167,6 +169,13 @@ export class FinalSettlementService {
     if (!settlements.length) {
       throw new BadRequestException('该合同没有（非草稿的）月度结算，无法生成总结算单：请先办理月度结算。');
     }
+    // 总结算书模板是「固定 36 行明细槽位」（见 final-settlement-excel.ts）：月度结算超过槽位数
+    // 时能建单却导不出/存不了，故在生成阶段就拦下，避免产生"生成成功却无法收口"的僵尸单据。
+    if (settlements.length > FINAL_SETTLEMENT_MAX_ITEMS) {
+      throw new BadRequestException(
+        `该合同有 ${settlements.length} 期非草稿月度结算，超过总结算书模板固定槽位（${FINAL_SETTLEMENT_MAX_ITEMS} 行），无法生成：请先合并/清理月度结算后再试。`,
+      );
+    }
 
     const items = settlements.map((s, i) => ({
       settleMonth: monthKey(s.settleDate) || '',
@@ -300,10 +309,19 @@ export class FinalSettlementService {
     const existing = new Map<string, any>((before.items || []).map((x: any) => [x.id, x]));
     const keepIds = new Set(normalized.filter((n) => n.id && existing.has(n.id)).map((n) => n.id as string));
     const totalAmount = round2(normalized.reduce((t, i) => t + (Number(i.amount) || 0), 0));
-    const reduceAmount =
-      body.reduceAmount === undefined || body.reduceAmount === null || body.reduceAmount === ''
-        ? (before.reduceAmount ?? 0)
-        : round2(Number(body.reduceAmount) || 0);
+    // 审减金额：缺省（未传）沿用原值；显式传入必须是有限数字（"abc" 不静默归 0）；
+    // 且不得大于合计（否则审定金额为负，打印出负值）。负合计（净退货合同）不套此上限。
+    let reduceAmount: number;
+    if (body.reduceAmount === undefined || body.reduceAmount === null || body.reduceAmount === '') {
+      reduceAmount = round2(Number(before.reduceAmount ?? 0) || 0);
+    } else {
+      const r = Number(body.reduceAmount);
+      if (!Number.isFinite(r)) throw new BadRequestException('审减金额无效');
+      reduceAmount = round2(r);
+    }
+    if (totalAmount > 0 && reduceAmount > totalAmount) {
+      throw new BadRequestException(`审减金额（${reduceAmount}）不能大于合计金额（${totalAmount}）`);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       // 删除不在新列表中的旧明细

@@ -13,7 +13,10 @@ import { SETTLEMENT_STATUS } from '../src/constants/statuses';
  * ② 编辑明细（月份/金额）+ 审减保存即重算合计，编号不变；
  * ③ 明细超过 36 行 → 400（模板槽位固定，防导出静默丢行）；
  * ④ 已上传附件（SETTLED）后不可再改明细；
- * ⑤ 乐观锁：version 不匹配 → 冲突。
+ * ⑤ 乐观锁：version 不匹配 → 冲突；
+ * ⑥ 月度结算超过 36 期 → 生成即 400（防"能建单却导不出"的僵尸单据）；
+ * ⑦ 审减金额非法值 → 400（不静默归 0）；
+ * ⑧ 审减金额大于合计 → 400（防审定金额为负）。
  */
 describe('集成 · 总结算单 生成/编辑明细/编号', () => {
   let ctx: IntContext;
@@ -119,6 +122,53 @@ describe('集成 · 总结算单 生成/编辑明细/编号', () => {
           project.id,
         ),
       ConflictException,
+    );
+  });
+
+  it('⑥ 生成：月度结算超过 36 期 → 400', async () => {
+    const project = await makeProject(ctx.prisma, 'FS-gen-max');
+    const supplier = await makeSupplier(ctx.prisma, project.id);
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, supplierId: supplier.id, amount: 3000000 });
+    for (let i = 0; i < 37; i += 1) {
+      await ctx.prisma.settlement.create({
+        data: {
+          projectId: project.id,
+          contractId: contract.id,
+          statusCode: SETTLEMENT_STATUS.CONFIRMED,
+          amount: 1000,
+          actualAmount: 1000,
+          settleDate: month(2024 + Math.floor(i / 12), (i % 12) + 1),
+        },
+      });
+    }
+    await assert.rejects(() => svc.generate(contract.id, project.id, { userId: 'u1' }), BadRequestException);
+  });
+
+  it('⑦ 审减金额非法值 → 400（不静默归 0）', async () => {
+    const { project, contract } = await seed('FS-reduce-bad');
+    const doc: any = await svc.generate(contract.id, project.id, { userId: 'u1' });
+    await assert.rejects(
+      () =>
+        svc.updateItems(
+          doc.id,
+          { items: [{ settleMonth: '2026-01', amount: 100 }], reduceAmount: 'abc', version: doc.version },
+          project.id,
+        ),
+      BadRequestException,
+    );
+  });
+
+  it('⑧ 审减金额大于合计 → 400', async () => {
+    const { project, contract } = await seed('FS-reduce-over');
+    const doc: any = await svc.generate(contract.id, project.id, { userId: 'u1' });
+    await assert.rejects(
+      () =>
+        svc.updateItems(
+          doc.id,
+          { items: [{ settleMonth: '2026-01', amount: 100 }], reduceAmount: 500, version: doc.version },
+          project.id,
+        ),
+      BadRequestException,
     );
   });
 });
