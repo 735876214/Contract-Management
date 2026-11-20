@@ -13,7 +13,8 @@ import { ProjectAccessService } from '../../common/services/project-access.servi
 import { PROJECT_SCOPED_TABLES } from './project-scoped-tables';
 
 const PROJECT_FIELDS = [
-  'code', 'name', 'nameAbbr', 'codeAbbr', 'undertaker', 'packageLeader', 'projectManager', 'selfContractAmount', 'industryType',
+  'code', 'name', 'nameAbbr', 'codeAbbr', 'branchCompany', 'branchCompanyAbbr',
+  'undertaker', 'packageLeader', 'projectManager', 'selfContractAmount', 'industryType',
   'provinceCity', 'siteLocation', 'projectAddress', 'materialOrigin',
   'status', 'description', 'startDate', 'endDate', 'managerId',
   // 月度结算起始日期（其「日」为每期起始日；自动生成结算与发票/收领单归属都按它算期）
@@ -192,6 +193,8 @@ export class ProjectService {
       { label: '项目名称', key: 'name', required: true, width: 28, example: '城东科创园项目' },
       { label: '项目简称（文字）', key: 'nameAbbr', type: 'text', width: 18, example: '城东科创园' },
       { label: '项目简称（字母）', key: 'codeAbbr', type: 'text', width: 16, example: 'CDKC', desc: '仅大写字母和数字，全局唯一，用于合同编号' },
+      { label: '分管分公司', key: 'branchCompany', type: 'text', width: 20, example: '土木公司华北分公司' },
+      { label: '分公司简称', key: 'branchCompanyAbbr', type: 'text', width: 14, example: 'TMHB', desc: '用于总结算书编号前缀，仅大写字母和数字' },
       { label: '承接单位', key: 'undertaker', type: 'text', width: 24, example: '中国建筑土木建设有限公司' },
       { label: '项目包保领导', key: 'packageLeader', type: 'text', width: 16, example: '张三' },
       { label: '项目经理', key: 'projectManager', type: 'text', width: 16, example: '李四' },
@@ -238,6 +241,8 @@ export class ProjectService {
           name,
           nameAbbr: String(r['项目简称（文字）'] ?? '').trim() || null,
           codeAbbr: String(r['项目简称（字母）'] ?? '').trim() || null,
+          branchCompany: String(r['分管分公司'] ?? '').trim() || null,
+          branchCompanyAbbr: String(r['分公司简称'] ?? '').trim() || null,
           undertaker: String(r['承接单位'] ?? '').trim() || null,
           packageLeader: String(r['项目包保领导'] ?? '').trim() || null,
           projectManager: String(r['项目经理'] ?? '').trim() || null,
