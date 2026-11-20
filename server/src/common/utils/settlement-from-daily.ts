@@ -16,7 +16,7 @@
 
 import { round2, round4 } from '../calc/money.ts';
 import { num } from '../calc/numeric.ts';
-import { calcPriceWithTax } from '../calc/amounts.ts';
+import { calcPriceWithTax, calcAmount, mulDecimal } from '../calc/amounts.ts';
 
 /** 日报行中参与结算带出的字段（Prisma 查询按这些列 select） */
 export interface DailySettlementRow {
@@ -124,8 +124,8 @@ export function buildSettlementItemsFromDailyRows(
     const before = num(r.priceBeforeTax);
     const after = num(r.priceAfterTax);
     const tax = num(r.taxRatePct);
-    const amountBefore = num(r.amountBeforeTax) ?? (before != null ? before * qty : null);
-    const amountAfter = num(r.amountAfterTax) ?? (after != null ? after * qty : null);
+    const amountBefore = num(r.amountBeforeTax) ?? (before != null ? calcAmount(before, qty, 2) : null);
+    const amountAfter = num(r.amountAfterTax) ?? (after != null ? calcAmount(after, qty, 2) : null);
 
     const g = groups.get(materialBaseId) ?? {
       materialBaseId,
@@ -197,14 +197,20 @@ export function buildSettlementItemsFromDailyRows(
       skippedInvalidPriceRowCount += g.count;
       continue;
     }
-    const totalWithTax = priceWithTax != null ? round2(priceWithTax * g.qty) : null;
+    /**
+     * 数量先按**落库口径**（4 位）舍入，再参与相乘：否则落库的 `qty` 与算合价用的 `g.qty`
+     * 是两份精度不同的数，数量超过 4 位小数时行内会出现「数量 × 单价 ≠ 合价」差 1 分。
+     * 乘法一律走共享引擎 `mulDecimal`（十进制精确），不用裸浮点（第 24 轮审计）。
+     */
+    const qty4 = round4(g.qty);
+    const totalWithTax = priceWithTax != null ? mulDecimal(priceWithTax, qty4, 2) : null;
     const source = g.receiptNos.length
       ? `${sourceLabel}（收领单 ${g.receiptNos.join('、')}）`
       : sourceLabel;
 
     items.push({
       materialBaseId: g.materialBaseId,
-      qty: round4(g.qty),
+      qty: qty4,
       priceBeforeTax,
       taxRatePct,
       priceWithTax,

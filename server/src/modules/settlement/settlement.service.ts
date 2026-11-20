@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
-import { round2 } from '../../common/calc/money';
+import { round2, round4 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
   canonicalMonthKey,
@@ -161,7 +161,7 @@ export class SettlementService {
   /** 明细行归一化：白名单 + 数值清洗 + 服务端重算综合单价/合价（不信任前端） */
   private normalizeItem(d: any, index: number) {
     const out: any = pickFields(d, SETTLEMENT_ITEM_FIELDS, { label: '结算明细' });
-    out.qty = num(out.qty);
+    out.qty = out.qty === null ? null : round4(out.qty);
     out.priceBeforeTax = num(out.priceBeforeTax);
     out.taxRatePct = num(out.taxRatePct);
     // 税率未填时沿用旧口径：按 0% 处理（含税单价 = 税前单价），不把整行置空
@@ -223,16 +223,23 @@ export class SettlementService {
    * 返回明细行（含服务端重算的价格）。
    */
   private async syncItems(settlementId: string, items: any[], db: any) {
+    const list = Array.isArray(items) ? items : [];
+    /**
+     * 无物资主数据的行**不许静默丢弃**（第 24 轮审计）：原来 `filter(d => d?.materialBaseId)`
+     * 把这类行悄悄扔掉——提交方以为明细存进去了，实际少行、金额对不上，比报错更难查。
+     * 校验放在 deleteMany **之前**：报错时库内既有明细原样保留。
+     */
+    const badIdx = list.findIndex((d: any) => !d?.materialBaseId);
+    if (badIdx >= 0) {
+      throw new BadRequestException(
+        `结算明细第 ${badIdx + 1} 行缺少物资（materialBaseId）：明细必须挂物资主数据，` +
+          '否则量级校验与开累统计都无从计算。请先补齐物资再保存。',
+      );
+    }
     await db.settlementItem.deleteMany({ where: { settlementId } });
-    const rows = (Array.isArray(items) ? items : []).filter((d: any) => d?.materialBaseId);
-    if (!rows.length) return [];
-    const baseRows = await db.materialBase.findMany({
-      where: { id: { in: rows.map((d: any) => d.materialBaseId) } },
-      select: { id: true, unit: true },
-    });
-    const unitOf = new Map(baseRows.map((b: any) => [b.id, b.unit]));
+    if (!list.length) return [];
     await db.settlementItem.createMany({
-      data: rows.map((d: any, i: number) => ({
+      data: list.map((d: any, i: number) => ({
         ...this.normalizeItem(d, i),
         settlementId,
       })),
@@ -422,7 +429,11 @@ export class SettlementService {
         ? {}
         : await this.checkOverSettlement(data.contractId, num(actual));
     // 清单项级量级闸门（同防超结口径：非事务、非草稿才校验）
-    const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
+    // ⚠️ 校验用「过滤后的 items」（无物资的行不参与量级），但**落库传原始 items**：
+    //    否则缺物资的行会被这里先滤掉，`syncItems` 的校验永远看不到它，
+    //    replace-all 反而把既有明细删光（第 24 轮审计实测踩到）。
+    const rawItems: any[] = Array.isArray(data.items) ? data.items : [];
+    const items: any[] = rawItems.filter((d: any) => d?.materialBaseId);
     const qtyWarn =
       tx || this.isDraft(data.statusCode) ? {} : await this.checkOverSettlementQty(data.contractId, items);
     const created: any = await (async () => {
@@ -444,7 +455,7 @@ export class SettlementService {
             settleDate: toDate(data.settleDate),
           },
         });
-        if (items.length) await this.syncItems(row.id, items, db);
+        if (rawItems.length) await this.syncItems(row.id, rawItems, db);
         return row;
       };
       return tx ? write(tx) : this.prisma.$transaction((t) => write(t));
@@ -519,7 +530,8 @@ export class SettlementService {
     // 清单项级量级闸门：items 传入时按「更新后」校验（排除自身历史明细）。
     // ⚠️ 提交（非草稿）时**必须**校验，即使 body 不带 items——否则草稿期录入的超量明细
     //    可以靠「只传状态」的部分更新提交，绕过 BLOCK 策略（驳回-重提路径同理）。
-    const items: any[] = Array.isArray(data.items) ? data.items.filter((d: any) => d?.materialBaseId) : [];
+    const rawItems: any[] = Array.isArray(data.items) ? data.items : [];
+    const items: any[] = rawItems.filter((d: any) => d?.materialBaseId);
     if (this.isDraft(resultingStatus)) {
       // 草稿豁免（设计如此：草稿是暂存，不构成已发生结算）
     } else if (data.items) {
@@ -563,7 +575,7 @@ export class SettlementService {
         await detachReceiptOrdersOfSettlement(t, id);
       }
       const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
-      if (data.items) await this.syncItems(id, items, t);
+      if (data.items) await this.syncItems(id, rawItems, t);
       return row;
     });
     // 结算单 → 台账：改了日期/合同会影响两个月（旧月要解除关联并重算、新月要建行），故两边都刷。

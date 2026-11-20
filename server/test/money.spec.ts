@@ -7,6 +7,7 @@ import {
   calcRateNullable,
   calcTotalWithTax,
   mulDecimal,
+  taxAmountDiff,
   canonicalMonthKey,
   compareMonthKey,
   groupSumByMonth,
@@ -195,5 +196,33 @@ describe('统一月度聚合原语', () => {
     assert.equal(settlementAmountOf({ actualAmount: null, amount: '2.675' }), 2.675);
     assert.equal(settlementAmountOf({ actualAmount: 0, amount: 99 }), 0);
     assert.equal(settlementAmountOf({ actualAmount: '', amount: 99 }), null);
+  });
+});
+
+describe('票面自洽：税前 × (1+税率) vs 含税（第 24 轮审计）', () => {
+  it('自洽的票差为 0；13% 与 9% 两种税率都能对齐', () => {
+    assert.equal(taxAmountDiff(1229305, 13, 1389114.65), 0);
+    assert.equal(taxAmountDiff(56000, 9, 61040), 0);
+    assert.equal(taxAmountDiff(1000, 0, 1000), 0);
+  });
+
+  it('不自洽的票给出差额（08812678：税前 661,846.13 含税记成 748,485.12）', () => {
+    // 661,846.13 × 1.13 = 747,886.13，与票面含税差 598.99 —— 正是台账进项税额多算的数
+    assert.equal(taxAmountDiff(661846.13, 13, 748485.12), 598.99);
+    // 反向（含税少了）为负差
+    assert.equal(taxAmountDiff(1000, 13, 1120), -10);
+  });
+
+  it('无法判定时返回 null：缺税率或缺含税（历史票/导入票）不当作错', () => {
+    assert.equal(taxAmountDiff(1000, null, 1130), null);
+    assert.equal(taxAmountDiff(1000, 13, null), null);
+    assert.equal(taxAmountDiff(null, 13, 1130), null);
+    assert.equal(taxAmountDiff(1000, '', ''), null);
+  });
+
+  it('差额按 2 位十进制精确计算（半值远离零，不受浮点尾差影响）', () => {
+    // mulDecimal(8.165, 1) → 8.17（半值远离零），票面 8.16 差 -0.01，恰在 1 分容差边界
+    assert.equal(taxAmountDiff(8.165, 0, 8.16), -0.01);
+    assert.equal(taxAmountDiff(1234.567, 13, 1395.06), 0);
   });
 });

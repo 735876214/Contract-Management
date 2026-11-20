@@ -4,6 +4,7 @@ import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
+import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { periodMonthKey } from '../../common/calc/time';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -253,7 +254,31 @@ export class DailyReportService {
     }
   }
 
-  private normalize(data: any) {
+  /**
+   * 金额派生（第 24 轮审计）：日报是结算量的源头，金额必须与「单价 × 数量」自洽。
+   *
+   * 此前 `amountBeforeTax / amountAfterTax` 是自由输入，SL-2026-0002 的含税金额比
+   * `priceAfterTax × settleQty` 多出 200.00，被结算单 JS-2026-0002 与结算台账完整承袭。
+   * 现在与结算明细 `normalizeItem()` 同一口径：**服务端重算，不信任前端**（共享 calc 引擎，
+   * 不做裸浮点乘法）。
+   *
+   * 只在**输入齐全**时重算（单价 + 数量）：缺单价或缺数量的历史行/导入行保持原值，
+   * 不臆造 0（那会把一条本来有金额的日报抹成 0）。数量先按落库的 4 位口径舍入再参与相乘，
+   * 保证行内「数量 × 单价 = 合价」不会差 1 分。
+   */
+  private deriveAmounts(payload: any) {
+    const qtyRaw = num(payload.settleQty);
+    const qty = qtyRaw === null ? null : round4(qtyRaw);
+    // 税前单价 + 税率 → 含税单价（4 位，与合同清单/结算明细同精度）
+    const derivedWithTax = calcPriceWithTax(num(payload.priceBeforeTax), num(payload.taxRatePct), 4);
+    if (derivedWithTax !== null) payload.priceAfterTax = derivedWithTax;
+    const priceAfterTax = num(payload.priceAfterTax);
+    const priceBeforeTax = num(payload.priceBeforeTax);
+    if (priceAfterTax !== null && qty !== null) payload.amountAfterTax = calcTotalWithTax(priceAfterTax, qty, 2);
+    if (priceBeforeTax !== null && qty !== null) payload.amountBeforeTax = calcTotalWithTax(priceBeforeTax, qty, 2);
+  }
+
+  private normalize(data: any, base?: any) {
     const payload: any = { ...data };
     // 确认状态与确认留痕只由 confirm()/confirmMany() 维护，不接受前端直传（防绕过状态机）
     delete payload.confirmStatusCode;
@@ -263,6 +288,21 @@ export class DailyReportService {
     DECIMAL_FIELDS.forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
+    /**
+     * 金额派生：`payload` 是**局部更新**（只传改了的字段），单价/数量可能一半在库里。
+     * 先把库内旧值补进派生用的副本，再回写派生结果——语义仍是「没传的字段不改」，
+     * 但顺带把陈旧/不自洽的金额按系统口径纠正（只改数量也会让合价跟着变）。
+     */
+    const derive: any = { ...payload };
+    if (base) {
+      for (const f of ['settleQty', 'priceBeforeTax', 'taxRatePct', 'priceAfterTax']) {
+        if (derive[f] === undefined) derive[f] = num(base[f]);
+      }
+    }
+    this.deriveAmounts(derive);
+    for (const f of ['priceAfterTax', 'amountBeforeTax', 'amountAfterTax']) {
+      if (derive[f] !== undefined && derive[f] !== payload[f]) payload[f] = derive[f];
+    }
     ['steelCount'].forEach((f) => {
       if (payload[f] !== undefined && payload[f] !== '') payload[f] = Number(payload[f]);
       else if (payload[f] === '') payload[f] = null;
@@ -310,7 +350,7 @@ export class DailyReportService {
     }
     assertVersion(before, data);
     await this.validate(data);
-    const payload: any = this.normalize(data);
+    const payload: any = this.normalize(data, before);
     delete payload.version;
     const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
     if (!row) throw new NotFoundException('日报不存在');
