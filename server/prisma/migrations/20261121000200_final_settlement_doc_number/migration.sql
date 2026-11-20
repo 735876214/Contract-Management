@@ -1,0 +1,1 @@
+ALTER TABLE "FinalSettlement" ADD COLUMN "docNumber" TEXT;

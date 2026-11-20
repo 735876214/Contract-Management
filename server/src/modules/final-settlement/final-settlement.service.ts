@@ -10,10 +10,10 @@ import { DictService } from '../dict';
 import { ContractService, setContractExecStatus } from '../contract';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { requestContext } from '../../common/services/request-context';
-import { DocTemplateService } from '../doc-template';
 import { monthKey } from '../../common/utils/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
-import { renderFinalSettlementXlsx } from './final-settlement-excel';
+import { FINAL_SETTLEMENT_MAX_ITEMS, renderFinalSettlementXlsx } from './final-settlement-excel';
+import { formatFinalSettlementDocNumber } from './final-settlement-doc-number';
 
 const FIELDS = ['remark', 'reduceAmount'];
 
@@ -36,7 +36,6 @@ export class FinalSettlementService {
     private prisma: PrismaClient,
     private dict: DictService,
     private contract: ContractService,
-    private docTemplate: DocTemplateService,
     private lock: ContractLockService,
   ) {}
 
@@ -99,6 +98,40 @@ export class FinalSettlementService {
   }
 
   /**
+   * 计算总结算书编号：`<分公司简称>-<项目编号>-WZZJS-<结算年份>-<流水号>`。
+   *
+   * 结算年份 = 单据 `createdAt` 的**本地**年份；年份起点也用本地零点（`new Date(year,0,1)`），
+   * 与 `getFullYear()` 同处本地时区——否则跨年元旦 0–8 点用 `Date.UTC` 起算会把流水号算成 "00"。
+   * 流水号 = 同项目当年按创建顺序的序号（最小 1）。
+   *  - `includeSelf=false`：generate 时该记录尚未落库，计数不含自身 → 序号 = 计数 + 1
+   *  - `includeSelf=true`：已落库（导出/回退现算）→ 计数已含自身 → 序号 = 计数
+   */
+  private async buildDocNumber(
+    projectId: string,
+    createdAt: Date,
+    includeSelf: boolean,
+    project?: { code?: string | null; codeAbbr?: string | null; branchCompanyAbbr?: string | null } | null,
+  ): Promise<string> {
+    const year = createdAt.getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const count = await this.prisma.finalSettlement.count({
+      where: { projectId, createdAt: { gte: yearStart, lte: createdAt } },
+    });
+    const p =
+      project ??
+      (await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { code: true, codeAbbr: true, branchCompanyAbbr: true },
+      }));
+    return formatFinalSettlementDocNumber({
+      branchPrefix: p?.branchCompanyAbbr,
+      projectCode: p?.codeAbbr || p?.code,
+      year,
+      seq: Math.max(1, count + (includeSelf ? 0 : 1)),
+    });
+  }
+
+  /**
    * 生成总结算单：抓该合同**全部非草稿**月度结算（与链口径一致：草稿不算已发生结算），
    * 逐月落成明细快照，`totalAmount` = 明细合计。
    *
@@ -142,6 +175,7 @@ export class FinalSettlementService {
       sortOrder: i + 1,
     }));
     const totalAmount = round2(items.reduce((t, i) => t + (Number(i.amount) || 0), 0));
+    const docNumber = await this.buildDocNumber(projectId, new Date(), false);
 
     try {
       return await this.prisma.finalSettlement.create({
@@ -151,6 +185,7 @@ export class FinalSettlementService {
           code: await this.nextCode(projectId, contract.code),
           statusCode: FINAL_SETTLEMENT_STATUS.PENDING_ATTACHMENT,
           totalAmount,
+          docNumber,
           createdBy: user?.userId || user?.id || null,
           items: { create: items },
         },
@@ -249,6 +284,9 @@ export class FinalSettlementService {
     }
     const incoming = Array.isArray(body.items) ? body.items : [];
     if (!incoming.length) throw new BadRequestException('至少保留一条结算明细');
+    if (incoming.length > FINAL_SETTLEMENT_MAX_ITEMS) {
+      throw new BadRequestException(`结算明细最多 ${FINAL_SETTLEMENT_MAX_ITEMS} 行，当前 ${incoming.length} 行`);
+    }
 
     // 参数校验 + 规范化（月份 YYYY-MM；金额保留 2 位）
     const normalized = incoming.map((it, i) => {
@@ -321,16 +359,10 @@ export class FinalSettlementService {
       ? await this.prisma.supplier.findUnique({ where: { id: contract.supplierId }, select: { name: true } })
       : null;
 
-    // 结算书编号：<分公司简称>-<项目编号>-WZZJS-<结算年份>-<流水号>
-    // 分公司简称取项目「分公司简称」(branchCompanyAbbr)，未填回退 TMHB；项目编号取项目 codeAbbr（无则回退 code）
-    const year = new Date(row.createdAt).getFullYear();
-    const yearStart = new Date(Date.UTC(year, 0, 1));
-    const seq = await this.prisma.finalSettlement.count({
-      where: { projectId: row.projectId, createdAt: { gte: yearStart, lte: new Date(row.createdAt) } },
-    });
-    const branchPrefix = project?.branchCompanyAbbr || 'TMHB';
-    const projectCode = project?.codeAbbr || project?.code || '';
-    const docNumber = `${branchPrefix}-${projectCode}-WZZJS-${year}-${String(seq).padStart(2, '0')}`;
+    // 结算书编号：生成时已算好落库（docNumber），导出直接读，保证反复导出稳定；
+    // 存量单据（docNumber 为空的历史数据）才回退现算一次。
+    const docNumber =
+      row.docNumber || (await this.buildDocNumber(row.projectId, new Date(row.createdAt), true, project));
 
     return renderFinalSettlementXlsx({
       doc: row,

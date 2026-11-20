@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { BadRequestException } from '@nestjs/common';
 import { amountToChineseCapital } from '../../common/calc/money';
 import { FINAL_SETTLEMENT_TEMPLATE_BASE64 } from './final-settlement-template';
 
@@ -16,7 +17,9 @@ import { FINAL_SETTLEMENT_TEMPLATE_BASE64 } from './final-settlement-template';
 
 const SHEET = '总结算书';
 const DETAIL_START = 8; // 首个明细行
-const DETAIL_K = 36; // 明细槽位总数
+/** 明细槽位总数：模板固定预留这么多行，超出即无法容纳（导出会丢行），故作为硬上限 */
+export const FINAL_SETTLEMENT_MAX_ITEMS = 36;
+const DETAIL_K = FINAL_SETTLEMENT_MAX_ITEMS;
 const DETAIL_LAST = DETAIL_START + DETAIL_K - 1; // 43
 const HROW = DETAIL_START + DETAIL_K; // 合计行 44
 const REDUCE_ROW = 47; // 审减行
@@ -77,7 +80,9 @@ export async function renderFinalSettlementXlsx(
   setText(
     ws,
     'L4',
-    contractAmount !== null ? `合同额 ${contractAmount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 元` : null,
+    contractAmount !== null
+      ? `合同额 ${contractAmount.toLocaleString('zh-CN', { useGrouping: false, maximumFractionDigits: 2 })} 元`
+      : null,
   );
   setText(ws, 'D5', supplier?.name); // 供方
   setText(ws, 'D6', project?.name); // 项目名称
@@ -86,6 +91,9 @@ export async function renderFinalSettlementXlsx(
 
   // —— 明细 —— //
   const items = Array.isArray(doc.items) ? doc.items : [];
+  if (items.length > DETAIL_K) {
+    throw new BadRequestException(`结算明细最多 ${DETAIL_K} 行，当前 ${items.length} 行，无法导出（模板槽位固定）`);
+  }
   for (let i = 0; i < DETAIL_K; i += 1) {
     const row = DETAIL_START + i;
     const item = items[i];

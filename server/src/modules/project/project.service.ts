@@ -21,6 +21,8 @@ const PROJECT_FIELDS = [
   'settlementStartDate',
 ];
 const CODE_ABBR_RE = /^[A-Z0-9]+$/;
+/** 分公司简称（总结算书编号前缀，如 TMHB）：仅大写字母与数字，最多 20 位，不要求唯一 */
+const BRANCH_ABBR_RE = /^[A-Z0-9]{1,20}$/;
 
 @Injectable()
 export class ProjectService {
@@ -86,6 +88,18 @@ export class ProjectService {
     if (exist) throw new BadRequestException(`项目简称（字母版）${codeAbbr} 已存在（用于合同编号，须唯一）`);
   }
 
+  /** 分公司简称校验：非空时仅限大写字母和数字（≤20）；并把空串归一为 null、字母归一为大写 */
+  private assertBranchAbbr(value: any): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const v = String(value).trim().toUpperCase();
+    if (!v) return null;
+    if (!BRANCH_ABBR_RE.test(v)) {
+      throw new BadRequestException('分公司简称仅允许大写字母和数字（最多 20 位）');
+    }
+    return v;
+  }
+
   async create(data: any, tx?: TxClient) {
     const db: any = tx || this.prisma;
     if (!data.code) throw new BadRequestException('项目编码不能为空');
@@ -94,6 +108,7 @@ export class ProjectService {
     await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr);
+    if (data.branchCompanyAbbr !== undefined) data.branchCompanyAbbr = this.assertBranchAbbr(data.branchCompanyAbbr);
     // 日期字段经 toDate 归一化：前端/导入传 'YYYY-MM-DD' 时 Prisma 会报
     // 「Invalid value ... Expected ISO-8601 DateTime」，服务端统一转换而不是要求调用方拼时间
     const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
@@ -109,6 +124,7 @@ export class ProjectService {
     if (data.status) await this.dict.validate('project_status', data.status);
     await this.dict.validate('industry_type', data.industryType);
     await this.assertCodeAbbr(data.codeAbbr, id);
+    if (data.branchCompanyAbbr !== undefined) data.branchCompanyAbbr = this.assertBranchAbbr(data.branchCompanyAbbr);
     const payload: any = pickFields(data, PROJECT_FIELDS, { label: '项目' });
     for (const f of ['settlementStartDate', 'startDate', 'endDate']) {
       if (payload[f] !== undefined) payload[f] = toDate(payload[f]);
@@ -235,6 +251,10 @@ export class ProjectService {
         const statusVal = String(r['状态'] ?? '').trim();
         const statusCode = codeOf(status, statusVal);
         if (statusVal && statusCode === null) throw new RowError(`下拉校验失败：「${statusVal}」不在项目状态选项范围内`, '状态');
+        const branchCompanyAbbr = String(r['分公司简称'] ?? '').trim().toUpperCase();
+        if (branchCompanyAbbr && !BRANCH_ABBR_RE.test(branchCompanyAbbr)) {
+          throw new RowError('分公司简称仅允许大写字母和数字（最多 20 位）', '分公司简称');
+        }
         return {
           data: {
           code,
@@ -242,7 +262,7 @@ export class ProjectService {
           nameAbbr: String(r['项目简称（文字）'] ?? '').trim() || null,
           codeAbbr: String(r['项目简称（字母）'] ?? '').trim() || null,
           branchCompany: String(r['分管分公司'] ?? '').trim() || null,
-          branchCompanyAbbr: String(r['分公司简称'] ?? '').trim() || null,
+          branchCompanyAbbr: branchCompanyAbbr || null,
           undertaker: String(r['承接单位'] ?? '').trim() || null,
           packageLeader: String(r['项目包保领导'] ?? '').trim() || null,
           projectManager: String(r['项目经理'] ?? '').trim() || null,

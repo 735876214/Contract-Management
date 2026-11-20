@@ -30,6 +30,8 @@ const num = (v: any) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+/** 明细行硬上限：总结算书模板固定预留 36 行槽位，超出无法导出（与后端一致） */
+const MAX_ITEMS = 36;
 
 /** 明细编辑器的暂存行：settleMonth 存 'YYYY-MM'（DatePicker 用 dayjs） */
 interface EditItem {
@@ -111,6 +113,10 @@ export default function FinalSettlements() {
     setEditItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
   };
   const addRow = () => {
+    if (editItems.length >= MAX_ITEMS) {
+      message.warning(`结算明细最多 ${MAX_ITEMS} 行（总结算书模板槽位固定）`);
+      return;
+    }
     setEditItems((prev) => [...prev, { key: `new-${Date.now()}-${prev.length}`, settleMonth: '', amount: 0 }]);
   };
   const removeRow = (key: string) => {
@@ -409,7 +415,7 @@ export default function FinalSettlements() {
             },
           ]}
           footer={() => (
-            <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow}>
+            <Button type="dashed" block icon={<PlusOutlined />} onClick={addRow} disabled={editItems.length >= MAX_ITEMS}>
               添加结算期
             </Button>
           )}

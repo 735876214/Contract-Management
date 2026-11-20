@@ -951,6 +951,8 @@ model FinalSettlement {
   totalAmount    Decimal?  @db.Decimal(18, 2) // 明细合计
   /// 审减金额（经办人手工录入）：审定金额 = totalAmount − reduceAmount，仅用于总结算书展示
   reduceAmount   Decimal?  @db.Decimal(18, 2) @default(0)
+  /// 总结算书编号（生成时算好落库，保证反复导出稳定）：TMHB-项目编号-WZZJS-年份-流水号
+  docNumber      String?
   attachmentUrl  String? // 附件（走 StorageService 落盘，对外 URL = /api/files/<键>）
   attachmentName String?
   remark         String?
