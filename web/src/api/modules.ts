@@ -306,6 +306,8 @@ export const finalSettlementApi = {
   /** 生成：`contractId` 必填；一个合同只允许一张（重复会 400） */
   generate: (contractId: string) => http.post<any, any>('/final-settlements/generate', { contractId }),
   update: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}`, data),
+  /** 编辑明细（月份/金额）+ 审减金额：保存即重算合计（仅「待上传附件」状态可改） */
+  updateItems: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}/items`, data),
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
   attach: (id: string, data: { url: string; fileName: string }) =>
     http.post<any, any>(`/final-settlements/${id}/attach`, data),

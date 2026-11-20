@@ -84,6 +84,8 @@ model Project {
   name               String
   nameAbbr           String? // 项目简称（文字版）
   codeAbbr           String?   @unique // 项目简称（字母版，用于合同编号第3段，仅大写字母和数字）
+  branchCompany      String? // 分管分公司（如 土木公司华北分公司）
+  branchCompanyAbbr  String? // 分公司简称（用于总结算书编号前缀，如 TMHB）
   undertaker         String? // 承接单位
   packageLeader      String? // 项目包保领导
   projectManager     String? // 项目经理
@@ -947,6 +949,10 @@ model FinalSettlement {
   statusCode     String    @default("PENDING_ATTACHMENT") // dict: final_settlement_status
   settledAt      DateTime? // 附件上传完成（= 已结算）的时间
   totalAmount    Decimal?  @db.Decimal(18, 2) // 明细合计
+  /// 审减金额（经办人手工录入）：审定金额 = totalAmount − reduceAmount，仅用于总结算书展示
+  reduceAmount   Decimal?  @db.Decimal(18, 2) @default(0)
+  /// 总结算书编号（生成时算好落库，保证反复导出稳定）：TMHB-项目编号-WZZJS-年份-流水号
+  docNumber      String?
   attachmentUrl  String? // 附件（走 StorageService 落盘，对外 URL = /api/files/<键>）
   attachmentName String?
   remark         String?

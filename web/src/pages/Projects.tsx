@@ -89,6 +89,8 @@ function ProjectList() {
           { title: '简称（文字）', dataIndex: 'nameAbbr', width: 150 },
           { title: '简称（字母）', dataIndex: 'codeAbbr', width: 120, render: (v) => <Tag color="geekblue">{v || '-'}</Tag> },
           { title: '承接单位', dataIndex: 'undertaker', width: 150 },
+          { title: '分管分公司', dataIndex: 'branchCompany', width: 180, render: (v) => v || '-' },
+          { title: '分公司简称', dataIndex: 'branchCompanyAbbr', width: 120, render: (v) => (v ? <Tag color="geekblue">{v}</Tag> : '-') },
           { title: '包保领导', dataIndex: 'packageLeader', width: 110, render: (v) => v || '-' },
           { title: '项目经理', dataIndex: 'projectManager', width: 110, render: (v) => v || '-' },
           { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })) },
@@ -266,6 +268,15 @@ function ProjectEditor({ seed }: { seed: unknown }) {
             <Form.Item name="undertaker" label="承接单位" rules={[{ required: true }]}><Input maxLength={100} /></Form.Item>
             <Form.Item name="packageLeader" label="项目包保领导"><Input maxLength={50} placeholder="用于合同模板变量 {{项目包保领导}}" /></Form.Item>
             <Form.Item name="projectManager" label="项目经理"><Input maxLength={50} placeholder="用于合同模板变量 {{项目经理}}" /></Form.Item>
+            <Form.Item name="branchCompany" label="分管分公司"><Input maxLength={100} placeholder="如 土木公司华北分公司" /></Form.Item>
+            <Form.Item
+              name="branchCompanyAbbr"
+              label="分公司简称"
+              rules={[{ pattern: /^[A-Z0-9]*$/, message: '仅允许大写字母和数字' }]}
+              extra="用于总结算书编号前缀，如 TMHB"
+            >
+              <Input maxLength={20} placeholder="如 TMHB" />
+            </Form.Item>
           </Col>
           <Col xs={24} md={12}>
             <Form.Item name="selfContractAmount" label="项目自施合同额（万元）" rules={[{ required: true }]}>

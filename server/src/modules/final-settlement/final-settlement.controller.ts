@@ -32,11 +32,10 @@ export class FinalSettlementController {
   @Get(':id/export')
   async export(
     @Param('id') id: string,
-    @Query('templateId') templateId: string,
     @ProjectId() projectId: string,
     @Res() res: Response,
   ) {
-    const { buffer, filename } = await this.service.export(id, templateId || undefined, projectId);
+    const { buffer, filename } = await this.service.export(id, undefined, projectId);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buffer);
@@ -52,6 +51,13 @@ export class FinalSettlementController {
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
     return this.service.update(id, body, projectId);
+  }
+
+  /** 编辑明细（月份/金额）+ 审减金额：保存即重算合计（仅「待上传附件」状态可改） */
+  @RequirePermissions('settlement:edit')
+  @Put(':id/items')
+  updateItems(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateItems(id, body, projectId);
   }
 
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
