@@ -15,7 +15,21 @@ import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentMo
  *
  * 自己按 `contractId` 取数（`GET /finance/contract-params/:id`），不依赖调用方传参。
  */
-export default function ContractFundParams({ contractId }: { contractId: string }) {
+export default function ContractFundParams({
+  contractId,
+  variant = 'card',
+  hidePaymentMode = false,
+}: {
+  contractId: string;
+  /**
+   * `card`：带边框的独立参数条（列表页表头用过的款式）。
+   * `inline`：编辑器里的单行浅色说明（供应商 · 付款模式 · 利率 · 宽限期 + 参数设置），
+   * 不再单独占一块卡片，避免录入表单里出现「第二个表头」。
+   */
+  variant?: 'card' | 'inline';
+  /** 页面里已经有「付款模式」选择框时（逾期台账）不再重复显示合同默认付款模式 */
+  hidePaymentMode?: boolean;
+}) {
   const [params, setParams] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,40 +80,12 @@ export default function ContractFundParams({ contractId }: { contractId: string 
     }
   };
 
-  return (
-    <div className="page-card" style={{ marginBottom: 16 }}>
-      {/* 窄容器（手机/窄窗口）按 1 列堆叠：固定 4 列会把「供应商」等标签挤成竖排文字 */}
-      <Descriptions
-        size="small"
-        column={{ xs: 1, sm: 1, md: 2, lg: 4, xl: 4, xxl: 4 }}
-        bordered
-        labelStyle={{ whiteSpace: 'nowrap' }}
-      >
-        <Descriptions.Item label="供应商">{params.supplierName || '-'}</Descriptions.Item>
-        <Descriptions.Item label="付款模式">
-          {/* 付款模式描述较长：窄容器下要能换行，否则会把标签/卡片挤破 */}
-          <Space wrap size={4}>
-            <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', lineHeight: 1.4 }}>
-              {PAYMENT_MODE_OPTIONS.find((o) => o.value === params.paymentMode)?.label ?? '自定义'}
-            </Tag>
-            <Button size="small" type="link" icon={<SettingOutlined />} onClick={openModal}>
-              参数设置
-            </Button>
-          </Space>
-        </Descriptions.Item>
-        {/* 数值项不许折行：编辑器里（容器比原列表页窄）会把「0.60%」「7 天」断成两行 */}
-        <Descriptions.Item label="延期月利率">
-          <span style={{ whiteSpace: 'nowrap' }}>{`${(params.monthlyRate * 100).toFixed(2)}%`}</span>
-        </Descriptions.Item>
-        <Descriptions.Item label="宽限期">
-          <span style={{ whiteSpace: 'nowrap' }}>{`${params.graceDays} 天`}</span>
-        </Descriptions.Item>
-      </Descriptions>
-
-      <Modal
-        title="合同资金参数（覆盖系统默认值）"
-        open={modalOpen}
-        onOk={submit}
+  const modeLabel = PAYMENT_MODE_OPTIONS.find((o) => o.value === params.paymentMode)?.label ?? '自定义';
+  const modal = (
+    <Modal
+      title="合同资金参数（覆盖系统默认值）"
+      open={modalOpen}
+      onOk={submit}
         onCancel={() => setModalOpen(false)}
         confirmLoading={saving}
         destroyOnHidden
@@ -134,7 +120,70 @@ export default function ContractFundParams({ contractId }: { contractId: string 
           </Space>
           <Alert type="warning" showIcon message="留空的字段将回落到系统参数默认值（系统管理 → 系统参数中的 finance.overdue 组）。" />
         </Form>
-      </Modal>
+    </Modal>
+  );
+
+  if (variant === 'inline') {
+    // 编辑器用：一行浅色说明，不占卡片、不另起标题，跟录入表单连成一片
+    return (
+      <>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 16,
+            marginBottom: 16,
+            padding: '6px 12px',
+            borderRadius: 6,
+            background: 'var(--cms-surface-soft)',
+            color: 'var(--cms-muted)',
+            fontSize: 13,
+          }}
+        >
+          <span style={{ whiteSpace: 'nowrap' }}>供应商：{params.supplierName || '-'}</span>
+          {!hidePaymentMode && <span style={{ whiteSpace: 'nowrap' }}>付款模式：{modeLabel}</span>}
+          <span style={{ whiteSpace: 'nowrap' }}>{`延期月利率：${(params.monthlyRate * 100).toFixed(2)}%`}</span>
+          <span style={{ whiteSpace: 'nowrap' }}>{`宽限期：${params.graceDays} 天`}</span>
+          <Button size="small" type="link" icon={<SettingOutlined />} onClick={openModal} style={{ padding: 0 }}>
+            参数设置
+          </Button>
+        </div>
+        {modal}
+      </>
+    );
+  }
+
+  return (
+    <div className="page-card" style={{ marginBottom: 16 }}>
+      {/* 窄容器（手机/窄窗口）按 1 列堆叠：固定 4 列会把「供应商」等标签挤成竖排文字 */}
+      <Descriptions
+        size="small"
+        column={{ xs: 1, sm: 1, md: 2, lg: 4, xl: 4, xxl: 4 }}
+        bordered
+        labelStyle={{ whiteSpace: 'nowrap' }}
+      >
+        <Descriptions.Item label="供应商">{params.supplierName || '-'}</Descriptions.Item>
+        <Descriptions.Item label="付款模式">
+          {/* 付款模式描述较长：窄容器下要能换行，否则会把标签/卡片挤破 */}
+          <Space wrap size={4}>
+            <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', lineHeight: 1.4 }}>
+              {modeLabel}
+            </Tag>
+            <Button size="small" type="link" icon={<SettingOutlined />} onClick={openModal}>
+              参数设置
+            </Button>
+          </Space>
+        </Descriptions.Item>
+        {/* 数值项不许折行：编辑器里（容器比原列表页窄）会把「0.60%」「7 天」断成两行 */}
+        <Descriptions.Item label="延期月利率">
+          <span style={{ whiteSpace: 'nowrap' }}>{`${(params.monthlyRate * 100).toFixed(2)}%`}</span>
+        </Descriptions.Item>
+        <Descriptions.Item label="宽限期">
+          <span style={{ whiteSpace: 'nowrap' }}>{`${params.graceDays} 天`}</span>
+        </Descriptions.Item>
+      </Descriptions>
+      {modal}
     </div>
   );
 }

@@ -787,9 +787,8 @@ function OverdueEditor({
         showIcon
         message="应付款金额 = 本期材料款金额；逾期起始日期 = 应付款日期 + 宽限期 + 1 天；逾期利息 = 计息金额 × 逾期天数 × 月利率 ÷ 30（含税）。付款在「付款流水」里登记，系统会跨期自动分配。"
       />
-      {/* 合同资金参数条（供应商/付款模式/利率/宽限期）：从列表表头挪到录入上下文里，
-          选完合同即可核对或当场调整，不必再回列表页看 */}
-      {contractId && <ContractFundParams contractId={contractId} />}
+      {/* 合同资金参数条（供应商/付款模式/利率/宽限期）已挪进录入表单：紧跟「合同」之下，
+          选完合同就地核对或调整，不再占列表表头 */}
       <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
         <Row gutter={16}>
           <Col xs={24} md={12}>
@@ -813,6 +812,12 @@ function OverdueEditor({
               <DatePicker picker="month" format="YYYY-MM" style={{ width: '100%' }} placeholder="选择月份" />
             </Form.Item>
           </Col>
+          {contractId && (
+            <Col xs={24}>
+              {/* 合同资金参数（就地可改）；付款模式下面有本期的选择框，这里不重复 */}
+              <ContractFundParams contractId={contractId} variant="inline" hidePaymentMode />
+            </Col>
+          )}
           <Col xs={24} md={12}>
             <Form.Item
               name="materialAmount"

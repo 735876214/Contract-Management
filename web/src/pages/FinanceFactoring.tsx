@@ -265,9 +265,6 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
       dirty={dirty}
       onSave={submit}
     >
-      {/* 合同资金参数条（供应商/付款模式/利率/宽限期）：放在表单外，
-          避免 Descriptions + 参数设置弹窗里的内层 Form 嵌在录入表单里 */}
-      {selectedContractId && <ContractFundParams contractId={selectedContractId} />}
       <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
         <Row gutter={16}>
           <Col xs={24} md={12}>
@@ -280,6 +277,12 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
               <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
             </Form.Item>
           </Col>
+          {selectedContractId && (
+            <Col xs={24}>
+              {/* 合同资金参数（供应商/付款模式/利率/宽限期），紧跟合同信息、可就地调整 */}
+              <ContractFundParams contractId={selectedContractId} variant="inline" />
+            </Col>
+          )}
           <Col xs={24} md={12}>
             <Form.Item name="settlementMonth" label="结算月份">
               <Input placeholder="如 2026-04（已办结算月份）" />
