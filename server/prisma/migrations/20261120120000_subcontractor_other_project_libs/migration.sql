@@ -113,6 +113,10 @@ UPDATE "DictItem" SET "status" = 0 WHERE "typeCode" = 'other_project';
 
 ALTER TABLE "ReceiptOrder" ADD COLUMN "supplyUnitId" TEXT;
 
+-- 5.0 先摘掉指向 LaborAuthLedger 的旧外键：下面会把 subcontractorId 改写成「分包商主数据 ID」，
+--     若旧外键仍在，UPDATE 时 sub_ 值不在 LaborAuthLedger 中会触发外键冲突。
+ALTER TABLE "ReceiptOrder" DROP CONSTRAINT IF EXISTS "ReceiptOrder_subcontractorId_fkey";
+
 -- 5.1 供应商：supplierId 即供应单位 ID
 UPDATE "ReceiptOrder" SET "supplyUnitId" = "supplierId" WHERE "supplierType" = 'SUPPLIER' AND "supplierId" IS NOT NULL;
 
@@ -160,7 +164,6 @@ WHERE "supplierType" IS NOT NULL
   AND "supplierId" IS NOT NULL;
 
 -- 5.5 收领单 subcontractorId 外键改指 Subcontractor
-ALTER TABLE "ReceiptOrder" DROP CONSTRAINT IF EXISTS "ReceiptOrder_subcontractorId_fkey";
 ALTER TABLE "ReceiptOrder"
     ADD CONSTRAINT "ReceiptOrder_subcontractorId_fkey"
     FOREIGN KEY ("subcontractorId") REFERENCES "Subcontractor"("id")
@@ -172,7 +175,9 @@ CREATE INDEX "ReceiptOrder_receivingUnitType_receivingUnitId_idx"
 
 -- ==================== 6. 成本侧聚合键 laborAuthId → subcontractorId ====================
 
--- 6.1 单据头：先改名，再映射台账 ID → 分包商 ID
+-- 6.1 单据头：先摘旧外键/唯一键（否则映射为分包商 ID 时会撞旧外键、且多台账行合并后撞旧唯一键），再改名并映射
+ALTER TABLE "LaborReceivingDoc" DROP CONSTRAINT IF EXISTS "LaborReceivingDoc_laborAuthId_fkey";
+ALTER TABLE "LaborReceivingDoc" DROP CONSTRAINT IF EXISTS "LaborReceivingDoc_projectId_laborAuthId_period_key";
 ALTER TABLE "LaborReceivingDoc" RENAME COLUMN "laborAuthId" TO "subcontractorId";
 
 UPDATE "LaborReceivingDoc" d
@@ -231,8 +236,6 @@ DELETE FROM "LaborReceivingDoc" d
 USING dup
 WHERE d."id" = dup."id" AND dup."id" <> dup.keep_id;
 
-ALTER TABLE "LaborReceivingDoc" DROP CONSTRAINT IF EXISTS "LaborReceivingDoc_laborAuthId_fkey";
-ALTER TABLE "LaborReceivingDoc" DROP CONSTRAINT IF EXISTS "LaborReceivingDoc_projectId_laborAuthId_period_key";
 ALTER TABLE "LaborReceivingDoc"
     ADD CONSTRAINT "LaborReceivingDoc_subcontractorId_fkey"
     FOREIGN KEY ("subcontractorId") REFERENCES "Subcontractor"("id")
@@ -247,7 +250,8 @@ SET "subcontractorId" = d."subcontractorId"
 FROM "LaborReceivingDoc" d
 WHERE s."docId" = d."id";
 
--- 6.3 月度盈亏明细（快照来源）
+-- 6.3 月度盈亏明细（快照来源）：先摘旧外键再改名/映射
+ALTER TABLE "MonthlyProfitLossDetail" DROP CONSTRAINT IF EXISTS "MonthlyProfitLossDetail_laborAuthId_fkey";
 ALTER TABLE "MonthlyProfitLossDetail" RENAME COLUMN "laborAuthId" TO "subcontractorId";
 UPDATE "MonthlyProfitLossDetail" d
 SET "subcontractorId" = l."subcontractorId"
@@ -255,7 +259,6 @@ FROM "LaborAuthLedger" l
 WHERE d."subcontractorId" = l."id"
   AND l."subcontractorId" IS NOT NULL;
 
-ALTER TABLE "MonthlyProfitLossDetail" DROP CONSTRAINT IF EXISTS "MonthlyProfitLossDetail_laborAuthId_fkey";
 ALTER TABLE "MonthlyProfitLossDetail"
     ADD CONSTRAINT "MonthlyProfitLossDetail_subcontractorId_fkey"
     FOREIGN KEY ("subcontractorId") REFERENCES "Subcontractor"("id")
