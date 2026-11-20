@@ -177,7 +177,8 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {contractId && <ContractFundParams contractId={contractId} />}
+      {/* 合同资金参数条已挪进「新增/编辑应付款项」编辑器：列表页只做浏览与筛选，
+          参数属于录入时的上下文，放在表头会占掉首屏且与录入动作脱节 */}
 
       {/* 统计卡：与「结算台账/合同台账」同款式；不选合同时是**项目全量**口径
           （跨合同各用自己的利率重算后相加，上限金额取各合同上限之和） */}
@@ -786,6 +787,9 @@ function OverdueEditor({
         showIcon
         message="应付款金额 = 本期材料款金额；逾期起始日期 = 应付款日期 + 宽限期 + 1 天；逾期利息 = 计息金额 × 逾期天数 × 月利率 ÷ 30（含税）。付款在「付款流水」里登记，系统会跨期自动分配。"
       />
+      {/* 合同资金参数条（供应商/付款模式/利率/宽限期）：从列表表头挪到录入上下文里，
+          选完合同即可核对或当场调整，不必再回列表页看 */}
+      {contractId && <ContractFundParams contractId={contractId} />}
       <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
         <Row gutter={16}>
           <Col xs={24} md={12}>

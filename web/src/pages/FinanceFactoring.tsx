@@ -135,7 +135,8 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {contractId && <ContractFundParams contractId={contractId} />}
+      {/* 合同资金参数条已挪进「新增/编辑保理费用」编辑器：列表页只做浏览与筛选，
+          参数属于录入时的上下文，放在表头会占掉首屏且与录入动作脱节 */}
 
       {/* 汇总卡：与「结算台账/合同台账」顶部统计卡同款式（Card.stat-card + Statistic），
           数据取自后端 `totals`（覆盖筛选后的全部行，不受分页影响）。不选合同时是项目合计。 */}
@@ -226,6 +227,8 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const editing = seed as any | undefined;
+  // 资金参数条跟随所选的合同（新增态选完合同即可核对/调整，不用回列表页看）
+  const selectedContractId = Form.useWatch('contractId', form);
 
   useEffect(() => {
     form.resetFields();
@@ -262,6 +265,9 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
       dirty={dirty}
       onSave={submit}
     >
+      {/* 合同资金参数条（供应商/付款模式/利率/宽限期）：放在表单外，
+          避免 Descriptions + 参数设置弹窗里的内层 Form 嵌在录入表单里 */}
+      {selectedContractId && <ContractFundParams contractId={selectedContractId} />}
       <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
         <Row gutter={16}>
           <Col xs={24} md={12}>

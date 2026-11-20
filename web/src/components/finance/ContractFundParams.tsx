@@ -10,6 +10,9 @@ import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentMo
  * 为什么抽出来：拆分前这两张表在同一个页面的两个 Tab 里，合同资金参数是页面级的；
  * 拆成两个独立模块后两边都要有，复制一份必然漂移（改一处忘另一处）。
  *
+ * 放在哪里：**编辑器里**（新增/编辑记录的表单上方），不再放列表页表头 ——
+ * 参数是录入时的上下文，选完合同即可核对或当场调整（2026-11-20 调整）。
+ *
  * 自己按 `contractId` 取数（`GET /finance/contract-params/:id`），不依赖调用方传参。
  */
 export default function ContractFundParams({ contractId }: { contractId: string }) {
@@ -84,8 +87,13 @@ export default function ContractFundParams({ contractId }: { contractId: string 
             </Button>
           </Space>
         </Descriptions.Item>
-        <Descriptions.Item label="延期月利率">{`${(params.monthlyRate * 100).toFixed(2)}%`}</Descriptions.Item>
-        <Descriptions.Item label="宽限期">{`${params.graceDays} 天`}</Descriptions.Item>
+        {/* 数值项不许折行：编辑器里（容器比原列表页窄）会把「0.60%」「7 天」断成两行 */}
+        <Descriptions.Item label="延期月利率">
+          <span style={{ whiteSpace: 'nowrap' }}>{`${(params.monthlyRate * 100).toFixed(2)}%`}</span>
+        </Descriptions.Item>
+        <Descriptions.Item label="宽限期">
+          <span style={{ whiteSpace: 'nowrap' }}>{`${params.graceDays} 天`}</span>
+        </Descriptions.Item>
       </Descriptions>
 
       <Modal
