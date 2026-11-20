@@ -314,18 +314,28 @@ export class FinalSettlementService {
       }),
       this.prisma.project.findUnique({
         where: { id: row.projectId },
-        select: { name: true, nameAbbr: true, code: true },
+        select: { name: true, nameAbbr: true, code: true, codeAbbr: true },
       }),
     ]);
     const supplier = contract?.supplierId
       ? await this.prisma.supplier.findUnique({ where: { id: contract.supplierId }, select: { name: true } })
       : null;
 
+    // 结算书编号：TMHB-项目编号-WZZJS-结算年份-流水号（项目编号取项目简称编码，流水号按同项目同年创建顺序编号）
+    const year = new Date(row.createdAt).getFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const seq = await this.prisma.finalSettlement.count({
+      where: { projectId: row.projectId, createdAt: { gte: yearStart, lte: new Date(row.createdAt) } },
+    });
+    const projectCode = project?.codeAbbr || project?.code || '';
+    const docNumber = `TMHB-${projectCode}-WZZJS-${year}-${String(seq).padStart(2, '0')}`;
+
     return renderFinalSettlementXlsx({
       doc: row,
       contract: contract ? { code: contract.code, name: contract.name, amount: contract.amount } : null,
       project,
       supplier,
+      docNumber,
     });
   }
 }

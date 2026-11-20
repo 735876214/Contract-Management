@@ -33,6 +33,8 @@ export interface FinalSettlementRenderInput {
   contract?: { code?: string | null; name?: string | null; amount?: any } | null;
   project?: { name?: string | null } | null;
   supplier?: { name?: string | null } | null;
+  /** 结算书编号（表头 I6），形如 TMHB-项目编号-WZZJS-结算年份-流水号 */
+  docNumber?: string | null;
 }
 
 function toNumber(v: any): number | null {
@@ -79,6 +81,7 @@ export async function renderFinalSettlementXlsx(
   );
   setText(ws, 'D5', supplier?.name); // 供方
   setText(ws, 'D6', project?.name); // 项目名称
+  setText(ws, 'I6', input.docNumber); // 编号
   // D4 需方（中国建筑第八工程局有限公司）为常量，模板内保留，不覆盖
 
   // —— 明细 —— //
