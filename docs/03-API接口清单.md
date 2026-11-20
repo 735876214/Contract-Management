@@ -430,10 +430,14 @@
 | GET | `/finance/factoring-costs` | 保理费用台账（`contractId` 可选：不传 = 本项目全部合同） | `finance:view` |
 | GET | `/finance/factoring-costs/export` | 导出（不传 `contractId` 导出本项目全部合同，多出「供应商/合同」两列） | `finance:view` |
 | POST / PUT / DELETE | `/finance/factoring-costs[/:id]` | CRUD | `finance:edit` |
-| GET | `/finance/overdue-interests` | 逾期利息台账（`contractId` 可选：不传 = 本项目全部合同，各合同用自身利率重算） | `finance:view` |
+| GET | `/finance/overdue-interests` | 逾期利息台账·**应付款项（一行 = 一期，含引擎派生的已付/未付/付款片段）**（`contractId` 可选：不传 = 本项目全部合同，各合同用自身利率重算） | `finance:view` |
 | GET | `/finance/overdue-interests/export` | 导出逾期利息计算表（**必须**传 `contractId`，统计区/签字区是合同级口径） | `finance:view` |
-| POST | `/finance/overdue-interests/generate` | 按合同 + 结算月生成逾期利息 | `finance:edit` |
-| POST / PUT / DELETE | `/finance/overdue-interests[/:id]` | CRUD | `finance:edit` |
+| POST | `/finance/overdue-interests/preview` | 保存前预览派生列（`{contractId, drafts:[...]}`；`drafts: []` 时只回合同资金参数） | `finance:view` |
+| POST | `/finance/overdue-interests/generate` | 按合同 + 结算月 + 付款模式一次生成各期应付款项（`tranches` 为空时按模式定义摊） | `finance:edit` |
+| POST / PUT / DELETE | `/finance/overdue-interests[/:id]` | 应付款项 CRUD（`PUT` 带 `version` 乐观锁） | `finance:edit` |
+| GET | `/finance/payment-modes` | 付款模式字典（`PAYMENT_MODES` 单一事实源：mode / label / tranches） | `finance:view` |
+| GET | `/finance/overdue-payments` | 付款明细（合同级流水，带 `allocations`：这笔钱抵到哪几期/几天/多少利息） | `finance:view` |
+| POST / PUT / DELETE | `/finance/overdue-payments[/:id]` | 付款明细 CRUD（`PUT` 带 `version`），增删改后自动重算应付款项派生列并重刷结算台账 | `finance:edit` |
 
 > 项目隔离：按 `contractId` 归属（合同已在项目内），**查询不带 `projectId` 过滤**——这是有意例外。
 > 例外中的例外：上述两个台账的列表/导出 `contractId` 可选，不传时按 `where.contract.projectId`

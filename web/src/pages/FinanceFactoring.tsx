@@ -135,7 +135,8 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {contractId && <ContractFundParams contractId={contractId} />}
+      {/* 合同资金参数条已挪进「新增/编辑保理费用」编辑器：列表页只做浏览与筛选，
+          参数属于录入时的上下文，放在表头会占掉首屏且与录入动作脱节 */}
 
       {/* 汇总卡：与「结算台账/合同台账」顶部统计卡同款式（Card.stat-card + Statistic），
           数据取自后端 `totals`（覆盖筛选后的全部行，不受分页影响）。不选合同时是项目合计。 */}
@@ -226,6 +227,8 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const editing = seed as any | undefined;
+  // 资金参数条跟随所选的合同（新增态选完合同即可核对/调整，不用回列表页看）
+  const selectedContractId = Form.useWatch('contractId', form);
 
   useEffect(() => {
     form.resetFields();
@@ -274,6 +277,12 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
               <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
             </Form.Item>
           </Col>
+          {selectedContractId && (
+            <Col xs={24}>
+              {/* 合同资金参数（供应商/付款模式/利率/宽限期），紧跟合同信息、可就地调整 */}
+              <ContractFundParams contractId={selectedContractId} variant="inline" />
+            </Col>
+          )}
           <Col xs={24} md={12}>
             <Form.Item name="settlementMonth" label="结算月份">
               <Input placeholder="如 2026-04（已办结算月份）" />

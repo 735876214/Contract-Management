@@ -101,12 +101,19 @@ export const interestOf = (row: OverdueSummaryRow, value?: unknown): number => {
 export function summarizeOverdue(
   rows: OverdueSummaryRow[],
   interestOfRow: (row: OverdueSummaryRow, index: number) => number,
+  /** `totalPayment`：实际付款合计的**外部覆盖值**——过期利息台账已改为
+   *  「应付款项（主表）+ 付款流水（子表）」主子结构，付款额不再挂在主表行上，
+   *  传行进来求和会恒得 0；调用方须把付款流水合计通过该字段传入。不传则沿用旧的按行累加。 */
+  options?: { totalPayment?: number },
 ): OverdueSummaryStats {
   const list = Array.isArray(rows) ? rows : [];
 
   const totalMaterial = round2(list.reduce((a, r) => a + (num(r?.materialAmount) ?? 0), 0)) || 0;
+  const overridePayment = num(options?.totalPayment);
   const totalPayment =
-    round2(list.reduce((a, r) => a + ((num(r?.paymentAmount) ?? 0) > 0 ? num(r.paymentAmount)! : 0), 0)) || 0;
+    overridePayment !== null
+      ? round2(overridePayment) || 0
+      : round2(list.reduce((a, r) => a + ((num(r?.paymentAmount) ?? 0) > 0 ? num(r.paymentAmount)! : 0), 0)) || 0;
 
   // 按结算月累计：月份先归一再排序（`2026-9` → `2026-09`，空月份仍归 '' 以兼容存量数据）
   const monthOf = (r: OverdueSummaryRow) => canonicalMonthKey(r?.settlementMonth) ?? '';

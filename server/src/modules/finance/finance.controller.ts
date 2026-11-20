@@ -71,7 +71,13 @@ export class FinanceController {
     return this.service.removeFactoring(id, projectId);
   }
 
-  // ==================== 逾期利息台账 ====================
+  // ==================== 逾期利息台账（应付款项 + 付款流水） ====================
+
+  @RequirePermissions('finance:view')
+  @Get('payment-modes')
+  paymentModes() {
+    return this.service.paymentModes();
+  }
 
   @RequirePermissions('finance:view')
   @Get('overdue-interests')
@@ -86,6 +92,13 @@ export class FinanceController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
     res.end(buffer);
+  }
+
+  /** 保存前预览（编辑器里算派生列，与保存后同一套引擎） */
+  @RequirePermissions('finance:view')
+  @Post('overdue-interests/preview')
+  previewOverdue(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.previewOverdue(body, projectId);
   }
 
   @RequirePermissions('finance:edit')
@@ -110,5 +123,31 @@ export class FinanceController {
   @Delete('overdue-interests/:id')
   removeOverdue(@Param('id') id: string, @ProjectId() projectId: string) {
     return this.service.removeOverdue(id, projectId);
+  }
+
+  // ---- 付款流水（子表） ----
+
+  @RequirePermissions('finance:view')
+  @Get('overdue-payments')
+  listOverduePayments(@Query('contractId') contractId: string, @ProjectId() projectId: string) {
+    return this.service.listOverduePayments(contractId, projectId);
+  }
+
+  @RequirePermissions('finance:edit')
+  @Post('overdue-payments')
+  createOverduePayment(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createOverduePayment(body, projectId);
+  }
+
+  @RequirePermissions('finance:edit')
+  @Put('overdue-payments/:id')
+  updateOverduePayment(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateOverduePayment(id, body, projectId);
+  }
+
+  @RequirePermissions('finance:edit')
+  @Delete('overdue-payments/:id')
+  removeOverduePayment(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeOverduePayment(id, projectId);
   }
 }

@@ -541,15 +541,21 @@ async function main() {
         { contractId: contracts[0].id, seqNo: 3, financingDate: new Date('2026-04-08'), financingAmount: 450000, actualReceipt: 443700, financingInterest: 5400, handlingFee: 900, totalCost: 6300, settlementMonth: '2026-03', remark: '费率下浮后重签' },
       ],
     });
-    await prisma.overdueInterest.createMany({
+    // 逾期利息台账 = 应付款项（一行 = 一期）+ 付款流水（跨期自动分配）
+    // 演示合同是 3382 付款模式：80% 在 +3 个月（2026-04-25）、20% 在 +6 个月（2026-07-25）
+    await prisma.overduePayable.createMany({
       data: [
-        // 2026-01 结算：材料款 100 万 × 80%（3382 第3个月付80%），应付款 2026-04-25，逾期起始 2026-05-03
-        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 1000000, paymentRatio: 0.8, payableAmount: 800000, payableDate: new Date('2026-04-25'), overdueStartDate: new Date('2026-05-03'), paymentDate: new Date('2026-05-10'), paymentAmount: 500000, interestAmount: 500000, overdueDays: 7, monthlyRate: 0.006, overdueInterest: 700, isSettlementPeriod: true, periodSeq: 1, prevCumulative: 0 },
-        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 0, paymentRatio: 0.8, payableAmount: 800000, payableDate: new Date('2026-04-25'), overdueStartDate: new Date('2026-05-03'), paymentDate: new Date('2026-06-20'), paymentAmount: 300000, interestAmount: 300000, overdueDays: 47, monthlyRate: 0.006, overdueInterest: 2820, isSettlementPeriod: true, periodSeq: 2 },
-        { contractId: contracts[0].id, settlementMonth: '2026-01', materialAmount: 0, paymentRatio: 0.8, payableAmount: 800000, overdueStartDate: new Date('2026-05-03'), paymentAmount: 0, interestAmount: 0, overdueDays: 0, monthlyRate: 0.006, overdueInterest: 0, remark: '剩余款尚未支付，付款后自动计息', isSettlementPeriod: true, periodSeq: 3 },
+        { contractId: contracts[0].id, settlementMonth: '2026-01', periodSeq: 1, materialAmount: 800000, paymentRatio: 0.8, payableDate: new Date('2026-04-25'), isSettlementPeriod: true, prevCumulative: 0, remark: '3382 第 3 个月 80%' },
+        { contractId: contracts[0].id, settlementMonth: '2026-01', periodSeq: 2, materialAmount: 200000, paymentRatio: 0.2, payableDate: new Date('2026-07-25'), isSettlementPeriod: true, remark: '3382 第 6 个月 20%（尚未付款，未付余额继续计息）' },
       ],
     });
-    console.log('  资金费用台账: 保理费用 3 行 / 逾期利息 3 行');
+    await prisma.overduePayment.createMany({
+      data: [
+        { contractId: contracts[0].id, paymentDate: new Date('2026-05-10'), paymentAmount: 500000, remark: '第一笔付款' },
+        { contractId: contracts[0].id, paymentDate: new Date('2026-06-20'), paymentAmount: 300000, remark: '第二笔付款' },
+      ],
+    });
+    console.log('  资金费用台账: 保理费用 3 行 / 应付款项 2 期 / 付款流水 2 笔');
   }
 
   // ---------- 资产管理台账 ----------

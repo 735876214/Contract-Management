@@ -145,6 +145,10 @@ services:
     volumes:
       - ./web:/app
       - web-node-modules:/app/node_modules
+      # 前端有 3 个页面直接 import 后端共享计算引擎
+      # （`../../../server/src/common/calc/*.ts`：Settlements / ReceiptOrders / ContractMaterials）。
+      # 挂到 /server 正是 /app/src/pages 往上三级对应的位置，否则 dev 容器里解析不到、页面 500。
+      - ./server:/server:ro
     command:
       - sh
       - -c

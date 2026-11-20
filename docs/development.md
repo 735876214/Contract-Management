@@ -144,8 +144,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** + **前端兜底菜单 `menuConfig.ts` ↔ `MENU_TREE` 逐项同序锁**（deepEqual：key/label/icon/path/permission/children） |
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
   | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款、无金额→无上限） |
-  | `test/overdueCalculator.spec.ts` | 逾期利息引擎（DAYS360 / 付款分配 / 开累；手算对照） |
-  | `test/overdueMerge.spec.ts` | 逾期台账**按「合同+结算月」合并成一行**（一个逾期项的「材料款主行 + 付款行/计息承载行」合并展示）：金额求和、日期取最早、多笔付款取最晚并在备注列出各笔、逾期天数取最大、跨月/跨合同不合并、单行原样透传 |
+  | `test/overdueCalculator.spec.ts` | 逾期利息引擎（主子表：应付款项 + 付款流水；DAYS360 / 付款跨期分配 / 已付与未付余额分段计息 / 开累；手算对照） |
   | `test/ledgerCompliance.spec.mts` | 合同台账合规判定（执行类 vs 非执行类的节点比较与优先级） |
   | `test/contractChain.spec.mts` | **合同当前金额口径锁**（= 主合同 + Σ 补充协议 `changeAmount`，**不采信手填 amount**）· 主合同未填 → 当前金额未知（`null`，不是"只算补充协议"）· 只算直接补充协议、防环 · 链上累计结算（排除草稿/自身）与累计付款（排除失败/退款） |
   | `test/contractFulfillment.spec.mts` | **合同履约派生进度（零表，2026-10-18）**：已收/已结/已付/开票比例 · 分母未知或为 0 → `null`（显式 0 照常参与）· 超收/超结/超付用负数暴露 · 「有收货未结算」「有结算未付款」标记 |
@@ -219,6 +218,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `test/csvExport.spec.ts` | **导出防护与字段长度兜底**（2026-10-21 第 16、19 轮审计）：`csvCell` 给以 `= + - @` 开头的值补单引号（Excel 打开 CSV 会把 `=cmd|'/c calc'!A1` 当公式执行），负数与小数保留为数字、按 RFC 4180 包裹引号换行 · `pickFields` 超 10 万 字符的字符串抛 400（Prisma 的 String 是 text，无 DTO 时能塞进几 MB） |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 · 负数（退货/调出）参与聚合并按净额冲减；净 0 分组计入 `skippedNetZeroRowCount` |
+  | `test/settlementFromReceipts.spec.mts` | **收领单 → 结算明细带出**（业务口径 2026-11-21：挂上收领单就能落明细，不再只有自动生成才带得出）：**明细优先**（数量取 eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· 明细缺物资主数据 → 退回该单**总日报行**（不丢数量）· 两者都带不出 → 记入 ordersWithoutItems（不静默丢）· 同物资跨多单按数量加权聚合成一行 · 负数量（退货）参与聚合、净额为负照常保留 · 数量为空/0 计入 skippedNoQtyRowCount · 价格公式复用 settlement-from-daily（单一事实源） |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |
   | `test/docVariables.spec.mts` | **单据模板变量（第三套体系）**：面板与取值表**逐条一致** · 金额类变量名必须带单位后缀 `(元)` · 面板给 `raw` 一律是 `{{key}}` · 取值表对缺失对象返回空串（不写 `undefined`）· **源码扫描**：`RichTextEditor.insertVariable` 默认插入的是**双花括号**（2026-10-16 修过：默认值曾是 `{key}`，插了不替换） |
   | `test/excelParse.spec.ts` | **Excel 解析口径与表头行探测**（2026-10-20 审计）：`detectHeaderRow` 在「导出文件（logo 占 1~2 行、表头第 3 行）」与「填写模板（表头第 1 行、必填列带 `*`）」两种布局下都定位正确、列名对不上回退第 1 行 · `parse(buf, [], headerRowNo)` 按指定行取表头且不把表头行当数据 · **导出 → 探测 → 解析闭环**（这正是字典「导出后原样导回」静默 0 行的回归点） |

@@ -90,7 +90,15 @@ interface Group {
  * - `materialBaseId` 为空的行**无法**形成清单项级明细（`SettlementItem` 必填），
  *   计入 `skippedRowCount` 并由调用方在结算单备注/提示里说明，不静默吞掉。
  */
-export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): DailyToItemsResult {
+export function buildSettlementItemsFromDailyRows(
+  rows: DailySettlementRow[],
+  /**
+   * 明细来源标签（业务 2026-11-21）：从收领单明细带出时传「来自收领单」，
+   * 让明细备注能看出这一行是从哪条业务链算出来的。默认沿用总日报口径。
+   */
+  options: { sourceLabel?: string } = {},
+): DailyToItemsResult {
+  const sourceLabel = options.sourceLabel || '来自总日报';
   const groups = new Map<string, Group>();
   const skippedNames: string[] = [];
   let skippedRowCount = 0;
@@ -191,8 +199,8 @@ export function buildSettlementItemsFromDailyRows(rows: DailySettlementRow[]): D
     }
     const totalWithTax = priceWithTax != null ? round2(priceWithTax * g.qty) : null;
     const source = g.receiptNos.length
-      ? `来自总日报（收领单 ${g.receiptNos.join('、')}）`
-      : '来自总日报';
+      ? `${sourceLabel}（收领单 ${g.receiptNos.join('、')}）`
+      : sourceLabel;
 
     items.push({
       materialBaseId: g.materialBaseId,

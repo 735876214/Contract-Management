@@ -160,7 +160,7 @@ export async function archiveContractsWithFinance(prisma: PrismaClient, projectI
       code: true,
       name: true,
       supplier: { select: { name: true } },
-      _count: { select: { factoringCosts: true, overdueInterests: true } },
+      _count: { select: { factoringCosts: true, overduePayables: true } },
     },
   });
   return rows.map((c) => ({
@@ -169,7 +169,7 @@ export async function archiveContractsWithFinance(prisma: PrismaClient, projectI
     name: c.name,
     supplierName: c.supplier?.name ?? null,
     factoringCount: c._count.factoringCosts,
-    overdueCount: c._count.overdueInterests,
+    overdueCount: c._count.overduePayables,
   }));
 }
 

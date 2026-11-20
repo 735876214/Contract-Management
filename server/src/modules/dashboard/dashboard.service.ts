@@ -330,7 +330,7 @@ export class DashboardService {
     };
   }
 
-  /** 逾期利息待对账（有应付款金额但未付款的行） */
+  /** 逾期利息待对账（已产生逾期利息的应付款项） */
   private async todoOverdueInterest(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('OVERDUE_INTEREST');
     // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行。
@@ -341,26 +341,29 @@ export class DashboardService {
     });
     const contractIds = contracts.map((c) => c.id);
     if (!contractIds.length) return { key: 'OVERDUE_INTEREST', label: '', count: 0, items: [] };
+    // 主子表改造后应付款项已经没有 paymentAmount 列，付清与否由引擎算出的
+    // remaining/overdueInterest 表达：这里只挑「真的计了逾期利息且未减免」的期数，
+    // 与列表页统计卡同口径（overdueInterest 由 recalcOverdue 持久化，null 即未计息）。
     const where = {
       contractId: { in: contractIds },
-      payableAmount: { gt: 0 },
-      OR: [{ paymentAmount: null }, { paymentAmount: { lte: 0 } }],
+      waived: false,
+      overdueInterest: { gt: 0 },
     };
     const [rows, count] = await Promise.all([
-      this.prisma.overdueInterest.findMany({
+      this.prisma.overduePayable.findMany({
         where, orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }], take: limit,
-        select: { id: true, contractId: true, settlementMonth: true, payableAmount: true },
+        select: { id: true, contractId: true, settlementMonth: true, periodSeq: true, payableAmount: true, overdueInterest: true },
       }),
-      this.prisma.overdueInterest.count({ where }),
+      this.prisma.overduePayable.count({ where }),
     ]);
     return {
       key: 'OVERDUE_INTEREST', label: '', count,
       items: rows.map((r) => ({
         key: `overdue:${r.id}`,
-        title: `${r.settlementMonth || ''} 逾期利息待对账`.trim(),
+        title: `${r.settlementMonth || ''} 第 ${r.periodSeq || 1} 期逾期利息待对账`.trim(),
         code: '',
         level: 'AMBER' as TodoLevel,
-        hint: `应付款 ${Number(r.payableAmount)}`,
+        hint: `应付款 ${Number(r.payableAmount)} · 逾期利息 ${Number(r.overdueInterest)}`,
         target: { path: '/settlement/overdue' },
       })),
     };
