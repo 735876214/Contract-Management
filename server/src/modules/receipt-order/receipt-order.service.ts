@@ -5,7 +5,6 @@ import {
   CONTRACT_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
   RECEIPT_STATUS,
-  SUBCONTRACTOR_STATUS,
 } from '../../constants/statuses';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
@@ -299,15 +298,15 @@ export class ReceiptOrderService {
   /**
    * 供应单位选项（4 类）
    *  - SUPPLIER      供应商：合同已签章的供应商名称（去重）
-   *  - OTHER_PROJECT 其他项目：字典 project_list 维护的项目列表
-   *  - SUBCONTRACTOR 分包商：分包商库中 编辑中 + 已完成
+   *  - OTHER_PROJECT 其他项目：其他项目库（OtherProject）
+   *  - SUBCONTRACTOR 分包商：分包商库（Subcontractor，启用）
    *  - SELF_PROJECT  本项目：字典维护的当前项目
    */
   async supplierOptions(projectId: string, keyword?: string) {
     const [suppliers, subcontractors, otherProjects, selfProject] = await Promise.all([
       this.contractSupplierOptions(projectId, keyword),
       this.subcontractorOptions(projectId, keyword),
-      this.dictProjectOptions('other_project', keyword),
+      this.otherProjectOptions(projectId, keyword),
       this.dictProjectOptions('self_project', keyword, projectId),
     ]);
     return {
@@ -328,7 +327,7 @@ export class ReceiptOrderService {
     const [subcontractors, selfProject, otherProjects] = await Promise.all([
       this.subcontractorOptions(projectId, keyword),
       this.dictProjectOptions('self_project', keyword, projectId),
-      this.dictProjectOptions('other_project', keyword),
+      this.otherProjectOptions(projectId, keyword),
     ]);
     return {
       SUBCONTRACTOR: subcontractors,
@@ -390,32 +389,56 @@ export class ReceiptOrderService {
     return list;
   }
 
-  /** 分包商：分包商库中 编辑中 + 已完成 */
+  /**
+   * 分包商：分包商库中启用的记录（本项目 + 全局共享）。
+   * 收领单只关心「哪家分包单位」，台账/授权人信息在成本与劳务模块里看。
+   */
   private async subcontractorOptions(projectId: string, keyword?: string) {
     const where: any = {
-      status: { in: [SUBCONTRACTOR_STATUS.EDITING, SUBCONTRACTOR_STATUS.COMPLETED] },
-      projectId,
+      status: 1,
+      OR: [{ projectId }, { projectId: null }],
     };
     if (keyword) {
-      where.OR = [
-        { subcontractorName: { contains: keyword } },
-        { authorizedPerson: { contains: keyword } },
+      where.AND = [
+        {
+          OR: [
+            { name: { contains: keyword } },
+            { legalPerson: { contains: keyword } },
+            { contactName: { contains: keyword } },
+          ],
+        },
       ];
     }
-    const rows = await this.prisma.laborAuthLedger.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 500 });
+    const rows = await this.prisma.subcontractor.findMany({ where, orderBy: [{ name: 'asc' }], take: 500 });
     return rows.map((r: any) => ({
       id: r.id,
-      name: r.subcontractorName,
-      creditCode: null,
-      contactName: r.authorizedPerson || null,
-      contactPhone: null,
+      name: r.name,
+      creditCode: r.creditCode || null,
+      contactName: r.contactName || null,
+      contactPhone: r.contactPhone || null,
       legalPerson: r.legalPerson || null,
-      authorizedPerson: r.authorizedPerson || null,
-      subcontractContent: r.subcontractContent || null,
-      subcontractId: r.subcontractId || null,
       status: r.status,
       _type: PARTY_TYPE.SUBCONTRACTOR,
-      _label: r.subcontractorName,
+      _label: r.name,
+    }));
+  }
+
+  /** 其他项目：其他项目库（本项目 + 全局共享） */
+  private async otherProjectOptions(projectId: string, keyword?: string) {
+    const where: any = { status: 1, OR: [{ projectId }, { projectId: null }] };
+    if (keyword) {
+      where.AND = [{ OR: [{ name: { contains: keyword } }, { code: { contains: keyword } }] }];
+    }
+    const rows = await this.prisma.otherProject.findMany({ where, orderBy: [{ name: 'asc' }], take: 500 });
+    return rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      code: r.code || null,
+      creditCode: null,
+      contactName: null,
+      contactPhone: null,
+      _type: PARTY_TYPE.OTHER_PROJECT,
+      _label: r.code ? `${r.name}（${r.code}）` : r.name,
     }));
   }
 
@@ -455,15 +478,19 @@ export class ReceiptOrderService {
 
   /**
    * 分包商关联的分包合同（互锁：分包商 ↔ 分包合同）
-   * 优先返回分包商库中登记的 subcontractId 对应合同；未登记时按「租赁执行合同」兜底，
-   * 保证仍可下拉选择，不阻塞业务。
+   * 分包商库主数据本身不挂合同；合同登记在劳务授权台账上（同一分包商可能有多条授权）。
+   * 优先返回台账登记过的 subcontractId；未登记时按「租赁执行合同」兜底，不阻塞业务。
    */
   async subcontractorContracts(subcontractorId: string, projectId: string) {
-    // 分包商必须属于当前项目：否则可用别项目的 id 探测存在性并拿到本项目的租赁执行合同列表
-    const sub = await this.prisma.laborAuthLedger.findFirst({ where: { id: subcontractorId, projectId } });
+    const sub = await this.prisma.subcontractor.findFirst({
+      where: { id: subcontractorId, OR: [{ projectId }, { projectId: null }] },
+    });
     if (!sub) throw new NotFoundException('分包商不存在');
-    const ids: string[] = [];
-    if (sub.subcontractId) ids.push(sub.subcontractId);
+    const ledgers = await this.prisma.laborAuthLedger.findMany({
+      where: { subcontractorId: subcontractorId, projectId, subcontractId: { not: null } },
+      select: { subcontractId: true },
+    });
+    const ids = Array.from(new Set(ledgers.map((l) => l.subcontractId).filter(Boolean))) as string[];
     const where: any = { projectId };
     if (ids.length) where.id = { in: ids };
     else where.typeCode = { in: ['LEASE_EXEC', 'LEASE'] };
@@ -651,10 +678,55 @@ export class ReceiptOrderService {
     }
   }
 
+  /**
+   * 供应/领用单位按类型分派（2026-11-20）：
+   * `supplyUnitId` 是泛型 ID（供应商 / 分包商 / 其他项目 / 本项目），
+   * `supplierId` 只在类型为供应商时写入（它带 Supplier 外键，不能被别的库的 ID 占用）。
+   */
+  private assertPartySelection(data: any) {
+    const supplyType = data?.supplierType || PARTY_TYPE.SUPPLIER;
+    const supplyUnitId = this.resolveSupplyUnitId(data, supplyType);
+    if (!supplyUnitId) throw new BadRequestException('请选择供应单位');
+    if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
+    if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    return { supplyType, supplyUnitId };
+  }
+
+  private resolveSupplyUnitId(data: any, _supplyType: string) {
+    // 兼容旧客户端：非供应商类型曾把 ID 写进 supplierId，这里统一收口到 supplyUnitId
+    return data?.supplyUnitId || data?.supplierId || null;
+  }
+
+  /** 供应/领用单位的引用校验：按类型确认该 ID 存在于本项目可见的对应库 */
+  private async assertPartiesInProject(data: any, projectId: string) {
+    const supplyType = data?.supplierType || PARTY_TYPE.SUPPLIER;
+    const receivingType = data?.receivingUnitType || null;
+    const supplyUnitId = data?.supplyUnitId !== undefined ? data.supplyUnitId : data?.supplierId;
+    const checks: Promise<void>[] = [];
+    if (supplyUnitId) {
+      checks.push(this.assertPartyTypeInProject(supplyType, supplyUnitId, projectId, '供应单位'));
+    }
+    if (receivingType && data?.receivingUnitId) {
+      checks.push(this.assertPartyTypeInProject(receivingType, data.receivingUnitId, projectId, '领用单位'));
+    }
+    await Promise.all(checks);
+  }
+
+  private async assertPartyTypeInProject(type: string, id: string, projectId: string, label: string) {
+    if (type === PARTY_TYPE.SUPPLIER) return; // 供应商由合同侧校验（assertContractInProject 已覆盖）
+    if (type === PARTY_TYPE.SUBCONTRACTOR) return this.scope.assertSubcontractorInProject(id, projectId, label);
+    if (type === PARTY_TYPE.OTHER_PROJECT) return this.scope.assertOtherProjectInProject(id, projectId, label);
+    // SELF_PROJECT：字典项 / 项目自身 ID，无外键
+    return;
+  }
+
   /** 主表单头归一化（不含明细） */
   private normalizeHeader(data: any) {
     const p: any = {};
-    p.supplierId = data.supplierId || null;
+    const supplyType = data.supplierType || PARTY_TYPE.SUPPLIER;
+    p.supplierId =
+      supplyType === PARTY_TYPE.SUPPLIER ? data.supplierId || data.supplyUnitId || null : null;
+    p.supplyUnitId = data.supplyUnitId || (supplyType === PARTY_TYPE.SUPPLIER ? data.supplierId : null) || null;
     p.supplierName = data.supplierName ?? null;
     p.supplierType = data.supplierType || null;
     p.receivingUnitId = data.receivingUnitId || null;
@@ -664,7 +736,12 @@ export class ReceiptOrderService {
     p.subcontractName = data.subcontractName ?? null;
     p.supplySubcontractId = data.supplySubcontractId || null;
     p.supplySubcontractName = data.supplySubcontractName ?? null;
-    p.subcontractorId = data.subcontractorId || null;
+    // 分包商（主数据）ID：任一侧选了分包商就记录，供领料人/合同互锁使用
+    p.subcontractorId =
+      data.subcontractorId ||
+      (supplyType === PARTY_TYPE.SUBCONTRACTOR ? p.supplyUnitId : null) ||
+      (data.receivingUnitType === PARTY_TYPE.SUBCONTRACTOR ? data.receivingUnitId : null) ||
+      null;
     // 表头「是否为资产」（dict yes_no Y/N）：N = 整单不入资产台账
     p.isAssetFlag = data.isAssetFlag || null;
     p.receiver = data.receiver ?? null;
@@ -703,16 +780,14 @@ export class ReceiptOrderService {
   }
 
   async create(data: any, projectId: string, user?: any) {
-    if (!data?.supplierId) throw new BadRequestException('请选择供应单位');
-    if (!data?.receivingUnitId) throw new BadRequestException('请选择领用单位');
-    if (!data?.orderDate) throw new BadRequestException('请选择日期');
+    this.assertPartySelection(data);
     await this.assertContractSigned(data.materialContractId);
     await this.lock.assertWritable(data.materialContractId, '新增收领单');
     // 引用型外键必须属于当前项目（防跨项目串数据；前端下拉是项目内数据源，但接口可被直接调用）
     await this.scope.assertContractInProject(data.materialContractId, projectId, '物资合同');
     await this.scope.assertContractInProject(data.subcontractId, projectId, '分包合同');
     await this.scope.assertContractInProject(data.supplySubcontractId, projectId, '供应分包合同');
-    await this.scope.assertLaborAuthInProject(data.subcontractorId, projectId, '分包商');
+    await this.assertPartiesInProject(data, projectId);
     this.validateDynamic(data);
     await this.validate(data);
 
@@ -770,8 +845,18 @@ export class ReceiptOrderService {
     if (data.supplySubcontractId !== undefined) {
       await this.scope.assertContractInProject(data.supplySubcontractId, scopeProject, '供应分包合同');
     }
-    if (data.subcontractorId !== undefined) {
-      await this.scope.assertLaborAuthInProject(data.subcontractorId, scopeProject, '分包商');
+    if (data.subcontractorId !== undefined || data.supplyUnitId !== undefined || data.receivingUnitId !== undefined) {
+      // 部分字段更新时按「改后值 + 原值」合并出类型，避免漏判
+      await this.assertPartiesInProject(
+        {
+          supplierType: data.supplierType ?? before.supplierType ?? PARTY_TYPE.SUPPLIER,
+          receivingUnitType: data.receivingUnitType ?? before.receivingUnitType,
+          supplyUnitId: data.supplyUnitId ?? before.supplyUnitId ?? (before.supplierType === PARTY_TYPE.SUPPLIER ? before.supplierId : null),
+          supplierId: data.supplierId ?? before.supplierId,
+          receivingUnitId: data.receivingUnitId ?? before.receivingUnitId,
+        },
+        scopeProject,
+      );
     }
     if (data.materialContractId && data.materialContractId !== before.materialContractId) {
       await this.lock.assertWritable(data.materialContractId, '修改收领单');

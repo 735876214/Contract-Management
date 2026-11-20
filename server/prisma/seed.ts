@@ -24,6 +24,8 @@ const PERMISSIONS = [
   { code: 'supplier:edit', name: '维护供应商', module: '供应商库' },
   { code: 'subcontractor:view', name: '查看分包商库', module: '基础信息管理' },
   { code: 'subcontractor:edit', name: '维护分包商与授权委托书', module: '基础信息管理' },
+  { code: 'other-project:view', name: '查看其他项目库', module: '基础信息管理' },
+  { code: 'other-project:edit', name: '维护其他项目库', module: '基础信息管理' },
   { code: 'contract:view', name: '查看合同', module: '合同管理' },
   { code: 'contract:edit', name: '维护合同', module: '合同管理' },
   { code: 'template:view', name: '查看模板', module: '合同模板' },
