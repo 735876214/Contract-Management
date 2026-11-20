@@ -115,11 +115,11 @@ export const RECEIVING_UNIT_SUBCONTRACTOR = 'SUBCONTRACTOR';
  * 收领单明细清单（`ReceiptOrderService.subcontractorMaterials`）、领用月度汇总、
  * 月度盈亏分析三处必须共用这一个条件，否则「同一组数」会再次漂移。
  */
-export function laborReceivingReceiptWhere(projectId: string, laborAuthId: string) {
+export function laborReceivingReceiptWhere(projectId: string, subcontractorId: string) {
   return {
     projectId,
     receivingUnitType: RECEIVING_UNIT_SUBCONTRACTOR,
-    receivingUnitId: laborAuthId,
+    receivingUnitId: subcontractorId,
   };
 }
 
@@ -146,12 +146,12 @@ export function laborMaterialKey(materialName: string, spec: string): string {
 
 /** 月度盈亏明细键：分包单位 + 材料 + 规格 + 单位（回填手填项/生成快照共用） */
 export function monthlyDetailKey(
-  laborAuthId: string,
+  subcontractorId: string,
   materialName: string,
   spec: string,
   unit: string,
 ): string {
-  return [laborAuthId, materialName, spec, unit].join(LABOR_KEY_SEP);
+  return [subcontractorId, materialName, spec, unit].join(LABOR_KEY_SEP);
 }
 
 /**

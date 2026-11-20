@@ -22,6 +22,8 @@ import { slimSecrets } from '../utils/mask';
 const ROUTE_MAP: Record<string, { model?: string; module: string }> = {
   projects: { model: 'project', module: '项目信息' },
   suppliers: { model: 'supplier', module: '供应商库' },
+  'other-projects': { model: 'otherProject', module: '其他项目库' },
+  subcontractors: { model: 'subcontractor', module: '分包商库' },
   contracts: { model: 'contract', module: '合同台账' },
   'contract-materials': { model: 'contractMaterial', module: '合同物资清单' },
   materials: { model: 'materialBase', module: '物资基础库' },

@@ -50,4 +50,38 @@ export class ProjectScopeService {
       throw new BadRequestException(`${label}不存在或不属于当前项目`);
     }
   }
+
+  /**
+   * 分包商库（主数据）必须属于当前项目 —— `projectId` 为空表示全局共享库，本/他项目都可引用。
+   */
+  async assertSubcontractorInProject(
+    subcontractorId: string | null | undefined,
+    projectId: string,
+    label = '分包商',
+  ): Promise<void> {
+    if (!subcontractorId || !projectId) return;
+    const r = await this.prisma.subcontractor.findUnique({
+      where: { id: subcontractorId },
+      select: { projectId: true },
+    });
+    if (!r || (r.projectId && r.projectId !== projectId)) {
+      throw new BadRequestException(`${label}不存在或不属于当前项目`);
+    }
+  }
+
+  /** 其他项目库必须属于当前项目（`projectId` 为空 = 全局共享） */
+  async assertOtherProjectInProject(
+    otherProjectId: string | null | undefined,
+    projectId: string,
+    label = '其他项目',
+  ): Promise<void> {
+    if (!otherProjectId || !projectId) return;
+    const r = await this.prisma.otherProject.findUnique({
+      where: { id: otherProjectId },
+      select: { projectId: true },
+    });
+    if (!r || (r.projectId && r.projectId !== projectId)) {
+      throw new BadRequestException(`${label}不存在或不属于当前项目`);
+    }
+  }
 }

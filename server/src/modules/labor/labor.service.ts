@@ -123,9 +123,33 @@ export class LaborService {
     return out;
   }
 
+  /**
+   * 台账挂靠分包商库主数据（2026-11-20）：台账保留 `subcontractorName` 名称快照，
+   * 同时把名称解析/新建为 `Subcontractor` 并写 `subcontractorId` —— 主数据改名不断档，
+   * 成本与收领单侧统一按主数据 ID 聚合。
+   */
+  private async resolveSubcontractorId(name?: string | null, projectId?: string) {
+    const n = String(name ?? '').trim();
+    if (!n) return null;
+    const found = await this.prisma.subcontractor.findFirst({
+      where: { name: n, OR: [{ projectId: projectId ?? null }, { projectId: null }] },
+      select: { id: true },
+    });
+    if (found) return found.id;
+    try {
+      const created = await this.prisma.subcontractor.create({ data: { name: n, projectId: projectId ?? null } });
+      return created.id;
+    } catch {
+      // 并发下唯一键冲突：回查一次
+      const again = await this.prisma.subcontractor.findFirst({ where: { name: n }, select: { id: true } });
+      return again?.id ?? null;
+    }
+  }
+
   async create(data: any, projectId?: string, user?: any) {
     this.validate(data);
     const payload = this.pick(data);
+    payload.subcontractorId = await this.resolveSubcontractorId(payload.subcontractorName, projectId);
     return this.prisma.laborAuthLedger.create({
       data: {
         ...payload,
@@ -146,6 +170,9 @@ export class LaborService {
     assertVersion(old, data);
     if (data?.subcontractorName !== undefined) this.validate(data);
     const payload = this.pick(data);
+    if (payload.subcontractorName !== undefined) {
+      payload.subcontractorId = await this.resolveSubcontractorId(payload.subcontractorName, projectId);
+    }
     // 状态只能通过明确的状态流转接口变更，避免越权
     if (data?.status && [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED].includes(data.status)) {
       payload.status = data.status;
@@ -170,6 +197,7 @@ export class LaborService {
   async exportMark(payload: any, projectId?: string, user?: any) {
     this.validate(payload);
     const data = this.pick(payload);
+    data.subcontractorId = await this.resolveSubcontractorId(data.subcontractorName, projectId);
     // 按 id 落库时必须做项目归属复核（同 update/remove 的口径）：否则拿到他项目的台账 id
     // 就能跨项目改名、覆盖身份证/盖章件。id 会出现在导出件、日志与分享链接里。
     const existing = payload?.id

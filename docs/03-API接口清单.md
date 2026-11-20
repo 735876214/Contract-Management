@@ -25,7 +25,7 @@
 | `/dict` | **全局**，无 `projectId`（字典类型/项为全系统共享） |
 | `/finance` | 按 `contractId` 归属（合同本身已在项目内），查询**不带** `projectId` 过滤 |
 | `/suppliers` | 受系统参数 `supplier.share.scope` 控制：`GLOBAL` 全局共享 / `PROJECT` 按项目隔离 |
-| `/contract-templates`（`/templates`）、`/subcontractors` | `projectId = null` 表示**全局共享**，否则按项目 |
+| `/contract-templates`（`/templates`）、`/subcontractors`、`/other-projects` | `projectId = null` 表示**全局共享**，否则按项目 |
 
 > 新增业务表/查询必须自己带上 `projectId` 过滤，否则会跨项目泄漏数据。
 
@@ -113,23 +113,53 @@
 
 > 项目隔离：`projectId = null` 为全局共享；`supplier.share.scope = PROJECT` 时按项目过滤。
 
-## 6. 分包商 `/subcontractors`
+## 6. 分包商库 `/subcontractors`（2026-11-20 新增独立主数据）
 
 | 方法 | 路径 | 说明 | 权限 |
 |---|---|---|---|
-| GET | `/subcontractors` | 列表 | `subcontractor:view` |
-| GET | `/subcontractors/options` | 下拉 | `subcontractor:view` |
+| GET | `/subcontractors` | 列表（分页、关键词、状态；含台账引用数） | `subcontractor:view` |
+| GET | `/subcontractors/options` | 下拉（收领单供应/领用单位用，按项目或全局共享） | `subcontractor:view` `receipt:edit` `contract:edit` `labor:edit` |
+| GET | `/subcontractors/export` · GET `/subcontractors/template` | 导出 Excel / 模板 | `subcontractor:view` |
 | GET | `/subcontractors/:id` | 详情 | `subcontractor:view` |
-| GET | `/subcontractors/:id/letter` | 材料员授权委托书（生成/下载） | `subcontractor:view` |
-| GET | `/subcontractors/:id/letter-filename` | 委托书文件名 | `subcontractor:view` |
-| POST | `/subcontractors/preview` | 委托书预览（未落库） | `subcontractor:view` |
-| POST | `/subcontractors` | 新增 | `subcontractor:edit` |
-| PUT | `/subcontractors/:id` | 修改 | `subcontractor:edit` |
-| POST | `/subcontractors/:id/complete` | 完成（编辑中 → 已完成） | `subcontractor:edit` |
-| POST | `/subcontractors/export-mark` | 导出签章标记 | `subcontractor:edit` |
-| DELETE | `/subcontractors/:id` | 删除 | `subcontractor:edit` |
+| POST | `/subcontractors` | 新增（名称查重） | `subcontractor:edit` |
+| PUT | `/subcontractors/:id` | 修改（乐观锁 version） | `subcontractor:edit` |
+| DELETE | `/subcontractors/:id` | 删除（被台账/收领单/领用单据/月度盈亏引用只可停用） | `subcontractor:edit` |
+| POST | `/subcontractors/:id/toggle` | 启用/停用 | `subcontractor:edit` |
+| POST | `/subcontractors/import` · POST `/subcontractors/import/validate` | 导入 / 导入预校验 | `subcontractor:edit` |
+
+> 与「授权台账」的关系：`LaborAuthLedger.subcontractorId` 指向本库；台账保留 `subcontractorName` 快照，
+> 主数据改名不影响历史台账。
+
+## 6.1 分包材料员授权台账 `/labor/auth-ledger`
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/labor/auth-ledger` | 列表 | `labor:view` |
+| GET | `/labor/auth-ledger/options` | 下拉 | `labor:view` |
+| GET | `/labor/auth-ledger/:id` | 详情 | `labor:view` |
+| GET | `/labor/auth-ledger/:id/letter` · GET `/labor/auth-ledger/:id/letter-filename` | 材料员授权委托书（生成/下载、文件名） | `labor:view` |
+| POST | `/labor/auth-ledger/preview` | 委托书预览（未落库） | `labor:view` |
+| POST | `/labor/auth-ledger` | 新增（自动解析/创建 `Subcontractor` 并回填 `subcontractorId`） | `labor:edit` |
+| PUT | `/labor/auth-ledger/:id` | 修改 | `labor:edit` |
+| POST | `/labor/auth-ledger/:id/complete` | 完成（编辑中 → 已完成） | `labor:edit` |
+| POST | `/labor/auth-ledger/export-mark` | 导出签章标记 | `labor:edit` |
+| DELETE | `/labor/auth-ledger/:id` | 删除 | `labor:edit` |
 
 > 关联：`subcontractId` 指向分包合同（`Contract`），已建立真实外键（`onDelete: SetNull`）。
+
+## 6.2 其他项目库 `/other-projects`（2026-11-20 新增，替代字典 `other_project`）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | `/other-projects` | 列表（分页、关键词、状态） | `other-project:view` |
+| GET | `/other-projects/options` | 下拉（收领单供应/领用单位用） | `other-project:view` `receipt:edit` |
+| GET | `/other-projects/export` · GET `/other-projects/template` | 导出 Excel / 模板 | `other-project:view` |
+| GET | `/other-projects/:id` | 详情 | `other-project:view` |
+| POST | `/other-projects` | 新增（名称查重） | `other-project:edit` |
+| PUT | `/other-projects/:id` | 修改 | `other-project:edit` |
+| DELETE | `/other-projects/:id` | 删除（被收领单引用只可停用） | `other-project:edit` |
+| POST | `/other-projects/:id/toggle` | 启用/停用 | `other-project:edit` |
+| POST | `/other-projects/import` · POST `/other-projects/import/validate` | 导入 / 导入预校验 | `other-project:edit` |
 
 ## 7. 合同 `/contracts`
 
