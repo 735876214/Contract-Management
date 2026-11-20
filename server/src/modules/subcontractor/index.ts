@@ -6,3 +6,4 @@
  */
 export { SubcontractorModule } from './subcontractor.module';
 export { SubcontractorService } from './subcontractor.service';
+export { resolveOrCreateSubcontractor } from './resolve';
