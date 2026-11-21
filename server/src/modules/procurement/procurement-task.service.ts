@@ -35,6 +35,7 @@ import {
   taskOf,
   mainContract,
   estimatedAmountYuan,
+  estimatedAmountMap,
   resolveSupplierId,
   parseJsonArray,
   serializeTask,
@@ -289,7 +290,7 @@ export class ProcurementTaskService {
       this.prisma.procurementTask.count({ where }),
     ]);
     // 任务 3.2：列表带出预计采购金额（万元），供「是否需要采前会会议纪要」判定与展示
-    const amountMap = await this.estimatedAmountMap(rows.map((r) => r.id));
+    const amountMap = await estimatedAmountMap(this.prisma, rows.map((r) => r.id));
     return buildResult(
       rows.map((r: any) => {
         let module: any = null;
@@ -981,19 +982,6 @@ export class ProcurementTaskService {
   }
 
 
-  /** 批量计算预计采购金额（元），key = taskId（列表页避免 N+1 查询） */
-  private async estimatedAmountMap(taskIds: string[]): Promise<Map<string, number>> {
-    const map = new Map<string, number>();
-    if (!taskIds.length) return map;
-    const items = await this.prisma.procurementTotalItem.findMany({
-      where: { taskId: { in: taskIds } },
-      select: { taskId: true, qty: true, planPrice: true },
-    });
-    for (const it of items) {
-      map.set(it.taskId, (map.get(it.taskId) ?? 0) + (num(it.planPrice) ?? 0) * (num(it.qty) ?? 0));
-    }
-    return map;
-  }
 
   /**
    * 同步合同阶段状态（批次后续「生成合同」调用）：

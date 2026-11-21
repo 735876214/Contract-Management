@@ -149,6 +149,31 @@ export async function estimatedAmountYuan(prisma: PrismaClient, taskId: string):
   return sumRounded(items.map((i) => mulDecimal(i.planPrice, i.qty)), 2);
 }
 
+/**
+ * 批量计算预计采购金额（元），key = taskId（列表页避免 N+1）。
+ * 与 estimatedAmountYuan **同一引擎**：逐项精确十进制乘法 + 逐项 2 位舍入累加，
+ * 保证「列表页」与「详情/采前会阈值/合同带入」算出的金额一致（消除历史浮点漂移）。
+ */
+export async function estimatedAmountMap(
+  prisma: PrismaClient,
+  taskIds: string[],
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!taskIds.length) return map;
+  const items = await prisma.procurementTotalItem.findMany({
+    where: { taskId: { in: taskIds } },
+    select: { taskId: true, qty: true, planPrice: true },
+  });
+  const grouped = new Map<string, Array<number | null>>();
+  for (const it of items) {
+    const arr = grouped.get(it.taskId) ?? [];
+    arr.push(mulDecimal(it.planPrice, it.qty));
+    grouped.set(it.taskId, arr);
+  }
+  for (const [taskId, amounts] of grouped) map.set(taskId, sumRounded(amounts, 2));
+  return map;
+}
+
 /** 供应商名称 → id（不存在返回 null） */
 export async function resolveSupplierId(prisma: PrismaClient, name: string): Promise<string | null> {
   const s = await prisma.supplier.findFirst({ where: { name } });
