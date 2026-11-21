@@ -157,6 +157,7 @@ export class SystemService {
   }
 
   async permissions() {
+    // @no-limit: 权限码表（代码级常量集，百级）
     const list = await this.prisma.permission.findMany({ orderBy: [{ module: 'asc' }, { code: 'asc' }] });
     const grouped: Record<string, any[]> = {};
     list.forEach((p: any) => (grouped[p.module] = [...(grouped[p.module] || []), p]));
@@ -174,6 +175,7 @@ export class SystemService {
   private readonly secretParamKeys = new Set(['ai.apiKey']);
 
   async params() {
+    // @no-limit: 系统参数表（全局配置，几十行）
     const rows = await this.prisma.sysParam.findMany({ orderBy: { key: 'asc' } });
     return rows.filter((r) => !this.secretParamKeys.has(r.key));
   }

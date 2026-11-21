@@ -266,33 +266,42 @@ export class AnomalyService {
       finalSettlementItems,
       materialRows,
     ] = await Promise.all([
+        // @no-limit: 预警规则需全量行做跨期累计比对，分页会漏判；量级=单项目业务行
         this.prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
+        // @no-limit: 预警规则需全量行（同上）
         this.prisma.settlement.findMany({
           where: w.settlementWhere,
           select: ANOMALY_SELECT.settlement,
           orderBy: ANOMALY_ORDER.settlement as any,
         }),
+        // @no-limit: 预警规则需全量行做累计比对（同上）
         this.prisma.settlement.findMany({
           where: w.settlementCumulativeWhere,
           select: ANOMALY_SELECT.settlement,
           orderBy: ANOMALY_ORDER.settlement as any,
         }),
+        // @no-limit: 预警规则需全量付款流水（同上）
         this.prisma.paymentRecord.findMany({
           where: w.paymentWhere,
           select: ANOMALY_SELECT.payment,
           orderBy: ANOMALY_ORDER.payment as any,
         }),
+        // @no-limit: 预警规则需全量发票（同上）
         this.prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
+        // @no-limit: 预警规则需全量付款手续（同上）
         this.prisma.paymentProcedure.findMany({
           where: w.procedureWhere,
           select: ANOMALY_SELECT.procedure,
           orderBy: ANOMALY_ORDER.procedure as any,
         }),
+        // @no-limit: 预警规则需全量收领单（同上）
         this.prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
+        // @no-limit: 预警规则需全量总结算明细（同上）
         this.prisma.finalSettlementItem.findMany({
           where: w.finalSettlementItemWhere,
           select: ANOMALY_SELECT.finalSettlementItem,
         }),
+        // @no-limit: 预警规则需全量合同物资行（同上）
         this.prisma.contractMaterial.findMany({
           where: w.contractMaterialWhere,
           select: ANOMALY_SELECT.contractMaterial,

@@ -25,15 +25,20 @@ export class DashboardService {
 
   async overview(projectId: string, user: any) {
     const [contracts, ledger, payments, invoices, settlements] = await Promise.all([
+      // @no-limit: 工作台总览需对整个项目的行求和（KPI），分页会算错；后续可改 SQL aggregate
       this.prisma.contract.findMany({ where: { projectId } }),
+      // @no-limit: 工作台总览求和（同上）
       this.prisma.settlementLedger.findMany({ where: { projectId } }),
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
       // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
+      // @no-limit: 工作台总览求和（同上，付款）
       this.prisma.paymentRecord.findMany({
         where: { projectId, ...paidPaymentWhere() },
       }),
       // 作废/红冲发票不计入「累计开票额」（业务口径 2026-11-12；空状态历史票仍计入）
+      // @no-limit: 工作台总览求和（同上，发票）
       this.prisma.invoice.findMany({ where: { projectId, ...countedInvoiceWhere() } }),
+      // @no-limit: 工作台总览求和（同上，结算）
       this.prisma.settlement.findMany({ where: { projectId } }),
     ]);
     const sumBy = (list: any[], f: string) => list.reduce((s, i: any) => s + (num(i[f]) || 0), 0);
@@ -51,9 +56,11 @@ export class DashboardService {
   /** 近 12 个月收付款与结算趋势；`now` 由上层注入，规则层不读系统时钟 */
   async trend(projectId: string, now: Date = new Date()) {
     const [ledger, payments] = await Promise.all([
+      // @no-limit: 近 12 个月趋势需全量行按月聚合，分页会漏月
       this.prisma.settlementLedger.findMany({ where: { projectId } }),
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
       // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
+      // @no-limit: 近 12 个月趋势（同上，付款）
       this.prisma.paymentRecord.findMany({
         where: { projectId, ...paidPaymentWhere() },
       }),

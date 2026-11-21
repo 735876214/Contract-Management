@@ -393,6 +393,9 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
   门禁 `node scripts/check-body-whitelist.mjs`（CI + `npm test` 双处守门，存量豁免已清零）。
 - **健康检查**：`GET /api/health`（免登录，真打 `SELECT 1`；DB 不可用返回 503）。
   容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
+- **列表查询上限**：`node scripts/check-query-limits.mjs`（CI 一步）。只抓**项目级**无上限
+  `findMany`（没有 `take`、也没有按父实体 id 过滤）。确需全量的在调用处写
+  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。
 - **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：
   **0 error**，warning 用 `--max-warnings` **冻结存量**（server 47 / web 74，只允许变少）。
   关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、

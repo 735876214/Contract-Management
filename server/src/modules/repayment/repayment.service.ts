@@ -65,6 +65,7 @@ export class RepaymentService {
     const now = new Date();
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const head = `${prefix}-${ym}-`;
+    // @no-limit: 只取本项目当月协议编号，用于算下一个流水号
     const rows = await this.prisma.repaymentAgreement.findMany({
       where: { projectId, code: { startsWith: head } },
       select: { code: true },

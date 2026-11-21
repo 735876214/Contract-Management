@@ -414,6 +414,7 @@ export class TemplateService {
     if (query.keyword) where.title = { contains: query.keyword };
     if (query.categoryCode) where.categoryCode = query.categoryCode;
     if (query.type) where.type = query.type;
+    // @no-limit: 条款库总量级（百级），且需按排序整体返回
     return this.prisma.clause.findMany({
       where,
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],

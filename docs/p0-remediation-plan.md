@@ -39,7 +39,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| P1-4 列表查询上限门禁 | ✅ 完成（2026-11-21） | `scripts/check-query-limits.mjs`（只抓项目级无上限）+ 56 条存量豁免（TODO 已登记收口） |
+| P1-4 列表查询上限门禁 | ✅ 完成（2026-11-21） | `scripts/check-query-limits.mjs`；**44 处全部写明 `// @no-limit: 理由`，豁免表清零、上限 0**。门禁顺带修掉两类假阳性（简写 `{ skip, take }`、`{ contractId }` 简写父键） |
 | P2 健康检查 | ✅ 完成（2026-11-21） | `GET /api/health`：真打 `SELECT 1`，DB 不可用 → 503；当前 compose 的 app healthcheck 仅 TCP 探测，建议改调此接口（**未擅自改部署配置**） |
 | P1-2 ESLint 门禁 | ✅ 完成（2026-11-21） | server/web 各装 `eslint@10` + `typescript-eslint@8`（web 另加 `eslint-plugin-react-hooks`），各自 `eslint.config.mjs` + `npm run lint`，CI 两个 job 各加一步；0 error，warning 预算 server 47 / web 74（只减不增）。顺带删掉 6 条「已被 ESLint 判定无问题」的死 `eslint-disable` |
 | P1-1 TypeScript 严格模式 | ✅ 完成（2026-11-21） | `server/tsconfig.json` 与 `web/tsconfig.json` 均为 `strict: true`；修掉 47 处后端 + 8 处前端错误（含 2 个 spec 与 2 个无类型依赖的 `require` 化）。注意：`strict` 只能阻止**新增**缺陷，存量 `any` 仍在，故仍需 `tsconfig` 之外的类型收敛（后续按模块把 `any` 换成 `Prisma.XGetPayload`） |

@@ -747,6 +747,7 @@ export class ProcurementTaskService {
     // 合同类型由「采购类型 + 采购品类」统一推导（与 server/src/constants/procurementFlow.ts 的 deriveContractType 一致）
     const typeCode = deriveContractType(type as TaskType, (category as ContractCategory) ?? null);
     const typeName = CONTRACT_TYPE_LABELS[typeCode] ?? typeCode;
+    // @no-limit: 按类型名匹配合同模板（模板总数级）
     const templates = await this.prisma.contractTemplate.findMany({
       where: { name: { contains: typeName }, status: 1 },
       orderBy: { createdAt: 'asc' },
@@ -961,6 +962,7 @@ export class ProcurementTaskService {
     const baseIds = [...new Set(normalized.map((i) => i.materialBaseId))];
     const bases = await this.prisma.materialBase.findMany({ where: { id: { in: baseIds } } });
     const baseMap = new Map(bases.map((b) => [b.id, b]));
+    // @no-limit: 计量单位字典项（<100）
     const dictUnits = await this.prisma.dictItem.findMany({
       where: { typeCode: 'measurement_unit', status: 1 },
     });
@@ -1171,6 +1173,7 @@ export class ProcurementTaskService {
   private async nextTaskNo(projectId: string): Promise<string> {
     const day = localDayKey().replace(/-/g, '');
     const prefix = `PROC-${day}-`;
+    // @no-limit: 只取本项目当天的采购任务编号，用于算下一个流水号
     const rows = await this.prisma.procurementTask.findMany({
       where: { projectId, taskNo: { startsWith: prefix } },
       select: { taskNo: true },

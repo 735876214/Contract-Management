@@ -77,9 +77,11 @@ export class AuthService {
 
   async getPermissions(userId: string, isSuperAdmin: boolean): Promise<string[]> {
     if (isSuperAdmin) {
+      // @no-limit: 权限码表是代码级常量集（百级）
       const all = await this.prisma.permission.findMany();
       return all.map((p) => p.code);
     }
+    // @no-limit: 按 userId 过滤的用户角色（每人个位数）
     const roles = await this.prisma.userRole.findMany({
       where: { userId },
       include: { role: { include: { permissions: { include: { permission: true } } } } },
@@ -92,9 +94,11 @@ export class AuthService {
   async getProjects(userId: string, isSuperAdmin: boolean) {
     const multiEnabled = (await this.sysParam.get('multi.project.enabled', 'true')) === 'true';
     if (isSuperAdmin) {
+      // @no-limit: 超管可见的项目列表（项目数量级=十级）
       const list = await this.prisma.project.findMany({ orderBy: { createdAt: 'asc' } });
       return list.map((p) => ({ ...p, roleCode: 'ADMIN' }));
     }
+    // @no-limit: 按 userId 过滤的项目成员（每人个位数）
     const members = await this.prisma.projectMember.findMany({
       where: { userId },
       include: { project: true },

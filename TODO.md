@@ -40,10 +40,9 @@
 - **ESLint warning 存量清理（2026-11-21）**：`server` 47 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
   与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
   `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。
-- **列表查询上限收口（P1-4，2026-11-21）**：`scripts/query-limit.allow.txt` 里还剩 **56 条**「项目级无上限
-  findMany」（无 `take`、也无父实体 id 过滤）。门禁已上线（CI + `npm test` 双处守门）。
-  收口方式二选一：加 `take`/分页（列表接口本来就该分页）；确实必须全量的，在调用处写
-  `// @no-limit: <理由>` 并从豁免表删除该行，同时下调脚本里的 `MAX_ALLOW`。
+- **工作台/台账的聚合改走 SQL（P1-4 跟进，2026-11-21）**：`dashboard.overview` / `trend`、
+  `ai/anomaly.collect`、`ai/analytics.dataset-collector` 目前是「整项目全量行取回内存再求和」
+  （已用 `// @no-limit:` 显式留痕）。量级上去后应改成 `aggregate`/`groupBy`，或物化视图。
 
 - **大服务拆分（P1-3，2026-11-21 起）**：`contract.service.ts`（1821 行）已拆出 `ContractDraftService`
   （物料池 + 草稿清单 + 税率同步；起草域零回依赖，主服务保留同名转发）。**仍待拆**：

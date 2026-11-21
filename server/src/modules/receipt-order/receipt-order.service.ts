@@ -444,6 +444,7 @@ export class ReceiptOrderService {
   private async dictProjectOptions(dictCode: string, keyword?: string, projectId?: string) {
     let items: any[] = [];
     try {
+      // @no-limit: 单个字典类型的项目类选项（<200）
       items = await this.prisma.dictItem.findMany({
         where: { typeCode: dictCode, status: 1 },
         orderBy: { sortOrder: 'asc' },

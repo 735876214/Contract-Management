@@ -123,18 +123,22 @@ export class DatasetCollector {
         loadInvoiceFacts(this.prisma, ids, { range, excludeTerminal: true }),
         loadDailyReportCounts(this.prisma, ids, { range, confirmedOnly: gated }),
         loadProcurementTaskCounts(this.prisma, ids, { range }),
+        // @no-limit: AI 数据集聚合：按项目集取全量行在内存分组求和（导出用，不分页）
         this.prisma.monthlyProfitLoss.findMany({
           where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
           select: { projectId: true, sixSavingsAmount: true },
         }),
+        // @no-limit: 同上：数据集分区块聚合（保理费用）
         this.prisma.factoringCost.findMany({
           where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
           select: { totalCost: true, contract: { select: { projectId: true } } },
         }),
+        // @no-limit: 同上：数据集分区块聚合（逾期应付）
         this.prisma.overduePayable.findMany({
           where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
           select: { overdueInterest: true, contract: { select: { projectId: true } } },
         }),
+        // @no-limit: 同上：数据集分区块聚合（资产台账）
         this.prisma.assetLedger.findMany({
           where: {
             projectId: { in: ids },
@@ -437,6 +441,7 @@ export class DatasetCollector {
         where: { projectId: { in: ids }, ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}) },
         _sum: { settleQty: true },
       })),
+      // @no-limit: 同上：数据集分区块聚合（合同履约/结算事实）
       q(["contract.fulfillment"], () => this.prisma.settlement.findMany({
         where: { projectId: { in: ids }, ...notDraft },
         select: { projectId: true, amount: true, actualAmount: true },

@@ -46,12 +46,14 @@ export class LaborReceivingService {
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
+      // @no-limit: distinct 结算期，量级=月数
       this.prisma.laborReceivingDoc.findMany({
         where: { projectId },
         distinct: ['period'],
         select: { period: true },
       }),
       // 兼容单据化之前直接落 Summary 的历史数据（若有）
+      // @no-limit: 同上：兼容单据化之前的历史 Summary，distinct 结算期
       this.prisma.laborReceivingSummary.findMany({
         where: { projectId },
         distinct: ['period'],
@@ -264,6 +266,7 @@ export class LaborReceivingService {
   private async nextDocNo(projectId: string, period: string): Promise<string> {
     const ym = period.replace('-', '');
     const prefix = `LRD-${ym}-`;
+    // @no-limit: 只取本项目当月的领用单编号（单月单据数），用于算下一个流水号
     const rows = await this.prisma.laborReceivingDoc.findMany({
       where: { projectId, docNo: { startsWith: prefix } },
       select: { docNo: true },

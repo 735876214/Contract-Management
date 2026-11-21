@@ -31,7 +31,7 @@ const SRC_DIR = path.resolve(REPO, 'server/src');
 const ALLOW_FILE = path.resolve(REPO, 'scripts/query-limit.allow.txt');
 
 /** 存量豁免上限：清理一条就下调一次 */
-const MAX_ALLOW = Number(process.env.QUERY_LIMIT_MAX_ALLOW ?? 56);
+const MAX_ALLOW = Number(process.env.QUERY_LIMIT_MAX_ALLOW ?? 0);
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
@@ -80,10 +80,12 @@ function scan(dir) {
       const open = m.index + m[0].length - 1;
       const end = callEnd(src, open);
       const call = src.slice(open, end + 1);
-      if (/\btake\s*:/.test(call)) continue;
+      // `take:` 与简写 `{ skip, take }` 都算有上限（后者此前被漏判，造成假阳性）
+      if (/\btake\b/.test(call)) continue;
       // 按父实体过滤的查询天然有界（一个合同/任务/单据的明细），不算「项目级无上限」。
       // projectId 不算：按项目过滤仍可能返回整个项目的全部行。
-      const PARENT_KEY = /\b(?:id|contractId|taskId|settlementId|invoiceId|paymentId|orderId|receiptOrderId|materialBaseId|materialId|supplierId|subcontractorId|projectProcedureId|agreementId|ledgerId|docId|finalSettlementId)\s*:\s*(?!\{)/;
+      // 兼容三种写法：`contractId: x`、`{ contractId }`（简写）、`contractId, take`
+      const PARENT_KEY = /\b(?:id|contractId|taskId|settlementId|invoiceId|paymentId|orderId|receiptOrderId|materialBaseId|materialId|supplierId|subcontractorId|projectProcedureId|agreementId|ledgerId|docId|finalSettlementId|profitLossId|templateId|contractNo)\b\s*(?::\s*(?!\{)|[,}])/;
       if (PARENT_KEY.test(call)) continue;
       const li = lineOf(m.index);
       const prev = (lines[li] || '') + '\n' + (lines[li - 1] || '');
