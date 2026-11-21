@@ -71,6 +71,23 @@ dev 容器挂的是主树的 `./server` / `./web`，**服务不了 worktree**，
 - 同树并发运行会串行（`.verify.lock`，stale 30 分钟接管）；跨树天然并行。
 - `--isolate` 让本次运行用独立 schema（`verify_<runId>`），允许同树并行，代价是全量建表。
 
+### 4.1 int spec 的域标签（`--int auto` 靠它选集）
+
+每个 `server/test-integration/*.int.spec.ts` 的**文件头第一行**写机器可读标签：
+
+```ts
+// @domains: settlement, ledger, payment
+```
+
+- 取值是**模块目录名**（`settlement` / `payment` / `daily-report` / `receipt-order` / `cost` / `labor` …），
+  与 `server/src/modules/<name>/` 同一套词；改动文件命中的模块名与标签取交集即选中。
+- **改了共享层**（`server/src/common/`、`server/src/query/`、`server/src/constants/`、`server/prisma/`）
+  时影响面不可枚举，`--int auto` 直接跑全量——这是刻意的保守策略。
+- 新增 int spec **必须**打标签，否则只能靠文件名兜底匹配（易漏）。
+- 核对映射不必连库：`VERIFY_INT_DRY=1 node scripts/verify-module.mjs --int auto`
+  只打印"改动 → 选中哪些 spec"。目的：**改一个模块只跑相关 spec**，
+  本地验证从"全量 ~6 分钟"降到"分钟级"，全量留给 PR 门。
+
 ## 5. 提交自洽（**提交前必跑**）
 
 ```powershell

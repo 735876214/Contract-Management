@@ -36,6 +36,10 @@ const fast = has('fast');
 const intMode = opt('int', 'auto'); // auto | all | none
 const isolateSchema = has('isolate') || argv.includes('--isolate=schema');
 
+/** 共享层改动（common/query/prisma）影响面不可枚举 → 直接跑全量 */
+const SHARED_PREFIXES = ['server/src/common/', 'server/src/query/', 'server/src/constants/', 'server/prisma/'];
+
+
 function die(msg, code = 2) {
   console.error(`[verify] ${msg}`);
   process.exit(code);
@@ -91,6 +95,14 @@ const needsInt =
   intMode === 'all' ||
   (intMode === 'auto' &&
     (schemaChanged || serverChanged.some((f) => INT_RELEVANT.test(f) || f.startsWith('server/test-integration/'))));
+
+// --dry-run（VERIFY_INT_DRY=1）：只打印「改动 → 选中哪些 int spec」，不连库、不跑测试
+if (process.env.VERIFY_INT_DRY === '1') {
+  const specs = intMode === 'all' ? allIntSpecs() : selectIntSpecs([...changed]);
+  console.log(`[dry-run] intMode=${intMode} needsInt=${needsInt} 改动 ${changed.size} 个文件`);
+  for (const s of specs) console.log(`  ${s}`);
+  process.exit(0);
+}
 
 const devDb = dbNameOf(env.DATABASE_URL);
 const wtSlug = devDb.replace(/^cms_(int_)?wt_/, '');
@@ -299,12 +311,45 @@ function allIntSpecs() {
   return all;
 }
 
+/**
+ * 读某个 int spec 的文件头域标签：
+ *
+ *   // @domains: settlement, ledger, payment
+ *
+ * 约定见 `.claude/rules/parallel-development.md` §4.1：标签是**机器可读**的，
+ * `--int auto` 靠它在「改了哪个模块」与「该跑哪些 spec」之间做映射。
+ */
+function specDomains(rel) {
+  try {
+    // `allIntSpecs()` / `direct` 给的路径都已摘掉 `server/` 前缀，这里要按 server 根再拼回去；
+    // 只拼仓库根会读不到文件 → 标签静默失效 → 选集退回文件名兜底（看起来"跑了"，其实没按标签选）。
+    const abs = [path.join(root, 'server', rel), path.join(root, rel)].find((p) => existsSync(p));
+    if (!abs) return [];
+    const head = readFileSync(abs, 'utf8').split('\n').slice(0, 8).join('\n');
+    const m = /@domains?\s*:?\s*([^\n*]+)/i.exec(head);
+    if (!m) return [];
+    return m[1]
+      .split(/[,\s]+/)
+      .map((x) => x.trim().toLowerCase().replace(/-/g, ''))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function selectIntSpecs(files) {
   // 调用方传的是 Set（changed），统一转数组，避免 .filter is not a function
   const list = Array.from(files || []);
   const all = allIntSpecs();
   const direct = list.filter((f) => f.startsWith('server/test-integration/') && f.endsWith('.int.spec.ts'))
     .map((f) => f.replace(/^server\//, ''));
+
+  const sharedHit = list.find((f) => SHARED_PREFIXES.some((p) => f.startsWith(p)));
+  if (sharedHit && !direct.length) {
+    console.log(`  改动了共享层（${sharedHit}），影响面不可枚举 → 跑全量 int 套件`);
+    return all;
+  }
+
   const tokens = new Set();
   for (const f of list) {
     const m = /server\/src\/modules\/([^/]+)\//.exec(f);
@@ -312,10 +357,21 @@ function selectIntSpecs(files) {
     const b = path.basename(f).replace(/\.[^.]+$/, '');
     tokens.add(b.replace(/-/g, ''));
   }
-  const matched = all.filter((s) => [...tokens].some((t) => t && s.replace(/-/g, '').includes(t)));
+
+  // 标签一个都读不到 = 路径或格式坏了（曾因拼错根目录静默退化成纯文件名兜底），明确警告
+  if (!all.some((s) => specDomains(s).length)) {
+    console.warn('  [verify] 没有任何 int spec 读到 @domains 标签，只能按文件名兜底（检查文件头格式）');
+  }
+
+  const matched = all.filter((s) => {
+    // 1) 显式域标签命中（优先，语义准确）
+    if (specDomains(s).some((d) => tokens.has(d))) return true;
+    // 2) 兜底：文件名片段命中（老 spec 没打标签时仍可用）
+    return [...tokens].some((t) => t && s.replace(/-/g, '').includes(t));
+  });
   const picked = [...new Set([...direct, ...matched])];
   if (picked.length) {
-    console.log(`  选中 ${picked.length} 个 int spec：${picked.join(', ')}`);
+    console.log(`  选中 ${picked.length}/${all.length} 个 int spec：${picked.join(', ')}`);
     return picked;
   }
   console.log('  未匹配到具体 spec，回退全量 int 套件');

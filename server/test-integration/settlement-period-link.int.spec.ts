@@ -1,3 +1,4 @@
+// @domains: settlement, invoice, receipt-order
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';

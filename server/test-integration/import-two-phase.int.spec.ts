@@ -1,3 +1,4 @@
+// @domains: import
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';

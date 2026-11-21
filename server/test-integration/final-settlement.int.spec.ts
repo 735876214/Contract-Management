@@ -1,3 +1,4 @@
+// @domains: final-settlement, settlement, contract
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, ConflictException } from '@nestjs/common';
