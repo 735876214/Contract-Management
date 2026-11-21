@@ -1,7 +1,7 @@
 // 自动生成：由本地 dev.db 提取的字典/系统参数初始种子数据。
 // 容器首次部署（空库）时由 seed.ts 写入，保证「字典管理 / 系统参数」有初始内容。
 // 如需调整初始值，请改本地 dev.db 后重新提取，不要手改此处。
-/* eslint-disable */
+ 
 
 export interface SeedDictType { code: string; name: string; remark: string | null; sort: number; status: number; isSystem: boolean; scope: string; }
 export interface SeedDictItem { typeCode: string; itemCode: string; itemName: string; sortOrder: number; status: number; color: string | null; remark: string | null; extField1: string | null; }

@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { mapPrismaError, prismaErrorCode } from '../utils/prisma-error';
+import { buildErrorEnvelope } from '../utils/error-envelope';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -45,10 +46,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`${request.method} ${request.url} -> ${detail.split('\n')[0]}`);
     }
 
-    response.status(status).json({
-      code,
-      data: null,
-      message,
-    });
+    // 统一信封（2026-11-21 审计 P0-2）：错误分支与成功分支同形（含 timestamp），
+    // 否则按文档接入的 mcp/ 外部调用方拿不到 timestamp。HTTP 状态码保持原样。
+    response.status(status).json(buildErrorEnvelope({ code, message }));
   }
 }

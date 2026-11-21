@@ -11,7 +11,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": false,
+    // 2026-11-21：随服务端一并打开 strict（当时全量只有 8 处需要修）。
+    "strict": true,
     "noUnusedLocals": false,
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }

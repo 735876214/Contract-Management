@@ -258,8 +258,14 @@ export function textHasMoney(foldedText: string, value: string): boolean {
   const intComma = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const decShort = dec.replace(/0+$/, '');
   const candidates = new Set<string>([v, intComma + (dec ? '.' + dec : '')]);
-  if (decShort) candidates.add(`${int}.${decShort}`), candidates.add(`${intComma}.${decShort}`);
-  if (!dec) candidates.add(int), candidates.add(intComma);
+  if (decShort) {
+    candidates.add(`${int}.${decShort}`);
+    candidates.add(`${intComma}.${decShort}`);
+  }
+  if (!dec) {
+    candidates.add(int);
+    candidates.add(intComma);
+  }
   // 原文按「万元」写（326.85 万元）时也要认得，否则会误报「原文未匹配」
   const wan = Number(v) / 10000;
   if (Number.isFinite(wan) && wan >= 1) {

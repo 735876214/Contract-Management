@@ -132,11 +132,11 @@ function ProjectList() {
       <Modal title={`项目成员 · ${current?.name || ''}`} width={520} centered open={memberDrawer} onCancel={() => setMemberDrawer(false)} footer={null} styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }}>
         <Row gutter={8} style={{ marginBottom: 16 }}>
           <Col flex="auto">
-            <Select
+            <Select<string | null>
               style={{ width: '100%' }}
               placeholder="选择用户"
               options={users.map((u: any) => ({ value: u.id, label: `${u.realName}（${u.username}）` }))}
-              onChange={(userId) => addMember(userId, 'MEMBER')}
+              onChange={(userId) => { if (userId) addMember(userId, 'MEMBER'); }}
               value={null}
             />
           </Col>

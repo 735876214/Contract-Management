@@ -64,12 +64,14 @@ export class InvoiceController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: pickFields=INVOICE_FIELDS
   @RequirePermissions('invoice:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: pickFields=INVOICE_UPDATE_FIELDS
   @RequirePermissions('invoice:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -109,6 +111,7 @@ export class InvoiceController {
     return this.service.recognize(files || []);
   }
 
+  // @body: mapped=batchCreate
   @RequirePermissions('invoice:edit')
   @Post('batch')
   batchCreate(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {

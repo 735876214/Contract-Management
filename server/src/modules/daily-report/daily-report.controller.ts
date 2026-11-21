@@ -66,12 +66,14 @@ export class DailyReportController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: normalize=normalize
   @RequirePermissions('daily:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: normalize=normalize
   @RequirePermissions('daily:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -82,6 +84,7 @@ export class DailyReportController {
    * 现场确认/驳回：单条传 `id`，批量传 `ids`。
    * 权限沿用 `daily:edit`（填报人=确认人同权）；若要分离填报与确认，需新增权限码 daily:confirm。
    */
+  // @body: typed=inline
   @RequirePermissions('daily:edit')
   @Post('confirm')
   confirm(

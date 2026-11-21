@@ -1,4 +1,4 @@
-/* eslint-disable */
+ 
 /**
  * AUTO-GENERATED — 请勿手改。
  * 源文件：./assets/final-settlement-template.xlsx（《物资结算书》5-sheet 模板：36 行明细槽位行 8..43，合计行 44，审减行 47；含 4 枚 logo/图章）。

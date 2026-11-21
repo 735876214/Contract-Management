@@ -19,11 +19,12 @@ export interface ContractMaterialRow {
   materialBaseId: string;
   unit: string;
   /** 金额/数量列在 Prisma 里是 Decimal，允许直接透传草稿行的 Decimal 值 */
-  qty: number | Prisma.Decimal;
-  priceBeforeTax: number | Prisma.Decimal;
-  taxRatePct: number | Prisma.Decimal;
-  priceWithTax: number | Prisma.Decimal;
-  totalWithTax: number | Prisma.Decimal;
+  // DB 列可空：草稿行里这些值可能是 null（strictNullChecks 下不再用 any 兜底）
+  qty: number | Prisma.Decimal | null;
+  priceBeforeTax: number | Prisma.Decimal | null;
+  taxRatePct: number | Prisma.Decimal | null;
+  priceWithTax: number | Prisma.Decimal | null;
+  totalWithTax: number | Prisma.Decimal | null;
   remark?: string | null;
   sortOrder?: number | null;
 }

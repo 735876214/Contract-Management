@@ -94,8 +94,10 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（93 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（25 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（96 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（26 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 47，见 §7「静态门禁」） |
+| web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 74） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -138,6 +140,9 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/procurementFlow.spec.ts` | 采购工作流单一事实源（类型/合同类型推导/阶段链/门禁/多合同生成/列表分支） |
   | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告）+ 现场确认（日报行）状态机 |
   | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量；含「合同状态→任务状态」映射） |
+  | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
+  | `test/bodyWhitelist.spec.mts` | **请求体白名单门禁自守**（当前仓库通过门禁 · 负向 fixture 必须判失败 · 豁免条数不超过脚本 `MAX_ALLOW`，防止门禁退化） |
+  | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
@@ -290,6 +295,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 | `ai-facts.int.spec.ts` | **AI 事实层金额口径**：累计合同金额按**链根**只算一次（主合同 `amount` + Σ 补充协议 `changeAmount`，补充协议的 `amount` 不参与）· 主合同金额未填时该链不计入（未知不兜 0） |
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
 | `tender-bidders.int.spec.ts` | 招标域：导入**双写**结构化投标单位与幂等、有评标记录的单位不被静默删除、勾选候选人=**定标**（WON+确认价）与取消回落、评标记录全量替换与三条校验、**定标行 → 发布 → 生成多份合同**（快照被篡改也不采信） |
+| `procurement-forms.int.spec.ts` | **采购阶段表单**（P1-3 拆分后回归）：列表批算 `estimatedAmountMap` 与详情单算 `estimatedAmountYuan` **逐分同口径**（P2：旧实现列表用裸浮点会漂移，用 3×333.335 制造分位差）· 采购公告 / 采购文件 / 采前会会议纪要 / 框架协议事前说明 / 成交报告 的 save→get 往返（含 JSON 列解析回数组、候选人快照、采前会金额≥阈值放行） |
 | `settlement-item.int.spec.ts` | **清单项级结算明细 + 量级校验**（业务 2026-10-17）：items 随结算单落库、综合单价/合价由服务端重算 · update 整体替换明细（replace-all）· 量级闸门（Σ明细量 + 历史已结 ≤ 合同链清单量）：**WARN 策略带 overQtyWarning、BLOCK 策略 400** · 链上无清单行的物资=**无上限不拦** · **草稿不校验量级**（提交时才拦） |
 | `template-management.int.spec.ts` | **三套模板管理语义**（2026-10-18）：合同模板新建接受 Y/N 归一、编辑生成新版本且**停用真的生效**、过期 version 409、**删除整条版本链** · 采购模板 `keyword/moduleType/status` 筛选与 `{list,total}` 分页形态、非法状态 400、同类型覆盖写版本快照、停用后不出现在 `status=1` 查询 · 单据模板**历史 `/api/files/` URL 入库归一为相对键**并能读盘渲染、`.docx`/损坏/不存在文件一律 400 |
 | `anomaly-payment.int.spec.ts` | **结算/付款异常预警的真库口径**（2026-10-23 审计补测，落地计划 §4.5 承诺项）：清单量按**合同链根**归集（结算挂母合同、明细跨补充协议）· 按补充协议**下钻时服务端展开整条链**（不得因收窄合同把链切断）· 付款按**链根**归集（结算挂母合同、付款记补充协议不得报超付）· 真超付时事实为**链级累计口径** · 区间上界取**当日末刻**（库里 14:30 的付款不得漏判） |
@@ -383,7 +389,22 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **统一响应** `{ code, data, message, timestamp }`；异常走 `AllExceptionsFilter`，别在 controller 手写返回体。
 - **权限**：controller 类级 `@UseGuards(JwtAuthGuard, PermissionsGuard)` + 方法级 `@RequirePermissions('x:view')`。
 - **项目隔离**：controller 用 `@ProjectId()` 取，service 显式带入 `where`（见 [architecture.md §5](architecture.md)）。
-- **写字段白名单**：service 用 `pickFields` 过滤未知字段。
+- **写字段白名单**：service 用 `pickFields` 过滤未知字段；每个 `@Body()` 必须带 `// @body:` 声明
+  （`pickFields=` / `normalize=` / `typed=` / `mapped=` / `render=` / `array=`），
+  门禁 `node scripts/check-body-whitelist.mjs`（CI + `npm test` 双处守门，存量豁免已清零）。
+- **健康检查**：`GET /api/health`（免登录，真打 `SELECT 1`；DB 不可用返回 503）。
+  容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
+- **列表查询上限**：`node scripts/check-query-limits.mjs`（CI 一步）。只抓**项目级**无上限
+  `findMany`（没有 `take`、也没有按父实体 id 过滤）。确需全量的在调用处写
+  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
+  `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
+  SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。
+- **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：
+  **0 error**，warning 用 `--max-warnings` **冻结存量**（server 44 / web 74，只允许变少）。
+  关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、
+  `no-require-imports` 因 html-to-docx/pngjs 无类型声明）。清完一条 warning 记得同步下调预算。
+- **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。
+  新代码不得再靠 `any` 绕过 null 检查；确实没有类型的第三方包用 `require(...) as any` 并注明原因。
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
 - **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
 - **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），

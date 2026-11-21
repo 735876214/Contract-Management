@@ -177,7 +177,7 @@ export class OperationLogInterceptor implements NestInterceptor {
                * （见 import-task.service.ts）。否则大文件导入在审计日志里永远是成功 0、失败 0。
                */
               bizId: (data && data.async && data.taskId) || bizId || (data && data.id) || null,
-              projectId: (req.headers['x-project-id'] as string) || null,
+              projectId: (req.headers['x-project-id'] as string) || undefined,
               importFile: isImport ? (req as any).file?.originalname || null : null,
               importRows,
               successCount,
@@ -199,8 +199,8 @@ export class OperationLogInterceptor implements NestInterceptor {
               message: err?.message || String(err),
               duration: Date.now() - started,
               bizType: route.model || biz,
-              bizId,
-              projectId: (req.headers['x-project-id'] as string) || null,
+              bizId: bizId ?? undefined,
+              projectId: (req.headers['x-project-id'] as string) || undefined,
             });
             return throwError(() => err);
           }),

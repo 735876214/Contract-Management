@@ -187,12 +187,18 @@ export default function Initiate() {
     try {
       if (editing) {
         // 编辑态：保存基本信息（含采购品类）后进入第二步
+        // 乐观锁：带上最近一次服务端返回的 version（详情接口会刷新它）。
+        // 服务端 assertVersion 要求必填，缺失直接 409 —— 这里先给出可读提示。
+        const lockVersion = createdTask?.version ?? editing.version;
+        if (typeof lockVersion !== 'number') {
+          message.error('缺少版本号，请刷新列表后重试');
+          return;
+        }
         const saved: any = await procurementTaskApi.update(editing.id, {
           content: values.content,
           purpose: values.purpose,
           procurementCategory: values.procurementCategory || null,
-          // 乐观锁：带上最近一次服务端返回的 version（详情接口会刷新它）
-          version: createdTask?.version ?? editing.version,
+          version: lockVersion,
         });
         const savedVersion = (saved?.data ?? saved)?.version;
         if (typeof savedVersion === 'number') {

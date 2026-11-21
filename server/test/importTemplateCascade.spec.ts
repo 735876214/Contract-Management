@@ -81,6 +81,7 @@ describe('ImportTemplateService 级联下拉', () => {
   it('选项表按父级分组写列，组内含全部子选项（同名不合并）', async () => {
     const wb = await build();
     const opt = wb.worksheets.find((w) => w.name === '选项');
+    assert.ok(opt, '导出件里缺少「选项」工作表');
     // 普通下拉占 A 列，级联组从 B 列起
     assert.deepEqual(opt.getColumn(2).values.slice(1, 4), ['二级（工程材料）', '钢筋', '型钢']);
     assert.deepEqual(opt.getColumn(3).values.slice(1, 4), ['二级（周转材料）', '模板木方', '型钢']);

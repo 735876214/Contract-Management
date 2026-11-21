@@ -52,7 +52,8 @@ export class LedgerService {
      */
     const complianceFilter = query.compliance ? String(query.compliance) : '';
 
-    let [contracts, total] = await Promise.all([
+    // contracts 不再重算；total 在「合规性内存过滤」分支里会被改成过滤后的条数，故单独用 let
+    const [contracts, initialTotal] = await Promise.all([
       this.prisma.contract.findMany({
         where, ...(complianceFilter ? {} : { skip, take }), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { supplier: true, ext: true },
@@ -155,15 +156,15 @@ export class LedgerService {
       const firstEntryDate = entryDates.length ? new Date(Math.min(...entryDates.map((d: any) => new Date(d).getTime()))) : null;
 
       // 开累结算金额：结算台账「本月结算额」之和
-      const cumSettleAmount = (ledgerMap[c.id] || []).reduce((s, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
+      const cumSettleAmount = (ledgerMap[c.id] || []).reduce((s: number, l: any) => s + (num(l.monthSettleAmount) || 0), 0);
       // 审定/送审金额来源优先级统一在 calc 层声明：actual ?? amount / amount ?? actual，
       // 避免审减额两端口径漂移（与台账自动抓取、合同链取数同一原语）
       const auditedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (settlementAmountOf(x, 'actual') || 0),
+        (s: number, x: any) => s + (settlementAmountOf(x, 'actual') || 0),
         0,
       );
       const submittedSettleAmount = (settleMap[c.id] || []).reduce(
-        (s, x: any) => s + (settlementAmountOf(x, 'submitted') || 0),
+        (s: number, x: any) => s + (settlementAmountOf(x, 'submitted') || 0),
         0,
       );
       // 开累税前结算金额 / 进项税：**发票派生**（业务口径 2026-11-18）——逐张取票面税前/含税−税前，
@@ -171,8 +172,8 @@ export class LedgerService {
       const invoiceTax = sumInvoiceTax(invoiceMap[c.id] || []);
       const cumSettleBeforeTax = invoiceTax.beforeTax;
       const cumInputTax = invoiceTax.inputTax;
-      const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s, i: any) => s + (num(i.amountWithTax) || 0), 0);
-      const cumPaidAmount = (payMap[c.id] || []).reduce((s, p: any) => s + (num(p.amount) || 0), 0);
+      const cumInvoiceAmount = (invoiceMap[c.id] || []).reduce((s: number, i: any) => s + (num(i.amountWithTax) || 0), 0);
+      const cumPaidAmount = (payMap[c.id] || []).reduce((s: number, p: any) => s + (num(p.amount) || 0), 0);
 
       // 每年结算金额 / 每年付款金额：月份归一 + 分组求和统一走 calc，年份键按时间升序
       const yearSettle = groupSumByYear(ledgerMap[c.id] || [], {
@@ -260,6 +261,7 @@ export class LedgerService {
       };
     });
 
+    let total = initialTotal;
     if (complianceFilter) {
       rows = rows.filter((r: any) => r.compliance === complianceFilter);
       // 过滤后 total 必须是过滤后的条数，否则前端分页器按"未过滤总数"渲染出空页

@@ -117,7 +117,7 @@ export class PaymentService {
     assertYearMonth(data.payMonth, '付款月份');
     const warn = tx
       ? {}
-      : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
+      : await this.checkOverPayment(data.contractId, num(data.amount) ?? 0, data.statusCode);
     const created: any = await db.paymentRecord.create({
       data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });

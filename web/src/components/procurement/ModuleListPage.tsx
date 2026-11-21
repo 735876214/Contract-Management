@@ -421,7 +421,7 @@ export default function ModuleListPage({
             // 窄容器下横向滚动时冻结关键列（DESIGN.md §10.2）
             ...(containerSize.isNarrow ? { fixed: 'left' as const } : {}),
             render: (v: string, row) => (
-              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView(row)}>
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onView?.(row)}>
                 {v}
               </Button>
             ),

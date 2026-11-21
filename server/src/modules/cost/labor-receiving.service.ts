@@ -46,12 +46,14 @@ export class LaborReceivingService {
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
+      // @no-limit: distinct 结算期，量级=月数
       this.prisma.laborReceivingDoc.findMany({
         where: { projectId },
         distinct: ['period'],
         select: { period: true },
       }),
       // 兼容单据化之前直接落 Summary 的历史数据（若有）
+      // @no-limit: 同上：兼容单据化之前的历史 Summary，distinct 结算期
       this.prisma.laborReceivingSummary.findMany({
         where: { projectId },
         distinct: ['period'],
@@ -264,6 +266,7 @@ export class LaborReceivingService {
   private async nextDocNo(projectId: string, period: string): Promise<string> {
     const ym = period.replace('-', '');
     const prefix = `LRD-${ym}-`;
+    // @no-limit: 只取本项目当月的领用单编号（单月单据数），用于算下一个流水号
     const rows = await this.prisma.laborReceivingDoc.findMany({
       where: { projectId, docNo: { startsWith: prefix } },
       select: { docNo: true },
@@ -406,7 +409,7 @@ export class LaborReceivingService {
         r.stockTakeQty == null ? null : Number(r.stockTakeQty), r.remark ?? '',
       ];
     });
-    let foot1 = rows.length + 7;
+    const foot1 = rows.length + 7;
     ws1.getRow(foot1).values = ['分包商材料员：', '', '', '', '', '日期：'];
     ws1.getRow(foot1 + 2).values = ['项目盘点小组成员：', '', '', '', '', '日期：'];
     ws1.columns.forEach((c) => (c.width = 16));
@@ -433,7 +436,7 @@ export class LaborReceivingService {
         r.prevCum, r.receivedQty, r.returnQty, r.netQty, r.remark ?? '',
       ];
     });
-    let foot2 = rows.length + 7;
+    const foot2 = rows.length + 7;
     ws2.getRow(foot2).values = ['合计'];
     ws2.getRow(foot2 + 2).values = [
       `以上数据为分包商 ${doc.subcontractorName} 在 ${periodLabelText} 期间与本项目部发生的所有领用业务。`,
@@ -490,7 +493,7 @@ export class LaborReceivingService {
         deductPrev += prevRows.reduce((sum, r) => sum + (r.deductAmount ?? 0), 0);
       }
     }
-    let foot3 = rows.length + 6;
+    const foot3 = rows.length + 6;
     ws3.getRow(foot3).values = ['至本期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev + deductThis)];
     ws3.getRow(foot3).font = { bold: true };
     ws3.getRow(foot3 + 1).values = ['至上期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev)];

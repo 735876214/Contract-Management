@@ -23,7 +23,9 @@ export interface AnalyticsSheetModel {
 /** Excel sheet 名净化：非法字符替换、去空白、31 字符上限、同簿重名加序号 */
 export function sanitizeSheetName(raw: string, used: Set<string> = new Set()): string {
   const base = String(raw ?? '')
-    .replace(/[\[\]:*?/\\]/g, '_')
+    // 字符类里 \[ 与 \/ 保持转义：\/ 是正则字面量分隔符必须转义，\[ 保留是为了可读性
+    // eslint-disable-next-line no-useless-escape
+    .replace(/[\[\]:*?\/\\]/g, '_')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 31) || 'Sheet';

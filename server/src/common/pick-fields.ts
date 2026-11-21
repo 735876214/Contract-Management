@@ -41,7 +41,7 @@ export function pickFields(
     const msg = `忽略未识别的字段${opts.label ? `（${opts.label}）` : ''}：${dropped.join(', ')}`;
     if (opts.strict) throw new BadRequestException(msg);
     // 不抛错，写入控制台即可；不打断保存
-    // eslint-disable-next-line no-console
+     
     console.warn('[pickFields]', msg);
   }
   return out;

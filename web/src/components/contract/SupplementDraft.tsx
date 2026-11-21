@@ -219,7 +219,6 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
         setLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, parent?.id]);
 
   /** 创建补充协议草稿（仅首次），返回 id */

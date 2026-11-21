@@ -67,12 +67,14 @@ export class SubcontractorController {
     return this.subcontractorService.findOne(id);
   }
 
+  // @body: pickFields=SUBCONTRACTOR_FIELDS
   @RequirePermissions('subcontractor:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.subcontractorService.create(body, projectId);
   }
 
+  // @body: pickFields=SUBCONTRACTOR_FIELDS
   @RequirePermissions('subcontractor:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {
