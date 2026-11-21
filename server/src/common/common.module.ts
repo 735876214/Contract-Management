@@ -12,12 +12,13 @@ import { ContractLockService } from './services/contract-lock.service';
 import { ProjectAccessService } from './services/project-access.service';
 import { ProjectScopeService } from './services/project-scope.service';
 import { ImportTaskController } from './import-task.controller';
+import { HealthController } from './health.controller';
 import { NotificationModule } from '../modules/notification/notification.module';
 
 @Global()
 @Module({
   imports: [NotificationModule],
-  controllers: [ImportTaskController],
+  controllers: [ImportTaskController, HealthController],
   providers: [
     SysParamService, ExcelService, LogService, StyledExcelService, ImportTemplateService,
     ImportRunnerService, ImportTaskService, StorageService,

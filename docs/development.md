@@ -387,6 +387,8 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **写字段白名单**：service 用 `pickFields` 过滤未知字段；每个 `@Body()` 必须带 `// @body:` 声明
   （`pickFields=` / `normalize=` / `typed=` / `mapped=` / `render=` / `array=`），
   门禁 `node scripts/check-body-whitelist.mjs`（CI + `npm test` 双处守门，存量豁免已清零）。
+- **健康检查**：`GET /api/health`（免登录，真打 `SELECT 1`；DB 不可用返回 503）。
+  容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
 - **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。
   新代码不得再靠 `any` 绕过 null 检查；确实没有类型的第三方包用 `require(...) as any` 并注明原因。
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
