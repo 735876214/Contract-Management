@@ -111,6 +111,7 @@ export class InvoiceController {
     return this.service.recognize(files || []);
   }
 
+  // @body: mapped=batchCreate
   @RequirePermissions('invoice:edit')
   @Post('batch')
   batchCreate(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {

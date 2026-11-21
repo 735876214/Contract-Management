@@ -127,6 +127,7 @@ export class MaterialController {
   }
 
   /** 派生清单（需求 2.3）：从物资基础库按所选物资重新生成，序号从 1 开始 */
+  // @body: mapped=derive
   @RequirePermissions('material:edit')
   @Post('contract-materials/derive')
   derive(@Body() body: any, @ProjectId() projectId: string) {
@@ -162,20 +163,21 @@ export class MaterialController {
     return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user, validateOnly: true }, projectId);
   }
 
-  // @body: pickFields=ROW_FIELDS (via normalizeRow)
+  // @body: normalize=normalizeRow
   @RequirePermissions('material:edit')
   @Post('contract-materials')
   createRow(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createRow(body, projectId);
   }
 
+  // @body: mapped=sortRows
   @RequirePermissions('material:edit')
   @Put('contract-materials/sort')
   sortRows(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.sortRows(body?.items, projectId);
   }
 
-  // @body: pickFields=ROW_FIELDS (via normalizeRow)
+  // @body: normalize=normalizeRow
   @RequirePermissions('material:edit')
   @Put('contract-materials/:id')
   updateRow(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

@@ -298,6 +298,7 @@ export class AiController {
    * 行级表格填充：把数据集的行写进模板的表区（列映射由前端选择）。
    * 返回 xlsx 附件 + `x-ai-filled-rows / x-ai-skipped / x-ai-truncated` 统计头。
    */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('forms/fill-table')
   @UseInterceptors(FileInterceptor('file', AI_UPLOAD))

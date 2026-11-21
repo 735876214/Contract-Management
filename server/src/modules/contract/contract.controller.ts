@@ -304,6 +304,7 @@ export class ContractController {
     return this.contractService.remove(id, projectId);
   }
 
+  // @body: mapped=saveExt
   @RequirePermissions('contract:edit')
   @Put(':id/ext')
   saveExt(@Param('id') id: string, @Body() body: any) {

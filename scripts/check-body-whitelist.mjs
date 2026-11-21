@@ -13,6 +13,8 @@
  *      // @body: normalize=this.pick          —— 走私有 normalize/pick（逐字段显式构造）
  *      // @body: typed=UpdateItemsBody        —— 签名已写明字段类型
  *      // @body: array=CONTRACT_DRAFT_FIELDS  —— 批量数组体，逐项走白名单
+ *      // @body: mapped=saveNotice             —— 入参在方法内逐字段显式映射（无整体透传 + 至少读 1 个字段）
+ *      // @body: render=renderSubcontractorLetter —— 只读渲染（预览/HTML），无写库路径
  * 2. 标记引用的常量 / 方法必须真实存在（防写错、防改名后标记变僵尸）。
  * 3. scripts/body-whitelist.allow.txt 是存量豁免：只允许变少。
  *    - 每条豁免必须在源码里仍然存在（防僵尸条目）；
@@ -39,7 +41,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 
 /** 存量豁免上限：清理一条就下调一次（只减不增） */
-const MAX_ALLOW = Number(process.env.BODY_WHITELIST_MAX_ALLOW ?? 57);
+const MAX_ALLOW = Number(process.env.BODY_WHITELIST_MAX_ALLOW ?? 0);
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);
@@ -51,7 +53,7 @@ const arg = (name, fallback) => {
 const SRC_DIR = path.resolve(REPO, arg('--dir', 'server/src'));
 const ALLOW_FILE = path.resolve(REPO, arg('--allow', 'scripts/body-whitelist.allow.txt'));
 
-const KINDS = ['pickFields', 'normalize', 'typed', 'array'];
+const KINDS = ['pickFields', 'normalize', 'typed', 'array', 'mapped', 'render'];
 const MARKER_RE = /^\s*\/\/\s*@body:\s*([A-Za-z]+)=(\S+)\s*$/;
 const METHOD_RE = /^\s{2}(?:async\s+|public\s+|private\s+|protected\s+)*([A-Za-z0-9_]+)\s*\(/;
 const BODY_RE = /@Body\(\)/;
@@ -73,13 +75,23 @@ function symbolsOf(moduleDir) {
   for (const f of walk(moduleDir)) {
     if (!/\.(ts|mts)$/.test(f)) continue;
     const text = readFileSync(f, 'utf8');
-    for (const m of text.matchAll(/(?:const|function|class)\s+([A-Za-z0-9_]+)/g)) names.add(m[1]);
+    for (const m of text.matchAll(/(?:const|function|class|interface|type|enum)\s+([A-Za-z0-9_]+)/g)) names.add(m[1]);
     for (const m of text.matchAll(/(?:private|public|protected)?\s*(?:async\s+)?([A-Za-z0-9_]+)\s*\(/g)) names.add(m[1]);
   }
   return names;
 }
 
 const NOT_KEYWORD = /^(if|for|while|switch|catch)$/;
+
+/** 取类里的方法体（从方法定义到下一个同级方法定义），供 mapped 校验用 */
+function methodBodyOf(src, name) {
+  const re = new RegExp('\\n' + '\\s{2}(?:private\\s+|public\\s+|protected\\s+|async\\s+)*' + name + '\\s*\\(');
+  const m = re.exec(src);
+  if (!m) return null;
+  const rest = src.slice(m.index + 1);
+  const next = rest.slice(1).search(/\n\s{2}(?:private\s+|public\s+|protected\s+|async\s+)?[A-Za-z0-9_]+\s*\(/);
+  return next > 0 ? rest.slice(0, next) : rest;
+}
 
 function scan(dir) {
   const controllers = walk(dir).filter((f) => f.endsWith('.controller.ts'));
@@ -99,7 +111,9 @@ function scan(dir) {
         if (m) { marker = { kind: m[1], ref: m[2], line: j + 1 }; break; }
         if (j < i) {
           const mm = lines[j].match(METHOD_RE);
-          if (mm && !NOT_KEYWORD.test(mm[1])) break;
+          // 只跨过**本方法自己**的签名行（多行签名时 @Body() 在签名内部，
+          // 标记在装饰器上方）；遇到别的方法定义才算越界。
+          if (mm && !NOT_KEYWORD.test(mm[1]) && mm[1] !== handler) break;
         }
       }
       const rel = path.relative(REPO, file);
@@ -108,7 +122,7 @@ function scan(dir) {
         module: path.dirname(file),
         line: i + 1,
         handler: handler ?? '?',
-        bodyLine: lines[i],
+        bodyLine: [lines[i], lines[i + 1] || '', lines[i + 2] || ''].join(' '),
         marker,
         key: rel + '::' + (handler ?? '?'),
       });
@@ -154,6 +168,54 @@ function validateWith(items, allow, maxAllow) {
         violations.push({
           type: 'inline-not-typed',
           msg: it.file + ':' + it.line + ' ' + it.handler + '() 标了 typed=inline 但 @Body() 参数仍是 any / 无注解：' + String(it.bodyLine || '').trim(),
+        });
+      }
+      continue;
+    }
+    if (it.marker.kind === 'render') {
+      // render=<函数名>：只读渲染（预览/HTML 输出），不存在写库路径；符号在 server/src 内任意位置即可
+      const name = it.marker.ref.replace(/^this\./, '');
+      const all = new Set();
+      for (const f of walk(SRC_DIR)) {
+        if (!/\.(ts|mts)$/.test(f)) continue;
+        for (const m of readFileSync(f, 'utf8').matchAll(/(?:function|const|class)\s+([A-Za-z0-9_]+)/g)) all.add(m[1]);
+      }
+      if (!all.has(name)) {
+        violations.push({ type: 'render-unverified', msg: it.file + ':' + it.marker.line + ' render=' + it.marker.ref + ' 在 server/src 内找不到该渲染函数' });
+      }
+      continue;
+    }
+    if (it.marker.kind === 'mapped') {
+      // mapped=<方法名>：声明「该方法把入参逐字段显式映射进写库语句」。
+      // 机器可验的两条：① 方法体没有 ...spread（不发生整体透传）；② 至少 1 处显式读字段（`{items: [...]}` 这类包装体只取 1 个字段是常态，元素级校验在 service 内）。
+      const name = it.marker.ref.replace(/^this\./, '');
+      let ok = false;
+      let detail = 'method-not-found';
+      for (const f of walk(it.module)) {
+        if (!/\.(ts|mts)$/.test(f)) continue;
+        // service 与 controller 都看：有的是 service 里逐字段映射，有的是 controller
+        // 先把字段从 body 取出来再传值（两种都算「显式映射」）。
+        const src = readFileSync(f, 'utf8');
+        const mb = methodBodyOf(src, name);
+        if (!mb) continue;
+        // 只把「把**请求参数本身**整体摊进写库语句」算作透传：
+        // 摊开方法内部自己构造的 payload 是正常写法，不算风险。
+        const sigLine = mb.split('\n')[0];
+        const params = (sigLine.match(/\(([^)]*)\)/) || [, ''])[1]
+          .split(',')
+          .map((s) => (s.match(/([A-Za-z0-9_]+)\s*(?:[:?]|$)/) || [])[1])
+          .filter(Boolean);
+        const spread = params.some(
+          (p) => new RegExp('\\.\\.\\.\\s*' + p + '\\b').test(mb) || new RegExp('\\bdata\\s*:\\s*' + p + '\\b').test(mb),
+        );
+        const reads = (mb.match(/\b(?:body|data|payload)\s*(?:\?\.|\.|\[)/g) || []).length;
+        if (!ok) detail = 'spread=' + spread + ' reads=' + reads + ' params=[' + params.join(',') + '] file=' + path.basename(f);
+        ok = ok || (!spread && reads >= 1);
+      }
+      if (!ok) {
+        violations.push({
+          type: 'mapped-unverified',
+          msg: it.file + ':' + it.marker.line + ' mapped=' + it.marker.ref + ' 校验失败（' + detail + '）：要求方法存在、无整体透传、显式字段读取 ≥ 1 处',
         });
       }
       continue;

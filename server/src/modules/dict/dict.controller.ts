@@ -154,9 +154,10 @@ export class DictController {
     return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
+  // @body: typed=inline
   @RequirePermissions('dict:edit', 'system:config')
   @Post('cache/refresh')
-  async refresh(@Body() body: any) {
+  async refresh(@Body() body: { typeCode?: string }) {
     await this.dictService.refreshCache(body?.typeCode);
     return true;
   }

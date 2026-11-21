@@ -1,4 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+
+/** 编辑总结算明细的请求体（controller 与 service 共用；避免 @Body() 退化成 any） */
+export interface UpdateItemsBody {
+  items?: Array<{ id?: string; settleMonth?: string; amount?: any }>;
+  reduceAmount?: any;
+  version?: number;
+}
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
@@ -282,7 +289,7 @@ export class FinalSettlementService {
    */
   async updateItems(
     id: string,
-    body: { items?: Array<{ id?: string; settleMonth?: string; amount?: any }>; reduceAmount?: any; version?: number },
+    body: UpdateItemsBody,
     projectId?: string,
   ) {
     const before: any = await this.findOne(id, projectId);

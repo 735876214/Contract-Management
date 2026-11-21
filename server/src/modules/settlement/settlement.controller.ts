@@ -190,9 +190,10 @@ export class SettlementController {
   }
 
   /** 任务 7：结算驳回 → 回填（纯状态回退） */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post(':id/reject')
-  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: any = {}) {
+  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: { version?: number } = {}) {
     return this.service.reject(id, projectId, body?.version);
   }
 

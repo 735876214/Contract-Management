@@ -37,6 +37,7 @@ export class CostController {
   }
 
   /** 新建单据（选分包单位 + 结算期） */
+  // @body: mapped=createDoc
   @RequirePermissions('cost:edit')
   @Post('labor-receiving/docs')
   laborReceivingCreateDoc(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
@@ -51,7 +52,7 @@ export class CostController {
   }
 
   /** 更新单据（头字段 + 明细批量） */
-  // @body: pickFields=DETAIL_FIELDS (via upsertDetail)
+  // @body: normalize=upsertDetail
   @RequirePermissions('cost:edit')
   @Put('labor-receiving/docs/:id')
   laborReceivingUpdateDoc(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -90,6 +91,7 @@ export class CostController {
   }
 
   /** 新建（选结算期 → 生成当期节超快照明细） */
+  // @body: pickFields=HEADER_FIELDS
   @RequirePermissions('cost:edit')
   @Post('monthly-profit-loss')
   createMonthlyProfitLoss(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {

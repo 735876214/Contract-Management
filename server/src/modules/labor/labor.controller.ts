@@ -70,6 +70,7 @@ export class LaborController {
     return { fileName: letterFileName(row.subcontractorName) };
   }
 
+  // @body: normalize=pick
   @RequirePermissions('labor:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
@@ -77,6 +78,7 @@ export class LaborController {
   }
 
   /** 授权委托书实时预览（未落库前按表单值渲染） */
+  // @body: render=renderSubcontractorLetter
   @RequirePermissions('labor:view')
   @Post('preview')
   @Header('Content-Type', 'text/html; charset=utf-8')
@@ -85,12 +87,14 @@ export class LaborController {
   }
 
   /** 导出 PDF 版委托书 → 保存已填写信息并落库，状态置为「编辑中」 */
+  // @body: normalize=pick
   @RequirePermissions('labor:edit')
   @Post('export-mark')
   exportMark(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     return this.service.exportMark(body, projectId, user);
   }
 
+  // @body: normalize=pick
   @RequirePermissions('labor:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -98,6 +102,7 @@ export class LaborController {
   }
 
   /** 上传签字盖章版委托书 + 签字截图 → 状态置为「已完成」 */
+  // @body: normalize=pick
   @RequirePermissions('labor:edit')
   @Post(':id/complete')
   complete(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

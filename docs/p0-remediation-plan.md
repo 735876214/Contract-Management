@@ -19,15 +19,17 @@
 | P0-3 PrismaService 生命周期 | ✅ 完成 | `server/src/prisma/prisma.service.ts` + `useExisting` + `enableShutdownHooks()` |
 | P0-1 阶段 A 门禁骨架 | ✅ 完成 | `scripts/check-body-whitelist.mjs`（含 `--selftest` 负向用例）+ `body-whitelist.allow.txt` + CI 一步 + `test/bodyWhitelist.spec.mts` |
 | 验收证据 | ✅ 已跑 | server build 0 · web build 0 · `npm test` 1047 断言全绿 · `npm run test:int` 148 断言/28 套件全绿 · 宿主直启后 SIGTERM 日志有 `Prisma 连接已释放（$disconnect）` · 401/404 响应均为四字段 |
-| P0-1 阶段 B 收口 | 进行中 | 117 处 @Body() 中已标记 60 处（`typed=inline` 28 / `pickFields=CONST` 32），豁免 57 处待收口 |
+| P0-1 阶段 B 收口 | ✅ 完成 | 117 处 @Body() **全部带标记**（pickFields 45 / typed 33 / mapped 23 / normalize 15 / render 1），豁免表清空、`MAX_ALLOW=0` |
 
-### 标记协议（阶段 B 照这个写）
+### 标记协议（已全量落地）
 
 ```ts
 // @body: pickFields=CONTRACT_FIELDS    // 走 pickFields(白名单常量)
 // @body: normalize=this.pick           // 走私有 normalize/pick（逐字段显式构造）
 // @body: typed=inline                  // 参数自带非 any 的内联类型注解
 // @body: array=CONTRACT_DRAFT_FIELDS   // 批量数组体，逐项过白名单
+// @body: mapped=saveNotice             // 入参在方法内逐字段显式映射（机器校验：无整体透传 + 至少读 1 个字段）
+// @body: render=renderSubcontractorLetter // 只读渲染（预览/HTML），无写库路径
 ```
 
 门禁会校验：标记存在 · 类型合法 · 引用的常量/方法在模块内真实存在 · `typed=inline` 的参数确实不是 `any` ·

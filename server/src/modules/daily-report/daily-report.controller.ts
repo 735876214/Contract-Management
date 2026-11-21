@@ -66,12 +66,14 @@ export class DailyReportController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: normalize=normalize
   @RequirePermissions('daily:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: normalize=normalize
   @RequirePermissions('daily:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
