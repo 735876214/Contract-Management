@@ -1,0 +1,67 @@
+# 列表查询上限「存量豁免」清单（2026-11-21 建立）
+#
+# 规则：**只允许变少**。每条对应一处「项目级无上限 findMany」
+#       （没有 take、也没有按父实体 id 过滤，可能把整个项目的行全拉进内存）。
+#       处理方式二选一：
+#         ① 加 take/分页（推荐，列表接口本来就该分页）；
+#         ② 确实必须全量（聚合/导出/内存派生列筛选）：在调用处写 // @no-limit: <理由>，
+#            这才是「有意为之」的留痕，比躺在豁免表里强。
+#       每处理一条就删一行，并把 scripts/check-query-limits.mjs 里的 MAX_ALLOW 同步下调。
+#
+# 格式：<service 相对路径>::<方法名>
+server/src/common/services/sys-param.service.ts::load
+server/src/modules/ai/analytics/dataset-collector.service.ts::projectCore
+server/src/modules/ai/analytics/dataset-collector.service.ts::?
+server/src/modules/ai/anomaly/anomaly.service.ts::collect
+server/src/modules/ai/field-resolver.service.ts::dict
+server/src/modules/asset/asset.service.ts::findAll
+server/src/modules/auth/auth.service.ts::getPermissions
+server/src/modules/auth/auth.service.ts::getProjects
+server/src/modules/contract/contract.service.ts::poolList
+server/src/modules/contract/contract.service.ts::syncDraftTaxFromContract
+server/src/modules/contract/contract.service.ts::draftList
+server/src/modules/contract/contract.service.ts::publish
+server/src/modules/contract/contract.service.ts::recalcSupplementDelta
+server/src/modules/contract/milestone.service.ts::list
+server/src/modules/cost/labor-receiving.service.ts::options
+server/src/modules/cost/labor-receiving.service.ts::listDocs
+server/src/modules/cost/labor-receiving.service.ts::nextDocNo
+server/src/modules/cost/monthly-profit-loss.service.ts::list
+server/src/modules/cost/monthly-profit-loss.service.ts::reSnapshot
+server/src/modules/dashboard/dashboard.service.ts::overview
+server/src/modules/dashboard/dashboard.service.ts::trend
+server/src/modules/dict/dict.service.ts::options
+server/src/modules/dict/dict.service.ts::findTypes
+server/src/modules/dict/dict.service.ts::findItems
+server/src/modules/dict/dict.service.ts::checkTypeUsage
+server/src/modules/doc-template/doc-template.service.ts::findAll
+server/src/modules/finance/finance.service.ts::loadOverdueTables
+server/src/modules/material/material.service.ts::findRows
+server/src/modules/notification/notification.service.ts::findAll
+server/src/modules/payment/payment.service.ts::findRecords
+server/src/modules/procurement/procurement-task.service.ts::resolveContractTemplate
+server/src/modules/procurement/procurement-task.service.ts::totalList
+server/src/modules/procurement/procurement-task.service.ts::saveTotalList
+server/src/modules/procurement/procurement-task.service.ts::estimatedAmountYuan
+server/src/modules/procurement/procurement-task.service.ts::nextTaskNo
+server/src/modules/procurement/procurement-task.service.ts::notice
+server/src/modules/procurement/procurement-task.service.ts::document
+server/src/modules/procurement/procurement-task.service.ts::applyCandidateStatuses
+server/src/modules/procurement/procurement-task.service.ts::bidders
+server/src/modules/procurement/procurement-task.service.ts::priceCompare
+server/src/modules/procurement/procurement-task.service.ts::savePriceCompare
+server/src/modules/procurement/procurement-template.service.ts::findAll
+server/src/modules/procurement/procurement-template.service.ts::versions
+server/src/modules/receipt-order/receipt-order.service.ts::loadContractMaterials
+server/src/modules/receipt-order/receipt-order.service.ts::dictProjectOptions
+server/src/modules/repayment/repayment.service.ts::suggestCode
+server/src/modules/settlement/settlement.service.ts::syncItems
+server/src/modules/settlement/settlement.service.ts::computeLedgerAutoFields
+server/src/modules/settlement/settlement.service.ts::syncLedgerByContract
+server/src/modules/system/system.service.ts::permissions
+server/src/modules/system/system.service.ts::params
+server/src/modules/template/template.service.ts::findAll
+server/src/modules/template/template.service.ts::buildMaterialTables
+server/src/modules/template/template.service.ts::clauses
+server/src/query/ai-fact-queries.ts::?
+server/src/query/archive-queries.ts::?

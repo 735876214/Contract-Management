@@ -100,6 +100,9 @@ jobs:
       - name: 请求体白名单（每个 @Body() 必须有 // @body: 标记或存量豁免）
         run: node scripts/check-body-whitelist.mjs
 
+      - name: 列表查询上限（项目级 findMany 必须有 take 或 // @no-limit: 理由）
+        run: node scripts/check-query-limits.mjs
+
       - name: Install server dependencies
         working-directory: server
         run: npm ci --legacy-peer-deps --no-audit --no-fund
