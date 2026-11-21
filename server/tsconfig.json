@@ -18,9 +18,9 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
-    "strictNullChecks": false,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
+    // 2026-11-21：全仓已可在 strict 下零错误编译（含 57 个 service / 117 个 @Body()），
+    // 故把严格模式**整体打开**，新代码不再能悄悄引入 null/隐式 any 缺陷。
+    "strict": true,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {

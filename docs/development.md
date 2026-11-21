@@ -383,7 +383,11 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **统一响应** `{ code, data, message, timestamp }`；异常走 `AllExceptionsFilter`，别在 controller 手写返回体。
 - **权限**：controller 类级 `@UseGuards(JwtAuthGuard, PermissionsGuard)` + 方法级 `@RequirePermissions('x:view')`。
 - **项目隔离**：controller 用 `@ProjectId()` 取，service 显式带入 `where`（见 [architecture.md §5](architecture.md)）。
-- **写字段白名单**：service 用 `pickFields` 过滤未知字段。
+- **写字段白名单**：service 用 `pickFields` 过滤未知字段；每个 `@Body()` 必须带 `// @body:` 声明
+  （`pickFields=` / `normalize=` / `typed=` / `mapped=` / `render=` / `array=`），
+  门禁 `node scripts/check-body-whitelist.mjs`（CI + `npm test` 双处守门，存量豁免已清零）。
+- **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。
+  新代码不得再靠 `any` 绕过 null 检查；确实没有类型的第三方包用 `require(...) as any` 并注明原因。
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
 - **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
 - **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），

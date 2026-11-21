@@ -29,7 +29,7 @@ export const SETTLEMENT_REJECTABLE_STATUSES: readonly string[] = [
 ];
 
 /** 合同签章驳回 → 合同起草：仅「待签章 / 已签章」可驳回 */
-export function assertContractRejectable(status: string): void {
+export function assertContractRejectable(status: string | null | undefined): void {
   if (!CONTRACT_REJECTABLE_STATUSES.includes(String(status ?? ''))) {
     throw new BadRequestException('仅「待签章 / 已签章」的合同可驳回回合同起草');
   }

@@ -207,7 +207,7 @@ export class DashboardService {
           title: `${m.contract.name || m.contract.code} · ${m.name}`,
           code: m.contract.code || '',
           level: 'RED' as TodoLevel,
-          hint: `计划日期 ${localDayKey(m.planDate)}，已逾期`,
+          hint: `计划日期 ${localDayKey(m.planDate) || '未定'}，已逾期`,
           target: { path: '/contract/query', editor: m.contract.id },
         })),
     };

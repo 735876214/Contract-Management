@@ -130,7 +130,7 @@ export class ReceiptOrderService {
       if (!data.settlementId) return null; // 显式解绑
       // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
       // 重新跑严格同合同校验会 400，导致整张单据存不了
-      if (current === data.settlementId && !contractChanged && !dateChanged) return current;
+      if (current === data.settlementId && !contractChanged && !dateChanged) return current ?? null;
       await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
       return data.settlementId;
     }
@@ -1055,7 +1055,7 @@ export class ReceiptOrderService {
     const baseMap = await this.loadMaterialBaseMap(order.details, this.prisma);
     const yesNo = (v: any) => (v === true ? 'Y' : v === false ? 'N' : null);
 
-    const rows = [];
+    const rows: any[] = [];
     for (const d of order.details) {
       const priceBeforeTax = num(d.priceBeforeTax);
       const taxRatePct = num(d.taxRatePct);
@@ -1108,7 +1108,7 @@ export class ReceiptOrderService {
     // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
       await clearPushedDailyRowsOfReceiptOrder(tx, orderId);
-      await pushDailyRows(tx, rows);
+      await pushDailyRows(tx, rows as any[]);
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });
     return { pushed: rows.length };

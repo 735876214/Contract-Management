@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, List, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
 import { DeleteOutlined, RightOutlined } from '@ant-design/icons';
@@ -161,11 +161,13 @@ export function TodoCard() {
   }));
 
   /** 点分类 Tab：先切 Tab（看明细），再跳对应模块——两个动作都要，跳转后回来 Tab 还停在原位 */
-  const handleTabClick = (key: string, e: MouseEvent) => {
+  // 直接对齐 antd 的 TabsProps['onTabClick']：键盘触发时事件是 KeyboardEvent，
+  // 自己写 MouseEvent 会在 strict 下类型不兼容（原实现只用到 preventDefault，两者都有）
+  const handleTabClick = (key: string, e: MouseEvent<Element> | KeyboardEvent<Element>) => {
     setActiveTab(key);
     const target = TODO_TAB_TARGET[key];
     if (target) {
-      e.preventDefault?.();
+      e.preventDefault();
       navigate(target);
     }
   };

@@ -156,7 +156,7 @@ export class StyledExcelService {
     });
     if (opts.logoColumn) {
       // logo 图片区域（A1:A2 合并单元格）保持接近原图 345x323 的宽高比
-      ws.getColumn(1).width = Math.max(ws.getColumn(1).width, 12);
+      ws.getColumn(1).width = Math.max(ws.getColumn(1).width ?? 0, 12);
     }
     headerRow.height = 24;
 
@@ -203,7 +203,7 @@ export class StyledExcelService {
           // 显式覆写优先：这类列不能用 SUBTOTAL（逐行相加会重复计入）
           cell.value = opts.totalsValues[c.key];
           if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
-        } else if (opts.totalsKeys.includes(c.key) && opts.rows.length > 0) {
+        } else if ((opts.totalsKeys ?? []).includes(c.key) && opts.rows.length > 0) {
           // 服务端算好合计写入数值，不再写 SUBTOTAL 公式：
           // ExcelJS 写的公式没有缓存值，导出的 xlsx 用别的工具读（或再导入本系统）时合计列读到的是
           // 公式对象而非数字，导出→改→导回闭环会静默丢合计。逐行求和后 round2 统一金额精度。

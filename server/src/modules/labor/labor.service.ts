@@ -185,8 +185,8 @@ export class LaborService {
       ? await this.findOne(payload.id, projectId)
       : await this.prisma.laborAuthLedger.findFirst({
           where: {
-            projectId: projectId || null,
-            subcontractorName: data.subcontractorName,
+            projectId: projectId ?? undefined,
+            subcontractorName: String(data.subcontractorName ?? ''),
             authorizedPerson: data.authorizedPerson ?? null,
           },
         });

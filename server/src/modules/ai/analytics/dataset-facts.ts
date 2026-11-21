@@ -331,7 +331,7 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
   const orderedSections = [...sections.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
   let sectionNo = 2;
   for (const [section, list] of orderedSections) {
-    lines.push(`## ${CN_NUM[sectionNo] ?? String(sectionNo + 1)}、${AI_SECTION_TITLES[section]}`);
+    lines.push(`## ${CN_NUM[sectionNo] ?? String(sectionNo + 1)}、${AI_SECTION_TITLES[section as keyof typeof AI_SECTION_TITLES]}`);
     lines.push('');
     for (const d of list) {
       lines.push(`### ${d.label}`);

@@ -35,6 +35,12 @@
 门禁会校验：标记存在 · 类型合法 · 引用的常量/方法在模块内真实存在 · `typed=inline` 的参数确实不是 `any` ·
 豁免条数 ≤ `MAX_ALLOW`（只减不增）。
 
+## 后续（P1，已开工）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| P1-1 TypeScript 严格模式 | ✅ 完成（2026-11-21） | `server/tsconfig.json` 与 `web/tsconfig.json` 均为 `strict: true`；修掉 47 处后端 + 8 处前端错误（含 2 个 spec 与 2 个无类型依赖的 `require` 化）。注意：`strict` 只能阻止**新增**缺陷，存量 `any` 仍在，故仍需 `tsconfig` 之外的类型收敛（后续按模块把 `any` 换成 `Prisma.XGetPayload`） |
+
 ## 0. 范围与总原则
 
 | 编号 | 问题 | 一句话 | 预估工时 |

@@ -408,13 +408,13 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
       const tail = res?.dailyFallbackOrderCount
         ? `（其中 ${res.dailyFallbackOrderCount} 张收领单无明细，已按其总日报行带出）`
         : '';
-      const diff = Number(res?.diff) || 0;
+      // 服务端在「表头金额未填」时返回 diff = null（差额无意义），此时提示「无法核对」而不是当成 0
+      const diff = res?.diff === null || res?.diff === undefined ? null : Number(res.diff);
       if (diff === 0) {
         message.success(`已按 ${res?.receiptOrderCount ?? 0} 张收领单带出 ${n} 行明细${tail}`);
       } else {
-        message.warning(
-          `已带出 ${n} 行明细，合计 ¥${Number(res?.itemsAmount ?? 0).toFixed(2)}，与表头金额差 ¥${diff.toFixed(2)}，请核对${tail}`,
-        );
+        const diffText = diff === null ? '表头金额未填，无法核对差额' : `与表头金额差 ¥${diff.toFixed(2)}`;
+        message.warning(`已带出 ${n} 行明细，合计 ¥${Number(res?.itemsAmount ?? 0).toFixed(2)}，${diffText}，请核对${tail}`);
       }
     } catch {
       /* 统一响应拦截器已提示错误 */
@@ -518,7 +518,9 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
               style={{ minWidth: 300 }}
               value={null}
               options={materialOptions}
-              onSelect={(mid: string) => {
+              onSelect={(mid) => {
+                // antd 的 SelectHandler 允许 null（清空时）
+                if (!mid) return;
                 if (items.some((r) => r.materialBaseId === mid)) {
                   message.warning('该物资已有明细行（每单每物资一行）');
                   return;

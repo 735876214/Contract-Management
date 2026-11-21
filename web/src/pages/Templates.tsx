@@ -31,7 +31,8 @@ interface ContractTemplateRow {
 
 export default function Templates() {
   const { loading, list, params, search, reload, pagination } = useTable<ContractTemplateRow>(
-    (p) => templateApi.list({ ...p, includeHistory: params.includeHistory }),
+    // includeHistory 由 useTable 的 params 合并进 p（不要直接引用 `params`，那会变成自引用 → 隐式 any）
+    (p: any) => templateApi.list({ ...p, includeHistory: p.includeHistory }),
   );
   const [form] = Form.useForm();
   const [filterForm] = Form.useForm();

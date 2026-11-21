@@ -357,7 +357,8 @@ export class SettlementService {
       /** 明细合计（Σ 合价，与落到明细行上的 totalWithTax 同口径） */
       itemsAmount: built.amount,
       /** 差额 = 明细合计 − 表头金额；非 0 说明明细与人工录入的金额不一致，需人工核对 */
-      diff: round2(built.amount - headerAmount),
+      // headerAmount 可空（表头未填）：此时差额无意义，返回 null 让前端显示「—」而不是假 0
+      diff: headerAmount === null ? null : round2(built.amount - headerAmount),
       items: built.items,
       receiptOrderCount: built.receiptOrderCount,
       detailRowCount: built.detailRowCount,
@@ -427,7 +428,7 @@ export class SettlementService {
     const warn =
       tx || this.isDraft(data.statusCode)
         ? {}
-        : await this.checkOverSettlement(data.contractId, num(actual));
+        : await this.checkOverSettlement(data.contractId, num(actual) ?? 0);
     // 清单项级量级闸门（同防超结口径：非事务、非草稿才校验）
     // ⚠️ 校验用「过滤后的 items」（无物资的行不参与量级），但**落库传原始 items**：
     //    否则缺物资的行会被这里先滤掉，`syncItems` 的校验永远看不到它，
@@ -516,7 +517,7 @@ export class SettlementService {
     const effectiveContractId = payload.contractId ?? before.contractId;
     const warn = this.isDraft(resultingStatus)
       ? {}
-      : await this.checkOverSettlement(effectiveContractId, resultingActual, id);
+      : await this.checkOverSettlement(effectiveContractId, num(resultingActual) ?? 0, id);
     // 草稿 → 提交的转换：合同已「已完已结」时禁止（月度结算是总结算明细快照的来源）
     if (!this.isDraft(resultingStatus) && this.isDraft(before.statusCode)) {
       const settled = await this.prisma.finalSettlement.findFirst({
@@ -722,7 +723,7 @@ export class SettlementService {
       new Set(
         allSettlements
           .map((r: any) => periodKeyOf(startDay, r.settleDate))
-          .filter((k): k is string => Boolean(k)),
+          .filter((k: string | null): k is string => Boolean(k)),
       ),
     ).sort();
     const settleCount = settlements.length ? settlementPeriods.indexOf(period) + 1 : 0;

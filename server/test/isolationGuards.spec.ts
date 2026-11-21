@@ -129,11 +129,11 @@ describe('删除项目的清点范围（审计 P2）', () => {
 
 describe('采购模块权限码独立（审计 P3）', () => {
   const methodNames = (ctl: any) =>
-    Object.getOwnPropertyNames(ctl.prototype).filter((n) => n !== 'constructor' && typeof ctl.prototype[n] === 'function');
+    Object.getOwnPropertyNames(ctl.prototype).filter((n) => n !== 'constructor' && typeof (ctl.prototype as any)[n] === 'function');
 
   it('采购工作流端点只用 procurement:view / procurement:edit（不再借 contract:*）', () => {
     const codes = methodNames(ProcurementTaskController)
-      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, ProcurementTaskController.prototype[n]))
+      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, (ProcurementTaskController.prototype as any)[n]))
       .filter(Boolean)
       .flat();
     assert.ok(codes.length > 0, '采购工作流控制器没有任何权限码 —— 说明注解被删或改回了无权限');
@@ -143,7 +143,7 @@ describe('采购模块权限码独立（审计 P3）', () => {
 
   it('采购模板端点只用 procurement-template:view / procurement-template:edit（不再借 template:*）', () => {
     const codes = methodNames(ProcurementTemplateController)
-      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, ProcurementTemplateController.prototype[n]))
+      .map((n) => Reflect.getMetadata(PERMISSIONS_KEY, (ProcurementTemplateController.prototype as any)[n]))
       .filter(Boolean)
       .flat();
     assert.ok(codes.length > 0, '采购模板控制器没有任何权限码');

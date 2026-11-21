@@ -914,7 +914,7 @@ export class ProcurementTaskService {
     return {
       frozen: task.stage >= 1,
       status: task.status,
-      statusLabel: TASK_STATUS_LABELS[task.status] ?? task.status,
+      statusLabel: TASK_STATUS_LABELS[task.status as keyof typeof TASK_STATUS_LABELS] ?? task.status,
       items: items.map((i) => this.serializeItem(i)),
     };
   }
@@ -1291,8 +1291,10 @@ export class ProcurementTaskService {
 
     const saved = await this.prisma.frameworkExplanation.upsert({
       where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
+      // Json? 列：payload 里存的是 JSON 文本或 null；Prisma 的 InputJsonValue 不接受裸 null
+      //（需 Prisma.JsonNull/DbNull 哨兵），运行期口径不变，这里显式断言。
+      create: { ...payload, projectId: task.projectId, taskId } as any,
+      update: payload as any,
     });
     return this.serializeExplanation(saved);
   }
@@ -1455,8 +1457,8 @@ export class ProcurementTaskService {
 
     const saved = await this.prisma.preMeetingMinutes.upsert({
       where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
+      create: { ...payload, projectId: task.projectId, taskId } as any, // Json? 列，同 saveFrameworkExplanation
+      update: payload as any,
     });
     return this.serializeMinutes(saved);
   }
@@ -1573,8 +1575,8 @@ export class ProcurementTaskService {
 
     const saved = await this.prisma.procurementNotice.upsert({
       where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
+      create: { ...payload, projectId: task.projectId, taskId } as any, // Json? 列，同 saveFrameworkExplanation
+      update: payload as any,
     });
     return this.serializeNotice(saved);
   }
@@ -2455,7 +2457,7 @@ export class ProcurementTaskService {
       content: r.content,
       purpose: r.purpose ?? '',
       status: r.status,
-      statusLabel: TASK_STATUS_LABELS[r.status] ?? r.status,
+      statusLabel: TASK_STATUS_LABELS[r.status as keyof typeof TASK_STATUS_LABELS] ?? r.status,
       stage: r.stage,
       /** 乐观锁：更新时原样回传（`assertVersion` 强制要求，缺失即 409） */
       version: r.version,
