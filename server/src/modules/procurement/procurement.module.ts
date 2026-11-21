@@ -3,12 +3,13 @@ import { ProcurementTemplateController } from './procurement-template.controller
 import { ProcurementTemplateService } from './procurement-template.service';
 import { ProcurementTaskController } from './procurement-task.controller';
 import { ProcurementTaskService } from './procurement-task.service';
+import { ProcurementStageFormsService } from './procurement-stage-forms.service';
 import { ContractModule } from '../contract';
 
 /** 采购管理模块：采购模板管理（批次一）+ 采购任务工作流（批次二） */
 @Module({
   imports: [ContractModule],
   controllers: [ProcurementTemplateController, ProcurementTaskController],
-  providers: [ProcurementTemplateService, ProcurementTaskService],
+  providers: [ProcurementTemplateService, ProcurementTaskService, ProcurementStageFormsService],
 })
 export class ProcurementModule {}
