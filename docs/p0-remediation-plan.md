@@ -18,6 +18,7 @@
 | P0-2 错误信封补 timestamp | ✅ 完成 | `server/src/common/utils/error-envelope.ts` + `test/apiEnvelope.spec.mts`(4 断言) |
 | P0-3 PrismaService 生命周期 | ✅ 完成 | `server/src/prisma/prisma.service.ts` + `useExisting` + `enableShutdownHooks()` |
 | P0-1 阶段 A 门禁骨架 | ✅ 完成 | `scripts/check-body-whitelist.mjs`（含 `--selftest` 负向用例）+ `body-whitelist.allow.txt` + CI 一步 + `test/bodyWhitelist.spec.mts` |
+| 验收证据 | ✅ 已跑 | server build 0 · web build 0 · `npm test` 1047 断言全绿 · `npm run test:int` 148 断言/28 套件全绿 · 宿主直启后 SIGTERM 日志有 `Prisma 连接已释放（$disconnect）` · 401/404 响应均为四字段 |
 | P0-1 阶段 B 收口 | 进行中 | 117 处 @Body() 中已标记 60 处（`typed=inline` 28 / `pickFields=CONST` 32），豁免 57 处待收口 |
 
 ### 标记协议（阶段 B 照这个写）

@@ -37,8 +37,10 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-> 当前为空。前端 `:edit` 权限门禁（2026-11-13）与 `ProcurementTask` 乐观锁（2026-11-13）已完成，
-> 完成事项按文首规则已删除。
+- **请求体白名单收口（P0-1 阶段 B，2026-11-21）**：`scripts/body-whitelist.allow.txt` 里还剩
+  **57 处** `@Body()` 未收口（数组体与显式 payload 构造），门禁已上线（CI 一步，`node scripts/check-body-whitelist.mjs`）。
+  做法：逐模块补 `// @body:` 标记 + 让写路径真正过白名单，每收口一处就删一行豁免并下调脚本里的 `MAX_ALLOW`。
+  批次与口径见 [docs/p0-remediation-plan.md](docs/p0-remediation-plan.md) §P0-1。
 
 ## 四域扩展（已收口，不再立项）
 

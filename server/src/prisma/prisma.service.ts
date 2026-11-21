@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 /**
@@ -23,13 +23,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({ log: ['error', 'warn'] });
   }
 
+  private readonly logger = new Logger(PrismaService.name);
+
   async onModuleInit(): Promise<void> {
     // 快速失败：连不上就在启动期暴露，不要在第一个用户请求上才报错
     await this.$connect();
   }
 
   async onModuleDestroy(): Promise<void> {
-    // 依赖 main.ts 的 `app.enableShutdownHooks()` 才能在 SIGTERM/SIGINT 时走到这里
+    // 依赖 main.ts 的 `app.enableShutdownHooks()` 才能在 SIGTERM/SIGINT 时走到这里。
+    // 打一条日志是为了**可验证**：停机时日志里能看到这一行，才说明连接是主动释放的，
+    // 而不是靠进程退出来被动断链（2026-11-21 P0-3 验收口径）。
     await this.$disconnect();
+    this.logger.log('Prisma 连接已释放（$disconnect）');
   }
 }
