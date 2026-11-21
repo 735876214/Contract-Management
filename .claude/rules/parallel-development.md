@@ -84,9 +84,13 @@ dev 容器挂的是主树的 `./server` / `./web`，**服务不了 worktree**，
 - **改了共享层**（`server/src/common/`、`server/src/query/`、`server/src/constants/`、`server/prisma/`）
   时影响面不可枚举，`--int auto` 直接跑全量——这是刻意的保守策略。
 - 新增 int spec **必须**打标签，否则只能靠文件名兜底匹配（易漏）。
+- **跑不跑 int 只由选集决定**：`--int auto` 先选集，选中 ≥1 个才跑；一个都没匹配上
+  （只动了单测 / 文档注释 / 无关模块）就跳过，不再静默回退全量。
+  早先用关键词白名单（`settlement|invoice|import|…`）判断，`payment` / `asset` / `material` /
+  `daily-report` / `repayment` / `ledger` 的改动会被判成"不用跑 int"整段跳过；白名单已删除。
 - 核对映射不必连库：`VERIFY_INT_DRY=1 node scripts/verify-module.mjs --int auto`
-  只打印"改动 → 选中哪些 spec"。目的：**改一个模块只跑相关 spec**，
-  本地验证从"全量 ~6 分钟"降到"分钟级"，全量留给 PR 门。
+  只打印"改动 → 选中哪些 spec"（`--base HEAD` 可只看工作树改动）。
+  目的：**改一个模块只跑相关 spec**，本地验证从"全量 ~6 分钟"降到"分钟级"，全量留给 PR 门。
 
 ## 5. 提交自洽（**提交前必跑**）
 
