@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（92 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（93 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（25 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
@@ -138,6 +138,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/procurementFlow.spec.ts` | 采购工作流单一事实源（类型/合同类型推导/阶段链/门禁/多合同生成/列表分支） |
   | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告）+ 现场确认（日报行）状态机 |
   | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量；含「合同状态→任务状态」映射） |
+  | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |

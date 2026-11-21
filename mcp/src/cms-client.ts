@@ -13,7 +13,8 @@ export interface ApiEnvelope<T = unknown> {
   code: number;
   data: T;
   message: string;
-  timestamp?: string;
+  /** 服务端下发的是毫秒时间戳（number），与 ResponseInterceptor 同类型 */
+  timestamp?: number;
 }
 
 export class CmsApiError extends Error {
