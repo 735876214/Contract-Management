@@ -28,12 +28,14 @@ export class TemplateController {
     return this.templateService.clauses(query);
   }
 
+  // @body: pickFields=CLAUSE_FIELDS
   @RequirePermissions('template:edit')
   @Post('clauses')
   createClause(@Body() body: any, @CurrentUser() user: JwtUser) {
     return this.templateService.createClause(body, user);
   }
 
+  // @body: pickFields=CLAUSE_FIELDS
   @RequirePermissions('template:edit')
   @Put('clauses/:id')
   updateClause(@Param('id') id: string, @Body() body: any) {
@@ -58,12 +60,14 @@ export class TemplateController {
     return this.templateService.versions(id);
   }
 
+  // @body: pickFields=TPL_FIELDS
   @RequirePermissions('template:edit')
   @Post()
   create(@Body() body: any, @CurrentUser() user: JwtUser) {
     return this.templateService.create(body, user);
   }
 
+  // @body: pickFields=TPL_FIELDS
   @RequirePermissions('template:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: JwtUser) {
@@ -82,12 +86,14 @@ export class TemplateController {
     return this.templateService.toggle(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('template:edit')
   @Post(':id/rollback')
   rollback(@Param('id') id: string, @Body() body: { targetId: string }, @CurrentUser() user: JwtUser) {
     return this.templateService.rollback(id, body.targetId, user);
   }
 
+  // @body: typed=inline
   @RequirePermissions('template:edit')
   @Post('guide/generate')
   generate(@Body() body: { templateId: string; contractId: string; manual?: any }, @ProjectId() projectId: string) {

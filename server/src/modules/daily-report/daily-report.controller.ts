@@ -82,6 +82,7 @@ export class DailyReportController {
    * 现场确认/驳回：单条传 `id`，批量传 `ids`。
    * 权限沿用 `daily:edit`（填报人=确认人同权）；若要分离填报与确认，需新增权限码 daily:confirm。
    */
+  // @body: typed=inline
   @RequirePermissions('daily:edit')
   @Post('confirm')
   confirm(

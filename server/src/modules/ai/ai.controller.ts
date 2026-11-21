@@ -97,6 +97,7 @@ export class AiController {
     return this.setting.view();
   }
 
+  // @body: typed=inline
   @RequirePermissions('system:config')
   @Put('setting')
   saveSetting(@Body() body: AiSettingInput) {
@@ -104,6 +105,7 @@ export class AiController {
   }
 
   /** 用当前（或页面上刚填、还没保存的）配置真打一次上游，只做诊断，不改任何状态；`purpose` 可指定测哪个用途 */
+  // @body: typed=inline
   @RequirePermissions('system:config')
   @Post('setting/test')
   testSetting(@Body() body: AiSettingTestInput) {
@@ -121,6 +123,7 @@ export class AiController {
    * 上传 Excel 表单 → 返回「单元格 ↔ 字段」建议。
    * `contractId` 可选：给了才能用 `contract.*` / `supplier.*` 字段。
    */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('forms/inspect')
   @UseInterceptors(FileInterceptor('file', AI_UPLOAD))
@@ -155,6 +158,7 @@ export class AiController {
    * 会让只有 supplier:edit 的岗位也能建合同（2026-10-20 审计 P1）。这里卡 `contract:edit`，
    * 新建供应商时再由 service 追加校验 `supplier:edit`。
    */
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Post('register/confirm')
   confirmRegister(@Body() body: RegisterConfirmInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
@@ -165,6 +169,7 @@ export class AiController {
    * 汇报材料（三期）：由**程序**聚合事实、模型只负责组织语言。
    * 返回 Markdown + 事实清单 + 对账结果（`unknownNumbers` = 材料里出现但系统数据对不上的数字）。
    */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('report/generate')
   generateReport(
@@ -240,6 +245,7 @@ export class AiController {
     return this.scm.panorama(query || {}, user);
   }
 
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('report/export')
   async exportReport(
@@ -259,6 +265,7 @@ export class AiController {
     res.end(buffer);
   }
 
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('forms/fill')
   @UseInterceptors(FileInterceptor('file', AI_UPLOAD))

@@ -53,12 +53,14 @@ export class FinanceController {
     res.end(buffer);
   }
 
+  // @body: pickFields=FACTORING_FIELDS (via factoringPayload)
   @RequirePermissions('finance:edit')
   @Post('factoring-costs')
   createFactoring(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createFactoring(body, projectId);
   }
 
+  // @body: pickFields=FACTORING_FIELDS (via factoringPayload)
   @RequirePermissions('finance:edit')
   @Put('factoring-costs/:id')
   updateFactoring(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -113,6 +115,7 @@ export class FinanceController {
     return this.service.createOverdue(body, projectId);
   }
 
+  // @body: pickFields=PAYABLE_FIELDS
   @RequirePermissions('finance:edit')
   @Put('overdue-interests/:id')
   updateOverdue(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -139,6 +142,7 @@ export class FinanceController {
     return this.service.createOverduePayment(body, projectId);
   }
 
+  // @body: pickFields=PAYMENT_FIELDS
   @RequirePermissions('finance:edit')
   @Put('overdue-payments/:id')
   updateOverduePayment(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

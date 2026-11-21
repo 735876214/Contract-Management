@@ -93,6 +93,7 @@ export class SettlementController {
    * **生成本期（默认上一期）结算单**：抓取期间内未挂结算单的收领单，按物资合同各生成一张草稿结算单。
    * 幂等：已有结算单的合同会被跳过（`skipped` 计数）。
    */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post('generate')
   generate(
@@ -128,12 +129,14 @@ export class SettlementController {
     return this.service.ledgerOne(id, projectId);
   }
 
+  // @body: pickFields=LEDGER_FIELDS
   @RequirePermissions('settlement:edit')
   @Post('ledger')
   createLedger(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createLedger(body, projectId);
   }
 
+  // @body: pickFields=LEDGER_UPDATE_FIELDS
   @RequirePermissions('settlement:edit')
   @Put('ledger/:id')
   updateLedger(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -152,12 +155,14 @@ export class SettlementController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: pickFields=SETTLE_FIELDS
   @RequirePermissions('settlement:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: pickFields=SETTLE_UPDATE_FIELDS
   @RequirePermissions('settlement:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

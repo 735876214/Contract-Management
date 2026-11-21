@@ -1,0 +1,67 @@
+# 请求体白名单「存量豁免」清单（2026-11-21 建立）
+#
+# 规则：**只允许变少**。每给一个 @Body() 补上 // @body: 标记，就从这里删掉一行，
+#       并把 scripts/check-body-whitelist.mjs 里的 MAX_ALLOW 同步下调。
+# 提交前必须本地跑：node scripts/check-body-whitelist.mjs（CI 同款门禁）。
+#
+# 当前进度：117 处 @Body()，已标记 60，待收口 57。
+# 剩余的都是**需要读业务规则**的（数组体 / 显式 payload 构造），见 docs/p0-remediation-plan.md §P0-1 阶段 B。
+#
+# 格式：<controller 相对路径>::<处理函数名>
+server/src/modules/ai/ai.controller.ts::inspect
+server/src/modules/ai/ai.controller.ts::generateReport
+server/src/modules/ai/ai.controller.ts::exportReport
+server/src/modules/ai/ai.controller.ts::fill
+server/src/modules/ai/ai.controller.ts::fillTable
+server/src/modules/ai/analytics/analytics.controller.ts::workbook
+server/src/modules/contract/contract.controller.ts::sign
+server/src/modules/contract/contract.controller.ts::createMilestone
+server/src/modules/contract/contract.controller.ts::updateMilestone
+server/src/modules/contract/contract.controller.ts::update
+server/src/modules/contract/contract.controller.ts::saveExt
+server/src/modules/cost/cost.controller.ts::laborReceivingCreateDoc
+server/src/modules/cost/cost.controller.ts::laborReceivingUpdateDoc
+server/src/modules/cost/cost.controller.ts::createMonthlyProfitLoss
+server/src/modules/daily-report/daily-report.controller.ts::create
+server/src/modules/daily-report/daily-report.controller.ts::update
+server/src/modules/daily-report/daily-report.controller.ts::confirm
+server/src/modules/dict/dict.controller.ts::refresh
+server/src/modules/final-settlement/final-settlement.controller.ts::updateItems
+server/src/modules/final-settlement/final-settlement.controller.ts::attach
+server/src/modules/finance/finance.controller.ts::updateContractParams
+server/src/modules/finance/finance.controller.ts::createFactoring
+server/src/modules/finance/finance.controller.ts::updateFactoring
+server/src/modules/finance/finance.controller.ts::previewOverdue
+server/src/modules/finance/finance.controller.ts::generateOverdue
+server/src/modules/finance/finance.controller.ts::createOverdue
+server/src/modules/finance/finance.controller.ts::createOverduePayment
+server/src/modules/invoice/invoice.controller.ts::batchCreate
+server/src/modules/labor/labor.controller.ts::create
+server/src/modules/labor/labor.controller.ts::preview
+server/src/modules/labor/labor.controller.ts::exportMark
+server/src/modules/labor/labor.controller.ts::update
+server/src/modules/labor/labor.controller.ts::complete
+server/src/modules/material/material.controller.ts::derive
+server/src/modules/material/material.controller.ts::createRow
+server/src/modules/material/material.controller.ts::sortRows
+server/src/modules/material/material.controller.ts::updateRow
+server/src/modules/procurement/procurement-task.controller.ts::saveFrameworkExplanation
+server/src/modules/procurement/procurement-task.controller.ts::savePreMeetingMinutes
+server/src/modules/procurement/procurement-task.controller.ts::saveNotice
+server/src/modules/procurement/procurement-task.controller.ts::saveDocument
+server/src/modules/procurement/procurement-task.controller.ts::saveResultReport
+server/src/modules/procurement/procurement-task.controller.ts::saveBidders
+server/src/modules/procurement/procurement-task.controller.ts::saveEvaluations
+server/src/modules/procurement/procurement-task.controller.ts::savePriceCompare
+server/src/modules/procurement/procurement-task.controller.ts::saveTotalList
+server/src/modules/procurement/procurement-task.controller.ts::create
+server/src/modules/procurement/procurement-task.controller.ts::update
+server/src/modules/procurement/procurement-template.controller.ts::create
+server/src/modules/procurement/procurement-template.controller.ts::rollback
+server/src/modules/procurement/procurement-template.controller.ts::update
+server/src/modules/receipt-order/receipt-order.controller.ts::create
+server/src/modules/receipt-order/receipt-order.controller.ts::update
+server/src/modules/repayment/repayment.controller.ts::create
+server/src/modules/repayment/repayment.controller.ts::update
+server/src/modules/settlement/settlement.controller.ts::generate
+server/src/modules/settlement/settlement.controller.ts::reject

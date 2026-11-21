@@ -30,6 +30,7 @@ class ChangePwdDto {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  // @body: typed=inline
   @Public()
   @Post('login')
   async login(@Body() body: LoginDto, @ClientIp() ip: string, @Res({ passthrough: true }) res: Response) {
@@ -68,6 +69,7 @@ export class AuthController {
     return true;
   }
 
+  // @body: typed=inline
   @UseGuards(JwtAuthGuard)
   @Post('password')
   async changePassword(@CurrentUser() user: JwtUser, @Body() body: ChangePwdDto) {

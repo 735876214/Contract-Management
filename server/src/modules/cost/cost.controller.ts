@@ -51,6 +51,7 @@ export class CostController {
   }
 
   /** 更新单据（头字段 + 明细批量） */
+  // @body: pickFields=DETAIL_FIELDS (via upsertDetail)
   @RequirePermissions('cost:edit')
   @Put('labor-receiving/docs/:id')
   laborReceivingUpdateDoc(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -95,6 +96,7 @@ export class CostController {
     return this.monthlyProfitLoss.create(body, projectId, user);
   }
 
+  // @body: pickFields=HEADER_FIELDS
   @RequirePermissions('cost:edit')
   @Put('monthly-profit-loss/:id')
   updateMonthlyProfitLoss(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

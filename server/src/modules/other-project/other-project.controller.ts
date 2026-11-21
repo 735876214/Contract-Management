@@ -67,12 +67,14 @@ export class OtherProjectController {
     return this.otherProjectService.findOne(id);
   }
 
+  // @body: pickFields=OTHER_PROJECT_FIELDS
   @RequirePermissions('other-project:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.otherProjectService.create(body, projectId);
   }
 
+  // @body: pickFields=OTHER_PROJECT_FIELDS
   @RequirePermissions('other-project:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {

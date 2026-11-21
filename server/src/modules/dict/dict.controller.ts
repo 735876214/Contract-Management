@@ -33,12 +33,14 @@ export class DictController {
     return this.dictService.findTypes(query);
   }
 
+  // @body: pickFields=DICT_TYPE_FIELDS
   @RequirePermissions('dict:edit', 'system:config')
   @Post('types')
   createType(@Body() body: any) {
     return this.dictService.createType(body);
   }
 
+  // @body: pickFields=DICT_TYPE_FIELDS
   @RequirePermissions('dict:edit', 'system:config')
   @Put('types/:id')
   updateType(@Param('id') id: string, @Body() body: any) {
@@ -82,12 +84,14 @@ export class DictController {
     return result;
   }
 
+  // @body: pickFields=DICT_ITEM_FIELDS
   @RequirePermissions('dict:edit', 'system:config')
   @Post('items')
   createItem(@Body() body: any) {
     return this.dictService.createItem(body);
   }
 
+  // @body: pickFields=DICT_ITEM_FIELDS
   @RequirePermissions('dict:edit', 'system:config')
   @Put('items/:id')
   updateItem(@Param('id') id: string, @Body() body: any) {
@@ -106,6 +110,7 @@ export class DictController {
     return this.dictService.toggleItem(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('dict:edit', 'system:config')
   @Post('items/sort')
   sortItems(@Body() body: { typeCode: string; ids: string[] }) {

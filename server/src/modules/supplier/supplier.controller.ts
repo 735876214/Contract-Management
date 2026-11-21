@@ -63,12 +63,14 @@ export class SupplierController {
     return this.supplierService.findOne(id);
   }
 
+  // @body: pickFields=SUPPLIER_FIELDS
   @RequirePermissions('supplier:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.supplierService.create(body, projectId);
   }
 
+  // @body: pickFields=SUPPLIER_FIELDS
   @RequirePermissions('supplier:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {

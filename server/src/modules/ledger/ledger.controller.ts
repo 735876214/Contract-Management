@@ -29,6 +29,7 @@ export class LedgerController {
     return this.service.columns();
   }
 
+  // @body: typed=inline
   @RequirePermissions('ledger:view', 'contract:view')
   @Put('columns')
   saveColumns(@Body() body: Record<string, boolean>) {

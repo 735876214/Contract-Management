@@ -22,6 +22,7 @@ export class FinalSettlementController {
   }
 
   /** 生成：抓取该合同全部（非草稿）月度结算 → 明细快照 + 合计；一个合同只允许一张 */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post('generate')
   generate(@Body() body: { contractId: string }, @ProjectId() projectId: string, @CurrentUser() user: any) {
@@ -47,6 +48,7 @@ export class FinalSettlementController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: pickFields=FIELDS
   @RequirePermissions('settlement:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -61,6 +63,7 @@ export class FinalSettlementController {
   }
 
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post(':id/attach')
   attach(

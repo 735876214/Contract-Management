@@ -75,12 +75,14 @@ export class MaterialController {
     return this.service.importBases(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
+  // @body: pickFields=BASE_FIELDS
   @RequirePermissions('material:edit')
   @Post('materials')
   createBase(@Body() body: any) {
     return this.service.createBase(body);
   }
 
+  // @body: pickFields=BASE_FIELDS
   @RequirePermissions('material:edit')
   @Put('materials/:id')
   updateBase(@Param('id') id: string, @Body() body: any) {
@@ -160,6 +162,7 @@ export class MaterialController {
     return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user, validateOnly: true }, projectId);
   }
 
+  // @body: pickFields=ROW_FIELDS (via normalizeRow)
   @RequirePermissions('material:edit')
   @Post('contract-materials')
   createRow(@Body() body: any, @ProjectId() projectId: string) {
@@ -172,6 +175,7 @@ export class MaterialController {
     return this.service.sortRows(body?.items, projectId);
   }
 
+  // @body: pickFields=ROW_FIELDS (via normalizeRow)
   @RequirePermissions('material:edit')
   @Put('contract-materials/:id')
   updateRow(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
