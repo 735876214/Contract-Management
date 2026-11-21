@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 
 /**
  * 分页参数处理。
@@ -45,6 +45,29 @@ export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
   if (rows.length > max) {
     throw new BadRequestException(`单次导入最多 ${max} 行，当前 ${rows.length} 行，请分批导入（每批不超过 ${max} 行）`);
   }
+}
+
+/**
+ * 单条记录的**项目归属**校验（按 id 读写删的统一入口）。
+ *
+ * 背景：`JwtAuthGuard` 只校验「当前用户是不是请求头里那个项目的成员」，
+ * 不校验「这条记录是不是那个项目的」；而权限码是全局 RBAC。少这一道，用户同时属于
+ * A、B 两个项目时拿 B 的 id 配 A 的项目头就能跨项目读/改/删（2026-10 审计在
+ * 收领单、发票、还款、付款、劳务、资金费用、结算、成本 **8 个模块**各发现一次）。
+ *
+ * 语义：
+ * - `row` 为空 → 404（语义与「不属于本项目」一致，不暴露记录是否存在）；
+ * - `projectId` 未传（内部调用/集成测试）→ 只校验存在；
+ * - `projectId` 不匹配 → 404（同样不暴露存在性）。
+ */
+export function assertInProject<T extends { projectId?: string | null }>(
+  row: T | null | undefined,
+  projectId: string | undefined,
+  message = '记录不存在',
+): T {
+  if (!row) throw new NotFoundException(message);
+  if (projectId && row.projectId !== projectId) throw new NotFoundException(message);
+  return row;
 }
 
 /** 乐观锁校验：客户端提交的版本号与库中不一致时拒绝更新（需求 2.2） */

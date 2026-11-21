@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { round2, round4 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
@@ -372,16 +373,8 @@ export class DailyReportService {
    * 导出用全量日报：`findAll({ pageSize: 2000 })` 受单页上限（默认 500）截断，
    * 日报条数超过上限时导出文件**静默**少行。按页拉全量（与发票/付款/台账导出同口径）。
    */
-  private async allReports(projectId: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res = await this.findAll({ page, pageSize }, projectId, pageSize);
-      const list = (res.list as any[]) ?? [];
-      out.push(...list);
-      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allReports(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findAll({ page, pageSize }, projectId, pageSize));
   }
 
   async export(projectId: string) {

@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { round2 } from '../../common/calc/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -141,9 +142,11 @@ export class AssetService {
   }
 
   async update(id: string, data: any, projectId?: string) {
-    const old = await this.prisma.assetLedger.findUnique({ where: { id } });
-    if (!old) throw new NotFoundException('资产台账记录不存在');
-    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
+    const old = assertInProject(
+      await this.prisma.assetLedger.findUnique({ where: { id } }),
+      projectId,
+      '资产台账记录不存在',
+    );
     assertVersion(old, data);
     this.validate({ ...old, ...data });
     const payload = pickFields(data, ASSET_FIELDS.filter((f) => f !== 'date'), { label: '资产台账' });
@@ -160,9 +163,11 @@ export class AssetService {
   }
 
   async remove(id: string, projectId?: string) {
-    const old = await this.prisma.assetLedger.findUnique({ where: { id } });
-    if (!old) throw new NotFoundException('资产台账记录不存在');
-    if (projectId && old.projectId !== projectId) throw new NotFoundException('资产台账记录不存在');
+    const old = assertInProject(
+      await this.prisma.assetLedger.findUnique({ where: { id } }),
+      projectId,
+      '资产台账记录不存在',
+    );
     await this.prisma.assetLedger.delete({ where: { id } });
     return true;
   }
@@ -172,15 +177,8 @@ export class AssetService {
    * `paginate()` 会把单页 take 夹到上限，`{ pageSize: 5000 }` 只是「一页 5000 行」，
    * 超过上限的部分不会出现在任何一页里 → 导出静默缺行（此前付款/日报/台账已按同口径改过）。
    */
-  private async allRows(projectId: string): Promise<any[]> {
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res: any = await this.findAll({ page, pageSize: 500 }, projectId, 500);
-      const list = (res.list ?? []) as any[];
-      out.push(...list);
-      if (!list.length || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allRows(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findAll({ page, pageSize }, projectId, pageSize));
   }
 
   async export(projectId: string) {

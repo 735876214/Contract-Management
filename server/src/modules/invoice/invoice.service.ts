@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { IMPORT_MAX_ROWS, assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -93,12 +94,10 @@ export class InvoiceService {
         redInvoices: { select: { id: true, invoiceNo: true, statusCode: true } },
       },
     });
-    if (!inv) throw new NotFoundException('发票不存在');
     // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目发票。
     // 用发票自身的 projectId 判定：contractId 可空（无合同的发票审批/编辑同样要能打开），
     // 走 contract.projectId 会把合法的无合同发票误判成「不存在」。
-    if (projectId && inv.projectId !== projectId) throw new NotFoundException('发票不存在');
-    return inv;
+    return assertInProject(inv, projectId, '发票不存在');
   }
 
   /** 发票号码查重（同一项目内唯一） */
@@ -580,16 +579,8 @@ export class InvoiceService {
    * 导出用全量发票：`findAll({ pageSize: 2000 })` 会被单页上限截断，
    * 发票数超过上限时导出文件**静默**少行（与台账/还款协议导出同一坑）。
    */
-  private async allInvoices(projectId: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res = await this.findAll({ page, pageSize }, projectId, pageSize);
-      const list = (res.list as any[]) ?? [];
-      out.push(...list);
-      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allInvoices(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findAll({ page, pageSize }, projectId, pageSize));
   }
 
   async export(projectId: string) {

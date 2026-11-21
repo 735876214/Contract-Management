@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { round2, round4 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
@@ -399,12 +400,10 @@ export class SettlementService {
         },
       },
     });
-    if (!s) throw new NotFoundException('结算单不存在');
     // 防御纵深：路由层已按项目校验成员关系，这里再核一次归属，避免按 id 直读跨项目单据。
     // 用结算单自身的 projectId 判定：contractId 可空（无合同结算单同样要能打开），
     // 走 contract.projectId 会把合法的无合同单据误判成「不存在」。
-    if (projectId && s.projectId !== projectId) throw new NotFoundException('结算单不存在');
-    return s;
+    return assertInProject(s, projectId, '结算单不存在');
   }
 
   async create(data: any, projectId: string, tx?: TxClient) {
@@ -1596,10 +1595,8 @@ export class SettlementService {
 
   async ledgerOne(id: string, projectId?: string) {
     const l = await this.prisma.settlementLedger.findUnique({ where: { id } });
-    if (!l) throw new NotFoundException('结算台账记录不存在');
     // 与 findOne 相同的防御纵深：台账行按 id 直读同样要核归属
-    if (projectId && l.projectId !== projectId) throw new NotFoundException('结算台账记录不存在');
-    return l;
+    return assertInProject(l, projectId, '结算台账记录不存在');
   }
 
   /**
@@ -1930,16 +1927,10 @@ export class SettlementService {
    * 导出用全量台账行：`findLedger({ pageSize: 2000 })` 受单页上限（默认 500）截断，
    * 台账行超过上限时导出文件**静默**少行、合计偏小。按页拉全量（与发票/付款导出同口径）。
    */
-  private async allLedgerRows(projectId: string, settleMonth?: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res = await this.findLedger({ page, pageSize, ...(settleMonth ? { settleMonth } : {}) }, projectId, pageSize);
-      const list = (res.list as any[]) ?? [];
-      out.push(...list);
-      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allLedgerRows(projectId: string, settleMonth?: string): Promise<any[]> {
+    return pagedAll((page, pageSize) =>
+      this.findLedger({ page, pageSize, ...(settleMonth ? { settleMonth } : {}) }, projectId, pageSize),
+    );
   }
 
   /** 导出台账 Excel；`settleMonth` 传入时只导该月（归档按期目录用，避免每期都塞全项目台账） */

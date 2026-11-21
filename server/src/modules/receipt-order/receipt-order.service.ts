@@ -8,7 +8,7 @@ import {
 } from '../../constants/statuses';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
@@ -222,9 +222,7 @@ export class ReceiptOrderService {
         details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
       },
     });
-    if (!order) throw new NotFoundException('收领单不存在');
-    if (projectId && (order as any).projectId !== projectId) throw new NotFoundException('收领单不存在');
-    return order;
+    return assertInProject(order, projectId, '收领单不存在');
   }
 
   /**
