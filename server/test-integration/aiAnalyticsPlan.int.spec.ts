@@ -62,7 +62,9 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     const { jwt } = await makeUser(['ai:use', 'contract:view', 'settlement:view', 'payment:view', 'invoice:view']);
     await join(project.id, jwt.userId);
 
-    const res = await service.plan({ text: '本月合同汇总' }, project.id, jwt);
+    // 显式关掉意图 LLM：本用例断言的是**规则**路径（`.env` 里配了 AI_BASE_URL 时，
+    // 有文本会自动走模型意图，source 变成 'llm'，断言就随环境漂移）
+    const res = await service.plan({ text: '本月合同汇总' }, project.id, jwt, { useIntentLlm: false });
     assert.equal(res.source, 'rules');
     assert.equal(res.intent.scope.mode, 'current');
     assert.deepEqual(res.projects.map((p) => p.id), [project.id]);
