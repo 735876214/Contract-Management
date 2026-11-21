@@ -12,6 +12,7 @@ import {
   paidPaymentWhere,
 } from '../../../constants/statuses';
 import { deriveContractFulfillment } from '../../../common/utils/contract-fulfillment';
+import { sumSettlementAmount } from '../../../common/utils/group-sum';
 import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../common/utils/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import {
@@ -123,25 +124,33 @@ export class DatasetCollector {
         loadInvoiceFacts(this.prisma, ids, { range, excludeTerminal: true }),
         loadDailyReportCounts(this.prisma, ids, { range, confirmedOnly: gated }),
         loadProcurementTaskCounts(this.prisma, ids, { range }),
-        this.prisma.monthlyProfitLoss.findMany({
+        // 以下四个分区块都是**纯分组求和**（P1-4）：原先把项目集的明细行取回内存再累加，
+        // 现在改为 `groupBy + _sum`，数据库只回「每个项目一行」。
+        this.prisma.monthlyProfitLoss.groupBy({
+          by: ['projectId'],
           where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-          select: { projectId: true, sixSavingsAmount: true },
+          _sum: { sixSavingsAmount: true },
         }),
-        this.prisma.factoringCost.findMany({
+        // 保理费用/逾期应付只有 `contractId`（无 projectId 列），故按 contractId 求和后用合同的
+        // (id → projectId) 映射归并；where 里的 `contract.projectId` 与那个映射同源，不会漏也不会串项目。
+        this.prisma.factoringCost.groupBy({
+          by: ['contractId'],
           where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
-          select: { totalCost: true, contract: { select: { projectId: true } } },
+          _sum: { totalCost: true },
         }),
-        this.prisma.overduePayable.findMany({
+        this.prisma.overduePayable.groupBy({
+          by: ['contractId'],
           where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-          select: { overdueInterest: true, contract: { select: { projectId: true } } },
+          _sum: { overdueInterest: true },
         }),
-        this.prisma.assetLedger.findMany({
+        this.prisma.assetLedger.groupBy({
+          by: ['projectId'],
           where: {
             projectId: { in: ids },
             sourceCode: { in: [...ASSET_IN_SOURCES] },
             ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}),
           },
-          select: { projectId: true, totalAmount: true },
+          _sum: { totalAmount: true },
         }),
       ]);
 
@@ -194,21 +203,23 @@ export class DatasetCollector {
       const row = map.get(t.projectId);
       if (row) row.procurementTasks = t._count._all;
     }
+    // 保理费用/逾期应付按 contractId 分组，这里把分组结果映射回所属项目
+    const projectOfContract = new Map<string, string>(contracts.map((c: any) => [String(c.id), String(c.projectId)]));
     for (const p of profitLosses) {
-      const row = map.get(p.projectId);
-      if (row) row.costSavingsYuan = round2(row.costSavingsYuan + Number(p.sixSavingsAmount ?? 0));
+      const row = map.get(String(p.projectId));
+      if (row) row.costSavingsYuan = round2(row.costSavingsYuan + (num(p._sum?.sixSavingsAmount) ?? 0));
     }
     for (const f of factoring) {
-      const row = map.get(f.contract.projectId);
-      if (row) row.financeCostYuan = round2(row.financeCostYuan + Number(f.totalCost ?? 0));
+      const row = map.get(projectOfContract.get(String(f.contractId)) ?? '');
+      if (row) row.financeCostYuan = round2(row.financeCostYuan + (num(f._sum?.totalCost) ?? 0));
     }
     for (const o of overdue) {
-      const row = map.get(o.contract.projectId);
-      if (row) row.overdueYuan = round2(row.overdueYuan + Number(o.overdueInterest ?? 0));
+      const row = map.get(projectOfContract.get(String(o.contractId)) ?? '');
+      if (row) row.overdueYuan = round2(row.overdueYuan + (num(o._sum?.overdueInterest) ?? 0));
     }
     for (const a of assets) {
-      const row = map.get(a.projectId);
-      if (row) row.assetInYuan = round2(row.assetInYuan + Number(a.totalAmount ?? 0));
+      const row = map.get(String(a.projectId));
+      if (row) row.assetInYuan = round2(row.assetInYuan + (num(a._sum?.totalAmount) ?? 0));
     }
     return [...map.values()].map(withDerivedAmounts);
   }
@@ -437,10 +448,12 @@ export class DatasetCollector {
         where: { projectId: { in: ids }, ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}) },
         _sum: { settleQty: true },
       })),
-      q(["contract.fulfillment"], () => this.prisma.settlement.findMany({
-        where: { projectId: { in: ids }, ...notDraft },
-        select: { projectId: true, amount: true, actualAmount: true },
-      })),
+      // 合同履约的「累计审定结算额」是纯分组求和（P1-4）：口径 `actualAmount ?? amount`
+      // 由 `sumSettlementAmount` 在 SQL 侧精确复刻（两次 groupBy），返回 项目 → 金额 的 Map
+      // 结果是 Map（不是数组），故不走 `q()`，直接按需短路
+      need("contract.fulfillment")
+        ? sumSettlementAmount(this.prisma, 'projectId', { projectId: { in: ids }, ...notDraft })
+        : Promise.resolve(new Map<string, number>()),
       q(["contract.fulfillment"], () => (this.prisma.paymentRecord.groupBy as any)({
         by: ['projectId'],
         where: { projectId: { in: ids }, ...paidPaymentWhere() },
@@ -598,10 +611,9 @@ export class DatasetCollector {
       else hit.sum += q;
       materialQtyByProject.set(pid, hit);
     }
-    const settledAllByProject = new Map<string, number>();
-    for (const s of settlementsAll) {
-      settledAllByProject.set(s.projectId, round2((settledAllByProject.get(s.projectId) ?? 0) + Number(s.actualAmount ?? s.amount ?? 0)));
-    }
+    // `settlementsAll` 是 SQL 分组求和的结果（Map）；数据集按需裁剪时 `q()` 会回退成 `[]`
+    const settledAllByProject: Map<string, number> =
+      settlementsAll instanceof Map ? settlementsAll : new Map<string, number>();
     const dailyAllByProject = new Map<string, number>(
       dailyAll.map((d) => [String(d.projectId), round4(num(d._sum.settleQty) ?? 0)]),
     );

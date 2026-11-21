@@ -88,6 +88,7 @@ export class ContractController {
   }
 
   /** 合同签章：上传签章合同文件 + 签订日期，状态置为「已签章」（需求修正4） */
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Post(':id/sign')
   @UseInterceptors(FileInterceptor('file'))
@@ -118,6 +119,7 @@ export class ContractController {
     return this.contractService.poolList(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Post(':id/material-pool')
   poolAdd(@Param('id') id: string, @Body() body: { materialIds: string[] }) {
@@ -138,12 +140,14 @@ export class ContractController {
     return this.contractService.draftList(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Post(':id/draft-materials')
   draftDerive(@Param('id') id: string, @Body() body: { materialBaseIds: string[] }) {
     return this.contractService.draftDerive(id, body?.materialBaseIds || []);
   }
 
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Put(':id/draft-materials')
   draftSave(@Param('id') id: string, @Body() body: { rows: any[] }) {
@@ -164,6 +168,7 @@ export class ContractController {
     return this.contractService.publish(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('contract:edit')
   @Put(':id/status')
   setStatus(@Param('id') id: string, @Body() body: { status: string }, @ProjectId() projectId: string) {
@@ -228,6 +233,7 @@ export class ContractController {
     return this.milestoneService.list(id, projectId);
   }
 
+  // @body: pickFields=CONTRACT_FIELDS
   @RequirePermissions('contract:edit')
   @Post(':id/milestones')
   createMilestone(
@@ -239,6 +245,7 @@ export class ContractController {
     return this.milestoneService.create(id, body, projectId, user);
   }
 
+  // @body: pickFields=CONTRACT_UPDATE_FIELDS
   @RequirePermissions('contract:edit')
   @Put(':id/milestones/:milestoneId')
   updateMilestone(
@@ -272,12 +279,14 @@ export class ContractController {
     return this.contractService.changes(id);
   }
 
+  // @body: pickFields=CONTRACT_FIELDS
   @RequirePermissions('contract:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
     return this.contractService.create(body, projectId, user);
   }
 
+  // @body: pickFields=CONTRACT_UPDATE_FIELDS
   @RequirePermissions('contract:edit')
   @Put(':id')
   update(
@@ -295,6 +304,7 @@ export class ContractController {
     return this.contractService.remove(id, projectId);
   }
 
+  // @body: mapped=saveExt
   @RequirePermissions('contract:edit')
   @Put(':id/ext')
   saveExt(@Param('id') id: string, @Body() body: any) {

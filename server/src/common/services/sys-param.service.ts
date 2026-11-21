@@ -18,6 +18,7 @@ export class SysParamService {
     if (this.loaded) return;
     if (this.lastFailAt && Date.now() - this.lastFailAt < SysParamService.RETRY_MS) return;
     try {
+      // @no-limit: 系统参数表（全局配置，几十行）启动时整表载入内存缓存
       const list = await this.prisma.sysParam.findMany();
       this.cache = list.reduce((acc: any, p: any) => ({ ...acc, [p.key]: p.value ?? '' }), {});
       this.loaded = true;

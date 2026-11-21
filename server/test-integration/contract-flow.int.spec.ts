@@ -1,3 +1,4 @@
+// @domains: contract, procurement
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, NotFoundException } from '@nestjs/common';

@@ -16,12 +16,14 @@ export class SystemController {
     return this.service.users(query);
   }
 
+  // @body: pickFields=USER_WRITABLE_FIELDS
   @RequirePermissions('system:user')
   @Post('users')
   createUser(@Body() body: any) {
     return this.service.createUser(body);
   }
 
+  // @body: pickFields=USER_WRITABLE_FIELDS
   @RequirePermissions('system:user')
   @Put('users/:id')
   updateUser(@Param('id') id: string, @Body() body: any) {
@@ -34,6 +36,7 @@ export class SystemController {
     return this.service.removeUser(id);
   }
 
+  // @body: typed=inline
   @RequirePermissions('system:user')
   @Post('users/:id/reset-password')
   resetPassword(@Param('id') id: string, @Body() body: { password: string }) {
@@ -47,12 +50,14 @@ export class SystemController {
     return this.service.roles();
   }
 
+  // @body: pickFields=ROLE_WRITABLE_FIELDS
   @RequirePermissions('system:role', 'system:user')
   @Post('roles')
   createRole(@Body() body: any) {
     return this.service.createRole(body);
   }
 
+  // @body: pickFields=ROLE_WRITABLE_FIELDS
   @RequirePermissions('system:role', 'system:user')
   @Put('roles/:id')
   updateRole(@Param('id') id: string, @Body() body: any) {
@@ -78,6 +83,7 @@ export class SystemController {
     return this.service.params();
   }
 
+  // @body: typed=inline
   @RequirePermissions('system:config')
   @Put('params')
   saveParams(@Body() body: { key: string; value?: string }[]) {

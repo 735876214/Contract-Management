@@ -90,8 +90,12 @@ let unitDictCache: { value: string; label: string }[] | null = null;
 async function loadUnitDict(): Promise<{ value: string; label: string }[]> {
   if (unitDictCache) return unitDictCache;
   const res: any = await dictApi.options('measurement_unit');
-  unitDictCache = (res || []).map((u: any) => ({ value: u.value, label: u.label })).filter((u: any) => u.value);
-  return unitDictCache;
+  // 先落局部变量再赋给缓存：直接 `return unitDictCache` 在 strictNullChecks 下仍是 `T[] | null`
+  const list: { value: string; label: string }[] = (res || [])
+    .map((u: any) => ({ value: u.value, label: u.label }))
+    .filter((u: any) => u.value);
+  unitDictCache = list;
+  return list;
 }
 
 /**

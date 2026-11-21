@@ -79,7 +79,6 @@ export default function ContractDetailModal({ contractId, onClose, onChanged }: 
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractId]);
 
   const openSupplement = async () => {

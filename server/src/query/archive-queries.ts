@@ -80,6 +80,7 @@ export async function archiveReceiptScans(prisma: PrismaClient, projectId: strin
 
 /** 非草稿结算单的结算日期（按月归档用） */
 export async function archiveMonthlySettlementDates(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 按月归档需要该项目的全部非草稿结算日期
   const rows = await prisma.settlement.findMany({
     // `notDraft`（不是 `NOT: {statusCode:'DRAFT'}`）：statusCode 可空，NOT 会连带排除 NULL
     where: { projectId, ...notDraft },

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import HTMLtoDOCX from 'html-to-docx';
+// html-to-docx 无类型声明：require 引入（理由同 contract.service.ts）
+ 
+const HTMLtoDOCX: any = require('html-to-docx');
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
 import { round2 } from '../../common/calc/money';

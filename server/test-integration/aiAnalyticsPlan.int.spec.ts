@@ -1,3 +1,4 @@
+// @domains: ai, project
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';
@@ -11,6 +12,10 @@ import type { JwtUser } from '../src/common/decorators/user.decorator';
  * - `GET /datasets` 等价的 `listDatasets()`：无权限进 denied、未实现不暴露；
  * - `POST /plan` 等价的 `plan()`：当前项目/全部项目/多选的项目成员收口、
  *   跨项目需要 `dashboard:view`、无权数据集被剔除。
+ *
+ * 每个 `plan()` 都传 `{ useIntentLlm: false }`：本 spec 锁的是**规则意图**的项目收口，
+ * 带上模型意图只会让结果随「网关是否配了密钥」而变（配了就 source=llm、断网又会回落 rules），
+ * 断言就成了环境探针而不是回归锁。模型意图另有用例，见 aiAnalyticsStore / ai-facts。
  */
 describe('集成 · AI 经营数据助手 权限与意图', () => {
   let ctx: IntContext;
@@ -70,7 +75,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     assert.deepEqual(res.projects.map((p) => p.id), [project.id]);
 
     const other = await makeProject(ctx.prisma, 'ANA-OTHER');
-    await assert.rejects(() => service.plan({}, other.id, jwt), /成员范围/);
+    await assert.rejects(() => service.plan({}, other.id, jwt, { useIntentLlm: false }), /成员范围/);
   });
 
   it('scope=all：无 dashboard:view 被拒；有权限时返回成员项目集合', async () => {
@@ -79,12 +84,12 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     const { jwt } = await makeUser(['ai:use', 'contract:view']);
     await join(p1.id, jwt.userId);
 
-    await assert.rejects(() => service.plan({ text: '全部项目合同情况' }, p1.id, jwt), /统计报表/);
+    await assert.rejects(() => service.plan({ text: '全部项目合同情况' }, p1.id, jwt, { useIntentLlm: false }), /统计报表/);
 
     const withDash = await makeUser(['ai:use', 'contract:view', 'dashboard:view']);
     await join(p1.id, withDash.jwt.userId);
     await join(p2.id, withDash.jwt.userId);
-    const res = await service.plan({ text: '全部项目合同情况' }, p1.id, withDash.jwt);
+    const res = await service.plan({ text: '全部项目合同情况' }, p1.id, withDash.jwt, { useIntentLlm: false });
     assert.equal(res.intent.scope.mode, 'all');
     const ids = res.projects.map((p) => p.id);
     assert.ok(ids.includes(p1.id));
@@ -101,6 +106,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
       { text: '合同情况', scope: { mode: 'selected', projectIds: [mine.id, notMine.id], mentions: ['不存在的项目名'] } },
       mine.id,
       jwt,
+      { useIntentLlm: false },
     );
     assert.equal(res.intent.scope.mode, 'selected');
     assert.deepEqual(res.projects.map((p) => p.id), [mine.id]);
@@ -116,6 +122,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
       { datasets: ['invoice.records', 'contract.summary'], scope: { mode: 'current' } },
       project.id,
       jwt,
+      { useIntentLlm: false },
     );
     assert.deepEqual(res.deniedDatasets, ['invoice.records']);
     assert.deepEqual(res.intent.datasets, ['contract.summary']);
@@ -127,7 +134,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     await join(project.id, jwt.userId);
     const ids = Array.from({ length: 51 }, (_, i) => `not-a-project-${i}`);
     await assert.rejects(
-      () => service.plan({ scope: { mode: 'selected', projectIds: ids } }, project.id, jwt),
+      () => service.plan({ scope: { mode: 'selected', projectIds: ids } }, project.id, jwt, { useIntentLlm: false }),
       /不能超过 50 个/,
     );
   });
@@ -136,7 +143,7 @@ describe('集成 · AI 经营数据助手 权限与意图', () => {
     const project = await makeProject(ctx.prisma, 'ANA-GROUP');
     const { jwt } = await makeUser(['ai:use', 'contract:view']);
     await join(project.id, jwt.userId);
-    const res = await service.plan({ text: '合同汇总', groupBy: 'month' }, project.id, jwt);
+    const res = await service.plan({ text: '合同汇总', groupBy: 'month' }, project.id, jwt, { useIntentLlm: false });
     assert.equal(res.intent.groupBy, 'project');
     assert.ok(res.warnings.some((w) => w.includes('忽略未知的分组维度')));
   });

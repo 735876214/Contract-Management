@@ -45,12 +45,14 @@ export class DocTemplateController {
     return this.service.findOne(id);
   }
 
+  // @body: pickFields=DOC_EXCEL_FIELDS
   @RequirePermissions('template:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
     return this.service.create(body, projectId, user);
   }
 
+  // @body: pickFields=DOC_EXCEL_FIELDS
   @RequirePermissions('template:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {

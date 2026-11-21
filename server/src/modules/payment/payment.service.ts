@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -103,16 +104,8 @@ export class PaymentService {
    * 导出用全量付款记录：`findRecords({ pageSize: 2000 })` 会被单页上限（默认 500）截断，
    * 大于上限时导出文件**静默**少行、汇总行金额偏小。按页拉全量，与发票/台账导出同口径。
    */
-  private async allRecords(projectId: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res = await this.findRecords({ page, pageSize }, projectId, pageSize);
-      const list = (res.list as any[]) ?? [];
-      out.push(...list);
-      if (list.length < pageSize || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allRecords(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findRecords({ page, pageSize }, projectId, pageSize));
   }
 
   async createRecord(data: any, projectId: string, tx?: TxClient) {
@@ -124,7 +117,7 @@ export class PaymentService {
     assertYearMonth(data.payMonth, '付款月份');
     const warn = tx
       ? {}
-      : await this.checkOverPayment(data.contractId, num(data.amount), data.statusCode);
+      : await this.checkOverPayment(data.contractId, num(data.amount) ?? 0, data.statusCode);
     const created: any = await db.paymentRecord.create({
       data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });
@@ -132,9 +125,11 @@ export class PaymentService {
   }
 
   async updateRecord(id: string, data: any, projectId?: string) {
-    const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
-    if (!before) throw new NotFoundException('付款记录不存在');
-    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
+    const before = assertInProject(
+      await this.prisma.paymentRecord.findUnique({ where: { id } }),
+      projectId,
+      '付款记录不存在',
+    );
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
@@ -155,9 +150,11 @@ export class PaymentService {
   }
 
   async removeRecord(id: string, projectId?: string) {
-    const before = await this.prisma.paymentRecord.findUnique({ where: { id } });
-    if (!before) throw new NotFoundException('付款记录不存在');
-    if (projectId && before.projectId !== projectId) throw new NotFoundException('付款记录不存在');
+    const before = assertInProject(
+      await this.prisma.paymentRecord.findUnique({ where: { id } }),
+      projectId,
+      '付款记录不存在',
+    );
     await this.prisma.paymentRecord.delete({ where: { id } });
     return true;
   }

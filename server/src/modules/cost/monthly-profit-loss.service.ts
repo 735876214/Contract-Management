@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
 import { periodLabel } from '../../common/utils/settlement-period';
 import { pickFields } from '../../common/pick-fields';
@@ -57,24 +57,14 @@ export class MonthlyProfitLossService {
     );
   }
 
-  /**
-   * 归属复核（防御纵深）：按 id 直读/改写时必须确认记录属于请求头项目，
-   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据
-   * （见 .claude/rules/rules-index.md「项目隔离」）。
-   */
-  private assertOwnProject<T extends { projectId: string }>(row: T | null, projectId?: string): T {
-    if (!row) throw new NotFoundException('月度盈亏分析记录不存在');
-    if (projectId && row.projectId !== projectId) throw new NotFoundException('月度盈亏分析记录不存在');
-    return row;
-  }
-
   async detail(id: string, projectId?: string) {
-    const r = this.assertOwnProject(
+    const r = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({
         where: { id },
         include: { details: { orderBy: [{ laborTeamName: 'asc' }, { sortOrder: 'asc' }] } },
       }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     return { ...this.serializeHeader(r), details: r.details.map((d) => this.serializeDetail(d)) };
   }
@@ -118,9 +108,10 @@ export class MonthlyProfitLossService {
 
   /** 更新：头字段 + 明细行手改（按明细 ID 逐行，乐观锁在头记录上） */
   async update(id: string, data: any, projectId?: string) {
-    const current = this.assertOwnProject(
+    const current = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     assertVersion(current, data);
     const payload: any = pickFields(data, HEADER_FIELDS.filter((f) => f !== 'period'), { label: '月度盈亏分析' });
@@ -166,16 +157,17 @@ export class MonthlyProfitLossService {
   }
 
   async remove(id: string, projectId?: string) {
-    this.assertOwnProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId);
+    assertInProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId, '月度盈亏分析记录不存在');
     await this.prisma.monthlyProfitLoss.delete({ where: { id } });
     return true;
   }
 
   /** 重新抓取：删明细重生成快照，按 subcontractorId+材料+规格 回填手填项 */
   async reSnapshot(id: string, projectId?: string) {
-    const current = this.assertOwnProject(
+    const current = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
     // 手填项按「分包单位 + 材料 + 规格 + 单位」回填：单位不同是两条快照行
@@ -200,12 +192,13 @@ export class MonthlyProfitLossService {
 
   /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
   async exportMeta(id: string, projectId?: string) {
-    const rec = this.assertOwnProject(
+    const rec = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({
         where: { id },
         select: { projectId: true, period: true },
       }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     return { fileName: `降本、创效、主材盈亏分析表-${rec.period || id}.xlsx` };
   }

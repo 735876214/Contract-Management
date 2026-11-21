@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { round2 } from '../../common/calc/money';
 import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
@@ -46,12 +46,14 @@ export class LaborReceivingService {
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
+      // @no-limit: distinct 结算期，量级=月数
       this.prisma.laborReceivingDoc.findMany({
         where: { projectId },
         distinct: ['period'],
         select: { period: true },
       }),
       // 兼容单据化之前直接落 Summary 的历史数据（若有）
+      // @no-limit: 同上：兼容单据化之前的历史 Summary，distinct 结算期
       this.prisma.laborReceivingSummary.findMany({
         where: { projectId },
         distinct: ['period'],
@@ -142,21 +144,12 @@ export class LaborReceivingService {
     throw new BadRequestException('单据编号生成失败，请稍后重试');
   }
 
-  /**
-   * 归属复核（防御纵深）：按 id 直读/改写时必须确认单据属于请求头项目，
-   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据。
-   */
-  private assertDocInProject<T extends { projectId: string }>(doc: T | null, projectId?: string): T {
-    if (!doc) throw new NotFoundException('领用单据不存在');
-    if (projectId && doc.projectId !== projectId) throw new NotFoundException('领用单据不存在');
-    return doc;
-  }
-
   /** 单据详情：头 + 明细（含收领单自动聚合列与派生列） */
   async docDetail(id: string, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
       projectId,
+      '领用单据不存在',
     );
     const rows = await this.mergeDocRows(doc);
     return { ...this.serializeDoc(doc), details: rows };
@@ -164,9 +157,10 @@ export class LaborReceivingService {
 
   /** 更新单据：头字段 + 明细批量 upsert（乐观锁在头记录上） */
   async updateDoc(id: string, data: any, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
       projectId,
+      '领用单据不存在',
     );
     assertVersion(doc, data);
     const payload: any = pickFields(data, ['contractName', 'status', 'remark'], { label: '领用单据' });
@@ -195,7 +189,7 @@ export class LaborReceivingService {
   }
 
   async removeDoc(id: string, projectId?: string) {
-    this.assertDocInProject(await this.prisma.laborReceivingDoc.findUnique({ where: { id } }), projectId);
+    assertInProject(await this.prisma.laborReceivingDoc.findUnique({ where: { id } }), projectId, '领用单据不存在');
     await this.prisma.laborReceivingDoc.delete({ where: { id } });
     return true;
   }
@@ -272,6 +266,7 @@ export class LaborReceivingService {
   private async nextDocNo(projectId: string, period: string): Promise<string> {
     const ym = period.replace('-', '');
     const prefix = `LRD-${ym}-`;
+    // @no-limit: 只取本项目当月的领用单编号（单月单据数），用于算下一个流水号
     const rows = await this.prisma.laborReceivingDoc.findMany({
       where: { projectId, docNo: { startsWith: prefix } },
       select: { docNo: true },
@@ -366,23 +361,25 @@ export class LaborReceivingService {
 
   /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
   async exportMeta(docId: string, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({
         where: { id: docId },
         select: { projectId: true, subcontractorName: true, period: true },
       }),
       projectId,
+      '领用单据不存在',
     );
     return { fileName: `${doc.subcontractorName || '分包单位'}-${doc.period || ''}-盘点领用表.xlsx` };
   }
 
   async exportWorkbook(docId: string, projectId?: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
-    const doc: any = this.assertDocInProject(
+    const doc: any = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({
         where: { id: docId },
       }),
       projectId,
+      '领用单据不存在',
     );
     const rows: any[] = await this.mergeDocRows(doc);
     const project = await this.prisma.project.findUnique({ where: { id: doc.projectId } });
@@ -412,7 +409,7 @@ export class LaborReceivingService {
         r.stockTakeQty == null ? null : Number(r.stockTakeQty), r.remark ?? '',
       ];
     });
-    let foot1 = rows.length + 7;
+    const foot1 = rows.length + 7;
     ws1.getRow(foot1).values = ['分包商材料员：', '', '', '', '', '日期：'];
     ws1.getRow(foot1 + 2).values = ['项目盘点小组成员：', '', '', '', '', '日期：'];
     ws1.columns.forEach((c) => (c.width = 16));
@@ -439,7 +436,7 @@ export class LaborReceivingService {
         r.prevCum, r.receivedQty, r.returnQty, r.netQty, r.remark ?? '',
       ];
     });
-    let foot2 = rows.length + 7;
+    const foot2 = rows.length + 7;
     ws2.getRow(foot2).values = ['合计'];
     ws2.getRow(foot2 + 2).values = [
       `以上数据为分包商 ${doc.subcontractorName} 在 ${periodLabelText} 期间与本项目部发生的所有领用业务。`,
@@ -496,7 +493,7 @@ export class LaborReceivingService {
         deductPrev += prevRows.reduce((sum, r) => sum + (r.deductAmount ?? 0), 0);
       }
     }
-    let foot3 = rows.length + 6;
+    const foot3 = rows.length + 6;
     ws3.getRow(foot3).values = ['至本期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev + deductThis)];
     ws3.getRow(foot3).font = { bold: true };
     ws3.getRow(foot3 + 1).values = ['至上期末开累扣款（元）', '', '', '', '', '', '', '', '', '', '', '', '', round2(deductPrev)];

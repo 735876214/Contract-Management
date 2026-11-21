@@ -57,12 +57,14 @@ export class PaymentController {
     return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 
+  // @body: pickFields=RECORD_FIELDS
   @RequirePermissions('payment:edit')
   @Post('records')
   createRecord(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createRecord(body, projectId);
   }
 
+  // @body: pickFields=RECORD_UPDATE_FIELDS
   @RequirePermissions('payment:edit')
   @Put('records/:id')
   updateRecord(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {

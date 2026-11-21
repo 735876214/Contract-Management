@@ -29,8 +29,8 @@ export { round };
 export function days360(start: Date, end: Date): number {
   const y1 = start.getFullYear();
   const y2 = end.getFullYear();
-  let m1 = start.getMonth();
-  let m2 = end.getMonth();
+  const m1 = start.getMonth();
+  const m2 = end.getMonth();
   let d1 = start.getDate();
   let d2 = end.getDate();
 

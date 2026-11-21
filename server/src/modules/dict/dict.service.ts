@@ -78,6 +78,7 @@ export class DictService {
     const fresh = !!cachedAt && Date.now() - cachedAt < DictService.CACHE_TTL;
     let items = fresh ? this.cache.get(typeCode) : undefined;
     if (!items) {
+      // @no-limit: 单个字典类型的启用项（<200），结果进 24h 缓存
       items = await this.prisma.dictItem.findMany({
         where: { typeCode, status: 1 },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -193,6 +194,7 @@ export class DictService {
       where.OR = [{ itemName: { contains: query.keyword } }, { itemCode: { contains: query.keyword } }];
     }
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
+    // @no-limit: 字典项管理列表按 typeCode 过滤，单类型项数很小
     const list = await this.prisma.dictItem.findMany({
       where,
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -359,6 +361,7 @@ export class DictService {
   }
 
   async checkTypeUsage(typeCode: string) {
+    // @no-limit: 单字典类型的项（逐个查引用量），项数很小
     const items = await this.prisma.dictItem.findMany({ where: { typeCode } });
     let count = 0;
     for (const item of items) {

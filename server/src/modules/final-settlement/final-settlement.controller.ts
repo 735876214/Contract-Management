@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
-import { FinalSettlementService } from './final-settlement.service';
+import { FinalSettlementService, UpdateItemsBody } from './final-settlement.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -22,6 +22,7 @@ export class FinalSettlementController {
   }
 
   /** 生成：抓取该合同全部（非草稿）月度结算 → 明细快照 + 合计；一个合同只允许一张 */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post('generate')
   generate(@Body() body: { contractId: string }, @ProjectId() projectId: string, @CurrentUser() user: any) {
@@ -47,6 +48,7 @@ export class FinalSettlementController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: pickFields=FIELDS
   @RequirePermissions('settlement:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -54,13 +56,15 @@ export class FinalSettlementController {
   }
 
   /** 编辑明细（月份/金额）+ 审减金额：保存即重算合计（仅「待上传附件」状态可改） */
+  // @body: typed=UpdateItemsBody
   @RequirePermissions('settlement:edit')
   @Put(':id/items')
-  updateItems(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+  updateItems(@Param('id') id: string, @Body() body: UpdateItemsBody, @ProjectId() projectId: string) {
     return this.service.updateItems(id, body, projectId);
   }
 
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post(':id/attach')
   attach(

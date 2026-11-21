@@ -1,5 +1,5 @@
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -23,6 +23,10 @@ async function bootstrap() {
     requestContext.run({ projectId: projectId || undefined }, () => next());
   });
 
+  // 优雅关闭：容器 stop / 滚动更新时触发 onModuleDestroy → PrismaService.$disconnect()，
+  // 否则连接只能等 PostgreSQL 侧超时回收（2026-11-21 P0-3）。
+  app.enableShutdownHooks();
+
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');
   // 授权委托书等需要返回「打印就绪 HTML」的接口，跳过统一 JSON 包装，
@@ -44,7 +48,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`CMS server running on http://localhost:${port}/api`);
+  new Logger('Bootstrap').log(`CMS server running on http://localhost:${port}/api`);
 
   // 启动播种（空库首启初始化 + 每次启动的历史数据修正）统一入口。
   // ⚠️ 必须走这一条：它用事务级咨询锁把整段播种**串行化**，避免多进程同时启动时

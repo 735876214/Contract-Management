@@ -20,7 +20,10 @@ export function formatDay(v: unknown): string | null {
 }
 
 /** 本地口径 `YYYY-MM-DD`；兼容 helpers.localDayKey 的旧签名（非法日期返回空串） */
-export function localDayKey(now: Date | string = new Date()): string {
+export function localDayKey(now: Date | string | null = new Date()): string {
+  // 显式传 null（DB 可空日期，如 `m.planDate`）→ 空串，不臆造今天；
+  // **不传参**仍取当天（archive 文件名、采购编号等调用方依赖这个行为）。
+  if (now === null) return '';
   return formatDay(now) ?? '';
 }
 

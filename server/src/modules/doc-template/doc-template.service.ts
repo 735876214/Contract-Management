@@ -50,6 +50,7 @@ export class DocTemplateService {
     };
     if (query.keyword) where.name = { contains: query.keyword };
     if (query.status !== undefined && query.status !== '') where.status = normalizeStatus(query.status, 1);
+    // @no-limit: 单据模板总数级（十级），且需按分类排序后整体返回
     const rows = await this.prisma.contractTemplate.findMany({
       where,
       orderBy: [{ categoryCode: 'asc' }, { createdAt: 'desc' }],

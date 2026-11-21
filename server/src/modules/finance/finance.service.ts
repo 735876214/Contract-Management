@@ -4,7 +4,7 @@ import * as ExcelJS from 'exceljs';
 import { num } from '../../common/calc/numeric';
 import { canonicalMonthKey } from '../../common/calc/aggregate';
 import { compareMonthKey } from '../../common/calc/time';
-import { assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -224,9 +224,7 @@ export class FinanceService {
       where: { id: contractId },
       include: { supplier: { select: { name: true } }, project: { select: { name: true, codeAbbr: true } } },
     });
-    if (!contract) throw new NotFoundException('合同不存在');
-    if (projectId && contract.projectId !== projectId) throw new NotFoundException('合同不存在');
-    return contract;
+    return assertInProject(contract, projectId, '合同不存在');
   }
 
   /**
@@ -935,6 +933,8 @@ export class FinanceService {
     // 跨合同导出一张表没有业务意义，这里明确要求先选合同，而不是静默导出一份混着多合同的表。
     if (!contractId) throw new BadRequestException('导出逾期利息计算表需要先选择合同');
     const { contract, list, stats } = await this.listOverdue(contractId, query, projectId);
+    // strict 判空：listOverdue 在合同不存在时返回 contract=null（有 list 的兜底分支）
+    if (!contract) throw new NotFoundException('合同不存在');
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('逾期利息计算表');
     this.styled.writeLogoHeader(ws, { title: '逾期利息计算表', lastCol: 14 });

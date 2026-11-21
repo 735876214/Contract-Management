@@ -233,5 +233,7 @@ export function chainRootAmounts(rows: ChainRowAmount[]): Map<string, number | n
 
 /** 项目「合同额」合计：每条链只计一次（未填金额的链按 0 参与合计，调用方可另计"未填"条数） */
 export function chainContractTotal(rows: ChainRowAmount[]): number {
-  return round2([...chainRootAmounts(rows).values()].reduce((s, v) => s + (v ?? 0), 0));
+  // 显式给累加器类型：map 的值是 `number | null`，strictNullChecks 下 reduce 会把
+  // 累加器也推断成可空（TS18047）。这里用 reduce<number> 把口径钉死。
+  return round2([...chainRootAmounts(rows).values()].reduce<number>((s, v) => s + (v ?? 0), 0));
 }

@@ -1,3 +1,4 @@
+// @domains: ai
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';

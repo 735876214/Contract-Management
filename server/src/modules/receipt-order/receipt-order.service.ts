@@ -8,7 +8,7 @@ import {
 } from '../../constants/statuses';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
@@ -130,7 +130,7 @@ export class ReceiptOrderService {
       if (!data.settlementId) return null; // 显式解绑
       // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
       // 重新跑严格同合同校验会 400，导致整张单据存不了
-      if (current === data.settlementId && !contractChanged && !dateChanged) return current;
+      if (current === data.settlementId && !contractChanged && !dateChanged) return current ?? null;
       await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
       return data.settlementId;
     }
@@ -222,9 +222,7 @@ export class ReceiptOrderService {
         details: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
       },
     });
-    if (!order) throw new NotFoundException('收领单不存在');
-    if (projectId && (order as any).projectId !== projectId) throw new NotFoundException('收领单不存在');
-    return order;
+    return assertInProject(order, projectId, '收领单不存在');
   }
 
   /**
@@ -446,6 +444,7 @@ export class ReceiptOrderService {
   private async dictProjectOptions(dictCode: string, keyword?: string, projectId?: string) {
     let items: any[] = [];
     try {
+      // @no-limit: 单个字典类型的项目类选项（<200）
       items = await this.prisma.dictItem.findMany({
         where: { typeCode: dictCode, status: 1 },
         orderBy: { sortOrder: 'asc' },
@@ -1055,7 +1054,7 @@ export class ReceiptOrderService {
     const baseMap = await this.loadMaterialBaseMap(order.details, this.prisma);
     const yesNo = (v: any) => (v === true ? 'Y' : v === false ? 'N' : null);
 
-    const rows = [];
+    const rows: any[] = [];
     for (const d of order.details) {
       const priceBeforeTax = num(d.priceBeforeTax);
       const taxRatePct = num(d.taxRatePct);
@@ -1108,7 +1107,7 @@ export class ReceiptOrderService {
     // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
       await clearPushedDailyRowsOfReceiptOrder(tx, orderId);
-      await pushDailyRows(tx, rows);
+      await pushDailyRows(tx, rows as any[]);
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });
     return { pushed: rows.length };

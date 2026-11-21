@@ -82,8 +82,10 @@ let unitOptionsCache: string[] | null = null;
 async function loadUnitOptions(): Promise<string[]> {
   if (unitOptionsCache) return unitOptionsCache;
   const res: any = await dictApi.options('measurement_unit');
-  unitOptionsCache = (res || []).map((u: any) => u.label).filter(Boolean);
-  return unitOptionsCache;
+  // 同 DailyReports：落局部变量再赋值，避免返回可空缓存
+  const list: string[] = (res || []).map((u: any) => u.label).filter(Boolean);
+  unitOptionsCache = list;
+  return list;
 }
 
 function UnitInput({ value, onChange }: { value?: string; onChange: (v: string) => void }) {

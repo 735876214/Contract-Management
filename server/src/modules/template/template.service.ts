@@ -212,7 +212,7 @@ export class TemplateService {
       LEASE_EXEC: ['LEASE_EXEC'],
       EMERGENCY: ['EMERGENCY'],
     };
-    const codes = typeMap[params.contractType] || [];
+    const codes = typeMap[params.contractType ?? ''] || [];
     return all.filter((i: any) => codes.includes(i.itemCode));
   }
 
@@ -326,13 +326,13 @@ export class TemplateService {
       ...varDefaults,
       合同编号: contract.code,
       合同名称: contract.name,
-      合同类型: typeMap[contract.typeCode]?.name || contract.typeCode || '',
+      合同类型: typeMap[contract.typeCode ?? '']?.name || contract.typeCode || '',
       合同子类型: (contract as any).subTypeCode || '',
       合同额: num(contract.amount) ?? 0,
       合同额大写: amountToChineseCapital(capitalBase),
       税率: taxRatePct !== null ? `${taxRatePct.toFixed(2)}%` : '',
       签订日期: fmtDate(contract.signDate) || '',
-      合同约定付款方式: payMap[contract.paymentMethodCode]?.name || contract.paymentMethodCode || '',
+      合同约定付款方式: payMap[contract.paymentMethodCode ?? '']?.name || contract.paymentMethodCode || '',
       项目名称: (contract as any).project?.name || '',
       项目包保领导: (contract as any).project?.packageLeader || '',
       项目经理: (contract as any).project?.projectManager || '',
@@ -414,6 +414,7 @@ export class TemplateService {
     if (query.keyword) where.title = { contains: query.keyword };
     if (query.categoryCode) where.categoryCode = query.categoryCode;
     if (query.type) where.type = query.type;
+    // @no-limit: 条款库总量级（百级），且需按排序整体返回
     return this.prisma.clause.findMany({
       where,
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
