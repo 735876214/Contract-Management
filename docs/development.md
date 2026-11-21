@@ -396,9 +396,11 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
   容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
 - **列表查询上限**：`node scripts/check-query-limits.mjs`（CI 一步）。只抓**项目级**无上限
   `findMany`（没有 `take`、也没有按父实体 id 过滤）。确需全量的在调用处写
-  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。
+  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
+  `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
+  SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。
 - **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：
-  **0 error**，warning 用 `--max-warnings` **冻结存量**（server 47 / web 74，只允许变少）。
+  **0 error**，warning 用 `--max-warnings` **冻结存量**（server 44 / web 74，只允许变少）。
   关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、
   `no-require-imports` 因 html-to-docx/pngjs 无类型声明）。清完一条 warning 记得同步下调预算。
 - **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。

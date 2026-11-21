@@ -37,12 +37,16 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **ESLint warning 存量清理（2026-11-21）**：`server` 47 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
+- **ESLint warning 存量清理（2026-11-21）**：`server` 44 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
   与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
   `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。
-- **工作台/台账的聚合改走 SQL（P1-4 跟进，2026-11-21）**：`dashboard.overview` / `trend`、
-  `ai/anomaly.collect`、`ai/analytics.dataset-collector` 目前是「整项目全量行取回内存再求和」
-  （已用 `// @no-limit:` 显式留痕）。量级上去后应改成 `aggregate`/`groupBy`，或物化视图。
+- **剩余「全量行」取数的收口（P1-4 第二阶段，2026-11-21）**：工作台总览/趋势、合同台账按合同分组、
+  AI 数据集的 5 个分区块**已经改走 SQL `aggregate`/`groupBy`**（44 处 `@no-limit` → 32 处）。
+  仍取明细行的是**行级规则/明细喂数**两类，它们不是聚合、换 `groupBy` 会静默失效：
+  - `ai/anomaly.collect`（9 处）：跨期累计、清单重合度等规则要逐单比对。要降成本只能**缩小取数范围**
+    （强制期间、项目集上限）或把事实层物化（物化视图/定时汇总表），属独立议题；
+  - 台账 `findAll` 的链解析、合规性问题数（内存派生列）：合规性由类型/进场/中标/签订日期算，库里没有这列，
+    无法进 `WHERE`，只能全量取窄列后在内存过滤。
 
 ## 四域扩展（已收口，不再立项）
 

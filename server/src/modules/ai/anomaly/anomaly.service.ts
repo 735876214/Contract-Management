@@ -237,6 +237,17 @@ export class AnomalyService {
    *
    * 一次取全后在内存聚合，不按合同循环查库：项目级命中量是几十条量级，
    * 全量取回的列都是窄列（金额/日期/编号），比 N+1 快得多也好读。
+   *
+   * ## 这里**不能**改成 SQL 聚合（P1-4 已评估，结论是保持行级取数）
+   *
+   * 与工作台/数据集那些「纯分组求和」不同，本模块的 9 条规则是**逐单判定**：
+   * 跨期累计（R1-a/R1-b/R2/R6）、清单量按链根归集后的明细重合度、单笔与累计的先后关系……
+   * 需要的都是**每一行的金额/日期/编号**，不是「每组合计」。把它们换成 `groupBy` 只会让
+   * 规则失去判定依据（且是静默失效——聚合结果照样跑得通，只是结论变成空的），
+   * 所以这里的 `findMany` 全部保留，只在调用处写明 `// @no-limit:` 理由。
+   *
+   * 真正该做的是**缩小取数范围**（强制期间/项目集上限）或把事实层物化，那是独立议题，
+   * 记在 TODO.md「工作台/台账聚合」条目下。
    */
   private async collect(
     query: PaymentAnomalyQuery,
@@ -266,42 +277,42 @@ export class AnomalyService {
       finalSettlementItems,
       materialRows,
     ] = await Promise.all([
-        // @no-limit: 预警规则需全量行做跨期累计比对，分页会漏判；量级=单项目业务行
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行做跨期累计比对，分页会漏判；量级=单项目业务行
         this.prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
-        // @no-limit: 预警规则需全量行（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行（同上）
         this.prisma.settlement.findMany({
           where: w.settlementWhere,
           select: ANOMALY_SELECT.settlement,
           orderBy: ANOMALY_ORDER.settlement as any,
         }),
-        // @no-limit: 预警规则需全量行做累计比对（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行做累计比对（同上）
         this.prisma.settlement.findMany({
           where: w.settlementCumulativeWhere,
           select: ANOMALY_SELECT.settlement,
           orderBy: ANOMALY_ORDER.settlement as any,
         }),
-        // @no-limit: 预警规则需全量付款流水（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量付款流水（同上）
         this.prisma.paymentRecord.findMany({
           where: w.paymentWhere,
           select: ANOMALY_SELECT.payment,
           orderBy: ANOMALY_ORDER.payment as any,
         }),
-        // @no-limit: 预警规则需全量发票（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量发票（同上）
         this.prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
-        // @no-limit: 预警规则需全量付款手续（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量付款手续（同上）
         this.prisma.paymentProcedure.findMany({
           where: w.procedureWhere,
           select: ANOMALY_SELECT.procedure,
           orderBy: ANOMALY_ORDER.procedure as any,
         }),
-        // @no-limit: 预警规则需全量收领单（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量收领单（同上）
         this.prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
-        // @no-limit: 预警规则需全量总结算明细（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量总结算明细（同上）
         this.prisma.finalSettlementItem.findMany({
           where: w.finalSettlementItemWhere,
           select: ANOMALY_SELECT.finalSettlementItem,
         }),
-        // @no-limit: 预警规则需全量合同物资行（同上）
+        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量合同物资行（同上）
         this.prisma.contractMaterial.findMany({
           where: w.contractMaterialWhere,
           select: ANOMALY_SELECT.contractMaterial,

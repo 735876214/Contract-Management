@@ -6,6 +6,7 @@ import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
 import { resolveChainAmounts } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere, countedInvoiceWhere, INVOICE_STATUS } from '../../constants/statuses';
+import { sumSettlementAmount } from '../../common/utils/group-sum';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
@@ -23,56 +24,84 @@ const OVERDUE_HOURS = 2;
 export class DashboardService {
   constructor(private prisma: PrismaClient) {}
 
+  /**
+   * 工作台总览：整项目 KPI。
+   *
+   * 走 **SQL 聚合**（P1-4）：此前是 5 条 `findMany` 把合同/台账/付款/发票/结算的整项目明细行取回内存再
+   * reduce —— 只为了得到 7 个数字。明细行涨到十万级时，首屏就会把内存和带宽吃满，而聚合结果并不需要
+   * 任何一行明细。`_sum` / `count` 的口径与原来的 `sumBy(rows, field)` 完全一致（NULL 计 0，两位小数）。
+   */
   async overview(projectId: string, user: any) {
-    const [contracts, ledger, payments, invoices, settlements] = await Promise.all([
-      // @no-limit: 工作台总览需对整个项目的行求和（KPI），分页会算错；后续可改 SQL aggregate
-      this.prisma.contract.findMany({ where: { projectId } }),
-      // @no-limit: 工作台总览求和（同上）
-      this.prisma.settlementLedger.findMany({ where: { projectId } }),
-      // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
-      // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
-      // @no-limit: 工作台总览求和（同上，付款）
-      this.prisma.paymentRecord.findMany({
-        where: { projectId, ...paidPaymentWhere() },
-      }),
-      // 作废/红冲发票不计入「累计开票额」（业务口径 2026-11-12；空状态历史票仍计入）
-      // @no-limit: 工作台总览求和（同上，发票）
-      this.prisma.invoice.findMany({ where: { projectId, ...countedInvoiceWhere() } }),
-      // @no-limit: 工作台总览求和（同上，结算）
-      this.prisma.settlement.findMany({ where: { projectId } }),
-    ]);
-    const sumBy = (list: any[], f: string) => list.reduce((s, i: any) => s + (num(i[f]) || 0), 0);
+    const [contractAgg, executingCount, ledgerSum, paymentSum, invoiceSum, settlementCount] =
+      await Promise.all([
+        this.prisma.contract.aggregate({
+          where: { projectId },
+          _count: { _all: true },
+          _sum: { amount: true },
+        }),
+        this.prisma.contract.count({
+          where: { projectId, execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING },
+        }),
+        this.prisma.settlementLedger.aggregate({
+          where: { projectId },
+          _sum: { monthSettleAmount: true },
+        }),
+        // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
+        // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
+        this.prisma.paymentRecord.aggregate({
+          where: { projectId, ...paidPaymentWhere() },
+          _sum: { amount: true },
+        }),
+        // 作废/红冲发票不计入「累计开票额」（业务口径 2026-11-12；空状态历史票仍计入）
+        this.prisma.invoice.aggregate({
+          where: { projectId, ...countedInvoiceWhere() },
+          _sum: { amountWithTax: true },
+        }),
+        this.prisma.settlement.count({ where: { projectId } }),
+      ]);
+    /** 金额列统一「NULL → 0，两位小数」，与原先 `Number(sumBy(...).toFixed(2))` 同口径 */
+    const money = (v: unknown) => Number((num(v) || 0).toFixed(2));
     return {
-      contractCount: contracts.length,
-      contractAmount: Number(sumBy(contracts, 'amount').toFixed(2)),
-      settleAmount: Number(sumBy(ledger, 'monthSettleAmount').toFixed(2)),
-      paidAmount: Number(sumBy(payments, 'amount').toFixed(2)),
-      invoiceAmount: Number(sumBy(invoices, 'amountWithTax').toFixed(2)),
-      settlementCount: settlements.length,
-      executingCount: contracts.filter((c: any) => c.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
+      contractCount: contractAgg._count._all,
+      contractAmount: money(contractAgg._sum.amount),
+      settleAmount: money(ledgerSum._sum.monthSettleAmount),
+      paidAmount: money(paymentSum._sum.amount),
+      invoiceAmount: money(invoiceSum._sum.amountWithTax),
+      settlementCount,
+      executingCount,
     };
   }
 
-  /** 近 12 个月收付款与结算趋势；`now` 由上层注入，规则层不读系统时钟 */
+  /**
+   * 近 12 个月收付款与结算趋势；`now` 由上层注入，规则层不读系统时钟。
+   *
+   * 按月聚合走 **SQL groupBy**（P1-4）：`settleMonth` / `payMonth` 本身就是 `YYYY-MM` 字符串，
+   * 直接按它分组，每月只回一行；再把分组的月份键交给 `groupSumByMonth` 归一
+   * （它仍然负责 `2026-9`/`2026年9月` 这类自由文本的容错与两位小数收敛，口径不搬到 SQL 里）。
+   */
   async trend(projectId: string, now: Date = new Date()) {
-    const [ledger, payments] = await Promise.all([
-      // @no-limit: 近 12 个月趋势需全量行按月聚合，分页会漏月
-      this.prisma.settlementLedger.findMany({ where: { projectId } }),
+    const [settleGroups, payGroups] = await Promise.all([
+      this.prisma.settlementLedger.groupBy({
+        by: ['settleMonth'],
+        where: { projectId },
+        _sum: { monthSettleAmount: true },
+      }),
       // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
       // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
-      // @no-limit: 近 12 个月趋势（同上，付款）
-      this.prisma.paymentRecord.findMany({
+      this.prisma.paymentRecord.groupBy({
+        by: ['payMonth'],
         where: { projectId, ...paidPaymentWhere() },
+        _sum: { amount: true },
       }),
     ]);
     const months = monthSequence(now, 12);
-    const settleMap = groupSumByMonth(ledger as any[], {
-      monthOf: (l: any) => l.settleMonth,
-      amountOf: (l: any) => l.monthSettleAmount,
+    const settleMap = groupSumByMonth(settleGroups, {
+      monthOf: (g: any) => g.settleMonth,
+      amountOf: (g: any) => g._sum?.monthSettleAmount,
     });
-    const payMap = groupSumByMonth(payments as any[], {
-      monthOf: (p: any) => p.payMonth,
-      amountOf: (p: any) => p.amount,
+    const payMap = groupSumByMonth(payGroups, {
+      monthOf: (g: any) => g.payMonth,
+      amountOf: (g: any) => g._sum?.amount,
     });
     return months.map((m) => ({
       month: m,
@@ -411,28 +440,22 @@ export class DashboardService {
    * 「合同当前金额」= 主合同 + Σ 补充协议带符号增量（与防超结上限同一实现）。
    * 只做**展示**：不拦截任何单据，也不改 `*_over_amount_policy` 的策略。
    *
-   * 口径细节：按**链根**逐条算，一次取全项目合同与结算后在内存分组（避免 N+1）；
+   * 口径细节：按**链根**逐条算——合同链只能在内存里沿 `parentContractId` 解析（取的是窄列），
+   * 而「结算额」本身是纯分组求和，已改由 SQL 按 contractId 聚合（P1-4），两边都不做 N+1。
    * 结算额排除草稿（与闸门一致）。主合同金额未填（金额未知）时该项无法判定 → 不报（宁漏勿误）。
    */
   private async amountAlerts(projectId: string) {
-    const [contracts, settlements] = await Promise.all([
+    const [contracts, settledByContract] = await Promise.all([
+      // 合同行**必须**全量取回：金额预警要按合同链（主合同 + Σ 补充协议 changeAmount）逐条算，
+      // 而链结构只能靠 parentContractId 在内存里解析。这里取的已是窄列（6 列），不再是明细表。
       this.prisma.contract.findMany({
         where: { projectId, archivedAt: null },
         select: { id: true, parentContractId: true, amount: true, changeAmount: true, code: true, name: true },
       }),
-      this.prisma.settlement.findMany({
-        where: { projectId, ...notDraft },
-        select: { contractId: true, actualAmount: true, amount: true },
-      }),
+      // 结算额按合同聚合走 SQL（P1-4）：原来把整项目结算单明细取回内存按 contractId 求和。
+      // 口径 = `actualAmount ?? amount`，由 `sumSettlementAmount` 在 SQL 侧精确复刻。
+      sumSettlementAmount(this.prisma, 'contractId', { projectId, ...notDraft }),
     ]);
-
-    const settledByContract = new Map<string, number>();
-    for (const s of settlements) {
-      const key = String(s.contractId ?? '');
-      if (!key) continue;
-      const v = Number(s.actualAmount ?? s.amount) || 0;
-      settledByContract.set(key, (settledByContract.get(key) ?? 0) + v);
-    }
 
     const alerts: {
       contractId: string;
@@ -490,25 +513,24 @@ export class DashboardService {
    * 一个问"结算超没超合同"，一个问"钱是不是付多了/付早了"。
    *
    * 口径与闸门/台账**共用同一实现**，不要就地拼：
-   * - 开累结算 `chainSettledTotal` 的分子口径 = 结算单 `actualAmount`、排除草稿（这里批量取后在内存按链聚合）；
+   * - 开累结算 `chainSettledTotal` 的分子口径 = 结算单 `actualAmount`、排除草稿（SQL 按合同聚合后再按链累加）；
    * - 开累付款排除失败/退款（`paidPaymentWhere()`，空状态算有效付款）—— 与防超付闸门、合同台账同一份口径；
    * - 生效比例取 `ContractExt.currentPayRatio`（**派生列**，见 `contract.service.syncPayRatio`）。
    *
    * 只做**展示**：不拦截任何单据，也不改 `payment.over_amount_policy` 的策略。
    */
   private async paymentRatioAlerts(projectId: string) {
-    const [contracts, settlements, payments] = await Promise.all([
+    const [contracts, settledByContract, paidGroups] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId },
         select: { id: true, parentContractId: true, code: true, name: true },
       }),
-      this.prisma.settlement.findMany({
-        where: { projectId, ...notDraft },
-        select: { contractId: true, actualAmount: true, amount: true },
-      }),
-      this.prisma.paymentRecord.findMany({
+      // 开累结算/开累付款按合同聚合走 SQL（P1-4）：口径见下方注释，不再取明细行
+      sumSettlementAmount(this.prisma, 'contractId', { projectId, ...notDraft }),
+      this.prisma.paymentRecord.groupBy({
+        by: ['contractId'],
         where: { projectId, ...paidPaymentWhere() },
-        select: { contractId: true, amount: true },
+        _sum: { amount: true },
       }),
     ]);
     // 付款比例派生列只取本项目合同：原先无 where 全表读，合同数越多本接口越慢，
@@ -520,17 +542,11 @@ export class DashboardService {
         })
       : [];
 
-    const sumByContract = (rows: any[], pick: (r: any) => number) => {
-      const map = new Map<string, number>();
-      for (const r of rows) {
-        const key = String(r.contractId ?? '');
-        if (!key) continue;
-        map.set(key, (map.get(key) ?? 0) + pick(r));
-      }
-      return map;
-    };
-    const settledByContract = sumByContract(settlements, (s) => Number(s.actualAmount ?? s.amount) || 0);
-    const paidByContract = sumByContract(payments, (p) => Number(p.amount) || 0);
+    const paidByContract = new Map<string, number>(
+      paidGroups
+        .filter((g: any) => g.contractId)
+        .map((g: any) => [String(g.contractId), num(g._sum?.amount) ?? 0]),
+    );
     const ratioByContract = new Map(exts.map((e: any) => [e.contractId, e.currentPayRatio]));
 
     const alerts: {

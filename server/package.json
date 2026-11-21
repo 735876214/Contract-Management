@@ -21,7 +21,7 @@
     "test:quote": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiQuoteBidder.spec.mts test/aiQuotePrompt.spec.mts",
     "test:fulfillment": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiFulfillmentRules.spec.mts test/aiFulfillmentPrompt.spec.mts",
     "test:scm": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiScmFacts.spec.mts",
-    "lint": "eslint \"src/**/*.ts\" --max-warnings 47"
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 44"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
