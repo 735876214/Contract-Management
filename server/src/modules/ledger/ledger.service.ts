@@ -52,7 +52,8 @@ export class LedgerService {
      */
     const complianceFilter = query.compliance ? String(query.compliance) : '';
 
-    let [contracts, total] = await Promise.all([
+    // contracts 不再重算；total 在「合规性内存过滤」分支里会被改成过滤后的条数，故单独用 let
+    const [contracts, initialTotal] = await Promise.all([
       this.prisma.contract.findMany({
         where, ...(complianceFilter ? {} : { skip, take }), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { supplier: true, ext: true },
@@ -260,6 +261,7 @@ export class LedgerService {
       };
     });
 
+    let total = initialTotal;
     if (complianceFilter) {
       rows = rows.filter((r: any) => r.compliance === complianceFilter);
       // 过滤后 total 必须是过滤后的条数，否则前端分页器按"未过滤总数"渲染出空页

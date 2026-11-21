@@ -37,6 +37,9 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
+- **ESLint warning 存量清理（2026-11-21）**：`server` 47 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
+  与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
+  `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。
 - **列表查询上限收口（P1-4，2026-11-21）**：`scripts/query-limit.allow.txt` 里还剩 **56 条**「项目级无上限
   findMany」（无 `take`、也无父实体 id 过滤）。门禁已上线（CI + `npm test` 双处守门）。
   收口方式二选一：加 `take`/分页（列表接口本来就该分页）；确实必须全量的，在调用处写

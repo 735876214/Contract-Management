@@ -46,7 +46,6 @@ export default function MaterialPickerModal({
       setCreateOpen(false);
       load();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const excludeSet = useMemo(() => new Set(excludeIds), [excludeIds]);

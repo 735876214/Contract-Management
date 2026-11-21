@@ -43,7 +43,7 @@ import { contractStageTaskStatus, stageChain } from '../../constants/procurement
 import { TemplateService } from '../template';
 // html-to-docx 没有类型声明（也没装 @types）：用 require 引入并当 any 用。
 // 走 ambient `declare module` 在 ts-node 下不生效（它不加载 include 里的 .d.ts），会报 TS7016。
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const HTMLtoDOCX: any = require('html-to-docx');
 import { patchDocx } from '../../common/utils/docx-patch';
 import { projectScopedSub } from '../../common/utils/storage-keys';

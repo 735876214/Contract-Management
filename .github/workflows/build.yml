@@ -124,6 +124,10 @@ jobs:
             --shadow-database-url "$SHADOW_DATABASE_URL" \
             --exit-code
 
+      - name: Backend lint（eslint，挡新缺陷）
+        working-directory: server
+        run: npm run lint
+
       - name: Backend unit tests（无 DB 依赖）
         working-directory: server
         run: npm test
@@ -154,6 +158,10 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Frontend lint（eslint，挡新缺陷）
+        working-directory: web
+        run: npm run lint
 
       - name: Frontend build（tsc --noEmit && vite build）
         working-directory: web

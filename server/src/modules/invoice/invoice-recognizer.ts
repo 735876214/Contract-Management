@@ -1,6 +1,6 @@
 import jsQR from 'jsqr';
 // pngjs 无类型声明：require 引入（理由同 contract.service.ts 的 html-to-docx）
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const { PNG }: any = require('pngjs');
 import * as jpeg from 'jpeg-js';
 
