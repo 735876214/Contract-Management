@@ -1,9 +1,9 @@
 import { checkFileUrl } from '../../common/utils/safe-url';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { resolveOrCreateSubcontractor } from '../subcontractor';
 
@@ -98,9 +98,7 @@ export class LaborService {
   /** 归属复核：按 id 直读时必须确认记录属于请求头项目（防止跨项目读/改） */
   async findOne(id: string, projectId?: string) {
     const row = await this.prisma.laborAuthLedger.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('分包授权台账记录不存在');
-    if (projectId && row.projectId !== projectId) throw new NotFoundException('分包授权台账记录不存在');
-    return row;
+    return assertInProject(row, projectId, '分包授权台账记录不存在');
   }
 
   // ==================== 写入 ====================

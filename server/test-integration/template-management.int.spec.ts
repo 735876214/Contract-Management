@@ -1,3 +1,4 @@
+// @domains: template, doc-template
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';

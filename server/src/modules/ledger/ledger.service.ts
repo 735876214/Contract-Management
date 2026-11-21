@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { fmtDate } from '../../common/calc/time';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { deriveLedgerAmounts, sumInvoiceTax, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
 import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
@@ -298,16 +299,8 @@ export class LedgerService {
    * `paginate` 会把 take 夹到单页上限（500），合同数超过上限时统计卡片与导出文件都静默少算/少行。
    * 这里按页拉到底（页数上限 1000 是保险丝，正常不会触到）。
    */
-  private async allRows(projectId: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res: any = await this.findAll({ page, pageSize }, projectId, pageSize);
-      const batch = (res.list || []) as any[];
-      out.push(...batch);
-      if (!batch.length || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allRows(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findAll({ page, pageSize }, projectId, pageSize));
   }
 
   async summary(projectId: string) {

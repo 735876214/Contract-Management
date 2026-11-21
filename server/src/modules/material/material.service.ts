@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -252,15 +253,8 @@ export class MaterialService {
   }
 
   /** 导出用：按页取全量（单页上限会被 `paginate` 夹断，超出的行会静默丢失） */
-  private async allBases(): Promise<any[]> {
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res: any = await this.findBases({ page, pageSize: 500 }, 500);
-      const list = (res.list ?? []) as any[];
-      out.push(...list);
-      if (!list.length || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allBases(): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findBases({ page, pageSize }, pageSize));
   }
 
   async exportBases() {

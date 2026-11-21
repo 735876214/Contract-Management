@@ -1,3 +1,4 @@
+// @domains: ledger, settlement, payment, invoice
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, makeSupplier, type IntContext } from './helpers';

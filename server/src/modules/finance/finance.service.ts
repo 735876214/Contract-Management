@@ -4,7 +4,7 @@ import * as ExcelJS from 'exceljs';
 import { num } from '../../common/calc/numeric';
 import { canonicalMonthKey } from '../../common/calc/aggregate';
 import { compareMonthKey } from '../../common/calc/time';
-import { assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -224,9 +224,7 @@ export class FinanceService {
       where: { id: contractId },
       include: { supplier: { select: { name: true } }, project: { select: { name: true, codeAbbr: true } } },
     });
-    if (!contract) throw new NotFoundException('合同不存在');
-    if (projectId && contract.projectId !== projectId) throw new NotFoundException('合同不存在');
-    return contract;
+    return assertInProject(contract, projectId, '合同不存在');
   }
 
   /**

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { round2 } from '../../common/calc/money';
 import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
@@ -142,21 +142,12 @@ export class LaborReceivingService {
     throw new BadRequestException('单据编号生成失败，请稍后重试');
   }
 
-  /**
-   * 归属复核（防御纵深）：按 id 直读/改写时必须确认单据属于请求头项目，
-   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据。
-   */
-  private assertDocInProject<T extends { projectId: string }>(doc: T | null, projectId?: string): T {
-    if (!doc) throw new NotFoundException('领用单据不存在');
-    if (projectId && doc.projectId !== projectId) throw new NotFoundException('领用单据不存在');
-    return doc;
-  }
-
   /** 单据详情：头 + 明细（含收领单自动聚合列与派生列） */
   async docDetail(id: string, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
       projectId,
+      '领用单据不存在',
     );
     const rows = await this.mergeDocRows(doc);
     return { ...this.serializeDoc(doc), details: rows };
@@ -164,9 +155,10 @@ export class LaborReceivingService {
 
   /** 更新单据：头字段 + 明细批量 upsert（乐观锁在头记录上） */
   async updateDoc(id: string, data: any, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({ where: { id } }),
       projectId,
+      '领用单据不存在',
     );
     assertVersion(doc, data);
     const payload: any = pickFields(data, ['contractName', 'status', 'remark'], { label: '领用单据' });
@@ -195,7 +187,7 @@ export class LaborReceivingService {
   }
 
   async removeDoc(id: string, projectId?: string) {
-    this.assertDocInProject(await this.prisma.laborReceivingDoc.findUnique({ where: { id } }), projectId);
+    assertInProject(await this.prisma.laborReceivingDoc.findUnique({ where: { id } }), projectId, '领用单据不存在');
     await this.prisma.laborReceivingDoc.delete({ where: { id } });
     return true;
   }
@@ -366,23 +358,25 @@ export class LaborReceivingService {
 
   /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
   async exportMeta(docId: string, projectId?: string) {
-    const doc = this.assertDocInProject(
+    const doc = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({
         where: { id: docId },
         select: { projectId: true, subcontractorName: true, period: true },
       }),
       projectId,
+      '领用单据不存在',
     );
     return { fileName: `${doc.subcontractorName || '分包单位'}-${doc.period || ''}-盘点领用表.xlsx` };
   }
 
   async exportWorkbook(docId: string, projectId?: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
-    const doc: any = this.assertDocInProject(
+    const doc: any = assertInProject(
       await this.prisma.laborReceivingDoc.findUnique({
         where: { id: docId },
       }),
       projectId,
+      '领用单据不存在',
     );
     const rows: any[] = await this.mergeDocRows(doc);
     const project = await this.prisma.project.findUnique({ where: { id: doc.projectId } });
