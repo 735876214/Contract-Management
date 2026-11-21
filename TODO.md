@@ -45,6 +45,13 @@
   收口方式二选一：加 `take`/分页（列表接口本来就该分页）；确实必须全量的，在调用处写
   `// @no-limit: <理由>` 并从豁免表删除该行，同时下调脚本里的 `MAX_ALLOW`。
 
+- **大服务拆分（P1-3，2026-11-21 起）**：`contract.service.ts`（1821 行）已拆出 `ContractDraftService`
+  （物料池 + 草稿清单 + 税率同步；起草域零回依赖，主服务保留同名转发）。**仍待拆**：
+  `procurement-task.service.ts`（2480 行，建议按 核心CRUD / 公文与成交报告 / 投标与价格对比 分簇）、
+  `settlement.service.ts`（2085 行，结算单 vs 台账两簇；注意 `create/update` 与 `syncLedgerByContract`
+  存在跨簇事务调用，`generateForPeriod` 应留在结算单侧以打断循环依赖）。拆分法：同模块内多 provider，
+  主服务保留同名转发，控制器/外部调用点不变；每拆一簇必跑 `test:int`（涉及金额/状态）。
+
 ## 四域扩展（已收口，不再立项）
 
 > 全部已实施完毕，**已完成事项不留在本文件**（见文首规则）。单据关系、复用边界与已定口径

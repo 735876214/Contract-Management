@@ -17,9 +17,9 @@ server/src/modules/ai/field-resolver.service.ts::dict
 server/src/modules/asset/asset.service.ts::findAll
 server/src/modules/auth/auth.service.ts::getPermissions
 server/src/modules/auth/auth.service.ts::getProjects
-server/src/modules/contract/contract.service.ts::poolList
-server/src/modules/contract/contract.service.ts::syncDraftTaxFromContract
-server/src/modules/contract/contract.service.ts::draftList
+server/src/modules/contract/contract-draft.service.ts::poolList
+server/src/modules/contract/contract-draft.service.ts::syncDraftTaxFromContract
+server/src/modules/contract/contract-draft.service.ts::draftList
 server/src/modules/contract/contract.service.ts::publish
 server/src/modules/contract/contract.service.ts::recalcSupplementDelta
 server/src/modules/contract/milestone.service.ts::list
