@@ -44,13 +44,11 @@
   `ai/anomaly.collect`、`ai/analytics.dataset-collector` 目前是「整项目全量行取回内存再求和」
   （已用 `// @no-limit:` 显式留痕）。量级上去后应改成 `aggregate`/`groupBy`，或物化视图。
 
-- **大服务拆分（P1-3，2026-11-21 起）**：`contract.service.ts`（1821 行）已拆出 `ContractDraftService`
-  （物料池 + 草稿清单 + 税率同步；起草域零回依赖，主服务保留同名转发）。**仍待拆**：
-  `procurement-task.service.ts`（2480 行，建议按 核心CRUD / 公文与成交报告 / 投标与价格对比 分簇）、
-  `settlement.service.ts`（2085 行，结算单 vs 台账两簇；注意 `create/update` 与 `syncLedgerByContract`
-  存在跨簇事务调用，`generateForPeriod` 应留在结算单侧以打断循环依赖）。拆分法：同模块内多 provider，
-  主服务保留同名转发，控制器/外部调用点不变；每拆一簇必跑 `test:int`（涉及金额/状态）。
-
+- **大服务拆分（P1-3，2026-11-21 起）**：`contract.service.ts`（1821→1559 行）已拆出 `ContractDraftService`
+  （起草域：物料池 + 草稿清单 + 税率同步）；`settlement.service.ts`（2085→1243 行）已拆出 `SettlementLedgerService`
+  （台账域：自动字段/刷新/CRUD/合规表/导出导入；期锁与同月唯一留在结算单侧，`generateForPeriod` 留在结算单侧打断环）。
+  **仍待拆**：`procurement-task.service.ts`（2480 行，建议按 核心CRUD / 公文与成交报告 / 投标与价格对比 分簇）。
+  拆分法：同模块内多 provider，主服务保留同名转发，控制器/外部调用点不变；每拆一簇必跑 `test:int`（涉及金额/状态）。
 ## 四域扩展（已收口，不再立项）
 
 > 全部已实施完毕，**已完成事项不留在本文件**（见文首规则）。单据关系、复用边界与已定口径
