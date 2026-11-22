@@ -1,52 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Space,
-  Spin,
-  Table,
-  Upload,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, Input, InputNumber, Modal, Row, Space, Spin, Table, Upload, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
-import {
-  DeleteOutlined,
-  EyeOutlined,
-  FileWordOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, FileWordOutlined, ImportOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
-import {
-  getProcurementVariableGroups,
-} from '@/constants/procurementVariables';
+import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -55,18 +23,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/pre-meeting';
-import {
-  buildPreMeetingDocHtml,
-  buildPreMeetingVariableValues,
-  costRowsFromTotalList,
-  deriveCostRow,
-  fmtRate,
-  fmtWan,
-  summarizeCost,
-  type CostAnalysisRow,
-  type PreMeetingData,
-  type PurchaseItemRow,
-} from '@/utils/preMeetingMinutes';
+import { buildPreMeetingDocHtml, buildPreMeetingVariableValues, costRowsFromTotalList, deriveCostRow, fmtRate, fmtWan, summarizeCost, type CostAnalysisRow, type PreMeetingData, type PurchaseItemRow } from '@/utils/preMeetingMinutes';
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'PRE_MEETING';

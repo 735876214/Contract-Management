@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react';
-import {
-  Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Select,
-  Checkbox,
-} from 'antd';
+import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Select, Checkbox } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import {
-  PlusOutlined, SearchOutlined, HistoryOutlined, ReloadOutlined, EditOutlined, DeleteOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, HistoryOutlined, ReloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';
 import DictSelect, { DictTag } from '@/components/DictSelect';
@@ -30,7 +25,7 @@ interface ContractTemplateRow {
 }
 
 export default function Templates() {
-  const { loading, list, params, search, reload, pagination } = useTable<ContractTemplateRow>(
+  const { loading, list, search, reload, pagination } = useTable<ContractTemplateRow>(
     // includeHistory 由 useTable 的 params 合并进 p（不要直接引用 `params`，那会变成自引用 → 隐式 any）
     (p: any) => templateApi.list({ ...p, includeHistory: p.includeHistory }),
   );

@@ -24,15 +24,7 @@ import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
 import { formatYuan as fmtYuan, formatPct as fmtPct } from '../common/format.ts';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots.ts';
 import { scanNumbers, stripNonData } from '../report-facts.ts';
-import {
-  DEFAULT_SCM_TOLERANCES,
-  type ScmFacts,
-  type ScmProjectFacts,
-  type ScmRows,
-  type ScmSupplierFacts,
-  type ScmTolerances,
-  type ScmTotals,
-} from './scm-types.ts';
+import { DEFAULT_SCM_TOLERANCES, type ScmFacts, type ScmProjectFacts, type ScmRows, type ScmSupplierFacts, type ScmTolerances, type ScmTotals } from './scm-types.ts';
 
 /** 结算单是否计入：`DRAFT` 不算（与 6-9 同口径） */
 const isCountedSettlement = (row: { statusCode?: string | null }): boolean =>
@@ -51,9 +43,6 @@ const isSignedContract = (row: { status?: string | null }): boolean => {
   return s === CONTRACT_STATUS.SIGNED || s === LEGACY_CONTRACT_STATUS_COMPLETED;
 };
 
-/** 本地日历日差（回合到整日，绕过夏令时） */
-const dayDiff = (from: Date, to: Date): number =>
-  Math.round((to.getTime() - from.getTime()) / 86_400_000);
 
 const toDay = (v: unknown): Date | null => {
   if (!v) return null;

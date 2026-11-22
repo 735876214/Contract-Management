@@ -230,7 +230,6 @@ export class StyledExcelService {
         if (ci < 0) return;
         const L = colLetter(ki + 1);
         const end = opts.dropdowns![k].length + 1;
-        const target = `${colLetter(ci + 1)}${dataStart}:${colLetter(ci + 1)}${Math.max(dataEnd, dataStart)}`;
         for (let r = dataStart; r <= Math.max(dataEnd, dataStart); r++) {
           ws.getCell(r, ci + 1).dataValidation = {
             type: 'list',

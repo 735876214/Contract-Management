@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import * as path from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import * as path from 'path';
+
 import { checkFileUrl } from '../../common/utils/safe-url';
 import { num } from '../../common/calc/numeric';
 import { fmtDate, startOfDay, endOfDay } from '../../common/calc/time';
@@ -25,20 +26,8 @@ import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
-import {
-  paymentModeViolation,
-  resolveEffectivePayRatio,
-} from '../../common/utils/pay-ratio';
-import {
-  CONTRACT_EXECUTION_STATUS,
-  CONTRACT_STATUS,
-  FINAL_SETTLEMENT_STATUS,
-  INVOICE_STATUS,
-  LEGACY_CONTRACT_STATUS_COMPLETED,
-  paidPaymentWhere,
-  SETTLEMENT_STATUS,
-  SITE_CONFIRM_STATUS,
-} from '../../constants/statuses';
+import { paymentModeViolation, resolveEffectivePayRatio } from '../../common/utils/pay-ratio';
+import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, FINAL_SETTLEMENT_STATUS, INVOICE_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, paidPaymentWhere, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template';
 import { ContractDraftService } from './contract-draft.service';
@@ -86,11 +75,6 @@ const CONTRACT_STATUSES: readonly string[] = [
   CONTRACT_STATUS.SIGNED,
 ];
 const PUBLISHED_STATUSES: readonly string[] = [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED];
-const EXT_FIELDS = [
-  'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
-  'settlementPayRatio',
-  'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
-];
 
 const FIELD_LABELS: Record<string, string> = {
   code: '合同编号',
@@ -1541,7 +1525,7 @@ export class ContractService {
   }
 
   /** 合同台账填写模板（需求 3.3，实际字段口径） */
-  async template(projectId: string) {
+  async template(_projectId: string) {
     const types = await this.dict.options('contract_type');
     const columns: TemplateColumn[] = [
       { label: '合同编号', key: 'code', required: true, width: 20, example: 'HT-2026-0001', desc: '项目内唯一，按编号规则填写' },

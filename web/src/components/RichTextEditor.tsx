@@ -1,31 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  BoldOutlined,
-  ItalicOutlined,
-  UnderlineOutlined,
-  StrikethroughOutlined,
-  AlignLeftOutlined,
-  AlignCenterOutlined,
-  AlignRightOutlined,
-  UnorderedListOutlined,
-  OrderedListOutlined,
-  UndoOutlined,
-  RedoOutlined,
-  ClearOutlined,
-  FontSizeOutlined,
-  BranchesOutlined,
-  TableOutlined,
-  FontColorsOutlined,
-  BgColorsOutlined,
-  VerticalAlignMiddleOutlined,
-  LineOutlined,
-  FullscreenOutlined,
-  FullscreenExitOutlined,
-  SearchOutlined,
-  PictureOutlined,
-  MoreOutlined,
-} from '@ant-design/icons';
+import { BoldOutlined, ItalicOutlined, UnderlineOutlined, StrikethroughOutlined, AlignLeftOutlined, AlignCenterOutlined, AlignRightOutlined, UnorderedListOutlined, OrderedListOutlined, UndoOutlined, RedoOutlined, ClearOutlined, FontSizeOutlined, BranchesOutlined, TableOutlined, FontColorsOutlined, BgColorsOutlined, VerticalAlignMiddleOutlined, LineOutlined, FullscreenOutlined, FullscreenExitOutlined, SearchOutlined, PictureOutlined, MoreOutlined } from '@ant-design/icons';
 import { Button, Select, Space, Tooltip, Modal, Input, Tag, Divider, Collapse, Popover } from 'antd';
 import type { VarGroup } from '@/pages/Clauses';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
@@ -139,15 +114,6 @@ export default function RichTextEditor({
     return [];
   }, [variableGroups, variables]);
 
-  const flatVars = useMemo(
-    () => groups.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label }))),
-    [groups],
-  );
-  const filteredVars = useMemo(() => {
-    const kw = varSearch.trim();
-    if (!kw) return flatVars;
-    return flatVars.filter((v) => v.key.includes(kw) || (v.tip && v.tip.includes(kw)));
-  }, [flatVars, varSearch]);
 
   /**
    * 外部 value 变化（如切换编辑记录）时同步到编辑区。
@@ -463,7 +429,6 @@ export default function RichTextEditor({
   const doReplaceAll = () => {
     const el = ref.current;
     if (!el || !findText) return;
-    const html = el.innerHTML;
     // 仅替换可见文本节点中的匹配（避免破坏标签）
     const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(escaped, 'g');

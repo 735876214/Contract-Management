@@ -1,13 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Layout, Dropdown, Space, Badge, Button, Avatar, Spin, Tooltip, Typography } from 'antd';
-import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  BellOutlined,
-  UserOutlined,
-  LogoutOutlined,
-} from '@ant-design/icons';
-import { Outlet, useLocation, useNavigate, useOutlet } from 'react-router-dom';
+import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons';
+import { useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth';
 import ProjectSwitch from '@/components/ProjectSwitch';
 import AppSider, { BreadcrumbNav } from '@/components/Sider';

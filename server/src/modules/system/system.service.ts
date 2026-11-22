@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -24,7 +25,7 @@ const ROLE_WRITABLE_FIELDS = ['code', 'name', 'remark', 'status'];
 /** 出参统一剥掉 bcrypt 哈希：新增/修改/重置密码都不许把 `password` 回给前端 */
 function stripPassword<T extends Record<string, any> | null | undefined>(row: T): T {
   if (!row) return row;
-  const { password, ...rest } = row as any;
+  const { password: _password, ...rest } = row as any;
   return rest as T;
 }
 
@@ -46,7 +47,7 @@ export class SystemService {
       }),
       this.prisma.user.count({ where }),
     ]);
-    return buildResult(list.map(({ password, ...u }: any) => u), total, query);
+    return buildResult(list.map(({ _password, ...u }: any) => u), total, query);
   }
 
   async createUser(data: any) {

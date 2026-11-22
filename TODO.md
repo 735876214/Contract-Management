@@ -46,9 +46,9 @@
   `formatMoney` 与列定义捆成一个 helper，属视觉规范议题（见 DESIGN.md）。
 
 
-- **ESLint warning 存量清理（2026-11-21）**：`server` 44 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
-  与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
-  `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。
+- **`react-hooks/exhaustive-deps` 的 20 条**（web）：未用变量/导入已于 2026-11-22 清空
+  （server 0 / web 20，`--max-warnings` 已同步下调）。剩下这 20 条**必须人工判断**依赖数组：
+  补全会改变 effect 触发时机，删依赖数组会漏更新——清一条就把 `web/package.json` 的预算同步减一。
 - **剩余「全量行」取数的收口（P1-4 第二阶段，2026-11-21）**：工作台总览/趋势、合同台账按合同分组、
   AI 数据集的 5 个分区块**已经改走 SQL `aggregate`/`groupBy`**（44 处 `@no-limit` → 32 处）。
   仍取明细行的是**行级规则/明细喂数**两类，它们不是聚合、换 `groupBy` 会静默失效：

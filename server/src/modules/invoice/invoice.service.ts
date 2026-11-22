@@ -2,18 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { IMPORT_MAX_ROWS, assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
-import {
-  DICT_TYPES,
-  INVOICE_REVIEW_STATUS,
-  INVOICE_STATUS,
-  countedInvoiceWhere,
-  isInvoiceTerminalStatus,
-} from '../../constants/statuses';
+import { DICT_TYPES, INVOICE_REVIEW_STATUS, INVOICE_STATUS, countedInvoiceWhere, isInvoiceTerminalStatus } from '../../constants/statuses';
 import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -516,7 +510,7 @@ export class InvoiceService {
   }
 
   /** 批量写入发票台账（识别结果由用户匹配合同、补全税率后提交） */
-  async batchCreate(items: any[], projectId: string, user: any) {
+  async batchCreate(items: any[], projectId: string, _user: any) {
     let created = 0;
     const errors: string[] = [];
     for (const [i, it] of items.entries()) {
@@ -739,7 +733,7 @@ export class InvoiceService {
   }
 
   /** 发票台账填写模板（需求 3.3，实际字段口径） */
-  async template(projectId: string) {
+  async template(_projectId: string) {
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),

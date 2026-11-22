@@ -140,7 +140,7 @@ export class OtherProjectService {
       { module: 'other-project', moduleName: '其他项目库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username },
       rows,
       {
-        plan: async (r, { rowNo }) => {
+        plan: async (r, { rowNo: _rowNo }) => {
           const name = String(r['项目名称'] ?? '').trim();
           if (!name) throw new RowError('项目名称为必填项', '项目名称');
           notDup(name, `项目名称「${name}」在本次导入中重复`, '项目名称');

@@ -1,14 +1,4 @@
-import {
-  centsToYuan,
-  moneyToCents,
-  type AnomalyCode,
-  type PaymentAnomalyInput,
-  type ContractRow,
-  type Finding,
-  type ProcedureRow,
-  type SettlementRow,
-  type PaymentRow,
-} from './anomaly-types.ts';
+import { centsToYuan, moneyToCents, type AnomalyCode, type PaymentAnomalyInput, type ContractRow, type Finding, type SettlementRow, type PaymentRow } from './anomaly-types.ts';
 
 /**
  * 异常预警的**合成评测夹具 + 评分器**（课题 6-9 的 M3 评测）。

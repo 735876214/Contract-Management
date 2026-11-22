@@ -3,47 +3,19 @@ import { sanitizeHtml } from '@/utils/sanitizeHtml';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Space,
-  Spin,
-  Table,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, InputNumber, Modal, Row, Space, Spin, Table, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import {
-  EyeOutlined,
-  FileWordOutlined,
-  SaveOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
-import {
-  getProcurementVariableGroups,
-} from '@/constants/procurementVariables';
+import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { buildProcurementDoc, exportProcurementWord } from '@/utils/procurementExport';
 import { highlightPlaceholders } from '@/utils/docExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
@@ -53,15 +25,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/document';
-import {
-  buildDocumentDocHtml,
-  buildDocumentVariableValues,
-  fmtAmount,
-  stripHtml,
-  sumAmount,
-  type DocumentData,
-  type DocumentPurchaseItem,
-} from '@/utils/procurementDocument';
+import { buildDocumentDocHtml, buildDocumentVariableValues, fmtAmount, stripHtml, sumAmount, type DocumentData, type DocumentPurchaseItem } from '@/utils/procurementDocument';
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'DOCUMENT';

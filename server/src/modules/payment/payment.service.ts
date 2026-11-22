@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
@@ -153,7 +153,7 @@ export class PaymentService {
   }
 
   async removeRecord(id: string, projectId?: string) {
-    const before = assertInProject(
+    assertInProject(
       await this.prisma.paymentRecord.findUnique({ where: { id } }),
       projectId,
       '付款记录不存在',
@@ -191,7 +191,7 @@ export class PaymentService {
 
   // ---------------- 付款台账模板与导入 ----------------
   /** 付款台账填写模板（需求 3.3，实际字段口径） */
-  async templateRecords(projectId: string) {
+  async templateRecords(_projectId: string) {
     const [methods, status] = await Promise.all([
       this.dict.options('payment_method'), this.dict.options('payment_status'),
     ]);

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
-import {
-  Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm,
-  InputNumber, Select, Tooltip, Upload, Descriptions,
-} from 'antd';
+import { Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm, InputNumber, Select, Tooltip, Descriptions } from 'antd';
 import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';

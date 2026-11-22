@@ -1,31 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatMoney, formatNumber } from '@/utils/money';
-import {
-  Alert,
-  Button,
-  Card,
-  DatePicker,
-  Descriptions,
-  Form,
-  Input,
-  Modal,
-  Progress,
-  Select,
-  Space,
-  Tag,
-  Timeline,
-  Upload,
-  message,
-} from 'antd';
-import {
-  ExportOutlined,
-  FileProtectOutlined,
-  FileWordOutlined,
-  UploadOutlined,
-  PlusSquareOutlined,
-  RollbackOutlined,
-} from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Progress, Space, Tag, Timeline, Upload, message } from 'antd';
+import { ExportOutlined, FileProtectOutlined, FileWordOutlined, UploadOutlined, PlusSquareOutlined, RollbackOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
 import { usePermission } from '@/hooks/usePermission';
 import { DictTag } from '@/components/DictSelect';
@@ -56,7 +33,7 @@ const MAX_SIZE = 20 * 1024 * 1024;
  * - 需求 2.3：签章时选择的签订日期覆盖合同主表签订日期
  */
 export default function ContractQuery() {
-  const [rows, setRows] = useState<any[]>([]);
+  const [, setRows] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = useCallback(() => setListRefresh((k) => k + 1), []);
@@ -660,7 +637,6 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
     </div>
   );
 }
-
 
 /** 履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际时间线；逾期派生标红 */
 function MilestoneCard({ contractId, archived }: { contractId: string; archived: boolean }) {

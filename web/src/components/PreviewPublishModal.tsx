@@ -16,13 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Modal, Popconfirm, Spin, message } from 'antd';
 import { DownloadOutlined, SendOutlined } from '@ant-design/icons';
 import { highlightPlaceholders } from '@/utils/docExport';
-import {
-  buildProcurementDoc,
-  exportProcurementWord,
-  procurementExportFilename,
-  type ProcurementExportInput,
-} from '@/utils/procurementExport';
-import { procurementModuleLabel } from '@/constants/procurementVariables';
+import { buildProcurementDoc, exportProcurementWord, procurementExportFilename } from '@/utils/procurementExport';
 
 export interface PreviewPublishModalProps {
   open: boolean;

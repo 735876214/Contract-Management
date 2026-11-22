@@ -22,37 +22,9 @@
  */
 
 import { monthKey } from '../../../common/utils/settlement-period.ts';
-import {
-  CONTRACT_STATUS,
-  LEGACY_CONTRACT_STATUS_COMPLETED,
-  PAYMENT_EXCLUDED_STATUSES,
-  SETTLEMENT_STATUS,
-} from '../../../constants/statuses.ts';
+import { CONTRACT_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, PAYMENT_EXCLUDED_STATUSES, SETTLEMENT_STATUS } from '../../../constants/statuses.ts';
 import { isCountedInvoice } from '../common/invoice-facts.ts';
-import {
-  ANOMALY_CODES,
-  ANOMALY_LEVEL,
-  centsToYuan,
-  moneyToCents,
-  qtyToUnits,
-  ratioToBp,
-  resolveTolerances,
-  unitsToQty,
-  type AnomalyEvaluation,
-  type AnomalyLevel,
-  type AnomalySummary,
-  type AnomalyTolerances,
-  type Cents,
-  type ContractRow,
-  type FinalSettlementItemRow,
-  type Finding,
-  type MaterialQtyRow,
-  type PaymentAnomalyInput,
-  type PaymentRow,
-  type ProcedureRow,
-  type ReceiptRow,
-  type SettlementRow,
-} from './anomaly-types.ts';
+import { ANOMALY_CODES, ANOMALY_LEVEL, centsToYuan, moneyToCents, qtyToUnits, ratioToBp, resolveTolerances, unitsToQty, type AnomalyEvaluation, type AnomalyLevel, type AnomalySummary, type AnomalyTolerances, type Cents, type ContractRow, type FinalSettlementItemRow, type Finding, type MaterialQtyRow, type PaymentAnomalyInput, type PaymentRow, type ProcedureRow, type SettlementRow } from './anomaly-types.ts';
 
 /**
  * 合同 → 链根 id（补充协议归到主合同）。
@@ -578,7 +550,7 @@ export function r2Overpay(input: PaymentAnomalyInput, ctx: RuleContext): RuleRes
  *
  * 这是资金流出端最基本的控制点，也是数据质量问题的第一现场（导入的历史付款常缺合同）。
  */
-export function r3PayWithoutContract(input: PaymentAnomalyInput, ctx: RuleContext): RuleResult {
+export function r3PayWithoutContract(input: PaymentAnomalyInput, _ctx: RuleContext): RuleResult {
   const findings: Finding[] = [];
   const contracts = new Map(input.contracts.map((c) => [c.id, c]));
 
@@ -799,7 +771,6 @@ export function r6ProcedureSnapshotDrift(input: PaymentAnomalyInput, ctx: RuleCo
   // 静默跳过要能说出来：金额全空 / 没有合同的手续单原来一句不提，面板会显示「全绿」
   let skippedNoAmount = 0;
   let skippedNoContract = 0;
-
 
   for (const procedure of procedures) {
     if (!procedure.contractId) {

@@ -1,22 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Row,
-  Select,
-  Space,
-  Tabs,
-  Typography,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Tabs, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { contractApi, materialApi, projectApi, supplierApi, templateApi } from '@/api/business';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -59,7 +42,7 @@ export default function ContractEditor({ seed }: { seed: unknown }) {
   const [codeStatus, setCodeStatus] = useState<'' | 'error' | 'success'>('');
   const [codeMsg, setCodeMsg] = useState('');
   const [codeTimer, setCodeTimer] = useState<any>(null);
-  const [currentProject, setCurrentProject] = useState<any>(null);
+  const [, setCurrentProject] = useState<any>(null);
 
   // 需求 2.3：合同条款（四种类型）选择
   const [clauseList, setClauseList] = useState<any[]>([]);

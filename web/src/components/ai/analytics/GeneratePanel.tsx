@@ -1,44 +1,13 @@
 import { useMemo, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Collapse,
-  DatePicker,
-  Descriptions,
-  Divider,
-  Empty,
-  Form,
-  Input,
-  Radio,
-  Row,
-  Segmented,
-  Select,
-  Space,
-  Switch,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Checkbox, Col, Collapse, DatePicker, Descriptions, Divider, Empty, Form, Input, Radio, Row, Segmented, Select, Space, Switch, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
-import {
-  aiApi,
-  type AiAnalyticsDatasetMeta,
-  type AiAnalyticsPlanResult,
-  type AiAnalyticsReportResult,
-  type AiCompareMode,
-  type AiPeriodPreset,
-  type AiScopeMode,
-} from '@/api/modules';
+import { type Dayjs } from 'dayjs';
+import { aiApi, type AiAnalyticsDatasetMeta, type AiAnalyticsPlanResult, type AiAnalyticsReportResult, type AiCompareMode, type AiPeriodPreset, type AiScopeMode } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
 import { MIME_DOCX, MIME_PDF, MIME_XLSX, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 import { DEFAULT_MAX_DATASETS, KIND_OPTIONS, PRESET_OPTIONS, SCOPE_LABEL } from './constants';
 
 const { Text, Paragraph } = Typography;
-
 
 export interface GeneratePanelProps {
   datasets: AiAnalyticsDatasetMeta[];

@@ -33,7 +33,6 @@ export default function TagsView() {
   const refresh = useTabsStore((s) => s.refresh);
   const dirtyKeys = useTabsStore((s) => s.dirtyKeys);
 
-  const index = useMemo(() => tabs.findIndex((t) => t.key === activeKey), [tabs, activeKey]);
   const closableCount = useMemo(() => tabs.filter((t) => t.closable).length, [tabs]);
 
   /** 关闭后落到 `activate` 指定的标签；为 null 表示当前标签没被关掉 */

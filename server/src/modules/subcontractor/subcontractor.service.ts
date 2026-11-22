@@ -186,7 +186,7 @@ export class SubcontractorService {
       { module: 'subcontractor', moduleName: '分包商库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username },
       rows,
       {
-        plan: async (r, { rowNo }) => {
+        plan: async (r, { rowNo: _rowNo }) => {
           const name = String(r['分包商名称'] ?? '').trim();
           if (!name) throw new RowError('分包商名称为必填项', '分包商名称');
           notDup(name, `分包商名称「${name}」在本次导入中重复`, '分包商名称');

@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatNumber } from '@/utils/money';
 import { formatMoney } from '@/utils/money';
-import {
-  Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm,
-  Row, Select, Space, Table, Tag, Tooltip, Upload, message,
-} from 'antd';
-import {
-  CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined,
-  SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined,
-} from '@ant-design/icons';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Upload, message } from 'antd';
+import { CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { receiptOrderApi } from '@/api/business';
 import { fileApi } from '@/api/auth';
@@ -36,14 +29,10 @@ const LIST_PATH = '/daily/receipt';
 const MOBILE_DEFAULT_KEYS = ['orderNo', 'orderDate', 'supplierName', 'receivingUnitName', 'status', 'op'];
 
 /** 数字格式化：口径统一在 utils/money（空值 '-'、千分位、小数位规则全站一致） */
-const fmtNum = (v: any, digits = 4) => formatNumber(v, digits);
 const fmtMoney = (v: any) => formatMoney(v);
 
 import { round2 } from '../../../server/src/common/calc/money.ts';
-import {
-  calcPriceWithTax as calcPriceWithTaxShared,
-  calcTotalWithTax as calcTotalShared,
-} from '../../../server/src/common/calc/amounts.ts';
+import { calcPriceWithTax as calcPriceWithTaxShared, calcTotalWithTax as calcTotalShared } from '../../../server/src/common/calc/amounts.ts';
 
 /** 综合单价 = 税前单价 × (1 + 税率/100)，统一 4 位精度 */
 const calcPriceWithTax = (priceBeforeTax?: number | null, taxRatePct?: number | null) =>

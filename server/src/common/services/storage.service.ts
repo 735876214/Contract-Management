@@ -1,15 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import * as fs from 'fs';
-import {
-  StorageKeyError,
-  absPathOf,
-  assertSafeStorageKey,
-  defaultSubDir,
-  normalizeStorageKey,
-  publicUrlOf,
-  resolveUploadRoot,
-  storageFileName,
-} from '../utils/storage-keys';
+import { StorageKeyError, absPathOf, assertSafeStorageKey, defaultSubDir, normalizeStorageKey, publicUrlOf, resolveUploadRoot, storageFileName } from '../utils/storage-keys';
 
 /**
  * 文件存储的**单一入口**（`StorageLike` 接口 + 本地磁盘实现）。
@@ -124,7 +115,8 @@ export class StorageService implements StorageLike {
     const name = (options.name ?? '').trim() || storageFileName(options.ext);
     const sub = (options.sub ?? '').trim() || defaultSubDir();
     const key = this.safeKey(`${sub}/${name}`);
-    const dir = this.resolveDir(sub);
+    // 确保子目录存在（resolveDir 会 mkdirSync；**不能当未用变量删掉**，否则首次写入直接 ENOENT）
+    this.resolveDir(sub);
     await fs.promises.writeFile(absPathOf(this.root, key), buffer);
     return { key, url: this.publicUrl(key), size: buffer?.length ?? 0 };
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Select, Radio, Tooltip } from 'antd';
+import { Card, Table, Button, Form, Input, Space, Popconfirm, message, Tag, Select, Radio } from 'antd';
 import { PlusOutlined, SearchOutlined, ExportOutlined, StopOutlined, CheckCircleOutlined, LockOutlined } from '@ant-design/icons';
 import { materialApi } from '@/api/modules';
 import { dictApi } from '@/api/dict';
@@ -30,7 +30,7 @@ export default function Materials() {
 function MaterialList() {
   const editorTab = useEditorTab(LIST_PATH);
   const tabRefresh = useTabRefresh(LIST_PATH);
-  const { loading, list, params, search, reload, pagination } = useTable<any>((p) => materialApi.list(p));
+  const { loading, list, search, reload, pagination } = useTable<any>((p) => materialApi.list(p));
   const canEdit = usePermission('material:edit');
   // 物资一二级分类（需求 2.2）：一级 material_category、二级 material_type（extField1 关联一级 code）
   const [catL1, setCatL1] = useState<any[]>([]);

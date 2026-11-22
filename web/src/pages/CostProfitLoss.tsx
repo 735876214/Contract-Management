@@ -108,7 +108,7 @@ function ProfitList() {
 /** 新建：选结算期（只列尚无记录的期），确定即创建并生成快照 */
 function CreateButton({
   creating,
-  setCreating,
+  setCreating: _setCreating,
   onCreated,
 }: {
   creating: boolean;

@@ -120,7 +120,7 @@ export class AuthService {
       include: { roles: { include: { role: true } } },
     });
     if (!user) throw new UnauthorizedException('用户不存在');
-    const { password, ...rest } = user as any;
+    const { password: _password, ...rest } = user as any;
     return {
       ...rest,
       permissions: await this.getPermissions(user.id, isSuperAdmin),

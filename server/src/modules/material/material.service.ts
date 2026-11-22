@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
@@ -783,10 +783,9 @@ export class MaterialService {
     ws.addRow(['项目名称', contract.projectName || '']);
     ws.addRow(['项目业态', await this.industryTypeName(contract.industryType)]);
     ws.addRow([]);
-    const headerRowIndex = ws.rowCount + 1;
     ws.addRow(headers).font = { bold: true };
     rows.forEach((r) => ws.addRow(r));
-    ws.columns = headers.map((h, i) => ({ header: h, width: h.length > 6 ? 16 : 12 }));
+    ws.columns = headers.map((h, _i) => ({ header: h, width: h.length > 6 ? 16 : 12 }));
     ws.getColumn(5).width = 26; // 物资名称
     ws.getColumn(13).width = 24; // 备注
     const buf = await workbook.xlsx.writeBuffer();

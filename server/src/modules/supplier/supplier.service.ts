@@ -179,7 +179,7 @@ export class SupplierService {
     const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'supplier', moduleName: '供应商库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
-      plan: async (r, { rowNo }) => {
+      plan: async (r, { rowNo: _rowNo }) => {
         const name = String(r['供应商名称'] ?? '').trim();
         if (!name) throw new RowError('供应商名称为必填项', '供应商名称');
         notDup(name, `供应商名称「${name}」在本次导入中重复`, '供应商名称');

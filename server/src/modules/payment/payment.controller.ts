@@ -5,7 +5,7 @@ import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { CurrentUser, ProjectId } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
 import { sendFile } from '../../common/http/download';
 import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';

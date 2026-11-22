@@ -96,8 +96,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（99 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（29 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
-| server | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 47，见 §7「静态门禁」） |
-| web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 74） |
+| server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
+| web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 20，全是 `exhaustive-deps`） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -414,7 +414,8 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
   `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
   SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。
 - **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：
-  **0 error**，warning 用 `--max-warnings` **冻结存量**（server 44 / web 74，只允许变少）。
+  **0 error**，warning 用 `--max-warnings` **冻结存量**（2026-11-22 清完未用变量/导入后：server **0** / web **20**，
+  剩下 20 条全是 `react-hooks/exhaustive-deps`，要逐个人工看依赖数组，别机械补全）。
   关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、
   `no-require-imports` 因 html-to-docx/pngjs 无类型声明）。清完一条 warning 记得同步下调预算。
 - **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。

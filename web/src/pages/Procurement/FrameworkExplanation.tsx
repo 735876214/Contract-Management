@@ -1,44 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tooltip,
-  Upload,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Upload, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
-import {
-  DeleteOutlined,
-  EyeOutlined,
-  FileWordOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, FileWordOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -47,13 +20,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/framework';
-import {
-  buildExplanationDocHtml,
-  buildExplanationVariableValues,
-  type CostRow,
-  type InquiryRow,
-  type PriceCompareRow,
-} from '@/utils/frameworkExplanation';
+import { buildExplanationDocHtml, buildExplanationVariableValues, type CostRow, type InquiryRow, type PriceCompareRow } from '@/utils/frameworkExplanation';
 // 询价最低价规则收敛到统一引擎（前后端单一实现，避免前端 Math.min 与服务端口径漂移）
 import { lowestPriceSuppliers } from '../../../../server/src/common/calc/procurement.ts';
 

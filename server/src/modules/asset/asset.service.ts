@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
@@ -12,10 +12,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict';
-import {
-  resolveAssetSourceFilter,
-  summarizeAssetFlow,
-} from '../../common/utils/asset-flow';
+import { resolveAssetSourceFilter, summarizeAssetFlow } from '../../common/utils/asset-flow';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 const ASSET_FIELDS = [
@@ -160,7 +157,7 @@ export class AssetService {
   }
 
   async remove(id: string, projectId?: string) {
-    const old = assertInProject(
+    assertInProject(
       await this.prisma.assetLedger.findUnique({ where: { id } }),
       projectId,
       '资产台账记录不存在',

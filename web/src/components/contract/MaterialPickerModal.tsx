@@ -50,7 +50,6 @@ export default function MaterialPickerModal({
 
   const excludeSet = useMemo(() => new Set(excludeIds), [excludeIds]);
   const selectable = useMemo(() => rows.filter((r) => !excludeSet.has(r.id)), [rows, excludeSet]);
-  const allChecked = selectable.length > 0 && selectable.every((r) => selected.includes(r.id));
 
   const toggleAll = (checked: boolean) => {
     if (checked) setSelected(Array.from(new Set([...selected, ...selectable.map((r) => r.id)])));

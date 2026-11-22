@@ -4,12 +4,7 @@ import { num } from '../../common/calc/numeric';
 import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { round2 } from '../../common/calc/money';
-import {
-  canonicalMonthKey,
-  compareMonthKey,
-  settlementAmountOf,
-  sumAmounts,
-} from '../../common/calc/index.ts';
+import { canonicalMonthKey, compareMonthKey, settlementAmountOf, sumAmounts } from '../../common/calc/index.ts';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -841,7 +836,7 @@ export class SettlementLedgerService {
   }
 
   /** 结算台账填写模板（需求 3.3，实际字段口径） */
-  async templateLedger(projectId: string) {
+  async templateLedger(_projectId: string) {
     const yesNo = await this.dict.options('yes_no');
     const columns: TemplateColumn[] = [
       { label: '合同编号', key: 'contractCode', required: true, width: 20, example: 'HT-2026-0001', desc: '须为合同台账中已存在的合同编号' },

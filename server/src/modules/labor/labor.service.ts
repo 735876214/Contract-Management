@@ -4,7 +4,7 @@ import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
-import { pickFields } from '../../common/pick-fields';
+
 import { resolveOrCreateSubcontractor } from '../subcontractor';
 import { keywordWhere } from '../../common/utils/list-where';
 
