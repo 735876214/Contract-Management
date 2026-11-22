@@ -100,6 +100,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
+| server | `npm run stats:anomaly-input -- --all` | **只读**量化 6-9 预警的取数成本（逐项目：各表行数 / 载荷 / 查询与规则耗时 / 内存 / 命中数），结论见 [ai-anomaly-input-cost.md](ai-anomaly-input-cost.md) |
+| server | `npm run seed:scale-fixture -- <N>` | 造 N 份合同的压测夹具（**只允许测试库**，库名须含 test/int） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
 | server | `npm run prisma:generate` | 生成 Prisma Client |
 | server | `npm run prisma:migrate` | `prisma migrate dev`（生成新迁移） |
