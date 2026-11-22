@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AutoComplete, Tooltip, message } from 'antd';
+import { AutoComplete, Tooltip } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { dictApi } from '@/api/dict';
 
 /**

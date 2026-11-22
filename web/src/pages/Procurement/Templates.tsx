@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, message, Tag } from 'antd';
+import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import {
   PlusOutlined,

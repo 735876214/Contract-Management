@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Upload, message } from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { UploadFile } from 'antd';
 import { DownloadOutlined, EyeOutlined, FilePdfOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';

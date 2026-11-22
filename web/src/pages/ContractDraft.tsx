@@ -2,25 +2,8 @@ import { sanitizeHtml } from '@/utils/sanitizeHtml';
 import { formatMoney } from '@/utils/money';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Tabs,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Tabs, Tag, Tooltip } from 'antd';
+import { message } from '@/utils/antdStatic';
 import {
   CheckOutlined,
   EyeOutlined,

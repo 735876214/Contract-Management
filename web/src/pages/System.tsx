@@ -1,21 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatDateTime } from '@/utils/money';
-import {
-  Card,
-  Table,
-  Button,
-  Form,
-  Input,
-  Select,
-  Tree,
-  Space,
-  Modal,
-  Popconfirm,
-  Tag,
-  Row,
-  Col,
-  message,
-} from 'antd';
+import { Card, Table, Button, Form, Input, Select, Tree, Space, Modal, Popconfirm, Tag, Row, Col } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';

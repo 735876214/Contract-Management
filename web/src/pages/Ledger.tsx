@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic, message } from 'antd';
+import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { ExportOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Upload, message } from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { DeleteOutlined, EyeOutlined, FileWordOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';

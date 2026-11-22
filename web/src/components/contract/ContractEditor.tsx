@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Tabs, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Tabs, Typography } from 'antd';
+import { message } from '@/utils/antdStatic';
 import dayjs from 'dayjs';
 import { contractApi, materialApi, projectApi, supplierApi, templateApi } from '@/api/business';
 import EditorTabPage from '@/components/editor/EditorTabPage';

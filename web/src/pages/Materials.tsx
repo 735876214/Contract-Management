@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Popconfirm, message, Tag, Select, Radio } from 'antd';
+import { Card, Table, Button, Form, Input, Space, Popconfirm, Tag, Select, Radio } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, SearchOutlined, ExportOutlined, StopOutlined, CheckCircleOutlined, LockOutlined } from '@ant-design/icons';
 import { materialApi } from '@/api/modules';
 import { dictApi } from '@/api/dict';

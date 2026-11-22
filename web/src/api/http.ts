@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { message } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { useAuthStore } from '@/store/auth';
 
 const http = axios.create({

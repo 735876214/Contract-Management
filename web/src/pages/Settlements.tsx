@@ -1,23 +1,8 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '../../../server/src/common/calc/amounts.ts';
-import {
-  Alert,
-  Button,
-  Card,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
-  message,
-  Row,
-  Col,
-  InputNumber,
-  DatePicker,
-  Table,
-  Tag,
-} from 'antd';
+import { Alert, Button, Card, Form, Input, Select, Space, Modal, Row, Col, InputNumber, DatePicker, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';

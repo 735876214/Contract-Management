@@ -2,9 +2,8 @@ import { sanitizeHtml } from '@/utils/sanitizeHtml';
 import { formatAmount } from '@/utils/money';
 
 import { useEffect, useState } from 'react';
-import {
-  Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, message, Modal,
-} from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, Modal } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
 import { contractApi, templateApi } from '@/api/business';

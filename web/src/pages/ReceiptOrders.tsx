@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Upload, message } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { receiptOrderApi } from '@/api/business';

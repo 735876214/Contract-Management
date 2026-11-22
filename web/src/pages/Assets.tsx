@@ -3,9 +3,8 @@ import { formatNumber } from '@/utils/money';
 import { formatAmount } from '@/utils/money';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert, Statistic,
-} from 'antd';
+import { Card, Table, Button, Form, Input, Select, Space, Popconfirm, Row, Col, InputNumber, DatePicker, Alert, Statistic } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { assetApi } from '@/api/modules';

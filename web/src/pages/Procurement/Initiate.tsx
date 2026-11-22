@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Descriptions,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Steps,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Button, Descriptions, Form, Input, Modal, Select, Space, Steps, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { FileWordOutlined, PlusOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';

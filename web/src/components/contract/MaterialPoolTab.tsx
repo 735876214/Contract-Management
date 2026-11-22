@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Popconfirm, Space, Table, message } from 'antd';
+import { Button, Popconfirm, Space, Table } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 import MaterialPickerModal from './MaterialPickerModal';

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 import { dictApi } from '@/api/dict';

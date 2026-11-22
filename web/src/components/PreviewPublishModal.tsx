@@ -13,7 +13,8 @@ import { sanitizeHtml } from '@/utils/sanitizeHtml';
  * POST /procurement-tasks/:id/publish，独立模块走各自 publish 接口）。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Modal, Popconfirm, Spin, message } from 'antd';
+import { Alert, Button, Modal, Popconfirm, Spin } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, SendOutlined } from '@ant-design/icons';
 import { highlightPlaceholders } from '@/utils/docExport';
 import { buildProcurementDoc, exportProcurementWord, procurementExportFilename } from '@/utils/procurementExport';

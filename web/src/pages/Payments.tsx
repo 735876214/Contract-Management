@@ -1,19 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button,
-  DatePicker,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
-  message,
-  Row,
-  Col,
-  InputNumber,
-} from 'antd';
+import { Button, DatePicker, Form, Input, Select, Space, Modal, Row, Col, InputNumber } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import { fileApi } from '@/api/auth';
 import { paymentApi } from '@/api/modules';

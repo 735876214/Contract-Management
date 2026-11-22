@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button, Card, Form, Input, InputNumber, Select, Space, Modal, message, Statistic, DatePicker, Switch, Alert, Table, Tag, Row, Col, Empty,
-} from 'antd';
+import { Button, Card, Form, Input, InputNumber, Select, Space, Modal, Statistic, DatePicker, Switch, Alert, Table, Tag, Row, Col, Empty } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';

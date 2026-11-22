@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button, Form, Input, Space, Modal, message, InputNumber, Select, Descriptions, Alert, Table, Tag,
-} from 'antd';
+import { Button, Form, Input, Space, Modal, InputNumber, Select, Descriptions, Alert, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, SwapOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';

@@ -1,20 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from '@/utils/money';
-import {
-  Button,
-  DatePicker,
-  Descriptions,
-  Empty,
-  Form,
-  Input,
-  Modal,
-  Space,
-  Spin,
-  Table,
-  Tabs,
-  Tag,
-  message,
-} from 'antd';
+import { Button, DatePicker, Descriptions, Empty, Form, Input, Modal, Space, Spin, Table, Tabs, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { contractApi } from '@/api/business';
 import Can from '@/components/Can';
 import DictSelect, { DictTag } from '@/components/DictSelect';

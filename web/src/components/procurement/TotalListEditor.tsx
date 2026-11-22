@@ -1,16 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { formatAmount } from '@/utils/money';
-import {
-  Alert,
-  Button,
-  InputNumber,
-  Modal,
-  Select,
-  Space,
-  Table,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Button, InputNumber, Modal, Select, Space, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
 import { dictApi, type DictOption } from '@/api/dict';

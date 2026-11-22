@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Form, Input, Modal, Table, Space, Alert, message } from 'antd';
+import { Button, Form, Input, Modal, Table, Space, Alert } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { materialApi } from '@/api/business';
 

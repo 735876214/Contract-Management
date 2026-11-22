@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Upload, Button, message, Space } from 'antd';
+import { Upload, Button, Space } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { UploadOutlined } from '@ant-design/icons';
 import { fileApi } from '@/api/auth';
 

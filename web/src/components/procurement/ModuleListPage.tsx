@@ -1,23 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  Badge,
-  Button,
-  Checkbox,
-  Col,
-  DatePicker,
-  Dropdown,
-  Form,
-  Input,
-  Modal,
-  Popover,
-  Row,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { Badge, Button, Checkbox, Col, DatePicker, Dropdown, Form, Input, Modal, Popover, Row, Select, Space, Table, Tag, Tooltip } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { FormInstance } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {

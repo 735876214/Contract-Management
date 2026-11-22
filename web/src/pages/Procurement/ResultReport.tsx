@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Checkbox, Col, DatePicker, Descriptions, Input, InputNumber, Modal, Row, Space, Spin, Table, Tag, Tooltip, message } from 'antd';
+import { Alert, Button, Card, Checkbox, Col, DatePicker, Descriptions, Input, InputNumber, Modal, Row, Space, Spin, Table, Tag, Tooltip } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { EyeOutlined, FileWordOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';

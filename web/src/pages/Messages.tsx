@@ -1,4 +1,5 @@
-import { Card, Table, Button, Form, Select, Tag, message } from 'antd';
+import { Card, Table, Button, Form, Select, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { ReadOutlined } from '@ant-design/icons';
 import { notificationApi } from '@/api/modules';
 import { useTable } from '@/hooks/useTable';

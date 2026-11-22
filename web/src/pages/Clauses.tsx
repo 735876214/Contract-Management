@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePermission } from '@/hooks/usePermission';
-import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag, message } from 'antd';
+import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
 import RichTextEditor from '@/components/RichTextEditor';

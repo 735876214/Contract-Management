@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { formatAmount } from '@/utils/money';
 import { useAuthStore } from '@/store/auth';
-import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col, DatePicker } from 'antd';
+import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, Tag, Row, Col, DatePicker } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { projectApi } from '@/api/business';

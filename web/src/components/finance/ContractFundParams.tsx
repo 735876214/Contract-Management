@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Descriptions, Form, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
+import { Alert, Button, Descriptions, Form, InputNumber, Modal, Select, Space, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { SettingOutlined } from '@ant-design/icons';
 import { financeApi } from '@/api/modules';
 import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE } from '@/constants/paymentModes';

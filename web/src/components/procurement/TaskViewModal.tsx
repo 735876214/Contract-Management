@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Descriptions, List, Modal, Space, Spin, Tag, message } from 'antd';
+import { Alert, Button, Descriptions, List, Modal, Space, Spin, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, FileWordOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';

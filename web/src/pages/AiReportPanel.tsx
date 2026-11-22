@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Card, Collapse, DatePicker, Empty, Form, Input, Segmented, Space, Spin, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Collapse, DatePicker, Empty, Form, Input, Segmented, Space, Spin, Tag, Typography } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { aiApi, type AiReportDelta, type AiReportResult } from '@/api/modules';

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatAmount, formatNumber } from '@/utils/money';
-import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
 import { LABOR_RECEIVING_DOC_STATUS as DOC_STATUS } from '@/constants/laborReceivingStatus';

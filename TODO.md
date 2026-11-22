@@ -45,13 +45,6 @@
   但**列宽与小数位仍由各页自己给**（如 `width: 140`）；若要让「金额列宽度/对齐」也一致，得把
   `formatMoney` 与列定义捆成一个 helper，属视觉规范议题（见 DESIGN.md）。
 
-- **antd 静态 `message` 收口到 `App.useApp()`**（web，2026-11-22 真渲染核验时发现）：
-  `web/src` 有 **42 个文件**从 `antd` 直接 import 静态 `message`，`App.useApp()` 使用数为 **0**。
-  静态调用拿不到 `ConfigProvider` 的动态主题（DESIGN token 不生效），控制台每次弹提示都会报警
-  `Warning: [antd: message] Static function can not consume context like dynamic theme`。
-  改法：页面/组件内改用 `const { message } = App.useApp()`；`src/api/http.ts` 这类**组件外**调用
-  没有 hooks 上下文，需保留静态调用或注入一个全局 holder，故要分模块推进（不能全局替换）。
-
 - **剩余「全量行」取数的收口（P1-4 第二阶段，2026-11-21）**：工作台总览/趋势、合同台账按合同分组、
   AI 数据集的 5 个分区块**已经改走 SQL `aggregate`/`groupBy`**（44 处 `@no-limit` → 32 处）。
   仍取明细行的是**行级规则/明细喂数**两类，它们不是聚合、换 `groupBy` 会静默失效：

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from '@/utils/money';
-import { message } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined } from '@ant-design/icons';

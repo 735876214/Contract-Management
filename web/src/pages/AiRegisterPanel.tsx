@@ -1,21 +1,6 @@
 import { useMemo, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Collapse,
-  Empty,
-  Input,
-  Space,
-  Spin,
-  Table,
-  Tag,
-  Tooltip,
-  Typography,
-  Upload,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Checkbox, Collapse, Empty, Input, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { FileAddOutlined, InboxOutlined, SaveOutlined } from '@ant-design/icons';
 import { aiApi, type AiRegisterField, type AiRegisterParseResult } from '@/api/modules';
 

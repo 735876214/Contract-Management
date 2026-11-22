@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, Form, Input, Select, Space, Modal, message, Row, Col, DatePicker, Alert } from 'antd';
+import { Button, Form, Input, Select, Space, Modal, Row, Col, DatePicker, Alert } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { paymentProcedureApi, docTemplateApi } from '@/api/modules';

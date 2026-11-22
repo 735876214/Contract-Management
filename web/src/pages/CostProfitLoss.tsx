@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { formatAmount } from '@/utils/money';
-import { Button, Input, InputNumber, Modal, Select, Space, Table, message } from 'antd';
+import { Button, Input, InputNumber, Modal, Select, Space, Table } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatMoney, formatNumber } from '@/utils/money';
-import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Progress, Space, Tag, Timeline, Upload, message } from 'antd';
+import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Progress, Space, Tag, Timeline, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { ExportOutlined, FileProtectOutlined, FileWordOutlined, UploadOutlined, PlusSquareOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';

@@ -1,22 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
-  message,
-  Row,
-  Col,
-  InputNumber,
-  DatePicker,
-  Upload,
-  Alert,
-  Table,
-} from 'antd';
+import { Button, Form, Input, Select, Space, Modal, Row, Col, InputNumber, DatePicker, Upload, Alert, Table } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { dictApi, type DictOption } from '@/api/dict';
