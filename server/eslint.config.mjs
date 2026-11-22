@@ -37,6 +37,28 @@ export default tseslint.config(
     },
   },
   {
+    /**
+     * 本仓特有口径（2026-11-22 质量审计）：列表日期区间只能用 `common/calc/time` 的本地日原语。
+     * `new Date('YYYY-MM-DD')` 按 **UTC** 解析（本地 08:00），库里存本地 00:00 的记录会被漏掉；
+     * 全仓曾有 7 处这么写，另有手拼 'T23:59:59' 与就地 setHours 两种写法，已统一。
+     */
+    files: ['src/modules/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.0.property.name='endDate']",
+          message:
+            "日期区间右边界用 common/calc/time 的 endOfDay(endDate)，或 lt: nextDayStart(endDate)：new Date('YYYY-MM-DD') 按 UTC 解析（本地 08:00），会漏掉当天记录。",
+        },
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.0.property.name='startDate']",
+          message: '日期区间左边界用 common/calc/time 的 startOfDay(startDate)（本地零点，非 UTC）。',
+        },
+      ],
+    },
+  },
+  {
     // 启动播种脚本是 CLI 语义，输出本来就走 stdout
     files: ['src/seed.ts', 'src/seed-data.ts'],
     rules: { 'no-console': 'off' },

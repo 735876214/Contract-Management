@@ -38,4 +38,23 @@ export default tseslint.config(
       'no-undef': 'off',
     },
   },
+  {
+    /**
+     * 本仓特有口径（2026-11-22 质量审计）：金额/数量展示只能走 `@/utils/money`。
+     * 无参数的 `toLocaleString('zh-CN')` 会把 JS 浮点原样吐出（后端求和后的 1234.5600000000001），
+     * 带参数的则有 7 种组合，同一笔金额在不同页面显示成 ¥1,234.50 / 1,234.00 / 1,234。
+     */
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/utils/money.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name='toLocaleString']",
+          message:
+            '金额/数量展示统一用 @/utils/money 的 formatAmount / formatMoney / formatNumber；时间戳用 formatDateTime。',
+        },
+      ],
+    },
+  },
 );

@@ -37,6 +37,22 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
+> 2026-11-22 质量审计的落地情况：**类型安全（strict）、ESLint 门禁、大服务拆分**已由
+> `2863841`（P0–P1 质量整改）在 main 上完成；本分支补的是它没覆盖的**口径单一实现**与**样板去重**。
+> 下面只留**尚未做**的。
+
+- **列表筛选与导出样板（本分支只做了一半）**：`common/utils/list-where.ts` 的 `keywordWhere` 已用于 6 个简单模块，
+  仍有约 23 处 `if (query.keyword) where.OR = [...]`（含跨关联的 `contract: { name }` 形态，需扩 API）；
+  `common/http/download.ts` 的 `sendFile` 已接 18 个 controller，另 4 个（`ai` / `ai/analytics` / `dict` /
+  `procurement-task`）带自定义响应头（`x-ai-filled` 等），需逐个看再收。
+- **三个零覆盖模块的第二层**：`payment-procedure` / `other-project` / `notification` 的**纯函数层**已有 spec，
+  但写路径（开累快照落库、导入 submit、已读标记）仍无 `test-integration` 覆盖；补 int 时记得同步
+  `docs/development.md §5` 清单与计数。
+- **前端金额展示的第二层**：`web/src/utils/money.ts` 已统一 `money()`/`toLocaleString`，
+  但**列宽与小数位仍由各页自己给**（如 `width: 140`）；若要让「金额列宽度/对齐」也一致，得把
+  `formatMoney` 与列定义捆成一个 helper，属视觉规范议题（见 DESIGN.md）。
+
+
 - **ESLint warning 存量清理（2026-11-21）**：`server` 44 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
   与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
   `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。

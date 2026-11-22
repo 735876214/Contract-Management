@@ -2,28 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { formatMoney } from '@/utils/money';
 import {
-  Alert, AutoComplete, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
-  Row, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message,
+  Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm,
+  Row, Select, Space, Table, Tag, Tooltip, Upload, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SaveOutlined,
+  CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined,
   SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { receiptOrderApi } from '@/api/business';
 import { fileApi } from '@/api/auth';
-import { dictApi } from '@/api/dict';
 import { useTable } from '@/hooks/useTable';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { usePermission } from '@/hooks/usePermission';
 import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
-import { DictTag } from '@/components/DictSelect';
 import MobileCardList from '@/components/MobileCardList';
 import { toFileUrl, toStorageKey } from '@/utils/templateFile';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import Can from '@/components/Can';
-import UnitInput from './receiptOrders/UnitInput';
 import TabPickerModal from './receiptOrders/TabPickerModal';
 import DETAIL_COLUMNS from './receiptOrders/detailColumns';
 import { YES_NO, SUPPLIER_TABS, RECEIVING_TABS } from './receiptOrders/constants';

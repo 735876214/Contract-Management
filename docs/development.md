@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（96 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（99 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（26 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 47，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 74） |
@@ -235,21 +235,19 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许挂 `.cq`/`.ant-modal-body`/`.ant-drawer-body` · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 · `.doc-preview` 必须挂 `.cq` · `.col-secondary` 规则成对 · 窄容器表单栅格覆盖不得含 `.cq` · `RichTextEditor` 必须 portal 全屏层且内容同步 effect 依赖 `fullscreen` |
    | `test/finalSettlementDocNumber.spec.mts` | **总结算书编号纯函数**（业务 2026-11-21）：`<分公司简称>-<项目编号>-WZZJS-<年份>-<流水号>` 拼装 · 流水号两位补零、超两位不截断 · 流水号 <=0/非数 一律按 1（不出 "00"）· 分公司简称为空兜底 `TMHB`、项目编号为空留空段 · 前缀/项目编号统一转大写去空格 · `normalizeBranchAbbr` 空串归 null · `BRANCH_ABBR_RE` 只放行大写字母数字且 ≤20 位 |
 
+  | `test/timeBounds.spec.mts` | **列表筛选的日期区间边界（本地日原语）+ 列表 where 片段**：`startOfDay/endOfDay/nextDayStart` 按**本地**零点（`new Date('YYYY-MM-DD')` 是 UTC 解析，本地 08:00，会漏掉当天记录）· `endOfDay` 含当天最后一毫秒 · `nextDayStart` 跨月跨年进位 · 拒绝 `2026-02-30`（否则筛选悄悄挪到 3 月）· 空值/非法值返回 null 不落 where · 不改入参 Date · `dateRange` 只给一端时另一端不出现 · `keywordWhere` 空关键字返回 null、按给定字段展开（不猜字段） |
+  | `test/moneyFormat.spec.mts` | **前端金额/数量展示的单一实现**（`web/src/utils/money.ts`）：空值一律占位符、**不兜成 0**（显式 0 仍是 0）· 金额固定两位 + 千分位 · `1234.5600000000001` 浮点尾数被吃掉 · 数量最多 N 位不补零 · 占位符可覆盖（HTML 文档空串 / 面板长横线）· 比率 0~1 → 百分数 |
+  | `test/smallModules.spec.mts` | **三个零覆盖小模块的纯函数层**（`notification` / `other-project` / `payment-procedure`）：付款手续 `deriveProcedureAmounts` 三值各自 2 位舍入后相减、**未付款允许为负**、空值按 0、相等时为 `0` 不是 `-0` · `procedureCodeCandidates` 首个无后缀其后 `-2`/`-3`、合同号缺失回落 `HT` · 其他项目库导入状态**大小写/全角空格**都判对停用（原实现大小写敏感）· 通知列表 where 永远带当前用户、`isRead` 兼容 `true/1/read`、`projectId` 有值才过滤 |
+
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
   > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。
 
-- **静态检查（ESLint 9 + Prettier）**：仓库根 `package.json` 只装工具链（业务依赖仍在 server/web/mcp），
-  `npm run lint` 扫 `server/src` `server/test` `web/src` `mcp`；CI 的 `lint` job **只拦 error**（`--quiet`）。
-
-  - **两条本仓口径是 error 级**，报错文案直接给修法（`no-restricted-syntax`）：
-    金额/数量展示只能用 `@/utils/money`（禁止裸 `toLocaleString`）、列表日期区间只能用
-    `common/calc/time` 的 `startOfDay/endOfDay`（禁止 `new Date(query.endDate)`）。
-  - `react-hooks/rules-of-hooks` 是 error（条件调 hook = 崩溃级）；`exhaustive-deps` 先按 warn 观测。
-  - **warning 是存量技术债**（未用变量/导入、50 处 `exhaustive-deps` 抑制）。纪律：**新增代码不得新增 warning**，
-    存量随改动文件顺手清；`npm run lint:all` 看全量。
-  - **不做类型感知规则**（`no-floating-promises` 等）：需要 projectService，且要先补 API 类型（见 TODO.md）。
-  - Prettier 只检查**新增文件**（CI 里 `git diff --diff-filter=A`）：存量文件当年没按 prettier 排过，
-    若检查改动文件，任何一个 PR 都会被逼着把整文件重排，diff 无法评审。新文件一次成型即可。
+- **两条本仓口径写进了 ESLint（2026-11-22 质量审计）**，均为 **error 级**、报错文案直接给修法：
+  · `web/eslint.config.mjs`：金额/数量展示只能用 `@/utils/money`（禁止裸 `toLocaleString` ——
+    无参写法会把 `1234.5600000000001` 直接印到页面）；
+  · `server/eslint.config.mjs`：列表日期区间只能用 `common/calc/time` 的 `startOfDay/endOfDay`
+    （禁止 `new Date(query.endDate)` —— 按 UTC 解析会漏掉当天记录）。
+  门禁本身（`npm run lint`、`--max-warnings` 冻结存量）见 §7「静态门禁」。
 
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。

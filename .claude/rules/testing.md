@@ -4,10 +4,11 @@
 
 ## 静态检查（改完一起跑）
 
-- 仓库根 `npm run lint`（ESLint 9 flat config，CI 有 `lint` job）。**只拦 error**：
-  金额展示只能走 `@/utils/money`、列表日期区间只能走 `common/calc/time` 的本地日原语，这两条是 error；
-  其余 warning 是存量债，**新增代码不得新增 warning**。
-- 细则与为什么不做类型感知规则见 [docs/development.md §5](../../docs/development.md)。
+- `cd server && npm run lint` / `cd web && npm run lint`（CI 两个 job 各一步）。口径 = **0 error**；
+  warning 用 `--max-warnings` 冻结存量（只许变少，清一条同步下调预算）。
+- 本仓两条特有口径是 **error 级**：金额展示只能走 `@/utils/money`（禁止裸 `toLocaleString`）、
+  列表日期区间只能走 `common/calc/time` 的本地日原语（禁止 `new Date(query.endDate)`）。
+- 细则见 [docs/development.md §7](../../docs/development.md)。
 
 ## 两套测试，别混用
 

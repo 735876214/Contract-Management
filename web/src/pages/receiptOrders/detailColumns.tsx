@@ -1,4 +1,4 @@
-import { Input, InputNumber, Select, Tag, Tooltip } from 'antd';
+import { Input, InputNumber, Select, Tag } from 'antd';
 import { formatMoney, formatNumber } from '@/utils/money';
 import { YES_NO } from './constants';
 import UnitInput from './UnitInput';

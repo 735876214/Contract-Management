@@ -25,7 +25,7 @@ export type DownloadKind = keyof typeof MIME;
 
 /** 非 ASCII 字符替换为 `_`（保留扩展名），供 `filename=` 兜底使用 */
 function asciiFallback(filename: string): string {
-  const safe = filename.replace(/[^\x20-\x7e]/g, '_').replace(/[\"\\]/g, '_');
+  const safe = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
   return safe || 'download';
 }
 

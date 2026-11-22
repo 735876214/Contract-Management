@@ -30,6 +30,7 @@ import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { projectWhere } from '../../common/utils/project-scope';
 import { laborReceivingReceiptWhere, laborRowKey } from '../../common/utils/labor-receiving';
 
+
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [
   'contractQty',
@@ -76,6 +77,7 @@ export const PARTY_TYPE = {
   SUBCONTRACTOR: 'SUBCONTRACTOR', // 分包商（分包商库）
   SELF_PROJECT: 'SELF_PROJECT', // 本项目（字典维护的当前项目）
 } as const;
+
 
 /**
  * 收领单服务（日报管理 → 收领单，与总日报平级）
@@ -130,7 +132,7 @@ export class ReceiptOrderService {
       // 关联没动、合同与日期也没动 → 保持原关联：历史无合同收领单可能已挂在合同结算单上，
       // 重新跑严格同合同校验会 400，导致整张单据存不了
       if (current === data.settlementId && !contractChanged && !dateChanged) return current ?? null;
-      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId: contractId ?? null, date, label: '收领单' });
+      await this.settlement.assertLinkable(data.settlementId, projectId, { contractId, date, label: '收领单' });
       return data.settlementId;
     }
     if (current && !contractChanged && !dateChanged) return current;
@@ -182,6 +184,7 @@ export class ReceiptOrderService {
         { receiver: { contains: query.keyword } },
       ];
     }
+    // 边界统一走 common/calc/time 的本地日原语（''YYYY-MM-DD'' 交给 new Date 会按 UTC 解析）
     const range = dateRange(query.startDate, query.endDate);
     if (range) where.orderDate = range;
     const [list, total] = await Promise.all([
@@ -440,6 +443,7 @@ export class ReceiptOrderService {
   private async dictProjectOptions(dictCode: string, keyword?: string, projectId?: string) {
     let items: any[] = [];
     try {
+      // @no-limit: 单个字典类型的项目类选项（<200）
       items = await this.prisma.dictItem.findMany({
         where: { typeCode: dictCode, status: 1 },
         orderBy: { sortOrder: 'asc' },
@@ -1022,6 +1026,7 @@ export class ReceiptOrderService {
     return { created, updated, removed };
   }
 
+
   /**
    * 推送总日报：把收领单明细逐行写入 DailyReport
    * 字段映射：
@@ -1101,7 +1106,7 @@ export class ReceiptOrderService {
     // 手工通过 Excel 导入的日报行（无 receiptOrderId）也不会被误删。
     await this.prisma.$transaction(async (tx) => {
       await clearPushedDailyRowsOfReceiptOrder(tx, orderId);
-      await pushDailyRows(tx, rows);
+      await pushDailyRows(tx, rows as any[]);
       await tx.receiptOrder.update({ where: { id: orderId }, data: { pushedAt: new Date() } });
     });
     return { pushed: rows.length };

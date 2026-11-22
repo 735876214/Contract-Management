@@ -12,6 +12,7 @@
  */
 export function sanitizeSheetName(name: unknown, fallback = 'Sheet1'): string {
   const raw = String(name ?? '')
+    // eslint-disable-next-line no-control-regex -- 控制字符就是要被替换掉的对象（sheet 名非法字符）
     .replace(/[\x00-\x1f*?:\\/[\]]/g, '_')
     .trim();
   const trimmed = raw.replace(/^'+|'+$/g, '').trim();
