@@ -50,18 +50,34 @@ export class LedgerService {
      * 合规性（compliance）是**内存派生列**（由合同类型/进场/中标/签订日期算出来），
      * 数据库里没有这一列，无法进 SQL 的 where。若先 skip/take 再内存过滤，
      * 当页可能只剩几行甚至 0 行、而 total 仍是未过滤的总数——分页与"共 N 条"全错。
-     * 故有该筛选时取全量、过滤后再切片；无筛选仍走数据库分页。
+     *
+     * 故有该筛选时分两步（2026-11-22「全量行取数收口」第二阶段）：
+     * ① `matchComplianceIds()` 只扫**四列窄投影**，用**同一份** `calcLedgerCompliance` 算出命中 id
+     *    （不写第二份 SQL 版规则——口径分两处必漏一处）；
+     * ② 只对**当页命中 id** 取完整行（含 supplier/ext）与 6 张附表。
+     * 改造前是「全项目合同 + 全部附表」取回内存再过滤切片：5000 份合同时一次筛选要搬运
+     * 5000 行合同 + 数万行附表，而真正展示的只有 ≤ take 行。
      */
     const complianceFilter = query.compliance ? String(query.compliance) : '';
+    const matchedIds = complianceFilter ? await this.matchComplianceIds(where, complianceFilter) : null;
+    const pageIds = matchedIds ? matchedIds.slice(skip, skip + take) : null;
 
-    // contracts 不再重算；total 在「合规性内存过滤」分支里会被改成过滤后的条数，故单独用 let
-    const [contracts, initialTotal] = await Promise.all([
+    // contracts 不再重算；total 在「合规性内存过滤」分支里会被改成命中条数，故单独用 let
+    const [rawContracts, initialTotal] = await Promise.all([
       this.prisma.contract.findMany({
-        where, ...(complianceFilter ? {} : { skip, take }), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        where: pageIds ? { ...where, id: { in: pageIds } } : where,
+        ...(pageIds ? {} : { skip, take }),
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: { supplier: true, ext: true },
       }),
       this.prisma.contract.count({ where }),
     ]);
+    // `id: { in: [...] }` 不保证返回顺序：按命中顺序回排，保持与 orderBy 一致的稳定分页
+    const contracts = pageIds
+      ? pageIds
+          .map((id) => rawContracts.find((c: any) => c.id === id))
+          .filter((c): c is any => Boolean(c))
+      : rawContracts;
 
     const contractIds = contracts.map((c: any) => c.id);
 
@@ -264,16 +280,58 @@ export class LedgerService {
     });
 
     let total = initialTotal;
-    if (complianceFilter) {
-      rows = rows.filter((r: any) => r.compliance === complianceFilter);
-      // 过滤后 total 必须是过滤后的条数，否则前端分页器按"未过滤总数"渲染出空页
-      total = rows.length;
-      rows = rows.slice(skip, skip + take).map((r: any, i: number) => ({ ...r, index: skip + i + 1 }));
+    if (complianceFilter && matchedIds) {
+      // 命中集合与当页切片都在取数前定好，这里只做兜底（去掉可能的边界漂移）并回填行号；
+      // total 必须是命中条数，否则前端分页器按"未过滤总数"渲出空页
+      rows = rows
+        .filter((r: any) => r.compliance === complianceFilter)
+        .map((r: any, i: number) => ({ ...r, index: skip + i + 1 }));
+      total = matchedIds.length;
     }
 
     return { ...buildResult(rows, total, query), columns: await this.columns() };
   }
 
+
+  /**
+   * 合规性筛选的命中合同 id（**窄投影 + 与展示同一份纯函数**）。
+   *
+   * 只取判定必需的字段：合同类型、签订日期、ext 的招标/定标日期，以及日报的**最早进场日期**
+   * （SQL 侧 `groupBy + _min`，与展示侧 `Math.min(...entryDate)` 同口径）。
+   * 排序与列表一致（createdAt desc, id desc），调用方据此切片后再回查完整行。
+   */
+  private async matchComplianceIds(where: any, compliance: string): Promise<string[]> {
+    // @no-limit: 内存派生列筛选必须先扫全项目合同（只取 4 个窄列、不取整行），规则无法进 SQL where
+    const contracts = await this.prisma.contract.findMany({
+      where,
+      select: {
+        id: true,
+        typeCode: true,
+        signDate: true,
+        ext: { select: { bidStartDate: true, bidWinDate: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!contracts.length) return [];
+
+    const entryMap = new Map<string, Date | null>();
+    const grouped = await this.prisma.dailyReport.groupBy({
+      by: ['contractId'],
+      where: { contractId: { in: contracts.map((c) => c.id) } },
+      _min: { entryDate: true },
+    });
+    grouped.forEach((g: any) => entryMap.set(g.contractId, g._min?.entryDate ?? null));
+
+    return contracts
+      .filter((c: any) => {
+        const ext = c.ext || {};
+        return (
+          calcLedgerCompliance(c.typeCode ?? '', entryMap.get(c.id) ?? null, ext.bidStartDate, ext.bidWinDate, c.signDate) ===
+          compliance
+        );
+      })
+      .map((c: any) => c.id);
+  }
 
   /** 列配置（默认全部显示，hidden 列默认隐藏） */
   async columns() {

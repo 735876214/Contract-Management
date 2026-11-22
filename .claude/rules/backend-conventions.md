@@ -138,6 +138,14 @@
   防超结闸门与工作台预警的分子用**结算单口径**（`Settlement.actualAmount`）。前者回答"这条链的账现在是多少"，
   后者回答"有没有超结"，实测当前数据两者逐条相等；某月只有发票/保理而无结算时会分开，
   届时应以台账列为准、并在预警里说明分母。
+- **「合规性问题」是内存派生列，筛选必须走「窄投影算命中 id → 只回查当页」**（2026-11-22）：
+  库里没有这一列，规则是纯函数 `ledger-compliance.ts` 的 `calcLedgerCompliance()`
+  （合同类型 + 进场 / 招标 / 定标 / 签订四个日期）。**不要**把全项目合同与 6 张附表都取回内存再过滤切片
+  （5000 份合同 = 搬 5000 行合同 + 数万行附表，而真正展示的只有 ≤ take 行）；
+  应先用 `matchComplianceIds()` 只取 4 列窄投影 + `dailyReport.groupBy(_min entryDate)` 算出命中 id，
+  再按页回查完整行（`id: { in: pageIds }` 不保证顺序，要按命中顺序回排）。
+  ⚠️ **判定只有一份实现**：不要为了筛选再写一版 SQL 规则（口径分两处，改一处必漏另一处）。
+  锁定：`ledger-compliance-filter.int.spec.ts`（六种结果各自命中 · `total` 为命中条数 · 跨页不重不漏 · 顺序不变）。
 - **列宽的单位契约**：`modules/ledger/ledger-columns.ts` 的 `LEDGER_COLUMNS[].width` 是
   **Excel 字符宽（8~30）**，输出前由 `ledgerColumnWidthPx()`（≈8px/字符、100px 下限）换算成**像素**。
   **不要把字符宽当像素交给 antd**（会把 42 列表头挤成竖排文字，桌面端也破版）。锁定：`ledgerColumns.spec.mts`。
