@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
-import { round2 } from '../../common/calc/money';
+import { deriveProcedureAmounts, procedureCodeCandidates } from './amounts';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
@@ -96,21 +96,15 @@ export class PaymentProcedureService {
       chainSettledTotal(this.prisma, contractId),
       chainPaidTotal(this.prisma, contractId, undefined, PAYMENT_EXCLUDED_STATUSES),
     ]);
-    return {
-      supplierId: contract.supplierId,
-      settleCumAmount: round2(settled),
-      paidCumAmount: round2(paid),
-      unpaidAmount: round2(round2(settled) - round2(paid)),
-    };
+    // 四个数字的舍入与「未付款可为负」的语义都在 amounts.ts（纯函数，spec 锁定）
+    return { supplierId: contract.supplierId, ...deriveProcedureAmounts(settled, paid) };
   }
 
   /** 单据编号：`FK-<合同编号>-<日期>`，同项目已存在则追加序号（表上有 `@@unique([projectId, code])`） */
   private async nextCode(projectId: string, contractId: string, payDate: Date | null) {
     const contract = await this.prisma.contract.findFirst({ where: { id: contractId, projectId }, select: { code: true } });
     const day = localDayKey(payDate ?? new Date()).replace(/-/g, '');
-    const base = `FK-${contract?.code || 'HT'}-${day}`;
-    for (let i = 0; i < 20; i += 1) {
-      const code = i === 0 ? base : `${base}-${i + 1}`;
+    for (const code of procedureCodeCandidates(contract?.code, day, 20)) {
       const dup = await this.prisma.paymentProcedure.findFirst({ where: { projectId, code }, select: { id: true } });
       if (!dup) return code;
     }

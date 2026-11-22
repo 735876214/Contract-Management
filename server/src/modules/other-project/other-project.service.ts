@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { parseOtherProjectStatus } from './status';
 
 /**
  * 其他项目库（基础信息管理，2026-11-20）。
@@ -17,8 +18,6 @@ import { requestContext } from '../../common/services/request-context';
  * 项目隔离沿用 `supplier.share.scope`，全局共享时 `projectId` 为空。
  */
 const OTHER_PROJECT_FIELDS = ['code', 'name', 'remark', 'status'];
-
-const DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
 
 @Injectable()
 export class OtherProjectService {
@@ -156,7 +155,7 @@ export class OtherProjectService {
               name,
               code: r['项目编号'] || null,
               remark: r['备注'] || null,
-              status: DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
+              status: parseOtherProjectStatus(r['状态']),
             },
           };
         },

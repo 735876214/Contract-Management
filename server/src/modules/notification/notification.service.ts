@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { paginate, buildResult } from '../../common/utils/helpers';
+import { notificationListWhere } from './where';
 
 @Injectable()
 export class NotificationService {
@@ -8,13 +9,8 @@ export class NotificationService {
 
   async findAll(query: any = {}, user: any) {
     const { skip, take } = paginate(query);
-    const where: any = { userId: user.userId };
-    if (query.isRead !== undefined && query.isRead !== '') {
-      // 兼容历史前端传的 'read'/'unread'：否则任何取值都落到 false，「已读」筛选恒返回未读
-      const raw = String(query.isRead);
-      where.isRead = raw === 'true' || raw === '1' || raw === 'read';
-    }
-    if (query.projectId) where.projectId = query.projectId;
+    // where 的构造（含 isRead 历史取值兼容）在 where.ts，纯函数可单测
+    const where: any = notificationListWhere(query, user.userId);
     const [list, total] = await Promise.all([
       this.prisma.notification.findMany({ where, skip, take, orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }] }),
       this.prisma.notification.count({ where }),
