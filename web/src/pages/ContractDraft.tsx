@@ -78,7 +78,7 @@ export default function ContractDraft() {
   const tabRefresh = useTabRefresh(LIST_PATH);
   useEffect(() => {
     if (tabRefresh) refreshList();
-  }, [tabRefresh]);
+  }, [tabRefresh, refreshList]);
 
   // ===== 新增合同（编辑器页签的 "new" 形态） =====
   const [createForm] = Form.useForm();

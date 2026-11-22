@@ -22,6 +22,18 @@ import { useTable } from '@/hooks/useTable';
 
 const STATUS_TAG = (v: any) => (v === 1 || v === '1' ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>);
 
+/**
+ * 系统参数分组名映射：参数键首段 → 中文名。
+ * 放在**模块级**：写成组件内字面量会让它每次渲染都是新对象，
+ * 进而成为 useMemo/useEffect 的依赖项（ESLint 也会报 missing dependency）。
+ */
+const GROUP_LABELS: Record<string, string> = {
+  contract: '合同参数',
+  supplier: '供应商参数',
+  repayment: '还款协议',
+  multi: '项目模式',
+};
+
 /* ---------------- 用户管理 ---------------- */
 function UsersTab() {
   const { loading, list, pagination, reload } = useTable<any>((p) => systemApi.users(p));
@@ -350,14 +362,6 @@ function ParamsTab() {
 
   const load = () => systemApi.params().then((r: any) => setParams(r || []));
   useEffect(() => { load(); }, []);
-
-  /** 分组名映射：参数键首段 → 中文名 */
-  const GROUP_LABELS: Record<string, string> = {
-    contract: '合同参数',
-    supplier: '供应商参数',
-    repayment: '还款协议',
-    multi: '项目模式',
-  };
 
   /** 按参数键首段分组 */
   const groups = useMemo(() => {

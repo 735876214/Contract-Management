@@ -103,7 +103,7 @@ function LedgerList() {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
     supplierApi.options().then((res: any) => setSuppliers(res || []));
     loadSummary();
-  }, [tabRefresh, loadSummary]);
+  }, [tabRefresh, loadSummary, ensure]);
 
   /**
    * 大宽表冻结列（DESIGN.md §10.2）：**张数随容器宽度收敛**——

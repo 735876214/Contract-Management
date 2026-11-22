@@ -56,7 +56,7 @@ export default function Dashboard() {
         message.error(e?.message ? `工作台数据加载失败：${e.message}` : '工作台数据加载失败，请稍后重试');
       })
       .finally(() => setLoading(false));
-  }, [tabRefresh]);
+  }, [tabRefresh, ensure]);
 
   const { ref: trendRef, size: trendSize } = useContainerWidth<HTMLDivElement>();
   const { ref: pieRef, size: pieSize } = useContainerWidth<HTMLDivElement>();

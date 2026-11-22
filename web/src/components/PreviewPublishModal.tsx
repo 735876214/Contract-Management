@@ -80,7 +80,7 @@ export default function PreviewPublishModal({
   const [tplName, setTplName] = useState<string>('');
 
   const modalTitle = useMemo(
-    () => title ?? `${moduleType ? '' : ''}${mode === 'publish' ? '发布前确认' : '预览'}`,
+    () => title ?? (mode === 'publish' ? '发布前确认' : '预览'),
     [title, mode],
   );
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import { Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, message, Popconfirm, InputNumber, Select, Tooltip, Descriptions } from 'antd';
 import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
@@ -47,13 +47,15 @@ export default function Dict() {
       ? { display: hidden ? ('none' as const) : undefined, flex: '0 0 100%', maxWidth: '100%' }
       : undefined;
 
-  const loadTypes = async (keyword = '') => {
+  const loadTypes = useCallback(async (keyword = '') => {
     const res: any = await dictApi.types({ keyword, pageSize: 500 });
     setTypes(res.list || []);
-    if (!currentType && res.list?.length) setCurrentType(res.list[0]);
-  };
+    // 用函数式更新取「首个类型」：loadTypes 因此不再依赖 currentType，
+    // 否则挂载 effect（依赖 loadTypes）会随 currentType 变化连环重跑
+    setCurrentType((prev: any) => prev ?? (res.list?.length ? res.list[0] : prev));
+  }, []);
 
-  const loadItems = async (typeCode: string) => {
+  const loadItems = useCallback(async (typeCode: string) => {
     if (!typeCode) return;
     setLoading(true);
     try {
@@ -62,15 +64,15 @@ export default function Dict() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadTypes();
   }, []);
 
   useEffect(() => {
+    loadTypes();
+  }, [loadTypes]);
+
+  useEffect(() => {
     if (currentType) loadItems(currentType.code);
-  }, [currentType?.code]);
+  }, [currentType, loadItems]);
 
   const filteredTypes = useMemo(
     () => types.filter((t) => !typeKeyword || t.code.includes(typeKeyword) || t.name.includes(typeKeyword)),

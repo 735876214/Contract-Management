@@ -329,7 +329,7 @@ export default function Notice() {
       contactPhones: form.contacts.map((r) => String(r.phone ?? '').trim()),
       purchaseItems: detail?.purchaseItems ?? [],
     }),
-    [form, detail],
+    [form, detail, currentTask],
   );
 
   const docCtx = useMemo(

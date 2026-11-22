@@ -88,7 +88,8 @@ export default function ContractEditor({ seed }: { seed: unknown }) {
       setAttachments(editing.attachments || []);
     }
     setDirty(false);
-  }, [editing]);
+    // form / extForm 是 AntD 的稳定实例，补进依赖不会引发重复回填
+  }, [editing, form, extForm]);
 
   // 自动生成合同编号（类型/子类型/项目变化时刷新）
   const genCode = async (typeCode?: string, subTypeCode?: string) => {

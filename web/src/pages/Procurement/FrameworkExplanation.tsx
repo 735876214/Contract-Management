@@ -363,7 +363,7 @@ export default function FrameworkExplanation() {
       content: currentTask?.content,
     };
     return buildExplanationVariableValues(form, ctx);
-  }, [form, currentTask]);
+  }, [form, currentTask, project]);
 
   const exportFilename = `${
     project.nameAbbr || project.name || '项目'

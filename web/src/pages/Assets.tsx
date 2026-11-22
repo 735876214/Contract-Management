@@ -224,7 +224,7 @@ function AssetEditor({ suppliers, units, seed }: { suppliers: any[]; units: any[
     }
     setDirty(false);
     // 仅在换记录时回填（form 实例稳定）
-  }, [editing]);
+  }, [editing, form]);
 
   const submit = async () => {
     const v = await form.validateFields();
