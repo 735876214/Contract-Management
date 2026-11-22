@@ -211,4 +211,53 @@ describe('集成 · 结算/付款异常预警（真库口径）', () => {
       `当天 14:30 的付款必须计入（900 > 800），实际命中：${res.findings.map((f) => f.code).join(',')}`,
     );
   });
+
+  it('⑥ 不给区间：按系统默认近 12 个自然月取数，并显式说明「这是默认区间」', async () => {
+    const { project, root } = await makeChain('ANOM-6', { ratio: 0.8 });
+    // 结算日期放在本月 1 号：默认区间是「近 12 个自然月（含本月）」，历史夹具会落在区间外
+    const today = new Date();
+    await settlementRow({
+      projectId: project.id,
+      contractId: root.id,
+      amount: 1000,
+      settleDate: new Date(today.getFullYear(), today.getMonth(), 1),
+    });
+
+    const res = await svc.payment({ narrative: '0' } as any, project.id, INT_USER);
+    assert.equal(res.period.defaulted, true, '没给 from/to 必须标成系统默认区间');
+    assert.equal(res.period.months, 12, '默认跨度是近 12 个自然月');
+    assert.equal(res.period.forced, false);
+    assert.equal(res.period.maxMonths, 24, '上限由系统参数给出，前端不写死');
+    assert.equal(res.sample.结算单, 1, '本月 1 号的结算单必须落进默认区间');
+    assert.ok(
+      res.warnings.some((w) => w.includes('近 12 个自然月')),
+      `默认区间必须显式说出来（否则用户不知道算的是哪一段），实际 warnings：${res.warnings.join(' / ')}`,
+    );
+  });
+
+  it('⑦ 区间超过取数上限：未确认一律 400（说清上限与怎么继续），带 force=1 才放行', async () => {
+    const { project } = await makeChain('ANOM-7', { ratio: 0.8 });
+    const wide = { from: '2020-01-01', to: '2026-12-31', narrative: '0' };
+
+    await assert.rejects(
+      () => svc.payment(wide as any, project.id, INT_USER),
+      (e: any) => {
+        assert.equal(e?.getStatus?.(), 400, `超上限必须 400 拒绝，实际：${e?.message}`);
+        const msg = String(e?.message ?? '');
+        assert.ok(msg.includes('84'), `文案要写超了多少个月：${msg}`);
+        assert.ok(msg.includes('24'), `文案要写上限多少个月：${msg}`);
+        assert.ok(msg.includes('force=1'), `文案要说清怎么继续：${msg}`);
+        return true;
+      },
+    );
+
+    // 人工确认后放行：同一区间照扫，并在 warnings 里留痕（结论仍是全区间，只是更慢）
+    const forced = await svc.payment({ ...wide, force: '1' } as any, project.id, INT_USER);
+    assert.equal(forced.period.forced, true);
+    assert.equal(forced.period.months, 84);
+    assert.ok(
+      forced.warnings.some((w) => w.includes('人工确认')),
+      `放宽上限必须留痕，实际 warnings：${forced.warnings.join(' / ')}`,
+    );
+  });
 });

@@ -130,3 +130,7 @@
 - **确认框也必须走桥接**：`import { modal } from '@/utils/antdStatic'` 后用 `modal.confirm(...)`，
   **禁止** `Modal.confirm/info/success/error/warning`（同一类问题：静态 API 拿不到主题）。原 36 处已于 2026-11-22 全部收口，现存 **0** 处。
 - 锁定：`server/test/antdStaticApi.spec.mts`（扫描 `web/src`，禁静态 import + 校验桥接已挂载 + Modal 存量上限）。
+- **「超过阈值要人工确认」优先做成页内确认条，而不是 `modal.confirm`**（2026-11-22，预警面板实测）：
+  说明文本长时弹层会把整块结果区盖住，用户确认完还得再找回来；页内 `Alert` + 「仍然扫描 / 缩小区间」
+  两个按钮既说清了原因，也让「确认」变成页面上的一次状态切换（也好被 CDP 真渲染核验）。
+  弹层留给「删一条」「覆盖一条」这类一句话就能说清的破坏性操作。

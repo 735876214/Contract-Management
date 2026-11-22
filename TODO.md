@@ -41,15 +41,8 @@
 > `2863841`（P0–P1 质量整改）在 main 上完成；本分支补的是它没覆盖的**口径单一实现**与**样板去重**。
 > 下面只留**尚未做**的。
 
-- **`ai/anomaly.collect` 的取数范围收口（P1-4 第三阶段）**：量化已完成（2026-11-22），
-  结论与数据见 [docs/ai-anomaly-input-cost.md](docs/ai-anomaly-input-cost.md)：成本近似线性（每 1,000 份合同
-  ≈ 21,000 行 / 4.6 MB / 0.33 s 查询 / +60 MB 内存），累计口径还随时间长度增长。
-  **待业务拍两个点**后才能动手：① 期间默认/上限（建议近 12 个月 / 24 个月）；
-  ② 超出上限时**直接 400 拒绝**还是**截断并提示**（截断会让结论不完整）。定了就做方案①（不碰规则层）；
-  方案②（物化）收益是 IO 不是行数，暂缓。
-  复测命令：`npm run stats:anomaly-input -- --all`（在 server/ 下，只读；合成夹具 `npm run seed:scale-fixture` 只许写测试库）。
-  > 台账侧的合规性筛选已于同日收口：窄投影算命中 id → 只回查当页（规则仍只有一份实现），
-  > 见 `test-integration/ledger-compliance-filter.int.spec.ts`。
+**当前无遗留工程项**（取数范围收口已于 2026-11-22 落地，口径见
+[.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)）；有新需求按上方三档新增。
 
 ## 四域扩展（已收口，不再立项）
 
