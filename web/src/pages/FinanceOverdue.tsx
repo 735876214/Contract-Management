@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import { Button, Card, Form, Input, InputNumber, Select, Space, Modal, Statistic, DatePicker, Switch, Alert, Table, Tag, Row, Col, Empty } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';
@@ -85,7 +85,7 @@ function OverdueList({ contractOptions }: { contractOptions: any[] }) {
   }, []);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: `确认删除「${(row as any).settlementMonth} 第 ${(row as any).periodSeq || 1} 期」？`,
       content: '删除后该合同逾期利息与结算台账「逾期利息」列会自动重算。',
       okText: '确认删除',
@@ -419,7 +419,7 @@ function PaymentModal({
   };
 
   const remove = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该笔付款？',
       content: '删除后该合同逾期利息与结算台账会自动重算。',
       okText: '确认删除',

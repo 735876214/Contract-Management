@@ -3,7 +3,7 @@ import { formatMoney } from '@/utils/money';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Tabs, Tag, Tooltip } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import {
   CheckOutlined,
   EyeOutlined,
@@ -258,7 +258,7 @@ export default function ContractDraft() {
       setActiveTab('basic');
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: '发布确认',
       width: 520,
       content: (
@@ -293,7 +293,7 @@ export default function ContractDraft() {
   // ==================== 删除草稿 ====================
   const handleRemove = (row: ModuleListRow) => {
     const r = row as any;
-    Modal.confirm({
+    modal.confirm({
       title: '删除草稿',
       content: `确认删除草稿「${r.name || r.code}」？删除后不可恢复。`,
       okText: '删除',

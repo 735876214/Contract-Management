@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatMoney, formatNumber } from '@/utils/money';
 import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Progress, Space, Tag, Timeline, Upload } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { ExportOutlined, FileProtectOutlined, FileWordOutlined, UploadOutlined, PlusSquareOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
@@ -155,7 +155,7 @@ export default function ContractQuery() {
 
   /** 任务 7：合同签章驳回 → 回退到「合同起草」（纯状态回退） */
   const handleReject = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '驳回合同签章',
       content: '确认将该合同从「待签章/已签章」驳回回「合同起草」吗？驳回后需重新发布与签章。',
       okText: '确认驳回',
@@ -730,7 +730,7 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
   };
 
   const remove = (m: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除履约节点',
       content: `确认删除「${m.name}」吗？`,
       okType: 'danger',

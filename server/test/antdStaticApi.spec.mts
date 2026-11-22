@@ -25,10 +25,11 @@ const SRC = repoRoot + 'web/src';
 const BRIDGE_REL = 'utils/antdStatic.ts';
 
 /**
- * 静态 Modal.xxx 存量（当前 confirm 33 / warning 2 / error 1 = 36）：与 message 同一类问题
- * （拿不到 ConfigProvider 主题），先冻结、只许变少；改一处就把这个数下调一次。
+ * 静态 Modal.xxx 已清零（2026-11-22）：与 message 同一类问题（拿不到 ConfigProvider 主题），
+ * 全部改为 `@/utils/antdStatic` 的 `modal`（App.useApp().modal 的桥接）。
+ * 故这里从「冻结存量」升级为**硬规则：必须为 0**。
  */
-const STATIC_MODAL_FROZEN = 36;
+const STATIC_MODAL_ALLOWED = 0;
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const name of readdirSync(dir)) {
@@ -65,12 +66,11 @@ describe('antd 静态 API 主题桥锁（web/src）', () => {
     );
   });
 
-  it('App.tsx 必须把 App.useApp().message 绑到桥接模块', () => {
+  it('App.tsx 必须把 App.useApp() 的 message / modal 绑到桥接模块', () => {
     const app = readFileSync(SRC + '/App.tsx', 'utf8');
-    assert.ok(
-      app.includes('bindAntdMessage(message)'),
-      'App.tsx 里没有 bindAntdMessage(message)：静态 message 会退回无主题实例',
-    );
+    // 两个实例都要绑：只绑 message 的话 modal.confirm 仍会退回无主题 fallback
+    assert.ok(app.includes('bindAntdStatic({ message, modal })'), 'App.tsx 没有 bindAntdStatic({ message, modal })：静态调用会退回无主题实例');
+    assert.ok(app.includes('const { message, modal } = AntdApp.useApp()'), 'App.tsx 未从 AntdApp.useApp() 取到 message / modal');
     assert.ok(/<AntdStaticBridge\s*\/>/.test(app), 'App.tsx 没挂载 <AntdStaticBridge/>：桥接永不绑定');
     assert.ok(
       /<AntdApp>[\s\S]*<AntdStaticBridge\s*\/>[\s\S]*<\/AntdApp>/.test(app),
@@ -78,15 +78,16 @@ describe('antd 静态 API 主题桥锁（web/src）', () => {
     );
   });
 
-  it('静态 Modal.xxx 存量只许变少', () => {
+  it('不得再出现静态 Modal.confirm/info/success/error/warning', () => {
     const count = files.reduce(
       (n, f) => n + (readFileSync(f, 'utf8').match(/\bModal\.(confirm|info|success|error|warning)\(/g)?.length ?? 0),
       0,
     );
-    assert.ok(
-      count <= STATIC_MODAL_FROZEN,
-      '静态 Modal 调用从 ' + STATIC_MODAL_FROZEN + ' 处涨到 ' + count + ' 处：' +
-        '它同样拿不到 ConfigProvider 主题，请改用 App.useApp() 的 modal（组件内）或先登记例外',
+    assert.equal(
+      count,
+      STATIC_MODAL_ALLOWED,
+      '仍有 ' + count + ' 处静态 Modal 调用：它拿不到 ConfigProvider 主题，' +
+        '请改为 import { modal } from \'@/utils/antdStatic\' 后调用 modal.confirm(...)',
     );
   });
 });

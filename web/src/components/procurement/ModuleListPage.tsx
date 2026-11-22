@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge, Button, Checkbox, Col, DatePicker, Dropdown, Form, Input, Modal, Popover, Row, Select, Space, Table, Tag, Tooltip } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Badge, Button, Checkbox, Col, DatePicker, Dropdown, Form, Input, Popover, Row, Select, Space, Table, Tag, Tooltip } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import type { FormInstance } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -722,7 +722,7 @@ export type { FormInstance };
 export function useModuleDelete(moduleKey: string, onChanged?: () => void) {
   return (row: ModuleListRow) => {
     const published = !!row.module?.publishedAt;
-    Modal.confirm({
+    modal.confirm({
       title: published ? '删除该模块并回退流程？' : '清除该模块草稿？',
       content: published
         ? '删除后该模块记录将被移除，任务回退到本阶段并恢复「编制中」；该阶段之后已编制/发布的内容须先删除，否则无法删除本模块。'

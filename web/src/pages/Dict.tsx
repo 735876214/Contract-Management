@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { withToken } from '../utils/download';
 import { Row, Col, Card, Table, Button, Input, Space, Modal, Form, Tag, Popconfirm, InputNumber, Select, Tooltip, Descriptions } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, ImportOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { dictApi } from '@/api/dict';
 import { useDictStore } from '@/store/dict';
@@ -240,7 +240,7 @@ export default function Dict() {
                     if (vBody.code !== 0) { message.error(vBody.message); return; }
                     const vErrors = vBody.data?.errors || [];
                     if (vBody.data?.valid === false || vErrors.length) {
-                      Modal.error({
+                      modal.error({
                         title: `预校验未通过：${vErrors.length} 行存在问题，未写入任何数据`,
                         width: 560,
                         content: (

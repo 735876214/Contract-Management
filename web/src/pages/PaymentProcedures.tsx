@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, Form, Input, Select, Space, Modal, Row, Col, DatePicker, Alert } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Button, Form, Input, Select, Space, Row, Col, DatePicker, Alert } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { paymentProcedureApi, docTemplateApi } from '@/api/modules';
@@ -51,7 +51,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该付款手续？',
       okText: '确认删除',
       okType: 'danger',

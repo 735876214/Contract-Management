@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatNumber } from '@/utils/money';
 import { withToken } from '../utils/download';
 import { Button, Form, Input, Space, Modal, InputNumber, Select, Descriptions, Alert, Table, Tag } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, SwapOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
@@ -138,7 +138,7 @@ function ContractMaterialsList() {
   };
 
   const removeRow = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除该清单行？',
       content: '删除该行不影响物资基础库。',
       okText: '确认删除',

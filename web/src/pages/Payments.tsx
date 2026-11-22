@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, DatePicker, Form, Input, Select, Space, Modal, Row, Col, InputNumber } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Button, DatePicker, Form, Input, Select, Space, Row, Col, InputNumber } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import { fileApi } from '@/api/auth';
 import { paymentApi } from '@/api/modules';
@@ -52,7 +52,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该台账记录？',
       okText: '确认删除',
       okType: 'danger',

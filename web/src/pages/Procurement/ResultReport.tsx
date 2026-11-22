@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Checkbox, Col, DatePicker, Descriptions, Input, InputNumber, Modal, Row, Space, Spin, Table, Tag, Tooltip } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Alert, Button, Card, Checkbox, Col, DatePicker, Descriptions, Input, InputNumber, Row, Space, Spin, Table, Tag, Tooltip } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { EyeOutlined, FileWordOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -318,7 +318,7 @@ export default function ResultReport() {
   /** 任务 7：成交报告「退回 → 重发」（纯状态回退；若下游合同已签章则禁止） */
   const handleRejectResultReport = async () => {
     if (!taskId) return;
-    Modal.confirm({
+    modal.confirm({
       title: '成交报告退回重发',
       content:
         '确认退回成交报告吗？退回后报告恢复为「编制中」可重新编辑并再次发布（重发），已自动生成的合同草稿将被清理。',

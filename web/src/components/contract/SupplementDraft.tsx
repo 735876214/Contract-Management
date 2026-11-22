@@ -3,7 +3,7 @@ import { formatAmount } from '@/utils/money';
 
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography, Modal } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined } from '@ant-design/icons';
 import { contractApi, templateApi } from '@/api/business';
@@ -366,7 +366,7 @@ export default function SupplementDraft({ parent, open, onClose, onDone }: Props
     const id = await ensureContract();
     if (!id) { message.error('补充协议创建失败'); return; }
     await persistFormData(id);
-    Modal.confirm({
+    modal.confirm({
       title: '发布补充协议',
       content: '发布后该补充协议将进入「合同查询」列表，状态为待签章，合同类型与内容不可再修改。',
       okText: '确认发布',

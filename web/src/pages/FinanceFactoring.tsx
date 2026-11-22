@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, Card, Form, Input, InputNumber, Select, Space, Modal, DatePicker, Table, Row, Col, Statistic } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Button, Card, Form, Input, InputNumber, Select, Space, DatePicker, Table, Row, Col, Statistic } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';
@@ -78,7 +78,7 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   }, []);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该保理费用记录？',
       okText: '确认删除',
       okType: 'danger',

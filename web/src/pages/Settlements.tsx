@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '../../../server/src/common/calc/amounts.ts';
-import { Alert, Button, Card, Form, Input, Select, Space, Modal, Row, Col, InputNumber, DatePicker, Table, Tag } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Alert, Button, Card, Form, Input, Select, Space, Row, Col, InputNumber, DatePicker, Table, Tag } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';
@@ -106,7 +106,7 @@ function SettlementsTab({
 
   /** 生成本期结算：从上一期总日报带出明细，按合同各生成一张草稿结算单（服务端幂等） */
   const doGenerate = (refDate?: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: `生成本期结算${pending?.month ? `（${pending.month}）` : ''}`,
       content: pending
         ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内的总日报行（含收领单推送与手工录入），按物资合同各生成一张草稿结算单；结算明细从总日报带出后可修改。已有结算单或已归档的合同会自动跳过。`
@@ -124,7 +124,7 @@ function SettlementsTab({
         }
         // 缺物资主数据的日报行无法形成清单项级明细，服务端已跳过并返回明细原因
         if (res?.warnings?.length) {
-          Modal.warning({
+          modal.warning({
             title: `有 ${res.skippedRows ?? 0} 条总日报行未带出明细`,
             content: (
               <div>
@@ -141,7 +141,7 @@ function SettlementsTab({
   };
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该结算单？',
       okText: '确认删除',
       okType: 'danger',
@@ -156,7 +156,7 @@ function SettlementsTab({
   /** 筛选项（问题四：标准筛选区） */
   /** 任务 7：结算驳回 → 回填（纯状态回退到「草稿」） */
   const handleRejectSettlement = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '结算驳回回填',
       content: '确认将该结算单驳回回「草稿」状态、可重新编辑提交吗？',
       okText: '确认驳回',
@@ -641,7 +641,7 @@ function LedgerTab({
   };
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该台账记录？',
       okText: '确认删除',
       okType: 'danger',

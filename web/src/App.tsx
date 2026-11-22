@@ -5,22 +5,22 @@ import zhCN from 'antd/locale/zh_CN';
 import { routes } from './router';
 import { antdTheme } from './theme';
 import { authApi } from './api/auth';
-import { bindAntdMessage } from './utils/antdStatic';
+import { bindAntdStatic } from './utils/antdStatic';
 
 const router = createBrowserRouter(routes);
 
 /**
- * 把 <AntdApp> 的主题化 message 绑到静态调用点（见 src/utils/antdStatic.ts）。
+ * 把 <AntdApp> 的主题化 message / modal 绑到静态调用点（见 src/utils/antdStatic.ts）。
  *
- * 组件外的 message.success(...)（http 拦截器、工具函数）拿不到 ConfigProvider 的上下文，
+ * 组件外的 message.success(...) / modal.confirm(...)（http 拦截器、工具函数）拿不到 ConfigProvider 上下文，
  * 直接用 antd 静态 API 会丢主题并在控制台报警；这里在 React 树内取一次带上下文的实例存过去，
  * 全部调用点无需改动。**必须渲染在 <AntdApp> 内部**。
  */
 function AntdStaticBridge() {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
   useEffect(() => {
-    bindAntdMessage(message);
-  }, [message]);
+    bindAntdStatic({ message, modal });
+  }, [message, modal]);
   return null;
 }
 

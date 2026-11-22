@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Card, Table, Button, Form, Input, Select, Space, Modal, Popconfirm, Tag } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import {
   PlusOutlined,
@@ -107,7 +107,7 @@ export default function ProcurementTemplates() {
     const doSave = async () => {
       const conflict = await findConflict(payload.moduleType, editing?.id);
       if (conflict) {
-        Modal.confirm({
+        modal.confirm({
           title: '覆盖确认',
           content: `「${procurementModuleLabel(payload.moduleType)}」已有模板《${conflict.templateName}》，保存后将覆盖旧模板（旧版本会进入版本历史），是否继续？`,
           okText: '覆盖旧模板',
@@ -123,7 +123,7 @@ export default function ProcurementTemplates() {
       await doSaveInner(payload, editing?.id, editing?.version);
     };
     if (problems.length) {
-      Modal.confirm({
+      modal.confirm({
         title: '占位符写法警告',
         width: 520,
         content: (

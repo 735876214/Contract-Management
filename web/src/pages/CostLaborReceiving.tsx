@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatAmount, formatNumber } from '@/utils/money';
 import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
 import { LABOR_RECEIVING_DOC_STATUS as DOC_STATUS } from '@/constants/laborReceivingStatus';
@@ -36,7 +36,7 @@ function DocList() {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该领用单据？（明细一并删除）',
       okText: '确认删除',
       okType: 'danger',
@@ -232,7 +232,7 @@ function DocEditor({ id }: { id: string }) {
   };
 
   const markComplete = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '标记为已完成？',
       content: '完成后单据仍可编辑。',
       onOk: async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, Tag, Select, Checkbox } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal as antdModal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, SearchOutlined, HistoryOutlined, ReloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { templateApi } from '@/api/business';
@@ -90,7 +90,7 @@ export default function Templates() {
       }
     };
     if (problems.length) {
-      Modal.confirm({
+      antdModal.confirm({
         title: '占位符写法警告',
         width: 520,
         content: (

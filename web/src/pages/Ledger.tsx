@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { message, modal } from '@/utils/antdStatic';
 import { ExportOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
@@ -169,7 +169,7 @@ function LedgerList() {
   };
 
   const confirmRemove = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该合同？',
       content: '存在下游单据或补充协议时会被服务端拒绝，请改为归档；仅物资清单等随合同级联删除。',
       okText: '删除',

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '@/utils/money';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Upload } from 'antd';
-import { message } from '@/utils/antdStatic';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Upload } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { CameraOutlined, DeleteOutlined, PaperClipOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SelectOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { receiptOrderApi } from '@/api/business';
@@ -323,7 +323,7 @@ export default function ReceiptOrders() {
   const loadDetailsFor = async (fetcher: () => Promise<any>, okMessage: string) => {
     if (details.length) {
       const ok = await new Promise((resolve) => {
-        Modal.confirm({
+        modal.confirm({
           title: '重新加载明细清单？',
           content: '将重新带出清单，当前已填写的手动数据会被覆盖。',
           okText: '重新加载',
