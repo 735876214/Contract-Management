@@ -1,3 +1,4 @@
+import { projectVars } from './projectVars.ts';
 /**
  * 采购文件 · 文档构建与变量取值（批次二 · 任务 3.4）
  *
@@ -183,13 +184,8 @@ export function buildDocumentVariableValues(
   ctx: DocumentContext,
 ): Record<string, string> {
   return {
-    项目名称: ctx.projectName ?? '',
-    项目简称: ctx.projectAbbr ?? '',
-    承接单位: ctx.undertaker ?? '',
-    项目所在省市: ctx.provinceCity ?? '',
-    工程地点: ctx.siteLocation ?? '',
-    项目地址: ctx.projectAddress ?? '',
-    物资产地: ctx.materialOrigin ?? '',
+    // 项目基本情况变量：采购 6 个单据模块共用同一份取值（utils/projectVars.ts）
+    ...projectVars(ctx),
     采购编号: String(ctx.procurementNo ?? ''),
     采购内容: String(ctx.content ?? ''),
     技术质量标准: rich(ctx.techQuality),

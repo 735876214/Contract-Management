@@ -81,7 +81,7 @@ export class InvoiceService {
       }),
       this.prisma.invoice.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   async findOne(id: string, projectId?: string) {
