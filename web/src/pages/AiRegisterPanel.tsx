@@ -290,8 +290,8 @@ export default function AiRegisterPanel() {
                           { title: '规格', dataIndex: 'spec' },
                           { title: '单位', dataIndex: 'unit', width: 70 },
                           { title: '数量', dataIndex: 'qty', width: 80 },
-                          { title: '含税单价', dataIndex: 'unitPriceWithTax', width: 110 },
-                          { title: '含税合价', dataIndex: 'amountWithTax', width: 110 },
+                          { title: '含税单价', dataIndex: 'unitPriceWithTax', width: 110, align: 'right' as const },
+                          { title: '含税合价', dataIndex: 'amountWithTax', width: 110, align: 'right' as const },
                           { title: '备注', dataIndex: 'remark' },
                         ]}
                       />

@@ -423,10 +423,10 @@ export default function Document() {
       render: (v: number | null) => (v != null ? formatNumber(v) : '-'),
     },
     // 以下四列留空（由投标方填写）
-    { title: '税前单价', dataIndex: 'preTaxPrice', width: 100, render: priceCell },
-    { title: '税率', dataIndex: 'taxRate', width: 80, render: priceCell },
-    { title: '综合单价', dataIndex: 'unitPrice', width: 100, render: priceCell },
-    { title: '合价', dataIndex: 'amount', width: 110, render: priceCell },
+    { title: '税前单价', dataIndex: 'preTaxPrice', width: 100, align: 'right' as const, render: priceCell },
+    { title: '税率', dataIndex: 'taxRate', width: 80, align: 'right' as const, render: priceCell },
+    { title: '综合单价', dataIndex: 'unitPrice', width: 100, align: 'right' as const, render: priceCell },
+    { title: '合价', dataIndex: 'amount', width: 110, align: 'right' as const, render: priceCell },
     { title: '备注', dataIndex: 'remark', width: 140, render: (v: string | null) => v || '-' },
   ];
 

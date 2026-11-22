@@ -420,6 +420,18 @@ body {
   border-bottom: 1px solid var(--cms-hairline-soft);
 }
 
+/* 数字排版：**等宽数字**（tabular-nums）。
+   Inter 默认是比例数字（"1" 比 "8" 窄），于是金额列上下两行的千分位/小数位对不齐——
+   右对齐只对齐了数字块的右边缘，位数一变，中间就歪。等宽数字让每一列的数字天然成"数字塔"。
+   范围只到表格与 KPI 数字（正文里的零星数字仍是比例数字，排印更好看）。
+   规则与取数口径见 DESIGN.md §2「数字排版」；锁定：server/test/designNumeric.spec.mts。 */
+.ant-table,
+.ant-statistic-content {
+  font-variant-numeric: tabular-nums;
+  /* 老内核兜底（Edge 88 之前的 font-feature-settings 写法） */
+  font-feature-settings: 'tnum' 1;
+}
+
 /* 卡片：去阴影、奶油底 + hairline（"color-block first, shadow rare"） */
 .ant-card {
   border-color: var(--cms-hairline);

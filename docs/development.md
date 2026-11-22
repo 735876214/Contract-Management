@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（100 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（101 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（29 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -145,6 +145,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/antdStaticApi.spec.mts` | **antd 静态 API 主题桥锁**（`web/src` 不得再从 antd 直接引入静态 `message`；`App.tsx` 必须把 `App.useApp().message` 绑到 `utils/antdStatic.ts`；静态 `Modal.xxx` 必须为 0） |
+  | `test/designNumeric.spec.mts` | **数字排版锁**（DESIGN.md §2.1）：表格/KPI 必须声明等宽数字 `tabular-nums` 且只在 `index.css` 收口；金额语义的列必须 `align: 'right'` |
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** + **前端兜底菜单 `menuConfig.ts` ↔ `MENU_TREE` 逐项同序锁**（deepEqual：key/label/icon/path/permission/children） |
