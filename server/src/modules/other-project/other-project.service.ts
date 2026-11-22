@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { sharedScopeWhere } from '../../common/utils/project-scope';
 
 /**
  * 其他项目库（基础信息管理，2026-11-20）。
@@ -31,9 +32,10 @@ export class OtherProjectService {
     private tasks: ImportTaskService,
   ) {}
 
-  private async scopeWhere(projectId?: string) {
+  private async scopeWhere(projectId?: string | null) {
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
-    return scope === 'PROJECT' && projectId ? { projectId } : {};
+    // 单一实现（含 fail-closed）：不再各模块手抄「没项目 id 就不过滤」
+    return sharedScopeWhere(scope, projectId);
   }
 
   private async ownerProjectId(projectId?: string) {

@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { sharedScopeWhere } from '../../common/utils/project-scope';
 
 /**
  * 分包商库（基础信息管理，2026-11-20）。
@@ -36,9 +37,10 @@ export class SubcontractorService {
   ) {}
 
   /** 共享范围：GLOBAL 全局共享 / PROJECT 项目隔离（沿用 supplier.share.scope） */
-  private async scopeWhere(projectId?: string) {
+  private async scopeWhere(projectId?: string | null) {
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
-    return scope === 'PROJECT' && projectId ? { projectId } : {};
+    // 单一实现（含 fail-closed）：不再各模块手抄「没项目 id 就不过滤」
+    return sharedScopeWhere(scope, projectId);
   }
 
   /** 唯一键口径：`@@unique([projectId, name])` 里 projectId 为空时 PG 不判重，需应用层查 */
