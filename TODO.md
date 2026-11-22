@@ -41,10 +41,6 @@
 > `2863841`（P0–P1 质量整改）在 main 上完成；本分支补的是它没覆盖的**口径单一实现**与**样板去重**。
 > 下面只留**尚未做**的。
 
-- **另两个模块的写路径仍无 int 覆盖**：`payment-procedure` 已有
-  `test-integration/payment-procedure.int.spec.ts`（开累快照/换合同重取/编号规则），
-  但 `other-project`（导入 submit 的幂等与重复名拦截）与 `notification`（已读标记只能动自己的）
-  仍只有纯函数层覆盖；补 int 时记得同步 `docs/development.md §5` 的清单与计数。
 - **前端金额展示的第二层**：`web/src/utils/money.ts` 已统一 `money()`/`toLocaleString`，
   但**列宽与小数位仍由各页自己给**（如 `width: 140`）；若要让「金额列宽度/对齐」也一致，得把
   `formatMoney` 与列定义捆成一个 helper，属视觉规范议题（见 DESIGN.md）。
