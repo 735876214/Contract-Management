@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /**
  * 分包商库（基础信息管理，2026-11-20）。
@@ -58,15 +59,8 @@ export class SubcontractorService {
   async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query, 500);
     const where: any = { ...(await this.scopeWhere(projectId)) };
-    if (query.keyword) {
-      where.OR = [
-        { name: { contains: query.keyword } },
-        { legalPerson: { contains: query.keyword } },
-        { contactName: { contains: query.keyword } },
-        { contactPhone: { contains: query.keyword } },
-        { creditCode: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['name', 'legalPerson', 'contactName', 'contactPhone', 'creditCode'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.subcontractor.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),

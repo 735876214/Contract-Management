@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { keywordWhere } from '../../common/utils/list-where';
 
 const SUPPLIER_FIELDS = [
   'name', 'legalPerson', 'legalPhone', 'contractAuthPerson', 'contractAuthPhone',
@@ -39,14 +40,8 @@ export class SupplierService {
     const { skip, take } = paginate(query, maxPageSize);
     const base = await this.scopeWhere(projectId);
     const where: any = { ...base };
-    if (query.keyword) {
-      where.OR = [
-        { name: { contains: query.keyword } },
-        { legalPerson: { contains: query.keyword } },
-        { contactName: { contains: query.keyword } },
-        { contactPhone: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['name', 'legalPerson', 'contactName', 'contactPhone'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.supplier.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),

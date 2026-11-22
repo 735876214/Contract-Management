@@ -9,7 +9,7 @@ import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
-import { dateRange } from '../../common/utils/list-where';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 开累两值的**同一实现**（与台账、防超付闸门、工作台预警共用）：不要在别处另算一遍
 import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
 
@@ -40,13 +40,8 @@ export class PaymentProcedureService {
     if (query.contractId) where.contractId = query.contractId;
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.statusCode) where.statusCode = query.statusCode;
-    if (query.keyword) {
-      where.OR = [
-        { code: { contains: query.keyword } },
-        { contract: { name: { contains: query.keyword } } },
-        { supplier: { name: { contains: query.keyword } } },
-      ];
-    }
+    const kw = keywordWhere(['code', 'contract.name', 'supplier.name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const range = dateRange(query.startDate, query.endDate);
     if (range) where.payDate = range;
     const [list, total] = await Promise.all([

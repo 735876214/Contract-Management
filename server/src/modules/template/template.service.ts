@@ -14,6 +14,7 @@ import {
   pickSupplierSnapshot,
 } from '../../common/utils/supplier-snapshot';
 import { renderTemplate, pendingPlaceholders } from './template-render';
+import { keywordWhere } from '../../common/utils/list-where';
 
 // version 只用于乐观锁校验（create/update 里都由服务端显式赋值，不会被请求体覆盖）
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy', 'version'];
@@ -62,7 +63,8 @@ export class TemplateService {
     if (docCategories.length) {
       and.push({ OR: [{ categoryCode: null }, { categoryCode: { notIn: docCategories } }] });
     }
-    if (query.keyword) and.push({ OR: [{ name: { contains: query.keyword } }, { tags: { contains: query.keyword } }] });
+    const kw = keywordWhere(['name', 'tags'], query.keyword);
+    if (kw) and.push(kw);
     if (query.categoryCode) and.push({ categoryCode: query.categoryCode });
     if (projectId) and.push({ OR: [{ projectId: null }, { projectId }] });
     const includeHistory = query.includeHistory === 'true' || query.includeHistory === true;

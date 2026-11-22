@@ -202,14 +202,8 @@ export class SystemService {
     if (query.result) where.result = query.result;
     if (query.bizType) where.bizType = query.bizType;
     if (query.projectId) where.projectId = query.projectId;
-    if (query.keyword) {
-      where.OR = [
-        { username: { contains: query.keyword } },
-        { action: { contains: query.keyword } },
-        { url: { contains: query.keyword } },
-        { bizId: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['username', 'action', 'url', 'bizId'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const range = dateRange(query.startDate, query.endDate);
     if (range) where.createdAt = range;
     const [list, total] = await Promise.all([

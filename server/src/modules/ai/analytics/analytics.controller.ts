@@ -6,6 +6,7 @@ import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../../common/decorators/user.decorator';
 import type { AiAnalyticsPlanInput } from '../intent/intent.types';
+import { sendFile } from '../../../common/http/download';
 
 /**
  * AI 经营数据助手（`/api/ai/analytics`）。
@@ -78,13 +79,9 @@ export class AnalyticsController {
   ) {
     const isPdf = String(format || 'docx').toLowerCase() === 'pdf';
     const { buffer, fileName } = await this.service.exportRecord(id, format, user);
-    res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="analytics.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    res.end(buffer);
+    sendFile(res, fileName, buffer, isPdf ? 'pdf' : 'docx', {
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
   }
 
   /** 下载存档工作簿（只按记录 key 读取） */
@@ -92,13 +89,7 @@ export class AnalyticsController {
   @Get(':id/workbook')
   async workbookFile(@Param('id') id: string, @CurrentUser() user: JwtUser, @Res() res: Response) {
     const { buffer, fileName } = await this.service.workbookFile(id, user);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="analytics.xlsx"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    res.end(buffer);
+    sendFile(res, fileName, buffer, 'xlsx', { 'Access-Control-Expose-Headers': 'Content-Disposition' });
   }
 
   @RequirePermissions('ai:view')

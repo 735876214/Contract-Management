@@ -46,6 +46,7 @@ import {
   PRE_MEETING_THRESHOLD_YUAN,
   type TaskRow,
 } from './procurement-task-shared';
+import { keywordWhere } from '../../common/utils/list-where';
 // 阶段下标纯函数与阈值已迁至 shared，此处 re-export 以兼容既有引用（如 tender-bidders 集成测试）
 export {
   PRE_MEETING_THRESHOLD_YUAN,
@@ -203,9 +204,8 @@ export class ProcurementTaskService {
     const where: any = { projectId };
     if (query.status) where.status = query.status;
     if (query.type) where.type = query.type;
-    if (query.keyword) {
-      where.OR = [{ taskNo: { contains: query.keyword } }, { content: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['taskNo', 'content'], query.keyword);
+    if (kw) where.OR = kw.OR;
     // 采前会列表：仅显示需要采前会的单项采购任务（保存总清单后按金额 ≥ 100 万自动判定）
     if (query.preMeetingRequired === 'true') where.preMeetingRequired = true;
     if (query.taskNo) where.taskNo = { contains: query.taskNo };

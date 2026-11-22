@@ -13,7 +13,7 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
-import { dateRange } from '../../common/utils/list-where';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 /**
  * 跨模块写入只走对方公开入口（第 22 轮审计 P3）：资产台账归 asset、总日报归 daily-report，
  * 收领单只表达「该入账/该推送」的意图，具体落表由这两组原语完成。
@@ -175,15 +175,8 @@ export class ReceiptOrderService {
     if (query.materialContractId) where.materialContractId = query.materialContractId;
     if (query.status) where.status = query.status;
     if (query.receiver) where.receiver = { contains: query.receiver };
-    if (query.keyword) {
-      where.OR = [
-        { orderNo: { contains: query.keyword } },
-        { supplierName: { contains: query.keyword } },
-        { receivingUnitName: { contains: query.keyword } },
-        { materialContractNo: { contains: query.keyword } },
-        { receiver: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['orderNo', 'supplierName', 'receivingUnitName', 'materialContractNo', 'receiver'], query.keyword);
+    if (kw) where.OR = kw.OR;
     // 边界统一走 common/calc/time 的本地日原语（''YYYY-MM-DD'' 交给 new Date 会按 UTC 解析）
     const range = dateRange(query.startDate, query.endDate);
     if (range) where.orderDate = range;

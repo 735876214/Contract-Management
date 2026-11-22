@@ -25,6 +25,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 上传限额：multer 层 50MB 是**硬上限**（与 nginx `client_max_body_size 50m`、
@@ -256,13 +257,9 @@ export class AiController {
     const { buffer, fileName } = isPdf
       ? await this.report.exportPdf(body || {})
       : await this.report.exportDocx(body || {});
-    res.setHeader('Content-Type', isPdf ? 'application/pdf' : this.service.docxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="report.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    res.end(buffer);
+    sendFile(res, fileName, buffer, isPdf ? 'pdf' : 'docx', {
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
   }
 
   // @body: typed=inline
@@ -283,15 +280,11 @@ export class AiController {
       user,
     );
     // 统计放进响应头：附件流的正文是二进制，前端拿不到 JSON
-    res.setHeader('Content-Type', this.service.xlsxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-    );
-    res.setHeader('x-ai-filled', String(result.filled));
-    res.setHeader('x-ai-skipped', String(result.skipped.length));
-    res.setHeader('Access-Control-Expose-Headers', 'x-ai-filled, x-ai-skipped, Content-Disposition');
-    res.end(result.buffer);
+    sendFile(res, result.fileName, result.buffer, 'xlsx', {
+      'x-ai-filled': String(result.filled),
+      'x-ai-skipped': String(result.skipped.length),
+      'Access-Control-Expose-Headers': 'x-ai-filled, x-ai-skipped, Content-Disposition',
+    });
   }
 
   /**
@@ -323,18 +316,11 @@ export class AiController {
     @Res() res: Response,
   ) {
     const result = await this.service.fillTable(file, body || {}, formContext(body, projectId), user);
-    res.setHeader('Content-Type', this.service.xlsxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-    );
-    res.setHeader('x-ai-filled-rows', String(result.filledRows));
-    res.setHeader('x-ai-skipped', String(result.skippedCells));
-    res.setHeader('x-ai-truncated', result.truncated ? '1' : '0');
-    res.setHeader(
-      'Access-Control-Expose-Headers',
-      'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
-    );
-    res.end(result.buffer);
+    sendFile(res, result.fileName, result.buffer, 'xlsx', {
+      'x-ai-filled-rows': String(result.filledRows),
+      'x-ai-skipped': String(result.skippedCells),
+      'x-ai-truncated': result.truncated ? '1' : '0',
+      'Access-Control-Expose-Headers': 'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
+    });
   }
 }

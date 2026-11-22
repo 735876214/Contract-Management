@@ -1197,9 +1197,8 @@ export class ContractService {
     const and: any[] = [{ projectId }];
     // 需求修正6：待签章/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
     and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, LEGACY_CONTRACT_STATUS_COMPLETED] } }, { status: null }] });
-    if (query.keyword) {
-      and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
-    }
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) and.push(kw);
     if (query.supplierId) and.push({ supplierId: query.supplierId });
     const signDate: any = {};
     // 本地日区间原语（与列表筛选同口径）：'YYYY-MM-DD' 交给 new Date 会按 UTC 解析

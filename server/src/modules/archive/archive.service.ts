@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { sendAttachmentHeaders } from '../../common/http/download';
 // archiver v8 是纯 ESM 包（无 default 导出）；编译产物是 CJS，经 interop 后命名导出仍可用
 import { ZipArchive as Archiver } from 'archiver';
 import { PDFDocument } from 'pdf-lib';
@@ -116,11 +117,8 @@ export class ArchiveService {
     // 不再把全部附件 Buffer 留在 JSZip 里（大项目会 OOM）。
     const archive = new Archiver({ zlib: { level: 9 } });
     const filename = `${root}-归档-${scopeLabel}-${localDayKey()}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-    );
+    // 流式打包（archiver 直接 pipe）：只走统一的「附件响应头」，不缓冲整个 zip
+    sendAttachmentHeaders(res, filename, 'zip');
     archive.on('error', (err) => res.destroy(err));
     archive.pipe(res);
 

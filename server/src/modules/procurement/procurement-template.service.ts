@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /** 允许的采购模块类型（批次一 · 任务 1.2） */
 const MODULE_TYPES = [
@@ -37,12 +38,8 @@ export class ProcurementTemplateService {
   async findAll(query: any = {}) {
     const { skip, take } = paginate(query);
     const where: any = {};
-    if (query.keyword) {
-      where.OR = [
-        { templateName: { contains: String(query.keyword) } },
-        { tags: { contains: String(query.keyword) } },
-      ];
-    }
+    const kw = keywordWhere(['templateName', 'tags'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.moduleType) {
       if (!isModuleType(query.moduleType)) throw new BadRequestException('无效的采购模块类型');
       where.moduleType = query.moduleType;

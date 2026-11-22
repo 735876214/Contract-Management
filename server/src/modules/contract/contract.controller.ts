@@ -106,9 +106,7 @@ export class ContractController {
   @Get(':id/signed-file')
   async signedFile(@Param('id') id: string, @Res() res: Response) {
     const { buffer, filename } = await this.contractService.signedFile(id);
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'bin');
   }
 
   // ---------------- 合同起草：物料编码清单（Tab1） ----------------

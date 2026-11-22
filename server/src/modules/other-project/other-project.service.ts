@@ -9,6 +9,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
 import { parseOtherProjectStatus } from './status';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /**
  * 其他项目库（基础信息管理，2026-11-20）。
@@ -51,9 +52,8 @@ export class OtherProjectService {
   async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query, 500);
     const where: any = { ...(await this.scopeWhere(projectId)) };
-    if (query.keyword) {
-      where.OR = [{ name: { contains: query.keyword } }, { code: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['name', 'code'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.otherProject.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),

@@ -16,7 +16,7 @@ import {
   resolveAssetSourceFilter,
   summarizeAssetFlow,
 } from '../../common/utils/asset-flow';
-import { dateRange } from '../../common/utils/list-where';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 const ASSET_FIELDS = [
   'date', 'sourceCode', 'categoryL1Code', 'categoryFocusCode', 'name', 'spec', 'unit',
@@ -56,9 +56,8 @@ export class AssetService {
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
-    if (query.keyword) {
-      where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['name', 'spec', 'receiveUnit'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const sourceFilter = resolveAssetSourceFilter(query.sourceCode, query.direction);
     if (sourceFilter) where.sourceCode = sourceFilter;
     if (query.categoryL1Code) where.categoryL1Code = query.categoryL1Code;

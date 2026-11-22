@@ -6,6 +6,7 @@ import { ImportTaskService } from '../../common/services/import-task.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { pickFields } from '../../common/pick-fields';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /**
  * 字典类型允许前端写回的字段。
@@ -121,9 +122,8 @@ export class DictService {
   async findTypes(query: any = {}) {
     const { skip, take } = paginate(query);
     const where: any = {};
-    if (query.keyword) {
-      where.OR = [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.dictType.findMany({ where, skip, take, orderBy: [{ sort: 'asc' }, { createdAt: 'asc' }] }),
@@ -190,9 +190,8 @@ export class DictService {
   async findItems(query: any = {}) {
     const where: any = {};
     if (query.typeCode) where.typeCode = query.typeCode;
-    if (query.keyword) {
-      where.OR = [{ itemName: { contains: query.keyword } }, { itemCode: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['itemName', 'itemCode'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     // @no-limit: 字典项管理列表按 typeCode 过滤，单类型项数很小
     const list = await this.prisma.dictItem.findMany({

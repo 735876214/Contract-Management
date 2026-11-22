@@ -13,6 +13,7 @@ import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { DictService } from '../dict';
 import { SettlementService } from '../settlement';
+import { keywordWhere } from '../../common/utils/list-where';
 
 const BASE_FIELDS = [
   'name', 'spec', 'categoryLevel1', 'categoryLevel2', 'mdmCode', 'dscCode',
@@ -124,14 +125,8 @@ export class MaterialService {
   async findBases(query: any = {}, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
     const where: any = {};
-    if (query.keyword) {
-      where.OR = [
-        { name: { contains: query.keyword } },
-        { spec: { contains: query.keyword } },
-        { mdmCode: { contains: query.keyword } },
-        { dscCode: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['name', 'spec', 'mdmCode', 'dscCode'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     if (query.categoryLevel1) where.categoryLevel1 = query.categoryLevel1;
     if (query.categoryLevel2) where.categoryLevel2 = query.categoryLevel2;

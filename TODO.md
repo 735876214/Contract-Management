@@ -41,10 +41,6 @@
 > `2863841`（P0–P1 质量整改）在 main 上完成；本分支补的是它没覆盖的**口径单一实现**与**样板去重**。
 > 下面只留**尚未做**的。
 
-- **列表筛选与导出样板（本分支只做了一半）**：`common/utils/list-where.ts` 的 `keywordWhere` 已用于 6 个简单模块，
-  仍有约 23 处 `if (query.keyword) where.OR = [...]`（含跨关联的 `contract: { name }` 形态，需扩 API）；
-  `common/http/download.ts` 的 `sendFile` 已接 18 个 controller，另 4 个（`ai` / `ai/analytics` / `dict` /
-  `procurement-task`）带自定义响应头（`x-ai-filled` 等），需逐个看再收。
 - **三个零覆盖模块的第二层**：`payment-procedure` / `other-project` / `notification` 的**纯函数层**已有 spec，
   但写路径（开累快照落库、导入 submit、已读标记）仍无 `test-integration` 覆盖；补 int 时记得同步
   `docs/development.md §5` 清单与计数。

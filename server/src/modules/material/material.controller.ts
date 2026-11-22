@@ -133,14 +133,9 @@ export class MaterialController {
   @RequirePermissions('material:view')
   @Get('contract-materials/export')
   async exportRows(@Query('contractId') contractId: string, @Query('format') format: string, @ProjectId() projectId: string, @Res() res: Response) {
-    const { buffer, filename, mime } = await this.service.exportRows(
-      contractId,
-      format === 'csv' ? 'csv' : 'xlsx',
-      projectId,
-    );
-    res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    const kind = format === 'csv' ? 'csv' : 'xlsx';
+    const { buffer, filename } = await this.service.exportRows(contractId, kind, projectId);
+    sendFile(res, filename, buffer, kind);
   }
 
   @RequirePermissions('material:edit')

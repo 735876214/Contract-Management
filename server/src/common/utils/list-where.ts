@@ -23,11 +23,21 @@ export function dateRange(startDate: unknown, endDate: unknown): { gte?: Date; l
 
 /**
  * 关键字模糊匹配（任一字段命中即算）：空关键字返回 null。
- * 用法：`const kw = keywordWhere([{ name: true }, { code: true }], query.keyword);
- *        if (kw) and.push(kw);`  —— 传字段名数组即可，`contains` 会按字段展开。
+ *
+ * 用法：`const kw = keywordWhere(['name', 'contract.name'], query.keyword); if (kw) where.OR = kw.OR;`
+ * 字段可写**关联路径**（`contract.name` → `{ contract: { name: { contains } } }`），
+ * 这样跨关联的搜索也不必各写一份形状。字段白名单仍由各模块自己给（搜哪些列是业务口径）。
  */
-export function keywordWhere(fields: readonly string[], keyword: unknown): any | null {
+export function keywordWhere(fields: readonly string[], keyword: unknown): { OR: Record<string, any>[] } | null {
   const kw = String(keyword ?? '').trim();
   if (!kw || !fields.length) return null;
-  return { OR: fields.map((f) => ({ [f]: { contains: kw } })) };
+  return { OR: fields.map((f) => nestedContains(f, kw)) };
+}
+
+/** `a.b.c` → `{ a: { b: { c: { contains: kw } } } }` */
+function nestedContains(path: string, kw: string): Record<string, any> {
+  const parts = path.split('.').filter(Boolean);
+  let node: Record<string, any> = { contains: kw };
+  for (let i = parts.length - 1; i >= 0; i -= 1) node = { [parts[i]]: node };
+  return node;
 }

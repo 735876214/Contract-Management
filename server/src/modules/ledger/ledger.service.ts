@@ -14,6 +14,7 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { calcLedgerCompliance } from './ledger-compliance';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { LEDGER_COLUMNS, ledgerColumnWidthPx } from './ledger-columns';
+import { keywordWhere } from '../../common/utils/list-where';
 
 // 列定义与列宽换算已抽到 ./ledger-columns（零依赖，可单测）；此处再导出以兼容既有引用
 export { LEDGER_COLUMNS, ledgerColumnWidthPx };
@@ -36,7 +37,8 @@ export class LedgerService {
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }];
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.contractCode) where.code = { contains: query.contractCode };
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.typeCode) where.typeCode = query.typeCode;

@@ -115,4 +115,15 @@ describe('列表查询公共片段（list-where）', () => {
       OR: [{ name: { contains: '钢筋' } }, { code: { contains: '钢筋' } }],
     });
   });
+
+  it('关键字支持关联路径：contract.name → { contract: { name: { contains } } }', () => {
+    // 付款手续/结算单这类「按合同名/供应商名搜」的场景：形状只在这里定义，模块不再各写一份
+    assert.deepEqual(keywordWhere(['code', 'contract.name', 'supplier.name'], ' HT '), {
+      OR: [
+        { code: { contains: 'HT' } },
+        { contract: { name: { contains: 'HT' } } },
+        { supplier: { name: { contains: 'HT' } } },
+      ],
+    });
+  });
 });
