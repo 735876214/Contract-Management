@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { toDate, localDayKey, startOfDay, endOfDay } from '../../common/calc/time';
+import { toDate, localDayKey } from '../../common/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 @Injectable()
 export class RepaymentService {
@@ -23,16 +24,10 @@ export class RepaymentService {
     if (query.code) where.code = { contains: query.code };
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.contractId) where.contractId = query.contractId;
-    if (query.startDate || query.endDate) {
-      // 边界统一走 common/calc/time 的本地日原语：`new Date('YYYY-MM-DD')` 是 UTC 解析，
-      // 会把「当天 00:00 之后的记录」漏掉（各模块曾有三种写法，见 time.ts 的 endOfDay 注释）
-      where.signDate = {};
-      const from = startOfDay(query.startDate);
-      const to = endOfDay(query.endDate);
-      if (from) where.signDate.gte = from;
-      if (to) where.signDate.lte = to;
-    }
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { material: { contains: query.keyword } }];
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.signDate = range;
+    const kw = keywordWhere(['code', 'material'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [list, total] = await Promise.all([
       this.prisma.repaymentAgreement.findMany({
         where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

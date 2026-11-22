@@ -20,6 +20,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacy } from '../../common/utils/import-result';
 
 /**
  * 分包商库（基础信息管理 → 分包商库）。
@@ -46,9 +48,7 @@ export class SubcontractorController {
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const buffer = await this.subcontractorService.export(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=subcontractors.xlsx');
-    res.end(buffer);
+    sendFile(res, 'subcontractors.xlsx', buffer, 'xlsx');
   }
 
   /** 下载填写模板（须声明在 :id 通配路由之前） */
@@ -56,9 +56,7 @@ export class SubcontractorController {
   @Get('template')
   async template(@Res() res: Response) {
     const { buffer, filename } = await this.subcontractorService.template();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   @RequirePermissions('subcontractor:view')
@@ -97,7 +95,7 @@ export class SubcontractorController {
   @Post('import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacy();
     return this.subcontractorService.import(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
@@ -105,7 +103,7 @@ export class SubcontractorController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.subcontractorService.import(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 }

@@ -25,6 +25,7 @@ import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { calcAmount, taxAmountDiff } from '../../common/calc/amounts';
 import { isFilledNumber } from '../../common/utils/ledger-derived';
+import { keywordWhere } from '../../common/utils/list-where';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
 const INVOICE_FIELDS = [
@@ -66,7 +67,8 @@ export class InvoiceService {
     if (query.reviewStatus) where.reviewStatus = query.reviewStatus;
     if (query.goodsCategory) where.goodsCategory = query.goodsCategory;
     if (query.invoiceNo) where.invoiceNo = { contains: query.invoiceNo };
-    if (query.keyword) where.OR = [{ invoiceNo: { contains: query.keyword } }, { issuer: { contains: query.keyword } }];
+    const kw = keywordWhere(['invoiceNo', 'issuer'], query.keyword);
+    if (kw) where.OR = kw.OR;
     // 红冲原票候选：只要有效票（终态票不能再作为红冲对象）。用 AND 包住上面可能已有的 OR
     if (query.excludeTerminal) where.AND = [...(where.AND ?? []), countedInvoiceWhere()];
     const [list, total] = await Promise.all([

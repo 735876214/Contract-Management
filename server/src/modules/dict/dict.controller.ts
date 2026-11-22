@@ -20,6 +20,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { noFileImportResult } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('dict')
@@ -150,7 +151,7 @@ export class DictController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   async importValidate(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 

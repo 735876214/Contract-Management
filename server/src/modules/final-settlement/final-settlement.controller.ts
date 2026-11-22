@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 总结算单（结算及付款管理，业务口径 2026-10-16）。
@@ -37,9 +38,7 @@ export class FinalSettlementController {
     @Res() res: Response,
   ) {
     const { buffer, filename } = await this.service.export(id, undefined, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   @RequirePermissions('settlement:view')

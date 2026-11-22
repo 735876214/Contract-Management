@@ -7,6 +7,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('assets')
@@ -30,9 +32,7 @@ export class AssetController {
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename } = await this.service.export(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 下载填写模板（需求 3.3） */
@@ -40,9 +40,7 @@ export class AssetController {
   @Get('template')
   async template(@Res() res: Response) {
     const { buffer, filename } = await this.service.template();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 上传导入数据（需求 3.4） */
@@ -50,7 +48,7 @@ export class AssetController {
   @Post('import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importAssets(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { created: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacyNoUpdate();
     return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
@@ -59,7 +57,7 @@ export class AssetController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importAssetsValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 

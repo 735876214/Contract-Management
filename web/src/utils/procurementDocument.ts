@@ -19,6 +19,8 @@
  */
 
 /** 采购清单行（只读，来自总采购清单；价格列恒为空由投标方填写） */
+import { formatAmount } from './money.ts';
+
 export interface DocumentPurchaseItem {
   materialName?: string | null;
   spec?: string | null;
@@ -86,10 +88,9 @@ const fmtDate = (v: string | Date | null | undefined): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-/** 金额格式化（千分位 + 2 位小数）；空值返回空串 */
+/** 金额格式化（千分位 + 2 位小数）；空值返回空串（文档正文口径，与台账的 `-` 不同） */
 export function fmtAmount(v: number | null | undefined): string {
-  if (v == null || v === ('' as unknown) || !Number.isFinite(Number(v))) return '';
-  return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatAmount(v, 2, '');
 }
 
 /** 税率格式化（百分号） */

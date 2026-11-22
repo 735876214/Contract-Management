@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { toDate, localDayKey, startOfDay, endOfDay } from '../../common/calc/time';
+import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
@@ -9,6 +9,7 @@ import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { dateRange } from '../../common/utils/list-where';
 // 开累两值的**同一实现**（与台账、防超付闸门、工作台预警共用）：不要在别处另算一遍
 import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
 
@@ -46,15 +47,8 @@ export class PaymentProcedureService {
         { supplier: { name: { contains: query.keyword } } },
       ];
     }
-    if (query.startDate || query.endDate) {
-      // 边界统一走 common/calc/time 的本地日原语：`new Date('YYYY-MM-DD')` 是 UTC 解析，
-      // 会把「当天 00:00 之后的记录」漏掉（各模块曾有三种写法，见 time.ts 的 endOfDay 注释）
-      where.payDate = {};
-      const from = startOfDay(query.startDate);
-      const to = endOfDay(query.endDate);
-      if (from) where.payDate.gte = from;
-      if (to) where.payDate.lte = to;
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.payDate = range;
     const [list, total] = await Promise.all([
       this.prisma.paymentProcedure.findMany({
         where,

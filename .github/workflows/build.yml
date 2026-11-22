@@ -58,6 +58,41 @@ jobs:
   #
   # Node 24：`.spec.mts` 依赖 Node≥22.18 的「类型擦除」直接加载 .mts/.ts；node:20 会直接报无法识别。
   # 包管理统一 npm（package-lock.json + `npm ci --legacy-peer-deps`），与镜像构建同一套。
+  # 2026-11-22：新增 lint job（ESLint 9 flat config，仓库根 package.json 只装工具链）。
+  # 只拦 **error**（`--quiet`）：warning 是存量技术债（未用变量/导入、50 处 exhaustive-deps 抑制），
+  # 逐模块清；新增代码不得新增 warning 的纪律写在 docs/development.md。
+  # 两条本仓特有口径由 no-restricted-syntax 强制：金额展示只能用 @/utils/money（禁止裸 toLocaleString）、
+  # 列表日期区间只能用 common/calc/time 的本地日原语（禁止 new Date(query.endDate)）。
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install tooling（根目录只装 ESLint/Prettier）
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint（error 级门禁）
+        run: npm run lint
+
+      - name: Prettier 格式检查（仅**新增**文件：存量文件没按 prettier 排过，检查改动会强推全仓重排）
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo '取不到基线提交，跳过格式检查（不阻断：格式不是门禁项）'
+            exit 0
+          fi
+          FILES=$(git diff --name-only --diff-filter=A "$BASE" HEAD -- 'server/src/**/*.ts' 'web/src/**/*.ts' 'web/src/**/*.tsx' || true)
+          if [ -z "$FILES" ]; then echo '本次改动没有需要检查格式的文件'; exit 0; fi
+          echo "$FILES" | xargs npx prettier --check
+
   server:
     runs-on: ubuntu-24.04
     services:
@@ -192,11 +227,11 @@ jobs:
 
   # 聚合门：保持名为 `test` 的必需 check 不消失；真正的断言在 server / web / mcp。
   test:
-    needs: [server, web, mcp]
+    needs: [lint, server, web, mcp]
     runs-on: ubuntu-24.04
     steps:
       - name: 汇总
-        run: echo "server / web / mcp 均通过"
+        run: echo "lint / server / web / mcp 均通过"
 
   build:
     needs: test

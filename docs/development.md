@@ -238,6 +238,19 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
   > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。
 
+- **静态检查（ESLint 9 + Prettier）**：仓库根 `package.json` 只装工具链（业务依赖仍在 server/web/mcp），
+  `npm run lint` 扫 `server/src` `server/test` `web/src` `mcp`；CI 的 `lint` job **只拦 error**（`--quiet`）。
+
+  - **两条本仓口径是 error 级**，报错文案直接给修法（`no-restricted-syntax`）：
+    金额/数量展示只能用 `@/utils/money`（禁止裸 `toLocaleString`）、列表日期区间只能用
+    `common/calc/time` 的 `startOfDay/endOfDay`（禁止 `new Date(query.endDate)`）。
+  - `react-hooks/rules-of-hooks` 是 error（条件调 hook = 崩溃级）；`exhaustive-deps` 先按 warn 观测。
+  - **warning 是存量技术债**（未用变量/导入、50 处 `exhaustive-deps` 抑制）。纪律：**新增代码不得新增 warning**，
+    存量随改动文件顺手清；`npm run lint:all` 看全量。
+  - **不做类型感知规则**（`no-floating-promises` 等）：需要 projectService，且要先补 API 类型（见 TODO.md）。
+  - Prettier 只检查**新增文件**（CI 里 `git diff --diff-filter=A`）：存量文件当年没按 prettier 排过，
+    若检查改动文件，任何一个 PR 都会被逼着把整文件重排，diff 无法评审。新文件一次成型即可。
+
 - **前端无独立测试框架**（不引入 jest/vitest）：前端纯逻辑通过 `server/test/*.spec.mts`
   直接 import `web/src/**` 中的**无 `@/` 别名依赖**模块来覆盖（见 `frontendChainParity.spec.mts` 的注释）。
   要求：① `.mts` 由 Node 原生擦除类型加载，故 **Node 需 ≥22.18**（本地 v24、CI 用 24）；

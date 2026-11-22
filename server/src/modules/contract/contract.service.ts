@@ -23,6 +23,7 @@ import { MaterialService, replaceContractMaterials } from '../material';
 import { assertContractRejectable } from '../../constants/workflowGuards';
 import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
 import {
   paymentModeViolation,
@@ -127,21 +128,15 @@ export class ContractService {
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }];
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.code) where.code = { contains: query.code };
     if (query.name) where.name = { contains: query.name };
     if (query.typeCode) where.typeCode = query.typeCode;
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.execStatus) where.execStatus = query.execStatus;
-    if (query.startDate || query.endDate) {
-      // 边界统一走 common/calc/time 的本地日原语：`new Date('YYYY-MM-DD')` 是 UTC 解析，
-      // 会把「当天 00:00 之后的记录」漏掉（各模块曾有三种写法，见 time.ts 的 endOfDay 注释）
-      where.signDate = {};
-      const from = startOfDay(query.startDate);
-      const to = endOfDay(query.endDate);
-      if (from) where.signDate.gte = from;
-      if (to) where.signDate.lte = to;
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.signDate = range;
     const [list, total] = await Promise.all([
       this.prisma.contract.findMany({
         where,

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { startOfDay, endOfDay, nextDayStart, formatDay } from '../src/common/calc/time.ts';
+import { dateRange, keywordWhere } from '../src/common/utils/list-where.ts';
 
 /**
  * 列表筛选的日期区间边界（`startOfDay` / `endOfDay` / `nextDayStart`）。
@@ -74,5 +75,44 @@ describe('日期区间边界（本地日原语）', () => {
     nextDayStart(at);
     assert.equal(at.getHours(), 18);
     assert.equal(formatDay(at), '2026-11-22');
+  });
+});
+
+/**
+ * 列表查询的公共 where 片段（`common/utils/list-where.ts`）：
+ * 日期区间到底还是"每个 service 各写一份 8 行"，20 个 findAll 里有 7 种写法；
+ * 收敛后只剩这一处实现，这里锁住它的**边界语义**与"空值不落 where"的约定。
+ */
+describe('列表查询公共片段（list-where）', () => {
+  it('两端都给：左闭右闭（含当天），且用的是本地日原语', () => {
+    const r = dateRange('2026-11-01', '2026-11-22')!;
+    assert.equal(formatDay(r.gte!), '2026-11-01');
+    assert.equal(r.gte!.getHours(), 0);
+    assert.equal(formatDay(r.lte!), '2026-11-22');
+    assert.equal(r.lte!.getHours(), 23);
+  });
+
+  it('只给一端：另一端不出现在条件里（不是 null 占位）', () => {
+    const onlyStart = dateRange('2026-11-01', '')!;
+    assert.ok('gte' in onlyStart);
+    assert.ok(!('lte' in onlyStart), '右端未给时不得出现 lte，否则 Prisma 会把 null 当条件');
+    const onlyEnd = dateRange(undefined, '2026-11-22')!;
+    assert.ok('lte' in onlyEnd);
+    assert.ok(!('gte' in onlyEnd));
+  });
+
+  it('两端都为空/非法 → null（调用方跳过该条件）', () => {
+    assert.equal(dateRange(undefined, undefined), null);
+    assert.equal(dateRange('', ''), null);
+    assert.equal(dateRange('not-a-date', '2026-02-30'), null);
+  });
+
+  it('关键字：空关键字返回 null，否则按给定字段展开 contains（不猜字段）', () => {
+    assert.equal(keywordWhere(['name', 'code'], ''), null);
+    assert.equal(keywordWhere(['name', 'code'], '   '), null);
+    assert.equal(keywordWhere([], '钢筋'), null);
+    assert.deepEqual(keywordWhere(['name', 'code'], ' 钢筋 '), {
+      OR: [{ name: { contains: '钢筋' } }, { code: { contains: '钢筋' } }],
+    });
   });
 });

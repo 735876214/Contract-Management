@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 单据模板（基础信息管理 → 单据模板，业务口径 2026-10-17）：五类单据的 Excel 模板。
@@ -34,9 +35,7 @@ export class DocTemplateController {
     @Res() res: Response,
   ) {
     const { buffer, filename } = await this.service.renderPaymentProcedure(procedureId, templateId || undefined, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   @RequirePermissions('template:view')

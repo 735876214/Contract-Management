@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatDateTime } from '@/utils/money';
 import {
   Card,
   Table,
@@ -574,7 +575,7 @@ function LogsPage() {
               title: '时间',
               dataIndex: 'createdAt',
               width: 180,
-              render: (v: any) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
+              render: (v: any) => formatDateTime(v),
             },
             {
               title: '操作',

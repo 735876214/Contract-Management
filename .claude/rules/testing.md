@@ -2,6 +2,13 @@
 
 > **何时加载**：新增/修改测试、改金额判定/状态流转/导入、或不确定"跑哪套测试"时。
 
+## 静态检查（改完一起跑）
+
+- 仓库根 `npm run lint`（ESLint 9 flat config，CI 有 `lint` job）。**只拦 error**：
+  金额展示只能走 `@/utils/money`、列表日期区间只能走 `common/calc/time` 的本地日原语，这两条是 error；
+  其余 warning 是存量债，**新增代码不得新增 warning**。
+- 细则与为什么不做类型感知规则见 [docs/development.md §5](../../docs/development.md)。
+
 ## 两套测试，别混用
 
 - `server/test/*.spec.*`：纯函数 / 漂移锁，**无 DB、秒级**，随 `npm test`（含 CI 门禁）。

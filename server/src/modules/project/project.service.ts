@@ -11,6 +11,7 @@ import { ImportTemplateService, TemplateColumn } from '../../common/services/imp
 import { DictService } from '../dict';
 import { ProjectAccessService } from '../../common/services/project-access.service';
 import { PROJECT_SCOPED_TABLES } from './project-scoped-tables';
+import { keywordWhere } from '../../common/utils/list-where';
 
 const PROJECT_FIELDS = [
   'code', 'name', 'nameAbbr', 'codeAbbr', 'branchCompany', 'branchCompanyAbbr',
@@ -50,7 +51,8 @@ export class ProjectService {
   async findAll(query: any = {}, user: any) {
     const { skip, take } = paginate(query);
     const where: any = {};
-    if (query.keyword) where.OR = [{ name: { contains: query.keyword } }, { code: { contains: query.keyword } }];
+    const kw = keywordWhere(['name', 'code'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status) where.status = query.status;
     if (!user?.isSuperAdmin) {
       where.members = { some: { userId: user.userId } };

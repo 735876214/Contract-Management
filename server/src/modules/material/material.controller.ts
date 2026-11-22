@@ -20,6 +20,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, ProjectId } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacy } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
@@ -44,9 +46,7 @@ export class MaterialController {
   @Get('materials/export')
   async exportBases(@Res() res: Response) {
     const buffer = await this.service.exportBases();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=material-base.xlsx');
-    res.end(buffer);
+    sendFile(res, 'material-base.xlsx', buffer, 'xlsx');
   }
 
   /** 下载填写模板（需求 3.3） */
@@ -54,16 +54,14 @@ export class MaterialController {
   @Get('materials/template')
   async templateBases(@Res() res: Response) {
     const { buffer, filename } = await this.service.templateBases();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   @RequirePermissions('material:edit')
   @Post('materials/import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importBases(@UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacy();
     return this.service.importBases(file.buffer, { fileName: file?.originalname, user });
   }
 
@@ -71,7 +69,7 @@ export class MaterialController {
   @Post('materials/import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importBasesValidate(@UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.service.importBases(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
@@ -121,9 +119,7 @@ export class MaterialController {
   @Get('contract-materials/template')
   async templateRows(@Res() res: Response) {
     const { buffer, filename } = await this.service.templateRows();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 派生清单（需求 2.3）：从物资基础库按所选物资重新生成，序号从 1 开始 */
@@ -151,7 +147,7 @@ export class MaterialController {
   @Post('contract-materials/import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importRows(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any, @ProjectId() projectId: string) {
-    if (!file) return { created: 0, updated: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacy();
     return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user }, projectId);
   }
 
@@ -159,7 +155,7 @@ export class MaterialController {
   @Post('contract-materials/import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importRowsValidate(@Query('contractId') contractId: string, @UploadedFile() file: any, @CurrentUser() user: any, @ProjectId() projectId: string) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.service.importRows(contractId, file.buffer, { fileName: file?.originalname, user, validateOnly: true }, projectId);
   }
 

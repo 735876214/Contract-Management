@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 合同台账接口：页面入口（`/contract/list`）按 `contract:view` 放行，
@@ -46,8 +47,6 @@ export class LedgerController {
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const buffer = await this.service.export(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=contract-ledger.xlsx');
-    res.end(buffer);
+    sendFile(res, 'contract-ledger.xlsx', buffer, 'xlsx');
   }
 }

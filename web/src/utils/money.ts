@@ -47,6 +47,18 @@ export function formatMoney(v: unknown, digits = 2, blank = '-'): string {
   return `¥${formatAmount(v, digits)}`;
 }
 
+/**
+ * 时间戳展示（本地口径，`2026-11-22 13:05:00`）。
+ *
+ * 只用于「操作时间/创建时间」这类**带时分秒**的列；业务日期（签订日、结算月）用
+ * `common/calc/time` / `formatDay` 那一套，别用这里（会把日期显示成 `00:00:00`）。
+ */
+export function formatDateTime(v: unknown, blank = '-'): string {
+  if (v === null || v === undefined || v === '') return blank;
+  const d = v instanceof Date ? v : new Date(v as string | number);
+  return Number.isNaN(d.getTime()) ? blank : d.toLocaleString('zh-CN');
+}
+
 /** 比率（0~1）→ 百分数：0.65 → `65.00%`；空值给占位符。超过千分位的比例（如 12 = 1200%）也照实显示 */
 export function formatPercent(ratio: unknown, digits = 2, blank = '-'): string {
   if (isBlank(ratio)) return blank;

@@ -4,7 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
-import { startOfDay, endOfDay } from '../../common/calc/time';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 /**
  * 用户主表可写字段白名单（password 单独处理，roleIds 走关联表）。
@@ -36,7 +36,8 @@ export class SystemService {
   async users(query: any = {}) {
     const { skip, take } = paginate(query);
     const where: any = {};
-    if (query.keyword) where.OR = [{ username: { contains: query.keyword } }, { realName: { contains: query.keyword } }];
+    const kw = keywordWhere(['username', 'realName'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -209,14 +210,8 @@ export class SystemService {
         { bizId: { contains: query.keyword } },
       ];
     }
-    if (query.startDate || query.endDate) {
-      // 与列表筛选统一：本地日区间原语（原实现是就地 setHours，口径正确但全仓仅此一处）
-      where.createdAt = {};
-      const from = startOfDay(query.startDate);
-      const to = endOfDay(query.endDate);
-      if (from) where.createdAt.gte = from;
-      if (to) where.createdAt.lte = to;
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.createdAt = range;
     const [list, total] = await Promise.all([
       this.prisma.operationLog.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.operationLog.count({ where }),

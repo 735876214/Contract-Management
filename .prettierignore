@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+server/prisma/migrations
+server/src/common/services/cscec-logo.base64.ts
+server/src/seed-data.ts
+server/src/modules/final-settlement/final-settlement-template.ts
+web/dist
+package-lock.json

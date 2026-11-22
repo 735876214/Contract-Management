@@ -7,6 +7,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('settlements')
@@ -29,9 +31,7 @@ export class SettlementController {
   @Get('ledger/export')
   async exportLedger(@ProjectId() projectId: string, @Res() res: Response) {
     const buffer = await this.service.exportLedger(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=settlement-ledger.xlsx');
-    res.end(buffer);
+    sendFile(res, 'settlement-ledger.xlsx', buffer, 'xlsx');
   }
 
   /** 下载填写模板（需求 3.3） */
@@ -39,9 +39,7 @@ export class SettlementController {
   @Get('ledger/template')
   async templateLedger(@ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename } = await this.service.templateLedger(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 上传导入数据（需求 3.4） */
@@ -54,7 +52,7 @@ export class SettlementController {
     @CurrentUser() user: any,
     @Query('mode') mode?: string,
   ) {
-    if (!file) return { created: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacyNoUpdate();
     return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, mode });
   }
 
@@ -68,7 +66,7 @@ export class SettlementController {
     @CurrentUser() user: any,
     @Query('mode') mode?: string,
   ) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.service.importLedger(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true, mode });
   }
 
@@ -118,9 +116,7 @@ export class SettlementController {
     @Res() res: Response,
   ) {
     const buffer = await this.service.exportComplianceSheet(contractId, projectId, Number(year), Number(month));
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('月度结算单合规性检查表.xlsx')}`);
-    res.end(buffer);
+    sendFile(res, '月度结算单合规性检查表.xlsx', buffer, 'xlsx');
   }
 
   @RequirePermissions('settlement:view')

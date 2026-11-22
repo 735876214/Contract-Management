@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 成本管理（附件需求 2026-10-17 新增一级模块）：
@@ -71,9 +72,7 @@ export class CostController {
   async laborReceivingExport(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
     const buf = await this.laborReceiving.exportWorkbook(id, projectId);
     const { fileName } = await this.laborReceiving.exportMeta(id, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
-    res.end(buf);
+    sendFile(res, fileName, buf, 'xlsx');
   }
 
   // ---- 月度盈亏分析（附件需求 2026-10-17 第三批；替换原手工台账 ProfitLossAnalysis） ----
@@ -124,8 +123,6 @@ export class CostController {
   async exportMonthlyProfitLoss(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
     const buf = await this.monthlyProfitLoss.exportWorkbook(id, projectId);
     const { fileName } = await this.monthlyProfitLoss.exportMeta(id, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
-    res.end(buf);
+    sendFile(res, fileName, buf, 'xlsx');
   }
 }
