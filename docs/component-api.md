@@ -106,7 +106,6 @@
 | 组件 | Props（要点） | 说明 |
 |---|---|---|
 | `ModuleListPage.tsx` | `moduleKey` `mode('module'\|'generic')` `fetcher` `baseParams?` `extraFilters?` `extraColumns?` `toolbarLeft?` `actionBeforeSearch?` `refreshKey?` `onView/onEdit/rowEditable/onDelete/rowDeletable/rowMenuItems` `showOpColumn?` `emptyText?` `columnConfigKey?` `columnConfigLockedKeys?` `mobileDefaultKeys?` `mobileCards?` `editPermission?` | 采购六模块通用标准列表页；导出 `moduleStatusOf`、`useModuleDelete`。**列设置**：传 `columnConfigKey` 即启用（module 模式自动取 `procurement.<moduleKey>`），偏好存 **localStorage**（每浏览器）；「操作」列与 module 模式的「采购编号」列不可隐藏。**移动端（窄容器 <720）**：`mobileDefaultKeys` 预置 4–6 列（未自定义时生效），`mobileCards` 用卡片视图代替表格（docs/09 §4 阶段 B）。**权限门禁**：`editPermission` 无权限时不渲染行内「编辑/删除」（数组为 OR 语义；后端 403 仍是最后防线） |
-| `ModuleDetailCard.tsx` | `title` `taskNo` `content` `statusLabel` `statusColor` `publishedAt` `extraDescriptions` `docHtml` `docLoading` `actions` | 只读详情卡片；含 `useModuleDetailDoc(...)` |
 | `TaskViewModal.tsx` | `task{id,taskNo,status,stage}` `open` `onClose` | 任务查看（基本信息 + 总清单 + 已生成文档导出） |
 | `TotalListEditor.tsx` | 导出 `TotalListEditor`、`TotalListEditorContent`（`readOnly`/`embedded`）、`TotalListContentRef` | 总采购清单编辑器（15 列，物资必须选自基础库） |
 

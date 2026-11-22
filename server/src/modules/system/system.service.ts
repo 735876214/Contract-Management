@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { startOfDay, endOfDay } from '../../common/calc/time';
 
 /**
  * 用户主表可写字段白名单（password 单独处理，roleIds 走关联表）。
@@ -209,13 +210,12 @@ export class SystemService {
       ];
     }
     if (query.startDate || query.endDate) {
+      // 与列表筛选统一：本地日区间原语（原实现是就地 setHours，口径正确但全仓仅此一处）
       where.createdAt = {};
-      if (query.startDate) where.createdAt.gte = new Date(query.startDate);
-      if (query.endDate) {
-        const end = new Date(query.endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
-      }
+      const from = startOfDay(query.startDate);
+      const to = endOfDay(query.endDate);
+      if (from) where.createdAt.gte = from;
+      if (to) where.createdAt.lte = to;
     }
     const [list, total] = await Promise.all([
       this.prisma.operationLog.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),

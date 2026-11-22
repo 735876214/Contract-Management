@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -34,8 +35,7 @@ import { useTabsStore } from '@/store/tabs';
 import { INVOICE_STATUS, INVOICE_EXCLUDED_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 import { LIST_PATHS } from '@/constants/listPaths';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 列表与「收票登记/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = LIST_PATHS.invoice;

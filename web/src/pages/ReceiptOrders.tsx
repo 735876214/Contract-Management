@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatNumber } from '@/utils/money';
+import { formatMoney } from '@/utils/money';
 import {
   Alert, AutoComplete, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm,
   Row, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message,
@@ -32,11 +34,9 @@ const LIST_PATH = '/daily/receipt';
  */
 const MOBILE_DEFAULT_KEYS = ['orderNo', 'orderDate', 'supplierName', 'receivingUnitName', 'status', 'op'];
 
-/** 数字格式化 */
-const fmtNum = (v: any, digits = 4) =>
-  v == null || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: digits });
-const fmtMoney = (v: any) =>
-  v == null || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** 数字格式化：口径统一在 utils/money（空值 '-'、千分位、小数位规则全站一致） */
+const fmtNum = (v: any, digits = 4) => formatNumber(v, digits);
+const fmtMoney = (v: any) => formatMoney(v);
 
 import { round2 } from '../../../server/src/common/calc/money.ts';
 import {

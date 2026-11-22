@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { localDayKey } from '../../common/calc/time';
+import { localDayKey, startOfDay, endOfDay } from '../../common/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { round2 } from '../../common/calc/money';
@@ -80,9 +80,12 @@ export class AssetService {
   async flowSummary(projectId: string, query: any = {}) {
     const where: any = { projectId };
     if (query.startDate || query.endDate) {
+      // 边界统一走 common/calc/time 的本地日原语（这里原来是手拼 'T23:59:59'）
       where.date = {};
-      if (query.startDate) where.date.gte = new Date(query.startDate);
-      if (query.endDate) where.date.lte = new Date(`${query.endDate}T23:59:59`);
+      const from = startOfDay(query.startDate);
+      const to = endOfDay(query.endDate);
+      if (from) where.date.gte = from;
+      if (to) where.date.lte = to;
     }
     const grouped = await this.prisma.assetLedger.groupBy({
       by: ['sourceCode'],

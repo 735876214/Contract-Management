@@ -50,7 +50,7 @@
 }
 
 /* ---------------------------------------------------------------------------
- * 1. 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、
+ * 1. 文档 / 模板预览区（`PreviewPublishModal`、
  *    采购文件 `Document.tsx` 的合同模板预览弹窗共用；基线 `padding: 24px` 在 index.css）
  *
  *    窄容器 → 内边距 24 → 12。

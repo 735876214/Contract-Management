@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button, Card, Form, Input, InputNumber, Select, Space, Modal, message, Statistic, DatePicker, Switch, Alert, Table, Tag, Row, Col, Empty,
@@ -13,9 +14,8 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
-/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
-const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+/** 金额口径与「结算台账」一致：`¥` + 千分位，固定两位小数；空值显示 `-` */
+const money = (v: any) => formatMoney(v);
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 

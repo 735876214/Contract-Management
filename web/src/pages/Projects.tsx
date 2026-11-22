@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import { useAuthStore } from '@/store/auth';
 import { Card, Table, Button, Form, Input, InputNumber, Space, Modal, Select, Popconfirm, message, Tag, Row, Col, DatePicker } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
@@ -93,7 +94,7 @@ function ProjectList() {
           { title: '分公司简称', dataIndex: 'branchCompanyAbbr', width: 120, render: (v) => (v ? <Tag color="geekblue">{v}</Tag> : '-') },
           { title: '包保领导', dataIndex: 'packageLeader', width: 110, render: (v) => v || '-' },
           { title: '项目经理', dataIndex: 'projectManager', width: 110, render: (v) => v || '-' },
-          { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })) },
+          { title: '自施合同额(万元)', dataIndex: 'selfContractAmount', width: 150, render: (v) => formatAmount(v) },
           { title: '项目业态', dataIndex: 'industryType', width: 110, render: (v) => <DictTag typeCode="industry_type" value={v} /> },
           { title: '项目所在省市', dataIndex: 'provinceCity', width: 130, render: (v) => v || '-' },
           { title: '工程地点', dataIndex: 'siteLocation', width: 180, ellipsis: true, render: (v) => v || '-' },

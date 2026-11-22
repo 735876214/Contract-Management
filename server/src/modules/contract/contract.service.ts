@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import { checkFileUrl } from '../../common/utils/safe-url';
 import { num } from '../../common/calc/numeric';
-import { fmtDate } from '../../common/calc/time';
+import { fmtDate, startOfDay, endOfDay } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { projectWhere } from '../../common/utils/project-scope';
@@ -134,9 +134,13 @@ export class ContractService {
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.execStatus) where.execStatus = query.execStatus;
     if (query.startDate || query.endDate) {
+      // 边界统一走 common/calc/time 的本地日原语：`new Date('YYYY-MM-DD')` 是 UTC 解析，
+      // 会把「当天 00:00 之后的记录」漏掉（各模块曾有三种写法，见 time.ts 的 endOfDay 注释）
       where.signDate = {};
-      if (query.startDate) where.signDate.gte = new Date(query.startDate);
-      if (query.endDate) where.signDate.lte = new Date(query.endDate);
+      const from = startOfDay(query.startDate);
+      const to = endOfDay(query.endDate);
+      if (from) where.signDate.gte = from;
+      if (to) where.signDate.lte = to;
     }
     const [list, total] = await Promise.all([
       this.prisma.contract.findMany({
@@ -1203,8 +1207,9 @@ export class ContractService {
     }
     if (query.supplierId) and.push({ supplierId: query.supplierId });
     const signDate: any = {};
-    if (query.signDateStart) signDate.gte = new Date(query.signDateStart);
-    if (query.signDateEnd) signDate.lte = new Date(`${query.signDateEnd}T23:59:59`);
+    // 本地日区间原语（与列表筛选同口径）：'YYYY-MM-DD' 交给 new Date 会按 UTC 解析
+    if (query.signDateStart) signDate.gte = startOfDay(query.signDateStart);
+    if (query.signDateEnd) signDate.lte = endOfDay(query.signDateEnd);
     if (Object.keys(signDate).length) and.push({ signDate });
     const where = { AND: and };
     const [list, total] = await Promise.all([

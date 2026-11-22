@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import {
   Alert,
   Button,
@@ -91,10 +92,7 @@ export default function ScmAnalysisPanel() {
     }
   };
 
-  const money = (v: number | null | undefined) =>
-    v === null || v === undefined
-      ? '—'
-      : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const money = (v: number | null | undefined) => formatAmount(v, 2, '—');
 
   const pct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v.toFixed(1)}%`);
 

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { formatNumber } from '@/utils/money';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import { Card, Table, Button, Form, InputNumber, DatePicker, Select, Space } from 'antd';
 import { ExportOutlined } from '@ant-design/icons';
@@ -10,7 +12,7 @@ import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { columnKeyOf, filterVisibleColumns, mobileHiddenColumns } from '@/utils/listColumns';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 
-const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
+const money = (v: any) => formatMoney(v);
 
 type Kind = 'text' | 'number' | 'money' | 'date' | 'dict' | 'contractSelect' | 'supplierSelect' | 'unit';
 
@@ -150,7 +152,7 @@ export default function DailyReports() {
     if (f.kind === 'number') {
       return {
         ...base,
-        render: (v: any) => (v == null ? '-' : f.noGroup ? String(v) : Number(v).toLocaleString('zh-CN')),
+        render: (v: any) => (v == null ? '-' : f.noGroup ? String(v) : formatNumber(v)),
       };
     }
     return base;

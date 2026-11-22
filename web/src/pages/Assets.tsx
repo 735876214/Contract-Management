@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatNumber } from '@/utils/money';
+import { formatAmount } from '@/utils/money';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Card, Table, Button, Form, Input, Select, Space, Popconfirm, message, Row, Col, InputNumber, DatePicker, Alert, Statistic,
@@ -17,11 +20,10 @@ import ImportButton from '@/components/ImportButton';
 import Can from '@/components/Can';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 
-const money = (v: any) =>
-  v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qty = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 }));
-/** 金额（未知 → `-`，不把「未填」显示成 0） */
-const yuan = (v: any) => (v == null ? '-' : `¥${money(v)}`);
+const money = (v: any) => formatAmount(v);
+const qty = (v: any) => formatNumber(v, 2);
+/** 金额（未知 → `-`，不把「未填」显示成 0）；原实现 `¥${money(v)}` 在未填时会拼出 `¥-` */
+const yuan = (v: any) => formatMoney(v);
 
 /** 调入费/维保费行只填金额，不填数量 */
 const isFeeSource = (code?: string) => code === 'TRANSFER_IN_FEE' || code === 'MAINTENANCE';

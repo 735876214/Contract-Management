@@ -515,7 +515,7 @@ body {
  * ============================================================================ */
 
 /**
- * 文档 / 模板预览区（`PreviewPublishModal`、`ModuleDetailCard`、采购文件预览共用）。
+ * 文档 / 模板预览区（`PreviewPublishModal`、采购文件预览共用）。
  * 这里是**宽容器基线**；窄容器收敛（padding 24 → 12）由 `styles/containers.css` 的
  * `@container` 按**容器宽度**覆盖（V2 阶段 2 起，此前是 `<768px` 的视口媒体查询）。
  * 故各处的容器只加 `className="doc-preview"`，不再各写 `padding: 24`。

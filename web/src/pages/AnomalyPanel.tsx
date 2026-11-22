@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import {
   Alert,
   Button,
@@ -55,13 +56,8 @@ const LEVEL_META = {
   MEDIUM: { label: '中', color: 'orange' },
 } as const;
 
-const money = (v: string | null) => {
-  if (v === null || v === undefined || v === '') return '-';
-  const n = Number(v);
-  return Number.isFinite(n)
-    ? n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : v;
-};
+/** 金额（后端可能以字符串下发 Decimal；非数字/空值统一 `-`） */
+const money = (v: any) => formatAmount(v);
 
 /**
  * 结算 / 付款异常预警面板（课题 6-9）。

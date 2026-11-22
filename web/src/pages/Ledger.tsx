@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -26,8 +27,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { LIST_PATHS } from '@/constants/listPaths';
 import { useDictStore } from '@/store/dict';
 
-const money = (v: any) =>
-  v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 const COMPLIANCE_OPTIONS = [
   '无问题',

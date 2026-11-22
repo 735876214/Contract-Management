@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -560,7 +561,7 @@ export default function PreMeetingMinutes() {
         editable
           ? numberCell(v, (n) => updateRow('purchaseItems', row.key, { qty: n }), { precision: 3 })
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     ...opColumn('purchaseItems'),

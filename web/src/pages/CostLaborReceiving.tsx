@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatAmount, formatNumber } from '@/utils/money';
 import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
@@ -251,7 +252,7 @@ function DocEditor({ id }: { id: string }) {
         title: '单价(元)',
         dataIndex: 'unitPrice',
         width: 120,
-        render: (v: number | null) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })),
+        render: (v: number | null) => (v == null ? '-' : formatAmount(v)),
       },
       {
         title: '上期末累计',
@@ -259,14 +260,14 @@ function DocEditor({ id }: { id: string }) {
         width: 100,
         align: 'right' as const,
         className: 'col-secondary',
-        render: (v: number) => v.toLocaleString('zh-CN'),
+        render: (v: number) => formatNumber(v),
       },
       {
         title: '本期领用',
         dataIndex: 'receivedQty',
         width: 100,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '退库数量',
@@ -281,7 +282,7 @@ function DocEditor({ id }: { id: string }) {
         dataIndex: 'netQty',
         width: 90,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '库存盘点',
@@ -314,21 +315,21 @@ function DocEditor({ id }: { id: string }) {
         width: 90,
         align: 'right' as const,
         className: 'col-secondary',
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '节(-)超(+)',
         dataIndex: 'saveOver',
         width: 100,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '结算扣款(元)',
         dataIndex: 'deductAmount',
         width: 120,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })),
+        render: (v: number | null) => (v == null ? '-' : formatAmount(v)),
       },
       {
         title: '备注',

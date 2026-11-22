@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -424,7 +425,7 @@ export default function Notice() {
       title: '暂定数量',
       dataIndex: 'qty',
       width: 130,
-      render: (v: number | null) => (v != null ? Number(v).toLocaleString('zh-CN') : '-'),
+      render: (v: number | null) => (v != null ? formatNumber(v) : '-'),
     },
     { title: '备注', dataIndex: 'remark', width: 160, render: (v: string | null) => v || '-' },
   ];

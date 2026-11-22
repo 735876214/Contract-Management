@@ -1,4 +1,5 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
+import { formatAmount } from '@/utils/money';
 
 import { useEffect, useState } from 'react';
 import {
@@ -31,8 +32,8 @@ const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isNaN(n) ? 0 : n;
 };
-const fmt = (v: unknown): string =>
-  num(v) === 0 ? '0.00' : num(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+/** 金额（文档表格单元格）：0 与未填都写 `0.00`——这是正文文档口径，与台账「未填显示 -」不同 */
+const fmt = (v: unknown): string => (num(v) === 0 ? '0.00' : formatAmount(num(v)));
 const fmtPct = (v: unknown): string => `${(num(v) * 100).toFixed(2)}%`;
 
 /** 构造与后端 buildTableHtml 一致的表格 HTML（用于 {{补充协议表}} 占位符） */

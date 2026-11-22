@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -25,7 +26,7 @@ import { contractApi } from '@/api/business';
 import { DictTag } from '@/components/DictSelect';
 import Can from '@/components/Can';
 
-const money = (v: any) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
+const money = (v: any) => formatMoney(v);
 const num = (v: any) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;

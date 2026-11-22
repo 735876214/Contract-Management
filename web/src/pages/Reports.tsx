@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { Card, Row, Col, Statistic } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { dashboardApi } from '@/api/modules';
 import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 
-const money = (v: any) =>
-  v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 export default function Reports() {
   const ensure = useDictStore((s) => s.ensure);

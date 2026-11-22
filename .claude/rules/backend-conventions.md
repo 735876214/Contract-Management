@@ -22,6 +22,11 @@
   守卫只保证"你是这个项目的成员"，不保证"这条记录属于这个项目"；少了这一步，
   同时属于两个项目的用户拿别项目的 id 配自己项目的 header 就能读/改/删（守卫语义见
   [architecture.md §5](../../docs/architecture.md)）。返回 `404` 而不是 `403`，避免暴露记录存在性。
+- **列表日期区间统一走 `common/calc/time` 的本地日原语**：`gte: startOfDay(startDate)` /
+  `lte: endOfDay(endDate)`（或 `lt: nextDayStart(endDate)`），**禁止** `new Date(query.endDate)`
+  ——`'YYYY-MM-DD'` 交给 `new Date` 是**按 UTC 解析**（本地 08:00），库里存本地 00:00 的记录会被漏掉；
+  手拼 `'T23:59:59'` / 就地 `setHours` 也不许再新增。原语拒绝 `2026-02-30` 这类"格式对但不存在"的日期，
+  非法值返回 `null`（调用方跳过该条件，别把 `null` 写进 `where`）。锁定：`test/timeBounds.spec.mts`。
 - **需要"全部数据"时用 `common/utils/paged.ts` 的 `pagedAll()`**：不要写 `findAll({ pageSize: 5000 })`——
   `paginate()` 会把单页夹到上限，超出部分静默丢失（2026-10 审计在 8 个模块各踩过一次）。
   调用方要同时把 `pageSize` 传给 `maxPageSize`：`findAll({ page, pageSize }, projectId, pageSize)`。

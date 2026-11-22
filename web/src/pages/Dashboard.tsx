@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
@@ -13,7 +14,8 @@ import { LIST_PATHS } from '@/constants/listPaths';
 import EmptyState from '@/components/EmptyState';
 import { TodoCard, DashboardNoticeModal } from './dashboardTodo';
 
-const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+/** 金额展示：未填显示 `-`（原实现 `(v || 0)` 会把「未填」显示成 `¥0`，与台账三态契约相反） */
+const money = (v: any) => formatMoney(v);
 
 export default function Dashboard() {
   const navigate = useNavigate();

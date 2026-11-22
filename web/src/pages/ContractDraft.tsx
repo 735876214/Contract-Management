@@ -1,4 +1,5 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
+import { formatMoney } from '@/utils/money';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -43,8 +44,7 @@ import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 /** 草稿超时阈值（需求 2.1.3：新增后 2 小时内未完成即视为超时） */
 const OVERDUE_HOURS = 2;
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 计算草稿超时剩余/超出分钟数：正数为剩余，负数为已超时 */
 function overdueMinutes(createTime: string): number {

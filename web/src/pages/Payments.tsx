@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button,
@@ -25,8 +26,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 import dayjs from 'dayjs';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /**
  * 付款管理。

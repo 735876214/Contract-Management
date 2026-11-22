@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { withToken } from '../utils/download';
 import {
   Button, Form, Input, Space, Modal, message, InputNumber, Select, Descriptions, Alert, Table, Tag,
@@ -18,9 +19,8 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../../server/src/common/c
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
 const LIST_PATH = LIST_PATHS.contractMaterial;
 
-/** 前端实时计算（与服务端共用同一份 4 位舍入实现） */
-const fmtNum = (v: any, digits = 4) =>
-  v == null || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: digits });
+/** 前端实时计算（与服务端共用同一份 4 位舍入实现）；显示口径走 utils/money */
+const fmtNum = (v: any, digits = 4) => formatNumber(v, digits);
 
 /**
  * 合同物资清单（需求修正3；问题四：统一标准列表页规约）

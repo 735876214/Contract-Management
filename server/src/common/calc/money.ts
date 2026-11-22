@@ -2,7 +2,8 @@
  * 金额舍入与中文大写 —— 全站唯一实现（前后端共用，零依赖）。
  *
  * 原位置 `server/src/common/utils/money.ts` 现在只做兼容再导出；前端 `web/src/utils/money.ts`
- * 也直接引用本文件。改动本文件必须同步跑 `server/test/money.spec.ts` 与
+ * 只做**展示**格式化（千分位/空值占位），舍入与中文大写仍以本文件为唯一实现。
+ * 改动本文件必须同步跑 `server/test/money.spec.ts`、`test/moneyFormat.spec.mts` 与
  * `server/test/frontendChainParity.spec.mts`，禁止再在各模块复制舍入公式。
  */
 

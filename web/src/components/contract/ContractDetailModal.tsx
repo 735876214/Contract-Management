@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Button,
   DatePicker,
@@ -27,7 +28,7 @@ import { useContainerWidth } from '@/hooks/useContainerWidth';
  * 列表页只管"打开哪一份"，取数与弹窗状态都在这里，避免列表再持有 detail/changes。
  */
 
-const money = (v: number) => (v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`);
+const money = (v: any) => formatMoney(v);
 
 export interface ContractDetailModalProps {
   /** 要查看的合同 id；为 null 时弹窗关闭（打开状态由它派生，避免两个状态各说各话） */

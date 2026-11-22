@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
 import { Button, Form, Input, Select, Space, Modal, message, Row, Col, DatePicker, Alert } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -10,8 +11,7 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /**
  * 付款手续编制（业务口径 2026-10-16）：数据项为供应商名称 / 开累结算金额 / 开累付款金额 /

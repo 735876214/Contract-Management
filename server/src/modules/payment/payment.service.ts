@@ -52,11 +52,14 @@ export class PaymentService {
    */
   private async checkOverPayment(
     contractId: string | null | undefined,
-    currentAmount: number,
+    currentAmount: number | null,
     statusCode: any,
     excludeId?: string,
   ): Promise<{ overAmountWarning?: string }> {
     if (!contractId) return {};
+    // 本次发生额未填（`num()` 给 null）时没有可比对的对象：跳过而不是拿 0 去比，
+    // 否则「未填金额」会被当成「0 元付款」，既不报超付、也会让 used 的语义失真
+    if (currentAmount === null || currentAmount === undefined) return {};
     if (PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) return {};
     const policy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
     if (policy === 'OFF') return {};

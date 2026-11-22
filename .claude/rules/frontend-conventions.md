@@ -77,6 +77,16 @@
   `server/test/containerQuery.spec.mts` 锁死——**改断点要三处同步**（`containerSize.ts` ↔ `index.css` 的
   `--cq-*` ↔ `containers.css`）。
 
+## 金额 / 数量 / 比率的展示（**只有一个实现**）
+
+- 一律用 `web/src/utils/money.ts`：`formatAmount`（不带币种）、`formatMoney`（带 `¥`）、
+  `formatNumber`（数量，最多 N 位不补零）、`formatPercent`（0~1 → 百分数）。
+- **禁止**在页面/组件里再写 `toLocaleString('zh-CN')`：无参数的写法会把 JS 浮点原样吐出
+  （后端 `Number(Decimal)` 求和后的 `1234.5600000000001`），带参数的又各有 7 种组合，
+  导致同一笔金额在不同页面显示成 `¥1,234.50` / `1,234.00` / `1,234`。
+- 空值（`null`/`undefined`/`''`/非数字）显示占位符（默认 `-`），**不兜成 0**（与台账三态契约一致）；
+  第三参数可换占位符（HTML 文档用 `''`、分析面板用 `—`）。锁定：`test/moneyFormat.spec.mts`。
+
 ## 列表页列显隐（两条路别混用）
 
 - ① 通用列表页 `ModuleListPage.columnConfigKey`：偏好存 **localStorage**，纯逻辑在 `utils/listColumns.ts`；

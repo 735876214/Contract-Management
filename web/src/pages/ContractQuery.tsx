@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatMoney, formatNumber } from '@/utils/money';
 import {
   Alert,
   Button,
@@ -33,8 +34,7 @@ import { withToken } from '../utils/download';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 状态标签（需求修正6：待签章-蓝 / 已签章-绿；历史空状态与 COMPLETED 数据按待签章展示） */
 function StatusTag({ status }: { status?: string | null }) {
@@ -561,8 +561,7 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
 
   const pct = (v: number | null | undefined) =>
     v == null ? '-' : `${(v * 100).toFixed(1)}%`;
-  const qty = (v: number | null | undefined) =>
-    v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+  const qty = (v: number | null | undefined) => formatNumber(v, 4);
 
   return (
     <div ref={ref} className="cq" style={{ width: '100%' }}>

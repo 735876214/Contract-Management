@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import {
   Alert,
   Button,
@@ -75,11 +76,10 @@ const renderNumber = (
 const renderAmount = (price?: number | null, qty?: number | null) => {
   if (price == null && qty == null) return <span style={{ color: 'var(--cms-muted-soft)' }}>-</span>;
   const v = calcAmount(price, qty);
-  return <span>{v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>;
+  return <span>{formatAmount(v)}</span>;
 };
 
-const fmtAmount = (v: number) =>
-  v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtAmount = (v: number) => formatAmount(v);
 
 export interface TotalListEditorContentProps {
   task: TaskBrief | null;

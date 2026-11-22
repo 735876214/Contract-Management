@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import {
   Card,
   Table,
@@ -23,8 +24,7 @@ import Can from '@/components/Can';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 
-const money = (v: any) =>
-  v == null || v === '' ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 const fmtDate = (v: any) => (v ? String(v).slice(0, 10) : '-');
 

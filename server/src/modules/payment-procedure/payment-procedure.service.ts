@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { toDate, localDayKey } from '../../common/calc/time';
+import { toDate, localDayKey, startOfDay, endOfDay } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
@@ -47,9 +47,13 @@ export class PaymentProcedureService {
       ];
     }
     if (query.startDate || query.endDate) {
+      // 边界统一走 common/calc/time 的本地日原语：`new Date('YYYY-MM-DD')` 是 UTC 解析，
+      // 会把「当天 00:00 之后的记录」漏掉（各模块曾有三种写法，见 time.ts 的 endOfDay 注释）
       where.payDate = {};
-      if (query.startDate) where.payDate.gte = new Date(query.startDate);
-      if (query.endDate) where.payDate.lte = new Date(query.endDate);
+      const from = startOfDay(query.startDate);
+      const to = endOfDay(query.endDate);
+      if (from) where.payDate.gte = from;
+      if (to) where.payDate.lte = to;
     }
     const [list, total] = await Promise.all([
       this.prisma.paymentProcedure.findMany({

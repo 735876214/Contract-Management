@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatNumber } from '@/utils/money';
+import { formatAmount } from '@/utils/money';
 import { Button, Input, InputNumber, Modal, Select, Space, Table, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
@@ -17,8 +19,8 @@ import { withToken } from '@/utils/download';
  */
 const LIST_PATH = '/cost/profit-loss';
 
-const money = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 }));
-const qty = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 3 }));
+const money = (v: any) => formatAmount(v);
+const qty = (v: any) => formatNumber(v, 3);
 
 export default function CostProfitLoss() {
   const editorTab = useEditorTab(LIST_PATH);

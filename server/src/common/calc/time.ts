@@ -27,6 +27,63 @@ export function localDayKey(now: Date | string | null = new Date()): string {
   return formatDay(now) ?? '';
 }
 
+/**
+ * 纯日期串 `YYYY-MM-DD` 按**本地零点**解析。
+ *
+ * `new Date('2026-11-22')` 是按 **UTC** 解析的（本地 08:00），拿它当"当天开始"会让
+ * 「库里存本地 00:00 的记录」落在区间外——这正是本仓禁止 `toISOString()` 取业务日期的同一类坑。
+ */
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function localMidnight(v: unknown): Date | null {
+  if (typeof v === 'string') {
+    const m = DATE_ONLY_RE.exec(v.trim());
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const day = Number(m[3]);
+      const d = new Date(y, mo - 1, day);
+      // 拒绝「格式对但日子不存在」：`2026-02-30` 会被 Date 静默归一成 3 月 2 日，
+      // 于是「筛选到 2 月」会悄悄变成「筛选到 3 月初」（与 ai/register 的 `isRealDay` 同一口径）。
+      if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== day) return null;
+      return d;
+    }
+  }
+  const d = toDate(v);
+  if (!d) return null;
+  // 复制一份：入参可能是调用方复用的 Date，纯函数不得就地改写（曾直接把入参 setHours 掉了）
+  const out = new Date(d.getTime());
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+/** 区间左边界：当天本地零点（含）。非法/空值返回 null，调用方应跳过该条件而不是写 `null` 进 where */
+export function startOfDay(v: unknown): Date | null {
+  return localMidnight(v);
+}
+
+/**
+ * 区间右边界：当天本地最后一毫秒（含）。
+ *
+ * 列表筛选统一用它（`lte: endOfDay(endDate)`）：直接 `lte: new Date('YYYY-MM-DD')` 会把当天
+ * 00:00 之后的记录全部漏掉，而各模块曾出现「有的补 23:59:59、有的不补」三种写法。
+ * 更推荐 `lt: nextDayStart(endDate)`（不依赖毫秒精度），两者都在本文件实现。
+ */
+export function endOfDay(v: unknown): Date | null {
+  const d = localMidnight(v);
+  if (!d) return null;
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+/** 次日本地零点（开区间上界）：配合 `lt` 使用，跨月/跨年由 Date 自动进位 */
+export function nextDayStart(v: unknown): Date | null {
+  const d = localMidnight(v);
+  if (!d) return null;
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
 /** 日期 → 月份键 `YYYY-MM`（本地时区） */
 export function monthKey(d: unknown): string | null {
   const dt = toDate(d);

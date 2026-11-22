@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -478,7 +479,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('inquiryRows', row.key, { totalPrice: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -532,7 +533,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('priceCompareRows', row.key, { execPrice: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -557,7 +558,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('costRows', row.key, { amount: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -621,7 +622,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('referenceSuppliers', row.key, { amount: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     ...opColumn<ReferenceSupplier>('referenceSuppliers'),
@@ -639,7 +640,7 @@ export default function FrameworkExplanation() {
       referenceSuppliers: winners.map((r) => ({ key: nextKey(), supplier: r.supplier, amount: r.amount })),
     }));
     message.success(
-      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${winners[0].amount.toLocaleString('zh-CN')} 元），可继续手动增改`,
+      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${formatNumber(winners[0].amount, 2)} 元），可继续手动增改`,
     );
   };
 
@@ -753,7 +754,7 @@ export default function FrameworkExplanation() {
         const list: any[] = row.module?.referenceSuppliers ?? [];
         if (!list.length) return '-';
         const sum = list.reduce((s, r) => s + (Number(r?.amount) || 0), 0);
-        return sum.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return formatNumber(sum, 2);
       },
     },
   ];

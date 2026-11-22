@@ -1,6 +1,7 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -454,7 +455,7 @@ export default function Document() {
       title: '暂定数量',
       dataIndex: 'qty',
       width: 100,
-      render: (v: number | null) => (v != null ? Number(v).toLocaleString('zh-CN') : '-'),
+      render: (v: number | null) => (v != null ? formatNumber(v) : '-'),
     },
     // 以下四列留空（由投标方填写）
     { title: '税前单价', dataIndex: 'preTaxPrice', width: 100, render: priceCell },
@@ -484,7 +485,7 @@ export default function Document() {
       width: 140,
       render: (_v, row) =>
         row.module?.responseDeposit != null
-          ? Number(row.module.responseDeposit).toLocaleString('zh-CN')
+          ? formatNumber(row.module.responseDeposit, 2)
           : '-',
     },
   ];
