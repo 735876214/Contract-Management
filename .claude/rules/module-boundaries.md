@@ -70,6 +70,12 @@ export { SettlementService } from './settlement.service';
 
 依赖是 DAG（检查器规则 3 锁死）：`ai → {ai-insight, ai-fill} → ai-core`，无环。
 
+**四个目录 = 四个 Nest 模块**（2026-11-24：目录边界升级成 DI 边界）：`AiCoreModule`（导出
+`AiQuota` / `AiSettingService`）· `AiInsightModule`（`imports: [AiCoreModule]`，**不含任何业务模块**）·
+`AiFillModule`（`imports: [AiCoreModule, ContractModule, SupplierModule]`，写路径的例外摆在明面上）·
+`AiModule`（只做装配 + 路由）。好处是「只读分析不得依赖业务模块」从**路径约定**变成**编译期约束**：
+想在 insight 里注入 `ContractService` 会直接编译失败。
+
 **两条特殊规则（都是实测踩出来的）**：
 
 1. **`ai-core` 是「库型」目录**（检查器的 `LIBRARY_MODULES`）：它**没有** `index.ts` 门面，
@@ -110,7 +116,11 @@ export { SettlementService } from './settlement.service';
     项目范围、日报/采购计数由 `load*Facts()` 提供，口径（排除草稿结算、排除失败/退款付款、
     作废/红冲发票不计入）只在这一处维护。`field-resolver` / `report` / `dataset-collector` /
     `scm` 已接入；**不要再在 AI service 里手写这几张表的同一套 where**。
-    数据集明细查询（工作簿逐行取数）仍留在 `dataset-collector` 内，因为它们字段各异、不复用。
+    数据集明细查询（工作簿逐行取数）字段各异、不复用，但**取数本身**也收进了查询层
+    `server/src/query/ai-dataset-queries.ts`（`loadAiDatasetBundle` / `loadAiProjectCoreGroups` /
+    `loadAiScopedProjects`）；预警的行级取数在 `server/src/query/ai-anomaly-queries.ts`
+    （`loadAnomalyRows` / `loadAnomalyChain*`）。**AI 只读子域不得出现 `prisma.<模型>`**
+    （唯一例外是 AI 自己的表 `aiAnalyticsReport`，检查器 `AI_OWN_MODELS`）。
     **但口径片段不得内联**：`statusCode: { not: 'DRAFT' }`、`notIn: ['FAILED','REFUNDED']`、
     `in: ['CANCELLED','RED']` 这类手写等价 where 一律禁止（在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行），
     必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。

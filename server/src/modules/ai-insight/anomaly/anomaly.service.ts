@@ -20,6 +20,8 @@ import {
   type AnomalyWindowLimits,
   type ResolvedAnomalyWindow,
 } from './anomaly-window.ts';
+import { loadAnomalyChainChildren, loadAnomalyChainParent, loadAnomalyChainSeed, loadAnomalyRows } from '../../../query';
+
 import { parseBoolFlag } from '../../ai-core/common/params.ts';
 import { promptNumberExtras } from '../../ai-core/common/narrative.ts';
 import { sampleTotal } from '../../ai-core/common/coverage.ts';
@@ -332,7 +334,7 @@ export class AnomalyService {
     const range = { from: win.from, to: win.to, contractId: query?.contractId || null, contractIds: chainIds };
     const w = buildAnomalyWhere(range, projectId);
 
-    const [
+    const {
       contracts,
       settlements,
       cumulativeSettlements,
@@ -342,48 +344,7 @@ export class AnomalyService {
       receipts,
       finalSettlementItems,
       materialRows,
-    ] = await Promise.all([
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行做跨期累计比对，分页会漏判；量级=单项目业务行
-        this.prisma.contract.findMany({ where: w.contractWhere, select: ANOMALY_SELECT.contract }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行（同上）
-        this.prisma.settlement.findMany({
-          where: w.settlementWhere,
-          select: ANOMALY_SELECT.settlement,
-          orderBy: ANOMALY_ORDER.settlement as any,
-        }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量行做累计比对（同上）
-        this.prisma.settlement.findMany({
-          where: w.settlementCumulativeWhere,
-          select: ANOMALY_SELECT.settlement,
-          orderBy: ANOMALY_ORDER.settlement as any,
-        }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量付款流水（同上）
-        this.prisma.paymentRecord.findMany({
-          where: w.paymentWhere,
-          select: ANOMALY_SELECT.payment,
-          orderBy: ANOMALY_ORDER.payment as any,
-        }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量发票（同上）
-        this.prisma.invoice.findMany({ where: w.invoiceWhere, select: ANOMALY_SELECT.invoice }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量付款手续（同上）
-        this.prisma.paymentProcedure.findMany({
-          where: w.procedureWhere,
-          select: ANOMALY_SELECT.procedure,
-          orderBy: ANOMALY_ORDER.procedure as any,
-        }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量收领单（同上）
-        this.prisma.receiptOrder.findMany({ where: w.receiptWhere, select: ANOMALY_SELECT.receipt }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量总结算明细（同上）
-        this.prisma.finalSettlementItem.findMany({
-          where: w.finalSettlementItemWhere,
-          select: ANOMALY_SELECT.finalSettlementItem,
-        }),
-        // @no-limit: 行级规则判定（非聚合，不能改 groupBy）：预警规则需全量合同物资行（同上）
-        this.prisma.contractMaterial.findMany({
-          where: w.contractMaterialWhere,
-          select: ANOMALY_SELECT.contractMaterial,
-        }),
-      ]);
+    } = await loadAnomalyRows(this.prisma, w);
 
     // 形状搬运 + 清单量按链根聚合，全部在纯函数里（离线评测脚本复用同一份）
     const dataset = buildPaymentAnomalyInput(
@@ -462,10 +423,7 @@ export class AnomalyService {
    */
   private async resolveChainIds(projectId: string, contractId?: string): Promise<string[] | null> {
     if (!contractId) return null;
-    const seed = await this.prisma.contract.findFirst({
-      where: { id: contractId, projectId },
-      select: { id: true, parentContractId: true },
-    });
+    const seed = await loadAnomalyChainSeed(this.prisma, projectId, contractId);
     // 不属于本项目 / 不存在：明确 404，避免「查不到数据」被当成「没有异常」
     if (!seed) throw new NotFoundException('合同不存在或不属于当前项目');
 
@@ -473,10 +431,7 @@ export class AnomalyService {
     // 1) 向上找到链根（防御异常数据里的环：最多 32 层）
     let cursor: string | null = seed.parentContractId ?? null;
     for (let depth = 0; cursor && depth < 32; depth += 1) {
-      const parent: { id: string; parentContractId: string | null } | null = await this.prisma.contract.findFirst({
-        where: { id: cursor, projectId },
-        select: { id: true, parentContractId: true },
-      });
+      const parent: { id: string; parentContractId: string | null } | null = await loadAnomalyChainParent(this.prisma, projectId, cursor);
       if (!parent || ids.has(parent.id)) break;
       ids.add(parent.id);
       cursor = parent.parentContractId ?? null;
@@ -484,10 +439,7 @@ export class AnomalyService {
     // 2) 向下补齐所有层级的补充协议
     let frontier = [...ids];
     for (let depth = 0; frontier.length && depth < 32; depth += 1) {
-      const children: Array<{ id: string }> = await this.prisma.contract.findMany({
-        where: { projectId, parentContractId: { in: frontier } },
-        select: { id: true },
-      });
+      const children: Array<{ id: string }> = await loadAnomalyChainChildren(this.prisma, projectId, frontier);
       frontier = children.map((c) => c.id).filter((id) => !ids.has(id));
       for (const id of frontier) ids.add(id);
     }

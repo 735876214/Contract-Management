@@ -82,7 +82,8 @@ describe('发票终态口径（作废/红冲）', () => {
       // 工作台的发票金额聚合已收进查询层（2026-11-23），service 本身不再直查表
       ['../src/query/dashboard-queries.ts', 3], // loadOverviewTotals + loadInvoiceStatsGroups
       ['../src/query/ai-fact-queries.ts', 2], // AI 读取层的 loadInvoiceFacts 统一接口径
-      ['../src/modules/ai-insight/analytics/dataset-collector.service.ts', 3], // 发票记录 + 履约/台账聚合
+      // AI 的发票取数已收进查询层（2026-11-24 解耦 P1 收尾），service 本身不再直查表
+      ['../src/query/ai-dataset-queries.ts', 3], // 发票明细行 + 履约分组的累计开票额
     ];
     for (const [file, min] of consumers) {
       const src = read(file);
@@ -115,11 +116,14 @@ describe('发票终态口径（作废/红冲）', () => {
     for (const file of [
       '../src/modules/ai-insight/field-resolver.service.ts',
       '../src/modules/ai-insight/report.service.ts',
+      // 2026-11-24：数据集明细也收进了 query 层（检查器 AI_OWN_MODELS 同口径锁死）
+      '../src/modules/ai-insight/analytics/dataset-collector.service.ts',
+      '../src/modules/ai-insight/anomaly/anomaly.service.ts',
     ]) {
       const src = read(file);
       assert.ok(
         !src.includes('prisma.invoice'),
-        `${file} 直接出现 prisma.invoice —— 发票口径必须走 query 层的 loadInvoiceFacts`,
+        `${file} 直接出现 prisma.invoice —— 取数必须走 query 层（loadInvoiceFacts / ai-dataset-queries）`,
       );
     }
   });

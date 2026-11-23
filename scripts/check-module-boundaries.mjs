@@ -108,6 +108,17 @@ const AI_READ_ONLY_DIRS = [
  * 而不是「不能共用自家底座」。`ai-insight` / `ai-fill` 仍不在白名单内（分析不得依赖写路径）。
  */
 const AI_FAMILY_MODULES = new Set(['ai-core']);
+/**
+ * **AI 只读子域不得直接读业务表**（2026-11-24 解耦路线图 P1 收尾）。
+ *
+ * 原先 `dataset-collector`（33 处）与 `anomaly.service`（12 处）在 AI 里散写 `prisma.<模型>`，
+ * 横跨 10+ 张业务表：改一张表的列/口径就要进 AI 改一遍，而且检查器锁不住。
+ * 取数已收进 `query/ai-dataset-queries.ts` / `query/ai-anomaly-queries.ts`，
+ * 这里从此按 `archive` / `dashboard` 同样的口径锁死。
+ *
+ * 唯一例外是 AI **自己的表**（分析报告存档），它本来就该由 AI 自己读写。
+ */
+const AI_OWN_MODELS = new Set(['aiAnalyticsReport']);
 
 /**
  * **AI 只读子域不得内联口径片段**（2026-11-23 架构评审 P1）。
@@ -314,6 +325,18 @@ for (const file of files) {
   }
 
   const aiReadOnly = AI_READ_ONLY_DIRS.some((d) => file.startsWith(d));
+
+  // AI 只读子域：不得直接查业务表（取数一律走 server/src/query/）
+  if (aiReadOnly) {
+    for (const m of src.matchAll(/\bprisma\.([A-Za-z]\w*)/g)) {
+      if (AI_OWN_MODELS.has(m[1])) continue;
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `AI 只读子域不得直接查业务表（命中 prisma.${m[1]}），改走 server/src/query/ 的 load* 取数层（见 module-boundaries §3.1）`,
+      });
+    }
+  }
 
   // AI 只读子域：明细查询允许，但口径片段不得内联（必须 import 单一来源）
   if (aiReadOnly) {

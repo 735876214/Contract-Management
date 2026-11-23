@@ -85,9 +85,13 @@ server/src/
 
 ### 2.2.2 跨域只读查询层 `query/`
 
-`<域>-queries.ts`（archive / dashboard / ledger / ai-fact / contract-chain）：只读、不带事务、
+`<域>-queries.ts`（archive / dashboard / ledger / ai-fact / ai-dataset / ai-anomaly / contract-chain）：只读、不带事务、
 每个函数显式带 `projectId`（或调用方传入已按项目筛过的 id 集合）、只返回行/计数/分组，
-业务整形留在 service。契约见同文件 §3.1 与 `scripts/check-module-boundaries.mjs`。
+业务整形留在 service。契约见 `.claude/rules/module-boundaries.md` §3.1 与 `scripts/check-module-boundaries.mjs`。
+
+> 2026-11-24：AI 的两处散写取数（数据集 33 处 / 预警 12 处）也收进了本层，因此
+> `ai-insight/{analytics,anomaly,analysis}` 里已**没有任何** `prisma.<业务模型>`（检查器锁死，
+> 例外只有 AI 自己的 `aiAnalyticsReport`）。
 ### 2.3 业务模块（33 个）
 
 > **AI 已按职责拆成四个目录**（2026-11-23 P4）：`ai`（装配+路由）· `ai-core`（纯函数底座，库型目录）·

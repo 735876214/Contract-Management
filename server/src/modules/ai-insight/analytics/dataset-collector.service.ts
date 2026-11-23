@@ -8,15 +8,15 @@ import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
-  SITE_CONFIRM_STATUS,
   countedInvoiceWhere,
   paidPaymentWhere,
 } from '../../../constants/statuses.ts';
 import { deriveContractFulfillment } from '../../../domain/contract-fulfillment.ts';
-import { sumSettlementAmount } from '../../../common/utils/group-sum.ts';
-import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../domain/asset-flow.ts';
+import { summarizeAssetFlow } from '../../../domain/asset-flow.ts';
 import { SysParamService } from '../../../common/services/sys-param.service.ts';
 import {
+  loadAiDatasetBundle,
+  loadAiProjectCoreGroups,
   loadContractChainFacts,
   loadDailyReportCounts,
   loadInvoiceFacts,
@@ -31,6 +31,7 @@ import { inRange, localDayKey, localMonthKey } from '../../ai-core/common/period
 import type { DayRange } from '../../ai-core/common/period.ts';
 import { formatYuan as fmtYuan } from '../../ai-core/common/format.ts';
 import type { AiAnalyticsProjectFact, AiAnalyticsTotals, AiCollectedDataset } from '../../ai-core/dataset/analytics.types.ts';
+
 
 /** 单数据集明细上限（与计划 §2.4 一致） */
 const MAX_ROWS = 5000;
@@ -110,47 +111,17 @@ export class DatasetCollector {
     const ids = projects.map((p) => p.id);
     const gated = await this.requireConfirmed();
     const monthRange = monthBetween(range);
-    const [contracts, settlements, payments, invoices, daily, tasks, profitLosses, factoring, overdue, assets] =
-      await Promise.all([
-        loadContractChainFacts(this.prisma, ids),
-        loadSettlementFacts(this.prisma, ids, { range, excludeDraft: true }),
-        loadPaymentFacts(this.prisma, ids, {
-          range,
-          excludeFailed: true,
-          payMonthRange: monthRange,
-        }),
-        loadInvoiceFacts(this.prisma, ids, { range, excludeTerminal: true }),
-        loadDailyReportCounts(this.prisma, ids, { range, confirmedOnly: gated }),
-        loadProcurementTaskCounts(this.prisma, ids, { range }),
-        // 以下四个分区块都是**纯分组求和**（P1-4）：原先把项目集的明细行取回内存再累加，
-        // 现在改为 `groupBy + _sum`，数据库只回「每个项目一行」。
-        this.prisma.monthlyProfitLoss.groupBy({
-          by: ['projectId'],
-          where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-          _sum: { sixSavingsAmount: true },
-        }),
-        // 保理费用/逾期应付只有 `contractId`（无 projectId 列），故按 contractId 求和后用合同的
-        // (id → projectId) 映射归并；where 里的 `contract.projectId` 与那个映射同源，不会漏也不会串项目。
-        this.prisma.factoringCost.groupBy({
-          by: ['contractId'],
-          where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
-          _sum: { totalCost: true },
-        }),
-        this.prisma.overduePayable.groupBy({
-          by: ['contractId'],
-          where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-          _sum: { overdueInterest: true },
-        }),
-        this.prisma.assetLedger.groupBy({
-          by: ['projectId'],
-          where: {
-            projectId: { in: ids },
-            sourceCode: { in: [...ASSET_IN_SOURCES] },
-            ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}),
-          },
-          _sum: { totalAmount: true },
-        }),
-      ]);
+    // 六个跨域 loader 与四个分组求和并发发起（后者已收进 query 层）
+    const coreGroups = loadAiProjectCoreGroups(this.prisma, { ids, range, monthRange });
+    const [contracts, settlements, payments, invoices, daily, tasks] = await Promise.all([
+      loadContractChainFacts(this.prisma, ids),
+      loadSettlementFacts(this.prisma, ids, { range, excludeDraft: true }),
+      loadPaymentFacts(this.prisma, ids, { range, excludeFailed: true, payMonthRange: monthRange }),
+      loadInvoiceFacts(this.prisma, ids, { range, excludeTerminal: true }),
+      loadDailyReportCounts(this.prisma, ids, { range, confirmedOnly: gated }),
+      loadProcurementTaskCounts(this.prisma, ids, { range }),
+    ]);
+    const [profitLosses, factoring, overdue, assets] = await coreGroups;
 
     const map = new Map<string, AiAnalyticsProjectFact>();
     for (const p of projects) {
@@ -279,6 +250,8 @@ export class DatasetCollector {
     const q = (keys: string[], fn: () => Promise<any[]>): Promise<any[]> =>
       need(...keys) ? fn() : Promise.resolve([]);
 
+    // 取数全部在 query 层（`server/src/query/ai-dataset-queries.ts`）：AI 只读子域不得直接碰业务表；
+    // `q()`（按所选数据集裁剪）由本服务的 `need()` 传入，避免没选中的数据集白查一遍
     const [
       projectsRows,
       contracts,
@@ -310,262 +283,7 @@ export class DatasetCollector {
       laborAuths,
       procurementDocs,
       inspections,
-    ] = await Promise.all([
-      this.prisma.project.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, code: true, name: true, nameAbbr: true, projectManager: true, startDate: true, endDate: true },
-      }),
-      this.prisma.contract.findMany({
-        where: { projectId: { in: ids } },
-        select: {
-          id: true,
-          projectId: true,
-          code: true,
-          name: true,
-          supplierId: true,
-          parentContractId: true,
-          amount: true,
-          changeAmount: true,
-          signDate: true,
-          status: true,
-          execStatus: true,
-          supplier: { select: { name: true } },
-        },
-        take: 20000,
-      }),
-      q(["settlement.summary","settlement.detail"], () => this.prisma.settlement.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { settleDate: { gte: range.from, lte: range.to } } : {}), ...notDraft },
-        select: { projectId: true, contractId: true, code: true, amount: true, actualAmount: true, settleDate: true, statusCode: true, contract: { select: { code: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["payment.records"], () => this.prisma.paymentRecord.findMany({
-        where: {
-          projectId: { in: ids },
-          AND: [
-            paidPaymentWhere(),
-            ...(range.from
-              ? [{ OR: [{ payDate: { gte: range.from, lte: range.to } }, { payDate: null, payMonth: monthRange ?? undefined }] }]
-              : []),
-          ],
-        },
-        select: { projectId: true, contractId: true, amount: true, payDate: true, payMonth: true, statusCode: true, contract: { select: { code: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["invoice.records"], () => this.prisma.invoice.findMany({
-        where: { projectId: { in: ids }, ...countedInvoiceWhere(), ...(range.from ? { invoiceDate: { gte: range.from, lte: range.to } } : {}) },
-        select: { projectId: true, contractId: true, amountWithTax: true, invoiceDate: true, statusCode: true, contract: { select: { code: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["daily.report"], () => (this.prisma.dailyReport.groupBy as any)({
-        by: ['projectId'],
-        where: {
-          projectId: { in: ids },
-          ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}),
-          ...(range.from ? { entryDate: { gte: range.from, lte: range.to } } : {}),
-        },
-        _count: { _all: true },
-        _sum: { settleQty: true, amountAfterTax: true },
-      })),
-      q(["settlement.ledger"], () => this.prisma.settlementLedger.findMany({
-        where: { projectId: { in: ids }, ...(monthRange ? { settleMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: {
-          projectId: true,
-          settleMonth: true,
-          monthSettleAmount: true,
-          monthInvoiceAmount: true,
-          factoringDiscount: true,
-          overdueInterest: true,
-          contract: { select: { code: true } },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["procurement.task"], () => this.prisma.procurementTask.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
-        select: { projectId: true, taskNo: true, type: true, status: true },
-        take: MAX_ROWS,
-      })),
-      q(["procurement.result"], () => this.prisma.procurementBidder.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { task: { createdAt: { gte: range.from, lte: range.to } } } : {}) },
-        select: { projectId: true, bidderName: true, status: true, finalPreTaxTotal: true, task: { select: { taskNo: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["receipt.order"], () => this.prisma.receiptOrder.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { orderDate: { gte: range.from, lte: range.to } } : {}) },
-        select: { projectId: true, orderNo: true, orderDate: true, supplierName: true, status: true, _count: { select: { details: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["cost.profit_loss"], () => this.prisma.monthlyProfitLoss.findMany({
-        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: { projectId: true, period: true, sixSavingsAmount: true, totalDeductAmount: true, _count: { select: { details: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["labor.receiving_doc"], () => this.prisma.laborReceivingDoc.findMany({
-        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: { projectId: true, docNo: true, subcontractorName: true, period: true, status: true, _count: { select: { details: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["cost.labor_receiving"], () => this.prisma.laborReceivingSummary.findMany({
-        where: { projectId: { in: ids }, ...(monthRange ? { period: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: {
-          projectId: true,
-          subcontractorName: true,
-          period: true,
-          materialName: true,
-          spec: true,
-          unit: true,
-          unitPrice: true,
-          returnQty: true,
-          stockTakeQty: true,
-          designQtyCum: true,
-          lossRate: true,
-        },
-        take: MAX_ROWS,
-      })),
-      q(["finance.cost"], () => this.prisma.factoringCost.findMany({
-        where: { contract: { projectId: { in: ids } }, ...(range.from ? { financingDate: { gte: range.from, lte: range.to } } : {}) },
-        select: { financingDate: true, totalCost: true, settlementMonth: true, contract: { select: { code: true, projectId: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["finance.cost"], () => this.prisma.overduePayable.findMany({
-        where: { contract: { projectId: { in: ids } }, ...(monthRange ? { settlementMonth: { gte: monthRange.gte, lte: monthRange.lte } } : {}) },
-        select: { settlementMonth: true, overdueInterest: true, contract: { select: { code: true, projectId: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["asset.flow"], () => this.prisma.assetLedger.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { date: { gte: range.from, lte: range.to } } : {}) },
-        select: { projectId: true, sourceCode: true, qty: true, totalAmount: true },
-        take: MAX_ROWS,
-      })),
-      q(["contract.fulfillment"], () => this.prisma.contractMaterial.findMany({
-        where: { contract: { projectId: { in: ids } } },
-        select: { qty: true, contract: { select: { projectId: true } } },
-        take: 20000,
-      })),
-      q(["contract.fulfillment"], () => (this.prisma.dailyReport.groupBy as any)({
-        by: ['projectId'],
-        where: { projectId: { in: ids }, ...(gated ? { confirmStatusCode: SITE_CONFIRM_STATUS.CONFIRMED } : {}) },
-        _sum: { settleQty: true },
-      })),
-      // 合同履约的「累计审定结算额」是纯分组求和（P1-4）：口径 `actualAmount ?? amount`
-      // 由 `sumSettlementAmount` 在 SQL 侧精确复刻（两次 groupBy），返回 项目 → 金额 的 Map
-      // 结果是 Map（不是数组），故不走 `q()`，直接按需短路
-      need("contract.fulfillment")
-        ? sumSettlementAmount(this.prisma, 'projectId', { projectId: { in: ids }, ...notDraft })
-        : Promise.resolve(new Map<string, number>()),
-      q(["contract.fulfillment"], () => (this.prisma.paymentRecord.groupBy as any)({
-        by: ['projectId'],
-        where: { projectId: { in: ids }, ...paidPaymentWhere() },
-        _sum: { amount: true },
-      })),
-      q(["contract.fulfillment"], () => (this.prisma.invoice.groupBy as any)({
-        by: ['projectId'],
-        where: { projectId: { in: ids }, ...countedInvoiceWhere() },
-        _sum: { amountWithTax: true },
-      })),
-      q(["repayment.agreement"], () => this.prisma.repaymentAgreement.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { signDate: { gte: range.from, lte: range.to } } : {}) },
-        select: {
-          projectId: true,
-          code: true,
-          material: true,
-          signDate: true,
-          settleAmount: true,
-          agreedDebtAmount: true,
-          paidBeforeSign: true,
-          paidAfterSign: true,
-          overdueUnpaid: true,
-          supplier: { select: { name: true } },
-          contract: { select: { code: true } },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["final_settlement.summary"], () => this.prisma.finalSettlement.findMany({
-        where: { projectId: { in: ids } },
-        select: { projectId: true, code: true, statusCode: true, totalAmount: true, settledAt: true, createdAt: true, contract: { select: { code: true } } },
-        take: MAX_ROWS,
-      })),
-      q(["payment_procedure.records"], () => this.prisma.paymentProcedure.findMany({
-        where: { projectId: { in: ids }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
-        select: {
-          projectId: true,
-          code: true,
-          settleCumAmount: true,
-          paidCumAmount: true,
-          unpaidAmount: true,
-          payDate: true,
-          statusCode: true,
-          supplier: { select: { name: true } },
-          contract: { select: { code: true } },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["contract.change_log"], () => this.prisma.contractChangeLog.findMany({
-        where: { contract: { projectId: { in: ids } }, ...(range.from ? { createdAt: { gte: range.from, lte: range.to } } : {}) },
-        select: {
-          field: true,
-          fieldLabel: true,
-          beforeValue: true,
-          afterValue: true,
-          operator: true,
-          createdAt: true,
-          contract: { select: { code: true, projectId: true } },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["material.base"], () => this.prisma.materialBase.findMany({
-        select: { name: true, spec: true, categoryLevel1: true, categoryLevel2: true, unit: true, isAsset: true, status: true },
-        take: MAX_ROWS,
-      })),
-      q(["material.contract"], () => this.prisma.contractMaterial.findMany({
-        where: { contract: { projectId: { in: ids } } },
-        select: {
-          qty: true,
-          priceBeforeTax: true,
-          priceWithTax: true,
-          totalWithTax: true,
-          incomePrice: true,
-          stdPrice: true,
-          contract: { select: { code: true, projectId: true } },
-          materialBase: { select: { name: true, spec: true } },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["labor.auth"], () => this.prisma.laborAuthLedger.findMany({
-        where: { projectId: { in: ids } },
-        select: {
-          projectId: true,
-          subcontractorName: true,
-          legalPerson: true,
-          authorizedPerson: true,
-          authStartDate: true,
-          authEndDate: true,
-          status: true,
-        },
-        take: MAX_ROWS,
-      })),
-      q(["procurement.documents"], () => this.prisma.procurementTask.findMany({
-        where: { projectId: { in: ids } },
-        select: {
-          projectId: true,
-          taskNo: true,
-          type: true,
-          createdAt: true,
-          procurementNotice: { select: { procurementTime: true, publishedAt: true, createdAt: true } },
-          procurementDocument: { select: { procurementTime: true, publishedAt: true, createdAt: true } },
-          procurementPriceCompare: { select: { publishedAt: true, createdAt: true } },
-          preMeetingMinutes: { select: { meetingTime: true, createdAt: true } },
-          frameworkExplanation: { select: { publishedAt: true, createdAt: true } },
-          procurementResultReport: { select: { openTime: true, publishedAt: true, createdAt: true } },
-          evaluations: { select: { evaluatedAt: true, evaluator: true, conclusion: true }, take: 20 },
-        },
-        take: MAX_ROWS,
-      })),
-      q(["procurement.documents"], () => this.prisma.inspectionReport.findMany({
-        where: { projectId: { in: ids } },
-        select: { projectId: true, unitName: true, inspectionTime: true, publishedAt: true, createdAt: true },
-        take: MAX_ROWS,
-      })),
-    ]);
+    ] = await loadAiDatasetBundle(this.prisma, { ids, range, monthRange, gated, maxRows: MAX_ROWS }, need);
 
     const warnings: string[] = [];
     const projectLabel = new Map<string, string>(projectsRows.map((p) => [String(p.id), `${p.code} ${p.name}`]));

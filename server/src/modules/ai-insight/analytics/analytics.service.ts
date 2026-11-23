@@ -23,6 +23,7 @@ import { buildAnalyticsWorkbookModel } from './workbook-builder.ts';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod } from '../../ai-core/common/period.ts';
 import type { DayRange } from '../../ai-core/common/period.ts';
 import { projectScopeWhere } from '../../ai-core/common/project-scope.ts';
+import { loadAiScopedProjects } from '../../../query';
 import { AI_SECTION_TITLES } from '../../ai-core/dataset/analytics.types.ts';
 
 export interface AnalyticsReportInput extends AiAnalyticsPlanInput {
@@ -62,12 +63,7 @@ export class AnalyticsService {
 
   /** 用户有权限的项目（超管不受成员关系限制） */
   private async allowedProjects(user: JwtUser): Promise<Array<{ id: string; code: string; name: string; nameAbbr: string | null }>> {
-    return this.prisma.project.findMany({
-      where: projectScopeWhere(user),
-      select: { id: true, code: true, name: true, nameAbbr: true },
-      orderBy: { code: 'asc' },
-      take: 500,
-    });
+    return loadAiScopedProjects(this.prisma, projectScopeWhere(user));
   }
 
   /** 注册表（只返回已实现且用户有权限的条目；无权限的单独列出供前端提示） */
