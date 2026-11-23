@@ -226,7 +226,7 @@ export class LedgerService {
         cumInputTax,
         cumInvoiceAmount: Number(cumInvoiceAmount.toFixed(2)),
         cumPaidAmount: Number(cumPaidAmount.toFixed(2)),
-        // 派生金额列统一走单一实现（口径见 common/utils/ledger-derived.ts）：
+        // 派生金额列统一走单一实现（口径见 modules/ledger/ledger-derived.ts）：
         // 合同额未填 → 相关列留空，而不是算成 0 / 负数
         ...deriveLedgerAmounts({
           // ⚠️ 传的是**合同当前金额**（链口径）而不是本行合同额：
@@ -326,7 +326,7 @@ export class LedgerService {
        * 未填合同额的**链**数：汇总卡片里的金额是"**已知部分的合计**"，
        * 未填金额的合同按 0 参与求和（合同额未知，无从计入）。
        * 不把这件事说出来的话，总额会看起来是完整的——前端据此显示"另有 N 份未填金额"。
-       * 口径见 common/utils/ledger-derived.ts。
+       * 口径见 modules/ledger/ledger-derived.ts。
        */
       amountMissingCount: [...rootAmounts.values()].filter((v) => v === null).length,
       /**

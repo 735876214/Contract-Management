@@ -45,8 +45,12 @@ Contract-Management/
 │   │                               #    / overdue_payable_payment / overdue_payable_material_share
 │   │                               #    / final_settlement_reduce_amount / project_branch_company / final_settlement_doc_number
 │   │                               #    / subcontractor_other_project_libs / user_token_version）
-│   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
-│   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
+│   ├── src/common/     # 通用层（仅基础设施）：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
+│   │                   #   common/utils 是**白名单制**，不放业务口径（见 .claude/rules/module-boundaries.md §2.5）
+│   ├── src/domain/     # 业务口径**纯函数原语**（零 DB/零装饰器）：合同链算式、结算期、金额上限…
+│   │                   #   6 个文件各有 owner，登记在 constants/metrics.ts（为什么不在模块里见 §2.5）
+│   ├── src/query/      # 跨域**只读**查询层（read model）：<域>-queries.ts，只读、不带事务、显式 projectId
+│   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、metrics.ts、workflowGuards.ts
 │   ├── src/modules/    # 30 个业务模块
 │   ├── test/           # node:test 纯函数单测（108 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（33 个 spec，需 PostgreSQL：npm run test:int）

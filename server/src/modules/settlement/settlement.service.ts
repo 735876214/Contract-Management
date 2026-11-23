@@ -944,7 +944,7 @@ export class SettlementService {
    * 预览「上一期」的抓取情况（结算单页顶部提示用）：
    * 该期有几张**未挂结算单**的收领单、涉及几个合同 —— 有值就说明该生成结算了。
    *
-   * 期间算法见 `common/utils/settlement-period.ts`（期 = 起始日 → 下月同日的前一日；
+   * 期间算法见 `domain/settlement-period.ts`（期 = 起始日 → 下月同日的前一日；
    * 起始日取项目的「月度结算起始日期」，未设置按自然月）。
    */
   async previewPreviousPeriod(projectId: string, refDate?: string) {

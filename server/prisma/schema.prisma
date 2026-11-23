@@ -101,7 +101,7 @@ model Project {
   status              String? // dict: project_status
   description         String?
   /// 月度结算起始日期：其**日**即每期起始日（每期 = 起始日 → 下月同日的前一日）。
-  /// 自动生成结算按它算「上一期」，纯函数见 common/utils/settlement-period.ts。
+  /// 自动生成结算按它算「上一期」，纯函数见 domain/settlement-period.ts。
   settlementStartDate DateTime?
   startDate           DateTime?
   endDate             DateTime?
@@ -425,7 +425,7 @@ model Contract {
   // —— 结构化变更（2026-10-15 业务澄清：变更口径需要结构化）——
   // 「合同当前金额」= 主合同 amount + Σ 补充协议 changeAmount（**带符号**，降价为负）。
   // ⚠️ 不要用 amount 参与链式求和：补充协议的 amount 是手填自由值，涨价/降价场景会把
-  //    「剩余数量的全值」重复计入。changeAmount 由服务端按清单重算（common/utils/supplement-delta.ts）。
+  //    「剩余数量的全值」重复计入。changeAmount 由服务端按清单重算（modules/contract/supplement-delta.ts）。
   changeAmount        Decimal?  @db.Decimal(18, 2) // 该补充协议带来的带符号增量（增项为正、减项为负）
   changeQty           Decimal?  @db.Decimal(18, 2) // 带符号数量增量（同上）
   changeEffectiveDate DateTime? // 变更生效日
@@ -515,7 +515,7 @@ model ContractExt {
   bidName            String? // 招标名称
   currentPayRatio    Decimal?  @db.Decimal(9, 4) // 当前合同付款比例
   /// **月度结算办理比例**：仅「自定义付款安排（`paymentMode = CUSTOM`）」时使用；
-  /// 标准安排（100 / 3382 / M65_1 / M65_3）的比例由安排本身决定（见 common/utils/pay-ratio.ts）。
+  /// 标准安排（100 / 3382 / M65_1 / M65_3）的比例由安排本身决定（见 modules/contract/pay-ratio.ts）。
   settlementPayRatio Decimal?  @db.Decimal(9, 4)
   supplierCategory   String? // dict: supplier_category
   bidStartDate       DateTime? // 开始招标时间

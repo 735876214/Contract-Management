@@ -38,7 +38,7 @@
 
 | 数据 | 唯一来源 | 备注 |
 |---|---|---|
-| 合同当前金额 | `common/utils/contract-chain.ts` 的 `resolveChainAmounts()` | 主合同 + Σ 补充协议 `changeAmount`（带符号） |
+| 合同当前金额 | `domain/contract-chain.ts` 的 `resolveChainAmounts()` | 主合同 + Σ 补充协议 `changeAmount`（带符号） |
 | 结算量基线 | **总日报行**（`DailyReport`） | 收领单推送的行与手工录入行同属来源；非「已确认」行在开关开启时不计入 |
 | 结算金额 | `Settlement.actualAmount`（排除草稿） | 明细修改后由服务端汇总回写 |
 | 付款金额 | `PaymentRecord` | 排除失败 / 退款（`PAYMENT_EXCLUDED_STATUSES`） |
@@ -67,7 +67,7 @@
 - **幂等**：同合同同期已有结算单 → 跳过；本期迟到的收领单补挂到已有结算单、**不改金额**。
 - `generateForPeriod()` 的「结算单头 + 明细 + 收领单回挂」在**同一事务**内完成；
   失败不会留下「有单头、无明细」的孤儿结算单（否则重跑会因同期已有单而永远跳过）。
-- 实现：纯函数 `server/src/common/utils/settlement-from-daily.ts` +
+- 实现：纯函数 `server/src/modules/settlement/settlement-from-daily.ts` +
   `settlement.service.generateForPeriod()` / `previewPreviousPeriod()`。
   锁定：`server/test/settlementFromDaily.spec.mts` +
   `server/test-integration/settlement-period-link.int.spec.ts`。
@@ -80,7 +80,7 @@
   算出已收比例、已结比例、已付/已结、已付/合同、开票比例、未收数量、待结金额、未付金额。
 - 口径：已收 = 总日报 `settleQty`（`settlement.require_confirmed` 开启时只算已确认行）；
   已结排除草稿（`chainSettledTotal`）；付款排除失败/退款；发票 = `Invoice.amountWithTax` 合计。
-- 纯函数 `server/src/common/utils/contract-fulfillment.ts`；服务
+- 纯函数 `server/src/domain/contract-fulfillment.ts`；服务
   `contract-fulfillment.service.ts`；端点 `GET /contracts/:id/fulfillment`；
   前端「合同查询」详情弹窗的「履约进度（派生）」卡片。
 - **不重复**结算 / 付款 / 收货单据；履约是它们的汇总视角（与台账同哲学）。
@@ -93,7 +93,7 @@
 - **归档以合同链为单位**：主合同与其直接补充协议一起写 `archivedAt` 并锁定；
   已归档父合同**不允许新增补充协议**（`create()` 400）。
 - 归档前检查下游完整性（完整项见 §5.2 下方），未通过则 400 并逐条列出原因；
-  检查实现：纯函数 `server/src/common/utils/contract-archive.ts` +
+  检查实现：纯函数 `server/src/modules/contract/contract-archive.ts` +
   `contract.service.archiveCheck()`；端点 `GET /contracts/:id/archive-check`、
   `POST /contracts/:id/archive`。
   - 合同未签章；
@@ -129,7 +129,7 @@ P1 → P2 → P3 为顺序依赖；P4 可独立并行。
 - 进场：`ReceiptOrder`（送货 / 实收）→`DailyReport.entryDate` + `AssetLedger`（采购 / 调入）。
 - 出场：`AssetLedger` 的转出 / 处置行（`TRANSFER_OUT` / 处置类 `sourceCode`）。
 - **不建新表、不做人员 / 车辆 / 门禁 / 扫码**；费用类来源（如调拨费、维修费）不计入进出场数量。
-- 实现：纯函数 `server/src/common/utils/asset-flow.ts`；资产台账列表支持
+- 实现：纯函数 `server/src/domain/asset-flow.ts`；资产台账列表支持
   `direction=IN/OUT/FEE` 筛选；`GET /assets/flow-summary` 返回进场/出场/费用汇总；
   前端资产台账页顶部展示汇总卡片。
 - `DailyReport.exitDate` 为按需增强，本轮不做。

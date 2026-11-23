@@ -170,7 +170,7 @@ export interface FinalSettlementItemRow {
 }
 
 export interface MaterialQtyRow {
-  /** 链根合同 ID（`chainMaterialQty` 以链根为键，见 common/utils/contract-chain.ts） */
+  /** 链根合同 ID（`chainMaterialQty` 以链根为键，见 query/contract-chain-queries.ts） */
   contractId: string;
   materialBaseId: string;
   /** 合同链清单量（`ContractMaterial.qty` 按 materialBaseId 求和后传入） */

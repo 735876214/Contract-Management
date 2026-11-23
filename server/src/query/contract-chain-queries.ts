@@ -3,7 +3,7 @@
  * 累计付款 / 清单量。对齐 `archive-queries.ts` / `dashboard-queries.ts`（见
  * `.claude/rules/module-boundaries.md` §3.1）。
  *
- * 2026-11-23 架构评审 P2 从 `common/utils/contract-chain.ts` 拆出：
+ * 2026-11-23 架构评审 P2 从 `domain/contract-chain.ts` 拆出：
  * - **算式只有一份**，在 `server/src/domain/contract-chain.ts`（纯函数，本文件调用它）；
  * - 本文件只负责**读表**：contract / settlement / settlementItem / paymentRecord / contractMaterial
  *   —— 这五张表分别属于 contract / settlement / payment / material，跨域读取按 §3.1 归本层。

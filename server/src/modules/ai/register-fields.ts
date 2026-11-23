@@ -47,7 +47,7 @@ export const CONTRACT_TYPE_OPTIONS: Record<string, string> = {
   EMERGENCY: '紧急采购合同',
 };
 
-/** 付款安排：与 `common/utils/pay-ratio.ts` 的 PAYMENT_MODES 键保持一致 */
+/** 付款安排：与 `modules/contract/pay-ratio.ts` 的 PAYMENT_MODES 键保持一致 */
 export const PAYMENT_MODE_OPTIONS: Record<string, string> = {
   '100': '次月 25 日前支付 100%',
   '3382': '第 3 个月 80% + 第 6 个月 20%',

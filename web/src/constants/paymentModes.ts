@@ -1,5 +1,5 @@
 /**
- * **付款安排**的前端镜像（与后端 `server/src/common/utils/pay-ratio.ts` 的 `PAYMENT_MODES` 一一对应）。
+ * **付款安排**的前端镜像（与后端 `server/src/modules/contract/pay-ratio.ts` 的 `PAYMENT_MODES` 一一对应）。
  *
  * ⚠️ 这是**跨包镜像常量**，与采购工作流链（`procurementWorkflow.ts` ↔ `procurementChain.ts`）同一套路：
  * 必须**手工同步改**，由 `server/test/payRatio.spec.mts` 锁死两侧一致（label 也要求相等，
