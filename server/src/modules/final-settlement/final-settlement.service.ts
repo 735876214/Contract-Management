@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { API_CODE } from '../../common/error-codes';
+import { MISSING_PROJECT_CONTEXT } from '../../common/utils/project-context-message';
+
 /** 编辑总结算明细的请求体（controller 与 service 共用；避免 @Body() 退化成 any） */
 export interface UpdateItemsBody {
   items?: Array<{ id?: string; settleMonth?: string; amount?: any }>;
@@ -82,7 +85,9 @@ export class FinalSettlementService {
    */
   async findOne(id: string, projectId?: string) {
     const pid = projectId ?? requestContext.projectId;
-    if (!pid) throw new BadRequestException('缺少项目上下文（x-project-id），请刷新页面或重新登录选择项目');
+    if (!pid) {
+      throw new BadRequestException({ code: API_CODE.PROJECT_CONTEXT_MISSING, message: MISSING_PROJECT_CONTEXT });
+    }
     const row = await this.prisma.finalSettlement.findFirst({
       where: { id, projectId: pid },
       include: {

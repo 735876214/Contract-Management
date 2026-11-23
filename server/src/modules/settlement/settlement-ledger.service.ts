@@ -451,7 +451,7 @@ export class SettlementLedgerService {
       }),
       this.prisma.settlementLedger.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   async ledgerOne(id: string, projectId?: string) {

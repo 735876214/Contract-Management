@@ -70,7 +70,7 @@ export class AssetService {
       }),
       this.prisma.assetLedger.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   /**

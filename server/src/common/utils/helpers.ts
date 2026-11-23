@@ -11,13 +11,16 @@ export function paginate(query: any = {}, maxPageSize = 500) {
   return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
 }
 
-export function buildResult(list: any[], total: number, query: any = {}) {
-  return {
-    list,
-    total,
-    page: Math.max(1, Number(query.page) || 1),
-    pageSize: Math.min(500, Math.max(1, Number(query.pageSize) || 20)),
-  };
+/**
+ * 列表响应体（与 `paginate()` **同一套**分页口径）。
+ *
+ * ⚠️ `maxPageSize` 必须与调用方传给 `paginate()` 的一致：此前这里恒把 `pageSize` 夹到 500，
+ * 而导出/批量场景的 `paginate(query, 5000)` 真取到 5000 行 → 响应里却写 `pageSize: 500`，
+ * 前端"每页 N 条"与真实切片不符（2026-11-22 审计）。
+ */
+export function buildResult(list: any[], total: number, query: any = {}, maxPageSize = 500) {
+  const { page, pageSize } = paginate(query, maxPageSize);
+  return { list, total, page, pageSize };
 }
 
 /** 单次导入最大行数（需求 3.4 性能要求） */

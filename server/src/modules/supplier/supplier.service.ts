@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { sharedScopeWhere } from '../../common/utils/project-scope';
 
 const SUPPLIER_FIELDS = [
   'name', 'legalPerson', 'legalPhone', 'contractAuthPerson', 'contractAuthPhone',
@@ -32,7 +33,8 @@ export class SupplierService {
   /** 供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离 */
   private async scopeWhere(projectId?: string | null) {
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
-    return scope === 'PROJECT' && projectId ? { projectId } : {};
+    // 单一实现（含 fail-closed）：不再各模块手抄「没项目 id 就不过滤」
+    return sharedScopeWhere(scope, projectId);
   }
 
   async findAll(query: any = {}, projectId?: string, maxPageSize = 500) {
@@ -56,7 +58,7 @@ export class SupplierService {
     const ids = list.map((s: any) => s.id);
     const refs = await this.prisma.contract.groupBy({ by: ['supplierId'], where: { supplierId: { in: ids } }, _count: { _all: true } });
     const refMap = refs.reduce((acc: any, r: any) => ({ ...acc, [r.supplierId]: r._count._all }), {});
-    return buildResult(list.map((s: any) => ({ ...s, contractCount: refMap[s.id] || 0 })), total, query);
+    return buildResult(list.map((s: any) => ({ ...s, contractCount: refMap[s.id] || 0 })), total, query, maxPageSize);
   }
 
   async options(projectId?: string, keyword?: string) {

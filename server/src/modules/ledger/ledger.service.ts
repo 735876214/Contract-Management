@@ -269,7 +269,7 @@ export class LedgerService {
       rows = rows.slice(skip, skip + take).map((r: any, i: number) => ({ ...r, index: skip + i + 1 }));
     }
 
-    return { ...buildResult(rows, total, query), columns: await this.columns() };
+    return { ...buildResult(rows, total, query, maxPageSize), columns: await this.columns() };
   }
 
 

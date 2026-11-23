@@ -1,4 +1,6 @@
 import { BadRequestException, createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { API_CODE } from '../error-codes';
+import { MISSING_PROJECT_CONTEXT } from '../utils/project-context-message';
 
 export interface JwtUser {
   userId: string;
@@ -26,7 +28,8 @@ export const ProjectId = createParamDecorator((_data: unknown, ctx: ExecutionCon
   const request = ctx.switchToHttp().getRequest();
   const projectId = request.projectId || request.headers['x-project-id'] || request.query?.projectId;
   if (!projectId) {
-    throw new BadRequestException('缺少项目上下文（x-project-id），请刷新页面或重新登录选择项目');
+    // 文案与错误码都走单一来源：前端按 code 1412 触发「刷新项目列表并重放请求」
+    throw new BadRequestException({ code: API_CODE.PROJECT_CONTEXT_MISSING, message: MISSING_PROJECT_CONTEXT });
   }
   return projectId;
 });

@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { API_CODE } from '../error-codes';
+import { MISSING_PROJECT_CONTEXT } from '../utils/project-context-message';
 
 /**
  * 项目上下文鉴权（**单一实现**，`AuthService.assertProjectAccess` 与 `JwtAuthGuard` 都走这里）。
@@ -19,13 +21,15 @@ export class ProjectAccessService {
     projectId: string,
     isSuperAdmin = false,
   ): Promise<{ id: string; name: string }> {
-    if (!projectId) throw new ForbiddenException('缺少项目上下文，请先选择项目');
+    if (!projectId) {
+      throw new ForbiddenException({ code: API_CODE.PROJECT_CONTEXT_MISSING, message: MISSING_PROJECT_CONTEXT });
+    }
     if (isSuperAdmin) {
       const project = await this.prisma.project.findUnique({
         where: { id: projectId },
         select: { id: true, name: true },
       });
-      if (!project) throw new NotFoundException('项目不存在');
+      if (!project) throw new NotFoundException({ code: API_CODE.PROJECT_NOT_FOUND, message: '项目不存在' });
       return project;
     }
     if (!userId) throw new ForbiddenException('未登录');
@@ -36,7 +40,7 @@ export class ProjectAccessService {
     });
     if (member?.project) return member.project;
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
-    if (!project) throw new NotFoundException('项目不存在');
-    throw new ForbiddenException('无权访问该项目');
+    if (!project) throw new NotFoundException({ code: API_CODE.PROJECT_NOT_FOUND, message: '项目不存在' });
+    throw new ForbiddenException({ code: API_CODE.PROJECT_NOT_MEMBER, message: '无权访问该项目' });
   }
 }

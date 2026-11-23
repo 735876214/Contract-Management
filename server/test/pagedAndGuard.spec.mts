@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { pagedAll } from '../src/common/utils/paged.ts';
-import { assertInProject } from '../src/common/utils/helpers.ts';
+import { assertInProject, buildResult, paginate } from '../src/common/utils/helpers.ts';
 
 /**
  * 共用原语锁：`pagedAll`（按页取全量）与 `assertInProject`（项目归属 404）。
@@ -88,5 +88,36 @@ describe('assertInProject：按 id 的记录归属', () => {
 
   it('记录的 projectId 为空时，带项目上下文一律拒绝', () => {
     assert.throws(() => assertInProject({ projectId: null }, 'p1'), /记录不存在/);
+  });
+});
+
+describe('buildResult：分页元数据必须与真实切片同一口径', () => {
+  it('默认口径与 paginate 一致（pageSize 20）', () => {
+    const out = buildResult([], 0, {});
+    assert.equal(out.page, 1);
+    assert.equal(out.pageSize, 20);
+  });
+
+  it('**放宽上限时**（导出/批量场景）响应 pageSize 必须跟着放宽，不能恒夹 500', () => {
+    // 改造前 buildResult 恒 `Math.min(500, …)`：paginate(query, 5000) 真取 5000 行，
+    // 响应却写 pageSize=500 → 前端"每页 N 条"与真实切片不符（2026-11-22 审计）
+    assert.equal(paginate({ page: 1, pageSize: 5000 }, 5000).take, 5000);
+    const out = buildResult([], 0, { page: 2, pageSize: 5000 }, 5000);
+    assert.equal(out.pageSize, 5000);
+    assert.equal(out.page, 2);
+  });
+
+  it('pageSize 超过该接口上限时按上限夹（与 paginate 的 take 相同）', () => {
+    const out = buildResult([], 0, { pageSize: 99999 }, 5000);
+    assert.equal(out.pageSize, paginate({ pageSize: 99999 }, 5000).pageSize);
+  });
+
+  it('非法页码/页大小走兜底（与 paginate 完全一致）', () => {
+    for (const q of [{ page: 0 }, { page: -3 }, { pageSize: 0 }, { pageSize: 'abc' }, { page: null }]) {
+      const p = paginate(q);
+      const b = buildResult([], 0, q);
+      assert.equal(b.page, p.page, JSON.stringify(q));
+      assert.equal(b.pageSize, p.pageSize, JSON.stringify(q));
+    }
   });
 });
