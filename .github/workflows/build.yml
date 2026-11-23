@@ -103,6 +103,11 @@ jobs:
       - name: "列表查询上限（项目级 findMany 必须有 take 或 // @no-limit: 理由）"
         run: node scripts/check-query-limits.mjs
 
+      - name: "事务边界（$transaction 回调体内不做跨域 service / 外部 IO）"
+        run: |
+          node scripts/check-tx-boundaries.mjs --self-test
+          node scripts/check-tx-boundaries.mjs
+
       - name: Install server dependencies
         working-directory: server
         run: npm ci --legacy-peer-deps --no-audit --no-fund

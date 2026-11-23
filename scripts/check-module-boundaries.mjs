@@ -17,7 +17,7 @@
  * 背景：跨模块 import 曾全部指向 `<m>.module` / `<m>.service`，没有 DTO/类型，
  * 因此可以用一个入口文件收口；`archive` / `ai` 是刻意的聚合器（fan-out 大，但仍须走入口）。
  *
- * 用法：node scripts/check-module-boundaries.mjs [--quiet]
+ * 用法：node scripts/check-module-boundaries.mjs [--quiet] [--self-test]
  * 退出码：0 通过 / 1 有越界或环 / 2 环境错误
  */
 import { execFileSync } from 'node:child_process';
@@ -65,6 +65,65 @@ const AI_READ_ONLY_DIRS = [
 
 /** fan-out 超过该值的模块会在输出里标为聚合器（仅供参考，不是错误） */
 const AGGREGATOR_FANOUT = 5;
+
+/**
+ * 任意句柄（`this.prisma` / `tx` / `t` / `db` …）上的写方法调用。
+ *
+ * ⚠️ 句柄与模型名之间、模型名与方法名之间**允许换行**（`\s*`）。
+ * 2026-11-23 之前这里是行内正则，格式化把 `.deleteMany(...)` 折到下一行时该写点会**静默漏检**——
+ * 真实后果：`procurement` 越过 `contract` 直接删合同表，门禁仍打印 OK。
+ * 改动本正则必须同时跑 `--self-test`（见下）。
+ */
+const WRITE_RE =
+  /\b([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z]\w*)\s*\.\s*(create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\b/g;
+
+/** 扫描一段源码里的写点（不判归属）；行号按原文偏移算，跨行也能报准 */
+function scanWriteSites(source) {
+  const out = [];
+  for (const m of source.matchAll(WRITE_RE)) {
+    out.push({ handle: m[1], model: m[2], op: m[3], line: source.slice(0, m.index).split('\n').length });
+  }
+  return out;
+}
+
+/**
+ * 门禁自证（`--self-test`）：证明「写点检测」本身有效，而不只是当前代码恰好干净。
+ *
+ * 没有反向断言的检查器等于没有检查器：2026-11-23 之前正是因为它漏检跨行写点，
+ * 才让跨模块直写他人表在门禁全绿的情况下长期存在。
+ */
+function runSelfTest() {
+  const MODELS = new Set(['contract', 'settlement', 'materialBase']);
+  const cases = [
+    { name: '单行写点', src: 'await this.prisma.contract.delete({ where: { id } });', want: [['contract', 'delete', 1]] },
+    { name: '跨行：模型名与方法名之间换行', src: 'await this.prisma.contract\n  .deleteMany({ where: { id: { in: ids } } });', want: [['contract', 'deleteMany', 1]] },
+    { name: '跨行：句柄与模型名之间换行', src: 'await tx\n  .settlement.update({ where: { id }, data });', want: [['settlement', 'update', 1]] },
+    { name: '多行链式（真实回归样例）', src: 'if (x) {\n  await this.prisma.contract\n    .deleteMany({ where: { id: { in: ids } } })\n    .catch(() => undefined);\n}', want: [['contract', 'deleteMany', 2]] },
+    { name: '非模型字段不算写点', src: 'await foo.bar.create({ data });', want: [] },
+    { name: '读方法不是写点', src: 'await this.prisma.contract.findMany({ where: { projectId } });', want: [] },
+  ];
+  let failed = 0;
+  for (const c of cases) {
+    const got = scanWriteSites(c.src)
+      .filter((s) => MODELS.has(s.model))
+      .map((s) => [s.model, s.op, s.line]);
+    if (JSON.stringify(got) !== JSON.stringify(c.want)) {
+      failed++;
+      console.error(`  ✗ ${c.name}\n      期望 ${JSON.stringify(c.want)}\n      实际 ${JSON.stringify(got)}`);
+    } else if (!quiet) {
+      console.log(`  ✓ ${c.name}`);
+    }
+  }
+  if (failed) {
+    console.error(`[module-boundaries] 自证失败 ${failed}/${cases.length}：写点检测已失效，规则 4 的「无跨模块写表」结论不可信`);
+    process.exit(1);
+  }
+  if (!quiet) console.log('[module-boundaries] 自证通过：写点检测覆盖单行与跨行形态');
+  process.exit(0);
+}
+
+// 自证要在读 git 之前就结束，保证它只依赖正则、不依赖仓库状态
+if (process.argv.includes('--self-test')) runSelfTest();
 
 let root;
 try {
@@ -182,9 +241,6 @@ const SCHEMA = trackedSet.has('server/prisma/schema.prisma')
 const MODEL_PROPS = new Set(
   [...SCHEMA.matchAll(/^model\s+(\w+)\s*\{/gm)].map((m) => m[1].charAt(0).toLowerCase() + m[1].slice(1)),
 );
-/** 任意句柄（this.prisma / tx / t / db …）上的写方法调用 */
-const WRITE_RE = /\b([A-Za-z_$][\w$]*)\.([A-Za-z]\w*)\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b/g;
-
 /** 表归属覆盖：语义归属与「写入次数最多者」不一致时在此钉死 */
 const MODEL_OWNER_OVERRIDES = {
   user: 'system',
@@ -198,10 +254,9 @@ for (const file of files) {
   if (!fromMod) continue;
   const src = readFileSync(path.join(root, file), 'utf8');
   const rel = path.posix.basename(file);
-  for (const m of src.matchAll(WRITE_RE)) {
-    const model = m[2];
-    if (!MODEL_PROPS.has(model)) continue;
-    writeSites.push({ file, module: fromMod, model, line: src.slice(0, m.index).split('\n').length, aiAllow: AI_ROOT_WRITE_ALLOWLIST.has(rel) });
+  for (const site of scanWriteSites(src)) {
+    if (!MODEL_PROPS.has(site.model)) continue;
+    writeSites.push({ file, module: fromMod, model: site.model, line: site.line, aiAllow: AI_ROOT_WRITE_ALLOWLIST.has(rel) });
   }
 }
 

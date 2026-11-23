@@ -260,10 +260,16 @@ export class InvoiceService {
       if (redLink) await this.voidOriginal(exec, redLink.id);
       return created;
     };
+    /**
+     * 超时口径（2026-11-23）：原为 `timeout: 30000`，没有理由说明。
+     * 事务体只有"建发票 + 作废原票"两条写语句（台账刷新在事务**外**），默认 5s 足够；
+     * 收紧到 15s + `maxWait` 5s：Prisma 交互式事务在 PostgreSQL 上是**单连接长事务**，
+     * 30s 会让慢请求长期占住连接并阻塞 VACUUM 与并发写。
+     */
     const created = tx
       ? await createAndVoid(tx)
       : redLink
-        ? await this.prisma.$transaction(createAndVoid, { timeout: 30000 })
+        ? await this.prisma.$transaction(createAndVoid, { maxWait: 5000, timeout: 15000 })
         : await createAndVoid(this.prisma);
     // 红冲票与原票可能只有一方挂了合同（API 允许 contractId 为空）：两边台账都要刷
     for (const cid of new Set([payload.contractId, redLink?.contractId].filter(Boolean))) {

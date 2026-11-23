@@ -68,6 +68,13 @@ export async function setXxxStatus(db: Db, id: string, status: string): Promise<
 - **不要**注入对方的 Service（`AuthGuard` 与控制器会连带进来，容易成 DI 环）。
 - 例外：`ai/register.service.ts` 是刻意的写路径（复用业务 Service），由检查器白名单放行。
 
+## 3.3 门禁自证：改检测逻辑必须跑 `--self-test`
+
+`node scripts/check-module-boundaries.mjs --self-test` 用合成样例证明**写点检测本身有效**
+（单行 / 跨行 / 多行链式 / 非模型字段 / 读方法 六种形态）。规则 4 的「无跨模块写表」结论
+完全依赖这条正则，**改动 `WRITE_RE` 必须让自证保持全绿**——2026-11-23 之前它是行内正则，
+格式化把 `.deleteMany(...)` 折行后即静默漏检（真实案例：`procurement` 越过 `contract` 删表）。
+
 ## 4. 不允许模块环
 
 检查器用 Tarjan SCC 检测模块级循环依赖（当前为 0），**依赖边只由静态 `import ... from` 构成**。出现环时的修法：

@@ -16,9 +16,8 @@
 
 ## 需业务澄清（澄清前不要动手）
 
-- **`dashboard/*` 接口是否加 `dashboard:view` 权限码**（2026-10-22 审计留档）：现状是
-  「已登录 + 项目成员即可访问」，泄露面仅同项目看板数据；种子角色（含 STAFF）都带该码，
-  但自定义角色可能没有，单方面加权限会误伤，**需产品先定口径**再改。
+（当前无。`dashboard:view` 口径已定：类级要求该权限，`todos` 继续豁免——「我的任务」不是统计报表。
+实现见 `server/src/modules/dashboard/dashboard.controller.ts`。）
 
 ## 需外部条件（基础设施 / 凭据 / 他人配合就绪即可做）
 
@@ -59,6 +58,27 @@
 > 见 [.claude/rules/document-relationships.md](.claude/rules/document-relationships.md) 与
 > [.claude/rules/procurement-and-tender.md](.claude/rules/procurement-and-tender.md)，
 > 历史以 `git log` 为准。当前**无遗留待办**；有新需求按上方三档新增。
+
+## 解耦路线图（2026-11-23 架构评审结论，P0 已在 `fix/gate-hardening` 完成）
+
+> 前提结论：模块**调用/import 边界**已由 `check-module-boundaries` 锁死（静态环 0、越界 0、跨模块写表 0），
+> 继续在该层投入收益接近零。剩余耦合集中在**读路径**、**共享内核**与**前后端源码互引**。
+> 痛点定位：报表口径不一致 + 理解成本高。
+
+- **P1 口径单一实现**（治「口径不一致」）：先把高风险指标登记成表（`docs/report-metrics.md`：
+  指标 id / owner 模块 / 唯一实现 / 消费方），用 `// @metric: <id>` 标记 + 新 spec 锁「同一 id 只出现一次」；
+  再把 `dashboard`(32 处/10 表)、`ledger`(12 处/8 表)、`ai/analytics/dataset-collector`(连读 8 表)
+  的只读聚合下沉到 `query/<域>-queries.ts`。范式见 `query/archive-queries.ts`。
+- **P2 common 业务语义归位**（治「理解成本」）：`common/utils/contract-chain.ts`(8 模块)、`settlement-period.ts`(7)、
+  `labor-receiving.ts`、`ledger-derived.ts`、`asset-flow.ts` 按"改口径该谁签字"迁回 owner 模块；
+  `common/services/cscec-logo.base64.ts`(834 行纯数据) 迁 `server/src/assets/`。
+- **P3 `packages/calc` 共享包**（已定方案 B）：把 `server/src/common/calc/`（9 文件/749 行）做成
+  `@cms/calc` 真实包，`server`/`web` 用 `file:` 依赖各建 symlink（**不用 workspace 提升**：会打断
+  CI 三次分目录 `npm ci`、dev 容器挂载、worktree junction）；完成后删掉 `Dockerfile.single` 里
+  `COPY server/src/common/calc` 的跨仓补丁与 `web/vite.config.ts` 的 `fs.allow: ../server`。
+- **P4 `ai` 拆分**：17,882 行/71 文件按「基础设施 / 只读分析 / 写入」三分（`ai` ≈3.6k、`ai-insight` ≈9.3k、
+  `ai-fill` ≈4.5k）。**先只做目录分组 + `index.ts` 边界 + 检查器路径更新**（不改路由、不动前端），
+  跑绿后再评估是否注册成 3 个 Nest 模块。
 
 ## 本文件的维护方式
 

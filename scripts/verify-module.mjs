@@ -181,6 +181,14 @@ step('模块边界（跨模块只走公开入口 + 无环）', () =>
   }).status === 0,
 );
 
+// 1.6) 事务边界（防劣化：$transaction 回调体内不做跨域 service / 外部 IO）
+step('事务边界（$transaction 回调体内只做 DB 操作）', () =>
+  spawnSync(process.execPath, [path.join(root, 'scripts/check-tx-boundaries.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  }).status === 0,
+);
+
 // 2) web
 if (webChanged.length) {
   const onlyPages = webChanged.every((f) => f.startsWith('web/src/pages/'));
