@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
+import { buildResult, paginate, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
 import { periodLabel } from '../../common/utils/settlement-period';
 import { pickFields } from '../../common/pick-fields';
@@ -127,14 +127,14 @@ export class MonthlyProfitLossService {
     ['sixSavingsAmount', 'totalDeductAmount'].forEach((f) => {
       if (payload[f] !== undefined) payload[f] = num(payload[f]);
     });
-    payload.version = current.version + 1;
+    // version 由 versionedUpdate 原子 +1（条件写入），不再手算
     /**
      * 头记录 + 明细行必须一个事务（第 13/14 轮审计）：原来先 update 头（version 已 +1），
      * 再逐行重算明细，中途失败就留下「版本推进了、明细只改了一半」，用户重试还会撞
      * 乐观锁 409。与 labor-receiving.updateDoc 的口径对齐。
      */
     await this.prisma.$transaction(async (tx) => {
-      await tx.monthlyProfitLoss.update({ where: { id }, data: payload });
+      await versionedUpdate(tx.monthlyProfitLoss, id, current.version, payload);
       // 明细手改
       if (Array.isArray(data?.details)) {
         for (const d of data.details) {

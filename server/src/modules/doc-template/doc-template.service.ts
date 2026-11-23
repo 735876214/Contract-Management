@@ -159,7 +159,7 @@ export class DocTemplateService {
       payload.fileUrl = normalizeDocTemplateFileKey(before.fileUrl);
     }
     if (data.status !== undefined) payload.status = normalizeStatus(data.status, before.status);
-    return updateContractTemplate(this.prisma, id, payload);
+    return updateContractTemplate(this.prisma, id, payload, before.version);
   }
 
   async remove(id: string) {

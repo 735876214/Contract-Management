@@ -1,10 +1,12 @@
-import { Injectable, UnauthorizedException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { LogService } from '../../common/services/log.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectAccessService } from '../../common/services/project-access.service';
+import { pickPublicParams } from '../../common/utils/public-params';
+import { checkPasswordStrength } from '../../common/utils/password-policy';
 import { LoginThrottle } from './login-throttle';
 /**
  * User 表归 system 模块：登录记最后登录时间、改密码写哈希都走 system 的写入原语。
@@ -29,9 +31,14 @@ export class AuthService {
   async validateUser(username: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user) throw new UnauthorizedException('用户名或密码错误');
-    if (user.status !== 1) throw new UnauthorizedException('账号已停用');
+    /**
+     * ⚠️ 先比密码、再看停用状态（2026-11-23）：原来先判 `status !== 1` 报「账号已停用」，
+     * 等于**不给密码就能确认这个用户名存在**（账号枚举）。现在密码不对一律是
+     * 「用户名或密码错误」，只有真正知道口令的人才会看到停用提示。
+     */
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) throw new UnauthorizedException('用户名或密码错误');
+    if (user.status !== 1) throw new UnauthorizedException('账号已停用');
     return user;
   }
 
@@ -61,7 +68,8 @@ export class AuthService {
     await (await systemWrites()).touchUserLastLogin(this.prisma, user.id);
     await this.logService.login({ userId: user.id, username: user.username, ip, userAgent, result: 'SUCCESS' });
 
-    const payload = { sub: user.id, username: user.username };
+    // `tv` = 令牌版本：改密 / 重置 / 停用会 +1，旧 token 立即失效（见 jwt.strategy 与 user-writes）
+    const payload = { sub: user.id, username: user.username, tv: user.tokenVersion };
     return {
       token: this.jwt.sign(payload),
       user: {
@@ -121,7 +129,9 @@ export class AuthService {
       ...rest,
       permissions: await this.getPermissions(user.id, isSuperAdmin),
       projects: await this.getProjects(user.id, isSuperAdmin),
-      params: await this.sysParam.getAll(),
+      // ⚠️ 不能直接回 `getAll()`：它含 `ai.apiKey`（产品口径「密钥只写不读」），
+      // 这条读取路径曾把上游密钥发给任意登录用户（第 24 轮审计）。
+      params: pickPublicParams(await this.sysParam.getAll()),
     };
   }
 
@@ -136,7 +146,10 @@ export class AuthService {
       this.throttle.fail(pwdKey);
       throw new ForbiddenException('原密码不正确');
     }
+    const weak = checkPasswordStrength(newPassword);
+    if (weak) throw new BadRequestException(weak);
     this.throttle.reset(pwdKey);
+    // 写哈希的同时把 tokenVersion +1：旧 token（含别处登录的会话）立即失效
     await (await systemWrites()).setUserPasswordHash(this.prisma, userId, await bcrypt.hash(newPassword, 10));
     return true;
   }

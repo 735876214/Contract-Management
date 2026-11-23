@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, assertYearMonth, versionedUpdate } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import {
@@ -440,7 +440,7 @@ export class SettlementService {
         await detachInvoicesOfSettlement(t, id);
         await detachReceiptOrdersOfSettlement(t, id);
       }
-      const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      const row: any = await versionedUpdate(t.settlement, id, before.version, payload);
       if (data.items) await this.syncItems(id, items, t);
       return row;
     });
@@ -1618,7 +1618,7 @@ export class SettlementService {
     delete payload.version;
     // 唯一键预检：把月份/合同改成已存在的组合时，前端的 update 会撞 P2002 → 500，这里统一转 400
     await this.assertLedgerMonthUnique(old.projectId, contractId ?? null, settleMonth ?? null, id);
-    return this.prisma.settlementLedger.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.settlementLedger, id, old.version, payload);
   }
 
   /** 台账「合同 + 结算月」项目内唯一（DB 有 @@unique，这里提前给出可读错误） */

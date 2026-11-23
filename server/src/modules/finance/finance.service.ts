@@ -4,7 +4,7 @@ import * as ExcelJS from 'exceljs';
 import { num } from '../../common/calc/numeric';
 import { canonicalMonthKey } from '../../common/calc/aggregate';
 import { compareMonthKey } from '../../common/calc/time';
-import { assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { assertVersion, assertYearMonth, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
@@ -331,7 +331,7 @@ export class FinanceService {
     assertVersion(old, data);
     const payload: any = this.factoringPayload(data, old);
     delete payload.version;
-    const updated = await this.prisma.factoringCost.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const updated = await versionedUpdate(this.prisma.factoringCost, id, old.version, payload);
     await this.settlement.syncLedgerByContract(updated.contractId);
     return updated;
   }
@@ -708,7 +708,7 @@ export class FinanceService {
       }
     }
     delete payload.version;
-    await this.prisma.overdueInterest.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    await versionedUpdate(this.prisma.overdueInterest, id, old.version, payload);
     await this.recalcOverdue(old.contractId);
     // 改了结算月份时新月份的台账「逾期利息」列也要重算；
     // syncLedgerByContract 按合同遍历全部月份并清后挂，单次调用已覆盖新旧月份。

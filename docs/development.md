@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（91 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（24 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（94 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（25 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -214,6 +214,9 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/aiQuota.spec.ts` | **AI 配额（每用户每小时）的计数与失败退还**（2026-10-20 审计 P2：原来调用前扣、失败也计，上游一挂就把额度烧光并锁一小时）：逐次计数 · 达上限抛 429 · `limit<=0` 不限次 · 不同用户各自计数 · `refund` 退还一次后可再调 · 重复退还/从未调用不会退成负数 · 窗口滑过后旧计数失效 |
   | `test/loginThrottle.spec.ts` | **登录失败节流（撞库防护）**（2026-10-20 第 2 轮审计：原来 `login` 只记失败日志、不限制次数，`admin/admin123` 这种默认口令可被跑穿）：键 = `用户名|IP`（用户名去空格转小写，避免大小写各占一个窗口）· 15 分钟内失败 5 次后 `assertNotThrottled` 抛 **429** 且文案带「N 分钟后再试」· 成功一次即清零 · 窗口过期自动放开（不用重启）· 不同账号/不同 IP 互不影响（共用出口 IP 的同事不被连坐）· 单键只保留最近 `maxFailures` 条（长跑不膨胀） |
   | `test/projectScope.spec.ts` | **项目口径收口（跨项目 IDOR）**（2026-10-20 第 3 轮审计：`@ProjectId()` 只回答「能不能进这个项目」，不回答「URL 里这条数据的 id 属不属于它」，于是 `findUnique({ where: { id } })` 成了跨项目读/改/删的入口）：有请求上下文就补 `projectId` · 无上下文（seed/定时任务/单测）保持原样 · 调用方在 `extra` 里塞别的 `projectId` 不能放宽过滤 · 查不到抛 404 且文案不暴露「存在但不属于你」 |
+| `test/versionedLock.spec.ts` | **乐观锁的原子写入**（2026-11-23 第 24 轮审计：`assertVersion` 是「读 → 比 → 按 id 无条件 update」，两人同刻保存会**双双通过校验、后写覆盖前写**）：版本条件进 `where`、同一次写入里 `version + 1`、调用方塞的 `version` 一律被覆盖、版本不符/已删除 → **409**（不伪装成 404/500）、非 P2025 原样抛出、`include` 透传 |
+| `test/secretParams.spec.ts` | **系统参数读取白名单**（第 24 轮审计：`GET /auth/profile` 曾回吐 `sysParam.getAll()`，把 `ai.apiKey` 明文交给**任意登录用户**，违反产品口径「密钥只写不读」）：`ai.apiKey` 必过滤 · 其余键原样保留 · 返回**新对象**（不污染进程内缓存本体）· 空/脏输入不抛错 · 清单不得为空（防恒真） |
+| `test/passwordPolicy.spec.ts` | **口令强度口径**（第 24 轮审计：改密/重置只校验长度 ≥ 6，`123456` 直接放行）：≥ 8 位 · 必须同时含字母与数字 · **常见弱口令黑名单**（大小写不敏感，`admin123`/`password123` 等）· 超长拒绝 · 空口令拒绝 · 默认口令必须被判弱 |
 | `test/money.spec.ts` | **金额/税率的舍入口径**（2026-10-20 第 4 轮审计：`toFixed` 家族是**四舍六入五成双**，`1.005 → 1.00`、`8.85 → 8.8`；`num()` 不拒绝 `Infinity`、`-0`）：`round2/round4` 按「四舍五入」且带 EPSILON 修正 · 大额与负数对称 · `toMoney` 空值/非法值给 null 而不是 0 · 税额、含税/不含税互算在 1e-4 精度内闭合 |
 | `test/commonGuards.spec.ts` | **导入解析 / 附件地址 / 结算状态三个守卫**（2026-10-20 第 8、9 轮审计）：`parseImportDate` 认 `2026年1月31日`、`2026/1/31`、Excel 序列号（45000 → 2023-03-15），识破 `2026-02-30`，空值给 null 而不是 1970 · `pickDictCode` 非空未命中返回 null 由调用方报行级错误（不能静默写 NULL） · `isSafeFileUrl` 只放行站内 `/...` 与 http(s)，`javascript:`/`data:`/`//host` 一律拒 · `assertSettlementProgress` 只允许沿链路前进，回退必须走驳回 |
 | `test/csvExport.spec.ts` | **导出防护与字段长度兜底**（2026-10-21 第 16、19 轮审计）：`csvCell` 给以 `= + - @` 开头的值补单引号（Excel 打开 CSV 会把 `=cmd|'/c calc'!A1` 当公式执行），负数与小数保留为数字、按 RFC 4180 包裹引号换行 · `pickFields` 超 10 万 字符的字符串抛 400（Prisma 的 String 是 text，无 DTO 时能塞进几 MB） |
@@ -267,6 +270,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 
 | spec | 覆盖 |
 |---|---|
+| `audit-round24.int.spec.ts` | **第 24 轮审计的三条安全/一致性修复**（真事务、真约束）：① 乐观锁**原子性**——同一版本号并发两次写入只能成功一次（旧实现两个都成功 = 后写静默覆盖），且 `version` 只涨 1；② `GET /auth/profile` 的 `params` **不含 `ai.apiKey`**，而服务端内部仍读得到（过滤只发生在对外出口）；③ **改密即失效旧令牌**——`User.tokenVersion` +1、新 JWT 载荷 `tv` 跟随、旧口令登录被拒 |
 | `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 · **换合同同时解绑旧合同的收领单** · **未挂合同（`contractId`/`materialContractId` 为空）的已挂发票/收领单不被合同过滤漏掉或误解绑** |
 | `ledger-derived.int.spec.ts` | **合同台账派生金额口径**（2026-11-14 审计修复）：项目「合同额」合计按**链**只计一次（补充协议的自由 `amount` 不参与相加）· 「审定结算额」**排除草稿**且 `actualAmount` 为空时回退 `amount` · 税率未填时税前/进项税留 `null`（未知不兜 0%），显式 0/13% 正常拆分 |
 | `settlement-period-link.int.spec.ts` | 发票/收领单 ↔ 结算单关联 + **月度结算生成**（业务口径 2026-10-18：明细从**总日报**带出）：发票保存自动挂**同结算期**的结算单（只有账期落在本期、开票日期在别的月份也按账期归）· 台账「本月开票额」按**关联**归集、改账期后自动解绑并回落 · 人工把发票挂到**别的结算期** → 400 · 收领单保存自动匹配、显式传 `null` 解绑 · 生成结算单（按物资合同分组、明细从总日报按物资聚合、`settleDate` = **期末**、期内收领单仅回挂、**重跑幂等**且迟到的收领单只补关联不改金额）· **手工日报行（无收领单）也参与生成** · `require_confirmed` 开启时未确认日报行不计入 · 起始日 26 时 **9/28 的日报行与期末 10/25 的结算单同期**（用自然月判会漏） |

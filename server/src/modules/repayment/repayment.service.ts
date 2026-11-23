@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
@@ -157,7 +157,7 @@ export class RepaymentService {
     delete payload.version;
     // 需求 2.1：主表 + 明细在同一事务内写入，任一步失败整体回滚
     await this.prisma.$transaction(async (tx) => {
-      await tx.repaymentAgreement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      await versionedUpdate(tx.repaymentAgreement, id, before.version, payload);
       if (details) {
         await tx.repaymentDetail.deleteMany({ where: { agreementId: id } });
         await tx.repaymentDetail.createMany({

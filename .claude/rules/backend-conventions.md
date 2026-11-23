@@ -16,7 +16,13 @@
 
 ## service 层通用
 
-- **乐观锁**：业务表多有 `version Int`，更新时用 `helpers.assertVersion(old, data)`（不一致抛 409）。
+- **乐观锁**：业务表多有 `version Int`。两步走，**缺一不可**（2026-11-23 第 24 轮审计）：
+  ① `helpers.assertVersion(old, data)` —— 客户端没回传/版本不一致直接 409（友好、早失败）；
+  ② 落库必须用 `helpers.versionedUpdate(this.prisma.xxx, id, old.version, payload)` ——
+  把版本条件放进 `where`、在同一次写入里 `version + 1`，命中不了行转 409。
+  ⚠️ 只做 ① 而写 `update({ where: { id } })` 是**假的乐观锁**：校验与写入之间有并发窗口，
+  两人同刻保存会双双通过、后写静默覆盖前写。⚠️ 更隐蔽的一种：`pickFields` 白名单里没有 `version`
+  时版本号永远写不回去（资产台账曾如此），锁当场失效。
 - **写字段白名单**：service 用 `common/pick-fields.ts` 的 `pickFields` 过滤未知字段，防前端字段漂移 500。
 - **跨域只读查询走 `server/src/query/`**：`archive` 等聚合器**不得**在 service 里散写
   `prisma.<任意模型>`，统一走 `query/<域>-queries.ts`（只读、无事务、显式带 `projectId`）；

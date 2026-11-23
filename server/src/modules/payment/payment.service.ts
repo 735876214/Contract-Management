@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, assertYearMonth } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, assertYearMonth, versionedUpdate } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -150,7 +150,7 @@ export class PaymentService {
       payload.statusCode !== undefined ? payload.statusCode : before?.statusCode,
       id,
     );
-    const updated: any = await this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const updated: any = await versionedUpdate(this.prisma.paymentRecord, id, before.version, payload);
     return { ...updated, ...warn };
   }
 

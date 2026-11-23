@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 
 /** 允许从前端写入的字段白名单（原分包商库字段 + 台账独有的授权期间） */
@@ -150,10 +150,7 @@ export class LaborService {
     if (data?.status && [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED].includes(data.status)) {
       payload.status = data.status;
     }
-    return this.prisma.laborAuthLedger.update({
-      where: { id },
-      data: { ...payload, version: { increment: 1 } },
-    });
+    return versionedUpdate(this.prisma.laborAuthLedger, id, old.version, payload);
   }
 
   async remove(id: string, projectId?: string) {

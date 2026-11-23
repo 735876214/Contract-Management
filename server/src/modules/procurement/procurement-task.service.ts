@@ -5,7 +5,7 @@ import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { round2 } from '../../common/calc/money';
 import { mulDecimal, sumRounded } from '../../common/calc/amounts';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import {
   ImportTemplateService,
@@ -499,10 +499,7 @@ export class ProcurementTaskService {
       Object.assign(patch, clauseInput, snapshots);
     }
 
-    const updated = await this.prisma.procurementTask.update({
-      where: { id },
-      data: { ...patch, version: { increment: 1 } },
-    });
+    const updated = await versionedUpdate(this.prisma.procurementTask, id, current.version, patch);
     return { ...this.serialize(updated), stages: this.buildStages(updated) };
   }
 

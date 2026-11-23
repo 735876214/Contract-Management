@@ -134,7 +134,14 @@ function UsersTab() {
             <Input disabled={!!editing} />
           </Form.Item>
           {!editing && (
-            <Form.Item name="password" label="密码" rules={[{ required: true }]}>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[
+                { required: true, message: '请输入密码' },
+                { min: 8, message: '密码至少 8 位，且需包含字母和数字' },
+              ]}
+            >
               <Input.Password />
             </Form.Item>
           )}
@@ -157,8 +164,19 @@ function UsersTab() {
         </Form>
       </Modal>
 
-      <Modal title={`重置密码 - ${pwdUser?.realName || pwdUser?.username}`} open={pwdModal} onOk={submitReset} onCancel={() => setPwdModal(false)} okText="确认重置">
-        <Input.Password placeholder="请输入新密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
+      <Modal
+        title={`重置密码 - ${pwdUser?.realName || pwdUser?.username}`}
+        open={pwdModal}
+        onOk={submitReset}
+        onCancel={() => setPwdModal(false)}
+        okText="确认重置"
+        // 与服务端口令口径一致（≥ 8 位 + 字母与数字）：不合格时直接置灰，不让用户吃一个 400
+        okButtonProps={{ disabled: pwd.trim().length < 8 }}
+      >
+        <Input.Password placeholder="请输入新密码（至少 8 位，需包含字母和数字）" value={pwd} onChange={(e) => setPwd(e.target.value)} />
+        <div style={{ marginTop: 8, color: 'var(--cms-muted-soft)', fontSize: 12 }}>
+          重置后该用户已登录的会话会立即失效，需用新密码重新登录。
+        </div>
       </Modal>
     </Card>
   );
