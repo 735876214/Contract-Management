@@ -3,13 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { round2, round4 } from '@cms/calc/money';
 import { num } from '@cms/calc/numeric';
 import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
-import { notDraft } from '../../../constants/statuses.ts';
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
   LEGACY_CONTRACT_STATUS_COMPLETED,
-  countedInvoiceWhere,
-  paidPaymentWhere,
 } from '../../../constants/statuses.ts';
 import { deriveContractFulfillment } from '../../../domain/contract-fulfillment.ts';
 import { summarizeAssetFlow } from '../../../domain/asset-flow.ts';
@@ -247,8 +244,6 @@ export class DatasetCollector {
     // 按所选数据集裁剪查询：核心汇总（合同/结算/付款/发票/日报）始终需要；明细查询按需执行。
     const wanted = selectedKeys?.length ? new Set(selectedKeys) : null;
     const need = (...keys: string[]): boolean => !wanted || keys.some((k) => wanted.has(k));
-    const q = (keys: string[], fn: () => Promise<any[]>): Promise<any[]> =>
-      need(...keys) ? fn() : Promise.resolve([]);
 
     // 取数全部在 query 层（`server/src/query/ai-dataset-queries.ts`）：AI 只读子域不得直接碰业务表；
     // `q()`（按所选数据集裁剪）由本服务的 `need()` 传入，避免没选中的数据集白查一遍

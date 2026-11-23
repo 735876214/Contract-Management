@@ -32,8 +32,6 @@ import {
   type AnomalyNarrative,
 } from './anomaly-prompt.ts';
 import {
-  ANOMALY_ORDER,
-  ANOMALY_SELECT,
   buildAnomalyWhere,
   buildPaymentAnomalyInput,
 } from './anomaly-dataset.ts';
