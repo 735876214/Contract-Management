@@ -1,3 +1,4 @@
+// @domains: contract, settlement, payment, invoice
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConflictException } from '@nestjs/common';
