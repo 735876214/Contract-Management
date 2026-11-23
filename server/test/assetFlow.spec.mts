@@ -5,7 +5,7 @@ import {
   resolveAssetSourceFilter,
   summarizeAssetFlow,
   ASSET_FLOW_DIRECTION,
-} from '../src/common/utils/asset-flow.ts';
+} from '../src/domain/asset-flow.ts';
 
 /** 物资进出场（业务口径 2026-10-18：只做物资；不建新表；费用行不混入数量） */
 describe('物资进出场方向与汇总', () => {

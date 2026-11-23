@@ -10,7 +10,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SettlementService } from '../settlement';
 import { ContractService, updateContractFundingParams } from '../contract';
-import { PAYMENT_MODES, modeTranchesOf, paymentModeViolation } from '../../common/utils/pay-ratio';
+import { PAYMENT_MODES, modeTranchesOf, paymentModeViolation } from '../contract';
 import { SysParamService } from '../../common/services/sys-param.service';
 import {
   recalculatePayables,
@@ -21,7 +21,7 @@ import {
   type OverduePayableInput,
   type OverduePaymentInput,
 } from './overdue-calculator';
-import { summarizeOverdue, interestOf, buildOverdueStats } from '../../common/utils/overdue-summary';
+import { summarizeOverdue, interestOf, buildOverdueStats } from './overdue-summary';
 
 /**
  * 内存分页切片（保理费用 / 逾期利息共用）。

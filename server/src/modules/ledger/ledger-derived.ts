@@ -5,7 +5,7 @@
  *
  * 台账里有几列是**推出来的钱**（占合同比例、100% 欠款、应付款…）。这些列的分母可能**根本不存在**——
  * 合同允许不填金额（`Contract.amount` 是 `Decimal?`）。本仓对"没有金额"已经定过口径：
- * `common/utils/amount-guard.ts` 的那次修复（记录在 .claude/rules/backend-conventions.md 的「金额上限」与「台账」两节）明确
+ * `domain/amount-guard.ts` 的那次修复（记录在 .claude/rules/backend-conventions.md 的「金额上限」与「台账」两节）明确
  * **「合同未填金额」≠「上限 0」**，而是"不可校验/无上限"。
  *
  * 台账此前没跟上这个口径，把未填金额当成 0，于是产出两类**错数**（开发库实测复现：
@@ -27,7 +27,7 @@
  */
 
 /** 金额舍入走全站唯一实现（字符串位移法，模拟 Excel ROUND，见 money.ts 文件头） */
-import { round2 } from '../calc/money.ts';
+import { round2 } from '../../common/calc/money.ts';
 
 /** 值是否"已填"（`0` 算已填；空串/空白算未填） */
 export function isFilledNumber(v: unknown): boolean {

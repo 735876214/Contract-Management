@@ -60,6 +60,17 @@ export {
 } from './dashboard-queries';
 
 export {
+  chainMaterialQty,
+  chainPaidTotal,
+  chainSettledItemQty,
+  chainSettledTotal,
+  contractChainAmount,
+  contractChainIds,
+  contractChainRootId,
+  contractChainRows,
+} from './contract-chain-queries';
+
+export {
   loadComplianceScan,
   loadLedgerChainRows,
   loadLedgerContractFacts,

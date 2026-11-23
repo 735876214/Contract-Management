@@ -20,7 +20,7 @@ import { ContractLockService } from '../../common/services/contract-lock.service
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { projectWhere } from '../../common/utils/project-scope';
-import { laborReceivingReceiptWhere, laborRowKey } from '../../common/utils/labor-receiving';
+import { laborReceivingReceiptWhere, laborRowKey } from '../cost';
 
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [

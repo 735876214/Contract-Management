@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectArchiveBlockers } from '../src/common/utils/contract-archive.ts';
+import { collectArchiveBlockers } from '../src/modules/contract/contract-archive.ts';
 
 /**
  * 合同归档完整性校验（业务口径 2026-10-18：单向归档）。

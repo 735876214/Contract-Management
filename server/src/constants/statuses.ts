@@ -65,6 +65,21 @@ export const SETTLEMENT_STATUS = {
 } as const;
 export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS];
 
+/**
+ * Prisma 查询片段：**排除草稿结算**（`statusCode <> 'DRAFT'` 的等价写法，含 NULL）。
+ *
+ * ⚠️ 直接写 `statusCode: { not: 'DRAFT' }` 会在 SQL 三值逻辑下**连带排除** `statusCode IS NULL`
+ * 的行（历史导入数据没填状态），"无状态结算"就会凭空消失。这里与 `paidPaymentWhere()` /
+ * `countedInvoiceWhere()` 用同一套写法：显式把 NULL 归入非草稿。
+ *
+ * 单一事实源：工作台预警、台账「审定结算额」、AI 数据集都从这里取；不要再手写等价 where
+ * （`scripts/check-module-boundaries.mjs` 的 `INLINE_PREDICATE_RULES` 会拦 AI 只读子域里的手写片段）。
+ * 2026-11-23 前它在 `domain/contract-chain.ts`，与合同链金额算式混在一起，故拆出。
+ */
+export const notDraft: { OR: any[] } = {
+  OR: [{ statusCode: null }, { statusCode: { not: SETTLEMENT_STATUS.DRAFT } }],
+};
+
 /** 付款记录状态（dict `payment_status`）：失败/已退款**不计入**累计付款 */
 export const PAYMENT_STATUS = {
   PENDING: 'PENDING',
@@ -87,7 +102,7 @@ export const PAYMENT_EXCLUDED_STATUSES: string[] = [PAYMENT_STATUS.FAILED, PAYME
  *
  * ⚠️ 不要写成 `NOT: { statusCode: { in: PAYMENT_EXCLUDED_STATUSES } }`：SQL 三值逻辑下
  * `NULL NOT IN (...)` 结果是 UNKNOWN，空状态行会被**静默排除**。而内存口径
- * `chainPaidTotal`（common/utils/contract-chain.ts）把空状态算作有效付款（历史导入数据未填状态），
+ * `chainPaidTotal`（query/contract-chain-queries.ts）把空状态算作有效付款（历史导入数据未填状态），
  * 两处结论相反会让「台账已付金额」与「防超付闸门」互相打架。故这里显式把 NULL 归入有效付款。
  */
 // @metric: payment-counted-statuses
@@ -178,7 +193,7 @@ export type SiteConfirmStatus = (typeof SITE_CONFIRM_STATUS)[keyof typeof SITE_C
 /**
  * 合同履约节点状态（`ContractFulfillment.statusCode`，**非字典驱动**，四域扩展按需项 2026-10-18）。
  * 展示层映射：PENDING=blue / DONE=green / SKIPPED=default；「逾期」是派生值
- * （未完成且 planDate 已过，见 `common/utils/milestone.ts` 的 `isMilestoneOverdue`），不落库。
+ * （未完成且 planDate 已过，见 `domain/milestone.ts` 的 `isMilestoneOverdue`），不落库。
  */
 export const MILESTONE_STATUS = {
   PENDING: 'PENDING',

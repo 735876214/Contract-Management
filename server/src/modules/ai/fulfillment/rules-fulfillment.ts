@@ -7,7 +7,7 @@
  *
  * 口径约定：
  * - 节点状态取 `MILESTONE_STATUS`（PENDING / DONE / SKIPPED）；
- * - 「逾期」与页面标红同口径（`common/utils/milestone.ts`：未完成且计划日已过），
+ * - 「逾期」与页面标红同口径（`domain/milestone.ts`：未完成且计划日已过），
  *   本层再加**宽限期**，避免刚到期就报警；
  * - 天数全部按**本地日历日**差算（UTC 毫秒折算，绕开夏令时）；
  * - 合同金额用链式当前金额（主合同 + 带符号补充协议），不用 `amount` 裸值。
@@ -18,7 +18,7 @@ import {
   MILESTONE_STATUS,
   PAYMENT_EXCLUDED_STATUSES,
 } from '../../../constants/statuses.ts';
-import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
+import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
 import { moneyToCents, type Cents } from '../common/money.ts';
 import {
   FULFILLMENT_CODES,

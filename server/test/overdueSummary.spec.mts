@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeOverdue, interestOf, buildOverdueStats } from '../src/common/utils/overdue-summary.ts';
+import { summarizeOverdue, interestOf, buildOverdueStats } from '../src/modules/finance/overdue-summary.ts';
 
 /**
  * 逾期利息「汇总口径」单测（单一实现，供引擎 stats 与列表接口共用）。

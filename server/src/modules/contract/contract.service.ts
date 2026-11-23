@@ -16,17 +16,17 @@ import { SysParamService } from '../../common/services/sys-param.service';
 import { ExcelService } from '../../common/services/excel.service';
 import { StorageService } from '../../common/services/storage.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
-import { collectArchiveBlockers } from '../../common/utils/contract-archive';
-import { chainSettledTotal, contractChainIds } from '../../common/utils/contract-chain';
-import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
+import { collectArchiveBlockers } from './contract-archive';
+import { chainSettledTotal, contractChainIds } from '../../query';
+import { periodKeyOf, startDayOf } from '../../domain/settlement-period';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService, replaceContractMaterials } from '../material';
 import { assertContractRejectable } from '../../constants/workflowGuards';
-import { computeSupplementDelta } from '../../common/utils/supplement-delta';
-import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
+import { computeSupplementDelta } from './supplement-delta';
+import { pickSupplierSnapshot } from '../supplier';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
-import { paymentModeViolation, resolveEffectivePayRatio } from '../../common/utils/pay-ratio';
+import { paymentModeViolation, resolveEffectivePayRatio } from './pay-ratio';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, FINAL_SETTLEMENT_STATUS, INVOICE_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, paidPaymentWhere, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template';
@@ -43,7 +43,7 @@ const CONTRACT_FIELDS = [
   'parentContractId', 'supplementSeq', 'supplierId', 'signDate', 'amount', 'taxRatePct',
   'paymentMethodCode', 'isFramework', 'isSupplement', 'supplementTypeCode', 'execStatus',
   // 付款安排（100 / 3382 / M65_1 / M65_3 / CUSTOM）：业务口径 2026-10-16「创建合同时二选一」，
-  // 取值校验见 assertPaymentMode()，定义与「当前生效比例」的派生见 common/utils/pay-ratio.ts
+  // 取值校验见 assertPaymentMode()，定义与「当前生效比例」的派生见 modules/contract/pay-ratio.ts
   'paymentMode',
   'technicalClauseId', 'qualityClauseId', 'paymentClauseId', 'acceptanceClauseId',
   'remark', 'createdBy',
@@ -653,7 +653,7 @@ export class ContractService {
    *
    * 为什么要服务端算：补充协议的 `amount` 是自由填写字段，涨价/降价场景下用户往往填的是
    * "剩余数量 × 新价"，直接相加会把那部分数量的原值**重复计入**；真正要加的是差额
-   * （见 `common/utils/supplement-delta.ts` 的说明）。
+   * （见 `modules/contract/supplement-delta.ts` 的说明）。
    *
    * ⚠️ 只在**已发布**（草稿清单已固化为正式清单）时重算：草稿阶段变更尚未生效，
    * 不应抬高防超结的上限。非补充协议、或没有父合同 → 不做任何事。
@@ -854,7 +854,7 @@ export class ContractService {
   /**
    * 重算并落库**当前生效付款比例**（`ContractExt.currentPayRatio`，业务口径 2026-10-16 定为派生列）。
    *
-   * 判定只有一处实现（`common/utils/pay-ratio.ts` 的 `resolveEffectivePayRatio`）：
+   * 判定只有一处实现（`modules/contract/pay-ratio.ts` 的 `resolveEffectivePayRatio`）：
    * ① 已完已结（总结算办理完成）→ 100%；② 否则按付款安排的月度比例；③ 自定义安排 → 合同上手填的比例。
    *
    * ⚠️ **推不出来时返回 `null` 且不动原值**：把"未知"改写成某个数，台账「当前合同付款比例」列与

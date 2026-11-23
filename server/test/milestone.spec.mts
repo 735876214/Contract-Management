@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isMilestoneOverdue, startOfToday, MILESTONE_STATUS_LABELS } from '../src/common/utils/milestone.ts';
+import { isMilestoneOverdue, startOfToday, MILESTONE_STATUS_LABELS } from '../src/domain/milestone.ts';
 import { MILESTONE_STATUS } from '../src/constants/statuses.ts';
 
 /** 合同履约节点（四域扩展按需项 2026-10-18）：逾期是派生值，不落库 */

@@ -3,9 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
-import { periodLabel } from '../../common/utils/settlement-period';
+import { periodLabel } from '../../domain/settlement-period';
 import { pickFields } from '../../common/pick-fields';
-import { laborRowKey, monthlyDetailKey, weightedUnitPrice } from '../../common/utils/labor-receiving';
+import { laborRowKey, monthlyDetailKey, weightedUnitPrice } from './labor-receiving';
 import { LaborReceivingService } from './labor-receiving.service';
 
 /**
@@ -205,7 +205,7 @@ export class MonthlyProfitLossService {
 
   async exportWorkbook(id: string, projectId: string): Promise<Buffer> {
     const ExcelJS = await import('exceljs');
-    const { CSCEC_LOGO_PNG_BASE64 } = await import('../../common/services/cscec-logo.base64');
+    const { CSCEC_LOGO_PNG_BASE64 } = await import('../../assets/cscec-logo.base64');
     const full: any = await this.detail(id, projectId);
     const details: any[] = full.details || [];
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });

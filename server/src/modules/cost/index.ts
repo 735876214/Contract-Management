@@ -7,3 +7,5 @@
 export { CostModule } from './cost.module';
 export { LaborReceivingService } from './labor-receiving.service';
 export { MonthlyProfitLossService } from './monthly-profit-loss.service';
+// 劳务收领单口径（receipt-order 复用：可收量 where、行键、平均/加权单价）
+export { laborReceivingReceiptWhere, laborRowKey } from './labor-receiving';

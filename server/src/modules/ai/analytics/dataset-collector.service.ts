@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { round2, round4 } from '../../../common/calc/money';
 import { num } from '../../../common/calc/numeric';
-import { resolveChainAmounts, notDraft } from '../../../common/utils/contract-chain';
+import { resolveChainAmounts } from '../../../domain/contract-chain';
+import { notDraft } from '../../../constants/statuses';
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
@@ -11,9 +12,9 @@ import {
   countedInvoiceWhere,
   paidPaymentWhere,
 } from '../../../constants/statuses';
-import { deriveContractFulfillment } from '../../../common/utils/contract-fulfillment';
+import { deriveContractFulfillment } from '../../../domain/contract-fulfillment';
 import { sumSettlementAmount } from '../../../common/utils/group-sum';
-import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../common/utils/asset-flow';
+import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../domain/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import {
   loadContractChainFacts,

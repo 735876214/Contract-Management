@@ -13,18 +13,18 @@
 
 | 指标 id | 指标 | owner | 唯一实现 | 消费方 | 口径要点 |
 |---|---|---|---|---|---|
-| `asset-flow` | 物资进出场汇总 | asset | `common/utils/asset-flow.ts#summarizeAssetFlow` | asset, ai | 采购/调入=进场，调出/处置=出场；调入费/维保费只计金额不计数量；未知来源单列不混入 |
-| `contract-chain-amount` | 合同链金额 | contract | `common/utils/contract-chain.ts#resolveChainAmounts` | contract, dashboard, ledger, ai | 链根只计一次：主合同 `amount` + Σ 补充协议 `changeAmount`（补充协议的自由 `amount` 不参与） |
-| `contract-material-qty` | 合同清单量与已结量 | contract | `common/utils/contract-chain.ts#chainMaterialQty` | settlement, ai | 清单量按合同链归集；已结量只算非草稿结算明细（量级闸门输入） |
-| `contract-paid-total` | 累计付款（合同链） | payment | `common/utils/contract-chain.ts#chainPaidTotal` | payment, payment-procedure | 按链归集；排除 `FAILED`/`REFUNDED`，空状态按有效付款计入 |
-| `contract-settled-total` | 累计结算（合同链） | settlement | `common/utils/contract-chain.ts#chainSettledTotal` | contract, dashboard, payment, payment-procedure, settlement, ai | 按链归集；**排除草稿结算**，含补充协议下挂的结算 |
-| `ledger-chain-root-amount` | 台账「合同额」 | ledger | `common/utils/ledger-derived.ts#chainRootAmounts` | ledger | 按链根只计一次，供台账逐行分摊（与 `contract-chain-amount` 同口径） |
-| `ledger-derived-amounts` | 台账派生金额 | ledger | `common/utils/ledger-derived.ts#deriveLedgerAmounts` | ledger | 已付/未付/付款比例/开累等派生列；税率未填时税前与进项税留 `null`（未知不兜 0%） |
-| `ledger-invoice-tax` | 台账发票税额拆分 | ledger | `common/utils/ledger-derived.ts#sumInvoiceTax` | ledger | 按税率分档汇总；隐含税率（含税/不含税）与显式税率分列，不互相覆盖 |
-| `overdue-over-amount` | 金额上限闸门（超结/超付） | finance | `common/utils/amount-guard.ts#checkOverAmount` | payment, settlement | 严格大于才判超限；策略 `BLOCK` 拦 / `WARN` 提示 / `OFF` 不校验；草稿与失败/退款付款豁免 |
-| `overdue-summary` | 逾期应付汇总与利息 | finance | `common/utils/overdue-summary.ts#summarizeOverdue` | finance, settlement | 利息按日计并按合同上限比例封顶；汇总与逐行 `interestOf` 同一份实现 |
+| `asset-flow` | 物资进出场汇总 | asset | `domain/asset-flow.ts#summarizeAssetFlow` | asset, ai | 采购/调入=进场，调出/处置=出场；调入费/维保费只计金额不计数量；未知来源单列不混入 |
+| `contract-chain-amount` | 合同链金额 | contract | `domain/contract-chain.ts#resolveChainAmounts` | contract, dashboard, ledger, ai | 链根只计一次：主合同 `amount` + Σ 补充协议 `changeAmount`（补充协议的自由 `amount` 不参与） |
+| `contract-material-qty` | 合同清单量与已结量 | contract | `query/contract-chain-queries.ts#chainMaterialQty` | settlement, ai | 清单量按合同链归集；已结量只算非草稿结算明细（量级闸门输入） |
+| `contract-paid-total` | 累计付款（合同链） | payment | `query/contract-chain-queries.ts#chainPaidTotal` | payment, payment-procedure | 按链归集；排除 `FAILED`/`REFUNDED`，空状态按有效付款计入 |
+| `contract-settled-total` | 累计结算（合同链） | settlement | `query/contract-chain-queries.ts#chainSettledTotal` | contract, dashboard, payment, payment-procedure, settlement, ai | 按链归集；**排除草稿结算**，含补充协议下挂的结算 |
+| `ledger-chain-root-amount` | 台账「合同额」 | ledger | `modules/ledger/ledger-derived.ts#chainRootAmounts` | ledger | 按链根只计一次，供台账逐行分摊（与 `contract-chain-amount` 同口径） |
+| `ledger-derived-amounts` | 台账派生金额 | ledger | `modules/ledger/ledger-derived.ts#deriveLedgerAmounts` | ledger | 已付/未付/付款比例/开累等派生列；税率未填时税前与进项税留 `null`（未知不兜 0%） |
+| `ledger-invoice-tax` | 台账发票税额拆分 | ledger | `modules/ledger/ledger-derived.ts#sumInvoiceTax` | ledger | 按税率分档汇总；隐含税率（含税/不含税）与显式税率分列，不互相覆盖 |
+| `overdue-over-amount` | 金额上限闸门（超结/超付） | finance | `domain/amount-guard.ts#checkOverAmount` | payment, settlement | 严格大于才判超限；策略 `BLOCK` 拦 / `WARN` 提示 / `OFF` 不校验；草稿与失败/退款付款豁免 |
+| `overdue-summary` | 逾期应付汇总与利息 | finance | `modules/finance/overdue-summary.ts#summarizeOverdue` | finance, settlement | 利息按日计并按合同上限比例封顶；汇总与逐行 `interestOf` 同一份实现 |
 | `payment-counted-statuses` | 计入累计付款的付款状态集 | payment | `constants/statuses.ts#paidPaymentWhere` | contract, dashboard, ledger, payment, payment-procedure, ai | 排除 `FAILED`/`REFUNDED`；`statusCode IS NULL` 归入有效（历史导入数据），防 SQL 三值逻辑静默漏算 |
-| `settlement-period-key` | 结算期归属 | settlement | `common/utils/settlement-period.ts#periodKeyOf` | settlement, invoice, cost, final-settlement, contract, archive, ai | 按项目「结算起始日」切期（起始日 26 时 9/28 的日报归 10 月期），**不是自然月** |
+| `settlement-period-key` | 结算期归属 | settlement | `domain/settlement-period.ts#periodKeyOf` | settlement, invoice, cost, final-settlement, contract, archive, ai | 按项目「结算起始日」切期（起始日 26 时 9/28 的日报归 10 月期），**不是自然月** |
 
 ## 2. 已知偏差（**未收敛**，不要登记成单一实现）
 
@@ -38,7 +38,7 @@
 （涨价场景常填"剩余数量 × 新价"）。后果：同一项目「合同额」在看板与台账不相等，
 「各类型金额之和」也不等于「合同总额」。
 
-已改为：两处都走 `contract-chain.ts#chainAmountsByRoot`（链金额唯一算式）+
+已改为：两处都走 `domain/contract-chain.ts#chainAmountsByRoot`（链金额唯一算式）+
 `ledger-derived.ts#chainContractTotal`（链合计），与台账「合同额」同源。
 前端标题同步改为「合同总额（含补充协议增量）」/「合同类型金额分布（按合同链）」。
 

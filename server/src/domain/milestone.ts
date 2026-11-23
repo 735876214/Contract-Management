@@ -5,7 +5,7 @@
  * 零依赖，供 `.mts` 单测直接加载（`server/test/milestone.spec.mts`）。
  */
 
-import { MILESTONE_STATUS } from '../../constants/statuses.ts';
+import { MILESTONE_STATUS } from '../constants/statuses.ts';
 
 export interface MilestoneLike {
   planDate?: Date | string | null;

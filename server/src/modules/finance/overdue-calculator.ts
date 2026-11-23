@@ -20,8 +20,8 @@
  */
 
 import { round } from '../../common/calc/money';
-import { buildOverdueStats, summarizeOverdue, type OverdueStats } from '../../common/utils/overdue-summary';
-import { modeTranchesOf } from '../../common/utils/pay-ratio';
+import { buildOverdueStats, summarizeOverdue, type OverdueStats } from './overdue-summary';
+import { modeTranchesOf } from '../contract';
 
 export { round };
 
@@ -69,7 +69,7 @@ export interface PaymentModeDefaults {
 
 /** 两种标准付款模式（100% / 3382）的付款节点 */
 export function modeTranches(mode: string | null | undefined): PaymentModeDefaults | null {
-  // 分期定义已收敛到零依赖的 `common/utils/pay-ratio.ts`（那里同时给出月度比例与"当前生效比例"的判定），
+  // 分期定义已收敛到零依赖的 `modules/contract/pay-ratio.ts`（那里同时给出月度比例与"当前生效比例"的判定），
   // 这里只做一次委托：**别再在本文件里复制一份 tranches**，否则两处会漂移。
   const tranches = modeTranchesOf(mode);
   return tranches ? { tranches: tranches.map((t) => ({ ...t })) } : null;
@@ -252,7 +252,7 @@ export function recalculatePayables(
   }
 
   // ---- 4. 合计与结转统计 ----
-  // 汇总口径（含「上期开累」规则）统一在 common/utils/overdue-summary.ts，与列表接口共用一份实现
+  // 汇总口径（含「上期开累」规则）统一在 modules/finance/overdue-summary.ts，与列表接口共用一份实现
   const summary = summarizeOverdue(
     list,
     (row, idx) => (row.waived ? 0 : derived.get(idx)?.overdueInterest || 0),

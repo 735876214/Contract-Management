@@ -7,7 +7,7 @@ import {
   pickSupplierSnapshot,
   parseSupplierSnapshot,
   mergeSupplierFields,
-} from '../src/common/utils/supplier-snapshot.ts';
+} from '../src/modules/supplier/supplier-snapshot.ts';
 
 /**
  * 「签订时快照」的口径锁（2026-10-15 业务澄清：合同正文导出取签订时快照）。

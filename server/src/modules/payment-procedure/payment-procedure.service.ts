@@ -11,7 +11,7 @@ import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 开累两值的**同一实现**（与台账、防超付闸门、工作台预警共用）：不要在别处另算一遍
-import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
+import { chainSettledTotal, chainPaidTotal } from '../../query';
 
 const FIELDS = ['projectId', 'supplierId', 'contractId', 'code', 'payDate', 'statusCode', 'remark'];
 

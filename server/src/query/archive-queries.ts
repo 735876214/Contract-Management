@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { notDraft } from '../common/utils/contract-chain';
+import { notDraft } from '../constants/statuses';
 
 /**
  * 归档模块的跨域只读查询（Read Model）。

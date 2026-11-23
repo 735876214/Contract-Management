@@ -18,8 +18,8 @@ import {
   SETTLEMENT_STATUS,
 } from '../../../constants/statuses.ts';
 import { isCountedInvoice } from '../common/invoice-facts.ts';
-import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
-import { isMilestoneOverdue } from '../../../common/utils/milestone.ts';
+import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
+import { isMilestoneOverdue } from '../../../domain/milestone.ts';
 import { centsToYuan, moneyToCents, type Cents } from '../common/money.ts';
 import { formatYuan as fmtYuan, formatPct as fmtPct } from '../common/format.ts';
 import { indexContractRows, resolveChainRoot } from '../common/contract-roots.ts';

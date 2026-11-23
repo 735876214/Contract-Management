@@ -26,6 +26,34 @@ export { SettlementService } from './settlement.service';
 
 新增被跨模块使用的符号时，**同时**把它加进 `index.ts`，否则调用方的公开入口 import 会编译失败。
 
+## 2.5 目录分层：谁的语义放谁家（2026-11-23 架构评审 P2）
+
+| 目录 | 放什么 | 例子 | 由谁守 |
+|---|---|---|---|
+| `server/src/modules/<模块>/` | 该模块的业务语义，**含口径纯函数**（跨模块经 `index.ts`） | `contract/pay-ratio.ts`、`ledger/ledger-derived.ts`、`cost/labor-receiving.ts` | 本文件规则 1 / 3（检查器） |
+| `server/src/domain/` | 多模块共用、**不能**归任一模块的纯口径原语（零 DB、零装饰器） | `contract-chain.ts`（算式）、`settlement-period.ts`、`amount-guard.ts` | 文件头 `owner` + `constants/metrics.ts` 登记（`metricsRegistry.spec` 锁） |
+| `server/src/query/` | 跨域**只读**取数 | `*-queries.ts`（见 §3.1） | 检查器（archive/dashboard 禁 `prisma.<模型>`） |
+| `server/src/common/` | 基础设施：响应/异常/Excel/导入/日志/存储/权限装饰器/where 组合器/分页/掩码 | `list-where.ts`、`storage-keys.ts`、`import-task.ts` | **`common/utils/` 白名单制**（检查器规则 5，新增要登记） |
+
+`domain/` 为什么存在——两条**源码约束**，不是口味问题：
+
+1. **AI 只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）**不得依赖业务模块**（§3.1，检查器判红），
+   但链金额、资产流向、履约、结算期这些口径它们都要用 → 纯函数必须待在一个**非模块**目录；
+2. **互相需要**：`settlement-period`（contract ↔ settlement）、`amount-guard`（payment ↔ settlement）
+   两侧都要用，归任一方都会造出模块级环（规则 3 判红）。
+
+留在 `domain/` 的文件（共 6 个，每个文件头都写了 `owner` 和消费方）：
+
+| 文件 | owner | 为什么不能进 owner 模块 |
+|---|---|---|
+| `contract-chain.ts` | contract | 算式被 AI 只读子域引用（约束 1） |
+| `milestone.ts` | contract | `ai/analysis/scm-facts.ts` 引用（约束 1） |
+| `contract-fulfillment.ts` | contract | `ai/analytics/dataset-collector.service.ts` 引用（约束 1） |
+| `asset-flow.ts` | asset | 同上（约束 1） |
+| `settlement-period.ts` | settlement | contract 与 settlement 互引（约束 2） |
+| `amount-guard.ts` | finance | payment 与 settlement 互引（约束 2） |
+
+需要读表的链 IO 不在这里，在 `server/src/query/contract-chain-queries.ts`——**口径归 owner，取数归 read model**。
 ## 3. 聚合器是刻意存在的
 
 `archive` / `ai` 的 fan-out 很大（`archive` 直接读 11 个域的表），这是"全库视角"的报表/分析层，
@@ -91,7 +119,9 @@ export async function setXxxStatus(db: Db, id: string, status: string): Promise<
 
 检查器用 Tarjan SCC 检测模块级循环依赖（当前为 0），**依赖边只由静态 `import ... from` 构成**。出现环时的修法：
 
-1. 把共享逻辑下沉到 `server/src/common/`（纯函数优先）；
+1. 把共享逻辑下沉：**纯口径**放 `server/src/domain/`（零 DB、零装饰器），**跨域取数**放
+   `server/src/query/`；`server/src/common/` 只收基础设施（`common/utils` 是白名单制，见 §2.5），
+   **不要**再把业务语义塞进 `common/`（2026-11-23 P2 前它就装着 16 个口径文件）；
 2. 或把"聚合读取"改为查询层（read model），不要反向调用写模块；
 3. 互引确实无法拆分时（A 静态依赖 B，B 又要借 A 的写入原语），B 侧用 `await import('../a')`
    运行期加载——它不成环，且检查器仍会校验它是否走公开入口。**静态** import 依旧会被判环。
@@ -106,6 +136,8 @@ export async function setXxxStatus(db: Db, id: string, status: string): Promise<
 | 动态 `await import('../a/a.service')` 也被判红 | 检查器覆盖动态 import | 改成 `await import('../a')` |
 | archive 里出现 `prisma.contract` 被判红 | 跨域直查绕过查询层 | 把查询移到 `server/src/query/archive-queries.ts`（或新增 `<域>-queries.ts`） |
 | AI 只读子域 import 业务模块被判红 | 分析与预警不应触发业务逻辑 | 直接查询或在 ai 内取数；写路径只允许 `register` |
+| 「common/utils 只放通用件（白名单制）」 | 往 `common/utils/` 加了业务语义文件 | 归 owner 模块（跨模块走 `index.ts`），或放 `server/src/domain/`（见 §2.5）；确属通用件再登记检查器的 `COMMON_UTILS_ALLOWLIST` |
+| 口径纯函数该放 `modules/<owner>/` 还是 `domain/` | 放错会让 AI 只读子域越界、或造出模块环 | 先看消费方：被 `ai/analytics|anomaly|analysis` 引用、或两个模块互相都要用 → `domain/`；否则归 owner 模块（§2.5 有清单） |
 | 「跨模块直写他人表：A 写了 xxx」 | `prisma.xxx.update()` 绕过了 owner 模块 | 让 owner 导出写入原语（见 §3.2），调用方改用 `from '../<owner>'` 的函数 |
 
 ## 6. 不做的事

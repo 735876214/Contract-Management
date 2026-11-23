@@ -13,8 +13,8 @@ import {
   laborRowKey,
   parseLaborRowKey,
   type DeriveReceivingInput,
-} from '../../common/utils/labor-receiving';
-import { periodKeyOf, startDayOf, periodLabel } from '../../common/utils/settlement-period';
+} from './labor-receiving';
+import { periodKeyOf, startDayOf, periodLabel } from '../../domain/settlement-period';
 import { keywordWhere } from '../../common/utils/list-where';
 
 /**

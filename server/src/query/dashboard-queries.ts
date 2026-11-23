@@ -21,9 +21,9 @@ import {
   MILESTONE_STATUS,
   SETTLEMENT_STATUS,
   countedInvoiceWhere,
+  notDraft,
   paidPaymentWhere,
 } from '../constants/statuses';
-import { notDraft } from '../common/utils/contract-chain';
 import { sumSettlementAmount } from '../common/utils/group-sum';
 
 type Db = PrismaClient;

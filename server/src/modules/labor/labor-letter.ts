@@ -1,4 +1,4 @@
-import { CSCEC_LOGO_PNG_BASE64 } from '../../common/services/cscec-logo.base64';
+import { CSCEC_LOGO_PNG_BASE64 } from '../../assets/cscec-logo.base64';
 
 /**
  * 分包材料员授权委托书（表格编号：CCCEC-SW-B40410）渲染（自 subcontractor 模块迁入，分包商库已并入分包授权台账）

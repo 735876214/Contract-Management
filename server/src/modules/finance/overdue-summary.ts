@@ -18,9 +18,9 @@
  * 舍入与月份排序已下沉到 `common/calc`：这里不再保留私有 `Math.round(v*100)/100`（浮点尾差）
  * 与原生字符串 `.sort()`（`2026-10` 会排在 `2026-9` 前）。
  */
-import { round2 } from '../calc/money.ts';
-import { num } from '../calc/numeric.ts';
-import { canonicalMonthKey, compareMonthKey } from '../calc/index.ts';
+import { round2 } from '../../common/calc/money.ts';
+import { num } from '../../common/calc/numeric.ts';
+import { canonicalMonthKey, compareMonthKey } from '../../common/calc/index.ts';
 
 /** 空月份仍像旧实现一样排最前；其余月份走统一 compareMonthKey（不能用 `'2026-10' < '2026-9'`） */
 const compareMonthAsc = (a: string, b: string): number => {

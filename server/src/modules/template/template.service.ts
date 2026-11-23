@@ -12,7 +12,7 @@ import {
   mergeSupplierFields,
   parseSupplierSnapshot,
   pickSupplierSnapshot,
-} from '../../common/utils/supplier-snapshot';
+} from '../supplier';
 import { renderTemplate, pendingPlaceholders } from './template-render';
 import { keywordWhere } from '../../common/utils/list-where';
 
@@ -359,7 +359,7 @@ export class TemplateService {
        * 仍回退兜底常量（历史合同里的默认甲方）。
        *
        * ⚠️ 承接单位是**项目主数据**，本变量因此随项目实时变化；与供应商字段不同，它**没有**签订时快照
-       * （快照机制见 `common/utils/supplier-snapshot.ts`，对应"供应商改名/换银行不该改写历史合同"那条口径）。
+       * （快照机制见 `modules/supplier/supplier-snapshot.ts`，对应"供应商改名/换银行不该改写历史合同"那条口径）。
        * 若业务也要求"甲方名称冻结在签订时"，需另立口径（改快照字段集或加列），不要顺手塞进 `supplierSnapshot`。
        */
       甲方名称: (contract as any).project?.undertaker || '中国建筑第八工程局有限公司',

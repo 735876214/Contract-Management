@@ -1,14 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { resolveChainAmounts, type ContractChainRow } from '../src/domain/contract-chain.ts';
 import {
-  resolveChainAmounts,
   contractChainRootId,
   contractChainIds,
   contractChainAmount,
   chainSettledTotal,
   chainPaidTotal,
-  type ContractChainRow,
-} from '../src/common/utils/contract-chain.ts';
+} from '../src/query/contract-chain-queries.ts';
 
 /**
  * **合同当前金额口径锁**（2026-10-15 业务澄清）：

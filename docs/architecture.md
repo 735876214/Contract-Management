@@ -39,8 +39,10 @@ server/src/
 ├── main.ts                 # bootstrap：CORS / 全局前缀 / 管道 / 拦截器 / 过滤器 / 静态资源 / 启动 seed
 ├── app.module.ts           # 装配 ConfigModule + PrismaModule + CommonModule + 22 业务模块
 ├── prisma/                 # @Global PrismaModule（PrismaClient useFactory）
-├── common/                 # 通用层（见 §2.2）
-├── constants/              # procurementFlow.ts（采购工作流）· workflowGuards.ts（驳回守卫）
+├── common/                 # 通用层（仅基础设施，见 §2.2）
+├── domain/                 # 业务口径纯函数原语（零 DB/零装饰器，见 §2.2.1）
+├── query/                  # 跨域只读查询层 read model（见 §2.2.2）
+├── constants/              # procurementFlow.ts（采购工作流）· workflowGuards.ts（驳回守卫）· metrics.ts（报表口径登记表）
 └── modules/                # 业务模块（见 §2.3）
 ```
 
@@ -63,6 +65,29 @@ server/src/
 | `utils/helpers.ts` | `paginate`(上限 500) · `buildResult` · `assertVersion`(乐观锁 409) · `assertImportRows` · `num/sum/toDate` |
 | `utils/docx-patch.ts` | 给生成的 Word 注入页眉/页脚/页码 |
 
+### 2.2.1 业务口径原语 `domain/`
+
+多模块共用、又**不能**归任一业务模块的纯函数（零 DB、零装饰器、零 Nest 依赖）：
+
+| 文件 | owner | 消费方 |
+|---|---|---|
+| `contract-chain.ts` | contract | 合同链金额算式（`resolveChainAmounts` / `chainAmountsByRoot`）：看板、台账、结算、付款、总结算、AI |
+| `milestone.ts` | contract | 付款节点逾期判定（`isMilestoneOverdue`） |
+| `contract-fulfillment.ts` | contract | 履约派生（工期/开票/收付款比例） |
+| `asset-flow.ts` | asset | 物资进出场汇总 |
+| `settlement-period.ts` | settlement | 结算期归属（按项目起始日切期，不是自然月） |
+| `amount-guard.ts` | finance | 金额上限判定（防超结/防超付） |
+
+为什么不放进 `modules/<owner>/`：**AI 只读子域不得依赖业务模块**，且 `settlement-period` /
+`amount-guard` 两侧互相需要会成环——理由与检查器口径见
+[.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md) §2.5。带指标的条目在
+[docs/report-metrics.md](report-metrics.md) 登记并被 `server/test/metricsRegistry.spec.mts` 逐条校验。
+
+### 2.2.2 跨域只读查询层 `query/`
+
+`<域>-queries.ts`（archive / dashboard / ledger / ai-fact / contract-chain）：只读、不带事务、
+每个函数显式带 `projectId`（或调用方传入已按项目筛过的 id 集合）、只返回行/计数/分组，
+业务整形留在 service。契约见同文件 §3.1 与 `scripts/check-module-boundaries.mjs`。
 ### 2.3 业务模块（22 个）
 
 | 模块 | 控制器前缀 | 主要实体 | 权限守卫 |

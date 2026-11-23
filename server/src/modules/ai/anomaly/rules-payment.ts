@@ -21,7 +21,7 @@
  * ④ 输出确定性：排序固定（等级 → 规则码 → 对象 ID），便于逐条对账与快照测试。
  */
 
-import { monthKey } from '../../../common/utils/settlement-period.ts';
+import { monthKey } from '../../../domain/settlement-period.ts';
 import { CONTRACT_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, PAYMENT_EXCLUDED_STATUSES, SETTLEMENT_STATUS } from '../../../constants/statuses.ts';
 import { isCountedInvoice } from '../common/invoice-facts.ts';
 import { ANOMALY_CODES, ANOMALY_LEVEL, centsToYuan, moneyToCents, qtyToUnits, ratioToBp, resolveTolerances, unitsToQty, type AnomalyEvaluation, type AnomalyLevel, type AnomalySummary, type AnomalyTolerances, type Cents, type ContractRow, type FinalSettlementItemRow, type Finding, type MaterialQtyRow, type PaymentAnomalyInput, type PaymentRow, type ProcedureRow, type SettlementRow } from './anomaly-types.ts';

@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { localDayKey } from '../../common/calc/time';
 import { round2 } from '../../common/calc/money';
 import { PrismaClient } from '@prisma/client';
-import { contractChainRows, resolveChainAmounts } from '../../common/utils/contract-chain';
+import { resolveChainAmounts } from '../../domain/contract-chain';
+import { contractChainRows } from '../../query';
 import {
   loadContractChainFacts,
   loadContractForFields,

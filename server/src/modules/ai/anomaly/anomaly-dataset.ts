@@ -3,7 +3,7 @@ import {
   indexContractRows,
   resolveChainRoot,
   type ContractChainRowLike,
-} from '../../../common/utils/contract-chain.ts';
+} from '../../../domain/contract-chain.ts';
 
 /**
  * **取数形状的唯一事实源**：Prisma `select` / `where` / 行 → 规则入参的映射。

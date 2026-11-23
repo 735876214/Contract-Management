@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSettlementItemsFromReceiptOrders } from '../src/common/utils/settlement-from-receipts.ts';
+import { buildSettlementItemsFromReceiptOrders } from '../src/modules/settlement/settlement-from-receipts.ts';
 
 /**
  * 收领单 → 结算明细带出（业务口径 2026-11-21）：

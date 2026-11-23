@@ -8,7 +8,7 @@ import {
   previousSettlementPeriod,
   periodKeyOf,
   formatDay,
-} from '../src/common/utils/settlement-period.ts';
+} from '../src/domain/settlement-period.ts';
 import { assertYearMonth } from '../src/common/utils/helpers.ts';
 
 /**

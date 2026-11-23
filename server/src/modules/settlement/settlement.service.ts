@@ -42,13 +42,13 @@ async function detachReceiptOrdersOfSettlement(db: any, settlementId: string): P
 import { assertSettlementProgress, assertSettlementRejectable, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 // 总结算单状态常量（第 21 轮审计：不要再裸写 'SETTLED'）；发票金额口径统一走 countedInvoiceWhere（作废/红冲不计入）
 import { FINAL_SETTLEMENT_STATUS, countedInvoiceWhere } from '../../constants/statuses';
-import { buildSettlementItemsFromDailyRows } from '../../common/utils/settlement-from-daily';
-import { buildSettlementItemsFromReceiptOrders } from '../../common/utils/settlement-from-receipts';
+import { buildSettlementItemsFromDailyRows } from './settlement-from-daily';
+import { buildSettlementItemsFromReceiptOrders } from './settlement-from-receipts';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { SettlementLedgerService } from './settlement-ledger.service';
-import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
+import { normalizePolicy, checkOverAmount } from '../../domain/amount-guard';
 // 链口径（合同当前金额 / 累计结算 / 累计付款）统一在 contract-chain：防超结的上限与
 // 业务口径「合同当前金额 = 主合同 + 补充协议增量」必须是同一个实现
 import {
@@ -56,7 +56,7 @@ import {
   chainSettledTotal,
   chainMaterialQty,
   chainSettledItemQty,
-} from '../../common/utils/contract-chain';
+} from '../../query';
 // 月份归集口径（`YYYY-MM`）与结算期纯函数：台账、发票/收领单自动匹配、月度结算期三处**共用**，
 // 不要在各服务里各写一份 `getFullYear/getMonth` 拼接
 import {
@@ -67,7 +67,7 @@ import {
   formatDay,
   currentSettlementPeriod,
   previousSettlementPeriod,
-} from '../../common/utils/settlement-period';
+} from '../../domain/settlement-period';
 
 const SETTLE_FIELDS = [
   'projectId', 'contractId', 'code', 'typeCode', 'amount', 'deductAmount', 'actualAmount',
@@ -944,7 +944,7 @@ export class SettlementService {
    * 预览「上一期」的抓取情况（结算单页顶部提示用）：
    * 该期有几张**未挂结算单**的收领单、涉及几个合同 —— 有值就说明该生成结算了。
    *
-   * 期间算法见 `common/utils/settlement-period.ts`（期 = 起始日 → 下月同日的前一日；
+   * 期间算法见 `domain/settlement-period.ts`（期 = 起始日 → 下月同日的前一日；
    * 起始日取项目的「月度结算起始日期」，未设置按自然月）。
    */
   async previewPreviousPeriod(projectId: string, refDate?: string) {

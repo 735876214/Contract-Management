@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveContractFulfillment } from '../src/common/utils/contract-fulfillment.ts';
+import { deriveContractFulfillment } from '../src/domain/contract-fulfillment.ts';
 
 /**
  * 合同履约派生进度（业务口径 2026-10-18，零表）：

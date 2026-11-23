@@ -8,7 +8,7 @@
  *
  * == 口径（累计至今，不做区间切片）==
  * - 签约额：`statusCode` 为 `SIGNED`（含历史遗留 `COMPLETED`）的合同，
- *   金额取**链式当前金额**（主合同 + 带符号补充协议，见 `common/utils/contract-chain.ts`），
+ *   金额取**链式当前金额**（主合同 + 带符号补充协议，见 `domain/contract-chain.ts`），
  *   不用 `amount` 裸值——否则补充协议一签，全景就骗人；
  * - 结算额：非 `DRAFT` 结算单，`actualAmount ?? amount`（与 6-9 同一口径）；
  * - 付款额：排除 `FAILED` / `REFUNDED`（`PAYMENT_EXCLUDED_STATUSES`）；

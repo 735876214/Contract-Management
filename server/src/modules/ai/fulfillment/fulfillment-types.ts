@@ -9,7 +9,7 @@
  * == 事实源 ==
  * `ContractFulfillment` 是履约节点的**唯一事实源**（`planDate` 计划 / `actualDate` 实际 /
  * `statusCode` = `MILESTONE_STATUS`）。「逾期」在系统里是**派生值不落库**
- * （见 `common/utils/milestone.ts` 的 `isMilestoneOverdue`）——本层沿用同一口径，
+ * （见 `domain/milestone.ts` 的 `isMilestoneOverdue`）——本层沿用同一口径，
  * 并且把 `now` 显式注入，保证单测不依赖当天日期。
  *
  * == 本课题相对既有能力的增量 ==

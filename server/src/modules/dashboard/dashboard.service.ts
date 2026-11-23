@@ -3,9 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
-import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../common/utils/contract-chain';
-import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { chainContractTotal } from '../../common/utils/ledger-derived';
+import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../domain/contract-chain';
+import { evaluateAmountAlert, evaluatePaymentRatioAlert } from './amount-alert';
+import { chainContractTotal } from '../ledger';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import { TODO_CATEGORIES, type TodoGroup, type TodoLevel } from '../../constants/todoCategories';
 import {
@@ -365,7 +365,7 @@ export class DashboardService {
   }
 
   /**
-   * 合同金额预警（业务口径 2026-10-15 澄清，阈值见 `common/utils/amount-alert.ts`）：
+   * 合同金额预警（业务口径 2026-10-15 澄清，阈值见 `modules/dashboard/amount-alert.ts`）：
    * - 🔴 当前结算额 > 合同当前金额 × 110% 或 补充协议累计 > 主合同 × 130%
    * - 🟡 当前结算额 > 合同当前金额 × 80% 或 补充协议累计 > 主合同 × 110%
    *

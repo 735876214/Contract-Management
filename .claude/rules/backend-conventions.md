@@ -67,22 +67,22 @@
   ⚠️ 「主合同」= 该任务**最早创建**的合同（同批生成再按编号排序）；`GET /contracts` 按 `createdAt DESC`，
   **`list[0]` 不是主合同**，别拿它判定。
 - **合同当前金额 = 主合同 + Σ 补充协议 `changeAmount`**（**带符号增量**，业务口径 2026-10-16）：
-  单一实现在 `common/utils/contract-chain.ts` 的 `resolveChainAmounts()` / `contractChainAmount()`。
+  单一实现：算式在 `server/src/domain/contract-chain.ts` 的 `resolveChainAmounts()`，读表在 `server/src/query/contract-chain-queries.ts` 的 `contractChainAmount()`。
   ⚠️ **不要用补充协议的 `amount` 参与链式求和**——它是自由填写字段，涨价/降价时往往填的是
   "剩余数量的全价"，直接相加会**重复计入**；`changeAmount` 由服务端在发布时按清单重算
-  （`common/utils/supplement-delta.ts`）。台账「已结算金额占合同比例」的分母、
+  （`modules/contract/supplement-delta.ts`）。台账「已结算金额占合同比例」的分母、
   防超结上限、工作台红/黄预警**全部用这一个口径**。
   （`100% 欠款` 例外：基数已改为「审定结算额（总结算书 `SETTLED` 的 `totalAmount`）− 已付款」，
   无已定案总结算书时退回「开累结算额 − 已付款」，见 `deriveLedgerAmounts()` 的 `finalSettleAmount`。）
   ⚠️ 链 IO 只在 `contract-chain.ts`（不在 `amount-guard`）：`amount-guard` 被 `.mts` spec 加载，
   **不能新增相对 import**（见 `.claude/rules/testing.md`）。
-- **金额上限（防超结/防超付）**：判定在零依赖模块 `common/utils/amount-guard.ts`
+- **金额上限（防超结/防超付）**：判定在零依赖模块 `domain/amount-guard.ts`
   （上限 = 合同链「主合同 + 补充协议」金额；累计结算排除草稿；累计付款排除失败/退款），
   策略由系统参数 `settlement.over_amount_policy` / `payment.over_amount_policy` 控制
   （`BLOCK`/`WARN`/`OFF`，默认 `WARN`）。⚠️ **合同链未填金额时返回 `null` = 无上限**，
   别把「无金额」当成上限 0（否则 BLOCK 下会拦住合法单据）。锁定：`amountGuard.spec.mts` +
-  `test-integration/amount-guard.int.spec.ts`。链口径与策略取舍见 `common/utils/contract-chain.ts`
-  与 `common/utils/amount-guard.ts` 的文件头注释。
+  `test-integration/amount-guard.int.spec.ts`。链口径与策略取舍见 `domain/contract-chain.ts`
+  与 `domain/amount-guard.ts` 的文件头注释。
 
 ## 日报 / 现场确认（结算量的来源）
 
@@ -131,7 +131,7 @@
   锁定：`settlement-link.int.spec.ts`。
 - **派生金额的"三态"契约（未填 ≠ 0）**：台账里由合同额/结算额推出来的列（`已结算金额占合同比例`、
   `应付款金额`、`应付未付`、`已付款占结算比例`）**必须**走
-  `common/utils/ledger-derived.ts` 的 `deriveLedgerAmounts()`，**不要就地写算式**：
+  `modules/ledger/ledger-derived.ts` 的 `deriveLedgerAmounts()`，**不要就地写算式**：
   合同额未填（`NULL`/空串）时这些列要返回 `null`（前端显示 `-`、导出留白），
   **不能兜成 0**——`0 − 已付款` 是负数、`结算/0` 是"谎称未结算"，而同一批合同在防超结闸门里
   的口径是"上限未知"（`contractChainAmount()` 返回 `null`）→ 会造出"同一件事两个相反结论"。
@@ -159,7 +159,7 @@
 ## 付款安排与「当前生效比例」（2026-10-16 加的批次）
 
 - **付款安排（`Contract.paymentMode`）是合同字段**，取值 `100` / `3382` / `M65_1` / `M65_3` / `CUSTOM`，
-  定义与文案在零依赖模块 `common/utils/pay-ratio.ts`（`PAYMENT_MODES`）——**前端下拉是它的镜像**
+  定义与文案在零依赖模块 `modules/contract/pay-ratio.ts`（`PAYMENT_MODES`）——**前端下拉是它的镜像**
   （`web/src/constants/paymentModes.ts`），由 `payRatio.spec.mts` 锁住「取值集合 + label 逐条相等」。
   取值不合法一律 **400**（写错会让派生比例错、进而让台账列与付款预警都错，从界面还看不出来）。
 - **`ContractExt.currentPayRatio` 是服务端派生列**，唯一实现在 `contract.service.syncPayRatio()`：
@@ -168,7 +168,7 @@
   ④ **推不出来 → `null` 且保持原值不动**（"未知"不该被改写成某个数；手填 0 也算推不出来）。
   ⚠️ 台账「当前合同付款比例」列、逾期引擎的 `paymentRatio`、工作台付款预警**都读这一列**。
   ⚠️ 合同表单里它已改为**只读展示**、提交时前端会把它剥掉（`web/src/components/contract/ContractEditor.tsx` 的 `submit`）。
-- **付款超比例预警**（工作台）：纯函数 `common/utils/amount-alert.ts` 的 `evaluatePaymentRatioAlert()`
+- **付款超比例预警**（工作台）：纯函数 `modules/dashboard/amount-alert.ts` 的 `evaluatePaymentRatioAlert()`
   —— 开累付款 > 开累结算 × 生效比例；**单级**（业务只给了"超过就报"）；比例未填/为 0 或开累结算为 0
   → **不报**；"恰好等于上限"不算超。开累付款的分子排除 `PAYMENT_EXCLUDED_STATUSES`（失败/退款，
   与防超付闸门/台账同一份常量）。
@@ -177,7 +177,7 @@
 
 ## 结算期与自动生成（2026-10-16 加的批次，改发票/收领单/结算单前必看）
 
-- **归属判据是「结算期」，不是自然月**：唯一实现在零依赖模块 `common/utils/settlement-period.ts`
+- **归属判据是「结算期」，不是自然月**：唯一实现在零依赖模块 `domain/settlement-period.ts`
   （`currentSettlementPeriod` / `previousSettlementPeriod` / `periodKeyOf` / `periodMonthKey`），
   期的起始日取自 `Project.settlementStartDate`（未设置 = 1 日 = 自然月）。
   ⚠️ 起始日不是 1 日时**期会跨自然月**（起始日 26 → 期 9/26–10/25）：9/28 的收领单与期末 10/25 的结算单**同期**，
@@ -196,7 +196,7 @@
   计入 `skippedNoQtyRows`，两类都返回 `warnings`（不静默丢；无数量行也不得混入加权平均）。
   **负数是退货 / 材料调出**（业务 2026-11-17）：照常参与同物资聚合、按净额冲减本期结算；正负完全抵消
   （净数量 0）的分组无法表示成「单价 × 数量」，计入 `skippedNetZeroRows` 并告警，不生成 0 数量明细。
-  纯函数在 `common/utils/settlement-from-daily.ts`（价格公式与 `SettlementService.normalizeItem()` 同一份，
+  纯函数在 `modules/settlement/settlement-from-daily.ts`（价格公式与 `SettlementService.normalizeItem()` 同一份，
   保证表头金额 = Σ 明细合价）；生成时「单头 + 明细 + 收领单回挂」在同一事务内，失败不留孤儿结算单。
   ⚠️ 它是**手动按钮**触发的（仓库不引入调度器），前端另有「上一期未生成」提示。
   锁定：`settlementPeriod.spec.mts` + `settlementFromDaily.spec.mts` + `test-integration/settlement-period-link.int.spec.ts`。

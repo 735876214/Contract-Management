@@ -13,6 +13,11 @@
  * 4. 模块只能写自己拥有的表：`<模块>/*.ts` 里出现 `prisma.<模型>.create/update/upsert/delete*`
  *    或事务句柄 `tx.<模型>.<写方法>`，且该模型的 owner 是别的模块 = 越界。
  *    owner 由「谁在写」聚合成表（见 MODEL_OWNER）。
+
+ * 5. `server/src/common/utils/` **白名单制**：只放「与业务口径无关的通用件」，
+ *    新增文件必须登记在 COMMON_UTILS_ALLOWLIST 并写明理由。
+ *    业务语义（谁能改这个数字/状态）请放 owner 模块或 `server/src/domain/`——
+ *    否则这里会重新变成口径的垃圾场（2026-11-23 P2 前它装着 16 个业务口径文件）。
  *
  * 背景：跨模块 import 曾全部指向 `<m>.module` / `<m>.service`，没有 DTO/类型，
  * 因此可以用一个入口文件收口；`archive` / `ai` 是刻意的聚合器（fan-out 大，但仍须走入口）。
@@ -80,7 +85,7 @@ const AI_READ_ONLY_DIRS = [
 const INLINE_PREDICATE_RULES = [
   {
     re: /statusCode:\s*\{\s*not:\s*['"]DRAFT['"]\s*\}/g,
-    hint: "改用 common/utils/contract-chain 的 notDraft（它显式把 NULL 算作非草稿）",
+    hint: "改用 constants/statuses.ts 的 notDraft（它显式把 NULL 算作非草稿）",
   },
   {
     re: /notIn:\s*\[[^\]]*['"]DRAFT['"][^\]]*\]/g,
@@ -157,6 +162,45 @@ function runSelfTest() {
 
 // 自证要在读 git 之前就结束，保证它只依赖正则、不依赖仓库状态
 if (process.argv.includes('--self-test')) runSelfTest();
+
+/**
+ * **`common/utils/` 白名单**（2026-11-23 架构评审 P2，规则 5）。
+ *
+ * 这个目录只放「与业务口径无关、谁都能用」的通用件：where 组合器 / CSV / 掩码 / 存储键 /
+ * 导入解析 / 分页 / 上传规则 / 口令强度 …。迁移前它还装着 16 个**业务口径**文件
+ * （合同链金额、结算期、金额上限、逾期汇总、台账派生、付款安排…），后果是
+ * 「这个数字该找谁签」没人答得出——`docs/report-metrics.md` 的 owner 列只能靠记性。
+ *
+ * 新增文件时二选一，然后把它登记到下面：
+ * - 业务口径 → owner 模块（`modules/<owner>/`，跨模块走 `index.ts`）；
+ * - 多模块共用且不能归任一模块的**纯口径原语** → `server/src/domain/`（零 DB、零装饰器）。
+ */
+const COMMON_UTILS_ALLOWLIST = new Set([
+  'assert-permission.ts',
+  'csv.ts',
+  'doc-vars.ts',
+  'docx-patch.ts',
+  'error-envelope.ts',
+  'excel-sheet.ts',
+  'group-sum.ts',
+  'helpers.ts',
+  'import-parse.ts',
+  'import-result.ts',
+  'import-task.ts',
+  'list-where.ts',
+  'mask.ts',
+  'paged.ts',
+  'password-policy.ts',
+  'prisma-error.ts',
+  'project-context-message.ts',
+  'project-scope.ts',
+  'public-params.ts',
+  'safe-url.ts',
+  'storage-audit.ts',
+  'storage-keys.ts',
+  'storage-url.ts',
+  'upload-rules.ts',
+]);
 
 let root;
 try {
@@ -344,6 +388,17 @@ const writeViolations = writeSites
     rule: `跨模块直写他人表：${s.module} 写了 ${s.model}（owner=${ownerOf.get(s.model)}）。改走对方模块 index.ts 导出的写入原语，或在对方模块提供语义化写入函数`,
   }));
 
+// ---------------- 规则 5：common/utils 只许白名单 ----------------
+const COMMON_UTILS_DIR = 'server/src/common/utils/';
+const commonUtilsViolations = tracked
+  .filter((f) => f.startsWith(COMMON_UTILS_DIR) && isTs(f))
+  .filter((f) => !COMMON_UTILS_ALLOWLIST.has(path.posix.basename(f)))
+  .map((f) => ({
+    file: f,
+    line: 1,
+    rule: 'common/utils 只放通用件（白名单制）：先判断归属——业务口径放 owner 模块，多模块共用的纯口径原语放 server/src/domain/；确属通用件再登记 COMMON_UTILS_ALLOWLIST',
+  }));
+
 // 模块级循环检测（Tarjan SCC）
 function findCycles(graph) {
   let index = 0;
@@ -386,9 +441,9 @@ const aggregators = [...edges]
   .filter(([, s]) => s.size > AGGREGATOR_FANOUT)
   .sort((a, b) => b[1].size - a[1].size);
 
-if (!violations.length && !readViolations.length && !cycles.length && !writeViolations.length) {
+if (!violations.length && !readViolations.length && !cycles.length && !writeViolations.length && !commonUtilsViolations.length) {
   if (!quiet) {
-    const msg = [`[module-boundaries] OK：${files.length} 个模块内文件，无越界 import、无模块环、无跨模块写表`];
+    const msg = [`[module-boundaries] OK：${files.length} 个模块内文件，无越界 import、无模块环、无跨模块写表，common/utils 全部在白名单内`];
     if (aggregators.length) {
       msg.push(`  聚合器（fan-out > ${AGGREGATOR_FANOUT}，允许但请走公开入口）：` +
         aggregators.map(([m, s]) => `${m}(${s.size})`).join(', '));
@@ -402,6 +457,11 @@ if (cycles.length) {
   console.error('[module-boundaries] 模块级循环依赖：');
   for (const c of cycles) console.error(`  - ${c.join(' ↔ ')}`);
   console.error('  修法：把共享部分下沉到 common/，或改成只依赖对方公开入口的单向调用；\n  若只是借用对方几个无状态写入函数，改 `await import(...)`（运行期加载，不进 SCC 图）。\n');
+}
+if (commonUtilsViolations.length) {
+  console.error('[module-boundaries] ' + commonUtilsViolations.length + ' 个 common/utils 文件不在白名单：');
+  for (const v of commonUtilsViolations) console.error('  ' + v.file + '  ' + v.rule);
+  
 }
 if (readViolations.length) {
   console.error('[module-boundaries] 读取边界违规：');
