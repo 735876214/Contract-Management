@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（96 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（26 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（98 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（27 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 47，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 74） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
@@ -163,6 +163,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/ledgerDerived.spec.mts` | **台账派生金额口径**（**未填金额 ≠ 0**）：合同额 NULL 时「已结算占合同比例」返回 `null` 而不是 0/负数 · 显式填 0 是真实的 0 · 分母为 0 → 比例不可计算 · 常规数值与修复前逐位一致 · **「100% 欠款」= `finalSettleAmount ?? cumSettleAmount` − 已付款**（有已定案总结算书用其 totalAmount，否则退回开累结算额） |
   | `test/mask.spec.mts` | 敏感字段打码白名单（凭据/银行账号/证件号/联系方式；不修改入参） |
   | `test/pagedAndGuard.spec.mts` | **共用原语锁**（2026-11 收敛重复实现）：`pagedAll` 跨页取全不重不漏、整页边界、单页只查一次、无 total 靠「不足一页」终止、`maxPages` 保险丝；`assertInProject` 属于本项目原样返回、不存在与不属于本项目都 404（不暴露存在性）、未传 projectId 只校验存在、记录 projectId 为空时一律拒绝 |
+  | `test/isolationFailClosed.spec.ts` | **隔离 fail-closed 锁**（2026-11-22 P1）：`requestContext.inRequest()` 区分"请求内漏带项目头"与"请求外（seed/脚本/单测）" · `projectWhere()` **请求内缺上下文一律 400 + code 1412**（改造前是丢掉过滤 = 漏带头即可跨项目读）· `sharedScopeWhere()` 在 `PROJECT` 模式同样 400、`GLOBAL` 与请求外保持原行为 · 错误文案与 `main.ts` 中间件的 `run()` 判据都被耦合锁住 |
+  | `test/errorCodesParity.spec.mts` | **错误码契约锁**：`server/src/common/error-codes.ts` ↔ `web/src/constants/apiCodes.ts` 逐条相等、「项目已失效」码集合一致 · 前端 `api/http.ts` **不得再用中文文案**做控制流，只认 `isProjectStaleCode()` · 项目上下文异常（guard/装饰器/取行原语）必须带 1410/1411/1412 · 异常过滤器采信业务异常自带的 `code` |
   | `test/importTask.spec.mts` | 导入任务僵尸判定（心跳阈值/终态不回收）与幂等去重键 |
   | `test/overdueSummary.spec.mts` | 逾期利息**汇总口径单一实现**（开累/上期开累/本期结算；含「手工期初填在较早月份」回归） |
   | `test/templateRender.spec.mts` | 合同模板占位符只认 `{{变量名}}`（**废弃写法不再被替换**的回归锁；值不转义、未取到值原样保留） |
@@ -296,6 +298,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
 | `tender-bidders.int.spec.ts` | 招标域：导入**双写**结构化投标单位与幂等、有评标记录的单位不被静默删除、勾选候选人=**定标**（WON+确认价）与取消回落、评标记录全量替换与三条校验、**定标行 → 发布 → 生成多份合同**（快照被篡改也不采信） |
 | `procurement-forms.int.spec.ts` | **采购阶段表单**（P1-3 拆分后回归）：列表批算 `estimatedAmountMap` 与详情单算 `estimatedAmountYuan` **逐分同口径**（P2：旧实现列表用裸浮点会漂移，用 3×333.335 制造分位差）· 采购公告 / 采购文件 / 采前会会议纪要 / 框架协议事前说明 / 成交报告 的 save→get 往返（含 JSON 列解析回数组、候选人快照、采前会金额≥阈值放行） |
+| `procurement-publish.int.spec.ts` | **采购发布主链 + 隔离 fail-closed**（2026-11-22 审计补测）：总清单未编制 → `publish()` **400 且 stage 不变**（门禁真的接在发布上）· 编制后发布 → 阶段推进 + **自动生成 1 份草稿合同**（类型由采购类型派生）+ 总清单量价**带入合同起草清单** · 跨项目按 id 读 **404**、请求内漏带 `x-project-id` **400 + code 1412** |
 | `settlement-item.int.spec.ts` | **清单项级结算明细 + 量级校验**（业务 2026-10-17）：items 随结算单落库、综合单价/合价由服务端重算 · update 整体替换明细（replace-all）· 量级闸门（Σ明细量 + 历史已结 ≤ 合同链清单量）：**WARN 策略带 overQtyWarning、BLOCK 策略 400** · 链上无清单行的物资=**无上限不拦** · **草稿不校验量级**（提交时才拦） |
 | `template-management.int.spec.ts` | **三套模板管理语义**（2026-10-18）：合同模板新建接受 Y/N 归一、编辑生成新版本且**停用真的生效**、过期 version 409、**删除整条版本链** · 采购模板 `keyword/moduleType/status` 筛选与 `{list,total}` 分页形态、非法状态 400、同类型覆盖写版本快照、停用后不出现在 `status=1` 查询 · 单据模板**历史 `/api/files/` URL 入库归一为相对键**并能读盘渲染、`.docx`/损坏/不存在文件一律 400 |
 | `anomaly-payment.int.spec.ts` | **结算/付款异常预警的真库口径**（2026-10-23 审计补测，落地计划 §4.5 承诺项）：清单量按**合同链根**归集（结算挂母合同、明细跨补充协议）· 按补充协议**下钻时服务端展开整条链**（不得因收窄合同把链切断）· 付款按**链根**归集（结算挂母合同、付款记补充协议不得报超付）· 真超付时事实为**链级累计口径** · 区间上界取**当日末刻**（库里 14:30 的付款不得漏判） |

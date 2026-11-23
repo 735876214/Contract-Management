@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import { Request, Response } from 'express';
 import { mapPrismaError, prismaErrorCode } from '../utils/prisma-error';
 import { buildErrorEnvelope } from '../utils/error-envelope';
+import { API_CODE } from '../error-codes';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -21,7 +22,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const res: any = exception.getResponse();
       message = typeof res === 'string' ? res : res?.message || exception.message;
       if (Array.isArray(message)) message = message.join('; ');
-      code = status === 401 ? 1401 : status === 403 ? 1403 : status === 400 ? 1001 : status;
+      /**
+       * 业务异常可以**显式带稳定 code**：`throw new BadRequestException({ code: 1412, message })`。
+       * 前端按 code 做控制流（刷新项目并重放请求等），文案只用于展示——改造前前端在
+       * `http.ts` 里 `msg.includes('项目不存在')`，后端改一个字自动恢复就静默失效。
+       */
+      const explicit = res && typeof res === 'object' ? Number((res as any).code) : NaN;
+      code = Number.isFinite(explicit) && explicit !== 0
+        ? explicit
+        : status === 401
+          ? API_CODE.UNAUTHORIZED
+          : status === 403
+            ? API_CODE.FORBIDDEN
+            : status === 400
+              ? API_CODE.BAD_REQUEST
+              : status;
     } else {
       /**
        * 非 HttpException（第 21 轮审计）：原来把 `exception.message` 原样回给前端。

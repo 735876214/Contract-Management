@@ -20,9 +20,17 @@ function inProject<T>(projectId: string | undefined, fn: () => T): T {
   return requestContext.run({ projectId }, fn);
 }
 
-describe('projectWhere：按请求上下文补 projectId', () => {
-  it('没有上下文时不追加过滤（启动任务/单测/跨项目聚合保持原行为）', () => {
-    assert.deepEqual(inProject(undefined, () => projectWhere('row-1')), { id: 'row-1' });
+describe('projectWhere：按请求上下文补 projectId（fail-closed）', () => {
+  it('**请求内**没有项目上下文 → 400，绝不退回"不过滤"', () => {
+    assert.throws(
+      () => inProject(undefined, () => projectWhere('row-1')),
+      (e: any) => e?.getStatus?.() === 400 && e?.getResponse?.().code === 1412,
+      '请求内缺项目头必须 400（码 1412）——否则漏带头就能跨项目读',
+    );
+  });
+
+  it('请求之外（seed / 脚本 / 单测 / 跨项目聚合）不追加过滤（保持原行为）', () => {
+    assert.deepEqual(projectWhere('row-1'), { id: 'row-1' });
   });
 
   it('有上下文时追加 projectId', () => {
@@ -38,8 +46,8 @@ describe('projectWhere：按请求上下文补 projectId', () => {
     assert.deepEqual(inProject(P1, () => projectWhere('row-1', { projectId: P2 })), { id: 'row-1', projectId: P1 });
   });
 
-  it('上下文是空串/未设置都按「没有上下文」处理', () => {
-    assert.deepEqual(inProject('', () => projectWhere('row-1')), { id: 'row-1' });
+  it('上下文是空串 → 与「没有上下文」同口径（请求内 400；请求外不过滤）', () => {
+    assert.throws(() => inProject('', () => projectWhere('row-1')), /缺少项目上下文/);
     assert.deepEqual(projectWhere('row-2'), { id: 'row-2' });
   });
 });

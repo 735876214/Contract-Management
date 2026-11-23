@@ -92,7 +92,7 @@ export class DailyReportService {
       }),
       this.prisma.dailyReport.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   /** 按 id + 项目取单条（防止跨项目按 id 读/改/删，CLAUDE.md 铁律 3）；`projectId` 缺省时退化为仅按 id（内部调用） */

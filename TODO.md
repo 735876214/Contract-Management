@@ -37,16 +37,22 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-- **ESLint warning 存量清理（2026-11-21）**：`server` 44 条 / `web` 74 条（`@typescript-eslint/no-unused-vars`
-  与 `react-hooks/exhaustive-deps` 为主）。门禁已上线且预算冻结，清一条就把 `package.json` 里
-  `--max-warnings` 同步下调。`exhaustive-deps` 那批要逐个看依赖数组，别机械补全。
-- **剩余「全量行」取数的收口（P1-4 第二阶段，2026-11-21）**：工作台总览/趋势、合同台账按合同分组、
-  AI 数据集的 5 个分区块**已经改走 SQL `aggregate`/`groupBy`**（44 处 `@no-limit` → 32 处）。
-  仍取明细行的是**行级规则/明细喂数**两类，它们不是聚合、换 `groupBy` 会静默失效：
-  - `ai/anomaly.collect`（9 处）：跨期累计、清单重合度等规则要逐单比对。要降成本只能**缩小取数范围**
-    （强制期间、项目集上限）或把事实层物化（物化视图/定时汇总表），属独立议题；
-  - 台账 `findAll` 的链解析、合规性问题数（内存派生列）：合规性由类型/进场/中标/签订日期算，库里没有这列，
-    无法进 `WHERE`，只能全量取窄列后在内存过滤。
+> 下列 4 项来自 **2026-11-22 代码质量评审**（对应 PR 只落地了隔离 fail-closed / 错误码 / 分页口径 /
+> 前端重复 helper，其余按"需迁移 / 需全量前端回归"单独排期）。证据均为源码位置，可直接开工。
+
+- **剩余模块的 DB 集成测试**：`payment` / `finance` / `labor` / `archive` / `auth` / `asset` /
+  `payment-procedure` / `other-project` 仍无 `test-integration/*.int.spec.ts`（`finance` 1.4k 行、0 spec 提及）。
+  照 `procurement-publish.int.spec.ts` 的写法补，首行写 `// @domains: <模块目录名>`。
+- **台账「合规」筛选的内存全扫**：`server/src/modules/ledger/ledger.service.ts` 的 `compliance` 是内存派生列，
+  带该筛选时 `findMany` 不带 `skip/take`（整项目合同进内存后再切片）。根治需把判定落成可查询列（**迁移级**）；
+  临时方案是加"该筛选下的上限/截断提示"。
+- **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
+  （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
+  `CORS_ORIGINS` 环境变量白名单，与部署文档同源。
+- **采购 6 个单据页面仍高度同构**：`web/src/pages/Procurement/{FrameworkExplanation,PreMeetingMinutes,Notice,
+  Document,ResultReport,PriceCompare}.tsx` 各 720–990 行，跨文件 10 行以上的重复窗口 24–44 处/对。
+  变量映射与下载 helper 已收口（`utils/projectVars.ts` / `utils/blobDownload.ts`），页面骨架仍应向
+  `components/procurement/ModuleListPage` + `EditorTabPage` 继续收敛。
 
 ## 四域扩展（已收口，不再立项）
 

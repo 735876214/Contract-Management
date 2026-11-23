@@ -97,7 +97,7 @@ export class PaymentService {
       this.prisma.paymentRecord.findMany({ where, skip, take, orderBy: [{ payMonth: 'desc' }, { createdAt: 'desc' }], include: this.contractInclude }),
       this.prisma.paymentRecord.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   /**

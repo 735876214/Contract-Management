@@ -1,3 +1,5 @@
+// 显式 `.ts` + 零依赖实现：本文件会被 server/test/*.spec.mts 间接加载（Node ESM 不认 `@/` 别名）
+import { downloadBlob } from './blobDownload.ts';
 /** 合同正文导出：Word(.doc) / 打印(PDF) */
 
 /** MSO 兼容 Word HTML 封装（导出 / 通用导出管线共用） */
@@ -36,17 +38,6 @@ function escapeHtml(s: string) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 }
 
-function download(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 /**
  * 导出为 Word 文档（.doc，Word/WPS 可直接打开，无需服务端与第三方库）。
  * 使用 MSO 兼容的 HTML 封装，保留富文本排版与表格。
@@ -54,7 +45,7 @@ function download(blob: Blob, filename: string) {
 export function exportWord(html: string, filename = '合同正文.doc') {
   const doc = WORD_TPL(filename.replace(/\.doc$/, ''), html || '<p></p>');
   // BOM 保证 Word 以 UTF-8 解析中文
-  download(new Blob(['\ufeff' + doc], { type: 'application/msword;charset=utf-8' }), filename);
+  downloadBlob(new Blob(['\ufeff' + doc], { type: 'application/msword;charset=utf-8' }), filename);
 }
 
 /** 打印 / 另存为 PDF */

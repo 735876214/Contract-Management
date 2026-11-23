@@ -33,6 +33,24 @@ export const requestContext = {
   get(): RequestContext | undefined {
     return storage.getStore();
   },
+  /**
+   * **当前是否处在 HTTP 请求里**（不管有没有项目头）。
+   *
+   * 用途：把项目隔离从「失败即放行」改成「失败即拒绝」（2026-11-22 第 24 轮审计）。
+   * 中间件对**每个**请求都会 `run()`（缺项目头时 store 存在、projectId 为 undefined），
+   * 而启动期 seed / 脚本 / 单测根本不会进 `run()`（store 为 undefined）。
+   * 于是这条判定能精确区分两种"没有 projectId"：
+   * - 请求内没有 → **异常客户端**（漏带头/伪造请求）→ 必须拒绝，不能静默放宽过滤；
+   * - 请求外没有 → 内部任务（跨项目聚合、播种、单测）→ 保持原有行为。
+   *
+   * 反例（改造前的真实口子）：持 `contract:view` 的用户请求
+   * `GET /api/contracts/<别项目 id>` 且**不带 `x-project-id`**，`projectWhere()` 会丢掉
+   * projectId 过滤 → 跨项目读到整张合同详情。
+   */
+  inRequest(): boolean {
+    return storage.getStore() !== undefined;
+  },
+
   /** 当前请求的项目 id；不在请求里（启动期/脚本/单测）返回 undefined */
   get projectId(): string | undefined {
     const pid = storage.getStore()?.projectId;
