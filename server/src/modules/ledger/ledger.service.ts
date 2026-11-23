@@ -6,8 +6,14 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { deriveLedgerAmounts, sumInvoiceTax, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
-import { resolveChainAmounts, notDraft, type ContractChainRow } from '../../common/utils/contract-chain';
-import { paidPaymentWhere, countedInvoiceWhere, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
+import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
+import {
+  loadComplianceScan,
+  loadLedgerChainRows,
+  loadLedgerContractFacts,
+  loadLedgerContractPage,
+  loadProjectBrief,
+} from '../../query/ledger-queries';
 import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -63,15 +69,12 @@ export class LedgerService {
     const pageIds = matchedIds ? matchedIds.slice(skip, skip + take) : null;
 
     // contracts 不再重算；total 在「合规性内存过滤」分支里会被改成命中条数，故单独用 let
-    const [rawContracts, initialTotal] = await Promise.all([
-      this.prisma.contract.findMany({
-        where: pageIds ? { ...where, id: { in: pageIds } } : where,
-        ...(pageIds ? {} : { skip, take }),
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        include: { supplier: true, ext: true },
-      }),
-      this.prisma.contract.count({ where }),
-    ]);
+    const { rows: rawContracts, total: initialTotal } = await loadLedgerContractPage(this.prisma, {
+      where,
+      pageIds,
+      skip,
+      take,
+    });
     // `id: { in: [...] }` 不保证返回顺序：按命中顺序回排，保持与 orderBy 一致的稳定分页
     const contracts = pageIds
       ? pageIds
@@ -82,46 +85,12 @@ export class LedgerService {
     const contractIds = contracts.map((c: any) => c.id);
 
     // 批量聚合（一次性查询后在内存分组，避免 N+1）
-    const [items, reports, ledger, settlements, invoices, payments] = await Promise.all([
-      this.prisma.contractMaterial.findMany({
-        where: { contractId: { in: contractIds } },
-        select: { contractId: true, materialBase: { select: { name: true } } },
-      }),
-      this.prisma.dailyReport.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, entryDate: true } }),
-      this.prisma.settlementLedger.findMany({ where: { contractId: { in: contractIds } }, select: { contractId: true, settleMonth: true, monthSettleAmount: true } }),
-      // 审定结算额 = 已提交（非草稿）结算单的实际结算金额；草稿不构成「已审定」
-      this.prisma.settlement.findMany({
-        where: { contractId: { in: contractIds }, ...notDraft },
-        select: { contractId: true, actualAmount: true, amount: true },
-      }),
-      // 作废/红冲发票不计入「开累发票金额」（业务口径 2026-11-12；空状态历史票仍计入）
-      // 另取税前/税率：2026-11-18 起「开累发票税前金额 / 进项税额」也由这批票逐张派生
-      this.prisma.invoice.findMany({
-        where: { contractId: { in: contractIds }, ...countedInvoiceWhere() },
-        select: { contractId: true, amountBeforeTax: true, amountWithTax: true, taxRatePct: true },
-      }),
-      // 排除"不构成实际出资"的状态（付款失败/已退款）——与防超付闸门用**同一份**清单，
-      // 否则同一笔失败付款会在闸门里被排除、在台账里被算入，两处给出相反结论
-      this.prisma.paymentRecord.findMany({
-        where: {
-          contractId: { in: contractIds },
-          ...paidPaymentWhere(),
-        },
-        select: { contractId: true, payMonth: true, amount: true },
-      }),
-    ]);
-
-    // 总结算书结算额：100% 欠款 = 审定结算额（本表 totalAmount）− 已付款；无总结算书时退回开累结算额
-    // （业务口径 2026-11-19，用户确认）。一合同至多一张（@@unique(projectId, contractId)）。
-    // 只取**已定案（SETTLED）**的总结算书：PENDING_ATTACHMENT（待补附件）属未定案，其 totalAmount 仅为快照，
-    // 不应进入欠款基数（第 23 轮审计 P2，2026-11-19）。
-    const finalSettlements = await this.prisma.finalSettlement.findMany({
-      where: {
-        contractId: { in: contractIds },
-        statusCode: FINAL_SETTLEMENT_STATUS.SETTLED,
-      },
-      select: { contractId: true, totalAmount: true },
-    });
+    /**
+     * 六个跨域侧表 + 总结算书一次批量取回（口径：排除草稿结算 / 排除失败退款付款 / 排除作废红冲发票 /
+     * 总结算书只取已定案）——where 与理由都收在 `query/ledger-queries.ts`。
+     */
+    const { items, reports, ledgerRows, settlements, invoices, payments, finalSettlements } =
+      await loadLedgerContractFacts(this.prisma, contractIds);
 
     const groupBy = (list: any[], key: string) =>
       list.reduce((acc: any, i: any) => {
@@ -134,14 +103,11 @@ export class LedgerService {
      * 一次取项目内全部合同的四个字段后在内存算链；本页只展示 500 行，但链的成员可能不在本页，
      * 故这里按项目取全（合同条数与台账行数同量级，可接受），避免逐行查库退化成 N+1。
      */
-    const chainRows: ContractChainRow[] = await this.prisma.contract.findMany({
-      where: { projectId },
-      select: { id: true, parentContractId: true, amount: true, changeAmount: true },
-    });
+    const chainRows: ContractChainRow[] = await loadLedgerChainRows(this.prisma, projectId);
 
     const itemMap = groupBy(items, 'contractId');
     const reportMap = groupBy(reports, 'contractId');
-    const ledgerMap = groupBy(ledger, 'contractId');
+    const ledgerMap = groupBy(ledgerRows, 'contractId');
     const settleMap = groupBy(settlements, 'contractId');
     const invoiceMap = groupBy(invoices, 'contractId');
     const payMap = groupBy(payments, 'contractId');
@@ -301,32 +267,14 @@ export class LedgerService {
    * 排序与列表一致（createdAt desc, id desc），调用方据此切片后再回查完整行。
    */
   private async matchComplianceIds(where: any, compliance: string): Promise<string[]> {
-    // @no-limit: 内存派生列筛选必须先扫全项目合同（只取 4 个窄列、不取整行），规则无法进 SQL where
-    const contracts = await this.prisma.contract.findMany({
-      where,
-      select: {
-        id: true,
-        typeCode: true,
-        signDate: true,
-        ext: { select: { bidStartDate: true, bidWinDate: true } },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const { contracts, entryByContract } = await loadComplianceScan(this.prisma, where);
     if (!contracts.length) return [];
-
-    const entryMap = new Map<string, Date | null>();
-    const grouped = await this.prisma.dailyReport.groupBy({
-      by: ['contractId'],
-      where: { contractId: { in: contracts.map((c) => c.id) } },
-      _min: { entryDate: true },
-    });
-    grouped.forEach((g: any) => entryMap.set(g.contractId, g._min?.entryDate ?? null));
 
     return contracts
       .filter((c: any) => {
         const ext = c.ext || {};
         return (
-          calcLedgerCompliance(c.typeCode ?? '', entryMap.get(c.id) ?? null, ext.bidStartDate, ext.bidWinDate, c.signDate) ===
+          calcLedgerCompliance(c.typeCode ?? '', entryByContract.get(c.id) ?? null, ext.bidStartDate, ext.bidWinDate, c.signDate) ===
           compliance
         );
       })
@@ -426,7 +374,7 @@ export class LedgerService {
 
   async export(projectId: string) {
     const list = await this.allRows(projectId);
-    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    const project = await loadProjectBrief(this.prisma, projectId);
     const years = this.exportYears(list);
     /** 合同额合计按链只计一次；逐行 SUBTOTAL 会把补充协议行（整链值）再加一遍 */
     const chainTotal = chainContractTotal(

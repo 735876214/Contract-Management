@@ -607,7 +607,8 @@ node scripts/check-import-integrity.mjs
 
 **跨域读取层**：`server/src/query/` 是唯一允许散写跨域只读查询的地方。`archive` 的 11 个域读取已收敛到
 `query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；工作台同口径，全部读取收敛在
-`query/dashboard-queries.ts`（`modules/dashboard/**` 同样不得出现 `prisma.<模型>`）；AI 的窗口事实
+`query/dashboard-queries.ts`（`modules/dashboard/**` 同样不得出现 `prisma.<模型>`）；
+合同台账的跨域读取收敛在 `query/ledger-queries.ts`（台账拥有 `SettlementLedger`，自身表读写留在 service，故此条无检查器锁）；AI 的窗口事实
 （合同链 / 结算 / 付款 / 发票 / 项目范围 / 日报与采购计数）统一走 `query/ai-fact-queries.ts`，
 `field-resolver` / `report` / `dataset-collector` / `scm` 已接入；AI 只读子域（`analytics` / `anomaly` /
 `analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外；

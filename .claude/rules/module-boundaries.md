@@ -39,6 +39,10 @@ export { SettlementService } from './settlement.service';
   它的全部跨域读取已收敛到 `server/src/query/dashboard-queries.ts`；
   `modules/dashboard/**` **不得出现 `prisma.<模型>`**，同样由检查器锁定
   （2026-11-23 收敛前是 37 处，口径改动要在工作台里再抄一遍 where，抄漏就是第二套口径）。
+- **合同台账**的跨域读取（合同 / 合同清单 / 日报 / 结算 / 发票 / 付款 / 总结算 / 项目名）收敛到
+  `server/src/query/ledger-queries.ts`。注意与上面两者**不同**：台账**拥有** `SettlementLedger`，
+  自身表的读写仍留在 `ledger.service.ts`，所以**不能**用「不得出现 `prisma.<模型>`」去锁它
+  （检查器目前也没有"只读他人表"的规则——读侧的 owner 判定不可靠，容易误报）。这条靠 review 守。
 - 新的跨域只读查询按 `<域>-queries.ts` 放进 `server/src/query/`，通过 `server/src/query/index.ts` 导出；
   函数只读、不带事务、每个都显式带 `projectId`。
 - AI 分两类：
