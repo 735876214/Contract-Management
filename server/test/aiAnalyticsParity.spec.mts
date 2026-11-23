@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { AI_DATASETS } from '../src/modules/ai/analytics/dataset-registry.ts';
-import { DATASET_COLUMNS, datasetColumnsOf } from '../src/modules/ai/analytics/dataset-columns.ts';
+import { AI_DATASETS } from '../src/modules/ai-core/dataset/dataset-registry.ts';
+import { DATASET_COLUMNS, datasetColumnsOf } from '../src/modules/ai-core/dataset/dataset-columns.ts';
 
 /**
  * 注册表 ↔ 列定义 parity（Phase 5 收口）：

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeModelIntent, parseIntentRules } from '../src/modules/ai/intent/intent-rules.ts';
+import { normalizeModelIntent, parseIntentRules } from '../src/modules/ai-insight/intent/intent-rules.ts';
 
 /**
  * 规则意图解析（Phase 1 唯一路径）：只输出枚举与注册表 key，不产出 ID/日期/数字；

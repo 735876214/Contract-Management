@@ -20,7 +20,7 @@ import { countedInvoiceWhere, paidPaymentWhere, SITE_CONFIRM_STATUS } from '../c
 
 /**
  * 查询层用的**部分区间**（from 可为空 = 不限起点）。
- * 与 `modules/ai/common/period.ts` 的 `DayRange` 形状兼容（那个 from 可 null、to 必有），
+ * 与 `modules/ai-core/common/period.ts` 的 `DayRange` 形状兼容（那个 from 可 null、to 必有），
  * 但不 import 它——query 是基础设施层，不反向依赖业务模块。
  */
 export interface FactDateRange {

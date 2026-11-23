@@ -7,11 +7,11 @@ import {
   buildAnalyticsFacts,
   buildNarratedReport,
   reportPresentation,
-} from '../src/modules/ai/analytics/dataset-facts.ts';
+} from '../src/modules/ai-insight/analytics/dataset-facts.ts';
 import type {
   AiAnalyticsTotals,
   AiCollectedDataset,
-} from '../src/modules/ai/analytics/analytics.types.ts';
+} from '../src/modules/ai-core/dataset/analytics.types.ts';
 
 const totals = (over: Partial<AiAnalyticsTotals> = {}): AiAnalyticsTotals => ({
   projectCount: 2,

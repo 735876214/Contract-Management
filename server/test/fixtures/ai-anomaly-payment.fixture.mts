@@ -32,8 +32,8 @@ import type {
   FinalSettlementItemRow,
   MaterialQtyRow,
   ContractRow,
-} from '../../src/modules/ai/anomaly/anomaly-types.ts';
-import { ANOMALY_CODES, type AnomalyCode } from '../../src/modules/ai/anomaly/anomaly-types.ts';
+} from '../../src/modules/ai-insight/anomaly/anomaly-types.ts';
+import { ANOMALY_CODES, type AnomalyCode } from '../../src/modules/ai-insight/anomaly/anomaly-types.ts';
 
 /** 本地时区日期（不用 'YYYY-MM-DD' 字符串：后者按 UTC 解析，跨时区会把日/月挪一位） */
 const d = (y: number, m: number, day: number): Date => new Date(y, m - 1, day, 0, 0, 0, 0);

@@ -8,7 +8,7 @@ import {
   parseLocalDay,
   rangeLabel,
   resolvePresetPeriod,
-} from '../src/modules/ai/common/period.ts';
+} from '../src/modules/ai-core/common/period.ts';
 
 /** 固定「现在」= 2026-11-12 09:30（本地），保证预设期间断言可复算 */
 const NOW = new Date(2026, 10, 12, 9, 30, 0, 0);

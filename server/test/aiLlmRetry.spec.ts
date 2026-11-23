@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { callChat, LlmError } from '../src/modules/ai/llm-client.ts';
+import { callChat, LlmError } from '../src/modules/ai-core/llm-client.ts';
 
 /**
  * 「空正文自动重试一次」的行为锁（2026-10-20 接入推理型模型时发现）。

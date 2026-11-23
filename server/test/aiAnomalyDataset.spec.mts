@@ -7,8 +7,8 @@ import {
   buildPaymentAnomalyInput,
   makeChainRootResolver,
   type AnomalyRows,
-} from '../src/modules/ai/anomaly/anomaly-dataset.ts';
-import { evaluatePaymentAnomalies } from '../src/modules/ai/anomaly/rules-payment.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-dataset.ts';
+import { evaluatePaymentAnomalies } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
 
 /**
  * 取数形状层的单测。

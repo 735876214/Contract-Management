@@ -1,11 +1,14 @@
 /**
- * ai 模块对外公开入口。
+ * ai 模块对外公开入口 —— **只放装配与路由**。
  *
- * 其他模块只允许 `from '../ai'`；直接引内部文件会被
- * `scripts/check-module-boundaries.mjs` 判为越界（`auth` 守卫按基础设施白名单例外）。
+ * 2026-11-23（架构解耦 P4）：原先 71 个文件 / 17,884 行挤在一个模块里，检查器只能整体放行。
+ * 现在按职责拆成四个模块目录：
+ * - `ai`（本目录）：Nest 装配 + 控制器路由（`ai.module.ts` / `ai.controller.ts`）；
+ * - `ai-core`：LLM 调用、配额、提示词、字段目录、单据文本解析（叶子，零业务依赖）；
+ * - `ai-insight`：只读分析与预警（数据集、经营分析、异常检测、报告），不得依赖业务模块；
+ * - `ai-fill`：登记 / 取价 / 履约判定（写路径复用业务模块校验）。
+ *
+ * 依赖方向是 DAG：`ai → {ai-insight, ai-fill} → ai-core`，由检查器锁死（无静态环）。
  */
 
-export { AiModule } from './ai.module';
-export { AiService } from './ai.service';
-export { RegisterService } from './register.service';
-export { ReportService } from './report.service';
+export { AiModule } from './ai.module.ts';

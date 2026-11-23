@@ -4,12 +4,12 @@ import {
   countCountedInvoices,
   isCountedInvoice,
   sumCountedInvoices,
-} from '../src/modules/ai/common/invoice-facts.ts';
+} from '../src/modules/ai-core/common/invoice-facts.ts';
 import {
   chainRowCountByRoot,
   indexContractRows,
   resolveChainRoot,
-} from '../src/modules/ai/common/contract-roots.ts';
+} from '../src/modules/ai-core/common/contract-roots.ts';
 
 /**
  * AI 事实层的两个共享原语：

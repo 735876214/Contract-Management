@@ -1,22 +1,22 @@
 import { Module } from '@nestjs/common';
 import { ContractModule } from '../contract';
 import { SupplierModule } from '../supplier';
-import { AiController } from './ai.controller';
-import { AiQuota } from './ai-quota';
-import { AiService } from './ai.service';
-import { AiSettingService } from './ai-setting.service';
-import { FieldResolverService } from './field-resolver.service';
-import { RegisterService } from './register.service';
-import { ReportService } from './report.service';
-import { AnomalyService } from './anomaly/anomaly.service';
-import { QuoteService } from './quote/quote.service';
-import { FulfillmentService } from './fulfillment/fulfillment.service';
-import { ScmService } from './analysis/scm.service';
-import { AnalyticsController } from './analytics/analytics.controller';
-import { AnalyticsService } from './analytics/analytics.service';
-import { DatasetCollector } from './analytics/dataset-collector.service';
-import { AnalyticsStore } from './analytics/analytics-store.service';
-import { IntentService } from './intent/intent.service';
+import { AiController } from './ai.controller.ts';
+import { AiQuota } from '../ai-core/ai-quota.ts';
+import { AiService } from '../ai-insight/index.ts';
+import { AiSettingService } from '../ai-core/ai-setting.service.ts';
+import { FieldResolverService } from '../ai-insight/index.ts';
+import { RegisterService } from '../ai-fill/index.ts';
+import { ReportService } from '../ai-insight/index.ts';
+import { AnomalyService } from '../ai-insight/index.ts';
+import { QuoteService } from '../ai-fill/index.ts';
+import { FulfillmentService } from '../ai-fill/index.ts';
+import { ScmService } from '../ai-insight/index.ts';
+import { AnalyticsController } from '../ai-insight/index.ts';
+import { AnalyticsService } from '../ai-insight/index.ts';
+import { DatasetCollector } from '../ai-insight/index.ts';
+import { AnalyticsStore } from '../ai-insight/index.ts';
+import { IntentService } from '../ai-insight/index.ts';
 
 /**
  * AI 助手模块（纯增量能力：不引入新依赖、不改任何既有表）。

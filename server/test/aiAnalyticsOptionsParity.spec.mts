@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   AI_PERIOD_PRESETS,
   AI_REPORT_KINDS,
-} from '../src/modules/ai/analytics/analytics.types.ts';
+} from '../src/modules/ai-core/dataset/analytics.types.ts';
 import {
   KIND_OPTIONS,
   PRESET_OPTIONS,

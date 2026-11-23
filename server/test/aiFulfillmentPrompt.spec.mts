@@ -16,18 +16,18 @@ import {
   fulfillmentParamHints,
   fulfillmentToleranceText,
   parseFulfillmentConfig,
-} from '../src/modules/ai/fulfillment/fulfillment-config.ts';
+} from '../src/modules/ai-fill/fulfillment/fulfillment-config.ts';
 import {
   auditFulfillmentNarrative,
   buildFulfillmentMessages,
   fallbackFulfillmentNarrative,
-} from '../src/modules/ai/fulfillment/fulfillment-prompt.ts';
+} from '../src/modules/ai-fill/fulfillment/fulfillment-prompt.ts';
 import {
   DEFAULT_FULFILLMENT_TOLERANCES,
   FULFILLMENT_CODES,
   type FulfillmentFinding,
-} from '../src/modules/ai/fulfillment/fulfillment-types.ts';
-import type { FulfillmentEvaluation } from '../src/modules/ai/fulfillment/rules-fulfillment.ts';
+} from '../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
+import type { FulfillmentEvaluation } from '../src/modules/ai-fill/fulfillment/rules-fulfillment.ts';
 
 function finding(over: Partial<FulfillmentFinding> = {}): FulfillmentFinding {
   return {

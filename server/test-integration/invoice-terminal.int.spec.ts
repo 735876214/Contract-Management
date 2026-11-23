@@ -7,7 +7,7 @@ import { SettlementService } from '../src/modules/settlement/settlement.service'
 import { LedgerService } from '../src/modules/ledger/ledger.service';
 import { ContractFulfillmentService } from '../src/modules/contract/contract-fulfillment.service';
 import { DashboardService } from '../src/modules/dashboard/dashboard.service';
-import { FieldResolverService } from '../src/modules/ai/field-resolver.service';
+import { FieldResolverService } from '../src/modules/ai-insight/field-resolver.service';
 import { INVOICE_STATUS, SETTLEMENT_STATUS } from '../src/constants/statuses';
 
 /**

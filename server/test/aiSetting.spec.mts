@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { AI_PARAM_KEYS, readAiConfig } from '../src/modules/ai/ai-config.ts';
+import { AI_PARAM_KEYS, readAiConfig } from '../src/modules/ai-core/ai-config.ts';
 
 /**
  * AI 配置的取值优先级（**页面登记 > 环境变量 > 默认值**）。

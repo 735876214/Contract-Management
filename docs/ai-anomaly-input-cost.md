@@ -1,7 +1,7 @@
 # 结算/付款异常预警：取数成本量化（P1-4 第三阶段评估）
 
 > 结论先行：**先做「缩小取数范围」，暂不做物化**。量化脚本已入库，可随时在真实库上复测。
-> 相关代码：`server/src/modules/ai/anomaly/anomaly.service.ts` 的 `collect()`（9 处行级 `findMany`）、
+> 相关代码：`server/src/modules/ai-insight/anomaly/anomaly.service.ts` 的 `collect()`（9 处行级 `findMany`）、
 > `anomaly-dataset.ts`（`buildAnomalyWhere` / `ANOMALY_SELECT`）、`rules-payment.ts`（9 条判定规则）。
 
 ## 1. 为什么这 9 处不能改 SQL 聚合
@@ -83,7 +83,7 @@ DATABASE_URL="postgresql://cms:cms123456@localhost:15432/cms_int?schema=public" 
 
 ## 6. 落地记录（2026-11-22）
 
-方案① 已实施。口径只有一份：`server/src/modules/ai/anomaly/anomaly-window.ts`（纯函数，
+方案① 已实施。口径只有一份：`server/src/modules/ai-insight/anomaly/anomaly-window.ts`（纯函数，
 `server/test/anomalyWindow.spec.mts` 锁；接口与面板不重复实现算术）。
 
 | 项 | 现状 |

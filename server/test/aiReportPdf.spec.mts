@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { markdownToLines, renderReportPdf, wrapText } from '../src/modules/ai/report-pdf.ts';
+import { markdownToLines, renderReportPdf, wrapText } from '../src/modules/ai-insight/report-pdf.ts';
 
 /**
  * 标准字体（WinAnsi，**没有汉字字形**）足够验证排版逻辑：折行、缩进、分页、页眉页脚。

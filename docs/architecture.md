@@ -18,7 +18,7 @@
 ┌──────────────────── NestJS 10 (server/) ───────────────────────┐
 │  Controller ─ 守卫(JWT/RBAC) ─ 管道(ValidationPipe)            │
 │      └─ Interceptor(统一响应 / 操作日志) ─ Service ─ Prisma     │
-│  22 个业务模块 + common 通用层 + constants 单一事实源           │
+│  33 个业务模块 + common 通用层 + constants 单一事实源           │
 └───────────────┬────────────────────────────────────────────────┘
                 │ Prisma Client
         ┌───────▼────────┐
@@ -88,7 +88,11 @@ server/src/
 `<域>-queries.ts`（archive / dashboard / ledger / ai-fact / contract-chain）：只读、不带事务、
 每个函数显式带 `projectId`（或调用方传入已按项目筛过的 id 集合）、只返回行/计数/分组，
 业务整形留在 service。契约见同文件 §3.1 与 `scripts/check-module-boundaries.mjs`。
-### 2.3 业务模块（22 个）
+### 2.3 业务模块（33 个）
+
+> **AI 已按职责拆成四个目录**（2026-11-23 P4）：`ai`（装配+路由）· `ai-core`（纯函数底座，库型目录）·
+> `ai-insight`（只读分析与预警）· `ai-fill`（登记/取价/履约）。依赖是 DAG，规则见
+> [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md) §2.6。
 
 | 模块 | 控制器前缀 | 主要实体 | 权限守卫 |
 |---|---|---|---|

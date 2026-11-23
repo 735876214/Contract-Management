@@ -2,7 +2,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeProject, uniq, type IntContext } from './helpers';
-import { AnalyticsService } from '../src/modules/ai/analytics/analytics.service';
+import { AnalyticsService } from '../src/modules/ai-insight/analytics/analytics.service';
 import type { JwtUser } from '../src/common/decorators/user.decorator';
 
 /**

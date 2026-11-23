@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { docxXmlToText, looksLikeContract } from '../src/modules/ai/docx-text.ts';
+import { docxXmlToText, looksLikeContract } from '../src/modules/ai-core/docx-text.ts';
 import {
   REGISTER_FIELDS,
   foldLoose,
@@ -15,7 +15,7 @@ import {
   taxRatePctValue,
   textHasDate,
   textHasMoney,
-} from '../src/modules/ai/register-fields.ts';
+} from '../src/modules/ai-fill/register-fields.ts';
 
 /**
  * 「文件登记」的纯函数层。

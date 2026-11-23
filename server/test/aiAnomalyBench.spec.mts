@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluatePaymentAnomalies } from '../src/modules/ai/anomaly/rules-payment.ts';
+import { evaluatePaymentAnomalies } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
 import {
   buildSyntheticDataset,
   datasetStats,
   scoreFindings,
   scoreToMarkdown,
   mulberry32,
-} from '../src/modules/ai/anomaly/anomaly-bench.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-bench.ts';
 
 const dataset = buildSyntheticDataset();
 const evaluation = evaluatePaymentAnomalies(dataset.input);

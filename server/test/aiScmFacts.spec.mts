@@ -20,9 +20,9 @@ import {
   scmFactNumbers,
   scmFactsToMarkdown,
   scmPctNumbers,
-} from '../src/modules/ai/analysis/scm-facts.ts';
-import { parseScmConfig } from '../src/modules/ai/analysis/scm-config.ts';
-import { DEFAULT_SCM_TOLERANCES, type ScmRows } from '../src/modules/ai/analysis/scm-types.ts';
+} from '../src/modules/ai-insight/analysis/scm-facts.ts';
+import { parseScmConfig } from '../src/modules/ai-insight/analysis/scm-config.ts';
+import { DEFAULT_SCM_TOLERANCES, type ScmRows } from '../src/modules/ai-insight/analysis/scm-types.ts';
 
 const AS_OF = '2026-10-25';
 
@@ -248,7 +248,7 @@ test('scmFactNumbers：只放行金额与计数，编号/基准日里的数字�
 });
 
 test('对账：风险文案里的阈值百分比不算编造，正文里凭空的大额仍被拦（P1 回归）', async () => {
-  const { auditNumbers, numbersInText } = await import('../src/modules/ai/report-facts.ts');
+  const { auditNumbers, numbersInText } = await import('../src/modules/ai-insight/report-facts.ts');
   const facts = buildScmFacts(fixture(), AS_OF);
   const allowed = scmFactNumbers(facts);
   // 模型把风险条连同「（警戒线 50%）」一起转述 → 阈值必须已被放行（原实现把 % 整段剔掉，

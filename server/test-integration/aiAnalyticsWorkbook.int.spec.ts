@@ -3,8 +3,8 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as ExcelJS from 'exceljs';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
-import { AnalyticsService } from '../src/modules/ai/analytics/analytics.service';
-import { AiService } from '../src/modules/ai/ai.service';
+import { AnalyticsService } from '../src/modules/ai-insight/analytics/analytics.service';
+import { AiService } from '../src/modules/ai-insight/ai.service';
 import type { JwtUser } from '../src/common/decorators/user.decorator';
 
 /**

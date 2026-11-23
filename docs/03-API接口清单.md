@@ -604,7 +604,7 @@ AI 不可用时 `inspect` 仍返回槽位供手工映射，不报错；`fill` �
 `ttc-font.ts` 把各支拆成单字体再逐个试嵌（pdf-lib 直接嵌 TTC 会失败）。
 
 口径（结算/付款异常预警 · 矩阵课题 6-9）：**规则算、模型写**。8 条规则的判定与全部算术都在
-`server/src/modules/ai/anomaly/rules-payment.ts`（纯函数、`bigint` 分、有真值夹具双向对锁），
+`server/src/modules/ai-insight/anomaly/rules-payment.ts`（纯函数、`bigint` 分、有真值夹具双向对锁），
 service 只负责按 `projectId` 取数与聚合，模型只把命中项写成业务语言。命中口径：
 R1-a 跨期指纹重复（同合同两单金额相近 + 明细 Jaccard ≥ 阈值）、R1-b 同物资跨单计量合计超合同链清单量、
 R1-c 总结算快照与月度结算金额偏离、R2 累计付款 > 累计结算 × `ContractExt.currentPayRatio`、
@@ -618,7 +618,7 @@ R5 结算日期早于关联收领单、R6 付款手续「开累」快照与实�
 判定结果本身不受影响；`ai.anomaly.narrative=0` 或 AI 未配置时不消耗额度。
 
 口径（异常报价与价差预警 · 矩阵课题 3-9）：同样**规则算、模型写**，规则在
-`server/src/modules/ai/quote/rules-quote.ts`（纯函数、`bigint` 分、真值夹具双向对锁），
+`server/src/modules/ai-fill/quote/rules-quote.ts`（纯函数、`bigint` 分、真值夹具双向对锁），
 service 只按 `projectId` 取数并聚合成行。命中口径：B1 二轮降幅超阈值 / 二轮报价反而上涨、
 B2 首轮有效报价离散系数过低（围标迹象）、B3 成交价超控制价 / 显著低于控制价（弃标风险），
 B4 中标行单价超控制价 / 偏离市场价，B5 税率不在常用集合 / 两轮税率不一致，
@@ -631,7 +631,7 @@ B6 成交价非最低有效报价，B7 有效报价家数不足 / 中标单位�
 模型措辞经 `auditQuoteNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.quote.narrative=0` 或 AI 未配置不消耗额度。
 
 口径（合同履行偏差预警 · 矩阵课题 4-9）：同样**规则算、模型写**，规则在
-`server/src/modules/ai/fulfillment/rules-fulfillment.ts`（纯函数、日期按天差、真值夹具双向对锁），
+`server/src/modules/ai-fill/fulfillment/rules-fulfillment.ts`（纯函数、日期按天差、真值夹具双向对锁），
 service 只按 `projectId` 取在履行合同及其节点/付款/终期结算，模型只把命中项写成业务语言。命中口径：
 C1 节点逾期未完成（超过 `graceDays` 未完成，逾期 > 30 天升级高风险）、C2 完成未填实际日期、
 C3 顺序倒挂（更早的计划节点未完成、更晚的却已完成）、C4 完成滞后于计划（超 `lateFinishDays`）、
@@ -643,7 +643,7 @@ C7 已出终期结算（非 `DRAFT`）仍有未完成节点、C8 已签章合同
 模型措辞经 `auditFulfillmentNarrative()` 回查事实数字，编造即丢弃退回模板串；`ai.fulfillment.narrative=0` 或 AI 未配置不消耗额度。
 
 口径（供应链运营全景 · 矩阵课题 7-11）：**跨项目**的汇报材料，事实层在
-`server/src/modules/ai/analysis/scm-facts.ts`（纯函数、真值单测锁口径），service 只做「按显式项目集合取数」。
+`server/src/modules/ai-insight/analysis/scm-facts.ts`（纯函数、真值单测锁口径），service 只做「按显式项目集合取数」。
 口径：签约额按**合同链**汇总（主合同 `amount` + 补充协议 `changeAmount` 带符号增量；`DRAFT` 合同不计，
 主合同金额未填也不计但单独提示——**未填 ≠ 0**）；结算额取 `actualAmount` 回退 `amount` 且排除草稿；
 付款排除 `FAILED`/`REFUNDED`；开票排除 `RED`/`CANCELLED`；比例的分母为 0 时返回 `null`（面板显示「—」而不是 0%）；

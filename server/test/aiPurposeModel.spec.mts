@@ -8,7 +8,7 @@ import {
   aiPurposeMeta,
   aiPurposeParamKey,
   readAiConfig,
-} from '../src/modules/ai/ai-config.ts';
+} from '../src/modules/ai-core/ai-config.ts';
 
 /**
  * 「按用途指定模型」（2026-10-23 需求：AI 助手给不同用途用不同的模型）。

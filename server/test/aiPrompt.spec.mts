@@ -6,9 +6,9 @@ import {
   fieldListText,
   normalizeMapping,
   promptCandidates,
-} from '../src/modules/ai/ai-prompt.ts';
-import { AI_FIELD_CATALOG, aiFieldByKey, availableFields } from '../src/modules/ai/field-catalog.ts';
-import type { FormCandidate } from '../src/modules/ai/form-scan.ts';
+} from '../src/modules/ai-core/ai-prompt.ts';
+import { AI_FIELD_CATALOG, aiFieldByKey, availableFields } from '../src/modules/ai-core/field-catalog.ts';
+import type { FormCandidate } from '../src/modules/ai-core/form-scan.ts';
 
 /**
  * AI 助手 prompt 构造 / 模型输出规整。

@@ -37,7 +37,7 @@ export { SettlementService } from './settlement.service';
 
 `domain/` 为什么存在——两条**源码约束**，不是口味问题：
 
-1. **AI 只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）**不得依赖业务模块**（§3.1，检查器判红），
+1. **AI 只读子域**（`ai-insight/analytics` / `ai-insight/anomaly` / `ai-insight/analysis`）**不得依赖业务模块**（§3.1，检查器判红），
    但链金额、资产流向、履约、结算期这些口径它们都要用 → 纯函数必须待在一个**非模块**目录；
 2. **互相需要**：`settlement-period`（contract ↔ settlement）、`amount-guard`（payment ↔ settlement）
    两侧都要用，归任一方都会造出模块级环（规则 3 判红）。
@@ -57,6 +57,34 @@ export { SettlementService } from './settlement.service';
 
 **跨前后端的纯计算原语**不在 `server/src/` 里，而在仓库根的 `packages/calc`（`@cms/calc`，
 `file:` 依赖）：它是计算引擎（金额/舍入/税率/时间/聚合），不承载业务口径，见 `packages/calc/README.md`。
+## 2.6 AI 家族：`ai` / `ai-core` / `ai-insight` / `ai-fill`（2026-11-23 P4）
+
+原来 `ai` 一个模块 71 个文件 / 17,884 行，检查器只能整体放行。按「谁能改它、谁被谁依赖」拆成四块：
+
+| 模块 | 内容 | 依赖方向 |
+|---|---|---|
+| `ai` | Nest 装配 + 控制器路由（`ai.module.ts` / `ai.controller.ts`） | → 其余三者 |
+| `ai-insight` | 只读分析与预警：`analytics/`（数据集/经营分析）、`anomaly/`、`analysis/`（SCM）、`intent/`、`report*`、`ai.service`、`field-resolver` | → `ai-core` |
+| `ai-fill` | 登记 / 取价 / 履约：`register.service` 等 + `quote/` + `fulfillment/` | → `ai-core`（+ 业务模块，登记写路径复用 `ContractService`/`SupplierService`） |
+| `ai-core` | 底座：LLM 客户端、配额、提示词、字段目录、单据文本解析、金额/时间/数据集元信息（**零业务依赖**） | 叶子 |
+
+依赖是 DAG（检查器规则 3 锁死）：`ai → {ai-insight, ai-fill} → ai-core`，无环。
+
+**两条特殊规则（都是实测踩出来的）**：
+
+1. **`ai-core` 是「库型」目录**（检查器的 `LIBRARY_MODULES`）：它**没有** `index.ts` 门面，
+   调用方按文件引用（`import { centsToYuan } from '../ai-core/common/money.ts'`）。
+   原因：`ai-insight`/`ai-fill` 的规则层与类型要被 `.mts` spec 用 Node **原生类型擦除**加载，
+   而 barrel 会**贪婪加载**它转出的全部模块——里面既有 `@Injectable()` 装饰器（擦不掉），
+   也有用构造函数参数属性的类，两者都会让 `.mts` 直接 `SyntaxError`。
+2. **AI 家族内跨模块引用写 `'../ai-insight/index.ts'`（显式带 `index.ts`）**：同一批纯函数链路
+   在 Node ESM 下**不做目录解析**，`from '../ai-insight'` 会报 `ERR_UNSUPPORTED_DIR_IMPORT`。
+   `module.ts`/`controller.ts` 这类不被 `.mts` 加载的文件也照此写，保持一种写法。
+   （其它模块之间仍是 `from '../contract'` 的写法，它们不在 `.mts` 加载链上。）
+
+只读子域规则相应改为按新路径生效：`ai-insight/analytics`、`ai-insight/anomaly`、`ai-insight/analysis`
+**不得**依赖业务模块，但**允许**依赖 `ai-core`（自家纯函数底座，检查器的 `AI_FAMILY_MODULES`）。
+写路径白名单是**按完整路径**的：只放行 `ai-fill/register.service.ts` 一处（见 `AI_WRITE_PATH_ALLOWLIST`）。
 ## 3. 聚合器是刻意存在的
 
 `archive` / `ai` 的 fan-out 很大（`archive` 直接读 11 个域的表），这是"全库视角"的报表/分析层，
@@ -77,7 +105,7 @@ export { SettlementService } from './settlement.service';
 - 新的跨域只读查询按 `<域>-queries.ts` 放进 `server/src/query/`，通过 `server/src/query/index.ts` 导出；
   函数只读、不带事务、每个都显式带 `projectId`。
 - AI 分两类：
-  - **只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）**不得依赖业务模块**；
+  - **只读子域**（`ai-insight/analytics` / `ai-insight/anomaly` / `ai-insight/analysis`）**不得依赖业务模块**；
   - **窗口事实统一走 `server/src/query/ai-fact-queries.ts`**：合同链、结算、付款、发票、
     项目范围、日报/采购计数由 `load*Facts()` 提供，口径（排除草稿结算、排除失败/退款付款、
     作废/红冲发票不计入）只在这一处维护。`field-resolver` / `report` / `dataset-collector` /
@@ -87,7 +115,7 @@ export { SettlementService } from './settlement.service';
     `in: ['CANCELLED','RED']` 这类手写等价 where 一律禁止（在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行），
     必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
     由检查器 `INLINE_PREDICATE_RULES` 锁定 `AI_READ_ONLY_DIRS`（2026-11-23 加，现状 0 违规）。
-  - `ai/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
+  - `ai-fill/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
     名称拼接、字典校验），**允许**依赖业务模块公开入口，不要"优化"掉。
 
 ## 3.2 跨模块写表：只走 owner 模块的写入原语
@@ -109,7 +137,7 @@ export async function setXxxStatus(db: Db, id: string, status: string): Promise<
 
 - 语义留在 owner：哪些列可改、`version` 要不要自增，由拥有者决定；调用方只表达业务意图。
 - **不要**注入对方的 Service（`AuthGuard` 与控制器会连带进来，容易成 DI 环）。
-- 例外：`ai/register.service.ts` 是刻意的写路径（复用业务 Service），由检查器白名单放行。
+- 例外：`ai-fill/register.service.ts` 是刻意的写路径（复用业务 Service），由检查器白名单放行。
 
 ## 3.3 门禁自证：改检测逻辑必须跑 `--self-test`
 

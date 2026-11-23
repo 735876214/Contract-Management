@@ -8,9 +8,9 @@ import {
   datasetByKey,
   filterDatasets,
   limitDatasets,
-} from '../src/modules/ai/analytics/dataset-registry.ts';
-import { datasetColumnsOf } from '../src/modules/ai/analytics/dataset-columns.ts';
-import { AI_REPORT_SECTIONS } from '../src/modules/ai/analytics/analytics.types.ts';
+} from '../src/modules/ai-core/dataset/dataset-registry.ts';
+import { datasetColumnsOf } from '../src/modules/ai-core/dataset/dataset-columns.ts';
+import { AI_REPORT_SECTIONS } from '../src/modules/ai-core/dataset/analytics.types.ts';
 
 /**
  * 注册表漂移锁（2026-11-12 评审确认的形态）：
