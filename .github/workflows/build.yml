@@ -97,6 +97,12 @@ jobs:
       - name: 模块边界（跨模块只走公开入口）
         run: node scripts/check-module-boundaries.mjs
 
+      - name: "请求体白名单（每个 @Body() 必须有 // @body: 标记或存量豁免）"
+        run: node scripts/check-body-whitelist.mjs
+
+      - name: "列表查询上限（项目级 findMany 必须有 take 或 // @no-limit: 理由）"
+        run: node scripts/check-query-limits.mjs
+
       - name: Install server dependencies
         working-directory: server
         run: npm ci --legacy-peer-deps --no-audit --no-fund
@@ -117,6 +123,10 @@ jobs:
             --to-schema-datamodel prisma/schema.prisma \
             --shadow-database-url "$SHADOW_DATABASE_URL" \
             --exit-code
+
+      - name: Backend lint（eslint，挡新缺陷）
+        working-directory: server
+        run: npm run lint
 
       - name: Backend unit tests（无 DB 依赖）
         working-directory: server
@@ -148,6 +158,10 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Frontend lint（eslint，挡新缺陷）
+        working-directory: web
+        run: npm run lint
 
       - name: Frontend build（tsc --noEmit && vite build）
         working-directory: web

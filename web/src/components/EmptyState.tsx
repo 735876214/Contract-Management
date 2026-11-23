@@ -61,7 +61,7 @@ export default function EmptyState({
       description={
         <span className={compact ? 'cms-hint' : undefined}>
           {description}
-          {actionNode ? <>　{actionNode}</> : null}
+          {actionNode ? <>{`　`}{actionNode}</> : null}
         </span>
       }
     />

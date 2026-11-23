@@ -20,6 +20,7 @@ export class ProcurementTemplateController {
     return this.service.findAll(query);
   }
 
+  // @body: mapped=create
   @RequirePermissions('procurement-template:edit')
   @Post()
   create(@Body() body: any, @CurrentUser() user: any) {
@@ -40,12 +41,14 @@ export class ProcurementTemplateController {
   }
 
   /** 回滚：基于旧版本内容创建新版本 */
+  // @body: typed=inline
   @RequirePermissions('procurement-template:edit')
   @Post(':id/rollback')
-  rollback(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+  rollback(@Param('id') id: string, @Body() body: { versionId: string }, @CurrentUser() user: any) {
     return this.service.rollback(id, body?.versionId, user?.userId || user?.id);
   }
 
+  // @body: mapped=update
   @RequirePermissions('procurement-template:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {

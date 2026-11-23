@@ -93,6 +93,7 @@ export class SettlementController {
    * **生成本期（默认上一期）结算单**：抓取期间内未挂结算单的收领单，按物资合同各生成一张草稿结算单。
    * 幂等：已有结算单的合同会被跳过（`skipped` 计数）。
    */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post('generate')
   generate(
@@ -128,12 +129,14 @@ export class SettlementController {
     return this.service.ledgerOne(id, projectId);
   }
 
+  // @body: pickFields=LEDGER_FIELDS
   @RequirePermissions('settlement:edit')
   @Post('ledger')
   createLedger(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createLedger(body, projectId);
   }
 
+  // @body: pickFields=LEDGER_UPDATE_FIELDS
   @RequirePermissions('settlement:edit')
   @Put('ledger/:id')
   updateLedger(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -152,22 +155,45 @@ export class SettlementController {
     return this.service.findOne(id, projectId);
   }
 
+  // @body: pickFields=SETTLE_FIELDS
   @RequirePermissions('settlement:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: pickFields=SETTLE_UPDATE_FIELDS
   @RequirePermissions('settlement:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
     return this.service.update(id, body, projectId);
   }
 
+  /**
+   * 预览「按已挂收领单能带出的结算明细」（不写库）：
+   * 返回明细草稿、明细合计、与表头金额的差额、以及带不出的原因。
+   */
+  @RequirePermissions('settlement:view')
+  @Get(':id/items/from-receipts')
+  previewItemsFromReceipts(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.previewItemsFromReceipts(id, projectId);
+  }
+
+  /**
+   * 按已挂收领单**落库**结算明细（replace-all；不改表头金额与状态）。
+   * 收领单明细优先，没有明细的收领单退回它推送的总日报行。
+   */
+  @RequirePermissions('settlement:edit')
+  @Post(':id/items/from-receipts')
+  rebuildItemsFromReceipts(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.rebuildItemsFromReceipts(id, projectId);
+  }
+
   /** 任务 7：结算驳回 → 回填（纯状态回退） */
+  // @body: typed=inline
   @RequirePermissions('settlement:edit')
   @Post(':id/reject')
-  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: any = {}) {
+  reject(@Param('id') id: string, @ProjectId() projectId: string, @Body() body: { version?: number } = {}) {
     return this.service.reject(id, projectId, body?.version);
   }
 

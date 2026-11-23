@@ -1,3 +1,4 @@
+// @domains: settlement, ledger
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException } from '@nestjs/common';
@@ -547,7 +548,7 @@ describe('集成 · 结算台账 ↔ 结算单关联', () => {
     await mk(10000, 2026, 2);
     // 2026-01 保理贴息 c=1000；2026-02 逾期利息 d=500 → 当月实际采购额 b = a − c − d
     await ctx.prisma.factoringCost.create({ data: { contractId: contract.id, settlementMonth: '2026-01', totalCost: 1000 } });
-    await ctx.prisma.overdueInterest.create({ data: { contractId: contract.id, settlementMonth: '2026-02', overdueInterest: 500 } });
+    await ctx.prisma.overduePayable.create({ data: { contractId: contract.id, settlementMonth: '2026-02', overdueInterest: 500 } });
 
     await settle.refreshLedger(project.id);
     const row = (mm: string) =>

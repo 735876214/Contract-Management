@@ -1,3 +1,4 @@
+// @domains: ai
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
@@ -90,7 +91,7 @@ describe('集成 · AI 经营数据助手 报告与历史', () => {
     await ctx.prisma.factoringCost.create({
       data: { contractId: main.id, financingDate: new Date(), totalCost: 500 } as any,
     });
-    await ctx.prisma.overdueInterest.create({
+    await ctx.prisma.overduePayable.create({
       data: { contractId: main.id, settlementMonth: month, overdueInterest: 300 } as any,
     });
     await ctx.prisma.assetLedger.create({

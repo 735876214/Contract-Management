@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
+import { pagedAll } from '../../common/utils/paged';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
@@ -47,10 +48,8 @@ export class RepaymentService {
       where: { id },
       include: { supplier: true, contract: true, details: { orderBy: { period: 'asc' } } },
     });
-    if (!a) throw new NotFoundException('还款协议不存在');
     // 归属校验：只验项目成员身份不验记录归属时，拿别项目协议的 id 即可读写删
-    if (projectId && (a as any).projectId !== projectId) throw new NotFoundException('还款协议不存在');
-    return a;
+    return assertInProject(a, projectId, '还款协议不存在');
   }
 
   /**
@@ -66,6 +65,7 @@ export class RepaymentService {
     const now = new Date();
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const head = `${prefix}-${ym}-`;
+    // @no-limit: 只取本项目当月协议编号，用于算下一个流水号
     const rows = await this.prisma.repaymentAgreement.findMany({
       where: { projectId, code: { startsWith: head } },
       select: { code: true },
@@ -178,16 +178,8 @@ export class RepaymentService {
    * 导出用全量协议（分页取）：`findAll({ pageSize: 2000 })` 会被 `paginate` 夹到单页上限，
    * 协议数超过上限时导出文件**静默**少行，且没有任何提示。
    */
-  private async allAgreements(projectId: string): Promise<any[]> {
-    const pageSize = 500;
-    const out: any[] = [];
-    for (let page = 1; page <= 1000; page += 1) {
-      const res: any = await this.findAll({ page, pageSize }, projectId, pageSize);
-      const batch = (res.list || []) as any[];
-      out.push(...batch);
-      if (!batch.length || out.length >= Number(res.total ?? 0)) break;
-    }
-    return out;
+  private allAgreements(projectId: string): Promise<any[]> {
+    return pagedAll((page, pageSize) => this.findAll({ page, pageSize }, projectId, pageSize));
   }
 
   async export(projectId: string) {

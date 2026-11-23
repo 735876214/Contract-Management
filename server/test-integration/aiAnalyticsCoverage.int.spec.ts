@@ -1,3 +1,4 @@
+// @domains: ai
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
@@ -53,24 +54,28 @@ describe('集成 · 经营数据助手 全模块数据集覆盖', () => {
         priceBeforeTax: 10, priceWithTax: 11.3, totalWithTax: 56.5,
       } as any,
     });
-    const labor = await ctx.prisma.laborAuthLedger.create({
-      data: { projectId: project.id, subcontractorName: uniq('分包') } as any,
+    const labor = await ctx.prisma.subcontractor.create({
+      data: { projectId: project.id, name: uniq('分包') } as any,
+    });
+    // labor.auth 数据集读的是劳务授权台账；台账挂靠分包商主数据（subcontractorId）
+    await ctx.prisma.laborAuthLedger.create({
+      data: { projectId: project.id, subcontractorName: labor.name, subcontractorId: labor.id } as any,
     });
     await ctx.prisma.laborReceivingDoc.create({
       data: {
-        projectId: project.id, docNo: uniq('LRD'), laborAuthId: labor.id,
-        subcontractorName: labor.subcontractorName, period: '2026-11',
+        projectId: project.id, docNo: uniq('LRD'), subcontractorId: labor.id,
+        subcontractorName: labor.name, period: '2026-11',
       } as any,
     });
     await ctx.prisma.laborReceivingSummary.create({
       data: {
         projectId: project.id,
         docId: (await ctx.prisma.laborReceivingDoc.findFirst({
-          where: { projectId: project.id, laborAuthId: labor.id },
+          where: { projectId: project.id, subcontractorId: labor.id },
           select: { id: true },
         }))!.id,
-        laborAuthId: labor.id,
-        subcontractorName: labor.subcontractorName,
+        subcontractorId: labor.id,
+        subcontractorName: labor.name,
         period: '2026-11',
         materialName: '钢筋',
         spec: 'HRB400',

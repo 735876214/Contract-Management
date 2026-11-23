@@ -75,6 +75,7 @@ export class FieldResolverService {
 
   /** 字典 typeCode → { itemCode: itemName }（单次请求内缓存，避免每字段一次查询） */
   private async dict(typeCode: string): Promise<DictMap> {
+    // @no-limit: 单个字典类型的项数很小（<200），且单次请求内缓存
     const items = await this.prisma.dictItem.findMany({
       where: { typeCode },
       select: { itemCode: true, itemName: true },

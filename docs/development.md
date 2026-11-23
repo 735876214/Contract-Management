@@ -94,8 +94,10 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（94 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（25 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（99 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（27 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 47，见 §7「静态门禁」） |
+| web | `npm run lint` | **ESLint 静态门禁**（0 error；warning 预算 74）
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
 | server | `npm run anomaly:export -- --project <id>` | **只读**导出 6-9 评测数据集（8 张表 → JSON，含规则初判候选，供人工标注） |
 | server | `npm run anomaly:score -- --dataset <json> --truth <json>` | 用真值文件算召回/误报并出门槛（不达标退非 0），可 `--out` 写 Markdown 报告 |
@@ -138,14 +140,16 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/procurementFlow.spec.ts` | 采购工作流单一事实源（类型/合同类型推导/阶段链/门禁/多合同生成/列表分支） |
   | `test/workflowGuards.spec.ts` | 三处驳回状态机（合同签章/结算/成交报告）+ 现场确认（日报行）状态机 |
   | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量；含「合同状态→任务状态」映射） |
+  | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
+  | `test/bodyWhitelist.spec.mts` | **请求体白名单门禁自守**（当前仓库通过门禁 · 负向 fixture 必须判失败 · 豁免条数不超过脚本 `MAX_ALLOW`，防止门禁退化） |
+  | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** + **前端兜底菜单 `menuConfig.ts` ↔ `MENU_TREE` 逐项同序锁**（deepEqual：key/label/icon/path/permission/children） |
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
   | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款、无金额→无上限） |
-  | `test/overdueCalculator.spec.ts` | 逾期利息引擎（DAYS360 / 付款分配 / 开累；手算对照） |
-  | `test/overdueMerge.spec.ts` | 逾期台账**按「合同+结算月」合并成一行**（一个逾期项的「材料款主行 + 付款行/计息承载行」合并展示）：金额求和、日期取最早、多笔付款取最晚并在备注列出各笔、逾期天数取最大、跨月/跨合同不合并、单行原样透传 |
+  | `test/overdueCalculator.spec.ts` | 逾期利息引擎（主子表：应付款项 + 付款流水；DAYS360 / 付款跨期分配 / 已付与未付余额分段计息 / 开累；手算对照） |
   | `test/ledgerCompliance.spec.mts` | 合同台账合规判定（执行类 vs 非执行类的节点比较与优先级） |
   | `test/contractChain.spec.mts` | **合同当前金额口径锁**（= 主合同 + Σ 补充协议 `changeAmount`，**不采信手填 amount**）· 主合同未填 → 当前金额未知（`null`，不是"只算补充协议"）· 只算直接补充协议、防环 · 链上累计结算（排除草稿/自身）与累计付款（排除失败/退款） |
   | `test/contractFulfillment.spec.mts` | **合同履约派生进度（零表，2026-10-18）**：已收/已结/已付/开票比例 · 分母未知或为 0 → `null`（显式 0 照常参与）· 超收/超结/超付用负数暴露 · 「有收货未结算」「有结算未付款」标记 |
@@ -158,6 +162,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/amountAlert.spec.mts` | **金额红/黄预警阈值**：红 = 结算 > 当前金额×110% 或 补充协议 > 主合同×130%；黄 = 80% / 110%；**恰好等于阈值不预警** · 红优先 · 分母未知时不误报 · 同文件还锁 **付款超比例预警**（开累付款 > 开累结算 × 生效比例；比例未填/为 0 **不报**、分母为 0 不报、"恰好等于上限"不算超） |
   | `test/ledgerDerived.spec.mts` | **台账派生金额口径**（**未填金额 ≠ 0**）：合同额 NULL 时「已结算占合同比例」返回 `null` 而不是 0/负数 · 显式填 0 是真实的 0 · 分母为 0 → 比例不可计算 · 常规数值与修复前逐位一致 · **「100% 欠款」= `finalSettleAmount ?? cumSettleAmount` − 已付款**（有已定案总结算书用其 totalAmount，否则退回开累结算额） |
   | `test/mask.spec.mts` | 敏感字段打码白名单（凭据/银行账号/证件号/联系方式；不修改入参） |
+  | `test/pagedAndGuard.spec.mts` | **共用原语锁**（2026-11 收敛重复实现）：`pagedAll` 跨页取全不重不漏、整页边界、单页只查一次、无 total 靠「不足一页」终止、`maxPages` 保险丝；`assertInProject` 属于本项目原样返回、不存在与不属于本项目都 404（不暴露存在性）、未传 projectId 只校验存在、记录 projectId 为空时一律拒绝 |
   | `test/importTask.spec.mts` | 导入任务僵尸判定（心跳阈值/终态不回收）与幂等去重键 |
   | `test/overdueSummary.spec.mts` | 逾期利息**汇总口径单一实现**（开累/上期开累/本期结算；含「手工期初填在较早月份」回归） |
   | `test/templateRender.spec.mts` | 合同模板占位符只认 `{{变量名}}`（**废弃写法不再被替换**的回归锁；值不转义、未取到值原样保留） |
@@ -222,6 +227,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `test/csvExport.spec.ts` | **导出防护与字段长度兜底**（2026-10-21 第 16、19 轮审计）：`csvCell` 给以 `= + - @` 开头的值补单引号（Excel 打开 CSV 会把 `=cmd|'/c calc'!A1` 当公式执行），负数与小数保留为数字、按 RFC 4180 包裹引号换行 · `pickFields` 超 10 万 字符的字符串抛 400（Prisma 的 String 是 text，无 DTO 时能塞进几 MB） |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |
   | `test/settlementFromDaily.spec.mts` | **总日报 → 结算明细带出**（业务口径 2026-10-18：有总日报才有结算单、明细从日报带出且可改）：同物资多行按数量**加权平均**单价 · 金额按与 `normalizeItem()` **同一公式**重算（表头金额 = Σ 明细合价）· 缺 `materialBaseId` 的行计入 `skippedRows` 并带出名称（不静默丢）· 无单价 → 合价 `null`、金额按 0；显式 0 仍是 0 · 负数（退货/调出）参与聚合并按净额冲减；净 0 分组计入 `skippedNetZeroRowCount` |
+  | `test/settlementFromReceipts.spec.mts` | **收领单 → 结算明细带出**（业务口径 2026-11-21：挂上收领单就能落明细，不再只有自动生成才带得出）：**明细优先**（数量取 
+eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· 明细缺物资主数据 → 退回该单**总日报行**（不丢数量）· 两者都带不出 → 记入 ordersWithoutItems（不静默丢）· 同物资跨多单按数量加权聚合成一行 · 负数量（退货）参与聚合、净额为负照常保留 · 数量为空/0 计入 skippedNoQtyRowCount · 价格公式复用 settlement-from-daily（单一事实源） |
   | `test/laborReceiving.spec.mts` | **劳务队领用月度汇总派生口径**（附件需求 2026-10-17 第二批）：净领 = 领用 − 退库（领用未填 → null）· 扣款单价 = 单价 × 1.2 · 设计小计 = 开累 × (1+损耗率) · **节超 = 实耗 − 设计小计**（正 = 超耗，样表口径）· 扣款只在超耗时发生（节约 → 0、口径未知 → null）· 实际损耗率分母 0/未知 → null · **三态契约**（未填 ≠ 0，显式 0 照常算）· 平均单价 = Σ税前总价 ÷ Σ数量 |
   | `test/docVariables.spec.mts` | **单据模板变量（第三套体系）**：面板与取值表**逐条一致** · 金额类变量名必须带单位后缀 `(元)` · 面板给 `raw` 一律是 `{{key}}` · 取值表对缺失对象返回空串（不写 `undefined`）· **源码扫描**：`RichTextEditor.insertVariable` 默认插入的是**双花括号**（2026-10-16 修过：默认值曾是 `{key}`，插了不替换） |
   | `test/excelParse.spec.ts` | **Excel 解析口径与表头行探测**（2026-10-20 审计）：`detectHeaderRow` 在「导出文件（logo 占 1~2 行、表头第 3 行）」与「填写模板（表头第 1 行、必填列带 `*`）」两种布局下都定位正确、列名对不上回退第 1 行 · `parse(buf, [], headerRowNo)` 按指定行取表头且不把表头行当数据 · **导出 → 探测 → 解析闭环**（这正是字典「导出后原样导回」静默 0 行的回归点） |
@@ -229,6 +236,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/docTemplateFile.spec.mts` | **单据模板文件键与文件名纯逻辑**：`normalizeDocTemplateFileKey` 剥 `/api/files/`（含双前缀）与完整 URL、保留其它绝对路径交给安全校验 · `.xlsx` 大小写通过、`.xlsm/.docx/.xls` 拒绝（宏会丢）· **前端 `toStorageKey/toFileUrl` 与后端逐条一致** |
   | `test/mtsConstraints.spec.mts` | **`.mts` 加载约束锁**：被 `.mts` spec 引用的模块内部，相对 `import` 必须带扩展名（别人给零依赖叶子加一行 `from './x'` 即红，报错直接给出两种修法） |
   | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许挂 `.cq`/`.ant-modal-body`/`.ant-drawer-body` · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 · `.doc-preview` 必须挂 `.cq` · `.col-secondary` 规则成对 · 窄容器表单栅格覆盖不得含 `.cq` · `RichTextEditor` 必须 portal 全屏层且内容同步 effect 依赖 `fullscreen` |
+   | `test/finalSettlementDocNumber.spec.mts` | **总结算书编号纯函数**（业务 2026-11-21）：`<分公司简称>-<项目编号>-WZZJS-<年份>-<流水号>` 拼装 · 流水号两位补零、超两位不截断 · 流水号 <=0/非数 一律按 1（不出 "00"）· 分公司简称为空兜底 `TMHB`、项目编号为空留空段 · 前缀/项目编号统一转大写去空格 · `normalizeBranchAbbr` 空串归 null · `BRANCH_ABBR_RE` 只放行大写字母数字且 ≤20 位 |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。
   > 但**加了 spec 文件就必须在本表登记**——`test/docStats.spec.mts` 会校验本表列全了每个 spec。
@@ -291,10 +299,12 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `ai-facts.int.spec.ts` | **AI 事实层金额口径**：累计合同金额按**链根**只算一次（主合同 `amount` + Σ 补充协议 `changeAmount`，补充协议的 `amount` 不参与）· 主合同金额未填时该链不计入（未知不兜 0） |
 | `import-two-phase.int.spec.ts` | 导入两阶段：一行非法 → **零写入**、全合法 → 写入并计数、同一文件并发提交 → 复用同一任务 |
 | `tender-bidders.int.spec.ts` | 招标域：导入**双写**结构化投标单位与幂等、有评标记录的单位不被静默删除、勾选候选人=**定标**（WON+确认价）与取消回落、评标记录全量替换与三条校验、**定标行 → 发布 → 生成多份合同**（快照被篡改也不采信） |
+| `procurement-forms.int.spec.ts` | **采购阶段表单**（P1-3 拆分后回归）：列表批算 `estimatedAmountMap` 与详情单算 `estimatedAmountYuan` **逐分同口径**（P2：旧实现列表用裸浮点会漂移，用 3×333.335 制造分位差）· 采购公告 / 采购文件 / 采前会会议纪要 / 框架协议事前说明 / 成交报告 的 save→get 往返（含 JSON 列解析回数组、候选人快照、采前会金额≥阈值放行） |
 | `settlement-item.int.spec.ts` | **清单项级结算明细 + 量级校验**（业务 2026-10-17）：items 随结算单落库、综合单价/合价由服务端重算 · update 整体替换明细（replace-all）· 量级闸门（Σ明细量 + 历史已结 ≤ 合同链清单量）：**WARN 策略带 overQtyWarning、BLOCK 策略 400** · 链上无清单行的物资=**无上限不拦** · **草稿不校验量级**（提交时才拦） |
 | `template-management.int.spec.ts` | **三套模板管理语义**（2026-10-18）：合同模板新建接受 Y/N 归一、编辑生成新版本且**停用真的生效**、过期 version 409、**删除整条版本链** · 采购模板 `keyword/moduleType/status` 筛选与 `{list,total}` 分页形态、非法状态 400、同类型覆盖写版本快照、停用后不出现在 `status=1` 查询 · 单据模板**历史 `/api/files/` URL 入库归一为相对键**并能读盘渲染、`.docx`/损坏/不存在文件一律 400 |
 | `anomaly-payment.int.spec.ts` | **结算/付款异常预警的真库口径**（2026-10-23 审计补测，落地计划 §4.5 承诺项）：清单量按**合同链根**归集（结算挂母合同、明细跨补充协议）· 按补充协议**下钻时服务端展开整条链**（不得因收窄合同把链切断）· 付款按**链根**归集（结算挂母合同、付款记补充协议不得报超付）· 真超付时事实为**链级累计口径** · 区间上界取**当日末刻**（库里 14:30 的付款不得漏判） |
 | `cost-labor-receiving.int.spec.ts` | **分包领用数据准确性**（2026-11-13 审计修复）：**只认领用单位=分包商**（供应侧分包商不重复计入，防串户虚增）· 平均单价取**截至本期末**加权均价（后期补录不追溯改写历史期）· 单价**只读**（客户端回传不生效）· **未填实收 ≠ 0**（不建数量桶、不参与加权）· `options().periods` 供月度盈亏「新增」· 重新抓取按新价重算盈亏金额 |
+| `final-settlement.int.spec.ts` | **总结算单 生成/编辑明细/编号**（2026-11-21 审计修复回归）：生成抓该合同全部非草稿月度结算成明细快照、`totalAmount` = 明细合计、编号落库（`docNumber`）· 编辑明细（月份/金额）+ 审减保存即重算合计、编号不变 · 明细超过 36 行 → 400（模板槽位固定，防导出静默丢行）· 已上传附件（`SETTLED`）后不可再改明细 · 乐观锁 version 不匹配 → 冲突 |
 
 ```bash
 # 1) 准备一个**专用测试库**（库名必须含 test 或 int，否则测试拒绝启动——防误连开发/生产库）
@@ -383,7 +393,22 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **统一响应** `{ code, data, message, timestamp }`；异常走 `AllExceptionsFilter`，别在 controller 手写返回体。
 - **权限**：controller 类级 `@UseGuards(JwtAuthGuard, PermissionsGuard)` + 方法级 `@RequirePermissions('x:view')`。
 - **项目隔离**：controller 用 `@ProjectId()` 取，service 显式带入 `where`（见 [architecture.md §5](architecture.md)）。
-- **写字段白名单**：service 用 `pickFields` 过滤未知字段。
+- **写字段白名单**：service 用 `pickFields` 过滤未知字段；每个 `@Body()` 必须带 `// @body:` 声明
+  （`pickFields=` / `normalize=` / `typed=` / `mapped=` / `render=` / `array=`），
+  门禁 `node scripts/check-body-whitelist.mjs`（CI + `npm test` 双处守门，存量豁免已清零）。
+- **健康检查**：`GET /api/health`（免登录，真打 `SELECT 1`；DB 不可用返回 503）。
+  容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
+- **列表查询上限**：`node scripts/check-query-limits.mjs`（CI 一步）。只抓**项目级**无上限
+  `findMany`（没有 `take`、也没有按父实体 id 过滤）。确需全量的在调用处写
+  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
+  `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
+  SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。
+- **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：
+  **0 error**，warning 用 `--max-warnings` **冻结存量**（server 44 / web 74，只允许变少）。
+  关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、
+  `no-require-imports` 因 html-to-docx/pngjs 无类型声明）。清完一条 warning 记得同步下调预算。
+- **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。
+  新代码不得再靠 `any` 绕过 null 检查；确实没有类型的第三方包用 `require(...) as any` 并注明原因。
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。
 - **字典**：下拉/标签/颜色走字典；业务表存字典项**编码字符串**，不新增数据库枚举。
 - **采购阶段子模块**需同步改六处（schema+反引用 → 迁移 SQL → service → controller → 前端 api/变量 → utils/页面），

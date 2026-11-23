@@ -82,8 +82,10 @@ let unitOptionsCache: string[] | null = null;
 async function loadUnitOptions(): Promise<string[]> {
   if (unitOptionsCache) return unitOptionsCache;
   const res: any = await dictApi.options('measurement_unit');
-  unitOptionsCache = (res || []).map((u: any) => u.label).filter(Boolean);
-  return unitOptionsCache;
+  // 同 DailyReports：落局部变量再赋值，避免返回可空缓存
+  const list: string[] = (res || []).map((u: any) => u.label).filter(Boolean);
+  unitOptionsCache = list;
+  return list;
 }
 
 function UnitInput({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
@@ -312,7 +314,7 @@ export default function ReceiptOrders() {
   // Space.Compact 包裹的 Select 无法被 Form.Item 自动注入 value/onChange，需手工受控
   const watchSupplierType = Form.useWatch('supplierType', headerForm) as string | undefined;
   const watchReceivingUnitType = Form.useWatch('receivingUnitType', headerForm) as string | undefined;
-  const watchSupplierId = Form.useWatch('supplierId', headerForm);
+  const watchSupplyUnitId = Form.useWatch('supplyUnitId', headerForm);
   const watchSupplierName = Form.useWatch('supplierName', headerForm);
   const watchReceivingUnitId = Form.useWatch('receivingUnitId', headerForm);
   const watchReceivingUnitName = Form.useWatch('receivingUnitName', headerForm);
@@ -375,11 +377,13 @@ export default function ReceiptOrders() {
       ];
     }
     if (tab === 'SUBCONTRACTOR') {
+      // 数据源改为「分包商库」主数据（2026-11-20）
       return [
         { title: '分包商名称', dataIndex: 'name', ellipsis: true },
+        { title: '统一社会信用代码', dataIndex: 'creditCode', width: 160, render: (v: any) => v || '-' },
         { title: '法人姓名', dataIndex: 'legalPerson', width: 110, render: (v: any) => v || '-' },
-        { title: '材料授权人', dataIndex: 'authorizedPerson', width: 120, render: (v: any) => v || '-' },
-        { title: '状态', dataIndex: 'status', width: 90, render: (v: any) => (v === 'COMPLETED' ? '已完成' : '编辑中') },
+        { title: '联系人', dataIndex: 'contactName', width: 110, render: (v: any) => v || '-' },
+        { title: '联系电话', dataIndex: 'contactPhone', width: 140, render: (v: any) => v || '-' },
       ];
     }
     return [{ title: '项目名称', dataIndex: 'name', ellipsis: true }];
@@ -393,7 +397,10 @@ export default function ReceiptOrders() {
   const onPickSupplier = async (row: any, tab: string) => {
     setSupplierPickerOpen(false);
     headerForm.setFieldsValue({
-      supplierId: row.id,
+      // 2026-11-20：供应单位 ID 走通用 supplyUnitId，supplierId 只在「供应商」类型下写
+      // （原来各类型都把 id 塞进 supplierId，会撞供应商外键 → P2003）
+      supplyUnitId: row.id,
+      supplierId: tab === 'SUPPLIER' ? row.id : undefined,
       supplierName: row.name,
       supplierType: tab,
       // 切换类型/单位时清空合同与明细，避免脏数据互串
@@ -401,7 +408,7 @@ export default function ReceiptOrders() {
       materialContractNo: undefined,
       supplySubcontractId: undefined,
       supplySubcontractName: undefined,
-      subcontractorId: undefined,
+      subcontractorId: tab === 'SUBCONTRACTOR' ? row.id : undefined,
     });
     setSupplySubContracts([]);
     setContracts([]); // 合同下拉一律由所选单位带出，不再用全量
@@ -415,20 +422,10 @@ export default function ReceiptOrders() {
         /* 拦截器已提示 */
       }
     } else if (tab === 'SUBCONTRACTOR') {
-      // 互锁（需求 2.5）：分包商 → 带出其分包合同；材料授权人可作为领料人
-      headerForm.setFieldsValue({ subcontractorId: row.id });
+      // 互锁（需求 2.5）：分包商 → 带出其分包合同（台账挂靠的主数据 ID）
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
         setSupplySubContracts(list || []);
-        if (row.subcontractId) {
-          const hit = (list || []).find((c: any) => c.id === row.subcontractId);
-          if (hit) headerForm.setFieldsValue({ supplySubcontractId: hit.id, supplySubcontractName: hit.name });
-        }
-        // 材料授权人作为领料人候选
-        if (row.authorizedPerson) {
-          setReceiverOptions([row.authorizedPerson]);
-          headerForm.setFieldsValue({ receiver: row.authorizedPerson });
-        }
       } catch {
         /* 拦截器已提示 */
       }
@@ -445,6 +442,7 @@ export default function ReceiptOrders() {
       receivingUnitId: row.id,
       receivingUnitName: row.name,
       receivingUnitType: tab,
+      subcontractorId: tab === 'SUBCONTRACTOR' ? row.id : undefined,
       subcontractId: undefined,
       subcontractName: undefined,
     });
@@ -452,20 +450,10 @@ export default function ReceiptOrders() {
     if (tab === 'SUBCONTRACTOR') {
       // 业务 2026-10-17：带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
       await loadDetailsFor(() => receiptOrderApi.subcontractorMaterials(row.id), `已带出分包商「${row.name}」领用过的材料`);
-      // 互锁：领用分包商 → 必填分包合同，材料授权人作为领料人可选
+      // 互锁：领用分包商 → 必填分包合同
       try {
         const list: any = await receiptOrderApi.subcontractorContracts(row.id);
         setReceiveSubContracts(list || []);
-        if (row.subcontractId) {
-          const hit = (list || []).find((c: any) => c.id === row.subcontractId);
-          if (hit) headerForm.setFieldsValue({ subcontractId: hit.id, subcontractName: hit.name });
-        }
-        if (row.authorizedPerson) {
-          setReceiverOptions([row.authorizedPerson]);
-          if (!headerForm.getFieldValue('receiver')) {
-            headerForm.setFieldsValue({ receiver: row.authorizedPerson });
-          }
-        }
       } catch {
         /* 拦截器已提示 */
       }
@@ -509,6 +497,7 @@ export default function ReceiptOrders() {
         version: detail.version,
         orderNo: detail.orderNo,
         supplierId: detail.supplierId,
+        supplyUnitId: detail.supplyUnitId,
         supplierName: detail.supplierName,
         supplierType: detail.supplierType || 'SUPPLIER',
         receivingUnitId: detail.receivingUnitId,
@@ -950,7 +939,7 @@ export default function ReceiptOrders() {
             {/* ---- 供应单位 ---- */}
             <Col xs={24} md={12}>
               <Form.Item
-                name="supplierId"
+                name="supplyUnitId"
                 label="供应单位"
                 rules={[{ required: true, message: '请选择供应单位' }]}
               >
@@ -959,8 +948,8 @@ export default function ReceiptOrders() {
                     disabled
                     placeholder="请点击「查询」选择供应单位"
                     style={{ flex: 1 }}
-                    value={watchSupplierId}
-                    options={watchSupplierId ? [{ value: watchSupplierId, label: watchSupplierName }] : []}
+                    value={watchSupplyUnitId}
+                    options={watchSupplyUnitId ? [{ value: watchSupplyUnitId, label: watchSupplierName }] : []}
                   />
                   <Button icon={<SelectOutlined />} onClick={() => setSupplierPickerOpen(true)}>查询</Button>
                 </Space.Compact>

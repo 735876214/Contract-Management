@@ -33,6 +33,7 @@ export class AnalyticsController {
    * 自然语言/结构化选择 → 最终意图（规则路径）。
    * `projectId` 只用于 `scope=current`；跨项目按成员关系与 `dashboard:view` 收口。
    */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('plan')
   plan(@Body() body: AiAnalyticsPlanInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
@@ -40,6 +41,7 @@ export class AnalyticsController {
   }
 
   /** 确定性报告（Phase 2 不调模型）：成功即落库，返回 id 供历史/导出使用 */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('report')
   report(@Body() body: AnalyticsReportInput, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
@@ -47,6 +49,7 @@ export class AnalyticsController {
   }
 
   /** 多 sheet 工作簿（不调模型、不扣配额）；可带 `reportId` 挂到已有报告记录 */
+  // @body: typed=inline
   @RequirePermissions('ai:use')
   @Post('workbook')
   workbook(

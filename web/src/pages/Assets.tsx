@@ -79,7 +79,6 @@ function AssetList({ suppliers, units }: { suppliers: any[]; units: any[] }) {
       .catch(() => {});
   }, [tabRefresh]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any[] = [
     { title: '序号', key: 'index', width: 70, fixed: 'left', render: (_: any, __: any, i: number) => (pagination.current - 1) * pagination.pageSize + i + 1 },
     { title: '日期', dataIndex: 'date', width: 110, fixed: 'left', render: (v: any) => v?.slice(0, 10) },

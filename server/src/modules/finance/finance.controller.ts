@@ -30,6 +30,7 @@ export class FinanceController {
     return this.service.contractParams(contractId, projectId);
   }
 
+  // @body: mapped=updateContractParams
   @RequirePermissions('finance:edit')
   @Put('contract-params/:contractId')
   updateContractParams(@Param('contractId') contractId: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -53,12 +54,14 @@ export class FinanceController {
     res.end(buffer);
   }
 
+  // @body: normalize=factoringPayload
   @RequirePermissions('finance:edit')
   @Post('factoring-costs')
   createFactoring(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createFactoring(body, projectId);
   }
 
+  // @body: normalize=factoringPayload
   @RequirePermissions('finance:edit')
   @Put('factoring-costs/:id')
   updateFactoring(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -71,7 +74,13 @@ export class FinanceController {
     return this.service.removeFactoring(id, projectId);
   }
 
-  // ==================== 逾期利息台账 ====================
+  // ==================== 逾期利息台账（应付款项 + 付款流水） ====================
+
+  @RequirePermissions('finance:view')
+  @Get('payment-modes')
+  paymentModes() {
+    return this.service.paymentModes();
+  }
 
   @RequirePermissions('finance:view')
   @Get('overdue-interests')
@@ -88,18 +97,29 @@ export class FinanceController {
     res.end(buffer);
   }
 
+  /** 保存前预览（编辑器里算派生列，与保存后同一套引擎） */
+  // @body: mapped=previewOverdue
+  @RequirePermissions('finance:view')
+  @Post('overdue-interests/preview')
+  previewOverdue(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.previewOverdue(body, projectId);
+  }
+
+  // @body: mapped=generateOverdue
   @RequirePermissions('finance:edit')
   @Post('overdue-interests/generate')
   generateOverdue(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.generateOverdueRows(body.contractId, body.settlementMonth, Number(body.materialAmount), projectId);
   }
 
+  // @body: mapped=createOverdue
   @RequirePermissions('finance:edit')
   @Post('overdue-interests')
   createOverdue(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.createOverdue(body, projectId);
   }
 
+  // @body: pickFields=PAYABLE_FIELDS
   @RequirePermissions('finance:edit')
   @Put('overdue-interests/:id')
   updateOverdue(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
@@ -110,5 +130,33 @@ export class FinanceController {
   @Delete('overdue-interests/:id')
   removeOverdue(@Param('id') id: string, @ProjectId() projectId: string) {
     return this.service.removeOverdue(id, projectId);
+  }
+
+  // ---- 付款流水（子表） ----
+
+  @RequirePermissions('finance:view')
+  @Get('overdue-payments')
+  listOverduePayments(@Query('contractId') contractId: string, @ProjectId() projectId: string) {
+    return this.service.listOverduePayments(contractId, projectId);
+  }
+
+  // @body: mapped=createOverduePayment
+  @RequirePermissions('finance:edit')
+  @Post('overdue-payments')
+  createOverduePayment(@Body() body: any, @ProjectId() projectId: string) {
+    return this.service.createOverduePayment(body, projectId);
+  }
+
+  // @body: pickFields=PAYMENT_FIELDS
+  @RequirePermissions('finance:edit')
+  @Put('overdue-payments/:id')
+  updateOverduePayment(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
+    return this.service.updateOverduePayment(id, body, projectId);
+  }
+
+  @RequirePermissions('finance:edit')
+  @Delete('overdue-payments/:id')
+  removeOverduePayment(@Param('id') id: string, @ProjectId() projectId: string) {
+    return this.service.removeOverduePayment(id, projectId);
   }
 }

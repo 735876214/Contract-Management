@@ -102,6 +102,31 @@ export function calcTotalWithTax(priceWithTax: unknown, qty: unknown, digits = 4
   return mulDecimal(price, q, digits);
 }
 
+/**
+ * 「税前 × (1 + 税率)」与「含税」的差额（含税 − 应为的含税，2 位）。
+ *
+ * 用途：发票的税前/税率/含税是三个自由输入字段（交互式录入与导入都不重算），
+ * 任一被手改就会出现「税前 × 1.13 ≠ 含税」的票面不自洽（第 24 轮审计：
+ * 08812678 差 598.99，进项税额随之多算 598.99 并流入合同台账）。
+ *
+ * 返回 `null` = **无法判定**（含税或税率缺失——历史票/导入票允许缺税率，不能当错拦下）；
+ * 返回数字 = 实际差额，调用方按容差（默认 1 分）决定是否拦。
+ */
+export function taxAmountDiff(
+  beforeTax: unknown,
+  taxPct: unknown,
+  withTax: unknown,
+  digits = 2,
+): number | null {
+  const before = num(beforeTax);
+  const pct = num(taxPct);
+  const withT = num(withTax);
+  if (before === null || pct === null || withT === null) return null;
+  const expect = mulDecimal(before, 1 + pct / 100, digits);
+  if (expect === null) return null;
+  return round(withT - expect, digits);
+}
+
 /** 逐项累加并在每一步舍入（与采购价格对比表表底汇总口径一致），避免浮点尾差累积 */
 export function sumRounded(values: Array<number | null | undefined>, digits = 2): number {
   return values.reduce<number>((acc, v) => round(acc + (v ?? 0), digits) ?? acc, 0);

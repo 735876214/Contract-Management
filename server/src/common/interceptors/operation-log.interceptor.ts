@@ -22,6 +22,8 @@ import { slimSecrets } from '../utils/mask';
 const ROUTE_MAP: Record<string, { model?: string; module: string }> = {
   projects: { model: 'project', module: '项目信息' },
   suppliers: { model: 'supplier', module: '供应商库' },
+  'other-projects': { model: 'otherProject', module: '其他项目库' },
+  subcontractors: { model: 'subcontractor', module: '分包商库' },
   contracts: { model: 'contract', module: '合同台账' },
   'contract-materials': { model: 'contractMaterial', module: '合同物资清单' },
   materials: { model: 'materialBase', module: '物资基础库' },
@@ -175,7 +177,7 @@ export class OperationLogInterceptor implements NestInterceptor {
                * （见 import-task.service.ts）。否则大文件导入在审计日志里永远是成功 0、失败 0。
                */
               bizId: (data && data.async && data.taskId) || bizId || (data && data.id) || null,
-              projectId: (req.headers['x-project-id'] as string) || null,
+              projectId: (req.headers['x-project-id'] as string) || undefined,
               importFile: isImport ? (req as any).file?.originalname || null : null,
               importRows,
               successCount,
@@ -197,8 +199,8 @@ export class OperationLogInterceptor implements NestInterceptor {
               message: err?.message || String(err),
               duration: Date.now() - started,
               bizType: route.model || biz,
-              bizId,
-              projectId: (req.headers['x-project-id'] as string) || null,
+              bizId: bizId ?? undefined,
+              projectId: (req.headers['x-project-id'] as string) || undefined,
             });
             return throwError(() => err);
           }),

@@ -20,12 +20,16 @@ import { fileURLToPath } from 'node:url';
 const ALLOWED_DANGLING: Record<string, string[]> = {
   // 防重唯一键：收领单「修改」会整体重建明细，建 Cascade 会与资产台账 upsert 逻辑冲突（见 schema 注释）
   AssetLedger: ['receiptDetailId'],
-  // 单据化冗余列（= doc.laborAuthId）：收领单聚合查询用；真 FK 是 docId（Cascade），冗余列不再重复建关联
-  LaborReceivingSummary: ['laborAuthId'],
+  // 单据化冗余列（= doc.subcontractorId，2026-11-20 由 laborAuthId 改名）：收领单聚合查询用；
+  // 真 FK 是 docId（Cascade），冗余列不再重复建关联
+  LaborReceivingSummary: ['subcontractorId'],
+  // 全局共享主数据（projectId 为空 = 全局；受 supplier.share.scope 系统参数控制）
+  Subcontractor: ['projectId'],
+  OtherProject: ['projectId'],
   // 操作人弱关联（用户删除不追溯历史记录）
   ContractChangeLog: ['operatorId'],
   // null = 全局共享模板/供应商（受 supplier.share.scope 等系统参数控制）
-  // （Subcontractor 已删除：2026-10-17 并入 LaborAuthLedger，原白名单条目随之移除）
+  // （2026-11-20：Subcontractor 升格为独立主数据表，见上方 projectId 白名单条目）
   ContractTemplate: ['projectId'],
   Supplier: ['projectId'],
   // 通用异步任务表：按业务类型弱关联，不绑定单一业务表
@@ -38,7 +42,8 @@ const ALLOWED_DANGLING: Record<string, string[]> = {
   // 项目负责人弱关联
   Project: ['managerId'],
   // 领用单位是多态（分包商 / 本项目 / 其他项目），无法用单值外键表达
-  ReceiptOrder: ['receivingUnitId'],
+  // supplyUnitId 同理：按 supplierType 指向 Supplier / Subcontractor / OtherProject / 项目
+  ReceiptOrder: ['supplyUnitId', 'receivingUnitId'],
 };
 
 const SCHEMA_PATH = path.resolve(
@@ -139,7 +144,7 @@ describe('schema 悬空引用漂移锁', () => {
       ['Contract', 'acceptanceClauseId'],
       ['ContractTemplate', 'parentId'],
       ['ProcurementTotalItem', 'materialBaseId'],
-      // （Subcontractor 已删除：并入 LaborAuthLedger；subcontractId 外键移至台账表）
+      // （2026-10-17 起 subcontractId 外键在台账表；2026-11-20 台账上挂 subcontractorId 主数据外键）
       ['LaborAuthLedger', 'subcontractId'],
       ['AssetLedger', 'receiptOrderId'],
       ['ReceiptOrderDetail', 'materialId'],

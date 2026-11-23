@@ -293,6 +293,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
   /** 详情里的最新乐观锁版本（列表行可能过期，取详情后覆盖） */
   const [recordVersion, setRecordVersion] = useState<number | undefined>(editing?.version);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [bringingItems, setBringingItems] = useState(false);
 
   useEffect(() => {
     form.resetFields();
@@ -391,6 +392,37 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
     2,
   );
 
+  /**
+   * 按**已挂收领单**带出结算明细（业务口径 2026-11-21）：服务端 replace-all 落库，
+   * 收领单明细优先、没有明细的收领单退回它推送的总日报行。
+   * **不改表头金额**——金额可能已定稿甚至已结算；差额在这里如实提示，由人工决定是否调整。
+   */
+  const bringItemsFromReceipts = async () => {
+    if (!editing?.id) return;
+    setBringingItems(true);
+    try {
+      const res: any = await settlementApi.itemsFromReceipts(editing.id);
+      setItems((res?.items ?? []).map((it: any) => ({ ...it, key: it.id })));
+      setDirty(false);
+      const n = res?.items?.length ?? 0;
+      const tail = res?.dailyFallbackOrderCount
+        ? `（其中 ${res.dailyFallbackOrderCount} 张收领单无明细，已按其总日报行带出）`
+        : '';
+      // 服务端在「表头金额未填」时返回 diff = null（差额无意义），此时提示「无法核对」而不是当成 0
+      const diff = res?.diff === null || res?.diff === undefined ? null : Number(res.diff);
+      if (diff === 0) {
+        message.success(`已按 ${res?.receiptOrderCount ?? 0} 张收领单带出 ${n} 行明细${tail}`);
+      } else {
+        const diffText = diff === null ? '表头金额未填，无法核对差额' : `与表头金额差 ¥${diff.toFixed(2)}`;
+        message.warning(`已带出 ${n} 行明细，合计 ¥${Number(res?.itemsAmount ?? 0).toFixed(2)}，${diffText}，请核对${tail}`);
+      }
+    } catch {
+      /* 统一响应拦截器已提示错误 */
+    } finally {
+      setBringingItems(false);
+    }
+  };
+
   const submit = async () => {
     // 明细还在拉取时提交会让 items 为空 → 后端按空数组清空明细，必须挡住
     if (detailLoading) return message.warning('明细正在加载，请稍候再保存');
@@ -473,6 +505,12 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
       <Card size="small" title={`结算明细（${items.length} 行，合计 ¥${itemsTotal.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}）`}
         extra={
           <Space>
+            {/* 业务口径 2026-11-21：挂上收领单的结算单也能一键落明细（收领单明细优先、日报行兜底） */}
+            <Can code="settlement:edit">
+              <Button size="small" loading={bringingItems} disabled={!editing?.id} onClick={bringItemsFromReceipts}>
+                按收领单带出明细
+              </Button>
+            </Can>
             <Select
               showSearch
               optionFilterProp="label"
@@ -480,7 +518,9 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
               style={{ minWidth: 300 }}
               value={null}
               options={materialOptions}
-              onSelect={(mid: string) => {
+              onSelect={(mid) => {
+                // antd 的 SelectHandler 允许 null（清空时）
+                if (!mid) return;
                 if (items.some((r) => r.materialBaseId === mid)) {
                   message.warning('该物资已有明细行（每单每物资一行）');
                   return;

@@ -83,7 +83,7 @@ server/src/
 | `invoice` | `invoices` | Invoice | JWT + 权限 |
 | `ledger` | `ledger` | （聚合视图，无表） | JWT + 权限 |
 | `repayment` | `repayments` | RepaymentAgreement/Detail | JWT + 权限 |
-| `finance` | `finance` | FactoringCost/OverdueInterest | JWT + 权限 |
+| `finance` | `finance` | FactoringCost/OverduePayable/OverduePayment | JWT + 权限 |
 | `asset` | `assets` | AssetLedger | JWT + 权限 |
 | `procurement` | `procurement-tasks` · `procurement-templates` | ProcurementTask + 各阶段子表 | JWT + 权限 |
 | `dashboard` | `dashboard` | （聚合，无表） | 仅 JWT |
@@ -186,7 +186,7 @@ User ──< UserRole >── Role ──< RolePermission >── Permission(cod
 | 日报 | DailyReport |
 | 结算付款 | Settlement · SettlementLedger · PaymentRecord |
 | 发票/还款 | Invoice · RepaymentAgreement · RepaymentDetail |
-| 资金费用 | FactoringCost · OverdueInterest |
+| 资金费用 | FactoringCost · OverduePayable · OverduePayment |
 | 资产/收领 | AssetLedger · ReceiptOrder · ReceiptOrderDetail |
 | 采购 | ProcurementTask · ProcurementTotalItem · FrameworkExplanation · PreMeetingMinutes · ProcurementNotice · ProcurementDocument · ProcurementResultReport · ProcurementPriceCompare · ProcurementTemplate · InspectionReport |
 | 通知与日志 | Notification · OperationLog · LoginLog · ImportTask · ArchiveLog |

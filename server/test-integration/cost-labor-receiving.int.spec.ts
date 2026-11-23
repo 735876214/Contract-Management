@@ -1,3 +1,4 @@
+// @domains: cost, labor, receipt-order
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException } from '@nestjs/common';
@@ -31,9 +32,11 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     await ctx.app.close();
   });
 
+  // 2026-11-20：分包单位升格为独立主数据（Subcontractor），成本侧聚合键随之从
+  // laborAuthId 改为 subcontractorId，本 spec 直接建主数据行即可。
   const makeAuth = (projectId: string, name: string) =>
-    ctx.prisma.laborAuthLedger.create({
-      data: { projectId, subcontractorName: name } as any,
+    ctx.prisma.subcontractor.create({
+      data: { projectId, name } as any,
     });
 
   /** 直接落收领单（绕过 service，聚焦成本侧聚合口径） */
@@ -71,8 +74,8 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
     });
   };
 
-  const makeDoc = (projectId: string, laborAuthId: string, period: string) =>
-    labor.createDoc({ laborAuthId, period, contractName: '集成测试劳务合同' }, projectId, { userId: 'int' });
+  const makeDoc = (projectId: string, subcontractorId: string, period: string) =>
+    labor.createDoc({ subcontractorId, period, contractName: '集成测试劳务合同' }, projectId, { userId: 'int' });
 
   const rowOf = (details: any[], materialName: string) =>
     details.find((d) => d.materialName === materialName);
@@ -277,8 +280,8 @@ describe('集成 · 分包领用聚合与盈亏快照', () => {
       data: {
         projectId: project.id,
         docId: doc.id,
-        laborAuthId: auth.id,
-        subcontractorName: auth.subcontractorName,
+        subcontractorId: auth.id,
+        subcontractorName: auth.name,
         period: '2026-10',
         materialName: '钢板',
         spec: 'Q235',

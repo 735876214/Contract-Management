@@ -105,7 +105,7 @@ export class ImportRunnerService {
         await opts.afterCommit(outcome);
       } catch (e: any) {
         // 数据已提交：收尾动作失败只记日志（见 RunOptions.afterCommit 的说明），不改变导入结果
-        // eslint-disable-next-line no-console
+         
         console.warn('[import] 提交后的收尾动作失败（数据已写入，不影响导入结果）:', e?.message || e);
       }
     }

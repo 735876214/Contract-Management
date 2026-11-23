@@ -1,10 +1,11 @@
 import { checkFileUrl } from '../../common/utils/safe-url';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
+import { resolveOrCreateSubcontractor } from '../subcontractor';
 
 /** 允许从前端写入的字段白名单（原分包商库字段 + 台账独有的授权期间） */
 const EDITABLE_FIELDS = [
@@ -97,9 +98,7 @@ export class LaborService {
   /** 归属复核：按 id 直读时必须确认记录属于请求头项目（防止跨项目读/改） */
   async findOne(id: string, projectId?: string) {
     const row = await this.prisma.laborAuthLedger.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('分包授权台账记录不存在');
-    if (projectId && row.projectId !== projectId) throw new NotFoundException('分包授权台账记录不存在');
-    return row;
+    return assertInProject(row, projectId, '分包授权台账记录不存在');
   }
 
   // ==================== 写入 ====================
@@ -126,6 +125,10 @@ export class LaborService {
   async create(data: any, projectId?: string, user?: any) {
     this.validate(data);
     const payload = this.pick(data);
+    // 台账挂靠分包商库主数据（2026-11-20）：保留 `subcontractorName` 名称快照，
+    // 同时把名称解析/新建为 `Subcontractor` 并写 `subcontractorId` —— 主数据改名不断档，
+    // 成本与收领单侧统一按主数据 ID 聚合。写入原语下沉在 subcontractor 模块内（模块边界门禁）。
+    payload.subcontractorId = await resolveOrCreateSubcontractor(this.prisma, payload.subcontractorName, projectId);
     return this.prisma.laborAuthLedger.create({
       data: {
         ...payload,
@@ -146,6 +149,9 @@ export class LaborService {
     assertVersion(old, data);
     if (data?.subcontractorName !== undefined) this.validate(data);
     const payload = this.pick(data);
+    if (payload.subcontractorName !== undefined) {
+      payload.subcontractorId = await resolveOrCreateSubcontractor(this.prisma, payload.subcontractorName, projectId);
+    }
     // 状态只能通过明确的状态流转接口变更，避免越权
     if (data?.status && [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED].includes(data.status)) {
       payload.status = data.status;
@@ -167,14 +173,15 @@ export class LaborService {
   async exportMark(payload: any, projectId?: string, user?: any) {
     this.validate(payload);
     const data = this.pick(payload);
+    data.subcontractorId = await resolveOrCreateSubcontractor(this.prisma, data.subcontractorName, projectId);
     // 按 id 落库时必须做项目归属复核（同 update/remove 的口径）：否则拿到他项目的台账 id
     // 就能跨项目改名、覆盖身份证/盖章件。id 会出现在导出件、日志与分享链接里。
     const existing = payload?.id
       ? await this.findOne(payload.id, projectId)
       : await this.prisma.laborAuthLedger.findFirst({
           where: {
-            projectId: projectId || null,
-            subcontractorName: data.subcontractorName,
+            projectId: projectId ?? undefined,
+            subcontractorName: String(data.subcontractorName ?? ''),
             authorizedPerson: data.authorizedPerson ?? null,
           },
         });

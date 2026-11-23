@@ -79,6 +79,8 @@ export function looksLikeLabel(text: string): boolean {
   if (!/[\u4e00-\u9fa5]/.test(t)) return false;
   if (/[。；;]$/.test(t)) return false;
   // 纯数字/日期/百分比/金额形态：这些是**值**
+  // \/ 必须转义（正则字面量分隔符），\- 保持转义以明确不是区间
+  // eslint-disable-next-line no-useless-escape
   if (/^[\d\s.,:：\-\/年月日%元万元]+$/.test(t)) return false;
   return true;
 }

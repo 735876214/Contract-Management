@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { buildResult, paginate, assertVersion, versionedUpdate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
 import { periodLabel } from '../../common/utils/settlement-period';
 import { pickFields } from '../../common/pick-fields';
@@ -13,7 +13,7 @@ import { LaborReceivingService } from './labor-receiving.service';
  *
  * **一个月一条记录**：新建时把当期各分包单位「甲供材节超分析」行**快照**成明细行
  * （单价/数量冻结，历史表样不随后续改单变化）；只有责任人/劳务计价已扣/备注可手改
- * （业务口径：数量与单价是快照，不是手填项）；「重新抓取」重算快照并按 laborAuthId+材料+规格 回填手填项。
+ * （业务口径：数量与单价是快照，不是手填项）；「重新抓取」重算快照并按 subcontractorId+材料+规格 回填手填项。
  * 汇总表不落库——导出时由明细行按材料**跨队加权汇总**（`weightedUnitPrice`）。
  */
 
@@ -57,24 +57,14 @@ export class MonthlyProfitLossService {
     );
   }
 
-  /**
-   * 归属复核（防御纵深）：按 id 直读/改写时必须确认记录属于请求头项目，
-   * 否则任何持 cost:view / cost:edit 的用户带上自己项目的 header 就能操作别人的单据
-   * （见 .claude/rules/rules-index.md「项目隔离」）。
-   */
-  private assertOwnProject<T extends { projectId: string }>(row: T | null, projectId?: string): T {
-    if (!row) throw new NotFoundException('月度盈亏分析记录不存在');
-    if (projectId && row.projectId !== projectId) throw new NotFoundException('月度盈亏分析记录不存在');
-    return row;
-  }
-
   async detail(id: string, projectId?: string) {
-    const r = this.assertOwnProject(
+    const r = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({
         where: { id },
         include: { details: { orderBy: [{ laborTeamName: 'asc' }, { sortOrder: 'asc' }] } },
       }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     return { ...this.serializeHeader(r), details: r.details.map((d) => this.serializeDetail(d)) };
   }
@@ -118,9 +108,10 @@ export class MonthlyProfitLossService {
 
   /** 更新：头字段 + 明细行手改（按明细 ID 逐行，乐观锁在头记录上） */
   async update(id: string, data: any, projectId?: string) {
-    const current = this.assertOwnProject(
+    const current = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     assertVersion(current, data);
     const payload: any = pickFields(data, HEADER_FIELDS.filter((f) => f !== 'period'), { label: '月度盈亏分析' });
@@ -166,22 +157,23 @@ export class MonthlyProfitLossService {
   }
 
   async remove(id: string, projectId?: string) {
-    this.assertOwnProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId);
+    assertInProject(await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }), projectId, '月度盈亏分析记录不存在');
     await this.prisma.monthlyProfitLoss.delete({ where: { id } });
     return true;
   }
 
-  /** 重新抓取：删明细重生成快照，按 laborAuthId+材料+规格 回填手填项 */
+  /** 重新抓取：删明细重生成快照，按 subcontractorId+材料+规格 回填手填项 */
   async reSnapshot(id: string, projectId?: string) {
-    const current = this.assertOwnProject(
+    const current = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({ where: { id } }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     const old = await this.prisma.monthlyProfitLossDetail.findMany({ where: { profitLossId: id } });
     // 手填项按「分包单位 + 材料 + 规格 + 单位」回填：单位不同是两条快照行
     const manual = new Map(
       old.map((d) => [
-        monthlyDetailKey(d.laborAuthId ?? '', d.materialName, d.spec ?? '', d.unit ?? ''),
+        monthlyDetailKey(d.subcontractorId ?? '', d.materialName, d.spec ?? '', d.unit ?? ''),
         d,
       ]),
     );
@@ -200,12 +192,13 @@ export class MonthlyProfitLossService {
 
   /** 导出文件名（controller 用；避免直接读 service 私有 prisma） */
   async exportMeta(id: string, projectId?: string) {
-    const rec = this.assertOwnProject(
+    const rec = assertInProject(
       await this.prisma.monthlyProfitLoss.findUnique({
         where: { id },
         select: { projectId: true, period: true },
       }),
       projectId,
+      '月度盈亏分析记录不存在',
     );
     return { fileName: `降本、创效、主材盈亏分析表-${rec.period || id}.xlsx` };
   }
@@ -389,17 +382,18 @@ export class MonthlyProfitLossService {
     /** 事务客户端：调用方（重新抓取）要保证「删旧明细 + 生成新明细」同生共死 */
     db: any = this.prisma,
   ) {
-    const auths = await this.prisma.laborAuthLedger.findMany({
-      where: { projectId },
-      select: { id: true, subcontractorName: true },
-      orderBy: { subcontractorName: 'asc' },
+    // 快照按「分包商库」逐家生成（本项目 + 全局共享），名称取主数据当前名称
+    const subs = await this.prisma.subcontractor.findMany({
+      where: { OR: [{ projectId }, { projectId: null }] },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
     });
     const rows: any[] = [];
     let sort = 0;
-    for (const auth of auths) {
-      const snapshot = await this.laborReceiving.periodSnapshotRows(auth.id, period, projectId);
+    for (const sub of subs) {
+      const snapshot = await this.laborReceiving.periodSnapshotRows(sub.id, period, projectId);
       for (const s of snapshot) {
-        const key = monthlyDetailKey(auth.id, s.materialName, s.spec ?? '', s.unit ?? '');
+        const key = monthlyDetailKey(sub.id, s.materialName, s.spec ?? '', s.unit ?? '');
         const m = manual?.get(key);
         const saveOverQty = s.saveOverQty;
         // 盈亏金额是 qty × price 的派生列（前端也只读展示）：
@@ -408,8 +402,8 @@ export class MonthlyProfitLossService {
         rows.push({
           profitLossId,
           sortOrder: sort++,
-          laborAuthId: auth.id,
-          laborTeamName: auth.subcontractorName,
+          subcontractorId: sub.id,
+          laborTeamName: sub.name,
           owner: m?.owner ?? null,
           materialName: s.materialName,
           spec: s.spec || null,
@@ -465,7 +459,7 @@ export class MonthlyProfitLossService {
     return {
       id: d.id,
       sortOrder: d.sortOrder,
-      laborAuthId: d.laborAuthId,
+      subcontractorId: d.subcontractorId,
       laborTeamName: d.laborTeamName,
       owner: d.owner ?? '',
       materialName: d.materialName,

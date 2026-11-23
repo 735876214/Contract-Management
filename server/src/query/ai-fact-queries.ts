@@ -140,6 +140,7 @@ export function loadContractForFields(prisma: PrismaClient, contractId: string, 
 
 /** 合同的履约/执行状态（汇报材料的派生统计用） */
 export function loadContractExecStatuses(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 派生统计需要全项目的执行状态（AI 汇报材料），分页会漏数
   return prisma.contract.findMany({ where: { projectId }, select: { execStatus: true } });
 }
 

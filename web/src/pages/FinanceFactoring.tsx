@@ -53,7 +53,15 @@ export default function FinanceFactoring() {
 
   const editorTab = useEditorTab(LIST_PATH);
   if (editorTab.isEditor) {
-    return <FactoringEditor contractOptions={contractOptions} seed={editorTab.seed} />;
+    // 新增态的 seed 只是「从列表带过来的预填值」（如已筛选的合同），不是整行记录 ——
+    // 靠 editorId 而不是 seed 的真假来分新增/编辑，否则带预填值的新增会被当成编辑。
+    return (
+      <FactoringEditor
+        contractOptions={contractOptions}
+        seed={editorTab.seed}
+        isCreate={editorTab.editorId === 'new'}
+      />
+    );
   }
   return <FactoringList contractOptions={contractOptions} />;
 }
@@ -70,11 +78,18 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   /**
    * 不选合同也取数：后端不传 `contractId` 时返回**本项目全部合同**的保理费用行
    * （与结算台账一致，打开即看全量）；选中合同则只取该合同。
+   *
+   * 结算月份筛选是 `DatePicker`（picker="month"），值是 dayjs 对象；
+   * 后端按 `canonicalMonthKey` 归集，这里统一压成 `YYYY-MM` 再发，避免 axios 把 dayjs
+   * 序列化成完整 ISO 时间戳。
    */
-  const fetcher = useCallback(
-    async (params: Record<string, any>) => financeApi.factoring(params.contractId || undefined, params),
-    [],
-  );
+  const fetcher = useCallback(async (params: Record<string, any>) => {
+    const month = params.settlementMonth;
+    return financeApi.factoring(params.contractId || undefined, {
+      ...params,
+      settlementMonth: month ? dayjs(month).format('YYYY-MM') : undefined,
+    });
+  }, []);
 
   const handleRemove = (row: ModuleListRow) => {
     Modal.confirm({
@@ -90,14 +105,14 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   };
 
   const extraFilters: ModuleListFilterField[] = [
+    { key: 'contractId', label: '合同（供应商）', control: 'select', options: contractOptions, placeholder: '请选择合同' },
     {
-      key: 'contractId',
-      label: '合同（供应商）',
-      control: 'select',
-      options: contractOptions,
-      placeholder: '请选择合同',
+      // 原先是一个纯文本框，要手打 `YYYY-MM`（写 `2026-4` 后端直接 400）——换成月份选择器
+      key: 'settlementMonth',
+      label: '结算月份',
+      control: 'input',
+      render: () => <DatePicker picker="month" format="YYYY-MM" style={{ width: '100%' }} placeholder="选择月份" />,
     },
-    { key: 'settlementMonth', label: '结算月份', control: 'input', placeholder: 'YYYY-MM' },
     { key: 'keyword', label: '关键词', control: 'input', placeholder: '备注' },
   ];
 
@@ -135,7 +150,8 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      {contractId && <ContractFundParams contractId={contractId} />}
+      {/* 合同资金参数条已挪进「新增/编辑保理费用」编辑器：列表页只做浏览与筛选，
+          参数属于录入时的上下文，放在表头会占掉首屏且与录入动作脱节 */}
 
       {/* 汇总卡：与「结算台账/合同台账」顶部统计卡同款式（Card.stat-card + Statistic），
           数据取自后端 `totals`（覆盖筛选后的全部行，不受分页影响）。不选合同时是项目合计。 */}
@@ -203,7 +219,7 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
         toolbarLeft={
           <Space wrap size={8}>
             <Can code="finance:edit">
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate()}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => editorTab.openCreate(contractId ? { contractId } : undefined)}>
                 新增记录
               </Button>
             </Can>
@@ -220,27 +236,59 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   );
 }
 
-/** 保理「新增/编辑」（表单正文从改造前的弹窗原样搬入，字段与校验规则未动） */
-function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; seed: unknown }) {
+/**
+ * 保理「新增/编辑」（表单正文从改造前的弹窗原样搬入，字段与校验规则未动）。
+ *
+ * 录入体验调整（2026-11-20）：
+ * - 「结算月份」由手打文本框换成月份选择器（原文本要求 `YYYY-MM`，写 `2026-4` 后端 400）；
+ * - 「费用合计」由恒空的只读框改成**实时显示** 融资利息 + 手续费；
+ * - 新增时若列表已筛选合同，合同自动带入，不必再选一遍。
+ */
+function FactoringEditor({
+  contractOptions,
+  seed,
+  isCreate,
+}: {
+  contractOptions: any[];
+  seed: unknown;
+  isCreate: boolean;
+}) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const editing = seed as any | undefined;
+  /** 编辑态 = seed 是整行记录；新增态 seed 只有预填值（可能为 undefined） */
+  const editing = isCreate ? undefined : (seed as any | undefined);
+  // 资金参数条跟随所选的合同（新增态选完合同即可核对/调整，不用回列表页看）
+  const selectedContractId = Form.useWatch('contractId', form);
+
+  // 费用合计实时回显：融资利息 + 手续费（与后端 `totalCost` 同口径）
+  const interest = Form.useWatch('financingInterest', form) as number | null | undefined;
+  const fee = Form.useWatch('handlingFee', form) as number | null | undefined;
+  const hasCost = interest != null || fee != null;
+  const totalCost = Math.round(((Number(interest) || 0) + (Number(fee) || 0)) * 100) / 100;
 
   useEffect(() => {
     form.resetFields();
-    if (editing) {
-      form.setFieldsValue({ ...editing, financingDate: editing.financingDate ? dayjs(editing.financingDate) : null });
+    const init: any = editing ?? (seed as any) ?? null;
+    if (init) {
+      const month = init.settlementMonth ? dayjs(init.settlementMonth) : null;
+      form.setFieldsValue({
+        ...init,
+        financingDate: init.financingDate ? dayjs(init.financingDate) : null,
+        settlementMonth: month && month.isValid() ? month.startOf('month') : null,
+      });
     }
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
+  }, [editing, seed]);
 
   const submit = async () => {
     const values = await form.validateFields();
     const data = {
       ...values,
       financingDate: values.financingDate ? values.financingDate.format('YYYY-MM-DD') : null,
+      // 月份选择器的值是 dayjs，落库口径仍是 `YYYY-MM` 字符串（结算台账的归集键）
+      settlementMonth: values.settlementMonth ? values.settlementMonth.format('YYYY-MM') : null,
       // 乐观锁：编辑态必须回传 version，否则后端 assertVersion 抛 409
       version: editing ? (editing as any).version : undefined,
     };
@@ -274,9 +322,15 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
               <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
             </Form.Item>
           </Col>
+          {selectedContractId && (
+            <Col xs={24}>
+              {/* 合同资金参数（供应商/付款模式/利率/宽限期），紧跟合同信息、可就地调整 */}
+              <ContractFundParams contractId={selectedContractId} variant="inline" />
+            </Col>
+          )}
           <Col xs={24} md={12}>
-            <Form.Item name="settlementMonth" label="结算月份">
-              <Input placeholder="如 2026-04（已办结算月份）" />
+            <Form.Item name="settlementMonth" label="结算月份" tooltip="该笔费用归集到的结算月份（结算台账「保理贴息」列按此月份抓取）">
+              <DatePicker picker="month" format="YYYY-MM" style={{ width: '100%' }} placeholder="选择月份" />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
@@ -300,8 +354,14 @@ function FactoringEditor({ contractOptions, seed }: { contractOptions: any[]; se
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item label="费用合计（含税）" tooltip="融资利息 + 手续费，系统自动计算">
-              <InputNumber style={{ width: '100%' }} disabled value={undefined} placeholder="自动计算" />
+            <Form.Item label="费用合计（含税）" tooltip="融资利息 + 手续费，系统自动计算（保存时后端按同口径落库）">
+              <InputNumber
+                style={{ width: '100%' }}
+                disabled
+                precision={2}
+                value={hasCost ? totalCost : undefined}
+                placeholder="自动计算"
+              />
             </Form.Item>
           </Col>
           <Col xs={24}>

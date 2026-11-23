@@ -30,7 +30,7 @@ export class SupplierService {
   ) {}
 
   /** 供应商库共享范围：GLOBAL 全局共享 / PROJECT 项目隔离 */
-  private async scopeWhere(projectId: string) {
+  private async scopeWhere(projectId?: string | null) {
     const scope = await this.sysParam.get('supplier.share.scope', 'GLOBAL');
     return scope === 'PROJECT' && projectId ? { projectId } : {};
   }

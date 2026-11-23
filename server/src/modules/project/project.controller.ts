@@ -35,6 +35,7 @@ export class ProjectController {
     return this.projectService.findOne(id, user);
   }
 
+  // @body: pickFields=PROJECT_FIELDS
   @RequirePermissions('project:edit')
   @Post()
   create(@Body() body: any) {
@@ -59,6 +60,7 @@ export class ProjectController {
     return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 
+  // @body: pickFields=PROJECT_FIELDS
   @RequirePermissions('project:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: JwtUser) {
@@ -77,6 +79,7 @@ export class ProjectController {
     return this.projectService.members(id, user);
   }
 
+  // @body: typed=inline
   @RequirePermissions('project:edit')
   @Post(':id/members')
   addMember(@Param('id') id: string, @Body() body: { userId: string; roleCode: string }, @CurrentUser() user: JwtUser) {

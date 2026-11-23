@@ -6,6 +6,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DictModule } from './modules/dict/dict.module';
 import { ProjectModule } from './modules/project/project.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
+import { SubcontractorModule } from './modules/subcontractor/subcontractor.module';
+import { OtherProjectModule } from './modules/other-project/other-project.module';
 import { ContractModule } from './modules/contract/contract.module';
 import { TemplateModule } from './modules/template/template.module';
 import { DailyReportModule } from './modules/daily-report/daily-report.module';
@@ -41,6 +43,8 @@ import { AiModule } from './modules/ai/ai.module';
     DictModule,
     ProjectModule,
     SupplierModule,
+    SubcontractorModule,
+    OtherProjectModule,
     ContractModule,
     TemplateModule,
     DailyReportModule,

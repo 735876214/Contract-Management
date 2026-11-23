@@ -80,6 +80,7 @@ export async function archiveReceiptScans(prisma: PrismaClient, projectId: strin
 
 /** 非草稿结算单的结算日期（按月归档用） */
 export async function archiveMonthlySettlementDates(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 按月归档需要该项目的全部非草稿结算日期
   const rows = await prisma.settlement.findMany({
     // `notDraft`（不是 `NOT: {statusCode:'DRAFT'}`）：statusCode 可空，NOT 会连带排除 NULL
     where: { projectId, ...notDraft },
@@ -160,7 +161,7 @@ export async function archiveContractsWithFinance(prisma: PrismaClient, projectI
       code: true,
       name: true,
       supplier: { select: { name: true } },
-      _count: { select: { factoringCosts: true, overdueInterests: true } },
+      _count: { select: { factoringCosts: true, overduePayables: true } },
     },
   });
   return rows.map((c) => ({
@@ -169,7 +170,7 @@ export async function archiveContractsWithFinance(prisma: PrismaClient, projectI
     name: c.name,
     supplierName: c.supplier?.name ?? null,
     factoringCount: c._count.factoringCosts,
-    overdueCount: c._count.overdueInterests,
+    overdueCount: c._count.overduePayables,
   }));
 }
 

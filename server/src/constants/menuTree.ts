@@ -144,6 +144,8 @@ export const MENU_TREE: MenuNode[] = [
       { key: 'base-project', label: '项目管理', icon: 'ProjectOutlined', path: '/base/project', permission: 'project:view' },
       { key: 'base-supplier', label: '供应商库', icon: 'TeamOutlined', path: '/base/supplier', permission: 'supplier:view' },
       // 「分包商库」已并入「劳务管理 → 分包授权台账」（附件需求 2026-10-17；菜单删除，/base/subcontractor 保号重定向）
+      // 分包商主数据（Subcontractor）由台账自动挂靠，收领单/成本侧按主数据 ID 取数
+      { key: 'base-other-project', label: '其他项目库', icon: 'ApartmentOutlined', path: '/base/other-project', permission: 'other-project:view' },
       { key: 'base-material', label: '物资基础库', icon: 'DatabaseOutlined', path: '/base/material', permission: 'material:view' },
       { key: 'base-template', label: '合同模板', icon: 'SnippetsOutlined', path: '/base/template', permission: 'template:view' },
       // 单据模板（业务口径 2026-10-17）：结算单/总结算单/保理单/逾期利息/付款单五类 Excel 模板

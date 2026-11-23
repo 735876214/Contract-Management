@@ -50,6 +50,7 @@ export class DocTemplateService {
     };
     if (query.keyword) where.name = { contains: query.keyword };
     if (query.status !== undefined && query.status !== '') where.status = normalizeStatus(query.status, 1);
+    // @no-limit: 单据模板总数级（十级），且需按分类排序后整体返回
     const rows = await this.prisma.contractTemplate.findMany({
       where,
       orderBy: [{ categoryCode: 'asc' }, { createdAt: 'desc' }],
@@ -288,40 +289,8 @@ export class DocTemplateService {
     });
   }
 
-  /**
-   * **渲染总结算单**（总结算单 → Excel；明细表占位符按行展开）。
-   * 业务 2026-10-17：生成路径 Word → Excel。
-   */
-  async renderFinalSettlement(opts: {
-    doc: any;
-    contract: any;
-    project: any;
-    supplier: any;
-    values: Record<string, string>;
-    templateId?: string;
-    filename: string;
-  }) {
-    return this.renderExcel({
-      categoryCode: 'FINAL_SETTLEMENT',
-      categoryLabel: '总结算单',
-      values: opts.values,
-      tables: { 结算明细表: itemsToRows(opts.doc?.items || []) },
-      templateId: opts.templateId,
-      filename: opts.filename,
-    });
-  }
+  // 注：总结算单已改为**内置模板直接渲染**（`final-settlement/final-settlement-excel.ts`），
+  // 不再经本服务的单据模板（上传的 FINAL_SETTLEMENT 分类 xlsx 不再生效），故移除了
+  // renderFinalSettlement / itemsToRows / formatMoneyCell 死代码。
 
-}
-
-/** 总结算单明细行 → Excel 表格占位符的行数组（每行 = 列文本数组；首行为表头） */
-function itemsToRows(items: any[]): string[][] {
-  const head = ['结算月份', '结算金额(元)'];
-  const rows = (items || []).map((i: any) => [String(i.settleMonth || ''), formatMoneyCell(i.amount)]);
-  return [head, ...rows];
-}
-
-function formatMoneyCell(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '';
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v);
 }

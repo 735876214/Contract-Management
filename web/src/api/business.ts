@@ -48,6 +48,36 @@ export const supplierApi = {
   validateUrl: () => `${http.defaults.baseURL}/suppliers/import/validate`,
 };
 
+/** 分包商库（主数据；劳务授权台账自动挂靠） */
+export const subcontractorApi = {
+  list: (params?: any) => http.get<any, any>('/subcontractors', { params }),
+  options: (keyword?: string) => http.get<any, any>('/subcontractors/options', { params: { keyword } }),
+  detail: (id: string) => http.get<any, any>(`/subcontractors/${id}`),
+  create: (data: any) => http.post<any, any>('/subcontractors', data),
+  update: (id: string, data: any) => http.put<any, any>(`/subcontractors/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/subcontractors/${id}`),
+  toggle: (id: string) => http.post<any, any>(`/subcontractors/${id}/toggle`),
+  exportUrl: () => `${http.defaults.baseURL}/subcontractors/export`,
+  templateUrl: () => `${http.defaults.baseURL}/subcontractors/template`,
+  importUrl: () => `${http.defaults.baseURL}/subcontractors/import`,
+  validateUrl: () => `${http.defaults.baseURL}/subcontractors/import/validate`,
+};
+
+/** 其他项目库（收领单里作为供应单位/领用单位） */
+export const otherProjectApi = {
+  list: (params?: any) => http.get<any, any>('/other-projects', { params }),
+  options: (keyword?: string) => http.get<any, any>('/other-projects/options', { params: { keyword } }),
+  detail: (id: string) => http.get<any, any>(`/other-projects/${id}`),
+  create: (data: any) => http.post<any, any>('/other-projects', data),
+  update: (id: string, data: any) => http.put<any, any>(`/other-projects/${id}`, data),
+  remove: (id: string) => http.delete<any, any>(`/other-projects/${id}`),
+  toggle: (id: string) => http.post<any, any>(`/other-projects/${id}/toggle`),
+  exportUrl: () => `${http.defaults.baseURL}/other-projects/export`,
+  templateUrl: () => `${http.defaults.baseURL}/other-projects/template`,
+  importUrl: () => `${http.defaults.baseURL}/other-projects/import`,
+  validateUrl: () => `${http.defaults.baseURL}/other-projects/import/validate`,
+};
+
 export const contractApi = {
   list: (params?: any) => http.get<any, any>('/contracts', { params }),
   options: (keyword?: string) => http.get<any, any>('/contracts/options', { params: { keyword } }),

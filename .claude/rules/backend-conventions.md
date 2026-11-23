@@ -24,6 +24,13 @@
   两人同刻保存会双双通过、后写静默覆盖前写。⚠️ 更隐蔽的一种：`pickFields` 白名单里没有 `version`
   时版本号永远写不回去（资产台账曾如此），锁当场失效。
 - **写字段白名单**：service 用 `common/pick-fields.ts` 的 `pickFields` 过滤未知字段，防前端字段漂移 500。
+- **按 id 取记录必须过归属校验**：`helpers.assertInProject(row, projectId, 'X不存在')`。
+  守卫只保证"你是这个项目的成员"，不保证"这条记录属于这个项目"；少了这一步，
+  同时属于两个项目的用户拿别项目的 id 配自己项目的 header 就能读/改/删（守卫语义见
+  [architecture.md §5](../../docs/architecture.md)）。返回 `404` 而不是 `403`，避免暴露记录存在性。
+- **需要"全部数据"时用 `common/utils/paged.ts` 的 `pagedAll()`**：不要写 `findAll({ pageSize: 5000 })`——
+  `paginate()` 会把单页夹到上限，超出部分静默丢失（2026-10 审计在 8 个模块各踩过一次）。
+  调用方要同时把 `pageSize` 传给 `maxPageSize`：`findAll({ page, pageSize }, projectId, pageSize)`。
 - **跨域只读查询走 `server/src/query/`**：`archive` 等聚合器**不得**在 service 里散写
   `prisma.<任意模型>`，统一走 `query/<域>-queries.ts`（只读、无事务、显式带 `projectId`）；
   由 `scripts/check-module-boundaries.mjs` 锁定。AI 的只读子域同样不得依赖业务模块，

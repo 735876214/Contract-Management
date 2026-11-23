@@ -54,6 +54,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存框架协议事前说明（发布后仍可重新编辑） */
+  // @body: mapped=saveFrameworkExplanation
   @RequirePermissions('procurement:edit')
   @Put(':id/framework-explanation')
   saveFrameworkExplanation(@Param('id') id: string, @Body() body: any) {
@@ -82,6 +83,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存采前会会议纪要（发布后仍可重新编辑） */
+  // @body: mapped=savePreMeetingMinutes
   @RequirePermissions('procurement:edit')
   @Put(':id/pre-meeting-minutes')
   savePreMeetingMinutes(@Param('id') id: string, @Body() body: any) {
@@ -96,6 +98,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存采购公告（发布后仍可重新编辑） */
+  // @body: mapped=saveNotice
   @RequirePermissions('procurement:edit')
   @Put(':id/notice')
   saveNotice(@Param('id') id: string, @Body() body: any) {
@@ -110,6 +113,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存采购文件（发布后仍可重新编辑） */
+  // @body: mapped=saveDocument
   @RequirePermissions('procurement:edit')
   @Put(':id/document')
   saveDocument(@Param('id') id: string, @Body() body: any) {
@@ -131,6 +135,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存成交报告（发布后仍可重新编辑） */
+  // @body: mapped=saveResultReport
   @RequirePermissions('procurement:edit')
   @Put(':id/result-report')
   saveResultReport(@Param('id') id: string, @Body() body: any) {
@@ -153,6 +158,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存结构化投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与报价来自导入表，不在此改） */
+  // @body: mapped=saveBidders
   @RequirePermissions('procurement:edit')
   @Put(':id/bidders')
   saveBidders(@Param('id') id: string, @Body() body: any) {
@@ -160,6 +166,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存评标记录（全量替换：评委 / 得分 / 排名 / 结论 / 备注 / 评标时间） */
+  // @body: mapped=saveEvaluations
   @RequirePermissions('procurement:edit')
   @Put(':id/evaluations')
   saveEvaluations(@Param('id') id: string, @Body() body: any) {
@@ -190,6 +197,7 @@ export class ProcurementTaskController {
   }
 
   /** 保存采购价格对比表（发布后仍可重新编辑） */
+  // @body: mapped=savePriceCompare
   @RequirePermissions('procurement:edit')
   @Put(':id/price-compare')
   savePriceCompare(@Param('id') id: string, @Body() body: any) {
@@ -197,18 +205,21 @@ export class ProcurementTaskController {
   }
 
   /** 保存总采购清单（全量替换；含基础库/字典/控制价校验与单位同步） */
+  // @body: mapped=saveTotalList
   @RequirePermissions('procurement:edit')
   @Put(':id/total-list')
   saveTotalList(@Param('id') id: string, @Body() body: any) {
     return this.service.saveTotalList(id, body?.items ?? []);
   }
 
+  // @body: mapped=create
   @RequirePermissions('procurement:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: mapped=update
   @RequirePermissions('procurement:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {

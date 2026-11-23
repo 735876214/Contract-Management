@@ -79,7 +79,6 @@ export default function ContractItemTab({
         };
       }),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveTax]);
 
   /** 本地改值：同步更新当前行并重算派生列（前端实时计算，保存时服务端二次校验） */

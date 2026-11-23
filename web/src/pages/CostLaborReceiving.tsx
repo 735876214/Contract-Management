@@ -114,7 +114,7 @@ function CreateDocButton({ onCreated }: { onCreated: (id: string, seed: any) => 
     try {
       const period = values.period.format('YYYY-MM');
       const created: any = await costApi.laborReceiving.createDoc({
-        laborAuthId: values.laborAuthId,
+        subcontractorId: values.subcontractorId,
         period,
         contractName: values.contractName,
       });
@@ -133,12 +133,12 @@ function CreateDocButton({ onCreated }: { onCreated: (id: string, seed: any) => 
       </Button>
       <Modal title="新增领用单据" open={open} onCancel={() => setOpen(false)} onOk={doCreate} confirmLoading={saving} okText="创建">
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="laborAuthId" label="分包单位" rules={[{ required: true, message: '请选择分包单位' }]}>
+          <Form.Item name="subcontractorId" label="分包单位" rules={[{ required: true, message: '请选择分包单位' }]}>
             <Select
               showSearch
               optionFilterProp="label"
               placeholder="请选择分包单位"
-              options={subcontractors.map((s) => ({ value: s.id, label: s.subcontractorName }))}
+              options={subcontractors.map((s) => ({ value: s.id, label: s.name }))}
             />
           </Form.Item>
           <Form.Item

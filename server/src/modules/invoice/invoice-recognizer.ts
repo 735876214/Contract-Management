@@ -1,5 +1,7 @@
 import jsQR from 'jsqr';
-import { PNG } from 'pngjs';
+// pngjs 无类型声明：require 引入（理由同 contract.service.ts 的 html-to-docx）
+ 
+const { PNG }: any = require('pngjs');
 import * as jpeg from 'jpeg-js';
 
 export interface RecognizedInvoice {

@@ -256,7 +256,13 @@ export const settlementApi = {
   refreshLedger: () => http.post<any, any>('/settlements/ledger/refresh'),
   /** 预览「上一期」待生成的结算（顶部提示用）：未挂结算单的收领单张数、还差几个合同 */
   previewGenerate: (params?: any) => http.get<any, any>('/settlements/generate/preview', { params }),
+  /** 预览：按**已挂收领单**能带出的结算明细（不写库；返回明细合计与表头金额差额） */
+  previewItemsFromReceipts: (id: string) => http.get<any, any>(`/settlements/${id}/items/from-receipts`),
   /**
+   * 落库：按已挂收领单**重建**结算明细（replace-all，不改表头金额/状态）。
+   * 收领单明细优先，没有明细的收领单退回它推送的总日报行。
+   */
+  itemsFromReceipts: (id: string) => http.post<any, any>(`/settlements/${id}/items/from-receipts`),  /**
    * 生成本期（默认上一期）结算单：抓取期间内未挂结算单的收领单，按合同各生成一张草稿结算单。
    * 幂等 —— 已有结算单的合同会被跳过（返回 `skipped`）。
    */
@@ -300,6 +306,8 @@ export const finalSettlementApi = {
   /** 生成：`contractId` 必填；一个合同只允许一张（重复会 400） */
   generate: (contractId: string) => http.post<any, any>('/final-settlements/generate', { contractId }),
   update: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}`, data),
+  /** 编辑明细（月份/金额）+ 审减金额：保存即重算合计（仅「待上传附件」状态可改） */
+  updateItems: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}/items`, data),
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
   attach: (id: string, data: { url: string; fileName: string }) =>
     http.post<any, any>(`/final-settlements/${id}/attach`, data),
@@ -461,6 +469,16 @@ export const financeApi = {
   updateOverdue: (id: string, data: any) => http.put<any, any>(`/finance/overdue-interests/${id}`, data),
   removeOverdue: (id: string) => http.delete<any, any>(`/finance/overdue-interests/${id}`),
   exportOverdueUrl: (contractId: string) => `${http.defaults.baseURL}/finance/overdue-interests/export?contractId=${contractId}`,
+  /** 付款模式定义（单一事实源在后端 pay-ratio.ts）：{ mode, label, tranches:[{ratio, plusMonths, day}] } */
+  paymentModes: () => http.get<any, any>('/finance/payment-modes'),
+  /** 保存前预览派生列（直接调后端引擎，避免前端复刻一套算法导致「预览一个数、存完另一个数」） */
+  previewOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests/preview', data),
+  /** 付款流水（子表，合同级；每笔带 allocations = 抵到了哪几期、各段天数与利息） */
+  overduePayments: (contractId: string) =>
+    http.get<any, any>('/finance/overdue-payments', { params: { contractId } }),
+  createOverduePayment: (data: any) => http.post<any, any>('/finance/overdue-payments', data),
+  updateOverduePayment: (id: string, data: any) => http.put<any, any>(`/finance/overdue-payments/${id}`, data),
+  removeOverduePayment: (id: string) => http.delete<any, any>(`/finance/overdue-payments/${id}`),
 };
 
 export const notificationApi = {

@@ -9,27 +9,32 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 class LoginDto {
   @IsString()
   @IsNotEmpty({ message: '用户名不能为空' })
-  username: string;
+  // 由全局 ValidationPipe 填充，构造器里没有赋默认值
+  username!: string;
 
   @IsString()
   @IsNotEmpty({ message: '密码不能为空' })
-  password: string;
+  // 由全局 ValidationPipe 填充，构造器里没有赋默认值
+  password!: string;
 }
 
 class ChangePwdDto {
   @IsString()
   @IsNotEmpty({ message: '旧密码不能为空' })
-  oldPassword: string;
+  // 由全局 ValidationPipe 填充，构造器里没有赋默认值
+  oldPassword!: string;
 
   @IsString()
   @MinLength(8, { message: '新密码长度不能少于 8 位（且需同时包含字母和数字）' })
-  newPassword: string;
+  // 由全局 ValidationPipe 填充，构造器里没有赋默认值
+  newPassword!: string;
 }
 
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  // @body: typed=inline
   @Public()
   @Post('login')
   async login(@Body() body: LoginDto, @ClientIp() ip: string, @Res({ passthrough: true }) res: Response) {
@@ -68,6 +73,7 @@ export class AuthController {
     return true;
   }
 
+  // @body: typed=inline
   @UseGuards(JwtAuthGuard)
   @Post('password')
   async changePassword(@CurrentUser() user: JwtUser, @Body() body: ChangePwdDto) {

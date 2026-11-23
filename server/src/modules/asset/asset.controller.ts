@@ -63,12 +63,14 @@ export class AssetController {
     return this.service.importAssets(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 
+  // @body: pickFields=ASSET_FIELDS
   @RequirePermissions('asset:edit')
   @Post()
   create(@Body() body: any, @ProjectId() projectId: string) {
     return this.service.create(body, projectId);
   }
 
+  // @body: pickFields=ASSET_FIELDS
   @RequirePermissions('asset:edit')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any, @ProjectId() projectId: string) {
