@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { notDraft } from '../constants/statuses';
-import { ASSET_IN_SOURCES } from '../common/utils/asset-flow';
+import { ASSET_IN_SOURCES } from '../domain/asset-flow';
 import { countedInvoiceWhere, paidPaymentWhere, SITE_CONFIRM_STATUS } from '../constants/statuses';
 
 /**

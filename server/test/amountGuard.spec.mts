@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkOverAmount, normalizePolicy } from '../src/common/utils/amount-guard.ts';
+import { checkOverAmount, normalizePolicy } from '../src/domain/amount-guard.ts';
 
 /**
  * 防超结 / 防超付 的**上限判定**部分（口径见 .claude/rules/backend-conventions.md「金额上限」）：

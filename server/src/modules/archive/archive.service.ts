@@ -30,7 +30,7 @@ import { RepaymentService } from '../repayment';
 import { FinanceService } from '../finance';
 import { MonthlyProfitLossService } from '../cost';
 import { LaborReceivingService } from '../cost';
-import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
+import { periodKeyOf, startDayOf } from '../../domain/settlement-period';
 import {
   type ArchiveFile,
   PLACEHOLDER_NAME,

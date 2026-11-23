@@ -27,7 +27,7 @@
  */
 
 /** 金额舍入走全站唯一实现（字符串位移法，模拟 Excel ROUND，见 money.ts 文件头） */
-import { round2 } from '../calc/money.ts';
+import { round2 } from '../../common/calc/money.ts';
 
 /** 值是否"已填"（`0` 算已填；空串/空白算未填） */
 export function isFilledNumber(v: unknown): boolean {

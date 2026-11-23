@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeSupplementDelta } from '../src/common/utils/supplement-delta.ts';
+import { computeSupplementDelta } from '../src/modules/contract/supplement-delta.ts';
 
 /**
  * 补充协议「带符号增量」的算法锁（2026-10-15 业务澄清：变更要结构化）。

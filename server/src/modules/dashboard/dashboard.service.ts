@@ -4,8 +4,8 @@ import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
 import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../domain/contract-chain';
-import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { chainContractTotal } from '../../common/utils/ledger-derived';
+import { evaluateAmountAlert, evaluatePaymentRatioAlert } from './amount-alert';
+import { chainContractTotal } from '../ledger';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import { TODO_CATEGORIES, type TodoGroup, type TodoLevel } from '../../constants/todoCategories';
 import {

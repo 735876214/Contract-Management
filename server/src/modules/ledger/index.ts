@@ -6,3 +6,5 @@
  */
 export { LedgerModule } from './ledger.module';
 export { LedgerService } from './ledger.service';
+// 台账派生金额口径（工作台/发票复用；改口径由本模块签字）
+export { chainContractTotal, isFilledNumber } from './ledger-derived';

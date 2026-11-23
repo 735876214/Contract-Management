@@ -16,7 +16,7 @@
  *
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
-import { round2 } from '../calc/money.ts';
+import { round2 } from '../../common/calc/money.ts';
 
 /** 参与计算的清单行（`ContractMaterial` 的取值面） */
 export interface DeltaMaterialRow {

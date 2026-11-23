@@ -12,7 +12,7 @@ import {
   mergeSupplierFields,
   parseSupplierSnapshot,
   pickSupplierSnapshot,
-} from '../../common/utils/supplier-snapshot';
+} from '../supplier';
 import { renderTemplate, pendingPlaceholders } from './template-render';
 import { keywordWhere } from '../../common/utils/list-where';
 

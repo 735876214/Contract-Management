@@ -8,7 +8,7 @@ import {
   monthlyDetailKey,
   parseLaborRowKey,
   weightedUnitPrice,
-} from '../src/common/utils/labor-receiving.ts';
+} from '../src/modules/cost/labor-receiving.ts';
 
 /**
  * 劳务队领用月度汇总 · 派生口径（附件需求 2026-10-17 第二批）。

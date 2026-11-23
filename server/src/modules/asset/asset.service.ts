@@ -12,7 +12,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict';
-import { resolveAssetSourceFilter, summarizeAssetFlow } from '../../common/utils/asset-flow';
+import { resolveAssetSourceFilter, summarizeAssetFlow } from '../../domain/asset-flow';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 const ASSET_FIELDS = [

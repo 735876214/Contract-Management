@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { round2, round4 } from '../../common/calc/money';
 import { contractChainAmount, contractChainIds, chainSettledTotal } from '../../query';
-import { deriveContractFulfillment } from '../../common/utils/contract-fulfillment';
+import { deriveContractFulfillment } from '../../domain/contract-fulfillment';
 import { paidPaymentWhere, countedInvoiceWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { SysParamService } from '../../common/services/sys-param.service';
 

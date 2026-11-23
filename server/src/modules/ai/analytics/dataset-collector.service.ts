@@ -12,9 +12,9 @@ import {
   countedInvoiceWhere,
   paidPaymentWhere,
 } from '../../../constants/statuses';
-import { deriveContractFulfillment } from '../../../common/utils/contract-fulfillment';
+import { deriveContractFulfillment } from '../../../domain/contract-fulfillment';
 import { sumSettlementAmount } from '../../../common/utils/group-sum';
-import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../common/utils/asset-flow';
+import { summarizeAssetFlow, ASSET_IN_SOURCES } from '../../../domain/asset-flow';
 import { SysParamService } from '../../../common/services/sys-param.service';
 import {
   loadContractChainFacts,

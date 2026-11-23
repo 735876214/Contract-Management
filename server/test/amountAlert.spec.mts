@@ -4,7 +4,7 @@ import {
   evaluateAmountAlert,
   evaluatePaymentRatioAlert,
   ALERT_THRESHOLDS,
-} from '../src/common/utils/amount-alert.ts';
+} from '../src/modules/dashboard/amount-alert.ts';
 
 /**
  * 合同金额红/黄预警的阈值锁（2026-10-15 业务给定）。

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { CSCEC_LOGO_PNG_BASE64 } from './cscec-logo.base64';
+import { CSCEC_LOGO_PNG_BASE64 } from '../../assets/cscec-logo.base64';
 import { sanitizeSheetName } from '../utils/excel-sheet';
 import { round2 } from '../calc/money';
 

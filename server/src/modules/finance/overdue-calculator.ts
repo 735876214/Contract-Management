@@ -20,8 +20,8 @@
  */
 
 import { round } from '../../common/calc/money';
-import { buildOverdueStats, summarizeOverdue, type OverdueStats } from '../../common/utils/overdue-summary';
-import { modeTranchesOf } from '../../common/utils/pay-ratio';
+import { buildOverdueStats, summarizeOverdue, type OverdueStats } from './overdue-summary';
+import { modeTranchesOf } from '../contract';
 
 export { round };
 

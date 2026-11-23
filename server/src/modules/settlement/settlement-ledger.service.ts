@@ -17,7 +17,7 @@ import { ProjectScopeService } from '../../common/services/project-scope.service
 import { countedInvoiceWhere } from '../../constants/statuses';
 import { contractChainAmount, chainSettledTotal } from '../../query';
 // 账期/月份归集与结算期纯函数（与结算单侧同口径）
-import { periodKeyOf, periodMonthKey, startDayOf } from '../../common/utils/settlement-period';
+import { periodKeyOf, periodMonthKey, startDayOf } from '../../domain/settlement-period';
 
 /**
  * 导出件末尾的合计行标记（`styled.exportTable({ totalsLabel: '汇总' })` 写进「项目」列）。

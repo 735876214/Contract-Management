@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSettlementItemsFromDailyRows } from '../src/common/utils/settlement-from-daily.ts';
+import { buildSettlementItemsFromDailyRows } from '../src/modules/settlement/settlement-from-daily.ts';
 
 /**
  * 总日报 → 结算明细带出（业务口径 2026-10-18）：

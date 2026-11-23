@@ -7,7 +7,7 @@ import {
   monthlyRatioOfMode,
   resolveEffectivePayRatio,
   EXEC_STATUS_DONE_SETTLED,
-} from '../src/common/utils/pay-ratio.ts';
+} from '../src/modules/contract/pay-ratio.ts';
 import { PAYMENT_MODE_OPTIONS, CUSTOM_PAYMENT_MODE as WEB_CUSTOM } from '../../web/src/constants/paymentModes.ts';
 
 /**

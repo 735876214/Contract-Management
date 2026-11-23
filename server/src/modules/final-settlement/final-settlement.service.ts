@@ -21,7 +21,7 @@ import { DictService } from '../dict';
 import { ContractService, setContractExecStatus } from '../contract';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { requestContext } from '../../common/services/request-context';
-import { monthKey } from '../../common/utils/settlement-period';
+import { monthKey } from '../../domain/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { FINAL_SETTLEMENT_MAX_ITEMS, renderFinalSettlementXlsx } from './final-settlement-excel';
 import { formatFinalSettlementDocNumber } from './final-settlement-doc-number';

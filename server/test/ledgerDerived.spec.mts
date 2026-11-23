@@ -7,7 +7,7 @@ import {
   chainContractTotal,
   isFilledNumber,
   ratioPctOrNull,
-} from '../src/common/utils/ledger-derived.ts';
+} from '../src/modules/ledger/ledger-derived.ts';
 
 /**
  * 台账派生金额列的**口径锁**。
