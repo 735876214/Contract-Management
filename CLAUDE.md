@@ -22,7 +22,7 @@ Contract-Management/
 ├── .claude/rules/      # 规则与产品口径（按需加载，先读 rules-index.md）
 ├── server/             # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（66 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 45 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 46 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -44,12 +44,12 @@ Contract-Management/
 │   │                               #    / calc_single_source / procurement_permissions
 │   │                               #    / overdue_payable_payment / overdue_payable_material_share
 │   │                               #    / final_settlement_reduce_amount / project_branch_company / final_settlement_doc_number
-│   │                               #    / subcontractor_other_project_libs）
+│   │                               #    / subcontractor_other_project_libs / user_token_version）
 │   ├── src/common/     # 通用层：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、workflowGuards.ts
 │   ├── src/modules/    # 30 个业务模块
-│   ├── test/           # node:test 纯函数单测（98 个 spec，无 DB；清单见 docs/development.md §5）
-│   └── test-integration/ # DB 集成测试（27 个 spec，需 PostgreSQL：npm run test:int）
+│   ├── test/           # node:test 纯函数单测（101 个 spec，无 DB；清单见 docs/development.md §5）
+│   └── test-integration/ # DB 集成测试（28 个 spec，需 PostgreSQL：npm run test:int）
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
 ├── mcp/                # 独立 MCP 服务端：外部 AI 经 MCP 协议查询/导出/导入（走既有 /api，复用 RBAC）
 ├── deploy/single/  docker-compose.yml  docker-compose.dev.yml  scripts/  .github/
@@ -73,8 +73,8 @@ docker compose -f docker-compose.dev.yml up     # 本地开发（前端 :5173 / 
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（98 个 spec，无 DB）
-cd server && npm run test:int  # DB 集成测试（27 个 spec，改金额/状态/导入必跑）
+cd server && npm test          # node:test 纯函数单测（101 个 spec，无 DB）
+cd server && npm run test:int  # DB 集成测试（28 个 spec，改金额/状态/导入必跑）
 ```
 
 ## 5. 验收铁律

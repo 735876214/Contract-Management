@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { round2, round4 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
@@ -355,7 +355,7 @@ export class DailyReportService {
     delete payload.version;
     const row = await this.prisma.dailyReport.findFirst({ where: { id, ...(projectId ? { projectId } : {}) }, select: { id: true } });
     if (!row) throw new NotFoundException('日报不存在');
-    return this.prisma.dailyReport.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.dailyReport, id, before.version, payload);
   }
 
   async remove(id: string, projectId?: string) {

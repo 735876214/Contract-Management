@@ -4,7 +4,7 @@ import * as path from 'path';
 import { checkFileUrl } from '../../common/utils/safe-url';
 import { num } from '../../common/calc/numeric';
 import { fmtDate } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { projectWhere } from '../../common/utils/project-scope';
 import { pickFields } from '../../common/pick-fields';
@@ -334,7 +334,18 @@ export class ContractService {
     await this.lock.assertWritable(id, action);
   }
 
-  /** 合同编号查重：scope = GLOBAL 全局唯一 / PROJECT 项目内唯一 */
+  /**
+   * 合同编号查重：scope = GLOBAL 全局唯一 / PROJECT 项目内唯一。
+   *
+   * ⚠️ **GLOBAL 只在应用层校验，库里没有对应约束**：`Contract` 的唯一键是
+   * `@@unique([projectId, code])`，跨项目同号在 DB 上是允许的。默认 scope 是 GLOBAL
+   * （`sysParam` 未配置时），因此：
+   * - 同一时序的两个请求（或任何绕过 `create()` 的写入路径）可以突破"全局唯一"；
+   * - 要真正锁死，需要先审存量数据（下面这条 SQL）再加 `@@unique([code])`：
+   *   `SELECT code, count(*) FROM "Contract" GROUP BY code HAVING count(*) > 1;`
+   * 编号竞态按产品口径（`product-decisions.md`：不做多副本部署）**不推进**加锁，
+   * 这里只保证"读得到的说明与实现一致"，别再按注释以为有 DB 兜底。
+   */
   async checkCode(code: string, projectId: string, excludeId?: string) {
     if (!code) return { exists: false };
     const scope = await this.sysParam.get('contract.code.unique.scope', 'GLOBAL');
@@ -426,7 +437,9 @@ export class ContractService {
     /**
      * 取「当前已用最大顺序码」：**必须按数值求 max**。
      * 旧实现 `orderBy: { yearSeq: 'desc' }` 是字符串序——seqDigits=3 时 `20261000` 在字符串上
-     * 排在 `2026999` 之前（'1' < '9'），单年超过 999 份后取号永远卡在 999 并撞 `yearSeq` 唯一键。
+     * 排在 `2026999` 之前（'1' < '9'），单年超过 999 份后取号永远卡在 999。
+     * ⚠️ `yearSeq` **没有**唯一索引（schema 里只有 `@@unique([projectId, code])`），
+     * 撞号最终由 `code` 的项目内唯一键拦住 → 用户看到的是「数据重复」（400），不是友好提示。
      * 这里用一条聚合 SQL 直接取数值最大值（只回传一个数字，不把合同行拖回内存）；
      * 异常或数据格式异常时回退到旧的字符串倒序，保底不阻断出号。
      */
@@ -1040,9 +1053,7 @@ export class ContractService {
     }
     this.assertAmountAndRate(data.amount, data.taxRatePct);
     const safeAttachments = this.safeAttachments(attachments);
-    const contract = await this.prisma.contract.update({
-      where: { id },
-      data: {
+    const contract = await versionedUpdate(this.prisma.contract, id, before.version, {
         ...nextFields,
         ...signDatePatch,
         /**
@@ -1051,8 +1062,6 @@ export class ContractService {
          */
         ...(data.amount !== undefined ? { amount: num(data.amount) } : {}),
         ...(data.taxRatePct !== undefined ? { taxRatePct: num(data.taxRatePct) } : {}),
-        version: { increment: 1 },
-      },
     });
     if (ext) await this.saveExt(id, ext);
     // 付款安排 / 执行情况（execStatus）变更后重算「当前生效比例」

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { round2, round4 } from '../../common/calc/money';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 
@@ -592,7 +592,7 @@ export class SettlementService {
         await detachInvoicesOfSettlement(t, id);
         await detachReceiptOrdersOfSettlement(t, id);
       }
-      const row: any = await t.settlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      const row: any = await versionedUpdate(t.settlement, id, before.version, payload);
       if (data.items) await this.syncItems(id, rawItems, t);
       return row;
     });

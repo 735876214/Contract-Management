@@ -25,7 +25,7 @@ class ChangePwdDto {
   oldPassword!: string;
 
   @IsString()
-  @MinLength(6, { message: '新密码长度不能少于 6 位' })
+  @MinLength(8, { message: '新密码长度不能少于 8 位（且需同时包含字母和数字）' })
   // 由全局 ValidationPipe 填充，构造器里没有赋默认值
   newPassword!: string;
 }

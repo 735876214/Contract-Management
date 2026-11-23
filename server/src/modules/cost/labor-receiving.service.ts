@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { round2 } from '../../common/calc/money';
 import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
@@ -170,14 +170,14 @@ export class LaborReceivingService {
     if (payload.status !== undefined && !Object.values(LABOR_RECEIVING_DOC_STATUS).includes(payload.status)) {
       throw new BadRequestException('单据状态不合法（仅支持 DRAFT / COMPLETED）');
     }
-    payload.version = doc.version + 1;
+    // version 由 versionedUpdate 原子 +1（条件写入），不再手算
     /**
      * 头 + 明细同一事务（第 6 轮审计）：原来是「先更新头（version 已 +1）再逐行 upsert」，
      * 中途失败会留下「头改了、明细只写一半」，而 version 已经推进 → 用户重试直接 409，
      * 只能手工修数据。
      */
     await this.prisma.$transaction(async (tx) => {
-      await tx.laborReceivingDoc.update({ where: { id }, data: payload });
+      await versionedUpdate(tx.laborReceivingDoc, id, doc.version, payload);
       if (Array.isArray(data?.details)) {
         if (data.details.length > 500) throw new BadRequestException('单次最多保存 500 行明细');
         for (const d of data.details) {

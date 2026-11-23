@@ -8,7 +8,7 @@ import {
 } from '../../constants/statuses';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
@@ -876,16 +876,12 @@ export class ReceiptOrderService {
     const saved = await this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
       await tx.receiptOrderDetail.deleteMany({ where: { orderId: id } });
-      await tx.receiptOrder.update({
-        where: { id },
-        data: {
-          ...this.normalizeHeader(data),
-          settlementId,
-          status: RECEIPT_STATUS.SAVED,
-          pushedAt: new Date(),
-          version: { increment: 1 },
-          details: { create: details },
-        },
+      await versionedUpdate(tx.receiptOrder, id, before.version, {
+        ...this.normalizeHeader(data),
+        settlementId,
+        status: RECEIPT_STATUS.SAVED,
+        pushedAt: new Date(),
+        details: { create: details },
       });
       // 需求 2.2.3：收领单修改后，资产台账记录同步更新（含移除不再属于资产的明细行）
       await this.syncAssetLedger(id, tx, assetDict);

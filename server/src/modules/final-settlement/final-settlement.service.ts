@@ -12,7 +12,7 @@ export interface UpdateItemsBody {
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { notDraft } from '../../common/utils/contract-chain';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
@@ -226,7 +226,7 @@ export class FinalSettlementService {
     const payload: any = pickFields(data, FIELDS, { label: '总结算单' });
     delete payload.version;
     // 状态只经受控动作（上传附件）变更，不从这里直传 —— 否则"已结算"会绕过合同状态联动
-    return this.prisma.finalSettlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.finalSettlement, id, before.version, payload);
   }
 
   /**

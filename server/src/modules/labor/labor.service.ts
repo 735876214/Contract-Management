@@ -3,7 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { resolveOrCreateSubcontractor } from '../subcontractor';
 
@@ -156,10 +156,7 @@ export class LaborService {
     if (data?.status && [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED].includes(data.status)) {
       payload.status = data.status;
     }
-    return this.prisma.laborAuthLedger.update({
-      where: { id },
-      data: { ...payload, version: { increment: 1 } },
-    });
+    return versionedUpdate(this.prisma.laborAuthLedger, id, old.version, payload);
   }
 
   async remove(id: string, projectId?: string) {

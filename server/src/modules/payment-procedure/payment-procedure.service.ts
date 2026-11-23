@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
@@ -167,7 +167,7 @@ export class PaymentProcedureService {
       const amounts = await this.resolveContractAmounts(payload.contractId);
       Object.assign(payload, amounts);
     }
-    return this.prisma.paymentProcedure.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.paymentProcedure, id, before.version, payload);
   }
 
   async remove(id: string) {

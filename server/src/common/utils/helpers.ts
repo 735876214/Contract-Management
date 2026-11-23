@@ -51,6 +51,42 @@ export function assertImportRows(rows: any[], max = IMPORT_MAX_ROWS) {
 }
 
 /**
+ * 乐观锁的**原子**写入（2026-11-23 第 24 轮审计）：
+ * 更新条件里带上 `version`，同一条 SQL 里 `version + 1`。
+ *
+ * 背景：`assertVersion()` 是「读 → 比 → 按 id 无条件 update」，校验与写入之间没有互斥。
+ * 另一个请求在这个窗口内提交后，本次写入依然会覆盖对方（lost update），
+ * 并把 version 推到 +1 —— 系统认为一切正常，是最难排查的一类数据错误。
+ *
+ * 用法：先 `assertVersion(old, data)` 给出友好 409（可选，便于提前拦），再
+ * `versionedUpdate(this.prisma.xxx, id, old.version, payload)`。
+ * 命中不了行（P2025：版本不符 **或** 已被删除）统一转 409，让前端「刷新后重试」。
+ * 注意：`where` 用的是 Prisma 5 的 extendedWhereUnique（唯一键 + 普通列同用），
+ * 因此 `include` / 嵌套写（`details: { create }`）照常可用。
+ */
+export async function versionedUpdate<T = any>(
+  delegate: { update: (args: any) => Promise<T> },
+  id: string,
+  version: unknown,
+  data: Record<string, any>,
+  opts: { conflictMessage?: string; include?: Record<string, any> } = {},
+): Promise<T> {
+  try {
+    return await delegate.update({
+      // version 在最后展开：调用方在 data 里塞的 version 一律被覆盖（否则锁又失效）
+      where: { id, version: Number(version) },
+      data: { ...data, version: { increment: 1 } },
+      ...(opts.include ? { include: opts.include } : {}),
+    });
+  } catch (e: any) {
+    if (e?.code === 'P2025') {
+      throw new ConflictException(opts.conflictMessage || '数据已被其他用户修改或已删除，请刷新后重试');
+    }
+    throw e;
+  }
+}
+
+/**
  * 单条记录的**项目归属**校验（按 id 读写删的统一入口）。
  *
  * 背景：`JwtAuthGuard` 只校验「当前用户是不是请求头里那个项目的成员」，

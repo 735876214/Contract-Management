@@ -40,6 +40,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || user.status !== 1) return null;
+    /**
+     * 令牌版本校验（2026-11-23）：改密 / 重置密码 / 停用会把 `User.tokenVersion` +1，
+     * 旧 token 里的 `tv` 对不上就当场失效——不必等 7 天有效期。
+     * 存量 token（本字段上线前签发）没有 `tv`，按 0 处理：迁移后 `tokenVersion` 默认也是 0，
+     * 因此**上线不会把所有人踢下线**。
+     */
+    if (Number(payload?.tv ?? 0) !== Number(user.tokenVersion ?? 0)) return null;
     const permissions = await this.authService.getPermissions(user.id, user.isSuperAdmin);
     return {
       userId: user.id,

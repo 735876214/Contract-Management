@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { round2 } from '../../common/calc/money';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService } from '../../common/services/import-template.service';
 import { ContractService } from '../contract';
@@ -453,10 +453,7 @@ export class ProcurementTaskService {
       Object.assign(patch, clauseInput, snapshots);
     }
 
-    const updated = await this.prisma.procurementTask.update({
-      where: { id },
-      data: { ...patch, version: { increment: 1 } },
-    });
+    const updated = await versionedUpdate(this.prisma.procurementTask, id, current.version, patch);
     return { ...serializeTask(updated), stages: this.buildStages(updated) };
   }
 

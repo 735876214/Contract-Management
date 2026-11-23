@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, IMPORT_MAX_ROWS, versionedUpdate } from '../../common/utils/helpers';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
@@ -123,7 +123,7 @@ export class SupplierService {
     }
     const payload: any = pickFields(data, SUPPLIER_FIELDS, { label: '供应商' });
     delete payload.version;
-    return this.prisma.supplier.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.supplier, id, before.version, payload);
   }
 
   async remove(id: string) {
