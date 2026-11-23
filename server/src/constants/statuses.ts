@@ -90,6 +90,7 @@ export const PAYMENT_EXCLUDED_STATUSES: string[] = [PAYMENT_STATUS.FAILED, PAYME
  * `chainPaidTotal`（common/utils/contract-chain.ts）把空状态算作有效付款（历史导入数据未填状态），
  * 两处结论相反会让「台账已付金额」与「防超付闸门」互相打架。故这里显式把 NULL 归入有效付款。
  */
+// @metric: payment-counted-statuses
 export function paidPaymentWhere(): { OR: any[] } {
   return { OR: [{ statusCode: null }, { statusCode: { notIn: PAYMENT_EXCLUDED_STATUSES } }] };
 }

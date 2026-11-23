@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（107 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（108 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（32 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -145,6 +145,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
   | `test/bodyWhitelist.spec.mts` | **请求体白名单门禁自守**（当前仓库通过门禁 · 负向 fixture 必须判失败 · 豁免条数不超过脚本 `MAX_ALLOW`，防止门禁退化） |
   | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
+| `test/metricsRegistry.spec.mts` | **报表口径单一实现锁**（2026-11-23 架构评审 P1：治「同一指标各处各算一遍」）：每个登记指标在 `server/src` 内**恰好一个** `// @metric: <id>` 标记（两处=口径分叉、零处=实现被删）· 标记文件必须等于 `constants/metrics.ts` 登记的 `impl` 且符号存在 · 无孤儿标记 · `docs/report-metrics.md` 逐行登记（三处漂移即红） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/antdStaticApi.spec.mts` | **antd 静态 API 主题桥锁**（`web/src` 不得再从 antd 直接引入静态 `message`；`App.tsx` 必须把 `App.useApp().message` 绑到 `utils/antdStatic.ts`；静态 `Modal.xxx` 必须为 0） |
   | `test/designNumeric.spec.mts` | **数字排版锁**（DESIGN.md §2.1）：表格/KPI 必须声明等宽数字 `tabular-nums` 且只在 `index.css` 收口；金额语义的列必须 `align: 'right'` |

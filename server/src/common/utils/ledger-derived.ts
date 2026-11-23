@@ -83,6 +83,7 @@ export interface LedgerDerivedFields {
  * 由原始数据推出台账的派生金额列。**台账 `findAll()` 必须调用它**，不要就地再写算式
  * （就地写就会再次分叉出第二套口径——这正是本次修复的起因）。
  */
+// @metric: ledger-derived-amounts
 export function deriveLedgerAmounts(input: LedgerDerivedInput): LedgerDerivedFields {
   const amountFilled = isFilledNumber(input.amount);
   const amount = amountFilled ? round2(Number(input.amount)) : 0;
@@ -175,6 +176,7 @@ function invoiceInputTaxOf(r: InvoiceTaxSource, beforeTax: number | null): numbe
  * - 有票但税额算不出（税前与含税都为空，或税前为空且无税率反推）→ 该票不参与合计，
  *   且若全部票都算不出则对应列为 `null`（"未知"沿用全站三态，不兜成 0）。
  */
+// @metric: ledger-invoice-tax
 export function sumInvoiceTax(rows: InvoiceTaxSource[]): InvoiceTaxSum {
   let beforeSum = 0;
   let taxSum = 0;
@@ -222,6 +224,7 @@ export interface ChainRowAmount {
  * 判定只看 `rootId`（与 `contract-chain.ts` 的链定义同源），**不再依赖 `isSupplement` 字典值**——
  * 两份判据不一致时（有 `parentContractId` 但 `isSupplement≠'Y'`）会重复计入或漏计。
  */
+// @metric: ledger-chain-root-amount
 export function chainRootAmounts(rows: ChainRowAmount[]): Map<string, number | null> {
   const byRoot = new Map<string, number | null>();
   for (const r of rows) {

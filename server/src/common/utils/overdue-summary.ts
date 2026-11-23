@@ -98,6 +98,7 @@ export const interestOf = (row: OverdueSummaryRow, value?: unknown): number => {
  * @param interestOf 取单行计息额的访问器——重算场景须传入「本次算出的值」，
  *                   列表场景传 `(r) => interestOf(r)`（读库中已持久化的值）
  */
+// @metric: overdue-summary
 export function summarizeOverdue(
   rows: OverdueSummaryRow[],
   interestOfRow: (row: OverdueSummaryRow, index: number) => number,

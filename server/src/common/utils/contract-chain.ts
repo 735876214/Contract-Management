@@ -114,6 +114,7 @@ export function chainRowCountByRoot<T extends ContractChainRowLike>(rows: readon
  * @param rows 项目内（或至少覆盖整条链）的合同行
  * @param contractId 参与计算的合同（主合同或任一补充协议）
  */
+// @metric: contract-chain-amount
 export function resolveChainAmounts(rows: ContractChainRow[], contractId: string): ChainAmounts {
   const empty: ChainAmounts = {
     rootId: null,
@@ -204,6 +205,7 @@ export async function contractChainAmount(db: any, contractId: string): Promise<
 }
 
 /** 链上累计结算额（`actualAmount` 回退 `amount`，排除草稿与 excludeId 自身） */
+// @metric: contract-settled-total
 export async function chainSettledTotal(db: any, contractId: string, excludeId?: string): Promise<number> {
   const ids = await contractChainIds(db, contractId);
   if (!ids.length) return 0;
@@ -220,6 +222,7 @@ export async function chainSettledTotal(db: any, contractId: string, excludeId?:
  * 求和即含已生效变更增量；同物资跨链成员叠加。
  * 返回 Map(materialBaseId → 合计 qty)；链上没有清单 → 空 Map。
  */
+// @metric: contract-material-qty
 export async function chainMaterialQty(db: any, contractId: string): Promise<Map<string, number>> {
   const ids = await contractChainIds(db, contractId);
   const map = new Map<string, number>();
@@ -266,6 +269,7 @@ export async function chainSettledItemQty(
  * - `excludeStatuses`：排除**不构成实际出资**的状态（如 `FAILED 付款失败` / `REFUNDED 已退款`），
  *   否则一笔失败记录会虚增"累计付款"，在 BLOCK 策略下误挡后续正常付款
  */
+// @metric: contract-paid-total
 export async function chainPaidTotal(
   db: any,
   contractId: string,

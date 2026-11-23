@@ -87,6 +87,7 @@ interface Bucket {
 const emptyBucket = (): Bucket => ({ qty: 0, amount: 0, hasQty: false, hasAmount: false });
 
 /** 按来源汇总进出场数量与金额（金额取台账 `totalAmount` = 数量 × 单价） */
+// @metric: asset-flow
 export function summarizeAssetFlow(rows: AssetFlowRow[]): AssetFlowSummary {
   const bySource = new Map<string, Bucket>();
   for (const r of rows) {
