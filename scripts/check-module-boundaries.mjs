@@ -69,6 +69,33 @@ const AI_READ_ONLY_DIRS = [
   'server/src/modules/ai/analysis/',
 ];
 
+/**
+ * **AI 只读子域不得内联口径片段**（2026-11-23 架构评审 P1）。
+ *
+ * §3.1 允许只读子域自己写**明细查询**（数据集逐行取数，字段各异、无法复用 `load*Facts()`），
+ * 但口径的原子片段只能来自单一来源：`notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
+ * 手写等价 where 的后果是"排除草稿/排除失败退款/排除红冲"各写一遍，改一处漏一处——
+ * 这类副本在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行。
+ */
+const INLINE_PREDICATE_RULES = [
+  {
+    re: /statusCode:\s*\{\s*not:\s*['"]DRAFT['"]\s*\}/g,
+    hint: "改用 common/utils/contract-chain 的 notDraft（它显式把 NULL 算作非草稿）",
+  },
+  {
+    re: /notIn:\s*\[[^\]]*['"]DRAFT['"][^\]]*\]/g,
+    hint: '改用 notDraft：手写 notIn 会在 SQL 三值逻辑下漏掉 statusCode IS NULL 的行',
+  },
+  {
+    re: /(?:notIn|in):\s*\[[^\]]*['"](?:FAILED|REFUNDED)['"][^\]]*\]/g,
+    hint: '改用 constants/statuses 的 paidPaymentWhere() / PAYMENT_EXCLUDED_STATUSES',
+  },
+  {
+    re: /(?:notIn|in):\s*\[[^\]]*['"](?:CANCELLED|RED)['"][^\]]*\]/g,
+    hint: '改用 constants/statuses 的 countedInvoiceWhere() / INVOICE_EXCLUDED_STATUSES',
+  },
+];
+
 /** fan-out 超过该值的模块会在输出里标为聚合器（仅供参考，不是错误） */
 const AGGREGATOR_FANOUT = 5;
 
@@ -149,6 +176,21 @@ for (const file of files) {
   }
 
   const aiReadOnly = AI_READ_ONLY_DIRS.some((d) => file.startsWith(d));
+
+  // AI 只读子域：明细查询允许，但口径片段不得内联（必须 import 单一来源）
+  if (aiReadOnly) {
+    for (const rule of INLINE_PREDICATE_RULES) {
+      rule.re.lastIndex = 0;
+      let pm;
+      while ((pm = rule.re.exec(src))) {
+        readViolations.push({
+          file,
+          line: src.slice(0, pm.index).split('\n').length,
+          rule: `AI 只读子域不得内联口径片段（命中「${pm[0].replace(/\s+/g, ' ').trim()}」）— ${rule.hint}`,
+        });
+      }
+    }
+  }
   for (const m of src.matchAll(IMPORT_RE)) {
     const spec = m[1] || m[2];
     const target = resolve(file, spec);

@@ -48,6 +48,10 @@ export { SettlementService } from './settlement.service';
     作废/红冲发票不计入）只在这一处维护。`field-resolver` / `report` / `dataset-collector` /
     `scm` 已接入；**不要再在 AI service 里手写这几张表的同一套 where**。
     数据集明细查询（工作簿逐行取数）仍留在 `dataset-collector` 内，因为它们字段各异、不复用。
+    **但口径片段不得内联**：`statusCode: { not: 'DRAFT' }`、`notIn: ['FAILED','REFUNDED']`、
+    `in: ['CANCELLED','RED']` 这类手写等价 where 一律禁止（在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行），
+    必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
+    由检查器 `INLINE_PREDICATE_RULES` 锁定 `AI_READ_ONLY_DIRS`（2026-11-23 加，现状 0 违规）。
   - `ai/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
     名称拼接、字典校验），**允许**依赖业务模块公开入口，不要"优化"掉。
 

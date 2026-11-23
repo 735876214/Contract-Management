@@ -610,6 +610,9 @@ node scripts/check-import-integrity.mjs
 `query/dashboard-queries.ts`（`modules/dashboard/**` 同样不得出现 `prisma.<模型>`）；AI 的窗口事实
 （合同链 / 结算 / 付款 / 发票 / 项目范围 / 日报与采购计数）统一走 `query/ai-fact-queries.ts`，
 `field-resolver` / `report` / `dataset-collector` / `scm` 已接入；AI 只读子域（`analytics` / `anomaly` /
-`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
+`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外；
+只读子域**允许**写明细查询（数据集逐行取数），但**不得内联口径片段**（
+`statusCode: { not: 'DRAFT' }` / `notIn: ['FAILED','REFUNDED']` / `in: ['CANCELLED','RED']`），
+必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
 两类规则都由 `check-module-boundaries` 锁定。
 
