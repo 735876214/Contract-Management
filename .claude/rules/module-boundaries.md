@@ -35,6 +35,10 @@ export { SettlementService } from './settlement.service';
 
 - `archive` 的 11 个域读取已收敛到 `server/src/query/archive-queries.ts`；
   `modules/archive/**` **不得出现 `prisma.<模型>`**，由检查器锁定。
+- 同理，**工作台**是纯只读聚合器（读合同/结算/台账/付款/发票/总结算/付款手续/逾期应付/采购/履约 10 张表），
+  它的全部跨域读取已收敛到 `server/src/query/dashboard-queries.ts`；
+  `modules/dashboard/**` **不得出现 `prisma.<模型>`**，同样由检查器锁定
+  （2026-11-23 收敛前是 37 处，口径改动要在工作台里再抄一遍 where，抄漏就是第二套口径）。
 - 新的跨域只读查询按 `<域>-queries.ts` 放进 `server/src/query/`，通过 `server/src/query/index.ts` 导出；
   函数只读、不带事务、每个都显式带 `projectId`。
 - AI 分两类：

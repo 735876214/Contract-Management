@@ -3,6 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
 import { DashboardService } from '../src/modules/dashboard';
+import { monthSequence } from '../src/common/calc/index.ts';
 
 /**
  * 集成测试 · **工作台「合同额」按合同链只计一次**（2026-11-23 架构评审 P1）。
@@ -139,5 +140,83 @@ describe('集成 · 工作台合同额（链口径）', () => {
     // 别项目不受影响：它自己的链金额仍是 99999
     const otherOverview: any = await svc.overview(other.id, {});
     assert.equal(Number(otherOverview.contractAmount), 99999);
+  });
+
+  /**
+   * 下面三条覆盖 2026-11-23 的**查询层收口**（`dashboard.service` 里 37 处 `prisma.<模型>`
+   * 全部搬进 `query/dashboard-queries.ts`）。这几个方法此前**零测试覆盖**，
+   * 只靠 tsc 证明不了"搬完行为没变"，所以这里补上。
+   */
+  it('⑥ todos：9 个分类常驻，各类 count 与落地数据一致、target 指回单据', async () => {
+    const project = await makeProject(ctx.prisma, 'DB-TODO');
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, amount: 1000, status: 'APPROVING' });
+    const settlement = await ctx.prisma.settlement.create({
+      data: { projectId: project.id, code: uniq('JS'), statusCode: 'DRAFT', contractId: contract.id } as any,
+    });
+    const invoice = await ctx.prisma.invoice.create({
+      data: { projectId: project.id, invoiceNo: uniq('FP'), statusCode: 'WAIT_VERIFY', amountWithTax: 100 } as any,
+    });
+    const task = await ctx.prisma.procurementTask.create({
+      data: { projectId: project.id, taskNo: uniq('CG').toUpperCase(), content: '待编制任务', status: 'NOT_STARTED', type: 'SINGLE' } as any,
+    });
+    const procedure = await ctx.prisma.paymentProcedure.create({
+      data: { projectId: project.id, code: uniq('FK'), contractId: contract.id, payDate: null } as any,
+    });
+
+    // 超管能看到全部分类（无权限的分类整体不下发）
+    const res: any = await svc.todos(project.id, { isSuperAdmin: true, permissions: [] });
+    assert.equal(res.groups.length, 9, '9 个待办分类必须常驻（0 条的也返回，前端 Tab 常驻）');
+    const g = (key: string) => res.groups.find((x: any) => x.key === key);
+    assert.equal(g('CONTRACT_SIGN').count, 1, '待签章合同 1 份');
+    assert.equal(g('SETTLEMENT_DRAFT').count, 1);
+    assert.equal(g('SETTLEMENT_DRAFT').items[0].target.editor, settlement.id, '待办要能直接跳到该单据编辑器');
+    assert.equal(g('INVOICE_VERIFY').count, 1);
+    assert.equal(g('INVOICE_VERIFY').items[0].target.editor, invoice.id);
+    assert.equal(g('PROCUREMENT_TODO').count, 1);
+    assert.equal(g('PROCUREMENT_TODO').items[0].target.editor, task.id);
+    assert.equal(g('PAYMENT_PROCEDURE').count, 1);
+    assert.equal(g('PAYMENT_PROCEDURE').items[0].target.editor, procedure.id);
+    assert.equal(g('CONTRACT_DRAFT').count, 0, '刚建的合同还没超时（2 小时内）');
+  });
+
+  it('⑦ invoiceStats：按类型只算有效票，按状态含全部状态', async () => {
+    const project = await makeProject(ctx.prisma, 'DB-INV');
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, invoiceNo: uniq('OK'), statusCode: 'VERIFIED', typeCode: 'VAT_SPECIAL', amountWithTax: 100 } as any,
+    });
+    await ctx.prisma.invoice.create({
+      data: { projectId: project.id, invoiceNo: uniq('VOID'), statusCode: 'CANCELLED', typeCode: 'VAT_SPECIAL', amountWithTax: 200 } as any,
+    });
+
+    const stats: any = await svc.invoiceStats(project.id);
+    const special = stats.byType.find((t: any) => t.typeCode === 'VAT_SPECIAL');
+    assert.equal(special.count, 1, '作废票不计入按类型张数');
+    assert.equal(special.amount, 100, '作废票不计入按类型金额');
+    const byStatus = new Map(stats.byStatus.map((s: any) => [s.statusCode, s.count]));
+    assert.equal(byStatus.get('VERIFIED'), 1);
+    assert.equal(byStatus.get('CANCELLED'), 1, '状态分布仍保留全部状态');
+  });
+
+  it('⑧ trend：固定回 12 个月，当月结算/付款按月份键归位', async () => {
+    const project = await makeProject(ctx.prisma, 'DB-TREND');
+    const contract = await makeContract(ctx.prisma, { projectId: project.id, amount: 1000 });
+    const now = new Date();
+    const months = monthSequence(now, 12);
+    const thisMonth = months[months.length - 1];
+
+    await ctx.prisma.settlementLedger.create({
+      data: { projectId: project.id, contractId: contract.id, settleMonth: thisMonth, monthSettleAmount: 500 } as any,
+    });
+    await ctx.prisma.paymentRecord.create({
+      data: { projectId: project.id, contractId: contract.id, payMonth: thisMonth, amount: 300, statusCode: 'PAID' } as any,
+    });
+
+    const rows: any[] = await svc.trend(project.id, now);
+    assert.equal(rows.length, 12, '趋势图固定 12 个月（缺月补 0）');
+    const cur = rows[rows.length - 1];
+    assert.equal(cur.month, thisMonth);
+    assert.equal(Number(cur.settleAmount), 500);
+    assert.equal(Number(cur.paidAmount), 300);
+    assert.equal(rows[0].settleAmount, 0, '没有数据的月份补 0');
   });
 });

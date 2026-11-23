@@ -31,6 +31,12 @@ const INFRA_MODULES = new Set(['auth']);
 
 /** 归档是聚合器，但跨域读取必须走 query/，不得自己 prisma.<模型> */
 const ARCHIVE_DIR = 'server/src/modules/archive/';
+/**
+ * 工作台同样是纯只读聚合器（读 10 张表），跨域读取一律走 `query/dashboard-queries.ts`。
+ * 2026-11-23 收敛前它有 37 处 `prisma.<模型>`——口径改动要在工作台里再抄一遍 where，
+ * 抄漏就是第二套口径，而且检查器锁不住。收敛后为 0，从此由本规则守门。
+ */
+const DASHBOARD_DIR = 'server/src/modules/dashboard/';
 
 /**
  * AI 根目录的 service 不得直查业务域事实表（必须走 server/src/query/）。
@@ -113,6 +119,18 @@ for (const file of files) {
         file,
         line: src.slice(0, m.index).split('\n').length,
         rule: `archive 不得直接查表（命中 ${m[0]}），改走 server/src/query/ 的只读查询`,
+      });
+    }
+  }
+
+  // 工作台：同上（聚合读取全部收进 query/dashboard-queries.ts）
+  if (file.startsWith(DASHBOARD_DIR)) {
+    const m = /\bprisma\.[A-Za-z]\w*/.exec(src);
+    if (m) {
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `dashboard 不得直接查表（命中 ${m[0]}），改走 server/src/query/dashboard-queries.ts 的只读查询`,
       });
     }
   }
