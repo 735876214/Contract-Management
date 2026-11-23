@@ -12,9 +12,9 @@
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-import { buildPaymentAnomalyInput, type AnomalyRows } from '../src/modules/ai/anomaly/anomaly-dataset.ts';
-import { evaluatePaymentAnomalies } from '../src/modules/ai/anomaly/rules-payment.ts';
-import { gateStatus, parseTruth, scoreFindings, scoreToMarkdown, type ScoreMeta } from '../src/modules/ai/anomaly/anomaly-score.ts';
+import { buildPaymentAnomalyInput, type AnomalyRows } from '../src/modules/ai-insight/anomaly/anomaly-dataset.ts';
+import { evaluatePaymentAnomalies } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
+import { gateStatus, parseTruth, scoreFindings, scoreToMarkdown, type ScoreMeta } from '../src/modules/ai-insight/anomaly/anomaly-score.ts';
 
 interface Args {
   dataset: string;

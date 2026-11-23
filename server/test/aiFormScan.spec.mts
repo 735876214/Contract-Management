@@ -9,7 +9,7 @@ import {
   scanWorkbook,
   trimLabel,
   type FormCell,
-} from '../src/modules/ai/form-scan.ts';
+} from '../src/modules/ai-core/form-scan.ts';
 
 /**
  * AI 助手表单扫描（零依赖纯函数）。

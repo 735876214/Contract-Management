@@ -13,19 +13,20 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
-import { AiService } from './ai.service';
-import { AiSettingService, type AiSettingInput, type AiSettingTestInput } from './ai-setting.service';
-import { RegisterService, type RegisterConfirmInput } from './register.service';
-import { ReportService } from './report.service';
-import { AnomalyService, type PaymentAnomalyQuery } from './anomaly/anomaly.service';
-import { QuoteService, type QuoteAnomalyQuery } from './quote/quote.service';
-import { FulfillmentService, type FulfillmentAnomalyQuery } from './fulfillment/fulfillment.service';
-import { ScmService, type ScmAnalysisQuery } from './analysis/scm.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
-import { sendFile } from '../../common/http/download';
+import { AiService } from '../ai-insight/index.ts';
+import { AiSettingService } from '../ai-core/ai-setting.service.ts';
+import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
+import { RegisterService, type RegisterConfirmInput } from '../ai-fill/index.ts';
+import { ReportService } from '../ai-insight/index.ts';
+import { AnomalyService, type PaymentAnomalyQuery } from '../ai-insight/index.ts';
+import { QuoteService, type QuoteAnomalyQuery } from '../ai-fill/index.ts';
+import { FulfillmentService, type FulfillmentAnomalyQuery } from '../ai-fill/index.ts';
+import { ScmService, type ScmAnalysisQuery } from '../ai-insight/index.ts';
+import { JwtAuthGuard } from '../auth';
+import { PermissionsGuard } from '../auth';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator.ts';
+import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator.ts';
+import { sendFile } from '../../common/http/download.ts';
 
 /**
  * 上传限额：multer 层 50MB 是**硬上限**（与 nginx `client_max_body_size 50m`、

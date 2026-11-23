@@ -4,18 +4,18 @@ import {
   QUOTE_PARAM_KEYS,
   parseQuoteConfig,
   quoteToleranceText,
-} from '../src/modules/ai/quote/quote-config.ts';
+} from '../src/modules/ai-fill/quote/quote-config.ts';
 import {
   auditQuoteNarrative,
   buildQuoteMessages,
   fallbackQuoteNarrative,
-} from '../src/modules/ai/quote/quote-prompt.ts';
+} from '../src/modules/ai-fill/quote/quote-prompt.ts';
 import {
   DEFAULT_QUOTE_TOLERANCES,
   QUOTE_CODES,
   type QuoteEvaluation,
   type QuoteFinding,
-} from '../src/modules/ai/quote/quote-types.ts';
+} from '../src/modules/ai-fill/quote/quote-types.ts';
 
 /** 造一条命中：facts 里的数字就是「允许模型引用」的全集 */
 function finding(over: Partial<QuoteFinding> = {}): QuoteFinding {

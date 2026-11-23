@@ -13,17 +13,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { r2Overpay, r4InvoiceMismatch } from '../src/modules/ai/anomaly/rules-payment.ts';
-import { resolveTolerances } from '../src/modules/ai/anomaly/anomaly-types.ts';
-import type { PaymentAnomalyInput } from '../src/modules/ai/anomaly/anomaly-types.ts';
-import { c3SequenceInverted, c6ProgressPaymentGap, c7SettledUnfinished, evaluateFulfillmentAnomalies } from '../src/modules/ai/fulfillment/rules-fulfillment.ts';
-import { resolveFulfillmentTolerances } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
-import type { FulfillmentContractRow, FulfillmentInput } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
-import { evaluateQuoteAnomalies } from '../src/modules/ai/quote/rules-quote.ts';
-import { auditNarrativeNumbers } from '../src/modules/ai/common/narrative.ts';
-import { auditNumbers } from '../src/modules/ai/report-facts.ts';
-import { buildScmFacts, scmFactNumbers } from '../src/modules/ai/analysis/scm-facts.ts';
-import { parseScmConfig, SCM_PARAM_KEYS } from '../src/modules/ai/analysis/scm-config.ts';
+import { r2Overpay, r4InvoiceMismatch } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
+import { resolveTolerances } from '../src/modules/ai-insight/anomaly/anomaly-types.ts';
+import type { PaymentAnomalyInput } from '../src/modules/ai-insight/anomaly/anomaly-types.ts';
+import { c3SequenceInverted, c6ProgressPaymentGap, c7SettledUnfinished, evaluateFulfillmentAnomalies } from '../src/modules/ai-fill/fulfillment/rules-fulfillment.ts';
+import { resolveFulfillmentTolerances } from '../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
+import type { FulfillmentContractRow, FulfillmentInput } from '../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
+import { evaluateQuoteAnomalies } from '../src/modules/ai-fill/quote/rules-quote.ts';
+import { auditNarrativeNumbers } from '../src/modules/ai-core/common/narrative.ts';
+import { auditNumbers } from '../src/modules/ai-insight/report-facts.ts';
+import { buildScmFacts, scmFactNumbers } from '../src/modules/ai-insight/analysis/scm-facts.ts';
+import { parseScmConfig, SCM_PARAM_KEYS } from '../src/modules/ai-insight/analysis/scm-config.ts';
 
 const payCtx = () => ({ tol: resolveTolerances(), notEvaluated: [] as string[] });
 const fulCtx = () => ({

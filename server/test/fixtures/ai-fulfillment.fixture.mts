@@ -10,7 +10,7 @@
  * 另外给一份「全干净」夹具（0 命中）用来证明规则不会无中生有。
  */
 
-import type { FulfillmentInput } from '../../src/modules/ai/fulfillment/fulfillment-types.ts';
+import type { FulfillmentInput } from '../../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
 
 /** 判定基准日：2026-10-24 本地零点 */
 export const FIXTURE_NOW = new Date(2026, 9, 24);

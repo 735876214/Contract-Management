@@ -9,7 +9,7 @@ import {
   scoreFindings,
   scoreToMarkdown,
   type TruthFile,
-} from '../src/modules/ai/anomaly/anomaly-score.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-score.ts';
 
 /**
  * 评分层单测。

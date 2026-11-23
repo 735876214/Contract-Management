@@ -13,7 +13,7 @@ const { Text, Paragraph } = Typography;
 /**
  * 命中码 → 中文名。
  *
- * 与 `server/src/modules/ai/quote/quote-types.ts` 的 `QUOTE_CODE_LABELS` 保持一致；
+ * 与 `server/src/modules/ai-fill/quote/quote-types.ts` 的 `QUOTE_CODE_LABELS` 保持一致；
  * 这里再存一份是为了筛选下拉与表格在没有接口返回时也能说清「这条是什么规则」。
  * 后端新增规则码时此表要同步加一行（未登记的码会原样显示，不会静默变空白）。
  */

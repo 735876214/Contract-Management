@@ -735,7 +735,7 @@ export interface AiReportResult {
 /**
  * 结算 / 付款异常预警（课题 6-9）一条命中。
  *
- * `code` / `level` 与后端 `server/src/modules/ai/anomaly/anomaly-types.ts` 的
+ * `code` / `level` 与后端 `server/src/modules/ai-insight/anomaly/anomaly-types.ts` 的
  * `ANOMALY_CODES` / `ANOMALY_LEVEL` 一一对应；面板再写一份中文标签是刻意的
  * ——要在不依赖接口的情况下也能解释「这条是什么规则」（无名代码对使用者等于没提示）。
  */
@@ -820,7 +820,7 @@ export interface AiAnomalyResult {
 /**
  * 异常报价与价差识别预警（课题 3-9）一条命中。
  *
- * `code` / `level` / `entity` 与后端 `server/src/modules/ai/quote/quote-types.ts` 的
+ * `code` / `level` / `entity` 与后端 `server/src/modules/ai-fill/quote/quote-types.ts` 的
  * `QUOTE_CODES` / `ANOMALY_LEVEL` 一一对应；面板再存一份中文标签是刻意的
  * ——要在没有接口返回时也能解释「这条是什么规则」。
  */
@@ -867,7 +867,7 @@ export interface AiQuoteResult {
 /**
  * 合同履行偏差预警（课题 4-9）一条命中。
  *
- * `code` / `level` / `entity` 与后端 `server/src/modules/ai/fulfillment/fulfillment-types.ts`
+ * `code` / `level` / `entity` 与后端 `server/src/modules/ai-fill/fulfillment/fulfillment-types.ts`
  * 的 `FULFILLMENT_CODES` / `FULFILLMENT_LEVEL` 一一对应。
  */
 export interface AiFulfillmentFinding {

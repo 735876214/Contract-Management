@@ -51,7 +51,7 @@ Contract-Management/
 │   │                   #   6 个文件各有 owner，登记在 constants/metrics.ts（为什么不在模块里见 §2.5）
 │   ├── src/query/      # 跨域**只读**查询层（read model）：<域>-queries.ts，只读、不带事务、显式 projectId
 │   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、metrics.ts、workflowGuards.ts
-│   ├── src/modules/    # 30 个业务模块
+│   ├── src/modules/    # 33 个业务模块（AI 按职责拆成 ai / ai-core / ai-insight / ai-fill）
 │   ├── test/           # node:test 纯函数单测（108 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（33 个 spec，需 PostgreSQL：npm run test:int）
 ├── packages/calc/      # 前后端共享计算引擎 @cms/calc（file: 依赖；产物入库，CI 查新鲜度）

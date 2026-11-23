@@ -2,7 +2,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, type IntContext } from './helpers';
-import { FieldResolverService } from '../src/modules/ai/field-resolver.service';
+import { FieldResolverService } from '../src/modules/ai-insight/field-resolver.service';
 
 /**
  * 集成测试 · AI 事实层的金额口径（2026-11-12 续审 R21）。

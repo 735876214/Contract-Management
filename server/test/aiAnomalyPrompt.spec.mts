@@ -5,7 +5,7 @@ import {
   ANOMALY_PARAM_KEYS,
   ANOMALY_PARAM_KEY_LIST,
   parseAnomalyConfig,
-} from '../src/modules/ai/anomaly/anomaly-config.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-config.ts';
 import {
   auditNarrative,
   buildAnomalyMessages,
@@ -13,14 +13,14 @@ import {
   extractNumbers,
   fallbackNarrative,
   normalizeNumberToken,
-} from '../src/modules/ai/anomaly/anomaly-prompt.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-prompt.ts';
 import {
   ANOMALY_CODES,
   ANOMALY_LEVEL,
   type AnomalyEvaluation,
   type Finding,
-} from '../src/modules/ai/anomaly/anomaly-types.ts';
-import { summarizeFindings } from '../src/modules/ai/anomaly/rules-payment.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-types.ts';
+import { summarizeFindings } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
 
 /**
  * AI 预警 · 配置解析与措辞层的测试。

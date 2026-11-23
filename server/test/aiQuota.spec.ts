@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpException } from '@nestjs/common';
-import { AiQuota } from '../src/modules/ai/ai-quota';
+import { AiQuota } from '../src/modules/ai-core/ai-quota';
 
 /**
  * AI 配额（每用户每小时）。

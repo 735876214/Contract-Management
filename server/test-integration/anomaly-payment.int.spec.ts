@@ -2,7 +2,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, makeSupplier, uniq, type IntContext } from './helpers';
-import { AnomalyService } from '../src/modules/ai/anomaly/anomaly.service';
+import { AnomalyService } from '../src/modules/ai-insight/anomaly/anomaly.service';
 import { PAYMENT_STATUS, SETTLEMENT_STATUS } from '../src/constants/statuses';
 
 /**

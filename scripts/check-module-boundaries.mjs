@@ -34,6 +34,25 @@ const quiet = process.argv.includes('--quiet');
 /** 横切基础设施：允许任何模块深层引用（守卫/装饰器） */
 const INFRA_MODULES = new Set(['auth']);
 
+/**
+ * **「库型」模块目录**（2026-11-23 P4）：\`ai-core\` 是 AI 家族的**纯函数底座**，等价于
+ * \`server/src/domain/\`——它不提供 \`index.ts\` 门面，调用方**按文件引用**（\`../ai-core/common/money.ts\`）。
+ *
+ * 为什么不能给它一个 barrel：`ai-insight`/`ai-fill` 的规则层与类型要被 `.mts` spec 用 Node
+ * **原生类型擦除**加载，而 barrel 会**贪婪加载**它转出的全部模块——里面既有 `@Injectable()` 服务
+ * （装饰器擦不掉），也有用参数属性的类，两者都会让 `.mts` 直接 SyntaxError。实测踩过。
+ */
+const LIBRARY_MODULES = new Set(['ai-core']);
+
+/**
+ * **额外的公开入口**（\`index.ts\` 之外，按完整路径登记）。
+ *
+ * \`ai-core/pure.ts\`：纯函数入口。`ai-insight` / `ai-fill` 的规则层与类型被 \`.mts\` spec 用 Node
+ * **原生类型擦除**加载，而 \`@Injectable()\` 擦不掉——所以纯函数链路绝不能引带上服务的 \`index.ts\`，
+ * 只能引 \`pure.ts\`。两者都是该模块的合法门面（见 \`ai-core/pure.ts\` 文件头）。
+ */
+const EXTRA_PUBLIC_ENTRIES = new Set(['server/src/modules/ai-core/pure.ts']);
+
 /** 归档是聚合器，但跨域读取必须走 query/，不得自己 prisma.<模型> */
 const ARCHIVE_DIR = 'server/src/modules/archive/';
 /**
@@ -48,8 +67,16 @@ const DASHBOARD_DIR = 'server/src/modules/dashboard/';
  * 例外：`register.service.ts` 是刻意的写路径（复用 ContractService/SupplierService 的校验）。
  * 子目录（analytics/anomaly/analysis）按只读子域规则处理。
  */
-const AI_ROOT_DIR = 'server/src/modules/ai/';
-const AI_ROOT_WRITE_ALLOWLIST = new Set(['register.service.ts']);
+const AI_ROOT_DIR = 'server/src/modules/ai-insight/';
+const AI_ROOT_WRITE_ALLOWLIST = new Set();
+
+/**
+ * **AI 写路径的显式白名单（按完整路径）**：`ai-fill/register.service.ts` 是刻意的写路径——
+ * 它复用 `ContractService` / `SupplierService` 的编号唯一、名称拼接、字典校验，因此**必然**会写
+ * `Contract` / `ContractMaterial` / `MaterialBase` 这些别人的表。P4 拆模块后 mdoule 名变了，
+ * 这里按路径放行（而不是按文件名），避免"任意目录放个同名文件就自动豁免"。
+ */
+const AI_WRITE_PATH_ALLOWLIST = new Set(['server/src/modules/ai-fill/register.service.ts']);
 const AI_FACT_MODELS = new Set([
   'contract',
   'settlement',
@@ -69,10 +96,18 @@ const AI_FACT_MODELS = new Set([
  * `ai/register.service.ts` 是刻意的写路径（复用 ContractService/SupplierService 的校验），不在名单内。
  */
 const AI_READ_ONLY_DIRS = [
-  'server/src/modules/ai/analytics/',
-  'server/src/modules/ai/anomaly/',
-  'server/src/modules/ai/analysis/',
+  'server/src/modules/ai-insight/analytics/',
+  'server/src/modules/ai-insight/anomaly/',
+  'server/src/modules/ai-insight/analysis/',
 ];
+
+/**
+ * **AI 家族内的共享底座**（2026-11-23 P4）：`ai-core` 是 LLM 调用/配额/提示词/字段目录/金额原语，
+ * 零业务依赖（它只 import `query/`、`constants/`、`domain/`）。只读子域**可以**依赖它——
+ * 规则要禁的是「只读分析反向依赖业务模块」（那会触发业务逻辑、让预警跟着业务改），
+ * 而不是「不能共用自家底座」。`ai-insight` / `ai-fill` 仍不在白名单内（分析不得依赖写路径）。
+ */
+const AI_FAMILY_MODULES = new Set(['ai-core']);
 
 /**
  * **AI 只读子域不得内联口径片段**（2026-11-23 架构评审 P1）。
@@ -245,7 +280,8 @@ for (const file of files) {
     if (INFRA_MODULES.has(toMod)) continue;
 
     // AI 只读子域不得依赖业务模块（读数据走 Prisma / 查询层，写数据走 register 的显式白名单）
-    if (aiReadOnly) {
+    // 例外：自家底座 `ai-core`（见 AI_FAMILY_MODULES 的说明）
+    if (aiReadOnly && !AI_FAMILY_MODULES.has(toMod)) {
       readViolations.push({
         file,
         line: src.slice(0, m.index).split('\n').length,
@@ -254,7 +290,11 @@ for (const file of files) {
       continue;
     }
 
-    const isPublicEntry = target === `${MODULES_DIR}${toMod}/index.ts`;
+    // 库型目录（ai-core）允许按文件引用；其余模块必须走 index.ts（见 LIBRARY_MODULES）
+    const isPublicEntry =
+      target === `${MODULES_DIR}${toMod}/index.ts` ||
+      EXTRA_PUBLIC_ENTRIES.has(target) ||
+      LIBRARY_MODULES.has(toMod);
     if (!isPublicEntry) {
       violations.push({
         file,
@@ -305,7 +345,7 @@ for (const file of files) {
   for (const m of src.matchAll(WRITE_RE)) {
     const model = m[2];
     if (!MODEL_PROPS.has(model)) continue;
-    writeSites.push({ file, module: fromMod, model, line: src.slice(0, m.index).split('\n').length, aiAllow: AI_ROOT_WRITE_ALLOWLIST.has(rel) });
+    writeSites.push({ file, module: fromMod, model, line: src.slice(0, m.index).split('\n').length, aiAllow: AI_WRITE_PATH_ALLOWLIST.has(file) });
   }
 }
 

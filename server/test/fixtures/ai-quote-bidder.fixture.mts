@@ -11,7 +11,7 @@
  * - 税率异常只在 T3 → 其余任务税额一律按 13% 精确反算。
  */
 
-import type { QuoteTaskInput } from '../../src/modules/ai/quote/quote-types.ts';
+import type { QuoteTaskInput } from '../../src/modules/ai-fill/quote/quote-types.ts';
 
 /**
  * 脏夹具：5 个任务、12 条注入异常（2 HIGH / 10 MEDIUM）。

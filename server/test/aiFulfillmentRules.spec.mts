@@ -20,9 +20,9 @@ import {
   c8NoMilestone,
   evaluateFulfillmentAnomalies,
   sortFulfillmentFindings,
-} from '../src/modules/ai/fulfillment/rules-fulfillment.ts';
-import { resolveFulfillmentTolerances } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
-import type { FulfillmentContractRow, FulfillmentInput, MilestoneRow } from '../src/modules/ai/fulfillment/fulfillment-types.ts';
+} from '../src/modules/ai-fill/fulfillment/rules-fulfillment.ts';
+import { resolveFulfillmentTolerances } from '../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
+import type { FulfillmentContractRow, FulfillmentInput, MilestoneRow } from '../src/modules/ai-fill/fulfillment/fulfillment-types.ts';
 import {
   FIXTURE_EXPECTED_BY_CODE,
   FIXTURE_EXPECTED_HIGH,

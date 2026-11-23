@@ -52,12 +52,6 @@
   修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
   需先跑 `--list` 评估数量再加 `take`/理由。
 
-- **`ai` 模块再分组（架构解耦 P4，量大但机械）**：单模块 **17,884 行 / 71 文件**（root 5,448 · analytics 3,373 ·
-  anomaly 3,343 · quote 1,760 · fulfillment 1,629 · analysis 1,265 · common 560 · intent 506），
-  「登记取价」「只读分析」「履约」三类挤在一个模块目录里，模块级检查器只能整体放行。
-  建议按语义拆成 `ai`（基础设施，~3.6k）/ `ai-insight`（只读分析与预警，~9.3k）/ `ai-fill`（登记/取价/履约，~4.5k）；
-  **先做目录分组 + `index.ts` 边界 + 检查器路径更新（`AI_READ_ONLY_DIRS` / `AI_FACT_MODELS` 白名单），一次不改路由**，
-  分组完成后再评估是否值得拆 Nest 模块。
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。

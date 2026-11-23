@@ -21,7 +21,7 @@
 
 | 已有能力 | 位置 | 本计划怎么复用 |
 |---|---|---|
-| LLM 调用（含 JSON 抽取 / 纯文本） | `server/src/modules/ai/llm-client.ts`（`callChat` / `chatJson` / `chatText` / `extractJsonBlock`） | 全部预警的「措辞层」 |
+| LLM 调用（含 JSON 抽取 / 纯文本） | `server/src/modules/ai-core/llm-client.ts`（`callChat` / `chatJson` / `chatText` / `extractJsonBlock`） | 全部预警的「措辞层」 |
 | 配额（每用户滑动 1h）+ 失败退还 | `ai/ai-quota.ts`（`consume` / `refund`） | 新接口同样扣额度；**规则层不调模型 ⇒ 不扣** |
 | 上游配置 / 密钥只写不读 | `ai/ai-setting.service.ts`、`ai/ai-config.ts` | 不动 |
 | 「程序算数、模型说话」范式 | `ai/report.service.ts` + `report-facts.ts` + `report-prompt.ts` | **预警层直接照抄该范式**，并把 `unknownNumbers` 对账机制沿用 |
@@ -205,7 +205,7 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | M0 规则层 | ✅ 2026-10-23 | `server/src/modules/ai/anomaly/{anomaly-types.ts, rules-payment.ts}`、真值夹具 `server/test/fixtures/ai-anomaly-payment.fixture.mts`、单测 `server/test/aiAnomalyPayment.spec.mts` | 8 条规则纯函数（金额全 bigint 分/万分之一单位）；夹具 10 条命中真值 + 干净夹具 0 命中；`npm test` 全绿 |
 | M1 后端接口 | ✅ 2026-10-23 | `anomaly-config.ts` / `anomaly-prompt.ts` / `anomaly.service.ts`、`GET /ai/anomaly/payment`、`aiAnomalyPrompt.spec.mts` | 744 项测试全绿；假 Prisma 直呼 service：10 条命中、`notEvaluated` 正确、缺 `contract:view` 得 403、非法日期 400、开关关闭不判定；提交 `c84b79d` |
 | M2 前端面板 | ✅ 2026-10-23 | `web/src/pages/AnomalyPanel.tsx`、`aiApi.paymentAnomaly`、五处接线 | 两个 build 退出码 0；`routePermissionParity.spec.mts`（菜单↔路由↔权限漂移锁）通过 |
-| M3 评测 | ✅ 2026-10-23 | 夹具生成器+评分器 `server/src/modules/ai/anomaly/anomaly-bench.ts`、`server/test/aiAnomalyBench.spec.mts`、报告 `docs/AI应用评测报告-6-9-结算异常预警.md` | 合成集（12 合同 / 61 结算单 / 9 条注入）：**召回 100%、误报 0**，8 个规则码全覆盖；4 001 张结算单判定 101.6 ms；措辞层 1 次调用 / 1 991 字符 ≈ 905 tokens；756 项测试全绿 |
+| M3 评测 | ✅ 2026-10-23 | 夹具生成器+评分器 `server/src/modules/ai-insight/anomaly/anomaly-bench.ts`、`server/test/aiAnomalyBench.spec.mts`、报告 `docs/AI应用评测报告-6-9-结算异常预警.md` | 合成集（12 合同 / 61 结算单 / 9 条注入）：**召回 100%、误报 0**，8 个规则码全覆盖；4 001 张结算单判定 101.6 ms；措辞层 1 次调用 / 1 991 字符 ≈ 905 tokens；756 项测试全绿 |
 | M3.5 评测执行链路 | ✅ 2026-10-23 | 取数形状唯一事实源 `anomaly-dataset.ts`、真值对账 `anomaly-score.ts`、CLI `server/scripts/export-anomaly-dataset.mts` / `score-anomaly.mts`、单测 `aiAnomalyDataset.spec.mts` / `aiAnomalyScore.spec.mts`、npm 脚本 `anomaly:export` / `anomaly:score` | 夹具反推「行 → JSON → 评分」全链路：10/10、退出码 0；篡改真值后如实产出漏报 1 / 误报 1，收紧门槛后退出码 1 且理由带数字；`export` 缺 `--project`、缺 `DATABASE_URL` 都给可读错误 |
 | M4 规则层（3-9） | ✅ 2026-10-24 | `server/src/modules/ai/quote/{quote-types.ts, rules-quote.ts}`、真值夹具 `server/test/fixtures/ai-quote.fixture.mts`、单测 `server/test/aiQuoteRules.spec.mts`、金额原语上提到 `ai/common/money.ts` | 12 个规则码（B1–B7）纯函数，金额全 `bigint` 分；夹具 5 个采购任务 / 12 处注入，干净任务零命中；794 项测试全绿；提交 `41561fe` |
 | M4 后端接口 | ✅ 2026-10-24 | `quote-config.ts` / `quote-prompt.ts` / `quote.service.ts`、`GET /ai/anomaly/quote`、`aiQuotePrompt.spec.mts`、`ai/common/{narrative.ts, params.ts}` | 810 项测试全绿；假 Prisma 直呼 service：命中 4 条、`notEvaluated` 5 条、缺 `contract:view` 得 403、开关关闭不判定、坏参数只回落不静默放宽；提交 `bf682fa` |

@@ -7,7 +7,7 @@ import {
   hasGlyfOutlines,
   isFontCollection,
   sfntTableTags,
-} from '../src/modules/ai/ttc-font.ts';
+} from '../src/modules/ai-core/ttc-font.ts';
 
 /**
  * 合成一个最小 TTC：1 个字体、2 张表（'head' 8 字节、'cmap' 5 字节），

@@ -9,7 +9,7 @@ import {
   resolveAnomalyWindow,
   resolveWindowLimits,
   type ResolvedAnomalyWindow,
-} from '../src/modules/ai/anomaly/anomaly-window.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-window.ts';
 
 /**
  * AI 预警 · **取数区间口径**的锁（P1-4 第三阶段）。

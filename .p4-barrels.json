@@ -1,0 +1,329 @@
+{
+ "ai-insight": {
+  "server/src/modules/ai-insight/ai.service.ts": {
+   "values": [
+    "AiService"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/report.service.ts": {
+   "values": [
+    "ReportService"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/anomaly/anomaly.service.ts": {
+   "values": [
+    "AnomalyService"
+   ],
+   "types": [
+    "PaymentAnomalyQuery"
+   ]
+  },
+  "server/src/modules/ai-insight/analysis/scm.service.ts": {
+   "values": [
+    "ScmService"
+   ],
+   "types": [
+    "ScmAnalysisQuery"
+   ]
+  },
+  "server/src/modules/ai-insight/field-resolver.service.ts": {
+   "values": [
+    "FieldResolverService"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/analytics/analytics.controller.ts": {
+   "values": [
+    "AnalyticsController"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/analytics/analytics.service.ts": {
+   "values": [
+    "AnalyticsService"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/analytics/dataset-collector.service.ts": {
+   "values": [
+    "DatasetCollector"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/analytics/analytics-store.service.ts": {
+   "values": [
+    "AnalyticsStore"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-insight/intent/intent.service.ts": {
+   "values": [
+    "IntentService"
+   ],
+   "types": []
+  }
+ },
+ "ai-core": {
+  "server/src/modules/ai-core/ai-setting.service.ts": {
+   "values": [
+    "AiSettingService"
+   ],
+   "types": [
+    "AiSettingInput",
+    "AiSettingTestInput"
+   ]
+  },
+  "server/src/modules/ai-core/ai-quota.ts": {
+   "values": [
+    "AiQuota"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/common/project-scope.ts": {
+   "values": [
+    "projectScopeWhere"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/ai-config.ts": {
+   "values": [
+    "aiModelFor",
+    "aiPublicStatus"
+   ],
+   "types": [
+    "AiConfig"
+   ]
+  },
+  "server/src/modules/ai-core/ai-prompt.ts": {
+   "values": [
+    "buildFormMappingMessages",
+    "normalizeMapping"
+   ],
+   "types": [
+    "MappingSuggestion"
+   ]
+  },
+  "server/src/modules/ai-core/field-catalog.ts": {
+   "values": [
+    "AI_FIELD_CATALOG",
+    "aiFieldByKey",
+    "availableFields",
+    "filterFieldsByPermission",
+    "SCOPE_READ_PERMISSION"
+   ],
+   "types": [
+    "AiFieldDef"
+   ]
+  },
+  "server/src/modules/ai-core/form-scan.ts": {
+   "values": [
+    "FormCandidate",
+    "FormCell",
+    "detectTableRegions",
+    "scanWorkbook"
+   ],
+   "types": [
+    "FormTableRegion"
+   ]
+  },
+  "server/src/modules/ai-core/dataset/dataset-registry.ts": {
+   "values": [
+    "filterDatasets",
+    "datasetByKey",
+    "limitDatasets",
+    "DEFAULT_DATASET_KEYS",
+    "MAX_DATASETS",
+    "AI_DATASETS"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/dataset/dataset-columns.ts": {
+   "values": [
+    "datasetColumnsOf"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/common/period.ts": {
+   "values": [
+    "endOfDay",
+    "parseLocalDay",
+    "compareRange",
+    "localDayKey",
+    "rangeLabel",
+    "resolvePresetPeriod",
+    "inRange",
+    "localMonthKey"
+   ],
+   "types": [
+    "DayRange"
+   ]
+  },
+  "server/src/modules/ai-core/llm-client.ts": {
+   "values": [
+    "chatJson",
+    "LlmError",
+    "chatText"
+   ],
+   "types": [
+    "LlmMessage"
+   ]
+  },
+  "server/src/modules/ai-core/common/params.ts": {
+   "values": [
+    "clamp",
+    "parseBoolFlag",
+    "parseDecimal",
+    "parseInteger"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/common/invoice-facts.ts": {
+   "values": [
+    "isCountedInvoice"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/common/money.ts": {
+   "values": [
+    "centsToYuan",
+    "moneyToCents",
+    "amountOfUnits",
+    "parseScaled",
+    "qtyToUnits"
+   ],
+   "types": [
+    "Cents",
+    "Units"
+   ]
+  },
+  "server/src/modules/ai-core/common/format.ts": {
+   "values": [
+    "formatYuan",
+    "formatPct",
+    "changeRateText"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/common/contract-roots.ts": {
+   "values": [
+    "indexContractRows",
+    "resolveChainRoot"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/dataset/analytics.types.ts": {
+   "values": [
+    "AI_SECTION_TITLES",
+    "AI_COMPARE_MODES",
+    "AI_DETAIL_LEVELS",
+    "AI_FOCUSES",
+    "AI_GROUP_BYS",
+    "AI_PERIOD_PRESETS",
+    "AI_REPORT_KINDS",
+    "AI_SCOPE_MODES"
+   ],
+   "types": [
+    "AiAnalyticsFacts",
+    "AiReportSectionId",
+    "AiAnalyticsIntent",
+    "AiAnalyticsPlanResult",
+    "AiAnalyticsProjectFact",
+    "AiAnalyticsTotals",
+    "AiCollectedDataset",
+    "AiAnalyticsDatasetFact",
+    "AiCompareMode",
+    "AiDetailLevel",
+    "AiFocus",
+    "AiReportKind",
+    "AiScopeMode",
+    "AiGroupBy",
+    "AiPeriodPreset"
+   ]
+  },
+  "server/src/modules/ai-core/common/narrative.ts": {
+   "values": [
+    "auditNarrativeNumbers",
+    "collectFindingNumbers",
+    "extractNumbers",
+    "normalizeNumberToken",
+    "promptNumberExtras",
+    "sampleText"
+   ],
+   "types": [
+    "NarratableFinding",
+    "Narrative"
+   ]
+  },
+  "server/src/modules/ai-core/common/coverage.ts": {
+   "values": [
+    "sampleTotal"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/ttc-font.ts": {
+   "values": [
+    "collectionFontCount",
+    "extractFontFromCollection",
+    "hasCffOutlines",
+    "isFontCollection"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/document-text.ts": {
+   "values": [
+    "DOC_EXTS",
+    "extOf",
+    "extractDocumentText"
+   ],
+   "types": []
+  },
+  "server/src/modules/ai-core/docx-text.ts": {
+   "values": [
+    "looksLikeContract"
+   ],
+   "types": []
+  }
+ },
+ "ai-fill": {
+  "server/src/modules/ai-fill/register.service.ts": {
+   "values": [
+    "RegisterService"
+   ],
+   "types": [
+    "RegisterConfirmInput"
+   ]
+  },
+  "server/src/modules/ai-fill/quote/quote.service.ts": {
+   "values": [
+    "QuoteService"
+   ],
+   "types": [
+    "QuoteAnomalyQuery"
+   ]
+  },
+  "server/src/modules/ai-fill/fulfillment/fulfillment.service.ts": {
+   "values": [
+    "FulfillmentService"
+   ],
+   "types": [
+    "FulfillmentAnomalyQuery"
+   ]
+  }
+ },
+ "auth": {
+  "server/src/modules/auth/guards/jwt-auth.guard.ts": {
+   "values": [
+    "JwtAuthGuard"
+   ],
+   "types": []
+  },
+  "server/src/modules/auth/guards/permissions.guard.ts": {
+   "values": [
+    "PermissionsGuard"
+   ],
+   "types": []
+  }
+ }
+}

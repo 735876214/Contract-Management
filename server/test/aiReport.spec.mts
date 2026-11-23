@@ -10,7 +10,7 @@ import {
   type ReportDelta,
   type ReportFacts,
   type ReportWindow,
-} from '../src/modules/ai/report-facts.ts';
+} from '../src/modules/ai-insight/report-facts.ts';
 
 /**
  * 汇报材料的事实包与产出对账。

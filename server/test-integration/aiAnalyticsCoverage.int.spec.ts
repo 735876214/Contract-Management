@@ -2,9 +2,9 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
-import { DatasetCollector } from '../src/modules/ai/analytics/dataset-collector.service';
-import { ScmService } from '../src/modules/ai/analysis/scm.service';
-import { FieldResolverService } from '../src/modules/ai/field-resolver.service';
+import { DatasetCollector } from '../src/modules/ai-insight/analytics/dataset-collector.service';
+import { ScmService } from '../src/modules/ai-insight/analysis/scm.service';
+import { FieldResolverService } from '../src/modules/ai-insight/field-resolver.service';
 
 /**
  * 集成 · AI 经营数据助手（Phase 5）：新增 9 个业务单据域都有真实取数。

@@ -11,14 +11,14 @@ import {
   ANOMALY_CODES,
   DEFAULT_TOLERANCES,
   type PaymentAnomalyInput,
-} from '../src/modules/ai/anomaly/anomaly-types.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-types.ts';
 import {
   evaluatePaymentAnomalies,
   r1aDuplicateAcrossPeriod,
   r1bDuplicateMaterialQty,
   r2Overpay,
   summarizeFindings,
-} from '../src/modules/ai/anomaly/rules-payment.ts';
+} from '../src/modules/ai-insight/anomaly/rules-payment.ts';
 import { cleanPaymentFixture, paymentAnomalyFixture } from './fixtures/ai-anomaly-payment.fixture.mts';
 
 /**

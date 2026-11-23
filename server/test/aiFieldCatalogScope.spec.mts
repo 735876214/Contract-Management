@@ -6,7 +6,7 @@ import {
   aiFieldByKey,
   availableFields,
   filterFieldsByPermission,
-} from '../src/modules/ai/field-catalog.ts';
+} from '../src/modules/ai-core/field-catalog.ts';
 
 /**
  * AI 填表字段目录 · 期间/跨项目作用域（Phase 4）：

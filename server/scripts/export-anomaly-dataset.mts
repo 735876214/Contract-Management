@@ -21,10 +21,10 @@ import {
   buildAnomalyWhere,
   buildPaymentAnomalyInput,
   type AnomalyRows,
-} from '../src/modules/ai/anomaly/anomaly-dataset.ts';
-import { evaluatePaymentAnomalies } from '../src/modules/ai/anomaly/rules-payment.ts';
-import { centsToYuan } from '../src/modules/ai/anomaly/anomaly-types.ts';
-import { ANOMALY_PARAM_KEY_LIST, parseAnomalyConfig } from '../src/modules/ai/anomaly/anomaly-config.ts';
+} from '../src/modules/ai-insight/anomaly/anomaly-dataset.ts';
+import { evaluatePaymentAnomalies } from '../src/modules/ai-insight/anomaly/rules-payment.ts';
+import { centsToYuan } from '../src/modules/ai-insight/anomaly/anomaly-types.ts';
+import { ANOMALY_PARAM_KEY_LIST, parseAnomalyConfig } from '../src/modules/ai-insight/anomaly/anomaly-config.ts';
 
 interface Args {
   project: string;

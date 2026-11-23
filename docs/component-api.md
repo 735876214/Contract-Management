@@ -118,7 +118,7 @@
 | `web/src/pages/AiAnalytics.tsx` | — | `/ai/analytics` 页面外壳（两个页签），加载注册表与项目列表 |
 
 数据来源统一走 `aiApi.analyticsDatasets / analyticsPlan / analyticsReport / analyticsWorkbook / analyticsWorkbookDownload / analyticsHistory / analyticsDetail / analyticsExport / analyticsRemove`；
-后端编排在 `server/src/modules/ai/analytics/`（`dataset-collector` / `dataset-facts` / `analytics-store` / `workbook-builder`）。
+后端编排在 `server/src/modules/ai-insight/analytics/`（`dataset-collector` / `dataset-facts` / `analytics-store` / `workbook-builder`）。
 
 ---
 

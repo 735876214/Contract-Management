@@ -82,7 +82,7 @@ describe('发票终态口径（作废/红冲）', () => {
       // 工作台的发票金额聚合已收进查询层（2026-11-23），service 本身不再直查表
       ['../src/query/dashboard-queries.ts', 3], // loadOverviewTotals + loadInvoiceStatsGroups
       ['../src/query/ai-fact-queries.ts', 2], // AI 读取层的 loadInvoiceFacts 统一接口径
-      ['../src/modules/ai/analytics/dataset-collector.service.ts', 3], // 发票记录 + 履约/台账聚合
+      ['../src/modules/ai-insight/analytics/dataset-collector.service.ts', 3], // 发票记录 + 履约/台账聚合
     ];
     for (const [file, min] of consumers) {
       const src = read(file);
@@ -98,9 +98,9 @@ describe('发票终态口径（作废/红冲）', () => {
 
     // AI 侧不再各自写 prisma.invoice，统一走 loadInvoiceFacts({ excludeTerminal: true })
     for (const file of [
-      '../src/modules/ai/field-resolver.service.ts',
-      '../src/modules/ai/report.service.ts',
-      '../src/modules/ai/analytics/dataset-collector.service.ts',
+      '../src/modules/ai-insight/field-resolver.service.ts',
+      '../src/modules/ai-insight/report.service.ts',
+      '../src/modules/ai-insight/analytics/dataset-collector.service.ts',
     ]) {
       const src = read(file);
       assert.ok(src.includes('loadInvoiceFacts'), `${file} 未通过 query 层的 loadInvoiceFacts 统计开票额`);
@@ -113,8 +113,8 @@ describe('发票终态口径（作废/红冲）', () => {
     // 窗口事实必须完全走 query 层：这两个文件里出现 prisma.invoice 就是绕过口径
     // （dataset-collector 的明细行查询是域特有的，不在本条约束内）
     for (const file of [
-      '../src/modules/ai/field-resolver.service.ts',
-      '../src/modules/ai/report.service.ts',
+      '../src/modules/ai-insight/field-resolver.service.ts',
+      '../src/modules/ai-insight/report.service.ts',
     ]) {
       const src = read(file);
       assert.ok(
@@ -125,7 +125,7 @@ describe('发票终态口径（作废/红冲）', () => {
   });
 
   it('AI 两处谓词收敛到 ai/common/invoice-facts（该文件因此有生产调用）', () => {
-    for (const file of ['../src/modules/ai/analysis/scm-facts.ts', '../src/modules/ai/anomaly/rules-payment.ts']) {
+    for (const file of ['../src/modules/ai-insight/analysis/scm-facts.ts', '../src/modules/ai-insight/anomaly/rules-payment.ts']) {
       const src = read(file);
       assert.ok(src.includes('invoice-facts'), `${file} 未使用 AI 侧共享谓词 isCountedInvoice（invoice-facts）`);
       assert.ok(!/function\s+isCountedInvoice\s*\(/.test(src), `${file} 仍有私有 isCountedInvoice 实现`);

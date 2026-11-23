@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { itemsTotalWithTax, materialRowsFromItems, numOf } from '../src/modules/ai/register-materials.ts';
+import { itemsTotalWithTax, materialRowsFromItems, numOf } from '../src/modules/ai-fill/register-materials.ts';
 
 test('numOf：千分位、货币符号、百分号都能吃', () => {
   assert.equal(numOf('¥1,234.50'), 1234.5);

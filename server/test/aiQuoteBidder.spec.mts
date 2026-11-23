@@ -15,12 +15,12 @@ import {
   fmtBp,
   ratioBpOf,
   resolveQuoteTolerances,
-} from '../src/modules/ai/quote/quote-types.ts';
+} from '../src/modules/ai-fill/quote/quote-types.ts';
 import {
   budgetCentsOf,
   evaluateQuoteAnomalies,
   b2SpreadAnomalies,
-} from '../src/modules/ai/quote/rules-quote.ts';
+} from '../src/modules/ai-fill/quote/rules-quote.ts';
 import { cleanQuoteFixture, quoteAnomalyFixture, quoteTruth } from './fixtures/ai-quote-bidder.fixture.mts';
 
 const codes = (findings: Array<{ code: string }>) => findings.map((f) => f.code).sort();
