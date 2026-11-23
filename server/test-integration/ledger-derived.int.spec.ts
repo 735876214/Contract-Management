@@ -5,8 +5,7 @@ import { bootIntApp, makeContract, makeProject, makeSupplier, type IntContext } 
 import { LedgerService } from '../src/modules/ledger';
 import { DashboardService } from '../src/modules/dashboard';
 import { sumSettlementAmount } from '../src/common/utils/group-sum';
-import { notDraft } from '../src/common/utils/contract-chain';
-import { SETTLEMENT_STATUS, INVOICE_STATUS } from '../src/constants/statuses';
+import { INVOICE_STATUS, SETTLEMENT_STATUS, notDraft } from '../src/constants/statuses';
 
 /**
  * 集成测试 · 合同台账的派生金额口径（真库）。

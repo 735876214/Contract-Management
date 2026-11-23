@@ -17,7 +17,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { StorageService } from '../../common/services/storage.service';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { collectArchiveBlockers } from '../../common/utils/contract-archive';
-import { chainSettledTotal, contractChainIds } from '../../common/utils/contract-chain';
+import { chainSettledTotal, contractChainIds } from '../../query';
 import { periodKeyOf, startDayOf } from '../../common/utils/settlement-period';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { MaterialService, replaceContractMaterials } from '../material';

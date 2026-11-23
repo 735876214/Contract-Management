@@ -13,4 +13,4 @@ export {
   resolveChainRoot,
   type ChainRootResult,
   type ContractChainRowLike,
-} from '../../../common/utils/contract-chain.ts';
+} from '../../../domain/contract-chain.ts';

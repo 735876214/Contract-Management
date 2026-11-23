@@ -65,6 +65,21 @@ export const SETTLEMENT_STATUS = {
 } as const;
 export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS];
 
+/**
+ * Prisma 查询片段：**排除草稿结算**（`statusCode <> 'DRAFT'` 的等价写法，含 NULL）。
+ *
+ * ⚠️ 直接写 `statusCode: { not: 'DRAFT' }` 会在 SQL 三值逻辑下**连带排除** `statusCode IS NULL`
+ * 的行（历史导入数据没填状态），"无状态结算"就会凭空消失。这里与 `paidPaymentWhere()` /
+ * `countedInvoiceWhere()` 用同一套写法：显式把 NULL 归入非草稿。
+ *
+ * 单一事实源：工作台预警、台账「审定结算额」、AI 数据集都从这里取；不要再手写等价 where
+ * （`scripts/check-module-boundaries.mjs` 的 `INLINE_PREDICATE_RULES` 会拦 AI 只读子域里的手写片段）。
+ * 2026-11-23 前它在 `common/utils/contract-chain.ts`，与合同链金额算式混在一起，故拆出。
+ */
+export const notDraft: { OR: any[] } = {
+  OR: [{ statusCode: null }, { statusCode: { not: SETTLEMENT_STATUS.DRAFT } }],
+};
+
 /** 付款记录状态（dict `payment_status`）：失败/已退款**不计入**累计付款 */
 export const PAYMENT_STATUS = {
   PENDING: 'PENDING',

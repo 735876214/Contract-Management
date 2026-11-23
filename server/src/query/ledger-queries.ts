@@ -10,7 +10,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { countedInvoiceWhere, FINAL_SETTLEMENT_STATUS, paidPaymentWhere } from '../constants/statuses';
-import { notDraft } from '../common/utils/contract-chain';
+import { notDraft } from '../constants/statuses';
 
 type Db = PrismaClient;
 

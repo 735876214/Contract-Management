@@ -15,7 +15,7 @@ import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { normalizePolicy, checkOverAmount } from '../../common/utils/amount-guard';
 // 链口径统一在 contract-chain（见该文件头）
-import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
+import { chainSettledTotal, chainPaidTotal } from '../../query';
 
 const RECORD_FIELDS = [
   'projectId', 'contractId', 'payMonth', 'amount', 'methodCode', 'payDate',

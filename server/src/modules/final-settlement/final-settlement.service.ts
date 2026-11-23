@@ -14,7 +14,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
-import { notDraft } from '../../common/utils/contract-chain';
+import { notDraft } from '../../constants/statuses';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';

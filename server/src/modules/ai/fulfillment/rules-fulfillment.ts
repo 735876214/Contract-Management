@@ -18,7 +18,7 @@ import {
   MILESTONE_STATUS,
   PAYMENT_EXCLUDED_STATUSES,
 } from '../../../constants/statuses.ts';
-import { resolveChainAmounts } from '../../../common/utils/contract-chain.ts';
+import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
 import { moneyToCents, type Cents } from '../common/money.ts';
 import {
   FULFILLMENT_CODES,

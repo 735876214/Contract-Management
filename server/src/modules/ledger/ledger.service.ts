@@ -6,7 +6,7 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { deriveLedgerAmounts, sumInvoiceTax, chainContractTotal, chainRootAmounts, isFilledNumber } from '../../common/utils/ledger-derived';
 import { groupSumByYear, settlementAmountOf } from '../../common/calc/index.ts';
-import { resolveChainAmounts, type ContractChainRow } from '../../common/utils/contract-chain';
+import { resolveChainAmounts, type ContractChainRow } from '../../domain/contract-chain';
 import {
   loadComplianceScan,
   loadLedgerChainRows,

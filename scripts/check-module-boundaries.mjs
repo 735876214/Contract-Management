@@ -80,7 +80,7 @@ const AI_READ_ONLY_DIRS = [
 const INLINE_PREDICATE_RULES = [
   {
     re: /statusCode:\s*\{\s*not:\s*['"]DRAFT['"]\s*\}/g,
-    hint: "改用 common/utils/contract-chain 的 notDraft（它显式把 NULL 算作非草稿）",
+    hint: "改用 constants/statuses.ts 的 notDraft（它显式把 NULL 算作非草稿）",
   },
   {
     re: /notIn:\s*\[[^\]]*['"]DRAFT['"][^\]]*\]/g,

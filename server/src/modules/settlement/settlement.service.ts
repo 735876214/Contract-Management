@@ -56,7 +56,7 @@ import {
   chainSettledTotal,
   chainMaterialQty,
   chainSettledItemQty,
-} from '../../common/utils/contract-chain';
+} from '../../query';
 // 月份归集口径（`YYYY-MM`）与结算期纯函数：台账、发票/收领单自动匹配、月度结算期三处**共用**，
 // 不要在各服务里各写一份 `getFullYear/getMonth` 拼接
 import {

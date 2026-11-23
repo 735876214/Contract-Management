@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
-import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../common/utils/contract-chain';
+import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../domain/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { chainContractTotal } from '../../common/utils/ledger-derived';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';

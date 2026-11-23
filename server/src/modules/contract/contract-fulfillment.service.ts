@@ -2,11 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { round2, round4 } from '../../common/calc/money';
-import {
-  contractChainAmount,
-  contractChainIds,
-  chainSettledTotal,
-} from '../../common/utils/contract-chain';
+import { contractChainAmount, contractChainIds, chainSettledTotal } from '../../query';
 import { deriveContractFulfillment } from '../../common/utils/contract-fulfillment';
 import { paidPaymentWhere, countedInvoiceWhere, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { SysParamService } from '../../common/services/sys-param.service';

@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { round2, round4 } from '../../../common/calc/money';
 import { num } from '../../../common/calc/numeric';
-import { resolveChainAmounts, notDraft } from '../../../common/utils/contract-chain';
+import { resolveChainAmounts } from '../../../domain/contract-chain';
+import { notDraft } from '../../../constants/statuses';
 import {
   CONTRACT_EXECUTION_STATUS,
   CONTRACT_STATUS,
