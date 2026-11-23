@@ -107,6 +107,17 @@ jobs:
         working-directory: server
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
+      # 共享计算包（packages/calc）的 *.js / *.d.ts 随仓库提交，供四种消费方（server tsc、ts-node、
+      # Node 原生 .mts、vite）直接使用。这里强制重编一次，产物与 src 不一致就判红——
+      # 否则"改了 src 忘提交产物"会让本地全绿、镜像里却跑旧公式。
+      - name: 共享计算包产物新鲜度（packages/calc 必须与 src 同源）
+        run: |
+          node packages/calc/build.mjs --force
+          if ! git diff --exit-code -- packages/calc; then
+            echo "::error::packages/calc 的编译产物与 src 不一致 —— 本地跑 node packages/calc/build.mjs 并提交产物"
+            exit 1
+          fi
+
       - name: Prisma generate
         working-directory: server
         run: npx prisma generate

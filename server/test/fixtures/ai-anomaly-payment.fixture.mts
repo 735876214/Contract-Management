@@ -15,10 +15,10 @@
  *   —— 防误报比防漏报更重要：财务面板一次误报就会失去信任。
  *
  * == 用法 ==
- * ```ts
+ * ``ts
  * import { paymentAnomalyFixture, cleanPaymentFixture } from './fixtures/ai-anomaly-payment.fixture.mts';
  * const { input, expected } = paymentAnomalyFixture();
- * ```
+ * ``
  * 夹具**不含任何 IO**，也不依赖 Prisma 类型：只构造 `PaymentAnomalyInput` 的结构化子集。
  */
 

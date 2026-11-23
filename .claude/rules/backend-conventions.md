@@ -28,7 +28,7 @@
   守卫只保证"你是这个项目的成员"，不保证"这条记录属于这个项目"；少了这一步，
   同时属于两个项目的用户拿别项目的 id 配自己项目的 header 就能读/改/删（守卫语义见
   [architecture.md §5](../../docs/architecture.md)）。返回 `404` 而不是 `403`，避免暴露记录存在性。
-- **列表日期区间统一走 `common/calc/time` 的本地日原语**：`gte: startOfDay(startDate)` /
+- **列表日期区间统一走 `@cms/calc/time` 的本地日原语**：`gte: startOfDay(startDate)` /
   `lte: endOfDay(endDate)`（或 `lt: nextDayStart(endDate)`），**禁止** `new Date(query.endDate)`
   ——`'YYYY-MM-DD'` 交给 `new Date` 是**按 UTC 解析**（本地 08:00），库里存本地 00:00 的记录会被漏掉；
   手拼 `'T23:59:59'` / 就地 `setHours` 也不许再新增。原语拒绝 `2026-02-30` 这类"格式对但不存在"的日期，

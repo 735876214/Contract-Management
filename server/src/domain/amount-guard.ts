@@ -9,7 +9,7 @@
  * .mts spec 可加载带 .ts 后缀的相对 import（testing.md 第 1 条已于 2026-10-17 解除限制），
  * 舍入统一走共享原语，不再本地复制。
  */
-import { round2 } from '../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 
 /** 超限策略：BLOCK 拦截 / WARN 仅提示 / OFF 不校验 */
 export type OverAmountPolicy = 'BLOCK' | 'WARN' | 'OFF';

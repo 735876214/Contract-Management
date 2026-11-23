@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
-import { toDate, localDayKey } from '../../common/calc/time';
+import { num } from '@cms/calc/numeric';
+import { toDate, localDayKey } from '@cms/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ExcelService } from '../../common/services/excel.service';

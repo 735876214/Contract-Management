@@ -157,10 +157,10 @@ docker compose pull && docker compose up -d     # 升级前建议先跑一次备
 > **从 2026-09-17 之前的旧版本升级（NAS 等已有库）必读**：旧版本的 11 条增量迁移已折叠进 init 并删除，
 > 旧库 `_prisma_migrations` 里记录的还是这些已删除的迁移，升级前需先标记基线（只写一条迁移记录，不动数据）：
 >
-> ```bash
+> ``bash
 > docker cp ./server/prisma/migrations/20260901000000_init cms:/app/server/prisma/migrations/
 > docker exec cms sh -c "cd /app/server && ./node_modules/.bin/prisma migrate resolve --applied 20260901000000_init"
-> ```
+> ``
 > 之后再拉新镜像重启即可（已实测：库中残留的旧迁移记录不会影响 `migrate deploy`）。
 
 本地构建（镜像不可访问时的兜底，仓库根目录执行；compose 已内置 `build:` 段）：

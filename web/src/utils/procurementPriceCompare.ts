@@ -38,7 +38,7 @@ import {
   fmtRate as fmtRateShared,
   numOrNull as numOrNullShared,
   round2 as round2Shared,
-} from '../../../server/src/common/calc/index.ts';
+} from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 
 /** 明细行（价格均为「不含税单价」，单位：元） */

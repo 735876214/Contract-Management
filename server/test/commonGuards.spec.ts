@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { parseImportDate, pickDictCode } from '../src/common/utils/import-parse.ts';
 import { isSafeFileUrl, checkFileUrl } from '../src/common/utils/safe-url.ts';
 import { assertSettlementProgress, SETTLEMENT_STATUS } from '../src/constants/workflowGuards.ts';
-import { localDayKey } from '../src/common/calc/time';
+import { localDayKey } from '@cms/calc/time';
 import { mapPrismaError } from '../src/common/utils/prisma-error.ts';
 
 // 本地日期断言与机器时区相关：固定成业务时区，CI（UTC）与开发机（CST）跑出同一结果

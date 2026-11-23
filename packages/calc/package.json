@@ -1,0 +1,27 @@
+{
+  "name": "@cms/calc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "前后端共用的计算引擎（金额/舍入/时间/聚合原语）——单一事实源，见 README",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./*": {
+      "types": "./*.d.ts",
+      "default": "./*.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "src"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "node build.mjs --clean"
+  }
+}

@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { bootIntApp, makeContract, makeProject, uniq, type IntContext } from './helpers';
 import { DashboardService } from '../src/modules/dashboard';
-import { monthSequence } from '../src/common/calc/index.ts';
+import { monthSequence } from '@cms/calc';
 
 /**
  * 集成测试 · **工作台「合同额」按合同链只计一次**（2026-11-23 架构评审 P1）。

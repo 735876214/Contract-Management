@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { amountToChineseCapital, round, round2, round4 } from '../src/common/calc/money.ts';
+import { amountToChineseCapital, round, round2, round4 } from '@cms/calc/money';
 import {
   calcAmount,
   calcPriceWithTax,
@@ -19,7 +19,7 @@ import {
   settlementAmountOf,
   sortMonthKeys,
   sumRounded,
-} from '../src/common/calc/index.ts';
+} from '@cms/calc';
 
 /**
  * 金额四舍五入的口径锁（2026-10-20 第 4 轮审计）。

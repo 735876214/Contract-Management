@@ -1,7 +1,7 @@
 /**
  * 成交报告 · 文档构建与变量取值（批次二 · 任务 3.5）
  *
- * 计算规则已收敛到统一引擎 `server/src/common/calc/procurement.ts`（前后端单一实现）：
+ * 计算规则已收敛到统一引擎 `packages/calc/src/procurement.ts`（前后端单一实现）：
  * defaultFinalPrice / isYes 从那里委托，禁止在本文件再写一份公式。
  *
  * 适用范围：仅「单项采购」采购任务，入口条件为「采购文件已完成」；
@@ -32,7 +32,7 @@
 import {
   defaultFinalPrice as defaultFinalPriceShared,
   isYesFlag,
-} from '../../../server/src/common/calc/index.ts';
+} from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 
 /** 响应单位明细行（导入「响应单位情况汇总表」，10 列） */

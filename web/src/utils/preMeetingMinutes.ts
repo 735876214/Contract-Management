@@ -16,7 +16,7 @@
  * 以及 {{项目名称}} {{采购内容}} {{预计采购金额(万元)}} {{编写人}} {{审核人}}
  *      {{技术质量标准}} {{验收方式}} {{付款方式}}
  *
- * 计算规则已收敛到统一引擎 `server/src/common/calc/procurement.ts`（前后端单一实现）：
+ * 计算规则已收敛到统一引擎 `packages/calc/src/procurement.ts`（前后端单一实现）：
  * calcIncomeWan/calcCostWan/calcBenefitWan/calcBenefitRate/deriveCostRow/summarizeCost/costRowsFromTotalList
  * 从那里委托，禁止在本文件再写一份公式。
  */
@@ -31,7 +31,7 @@ import {
   deriveCostRow as deriveCostRowShared,
   summarizeCost as summarizeCostShared,
   costRowsFromTotalList as costRowsFromTotalListShared,
-} from '../../../server/src/common/calc/index.ts';
+} from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 
 /** 采购清单行（序号由表格渲染，表头：序号|物资名称|规格型号|计量单位|暂定数量） */

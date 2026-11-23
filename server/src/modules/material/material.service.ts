@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+import { num } from '@cms/calc/numeric';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
-import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { calcPriceWithTax, calcTotalWithTax } from '@cms/calc/amounts';
 import { csvCell, toCsv } from '../../common/utils/csv';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';

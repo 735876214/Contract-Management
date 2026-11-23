@@ -117,6 +117,17 @@ server/src/
 
 > 守卫**非全局注册**，逐 controller `@UseGuards(JwtAuthGuard, PermissionsGuard)` 声明。
 
+### 2.4 共享计算引擎 `packages/calc`（`@cms/calc`）
+
+金额/舍入/税率/时间/聚合原语的单一事实源，**前后端与 `.mts` 单测共用同一份实现**。
+
+| 事实 | 说明 |
+|---|---|
+| 位置 | 仓库根的 `packages/calc`（在 `server/`、`web/` 之外——它不属于任何一侧） |
+| 依赖 | server / web 各一行 `"@cms/calc": "file:../packages/calc"`，不用 npm workspaces |
+| 产物 | 包根 `*.js`(CJS) + `*.d.ts`，入库；改源码后 `node packages/calc/build.mjs` |
+
+细节与「为什么产物入库」「为什么要扁平产物」见 `packages/calc/README.md`。
 ## 3. 请求生命周期
 
 ```

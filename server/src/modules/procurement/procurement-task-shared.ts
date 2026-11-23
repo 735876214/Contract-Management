@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { round2 } from '../../common/calc/money';
-import { mulDecimal, sumRounded } from '../../common/calc/amounts';
+import { round2 } from '@cms/calc/money';
+import { mulDecimal, sumRounded } from '@cms/calc/amounts';
 import { projectWhere } from '../../common/utils/project-scope';
 import {
   NOTICE,

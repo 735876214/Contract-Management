@@ -14,9 +14,9 @@
  * 无法用「单价 × 数量」表示，跳过并单独计数，不静默丢。
  */
 
-import { round2, round4 } from '../../common/calc/money.ts';
-import { num } from '../../common/calc/numeric.ts';
-import { calcPriceWithTax, calcAmount, mulDecimal } from '../../common/calc/amounts.ts';
+import { round2, round4 } from '@cms/calc/money';
+import { num } from '@cms/calc/numeric';
+import { calcPriceWithTax, calcAmount, mulDecimal } from '@cms/calc/amounts';
 
 /** 日报行中参与结算带出的字段（Prisma 查询按这些列 select） */
 export interface DailySettlementRow {

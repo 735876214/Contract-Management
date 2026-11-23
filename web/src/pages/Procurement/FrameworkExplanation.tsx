@@ -23,7 +23,7 @@ import { editorTabKey } from '@/utils/tabs';
 const LIST_PATH = '/procurement/framework';
 import { buildExplanationDocHtml, buildExplanationVariableValues, type CostRow, type InquiryRow, type PriceCompareRow } from '@/utils/frameworkExplanation';
 // 询价最低价规则收敛到统一引擎（前后端单一实现，避免前端 Math.min 与服务端口径漂移）
-import { lowestPriceSuppliers } from '../../../../server/src/common/calc/procurement.ts';
+import { lowestPriceSuppliers } from '@cms/calc/procurement';
 
 /** 采购任务行（列表精简） */
 interface TaskRow {

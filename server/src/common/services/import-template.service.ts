@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { localDayKey } from '../calc/time';
+import { localDayKey } from '@cms/calc/time';
 
 /**
  * 通用「下载填写模板」服务

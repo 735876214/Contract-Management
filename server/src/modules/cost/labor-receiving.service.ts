@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+import { num } from '@cms/calc/numeric';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
-import { round2 } from '../../common/calc/money';
+import { round2 } from '@cms/calc/money';
 import { LABOR_RECEIVING_DOC_STATUS } from '../../constants/statuses';
 import {
   averageUnitPrice,

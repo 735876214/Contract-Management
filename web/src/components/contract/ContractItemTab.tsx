@@ -7,7 +7,7 @@ import { dictApi } from '@/api/dict';
 import {
   calcPriceWithTax,
   calcTotalWithTax as calcTotal,
-} from '../../../../server/src/common/calc/amounts.ts';
+} from '@cms/calc/amounts';
 import { formatAmount } from '@/utils/money';
 
 /** 含税单价/含税合价统一走共享原语（4 位精度），不再本地复制公式 */

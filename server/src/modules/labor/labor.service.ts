@@ -2,7 +2,7 @@ import { checkFileUrl } from '../../common/utils/safe-url';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
-import { toDate } from '../../common/calc/time';
+import { toDate } from '@cms/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { resolveOrCreateSubcontractor } from '../subcontractor';
 import { keywordWhere } from '../../common/utils/list-where';

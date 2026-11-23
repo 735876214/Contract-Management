@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 const HTMLtoDOCX: any = require('html-to-docx');
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service';
-import { round2 } from '../../common/calc/money';
+import { round2 } from '@cms/calc/money';
 import { assertPermission } from '../../common/utils/assert-permission';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import {

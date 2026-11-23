@@ -9,8 +9,8 @@ import { DeleteOutlined, PlusOutlined, EyeOutlined, SendOutlined, SaveOutlined }
 import { contractApi, templateApi } from '@/api/business';
 import { dailyApi } from '@/api/modules';
 import RichTextEditor from '@/components/RichTextEditor';
-import { amountToChineseCapital } from '../../../../server/src/common/calc/money.ts';
-import { calcPriceWithTax, calcTotalWithTax } from '../../../../server/src/common/calc/amounts.ts';
+import { amountToChineseCapital } from '@cms/calc/money';
+import { calcPriceWithTax, calcTotalWithTax } from '@cms/calc/amounts';
 import { DictTag } from '@/components/DictSelect';
 
 const SUPP_TYPES = [

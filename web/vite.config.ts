@@ -10,6 +10,11 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
+    // 共享计算引擎（@cms/calc）是 CJS 产物（server 侧 ts-node 直接 require 它），且经 file: 依赖
+    // **软链**到 packages/calc。默认 vite 会把软链解析成真实路径，于是它被当成「源码」而不是依赖，
+    // rollup 的 commonjs 互操作不会处理它 → 报 "calcPriceWithTax is not exported by ...amounts.js"。
+    // 保留软链路径（模块 id 仍在 node_modules 下）后，CJS→ESM 互操作与依赖预构建恢复正常。
+    preserveSymlinks: true,
   },
   build: {
     chunkSizeWarningLimit: 1200,
@@ -25,9 +30,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // 前端少数页面直接 import 后端的共享计算引擎（`../../../server/src/common/calc/*.ts`），
-    // 该文件在 web 目录之外，需显式允许 vite 读取（宿主机跑与容器跑都指向同一相对位置）。
-    fs: { allow: ['.', path.resolve(__dirname, '../server')] },
+    // 2026-11-23 P3：共享计算引擎已抽成 `@cms/calc` 包（`file:` 依赖，真实路径在 node_modules 里），
+    // 不再需要 fs.allow 去读 web/ 之外的目录。
     proxy: {
       '/api': {
         target: apiProxyTarget,

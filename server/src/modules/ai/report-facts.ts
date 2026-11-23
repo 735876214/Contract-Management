@@ -1,4 +1,4 @@
-import { round2 } from '../../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 
 /**
  * 汇报材料的「事实包」与产出校验（**纯函数**，舍入走共享原语）。

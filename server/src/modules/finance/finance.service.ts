@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
-import { num } from '../../common/calc/numeric';
-import { canonicalMonthKey } from '../../common/calc/aggregate';
-import { compareMonthKey } from '../../common/calc/time';
+import { num } from '@cms/calc/numeric';
+import { canonicalMonthKey } from '@cms/calc/aggregate';
+import { compareMonthKey } from '@cms/calc/time';
 import { assertInProject, assertVersion, assertYearMonth, versionedUpdate } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { ExcelService } from '../../common/services/excel.service';

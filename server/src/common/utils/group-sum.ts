@@ -5,7 +5,7 @@
  * 别把这里做成通用查询层：口径逻辑仍然属于 \`calc/aggregate.ts\`。
  */
 import type { PrismaClient } from '@prisma/client';
-import { num } from '../calc/numeric.ts';
+import { num } from '@cms/calc/numeric';
 
 /** 聚合的分组维度（必须是被聚合表自己的列，才能走 groupBy） */
 export type SumScope = 'projectId' | 'contractId';

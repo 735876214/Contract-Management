@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+import { num } from '@cms/calc/numeric';
 import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
-import { round2 } from '../../common/calc/money';
-import { canonicalMonthKey, compareMonthKey, settlementAmountOf, sumAmounts } from '../../common/calc/index.ts';
+import { round2 } from '@cms/calc/money';
+import { canonicalMonthKey, compareMonthKey, settlementAmountOf, sumAmounts } from '@cms/calc';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';

@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+import { num } from '@cms/calc/numeric';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
-import { round2, round4 } from '../../common/calc/money';
+import { round2, round4 } from '@cms/calc/money';
 import { periodLabel } from '../../domain/settlement-period';
 import { pickFields } from '../../common/pick-fields';
 import { laborRowKey, monthlyDetailKey, weightedUnitPrice } from './labor-receiving';

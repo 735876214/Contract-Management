@@ -34,7 +34,7 @@ docker-compose.yml
 | `backend-deps` | COPY `server/package.json` → `npm install --legacy-peer-deps` | 只带 package.json，依赖层可缓存 |
 | `backend-build` | COPY `server/` → `prisma generate` + `nest build` | 产出 `dist/` |
 | `backend-proddeps` | 生产依赖 + Prisma CLI | 见 §3.1、§3.2 |
-| `frontend-build` | COPY `web/` + `server/src/common/calc` → `VITE_API_BASE=/api` + `vite build` | 产出 `web/dist`；前端运行时复用后端零依赖计算原语，见 §2.2 |
+| `frontend-build` | COPY `packages/calc/package.json` → `npm ci` → COPY `packages/calc` + `web/` → `vite build` | 产出 `web/dist`；共享计算引擎 `@cms/calc` 是 web 的 `file:` 依赖，见 §2.2 |
 | `runtime` | 装 openssl/nginx/tzdata，合并上述产物 | 见 §2.1 |
 
 ### 2.1 runtime 合并了哪些产物
@@ -56,15 +56,30 @@ deploy/single/start.sh   → /usr/local/bin/start.sh
 - `EXPOSE 8080`；`HEALTHCHECK` 用 `node -e "require('net').connect(8080,...)"` 探测对外端口
   （`node:20-slim` **不带 wget**，不能用 wget 探针）。
 
-### 2.2 前端复用后端 `server/src/common/calc`
+### 2.2 前后端共享计算引擎 `@cms/calc`（`packages/calc`）
 
-前端的金额/税率/时间计算直接 import 后端零依赖原语，写法是
-`import { round2 } from '../../../server/src/common/calc/money.ts'`（相对**仓库根**解析）。
-CI 的 `web` job 全仓检出所以能过，但 `frontend-build` 阶段只 COPY `web/` ——
-必须额外 `COPY server/src/common/calc /app/server/src/common/calc` 到镜像内**同一相对位置**，
-否则镜像构建在 `tsc` 阶段报 `TS2307: Cannot find module '.../server/src/common/calc/...'`。
-新增跨包共享目录时，同样要在该阶段补齐 COPY。
+2026-11-23（架构解耦 P3）：原先前端靠**相对路径**直接 import 后端的计算原语
+（`../../../server/src/common/calc/money.ts`），因此镜像里必须在**同一相对位置**补一份
+`COPY server/src/common/calc /app/server/src/common/calc`，否则 `tsc` 阶段 TS2307；
+dev compose 也要把 `./server:/server:ro` 挂进 web 容器、vite 还要 `fs.allow` 放行 web 目录之外。
+三处 hack 的根因是"web 伸手进 server 的源码目录"。
 
+现在这三处 hack 全部删除，改为一个**真包**：
+
+| 事项 | 做法 |
+|---|---|
+| 包位置 | `packages/calc`（`name: @cms/calc`），源码 `packages/calc/src/*.ts` |
+| 依赖声明 | `server/package.json` 与 `web/package.json` 各一行 `"@cms/calc": "file:../packages/calc"`（**不用** npm workspaces 提升：CI 是三个 job 各自 `npm ci`，compose 还按目录挂载） |
+| 产物 | 包根 `*.js`（CJS）+ `*.d.ts`，**随仓库提交**；`node packages/calc/build.mjs` 生成，`server/web` 的 `prebuild`/`pretest` 会在产物过期时自动重编 |
+| 镜像 | 各阶段 `COPY packages/calc/package.json` 后再 `npm ci`（`file:` 依赖解析需要）；runtime 额外 `COPY packages/calc`，因为 `node_modules/@cms/calc` 是指向它的软链 |
+| vite | 删掉 `server.fs.allow`；新增 `resolve.preserveSymlinks: true`——否则软链被解析成真实路径，rollup 会把 CJS 产物当源码、不走 commonjs 互操作，报 `"calcPriceWithTax" is not exported` |
+
+为什么产物要入库而不是每次现编：消费方有 4 种（server 的 `tsc`、ts-node 跑 `test:int`、Node 原生加载
+`.mts` spec、vite/rollup），入口脚本 10+ 个，靠 `pre` 钩子覆盖不全；入库后任何入口都能直接用，
+一致性由 CI 的**产物新鲜度检查**兜底（`node packages/calc/build.mjs --force` 后 `git diff --exit-code packages/calc`）。
+
+为什么包要**扁平产物**（`money.js`/`money.d.ts` 在包根，而不是 `dist/` 下）：server 的 tsc 是 node10 解析，
+不读 `exports` 字段，只有把 `<name>.d.ts` 放在包根，`@cms/calc/money` 才能同时被 tsc、ts-node、Node ESM、vite 解析到。
 ## 3. 关键踩坑
 
 ### 3.1 prisma 是 devDependency，但运行时要用它的 CLI

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { BadRequestException } from '@nestjs/common';
-import { amountToChineseCapital } from '../../common/calc/money';
+import { amountToChineseCapital } from '@cms/calc/money';
 import { FINAL_SETTLEMENT_TEMPLATE_BASE64 } from './final-settlement-template';
 
 /**

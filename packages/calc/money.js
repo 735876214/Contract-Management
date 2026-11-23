@@ -1,0 +1,120 @@
+"use strict";
+/**
+ * 金额舍入与中文大写 —— 全站唯一实现（前后端共用，零依赖）。
+ *
+ * 原位置 `server/src/common/utils/money.ts` 现在只做兼容再导出；前端 `web/src/utils/money.ts`
+ * 只做**展示**格式化（千分位/空值占位），舍入与中文大写仍以本文件为唯一实现。
+ * 改动本文件必须同步跑 `server/test/money.spec.ts`、`test/moneyFormat.spec.mts` 与
+ * `server/test/frontendChainParity.spec.mts`，禁止再在各模块复制舍入公式。
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.round4 = exports.round2 = void 0;
+exports.amountToChineseCapital = amountToChineseCapital;
+exports.round = round;
+const DIGIT = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
+// [组单位(元/万/亿/兆), 组内单位(拾/佰/仟)]
+const UNIT = [['', '万', '亿', '兆'], ['', '拾', '佰', '仟']];
+/** 单个 4 位组转中文（组内空位合并为一个「零」，不处理跨组补零） */
+function sectionToChinese(section) {
+    const digits = String(section).padStart(4, '0').split('').map(Number);
+    let out = '';
+    let pendingZero = false;
+    for (let j = 0; j < 4; j++) {
+        const d = digits[j];
+        if (d === 0) {
+            pendingZero = true;
+            continue;
+        }
+        if (pendingZero && out)
+            out += '零';
+        out += DIGIT[d] + UNIT[1][3 - j];
+        pendingZero = false;
+    }
+    return out;
+}
+/**
+ * 整数部分转中文大写（每 4 位一组，处理 万/亿/兆 与内部的零）。
+ * 跨组补零是财务大写的关键：组值不足 4 位（如 10 万位为 0010）或中间整组为 0 时，
+ * 组间必须出现一个「零」，否则 100005 会被读成「壹拾万伍」而不是「壹拾万零伍」。
+ */
+function convertInteger(num) {
+    if (num === 0)
+        return '';
+    let n = Math.floor(num);
+    const sections = [];
+    while (n > 0) {
+        sections.push(n % 10000);
+        n = Math.floor(n / 10000);
+    }
+    let out = '';
+    let needZero = false;
+    for (let i = sections.length - 1; i >= 0; i--) {
+        const section = sections[i];
+        if (section === 0) {
+            if (out)
+                needZero = true;
+            continue;
+        }
+        if (out && (needZero || section < 1000))
+            out += '零';
+        out += sectionToChinese(section) + UNIT[0][i];
+        needZero = false;
+    }
+    return out;
+}
+function amountToChineseCapital(input) {
+    let n = typeof input === 'string' ? Number(input) : Number(input ?? 0);
+    if (!Number.isFinite(n))
+        n = 0;
+    n = round(n, 2) ?? 0;
+    if (n === 0)
+        return '零元整';
+    const neg = n < 0;
+    n = Math.abs(n);
+    const cents = Math.round(Number(String(n) + 'e2'));
+    const jiao = Math.floor(cents / 10) % 10;
+    const fen = cents % 10;
+    const intPart = Math.floor(cents / 100);
+    const intStr = convertInteger(intPart);
+    if (intPart === 0) {
+        const sub = (jiao ? DIGIT[jiao] + '角' : '') + (fen ? DIGIT[fen] + '分' : '');
+        return (neg ? '负' : '') + (sub || '零元整');
+    }
+    let frac;
+    if (jiao === 0 && fen === 0)
+        frac = '整';
+    else if (jiao === 0 && fen !== 0)
+        frac = '零' + DIGIT[fen] + '分';
+    else if (jiao !== 0 && fen === 0)
+        frac = DIGIT[jiao] + '角整';
+    else
+        frac = DIGIT[jiao] + '角' + DIGIT[fen] + '分';
+    return (neg ? '负' : '') + intStr + '元' + frac;
+}
+/**
+ * 金额四舍五入（模拟 Excel ROUND，避免浮点误差）。
+ * null / undefined / 非有限值统一返回 null，调用方可用 ?? 0 兜底。
+ *
+ * 字符串位移法（`n.toString()` 已是能还原该 double 的最短十进制，位移后取整即人眼口径），
+ * 并按符号取整，保证 `round(-x) === -round(x)`，与 Excel ROUND 的「半值远离零」一致。
+ * 禁止改回 `Math.round((n + Number.EPSILON) * p) / p`：
+ * 8.165 → 8.16、1234567.005 丢 1 分、-1.005 → -1。
+ */
+function round(n, digits = 2) {
+    if (n === null || n === undefined || !Number.isFinite(n))
+        return null;
+    const d = Math.max(0, Math.min(10, Math.trunc(digits)));
+    const neg = n < 0;
+    const abs = Math.abs(n);
+    const shifted = Number(`${abs}e${d}`);
+    if (!Number.isFinite(shifted))
+        return n;
+    const out = Number(`${Math.round(shifted)}e-${d}`);
+    if (!Number.isFinite(out))
+        return n;
+    return neg ? -out : out;
+}
+const round2 = (n) => round(n, 2) ?? 0;
+exports.round2 = round2;
+const round4 = (n) => round(n, 4) ?? 0;
+exports.round4 = round4;

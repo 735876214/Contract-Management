@@ -13,20 +13,20 @@ import {
   CONTRACT_STAGE_STATUSES,
   buildStageChain,
 } from '../../web/src/constants/procurementWorkflow.ts';
-import { amountToChineseCapital as feAmountToChineseCapital } from '../src/common/calc/money.ts';
+import { amountToChineseCapital as feAmountToChineseCapital } from '@cms/calc/money';
 import {
   calcAmount as feCalcAmount,
   round2 as feRound2,
 } from '../../web/src/utils/procurementPriceCompare.ts';
-import { amountToChineseCapital, round2 } from '../src/common/calc/money.ts';
-import { calcAmount } from '../src/common/calc/amounts.ts';
+import { amountToChineseCapital, round2 } from '@cms/calc/money';
+import { calcAmount } from '@cms/calc/amounts';
 import {
   defaultFinalPrice as sharedDefaultFinalPrice,
   calcIncomeWan as sharedCalcIncomeWan,
   calcCostWan as sharedCalcCostWan,
   summarizeCost as sharedSummarizeCost,
   lowestPriceSuppliers as sharedLowestPriceSuppliers,
-} from '../src/common/calc/procurement.ts';
+} from '@cms/calc/procurement';
 import { defaultFinalPrice as feDefaultFinalPrice } from '../../web/src/utils/procurementResultReport.ts';
 import {
   calcIncomeWan as feCalcIncomeWan,
@@ -109,7 +109,7 @@ describe('前后端阶段链一致性（漂移锁）', () => {
 });
 
 /**
- * 金额口径漂移锁：web 侧的工具必须直接复用 server/src/common/calc，
+ * 金额口径漂移锁：web 侧的工具必须直接复用 packages/calc/src，
  * 不允许再出现「前端一份 EPSILON 旧公式、后端一份字符串位移新公式」。
  */
 describe('前后端计算原语一致性（漂移锁）', () => {
