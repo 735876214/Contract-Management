@@ -45,6 +45,13 @@
 - **剩余模块的 DB 集成测试**：`finance` / `auth` / `asset` / `supplier` / `payment`（付款登记本身）
   仍无独立的 `test-integration/*.int.spec.ts`（`finance` 1.4k 行仍是零集成覆盖）。
   照 `procurement-publish.int.spec.ts` 的写法补，首行写 `// @domains: <模块目录名>`。
+- **`check-query-limits.mjs` 存在漏检盲区**（2026-11-23 写看板聚合时发现）：
+  门禁用 `PARENT_KEY` 正则判"是否按父实体过滤"，但该正则会把 **`select: { id: true }` 里的 `id:`**
+  也当成父实体键 → 任何带 id 投影的项目级全量 `findMany` **全部漏检**（实测：去掉
+  `dashboard.service.ts#contractChainRows` 的 `// @no-limit` 后门禁仍报 0 违规）。
+  修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
+  需先跑 `--list` 评估数量再加 `take`/理由。
+
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。

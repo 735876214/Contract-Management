@@ -95,7 +95,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（108 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（32 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（33 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
@@ -329,6 +329,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 | `anomaly-payment.int.spec.ts` | **结算/付款异常预警的真库口径**（2026-10-23 审计补测，落地计划 §4.5 承诺项）：清单量按**合同链根**归集（结算挂母合同、明细跨补充协议）· 按补充协议**下钻时服务端展开整条链**（不得因收窄合同把链切断）· 付款按**链根**归集（结算挂母合同、付款记补充协议不得报超付）· 真超付时事实为**链级累计口径** · 区间上界取**当日末刻**（库里 14:30 的付款不得漏判） · 不给区间时按**系统默认近 12 个自然月**取数并在 `warnings` 里说明（默认区间必须显式可见）· 区间超上限**未带 `force=1` 一律 400**（文案含「超了 84 个月 / 上限 24 / 怎么继续」），带 `force=1` 才放行并留痕 |
 | `cost-labor-receiving.int.spec.ts` | **分包领用数据准确性**（2026-11-13 审计修复）：**只认领用单位=分包商**（供应侧分包商不重复计入，防串户虚增）· 平均单价取**截至本期末**加权均价（后期补录不追溯改写历史期）· 单价**只读**（客户端回传不生效）· **未填实收 ≠ 0**（不建数量桶、不参与加权）· `options().periods` 供月度盈亏「新增」· 重新抓取按新价重算盈亏金额 |
 | `final-settlement.int.spec.ts` | **总结算单 生成/编辑明细/编号**（2026-11-21 审计修复回归）：生成抓该合同全部非草稿月度结算成明细快照、`totalAmount` = 明细合计、编号落库（`docNumber`）· 编辑明细（月份/金额）+ 审减保存即重算合计、编号不变 · 明细超过 36 行 → 400（模板槽位固定，防导出静默丢行）· 已上传附件（`SETTLED`）后不可再改明细 · 乐观锁 version 不匹配 → 冲突 |
+| `dashboard.int.spec.ts` | **工作台「合同额」按合同链只计一次**（2026-11-23 P1，治看板/台账口径不一致）：无补充协议时与旧实现等价 · 有补充协议时 = 主合同 + Σ`changeAmount` 且**忽略手填 `amount`** · 草稿补充协议（`changeAmount` 空）贡献 0 · `contractType` 按**链根类型**归桶且各桶之和 == `overview.contractAmount` · 父合同在别项目（本项目行集缺失）时按自身金额计入、不漏不掺 |
 
 ```bash
 # 1) 准备一个**专用测试库**（库名必须含 test 或 int，否则测试拒绝启动——防误连开发/生产库）

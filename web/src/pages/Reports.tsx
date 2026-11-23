@@ -109,7 +109,7 @@ export default function Reports() {
     <Card title="统计报表">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col xs={12} md={6}><Card size="small"><Statistic title="合同数量" value={overview?.contractCount ?? 0} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="合同总额" value={money(overview?.contractAmount)} /></Card></Col>
+        <Col xs={12} md={6}><Card size="small"><Statistic title="合同总额（含补充协议增量）" value={money(overview?.contractAmount)} /></Card></Col>
         <Col xs={12} md={6}><Card size="small"><Statistic title="累计结算" value={money(overview?.settleAmount)} /></Card></Col>
         <Col xs={12} md={6}><Card size="small"><Statistic title="累计发票金额" value={money(overview?.invoiceAmount)} /></Card></Col>
       </Row>
@@ -121,7 +121,7 @@ export default function Reports() {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card size="small" title="合同类型金额分布" style={{ marginBottom: 16 }}>
+          <Card size="small" title="合同类型金额分布（按合同链）" style={{ marginBottom: 16 }}>
             <ReactECharts option={contractTypeOption} style={{ height: 360 }} notMerge />
           </Card>
         </Col>

@@ -31,15 +31,20 @@
 > 这些地方同一个指标有两个算法，数字会对不上。收敛属于业务口径决策，
 > 逐项确认后再登记；在那之前先留在这里，让评审时看得见。
 
-### 2.1 合同额：看板裸加 `amount`，台账按链根计一次
+### 2.1 合同额：看板与台账口径不同 ✅ 已收敛（2026-11-23）
 
-| 位置 | 算法 | 后果 |
-|---|---|---|
-| `server/src/modules/dashboard/dashboard.service.ts:32-36`（`overview` 的 `contractAmount`） | `contract.aggregate({ _sum: { amount: true } })` — **裸加** | 有补充协议时，看板「合同额」**小于**台账「合同额」（少掉 Σ`changeAmount`） |
-| `server/src/modules/dashboard/dashboard.service.ts:109`（`contractType`） | `groupBy(typeCode).aggregate(_sum.amount)` — 同样裸加 | 按类型分布合计 ≠ 台账合同额 |
-| `server/src/common/utils/ledger-derived.ts#chainRootAmounts` / `contract-chain.ts#resolveChainAmounts` | 链根只计一次（主合同 + Σ 补充协议 `changeAmount`） | 这是正确口径（已登记 `contract-chain-amount`） |
+改前：`dashboard.service.ts` 的 `overview.contractAmount` 与 `contractType` 都是
+`SUM(Contract.amount)` **裸加所有合同行**，而补充协议的 `amount` 是手填自由值
+（涨价场景常填"剩余数量 × 新价"）。后果：同一项目「合同额」在看板与台账不相等，
+「各类型金额之和」也不等于「合同总额」。
 
-**修法**：看板改为按链根聚合（或直接复用 `resolveChainAmounts`），两处同时改，**看板数字会变大**（补充协议增量），属于口径修正而非回归。
+已改为：两处都走 `contract-chain.ts#chainAmountsByRoot`（链金额唯一算式）+
+`ledger-derived.ts#chainContractTotal`（链合计），与台账「合同额」同源。
+前端标题同步改为「合同总额（含补充协议增量）」/「合同类型金额分布（按合同链）」。
+
+锁定：`server/test-integration/dashboard.int.spec.ts` 五条（无补充协议时与旧实现等价 /
+有补充协议时 = 主合同 + ΣchangeAmount 且忽略手填 amount / 草稿补充协议贡献 0 /
+各类型金额之和 == 合同总额 / 父合同在别项目时按自身金额计入）。
 
 ### 2.2 合同已结算/已付款：看板已有两处对齐，但合同详情仍自算
 

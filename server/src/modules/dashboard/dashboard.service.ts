@@ -3,10 +3,11 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
-import { resolveChainAmounts } from '../../common/utils/contract-chain';
+import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
 import { paidPaymentWhere, countedInvoiceWhere, INVOICE_STATUS } from '../../constants/statuses';
 import { sumSettlementAmount } from '../../common/utils/group-sum';
+import { chainContractTotal } from '../../common/utils/ledger-derived';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
@@ -27,16 +28,20 @@ export class DashboardService {
    * 任何一行明细。`_sum` / `count` 的口径与原来的 `sumBy(rows, field)` 完全一致（NULL 计 0，两位小数）。
    */
   async overview(projectId: string, _user: any) {
-    const [contractAgg, executingCount, ledgerSum, paymentSum, invoiceSum, settlementCount] =
+    /**
+     * 合同额口径（2026-11-23 架构评审 P1，见 docs/report-metrics.md）：**按合同链只计一次**。
+     *
+     * 原来是 `contract.aggregate({ _sum: { amount: true } })` 裸加所有合同行——
+     * 补充协议的 `amount` 是**手填自由值**（涨价场景常填"剩余数量 × 新价"），
+     * 逐行相加会把那部分数量的原值重复计入；而且它与台账「合同额」（按链根算）
+     * 不是同一个数，同一项目两个页面给出不同总额。
+     *
+     * 现在两次口径同源：`chainAmountsByRoot`（链金额唯一算式）+ `chainContractTotal`（链合计）。
+     */
+    const contractRows = await this.contractChainRows(projectId);
+    const chains = chainAmountsByRoot(contractRows);
+    const [ledgerSum, paymentSum, invoiceSum, settlementCount] =
       await Promise.all([
-        this.prisma.contract.aggregate({
-          where: { projectId },
-          _count: { _all: true },
-          _sum: { amount: true },
-        }),
-        this.prisma.contract.count({
-          where: { projectId, execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING },
-        }),
         this.prisma.settlementLedger.aggregate({
           where: { projectId },
           _sum: { monthSettleAmount: true },
@@ -57,14 +62,41 @@ export class DashboardService {
     /** 金额列统一「NULL → 0，两位小数」，与原先 `Number(sumBy(...).toFixed(2))` 同口径 */
     const money = (v: unknown) => Number((num(v) || 0).toFixed(2));
     return {
-      contractCount: contractAgg._count._all,
-      contractAmount: money(contractAgg._sum.amount),
+      /** 合同**行数**（含补充协议）：与「合同数量」卡片口径一致，未变 */
+      contractCount: contractRows.length,
+      /** **链数**（= 主合同数）：合同额按链计，所以张数与金额要能对上（前端可展示"含 N 份补充协议"） */
+      contractChainCount: chains.size,
+      supplementCount: contractRows.filter((r) => r.parentContractId).length,
+      contractAmount: money(
+        chainContractTotal(
+          [...chains].map(([rootId, c]) => ({ id: rootId, rootId, currentAmount: c.currentAmount })),
+        ),
+      ),
       settleAmount: money(ledgerSum._sum.monthSettleAmount),
       paidAmount: money(paymentSum._sum.amount),
       invoiceAmount: money(invoiceSum._sum.amountWithTax),
       settlementCount,
-      executingCount,
+      executingCount: contractRows.filter((r) => r.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
     };
+  }
+
+  /**
+   * 合同链需要的窄投影（**聚合专用**，不要换成 `select *`）。
+   * 工作台与类型分布共用，避免两处各写一遍 where/投影。
+   */
+  private async contractChainRows(projectId: string) {
+    // @no-limit: 项目内全部合同（聚合输入的窄投影，每项目量级几十~几百行；不能分页，否则合计失真）
+    return this.prisma.contract.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        parentContractId: true,
+        amount: true,
+        changeAmount: true,
+        typeCode: true,
+        execStatus: true,
+      },
+    });
   }
 
   /**
@@ -105,13 +137,39 @@ export class DashboardService {
     }));
   }
 
+  /**
+   * 按合同类型统计（金额分布图）。
+   *
+   * 口径（2026-11-23，与 `overview.contractAmount` 同源）：**金额按合同链归到链根的类型**。
+   * 原来 `groupBy(typeCode)._sum.amount` 把补充协议的手填 `amount` 记到**补充协议自己的类型**下，
+   * 于是「各类型金额之和」与工作台「合同总额」对不上；现在两者相等（有 int spec 锁住）。
+   *
+   * `count` 仍是**合同行数**（含补充协议，口径未变）；`chainCount` 是落在该类型的**链数**。
+   */
   async contractType(projectId: string) {
-    const contracts = await this.prisma.contract.groupBy({ by: ['typeCode'], where: { projectId }, _count: { _all: true }, _sum: { amount: true } });
-    return contracts.map((c: any) => ({
-      typeCode: c.typeCode,
-      count: c._count._all,
-      amount: Number((num(c._sum.amount) || 0).toFixed(2)),
-    }));
+    const rows = await this.contractChainRows(projectId);
+    const chains = chainAmountsByRoot(rows);
+    const rowById = indexContractRows(rows);
+    const acc = new Map<string, { count: number; chainCount: number; amount: number }>();
+    const bucketOf = (typeCode: string) => {
+      const cur = acc.get(typeCode) ?? { count: 0, chainCount: 0, amount: 0 };
+      acc.set(typeCode, cur);
+      return cur;
+    };
+    for (const r of rows) bucketOf(String(r.typeCode ?? '')).count += 1;
+    for (const [rootId, chain] of chains) {
+      const bucket = bucketOf(String(rowById.get(rootId)?.typeCode ?? ''));
+      bucket.chainCount += 1;
+      bucket.amount = Number((bucket.amount + (chain.currentAmount ?? 0)).toFixed(2));
+    }
+    return [...acc.entries()]
+      .map(([typeCode, v]) => ({
+        typeCode,
+        count: v.count,
+        chainCount: v.chainCount,
+        amount: Number((v.amount || 0).toFixed(2)),
+      }))
+      .sort((a, b) => b.amount - a.amount || String(a.typeCode).localeCompare(String(b.typeCode)));
   }
 
   async invoiceStats(projectId: string) {
