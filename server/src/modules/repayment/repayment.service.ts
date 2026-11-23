@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
@@ -39,7 +39,7 @@ export class RepaymentService {
       }),
       this.prisma.repaymentAgreement.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   async findOne(id: string, projectId?: string) {
@@ -156,7 +156,7 @@ export class RepaymentService {
     delete payload.version;
     // 需求 2.1：主表 + 明细在同一事务内写入，任一步失败整体回滚
     await this.prisma.$transaction(async (tx) => {
-      await tx.repaymentAgreement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+      await versionedUpdate(tx.repaymentAgreement, id, before.version, payload);
       if (details) {
         await tx.repaymentDetail.deleteMany({ where: { agreementId: id } });
         await tx.repaymentDetail.createMany({

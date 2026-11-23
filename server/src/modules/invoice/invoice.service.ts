@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -77,7 +77,7 @@ export class InvoiceService {
       }),
       this.prisma.invoice.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   async findOne(id: string, projectId?: string) {
@@ -410,7 +410,7 @@ export class InvoiceService {
     if (link !== undefined) payload.settlementId = link;
     // 关联不可变（上面已拦）：这里只校验「已有关联仍在同合同」，不再触发作废原票
     await this.resolveRedLink(payload, before.projectId, before);
-    const updated = await this.prisma.invoice.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const updated = await versionedUpdate(this.prisma.invoice, id, before.version, payload);
     // 合同可能被改到别的合同上 → 两个合同的开票额都要重算
     for (const cid of new Set([before.contractId, payload.contractId ?? before.contractId].filter(Boolean))) {
       await this.syncLedger(cid as string);

@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { round2 } from '../../common/calc/money';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService } from '../../common/services/import-template.service';
 import { ContractService } from '../contract';
@@ -453,10 +453,7 @@ export class ProcurementTaskService {
       Object.assign(patch, clauseInput, snapshots);
     }
 
-    const updated = await this.prisma.procurementTask.update({
-      where: { id },
-      data: { ...patch, version: { increment: 1 } },
-    });
+    const updated = await versionedUpdate(this.prisma.procurementTask, id, current.version, patch);
     return { ...serializeTask(updated), stages: this.buildStages(updated) };
   }
 
@@ -605,16 +602,72 @@ export class ProcurementTaskService {
     // 合同阶段的状态细分依赖关联合同状态；此查询同时充当「是否已生成合同」的幂等判据
     const linked = nextStage >= chain.length ? await mainContract(this.prisma, id) : null;
     const nextStatus = this.deriveStatus(current.type, preMeetingRequired, nextStage, linked?.status);
-    const updated = await this.prisma.procurementTask.update({
-      where: { id },
-      data: {
-        stage: nextStage,
-        status: nextStatus,
-        // 采前会要求随预计采购金额自动落库（仅单项采购在总清单发布时判定）
-        ...(preMeetingRequired !== current.preMeetingRequired ? { preMeetingRequired } : {}),
-        version: { increment: 1 },
-      },
+    /**
+     * 「推进阶段 + 回填本阶段发布时间」是**一次逻辑写入**（2026-11-22 审计）：
+     * 改造前是 1 次 task.update + 最多 6 次 xxx.updateMany 裸写，中途抛错就留下
+     * 「阶段已推进、模块仍显示编辑中」或 `publishedAt` 只写了一半。
+     * 事务只包"状态类"写入；自动生成合同 / 价格对比表回填是**可失败的附属动作**，
+     * 留在事务外（失败不阻断发布，与改造前口径一致）。
+     */
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.procurementTask.update({
+        where: { id },
+        data: {
+          stage: nextStage,
+          status: nextStatus,
+          // 采前会要求随预计采购金额自动落库（仅单项采购在总清单发布时判定）
+          ...(preMeetingRequired !== current.preMeetingRequired ? { preMeetingRequired } : {}),
+          version: { increment: 1 },
+        },
+      });
+      // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
+      // ⚠️ 阶段下标必须用上面按阶段链算出的 frameworkExplainIdx（框架链里事前说明是 stage 2），
+      // 不能硬写 1——1 是「价格对比表」，会导致刚发布价格对比表就把事前说明标成已发布、
+      // 前端 ModuleListPage 据此提前显示「已完成」。
+      if (frameworkExplainIdx >= 0 && current.stage === frameworkExplainIdx) {
+        await tx.frameworkExplanation.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      // 采前会阶段发布 → 回填发布时间
+      if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
+        await tx.preMeetingMinutes.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      // 任务 3.3：采购公告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+      if (noticeIndex >= 0 && current.stage === noticeIndex) {
+        await tx.procurementNotice.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      // 任务 3.4：采购文件阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+      if (documentIndex >= 0 && current.stage === documentIndex) {
+        await tx.procurementDocument.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      // 任务 3.5：成交报告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+      if (reportIndex >= 0 && current.stage === reportIndex) {
+        await tx.procurementResultReport.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      // 任务 3.6：采购价格对比表阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
+      if (priceIndex >= 0 && current.stage === priceIndex) {
+        await tx.procurementPriceCompare.updateMany({
+          where: { taskId: id, publishedAt: null },
+          data: { publishedAt: new Date() },
+        });
+      }
+      return next;
     });
+
     // 补充一：全部阶段发布完毕（单项采购=采购价格对比表 / 引用框架协议=框架协议事前说明）后，
     // 自动在「合同起草」生成关联合同（草稿）并关联本任务。
     // 幂等判据：本任务是否已有关联合同——关联只由 Contract.taskId 一条表达，故直接查合同表。
@@ -626,64 +679,21 @@ export class ProcurementTaskService {
         console.error('[采购任务] 自动生成关联合同失败：', err);
       }
     }
-    // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
-    // ⚠️ 阶段下标必须用上面按阶段链算出的 frameworkExplainIdx（框架链里事前说明是 stage 2），
-    // 不能硬写 1——1 是「价格对比表」，会导致刚发布价格对比表就把事前说明标成已发布、
-    // 前端 ModuleListPage 据此提前显示「已完成」。
-    if (frameworkExplainIdx >= 0 && current.stage === frameworkExplainIdx) {
-      await this.prisma.frameworkExplanation.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-    }
-    // 采前会阶段发布 → 回填发布时间
-    if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
-      await this.prisma.preMeetingMinutes.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-    }
-    // 任务 3.3：采购公告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
-    if (noticeIndex >= 0 && current.stage === noticeIndex) {
-      await this.prisma.procurementNotice.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-    }
-    // 任务 3.4：采购文件阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
-    if (documentIndex >= 0 && current.stage === documentIndex) {
-      await this.prisma.procurementDocument.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-    }
-    // 任务 3.5：成交报告阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
-    if (reportIndex >= 0 && current.stage === reportIndex) {
-      await this.prisma.procurementResultReport.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-    }
-    // 任务 3.6：采购价格对比表阶段发布 → 回填发布时间（状态 编辑中 → 已完成）
-    if (priceIndex >= 0 && current.stage === priceIndex) {
-      await this.prisma.procurementPriceCompare.updateMany({
-        where: { taskId: id, publishedAt: null },
-        data: { publishedAt: new Date() },
-      });
-      // 框架协议类型：价格对比表明细自动写入事前说明「价格对比表」。
-      // 注意框架链中价格对比表在事前说明之前，此刻说明记录往往尚未创建（!existing）——
-      // 由 importPriceCompare 的 upsert 创建；用户已手动填写（priceCompareRows 非空）时不覆盖。
-      if (current.type === 'FRAMEWORK') {
-        const existing = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: id } });
-        if (!existing || !String(existing.priceCompareRows ?? '').trim()) {
-          try {
-            await this.importPriceCompare(id);
-          } catch {
-            /* 价格对比表无明细时静默跳过 */
-          }
+
+    // 框架协议类型：价格对比表明细自动写入事前说明「价格对比表」。
+    // 注意框架链中价格对比表在事前说明之前，此刻说明记录往往尚未创建（!existing）——
+    // 由 importPriceCompare 的 upsert 创建；用户已手动填写（priceCompareRows 非空）时不覆盖。
+    if (priceIndex >= 0 && current.stage === priceIndex && current.type === 'FRAMEWORK') {
+      const existing = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: id } });
+      if (!existing || !String(existing.priceCompareRows ?? '').trim()) {
+        try {
+          await this.importPriceCompare(id);
+        } catch {
+          /* 价格对比表无明细时静默跳过 */
         }
       }
     }
+
     return { ...serializeTask(updated), stages: this.buildStages(updated) };
   }
 

@@ -38,11 +38,20 @@
 ## 可直接开工（工程项，按性价比排序）
 
 > 2026-11-22 质量审计的落地情况：**类型安全（strict）、ESLint 门禁、大服务拆分**已由
-> `2863841`（P0–P1 质量整改）在 main 上完成；本分支补的是它没覆盖的**口径单一实现**与**样板去重**。
-> 下面只留**尚未做**的。
+> `2863841`（P0–P1 质量整改）在 main 上完成；`PR #32` 落地隔离 fail-closed / 稳定错误码 / 分页口径；
+> `PR #31` 补的是它没覆盖的**口径单一实现**与**样板去重**（导出/导入/列表筛选、keyword 过滤、文件下载各收敛一处，
+> 台账合规筛选改窄投影，lint 预算收到 0，int 覆盖 27 → 32）。下面只留**尚未做**的。
 
-**当前无遗留工程项**（取数范围收口已于 2026-11-22 落地，口径见
-[.claude/rules/product-decisions.md](.claude/rules/product-decisions.md)）；有新需求按上方三档新增。
+- **剩余模块的 DB 集成测试**：`finance` / `auth` / `asset` / `supplier` / `payment`（付款登记本身）
+  仍无独立的 `test-integration/*.int.spec.ts`（`finance` 1.4k 行仍是零集成覆盖）。
+  照 `procurement-publish.int.spec.ts` 的写法补，首行写 `// @domains: <模块目录名>`。
+- **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
+  （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
+  `CORS_ORIGINS` 环境变量白名单，与部署文档同源。
+- **采购 6 个单据页面仍高度同构**：`web/src/pages/Procurement/{FrameworkExplanation,PreMeetingMinutes,Notice,
+  Document,ResultReport,PriceCompare}.tsx` 各 720–990 行，跨文件 10 行以上的重复窗口 24–44 处/对。
+  变量映射与下载 helper 已收口（`utils/projectVars.ts` / `utils/blobDownload.ts`），页面骨架仍应向
+  `components/procurement/ModuleListPage` + `EditorTabPage` 继续收敛。
 
 ## 四域扩展（已收口，不再立项）
 

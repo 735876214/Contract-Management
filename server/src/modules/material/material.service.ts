@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { csvCell, toCsv } from '../../common/utils/csv';
@@ -222,10 +222,7 @@ export class MaterialService {
     // 乐观锁（2026-10-18 审计）：此前 updateBase 既不校验也不递增 version，
     // 物资基础信息的并发保护是空转。前端已回传 version。
     assertVersion(old, data);
-    return this.prisma.materialBase.update({
-      where: { id },
-      data: { ...payload, version: { increment: 1 } },
-    });
+    return versionedUpdate(this.prisma.materialBase, id, old.version, payload);
   }
 
   /** 删除：被合同物资清单引用时阻止（提示改为停用，保留历史合同数据） */
@@ -559,16 +556,17 @@ export class MaterialService {
     }
     if (!String(merged.unit || '').trim()) throw new BadRequestException('计量单位不能为空');
     const { data: payload, computed } = this.normalizeRow(data);
-    const row = await this.prisma.contractMaterial.update({
-      where: { id },
-      data: {
+    const row: any = await versionedUpdate(
+      this.prisma.contractMaterial,
+      id,
+      old.version,
+      {
         ...payload,
         priceWithTax: computed.priceWithTax,
         totalWithTax: computed.totalWithTax,
-        version: { increment: 1 },
       },
-      include: { materialBase: true },
-    });
+      { include: { materialBase: true } },
+    );
     // 需求 2.3：物资变更 → 自动重新派生该合同的结算台账
     await this.settlement.syncLedgerByContract(row.contractId);
     return row;
@@ -599,12 +597,19 @@ export class MaterialService {
         throw new NotFoundException('合同物资清单行不存在');
       }
     }
-    for (const it of items) {
-      await this.prisma.contractMaterial.update({
-        where: { id: it.id },
-        data: { sortOrder: Math.trunc(Number(it.sortOrder) || 0) },
-      });
-    }
+    /**
+     * 全部行号必须一次写入（2026-11-23）：原来是逐行 update、各自提交，
+     * 中途失败/并发保存会留下"一半新序号、一半旧序号"的重复行号（界面上两行同号，看不出来谁对）。
+     * 行号只是显示顺序，不参与金额派生，因此不 bump version（避免整表版本号无意义地跳变）。
+     */
+    await this.prisma.$transaction(
+      items.map((it) =>
+        this.prisma.contractMaterial.update({
+          where: { id: it.id },
+          data: { sortOrder: Math.trunc(Number(it.sortOrder) || 0) },
+        }),
+      ),
+    );
     return true;
   }
 
@@ -700,11 +705,18 @@ export class MaterialService {
     }
     const bases = await this.prisma.materialBase.findMany({ where: { id: { in: materialIds }, status: 1 } });
     if (!bases.length) throw new BadRequestException('所选物资不存在或已停用');
-    await this.prisma.contractMaterial.deleteMany({ where: { contractId } });
-    for (const [i, base] of bases.entries()) {
+    /**
+     * ⚠️ 「清空 + 逐行重建」必须同一事务（2026-11-23 第 24 轮审计）：
+     * 原来是 `deleteMany` 提交后再逐条 create，中途失败会**把用户已补录的清单行删掉、
+     * 只留下一部分空行**（派生行的数量/单价全为 null，原值不可恢复）。
+     * 调用方 `contract.service.create()` 也可能在事务外（"导入事务中不派生"那条注释），没有外层兜底。
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contractMaterial.deleteMany({ where: { contractId } });
+      for (const [i, base] of bases.entries()) {
       // 物资基础库只提供名称/规格/编码等主数据，派生行的数量/价格/税率
       // 由用户补录后按统一规则自动计算（含税单价 = 税前单价 × (1 + 税率/100)）
-      await this.prisma.contractMaterial.create({
+      await tx.contractMaterial.create({
         data: {
           contractId,
           materialBaseId: base.id,
@@ -719,7 +731,10 @@ export class MaterialService {
           remark: '由物资基础库派生',
         },
       });
-    }
+      }
+    }, { timeout: 30000 });
+    // 与 createRow/updateRow/removeRow 同口径：清单变了就重刷该合同的结算台账
+    await this.settlement.syncLedgerByContract(contractId);
     return { created: bases.length, removed: true };
   }
 

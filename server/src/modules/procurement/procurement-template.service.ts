@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { buildResult, paginate, assertVersion } from '../../common/utils/helpers';
+import { buildResult, paginate, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { keywordWhere } from '../../common/utils/list-where';
 
 /** 允许的采购模块类型（批次一 · 任务 1.2） */
@@ -175,10 +175,7 @@ export class ProcurementTemplateService {
     }
 
     await this.snapshotVersion(current, operator);
-    const updated = await this.prisma.procurementTemplate.update({
-      where: { id },
-      data: { ...patch, version: { increment: 1 } },
-    });
+    const updated = await versionedUpdate(this.prisma.procurementTemplate, id, current.version, patch);
     return this.serialize(updated);
   }
 
@@ -205,15 +202,11 @@ export class ProcurementTemplateService {
     if (!v || v.templateId !== id) throw new NotFoundException('版本记录不存在');
 
     await this.snapshotVersion(current, operator);
-    const updated = await this.prisma.procurementTemplate.update({
-      where: { id },
-      data: {
-        templateName: v.templateName,
-        content: v.content,
-        variables: v.variables,
-        tags: v.tags,
-        version: { increment: 1 },
-      },
+    const updated = await versionedUpdate(this.prisma.procurementTemplate, id, current.version, {
+      templateName: v.templateName,
+      content: v.content,
+      variables: v.variables,
+      tags: v.tags,
     });
     return this.serialize(updated);
   }

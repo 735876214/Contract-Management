@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
@@ -100,7 +100,7 @@ export class PaymentService {
       this.prisma.paymentRecord.findMany({ where, skip, take, orderBy: [{ payMonth: 'desc' }, { createdAt: 'desc' }], include: this.contractInclude }),
       this.prisma.paymentRecord.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   /**
@@ -148,7 +148,7 @@ export class PaymentService {
       payload.statusCode !== undefined ? payload.statusCode : before?.statusCode,
       id,
     );
-    const updated: any = await this.prisma.paymentRecord.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    const updated: any = await versionedUpdate(this.prisma.paymentRecord, id, before.version, payload);
     return { ...updated, ...warn };
   }
 

@@ -12,6 +12,7 @@
  * 文件命名规则：{项目简称}-{采购内容}-{模块名称}.docx
  */
 import { procurementApi } from '@/api/modules';
+import { downloadBlob } from './blobDownload.ts';
 import {
   procurementModuleLabel,
   replaceProcurementVariables,
@@ -100,17 +101,6 @@ export async function buildProcurementDoc(
   return { html, templateUsed: !!tpl, templateName: tpl?.templateName };
 }
 
-function download(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 /**
  * 通用导出接口：构建（模板优先）→ 替换 → 图片内联 → 生成 Word Blob → 自动下载。
  * 各采购模块统一调用本接口完成 Word 导出。
@@ -120,7 +110,7 @@ export async function exportProcurementWord(input: ProcurementExportInput): Prom
   const filename = input.filename || `采购文档-${procurementModuleLabel(input.moduleType)}.docx`;
   const doc = WORD_TPL(filename.replace(/\.docx?$/, ''), html || '<p></p>');
   const blob = new Blob(['\ufeff' + doc], { type: 'application/msword;charset=utf-8' });
-  download(blob, filename);
+  downloadBlob(blob, filename);
   return blob;
 }
 

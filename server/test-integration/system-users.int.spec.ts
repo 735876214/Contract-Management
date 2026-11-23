@@ -13,7 +13,8 @@ import { SystemService } from '../src/modules/system/system.service';
  * 结果是「选角色/选权限保存后不生效」甚至 500。本用例锁死三条写入契约：
  * ① 角色：新建/编辑时 permissionIds 真正落关联表，且可整体替换；
  * ② 用户：roleIds 真正落关联表，且可清空；
- * ③ 用户名缺失 → 400（不再由 Prisma 抛 500）。
+ * ③ 用户名缺失 → 400（不再由 Prisma 抛 500）；
+ * ④ 口令强度：弱口令（长度够但纯字母 / 常见弱口令）→ 400（第 24 轮审计：原来只校验 ≥ 6）。
  */
 describe('集成 · 用户与角色维护', () => {
   let ctx: IntContext;
@@ -53,7 +54,7 @@ describe('集成 · 用户与角色维护', () => {
     const username = uniq('int-user');
     const user: any = await system.createUser({
       username,
-      password: 'int-test-pass',
+      password: 'int-test-pass1',
       realName: '集成测试用户',
       status: 1,
       roleIds: [role.id],
@@ -75,6 +76,24 @@ describe('集成 · 用户与角色维护', () => {
       () => system.createUser({ password: 'x', realName: '无用户名' }),
       (e: any) => e instanceof BadRequestException && /用户名/.test(e.message),
       '用户名缺失应为 400',
+    );
+
+    // ④ 口令强度：下面两种都不合格，必须在写库前 400（不能"建了一半的用户"）
+    for (const [pwd, why] of [
+      ['abcdefgh', '纯字母'],
+      ['admin123', '常见弱口令'],
+      ['ab1', '长度不足'],
+    ] as const) {
+      await assert.rejects(
+        () => system.createUser({ username: uniq('int-weak'), password: pwd, realName: '弱口令' }),
+        (e: any) => e instanceof BadRequestException && /密码|弱口令/.test(e.message),
+        `弱口令（${why}）应为 400`,
+      );
+    }
+    assert.equal(
+      await ctx.prisma.user.count({ where: { username: { startsWith: 'int-weak-' } } }),
+      0,
+      '弱口令请求不得留下任何用户行',
     );
   });
 });

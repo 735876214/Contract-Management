@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { pickFields } from '../../common/pick-fields';
 import { toDate } from '../../common/calc/time';
-import { assertVersion } from '../../common/utils/helpers';
+import { assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { isMilestoneOverdue } from '../../common/utils/milestone';
 import { MILESTONE_STATUS } from '../../constants/statuses';
 import { ContractLockService } from '../../common/services/contract-lock.service';
@@ -76,10 +76,7 @@ export class MilestoneService {
     const payload = this.normalize(data);
     delete payload.version;
     delete payload.createdBy;
-    return this.prisma.contractFulfillment.update({
-      where: { id: milestoneId },
-      data: { ...payload, version: { increment: 1 } },
-    });
+    return versionedUpdate(this.prisma.contractFulfillment, milestoneId, before.version, payload);
   }
 
   async remove(contractId: string, milestoneId: string, projectId: string) {

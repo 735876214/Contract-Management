@@ -6,6 +6,8 @@ import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { dateRange, keywordWhere } from '../../common/utils/list-where';
+import { SECRET_PARAM_KEYS } from '../../common/utils/public-params';
+import { checkPasswordStrength } from '../../common/utils/password-policy';
 
 /**
  * 用户主表可写字段白名单（password 单独处理，roleIds 走关联表）。
@@ -58,6 +60,11 @@ export class SystemService {
     data = { ...data, username };
     const exist = await this.prisma.user.findUnique({ where: { username: data.username } });
     if (exist) throw new BadRequestException('用户名已存在');
+    // 显式给了口令就必须过强度口径；没给仍落到默认口令（管理台「密码」是必填项，这条只兜内部调用）
+    if (data.password) {
+      const weak = checkPasswordStrength(data.password);
+      if (weak) throw new BadRequestException(weak);
+    }
     const password = await bcrypt.hash(data.password || '123456', 10);
     const { roleIds, ...rest } = data;
     const created = await this.prisma.user.create({
@@ -87,7 +94,17 @@ export class SystemService {
       const dup = await this.prisma.user.findFirst({ where: { username: payload.username, id: { not: id } } });
       if (dup) throw new BadRequestException('用户名已存在');
     }
+    if (password) {
+      const weak = checkPasswordStrength(password);
+      if (weak) throw new BadRequestException(weak);
+    }
     const hashed = password ? await bcrypt.hash(password, 10) : undefined;
+    /**
+     * 停用 / 改密都要失效旧令牌（2026-11-23）：`status` 变化会被 `JwtStrategy` 的
+     * `status !== 1` 挡住，但「改密」挡不住——旧 token 还能用满 7 天。
+     * 这里按"能不能改变凭据有效性"统一 +1：给了新口令，或这次把账号停用。
+     */
+    const revokeTokens = Boolean(hashed) || Number(payload.status) === 0;
     const updated = await this.prisma.$transaction(async (tx) => {
       if (roleIds) {
         await tx.userRole.deleteMany({ where: { userId: id } });
@@ -97,7 +114,10 @@ export class SystemService {
       }
       return tx.user.update({
         where: { id },
-        data: hashed ? { ...payload, password: hashed } : payload,
+        data: {
+          ...(hashed ? { ...payload, password: hashed } : payload),
+          ...(revokeTokens ? { tokenVersion: { increment: 1 } } : {}),
+        },
       });
     });
     return stripPassword(updated);
@@ -109,7 +129,13 @@ export class SystemService {
   }
 
   async resetPassword(id: string, password: string) {
-    const updated = await this.prisma.user.update({ where: { id }, data: { password: await bcrypt.hash(password || '123456', 10) } });
+    const weak = checkPasswordStrength(password);
+    if (weak) throw new BadRequestException(weak);
+    // 重置密码 = 管理员认为原口令已不可信：一并失效该用户的所有活跃会话
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { password: await bcrypt.hash(password, 10), tokenVersion: { increment: 1 } },
+    });
     return stripPassword(updated);
   }
 
@@ -175,7 +201,7 @@ export class SystemService {
    * 与「密钥只写不读」的口径冲突；而且页面「保存全部」会把别的页面刚改的键覆盖回去。
    * 这里直接不透出，避免任何读取路径（含导出、日志）带出明文。
    */
-  private readonly secretParamKeys = new Set(['ai.apiKey']);
+  private readonly secretParamKeys = SECRET_PARAM_KEYS;
 
   async params() {
     // @no-limit: 系统参数表（全局配置，几十行）

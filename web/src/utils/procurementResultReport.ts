@@ -33,6 +33,7 @@ import {
   defaultFinalPrice as defaultFinalPriceShared,
   isYesFlag,
 } from '../../../server/src/common/calc/index.ts';
+import { projectVars } from './projectVars.ts';
 
 /** 响应单位明细行（导入「响应单位情况汇总表」，10 列） */
 import { formatAmount } from './money.ts';
@@ -325,13 +326,8 @@ export function buildResultReportVariableValues(
 ): Record<string, string> {
   const suppliers = data.suppliers ?? [];
   return {
-    项目名称: ctx.projectName ?? '',
-    项目简称: ctx.projectAbbr ?? '',
-    承接单位: ctx.undertaker ?? '',
-    项目所在省市: ctx.provinceCity ?? '',
-    工程地点: ctx.siteLocation ?? '',
-    项目地址: ctx.projectAddress ?? '',
-    物资产地: ctx.materialOrigin ?? '',
+    // 项目基本情况变量：采购 6 个单据模块共用同一份取值（utils/projectVars.ts）
+    ...projectVars(ctx),
     采购内容: ctx.content ?? '',
     // 单位（元）写进变量名：与采前会的同名量（万元）区分，避免差 10000 倍
     '预计采购金额(元)': fmtAmount(ctx.estimatedAmount),

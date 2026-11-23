@@ -17,14 +17,9 @@ export function fileNameFromDisposition(headers: unknown, fallback: string): str
   return m ? decodeURIComponent(m[1]) : fallback;
 }
 
-/** 生成 `<a download>` 触发下载并回收 object URL */
-export function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+/**
+ * 生成 `<a download>` 触发下载并回收 object URL。
+ * 实现已收敛到 `utils/blobDownload.ts`（三份拷贝合一，含"延迟回收"的浏览器兼容处理），
+ * 这里只做再导出，调用方零改动。
+ */
+export { downloadBlob } from './blobDownload.ts';

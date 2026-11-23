@@ -289,7 +289,7 @@ export class LedgerService {
       total = matchedIds.length;
     }
 
-    return { ...buildResult(rows, total, query), columns: await this.columns() };
+    return { ...buildResult(rows, total, query, maxPageSize), columns: await this.columns() };
   }
 
 

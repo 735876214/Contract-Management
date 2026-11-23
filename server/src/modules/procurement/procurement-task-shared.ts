@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { round2 } from '../../common/calc/money';
 import { mulDecimal, sumRounded } from '../../common/calc/amounts';
-import { requestContext } from '../../common/services/request-context';
+import { projectWhere } from '../../common/utils/project-scope';
 import {
   NOTICE,
   DOCUMENT,
@@ -122,12 +122,15 @@ export function priceCompareStageIndex(task: { type: string; preMeetingRequired:
   return stageChain(task.type, task.preMeetingRequired).findIndex((s) => s.key === PRICE_COMPARE.key);
 }
 
-/** 采购任务是否存在（有请求上下文时同时校验项目归属） */
+/**
+ * 采购任务是否存在（有请求上下文时同时校验项目归属）。
+ *
+ * ⚠️ 走 `projectWhere()`：**请求内缺项目头一律 400**（fail-closed）。
+ * 改造前这里是 `...(projectId ? { projectId } : {})`——漏带 `x-project-id` 时不追加过滤，
+ * 于是 `GET /api/procurement-tasks/<别项目 id>` 直接读到别人的采购任务（2026-11-22 审计）。
+ */
 export async function taskOf(prisma: PrismaClient, taskId: string) {
-  const projectId = requestContext.projectId;
-  const task = await prisma.procurementTask.findFirst({
-    where: { id: taskId, ...(projectId ? { projectId } : {}) },
-  });
+  const task = await prisma.procurementTask.findFirst({ where: projectWhere(taskId) });
   if (!task) throw new NotFoundException('采购任务不存在');
   return task;
 }

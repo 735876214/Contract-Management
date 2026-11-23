@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
-import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, assertYearMonth, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { round2 } from '../../common/calc/money';
 import { canonicalMonthKey, compareMonthKey, settlementAmountOf, sumAmounts } from '../../common/calc/index.ts';
@@ -446,7 +446,7 @@ export class SettlementLedgerService {
       }),
       this.prisma.settlementLedger.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   async ledgerOne(id: string, projectId?: string) {
@@ -605,7 +605,7 @@ export class SettlementLedgerService {
     delete payload.version;
     // 唯一键预检：把月份/合同改成已存在的组合时，前端的 update 会撞 P2002 → 500，这里统一转 400
     await this.assertLedgerMonthUnique(old.projectId, contractId ?? null, settleMonth ?? null, id);
-    return this.prisma.settlementLedger.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.settlementLedger, id, old.version, payload);
   }
 
   /** 台账「合同 + 结算月」项目内唯一（DB 有 @@unique，这里提前给出可读错误） */

@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { keywordWhere } from '../../common/utils/list-where';
 
+import { API_CODE } from '../../common/error-codes';
+import { MISSING_PROJECT_CONTEXT } from '../../common/utils/project-context-message';
+
 /** 编辑总结算明细的请求体（controller 与 service 共用；避免 @Body() 退化成 any） */
 export interface UpdateItemsBody {
   items?: Array<{ id?: string; settleMonth?: string; amount?: any }>;
@@ -10,7 +13,7 @@ export interface UpdateItemsBody {
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
-import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
+import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { notDraft } from '../../common/utils/contract-chain';
 import { round2 } from '../../common/calc/money';
 import { pickFields } from '../../common/pick-fields';
@@ -79,7 +82,9 @@ export class FinalSettlementService {
    */
   async findOne(id: string, projectId?: string) {
     const pid = projectId ?? requestContext.projectId;
-    if (!pid) throw new BadRequestException('缺少项目上下文（x-project-id），请刷新页面或重新登录选择项目');
+    if (!pid) {
+      throw new BadRequestException({ code: API_CODE.PROJECT_CONTEXT_MISSING, message: MISSING_PROJECT_CONTEXT });
+    }
     const row = await this.prisma.finalSettlement.findFirst({
       where: { id, projectId: pid },
       include: {
@@ -218,7 +223,7 @@ export class FinalSettlementService {
     const payload: any = pickFields(data, FIELDS, { label: '总结算单' });
     delete payload.version;
     // 状态只经受控动作（上传附件）变更，不从这里直传 —— 否则"已结算"会绕过合同状态联动
-    return this.prisma.finalSettlement.update({ where: { id }, data: { ...payload, version: { increment: 1 } } });
+    return versionedUpdate(this.prisma.finalSettlement, id, before.version, payload);
   }
 
   /**

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
-import { assertInProject, assertVersion, buildResult, paginate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { round2 } from '../../common/calc/money';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -67,7 +67,7 @@ export class AssetService {
       }),
       this.prisma.assetLedger.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    return buildResult(list, total, query, maxPageSize);
   }
 
   /**
@@ -153,7 +153,13 @@ export class AssetService {
     if (payload.turnoverCount !== undefined) payload.turnoverCount = payload.turnoverCount === null || payload.turnoverCount === '' ? null : Number(payload.turnoverCount);
     const merged = { ...old, ...payload } as any;
     Object.assign(payload, this.derived(merged));
-    return this.prisma.assetLedger.update({ where: { id }, data: payload });
+    /**
+     * ⚠️ 这里必须走 `versionedUpdate`（2026-11-23）：原来直接 `update({ where: { id }, data: payload })`，
+     * 而 `payload` 由 `pickFields(ASSET_FIELDS)` 生成、白名单里没有 `version` —— 版本号永远写不回去，
+     * `assertVersion` 每次都拿同一个旧版本号比对，于是"两人并发编辑同一条资产行"永远不报 409，
+     * 后保存的人静默覆盖前一个人。同模块的 `asset-ledger-writes.ts` 一直是带 increment 的，这里是漏改。
+     */
+    return versionedUpdate(this.prisma.assetLedger, id, old.version, payload);
   }
 
   async remove(id: string, projectId?: string) {

@@ -1,3 +1,4 @@
+import { projectVars } from './projectVars.ts';
 /**
  * 框架协议事前说明 · 文档构建（批次二 · 任务 3.1）
  * 把事前说明各编辑区组装为文档 HTML，用于预览与导出 Word。
@@ -132,13 +133,8 @@ export function buildExplanationVariableValues(
   },
 ): Record<string, string> {
   return {
-    项目名称: ctx.projectName ?? '',
-    项目简称: ctx.projectAbbr ?? '',
-    承接单位: ctx.undertaker ?? '',
-    项目所在省市: ctx.provinceCity ?? '',
-    工程地点: ctx.siteLocation ?? '',
-    项目地址: ctx.projectAddress ?? '',
-    物资产地: ctx.materialOrigin ?? '',
+    // 项目基本情况变量：采购 6 个单据模块共用同一份取值（utils/projectVars.ts）
+    ...projectVars(ctx),
     采购内容: ctx.content ?? '',
     '事前说明-询价情况': buildInquiryTableHtml(data.inquiryRows ?? []),
     '事前说明-价格对比表': buildPriceCompareTableHtml(data.priceCompareRows ?? []),

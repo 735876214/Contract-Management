@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 /**
@@ -14,9 +15,29 @@ export async function createContractTemplate(db: Db, data: Record<string, any>):
   return db.contractTemplate.create({ data: data as any });
 }
 
-/** 更新合同模板（version 自增，与 template.service 的「编辑即新版本语义留档」一致） */
-export async function updateContractTemplate(db: Db, id: string, data: Record<string, any>): Promise<any> {
-  return db.contractTemplate.update({ where: { id }, data: { ...data, version: { increment: 1 } } as any });
+/**
+ * 更新合同模板（version 自增，与 template.service 的「编辑即新版本语义留档」一致）。
+ *
+ * `expectedVersion` 传了就按**条件写**（`where: { id, version }`）：`assertVersion` 的
+ * 「读 → 比 → 写」之间有并发窗口，两人同刻保存会双双通过校验、后写覆盖前写（2026-11-23）。
+ */
+export async function updateContractTemplate(
+  db: Db,
+  id: string,
+  data: Record<string, any>,
+  expectedVersion?: number,
+): Promise<any> {
+  try {
+    return await db.contractTemplate.update({
+      where: expectedVersion === undefined ? { id } : { id, version: Number(expectedVersion) },
+      data: { ...data, version: { increment: 1 } } as any,
+    });
+  } catch (e: any) {
+    if (expectedVersion !== undefined && e?.code === 'P2025') {
+      throw new ConflictException('数据已被其他用户修改或已删除，请刷新后重试');
+    }
+    throw e;
+  }
 }
 
 /** 删除合同模板 */
