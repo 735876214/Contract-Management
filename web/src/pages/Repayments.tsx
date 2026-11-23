@@ -1,17 +1,7 @@
 import { useEffect, useState } from 'react';
-import {
-  Card,
-  Table,
-  Button,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  DatePicker,
-  Space,
-  Popconfirm,
-  message,
-} from 'antd';
+import { formatMoney } from '@/utils/money';
+import { Card, Table, Button, Form, Input, InputNumber, Select, DatePicker, Space, Popconfirm } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { withToken } from '../utils/download';
@@ -23,8 +13,7 @@ import Can from '@/components/Can';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 
-const money = (v: any) =>
-  v == null || v === '' ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 const fmtDate = (v: any) => (v ? String(v).slice(0, 10) : '-');
 
@@ -116,8 +105,8 @@ function RepaymentList({ suppliers }: { suppliers: any[] }) {
           { title: '供应商名称', dataIndex: ['supplier', 'name'], width: 200, render: (v) => v || '-' },
           { title: '供应材料', dataIndex: 'material', width: 160, render: (v) => v || '-' },
           { title: '签订日期', dataIndex: 'signDate', width: 120, render: fmtDate },
-          { title: '结算金额', dataIndex: 'settleAmount', width: 140, render: money },
-          { title: '协议约定欠款金额', dataIndex: 'agreedDebtAmount', width: 160, render: money },
+          { title: '结算金额', dataIndex: 'settleAmount', width: 140, align: 'right' as const, render: money },
+          { title: '协议约定欠款金额', dataIndex: 'agreedDebtAmount', width: 160, align: 'right' as const, render: money },
           { title: '截至签订已付款', dataIndex: 'paidBeforeSign', width: 140, render: money },
           { title: '签订后付款', dataIndex: 'paidAfterSign', width: 130, render: money },
           { title: '到期未付款', dataIndex: 'overdueUnpaid', width: 130, render: money },

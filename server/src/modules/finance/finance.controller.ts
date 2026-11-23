@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('finance')
@@ -49,9 +50,7 @@ export class FinanceController {
   @Get('factoring-costs/export')
   async exportFactoring(@Query('contractId') contractId: string | undefined, @Res() res: Response, @ProjectId() projectId: string) {
     const { buffer, filename } = await this.service.exportFactoring(contractId, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   // @body: normalize=factoringPayload
@@ -92,9 +91,7 @@ export class FinanceController {
   @Get('overdue-interests/export')
   async exportOverdue(@Query('contractId') contractId: string | undefined, @Query() query: any, @Res() res: Response, @ProjectId() projectId: string) {
     const { buffer, filename } = await this.service.exportOverdue(contractId, query, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 保存前预览（编辑器里算派生列，与保存后同一套引擎） */

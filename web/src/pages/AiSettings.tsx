@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Divider, Form, Input, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Divider, Form, Input, Space, Switch, Table, Tag, Typography } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { ApiOutlined, ExperimentOutlined, SaveOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { aiApi, type AiSettingInput, type AiSettingPurposeView, type AiSettingTestResult, type AiSettingView } from '../api/modules';
 

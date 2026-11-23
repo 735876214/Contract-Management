@@ -8,6 +8,8 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { parseOtherProjectStatus } from './status';
+import { keywordWhere } from '../../common/utils/list-where';
 import { sharedScopeWhere } from '../../common/utils/project-scope';
 
 /**
@@ -18,8 +20,6 @@ import { sharedScopeWhere } from '../../common/utils/project-scope';
  * 项目隔离沿用 `supplier.share.scope`，全局共享时 `projectId` 为空。
  */
 const OTHER_PROJECT_FIELDS = ['code', 'name', 'remark', 'status'];
-
-const DISABLED_WORDS = ['停用', '0', '禁用', '否', 'disabled'];
 
 @Injectable()
 export class OtherProjectService {
@@ -54,9 +54,8 @@ export class OtherProjectService {
   async findAll(query: any = {}, projectId?: string) {
     const { skip, take } = paginate(query, 500);
     const where: any = { ...(await this.scopeWhere(projectId)) };
-    if (query.keyword) {
-      where.OR = [{ name: { contains: query.keyword } }, { code: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['name', 'code'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.otherProject.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
@@ -143,7 +142,7 @@ export class OtherProjectService {
       { module: 'other-project', moduleName: '其他项目库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username },
       rows,
       {
-        plan: async (r, { rowNo }) => {
+        plan: async (r, { rowNo: _rowNo }) => {
           const name = String(r['项目名称'] ?? '').trim();
           if (!name) throw new RowError('项目名称为必填项', '项目名称');
           notDup(name, `项目名称「${name}」在本次导入中重复`, '项目名称');
@@ -158,7 +157,7 @@ export class OtherProjectService {
               name,
               code: r['项目编号'] || null,
               remark: r['备注'] || null,
-              status: DISABLED_WORDS.includes(String(r['状态'] ?? '').trim()) ? 0 : 1,
+              status: parseOtherProjectStatus(r['状态']),
             },
           };
         },

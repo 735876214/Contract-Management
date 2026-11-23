@@ -20,6 +20,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
 
 /** 采购任务（批次二 · 任务 2.1 采购发起 + 工作流状态管理） */
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -178,15 +179,7 @@ export class ProcurementTaskController {
   @Get(':id/result-report/template')
   async resultReportTemplate(@Param('id') id: string, @Res() res: Response) {
     const { buffer, filename } = await this.service.resultReportTemplate();
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
-    );
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 采购价格对比表（任务 3.6；仅单项采购，入口条件为成交报告已完成） */

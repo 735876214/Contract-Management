@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, List, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
 import { DeleteOutlined, RightOutlined } from '@ant-design/icons';
@@ -212,7 +212,8 @@ export function DashboardNoticeModal({ data, loading }: { data: any; loading: bo
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
 
-  const groups: any[] = data?.groups ?? [];
+  // `?? []` 每次渲染都是新数组引用，直接当 useCallback 依赖会让 check 反复重建
+  const groups: any[] = useMemo(() => data?.groups ?? [], [data?.groups]);
   const total: number = data?.total ?? 0;
 
   const check = useCallback(() => {

@@ -1,30 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  DatePicker,
-  Descriptions,
-  Form,
-  Input,
-  Modal,
-  Progress,
-  Select,
-  Space,
-  Tag,
-  Timeline,
-  Upload,
-  message,
-} from 'antd';
-import {
-  ExportOutlined,
-  FileProtectOutlined,
-  FileWordOutlined,
-  UploadOutlined,
-  PlusSquareOutlined,
-  RollbackOutlined,
-} from '@ant-design/icons';
-import dayjs, { type Dayjs } from 'dayjs';
+import { formatMoney, formatNumber } from '@/utils/money';
+import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Progress, Space, Tag, Timeline, Upload } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
+import { ExportOutlined, FileProtectOutlined, FileWordOutlined, UploadOutlined, PlusSquareOutlined, RollbackOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { contractApi, supplierApi } from '@/api/business';
 import { usePermission } from '@/hooks/usePermission';
 import { DictTag } from '@/components/DictSelect';
@@ -33,8 +12,7 @@ import { withToken } from '../utils/download';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 状态标签（需求修正6：待签章-蓝 / 已签章-绿；历史空状态与 COMPLETED 数据按待签章展示） */
 function StatusTag({ status }: { status?: string | null }) {
@@ -56,7 +34,7 @@ const MAX_SIZE = 20 * 1024 * 1024;
  * - 需求 2.3：签章时选择的签订日期覆盖合同主表签订日期
  */
 export default function ContractQuery() {
-  const [rows, setRows] = useState<any[]>([]);
+  const [, setRows] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = useCallback(() => setListRefresh((k) => k + 1), []);
@@ -177,7 +155,7 @@ export default function ContractQuery() {
 
   /** 任务 7：合同签章驳回 → 回退到「合同起草」（纯状态回退） */
   const handleReject = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '驳回合同签章',
       content: '确认将该合同从「待签章/已签章」驳回回「合同起草」吗？驳回后需重新发布与签章。',
       okText: '确认驳回',
@@ -561,8 +539,7 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
 
   const pct = (v: number | null | undefined) =>
     v == null ? '-' : `${(v * 100).toFixed(1)}%`;
-  const qty = (v: number | null | undefined) =>
-    v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+  const qty = (v: number | null | undefined) => formatNumber(v, 4);
 
   return (
     <div ref={ref} className="cq" style={{ width: '100%' }}>
@@ -662,7 +639,6 @@ function ContractQueryDetailBody({ detail }: { detail: any }) {
   );
 }
 
-
 /** 履约节点（四域扩展按需项 2026-10-18）：计划 vs 实际时间线；逾期派生标红 */
 function MilestoneCard({ contractId, archived }: { contractId: string; archived: boolean }) {
   const canEdit = usePermission('contract:edit') && !archived;
@@ -754,7 +730,7 @@ function MilestoneCard({ contractId, archived }: { contractId: string; archived:
   };
 
   const remove = (m: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除履约节点',
       content: `确认删除「${m.name}」吗？`,
       okType: 'danger',

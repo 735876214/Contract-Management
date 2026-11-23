@@ -58,7 +58,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return ok;
   }
 
-  handleRequest(err: any, user: any, info: any) {
+  handleRequest(err: any, user: any, _info: any) {
     if (err || !user) {
       throw err || new UnauthorizedException('登录已失效，请重新登录');
     }

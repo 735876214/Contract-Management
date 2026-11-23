@@ -7,6 +7,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('projects')
@@ -24,9 +26,7 @@ export class ProjectController {
   @Get('template')
   async template(@Res() res: Response) {
     const { buffer, filename } = await this.projectService.template();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   @RequirePermissions('project:view')
@@ -47,7 +47,7 @@ export class ProjectController {
   @Post('import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { created: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacyNoUpdate();
     return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user });
   }
 
@@ -56,7 +56,7 @@ export class ProjectController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importValidate(@UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.projectService.importProjects(file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 

@@ -21,9 +21,9 @@ export class LogService {
     message?: string;
     duration?: number;
     bizType?: string;
-    bizId?: string;
-    projectId?: string;
-    importFile?: string;
+    bizId?: string | null;
+    projectId?: string | null;
+    importFile?: string | null;
     importRows?: number;
     successCount?: number;
     failCount?: number;

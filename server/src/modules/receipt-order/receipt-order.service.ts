@@ -1,11 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
-import {
-  CONTRACT_STATUS,
-  LEGACY_CONTRACT_STATUS_COMPLETED,
-  RECEIPT_STATUS,
-} from '../../constants/statuses';
+import { CONTRACT_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, RECEIPT_STATUS } from '../../constants/statuses';
 import { num } from '../../common/calc/numeric';
 import { toDate } from '../../common/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
@@ -13,22 +9,18 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 /**
  * 跨模块写入只走对方公开入口（第 22 轮审计 P3）：资产台账归 asset、总日报归 daily-report，
  * 收领单只表达「该入账/该推送」的意图，具体落表由这两组原语完成。
  */
-import {
-  upsertAssetLedgerByReceiptDetail,
-  clearAssetLedgerOfReceiptOrder,
-  clearAssetLedgerExceptReceiptDetails,
-} from '../asset';
+import { upsertAssetLedgerByReceiptDetail, clearAssetLedgerOfReceiptOrder, clearAssetLedgerExceptReceiptDetails } from '../asset';
 import { clearPushedDailyRowsOfReceiptOrder, pushDailyRows } from '../daily-report';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { storageKeyFromUrl } from '../../common/utils/storage-url';
 import { projectWhere } from '../../common/utils/project-scope';
 import { laborReceivingReceiptWhere, laborRowKey } from '../../common/utils/labor-receiving';
-
 
 /** 明细中需要按 Decimal 落库的数值字段 */
 const DETAIL_DECIMAL_FIELDS = [
@@ -76,7 +68,6 @@ export const PARTY_TYPE = {
   SUBCONTRACTOR: 'SUBCONTRACTOR', // 分包商（分包商库）
   SELF_PROJECT: 'SELF_PROJECT', // 本项目（字典维护的当前项目）
 } as const;
-
 
 /**
  * 收领单服务（日报管理 → 收领单，与总日报平级）
@@ -174,20 +165,11 @@ export class ReceiptOrderService {
     if (query.materialContractId) where.materialContractId = query.materialContractId;
     if (query.status) where.status = query.status;
     if (query.receiver) where.receiver = { contains: query.receiver };
-    if (query.keyword) {
-      where.OR = [
-        { orderNo: { contains: query.keyword } },
-        { supplierName: { contains: query.keyword } },
-        { receivingUnitName: { contains: query.keyword } },
-        { materialContractNo: { contains: query.keyword } },
-        { receiver: { contains: query.keyword } },
-      ];
-    }
-    if (query.startDate || query.endDate) {
-      where.orderDate = {};
-      if (query.startDate) where.orderDate.gte = new Date(query.startDate);
-      if (query.endDate) where.orderDate.lte = new Date(query.endDate);
-    }
+    const kw = keywordWhere(['orderNo', 'supplierName', 'receivingUnitName', 'materialContractNo', 'receiver'], query.keyword);
+    if (kw) where.OR = kw.OR;
+    // 边界统一走 common/calc/time 的本地日原语（''YYYY-MM-DD'' 交给 new Date 会按 UTC 解析）
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.orderDate = range;
     const [list, total] = await Promise.all([
       this.prisma.receiptOrder.findMany({
         where,
@@ -873,7 +855,7 @@ export class ReceiptOrderService {
     // 同理：结算单关联也在事务外解析（改了物资合同/日期会重新匹配月份）
     const settlementId = await this.resolveSettlementId(data, before.projectId, before.settlementId, before);
 
-    const saved = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // 明细整体替换（收领单明细为草稿性数据，全量覆盖语义最清晰）
       await tx.receiptOrderDetail.deleteMany({ where: { orderId: id } });
       await versionedUpdate(tx.receiptOrder, id, before.version, {
@@ -1022,7 +1004,6 @@ export class ReceiptOrderService {
     const removed = await clearAssetLedgerExceptReceiptDetails(db, orderId, keep);
     return { created, updated, removed };
   }
-
 
   /**
    * 推送总日报：把收领单明细逐行写入 DailyReport

@@ -21,6 +21,7 @@ import {
   SITE_CONFIRM_STATUS,
 } from '../../constants/workflowGuards';
 import { JwtUser } from '../../common/decorators/user.decorator';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 const DECIMAL_FIELDS = [
   'weighQty', 'deductQty', 'settleQty', 'priceBeforeTax', 'taxRatePct', 'priceAfterTax',
@@ -66,21 +67,11 @@ export class DailyReportService {
     } else if (query.confirmStatusCode) {
       where.confirmStatusCode = query.confirmStatusCode;
     }
-    if (query.keyword) {
-      orGroups.push({
-        OR: [
-          { materialName: { contains: query.keyword } },
-          { receiptNo: { contains: query.keyword } },
-          { plateNo: { contains: query.keyword } },
-        ],
-      });
-    }
+    const kw = keywordWhere(['materialName', 'receiptNo', 'plateNo'], query.keyword);
+    if (kw) orGroups.push(kw);
     if (orGroups.length) where.AND = orGroups;
-    if (query.startDate || query.endDate) {
-      where.entryDate = {};
-      if (query.startDate) where.entryDate.gte = new Date(query.startDate);
-      if (query.endDate) where.entryDate.lte = new Date(query.endDate);
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.entryDate = range;
     const [list, total] = await Promise.all([
       this.prisma.dailyReport.findMany({
         where, skip, take,

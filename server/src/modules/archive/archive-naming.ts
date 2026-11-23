@@ -62,7 +62,7 @@ export function extOf(keyOrName: string): string {
  */
 export function businessFileName(
   parts: { supplier?: string | null; material?: string | null; period?: string | null; docName: string },
-  forcePdf: boolean,
+  _forcePdf: boolean,
 ): string {
   const seg = (v: string | null | undefined) => sanitizeSegment(v || '-') || '-';
   const base = `${seg(parts.supplier)}-${seg(parts.material)}-${seg(parts.period)}-${sanitizeSegment(parts.docName)}`;

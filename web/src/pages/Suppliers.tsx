@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, message, Tag, Descriptions, Select } from 'antd';
+import { Card, Table, Button, Form, Input, Space, Modal, Popconfirm, Tag, Descriptions, Select } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import { supplierApi } from '@/api/business';
 import { useTable } from '@/hooks/useTable';

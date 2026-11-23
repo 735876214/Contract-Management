@@ -10,12 +10,7 @@ import { sumSettlementAmount } from '../../common/utils/group-sum';
 import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
 import { notDraft } from '../../common/utils/contract-chain';
-import {
-  TODO_CATEGORIES,
-  type TodoGroup,
-  type TodoItem,
-  type TodoLevel,
-} from '../../constants/todoCategories';
+import { TODO_CATEGORIES, type TodoGroup, type TodoLevel } from '../../constants/todoCategories';
 
 /** 草稿超时阈值（与前端 OverdueDraftReminder / 合同起草页同一口径：新增后 2 小时内未完成） */
 const OVERDUE_HOURS = 2;
@@ -31,7 +26,7 @@ export class DashboardService {
    * reduce —— 只为了得到 7 个数字。明细行涨到十万级时，首屏就会把内存和带宽吃满，而聚合结果并不需要
    * 任何一行明细。`_sum` / `count` 的口径与原来的 `sumBy(rows, field)` 完全一致（NULL 计 0，两位小数）。
    */
-  async overview(projectId: string, user: any) {
+  async overview(projectId: string, _user: any) {
     const [contractAgg, executingCount, ledgerSum, paymentSum, invoiceSum, settlementCount] =
       await Promise.all([
         this.prisma.contract.aggregate({
@@ -132,7 +127,7 @@ export class DashboardService {
   }
 
   /** 提醒：发票待查验 + 合同金额红/黄预警 */
-  async reminders(projectId: string, user: any) {
+  async reminders(projectId: string, _user: any) {
     const [pendingInvoices, amountAlerts, paymentRatioAlerts] = await Promise.all([
       this.prisma.invoice.findMany({ where: { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY }, take: 10 }),
       this.amountAlerts(projectId),

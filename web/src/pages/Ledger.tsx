@@ -1,17 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Input,
-  Modal,
-  Row,
-  Space,
-  Statistic,
-  message,
-} from 'antd';
+import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { ExportOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
@@ -26,8 +17,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { LIST_PATHS } from '@/constants/listPaths';
 import { useDictStore } from '@/store/dict';
 
-const money = (v: any) =>
-  v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 const COMPLIANCE_OPTIONS = [
   '无问题',
@@ -95,7 +85,6 @@ function LedgerList() {
   const [colChecked, setColChecked] = useState<string[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
 
-
   /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
   const fetcher = useMemo(
     () => async (params: Record<string, any>) => {
@@ -115,7 +104,7 @@ function LedgerList() {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
     supplierApi.options().then((res: any) => setSuppliers(res || []));
     loadSummary();
-  }, [tabRefresh, loadSummary]);
+  }, [tabRefresh, loadSummary, ensure]);
 
   /**
    * 大宽表冻结列（DESIGN.md §10.2）：**张数随容器宽度收敛**——
@@ -180,7 +169,7 @@ function LedgerList() {
   };
 
   const confirmRemove = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该合同？',
       content: '存在下游单据或补充协议时会被服务端拒绝，请改为归档；仅物资清单等随合同级联删除。',
       okText: '删除',

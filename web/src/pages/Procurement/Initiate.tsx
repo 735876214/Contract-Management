@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Descriptions,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Steps,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Button, Descriptions, Form, Input, Modal, Select, Space, Steps, Tag } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { FileWordOutlined, PlusOutlined } from '@ant-design/icons';
 import { procurementTaskApi } from '@/api/modules';
@@ -322,7 +311,7 @@ export default function Initiate() {
     }));
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该采购任务？',
       content: '删除后任务的全部阶段数据（总清单/各模块文档）将一并移除，不可恢复。',
       okText: '确认删除',

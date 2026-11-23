@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { Card, Row, Col, Statistic } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { dashboardApi } from '@/api/modules';
 import { useDictStore } from '@/store/dict';
 import { chartPalette } from '@/theme';
 
-const money = (v: any) =>
-  v == null ? '-' : '¥' + Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const money = (v: any) => formatMoney(v);
 
 export default function Reports() {
   const ensure = useDictStore((s) => s.ensure);
@@ -25,7 +25,7 @@ export default function Reports() {
     dashboardApi.trend().then((r: any) => setTrend(r)).catch(() => setTrend({}));
     dashboardApi.contractType().then((r: any) => setContractType(r || [])).catch(() => setContractType([]));
     dashboardApi.invoiceStats().then((r: any) => setInvoice(r)).catch(() => setInvoice({}));
-  }, []);
+  }, [ensure]);
 
   const label = (typeCode: string, value?: string) =>
     value == null ? '-' : useDictStore.getState().label(typeCode, value);
@@ -68,7 +68,8 @@ export default function Reports() {
           type: 'pie',
           radius: ['40%', '70%'],
           data: contractType.map((i) => ({
-            name: label('contract_type', i.typeCode) || i.typeCode || '-',
+            // 字典未就绪时先用编码兜底，dictReady 变化后重算成名称（这正是它作为依赖的意义）
+            name: (dictReady ? label('contract_type', i.typeCode) : '') || i.typeCode || '-',
             value: i.amount || 0,
           })),
         },
@@ -84,7 +85,7 @@ export default function Reports() {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: byType.map((i: any) => label('invoice_type', i.typeCode) || i.typeCode || '-'),
+        data: byType.map((i: any) => (dictReady ? label('invoice_type', i.typeCode) : '') || i.typeCode || '-'),
       },
       series: [{ type: 'bar', data: byType.map((i: any) => i.amount || 0), itemStyle: { color: chartPalette[2] } }],
     };
@@ -98,7 +99,7 @@ export default function Reports() {
       xAxis: { type: 'value' },
       yAxis: {
         type: 'category',
-        data: byStatus.map((i: any) => label('invoice_status', i.statusCode) || i.statusCode || '-'),
+        data: byStatus.map((i: any) => (dictReady ? label('invoice_status', i.statusCode) : '') || i.statusCode || '-'),
       },
       series: [{ type: 'bar', data: byStatus.map((i: any) => i.count || 0), itemStyle: { color: chartPalette[3] } }],
     };

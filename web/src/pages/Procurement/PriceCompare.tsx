@@ -1,43 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Descriptions,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Input, InputNumber, Row, Select, Space, Spin, Table } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
-import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
-import {
-  getProcurementVariableGroups,
-  replaceProcurementVariables,
-} from '@/constants/procurementVariables';
+import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -46,18 +22,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/price-compare';
-import {
-  buildPriceCompareDocHtml,
-  buildPriceCompareVariableValues,
-  deriveRow,
-  fmtAmount,
-  fmtQty,
-  fmtRate,
-  PRICING_METHODS,
-  pricingMethodLabel,
-  summarizePriceCompare,
-  type PriceCompareItemRow,
-} from '@/utils/procurementPriceCompare';
+import { buildPriceCompareDocHtml, buildPriceCompareVariableValues, deriveRow, fmtAmount, fmtQty, fmtRate, PRICING_METHODS, summarizePriceCompare, type PriceCompareItemRow } from '@/utils/procurementPriceCompare';
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'PRICE_COMPARE';

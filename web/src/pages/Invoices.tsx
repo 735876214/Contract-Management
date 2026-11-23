@@ -1,21 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
-  message,
-  Row,
-  Col,
-  InputNumber,
-  DatePicker,
-  Upload,
-  Alert,
-  Table,
-} from 'antd';
+import { Button, Form, Input, Select, Space, Modal, Row, Col, InputNumber, DatePicker, Upload, Alert, Table } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, ScanOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { dictApi, type DictOption } from '@/api/dict';
@@ -34,8 +21,7 @@ import { useTabsStore } from '@/store/tabs';
 import { INVOICE_STATUS, INVOICE_EXCLUDED_STATUSES, isInvoiceTerminalStatus } from '@/constants/invoiceStatus';
 import { LIST_PATHS } from '@/constants/listPaths';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 列表与「收票登记/编辑」是同一路由的两种形态（`?editor=new|<id>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = LIST_PATHS.invoice;
@@ -98,7 +84,7 @@ function InvoiceList({
   /** 作废/红冲共用确认文案：明确「不可撤销 + 不再计入金额口径」 */
   const confirmTerminal = (row: ModuleListRow, kind: 'cancel' | 'red') => {
     const label = kind === 'cancel' ? '作废' : '红冲';
-    Modal.confirm({
+    modal.confirm({
       title: `确认${label}该发票？`,
       content: `${label}后不可撤销。该发票将不再计入结算台账「本月开票额」、合同台账「开累发票金额」、履约开票比例与工作台统计；与原结算单的关联会保留用于追溯。${
         kind === 'red' ? '若要登记红冲票并联动作废原发票，请在「收票登记」中把状态设为红冲并选择原发票。' : ''
@@ -116,7 +102,7 @@ function InvoiceList({
   };
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该发票记录？',
       okText: '确认删除',
       okType: 'danger',
@@ -619,7 +605,7 @@ function BatchRecognizeModal({ open, contractOptions, onClose, onDone }: {
       const errs = res?.errors || [];
       message.success(`已添加 ${res?.created ?? 0} 条到发票台账${errs.length ? `，失败 ${errs.length} 条` : ''}`);
       if (errs.length) {
-        Modal.warning({
+        modal.warning({
           title: '部分发票未入库',
           width: 520,
           content: (

@@ -14,6 +14,13 @@ import {
 } from './anomaly-types.ts';
 import { evaluatePaymentAnomalies } from './rules-payment.ts';
 import { ANOMALY_PARAM_KEY_LIST, parseAnomalyConfig, type AnomalyConfig } from './anomaly-config.ts';
+import {
+  overLimitMessage,
+  resolveAnomalyWindow,
+  type AnomalyWindowLimits,
+  type ResolvedAnomalyWindow,
+} from './anomaly-window.ts';
+import { parseBoolFlag } from '../common/params.ts';
 import { promptNumberExtras } from '../common/narrative.ts';
 import { sampleTotal } from '../common/coverage.ts';
 import {
@@ -35,13 +42,31 @@ export interface PaymentAnomalyQuery {
   contractId?: string;
   /** 0/1：强制关闭模型措辞（面板「只看规则结果」用），默认跟随系统参数 */
   narrative?: string;
+  /**
+   * 0/1：**人工确认**「超过取数上限也继续扫描」。
+   *
+   * 只有界面上点过「仍然扫描」才会传 1；不给就按上限硬拒（400 说清超了多少、上限多少）。
+   * 默认区间（近 12 个自然月）远小于上限，正常扫描根本走不到这里。
+   */
+  force?: string;
 }
 
 export interface PaymentAnomalyResult {
   /** 系统参数 `ai.anomaly.enabled` 关掉时为 false（不报错，前端显示「已停用」） */
   enabled: boolean;
   generatedAt: string;
-  period: { from: string | null; to: string | null };
+  period: {
+    from: string | null;
+    to: string | null;
+    /** 区间是系统默认给出的（调用方既没给 from 也没给 to） */
+    defaulted: boolean;
+    /** 覆盖的自然月数；未执行判定（已停用）时为 null */
+    months: number | null;
+    /** 取数上限（自然月）：面板据此提示「超过要先确认」，不给前端留硬编码 */
+    maxMonths: number | null;
+    /** 超过上限但调用方已确认放开 */
+    forced: boolean;
+  };
   /** 参与判定的样本量：面板据此说明「基于多少单据算的」，也是 0 命中时的可信度依据 */
   sample: Record<string, number>;
   tolerances: { amount: string; qtyPct: number; jaccard: number };
@@ -56,6 +81,28 @@ export interface PaymentAnomalyResult {
     unknownNumbers: string[];
   };
   warnings: string[];
+}
+
+/**
+ * 统计区间体检结果（`GET ai/anomaly/window`）。
+ *
+ * `allowed=false` 不是错误：面板要拿它弹「仍然扫描」确认框；参数本身不合法才 400。
+ */
+export interface AnomalyWindowInfo {
+  from: string;
+  to: string;
+  months: number;
+  defaulted: boolean;
+  /** 超过上限（`allowed=false` 且必须人工确认） */
+  overLimit: boolean;
+  /** 超过上限但本次请求已带 force=1 */
+  forced: boolean;
+  /** 能不能直接扫：未超限，或已确认 */
+  allowed: boolean;
+  defaultMonths: number;
+  maxMonths: number;
+  /** 超限时给用户看的说明（与扫描接口 400 的文案同一份）；未超限为空串 */
+  message: string;
 }
 
 /**
@@ -106,7 +153,15 @@ export class AnomalyService {
     const empty: PaymentAnomalyResult = {
       enabled: cfg.enabled,
       generatedAt: new Date().toISOString(),
-      period: { from: query?.from || null, to: query?.to || null },
+      // 未执行判定：不改写调用方给的日期，但把上限带出去（面板据此提示「超过 N 个月要先确认」）
+      period: {
+        from: query?.from || null,
+        to: query?.to || null,
+        defaulted: false,
+        months: null,
+        maxMonths: cfg.window.maxMonths,
+        forced: false,
+      },
       sample: {},
       tolerances: {
         amount: centsToYuan(cfg.tolerances.amount),
@@ -126,16 +181,29 @@ export class AnomalyService {
       return empty;
     }
 
-    const { input, sample } = await this.collect(query, projectId);
+    const { input, sample, window: win } = await this.collect(query, projectId, cfg.window);
     const evaluation = evaluatePaymentAnomalies({ ...input, tolerances: cfg.tolerances });
 
     const result: PaymentAnomalyResult = {
       ...empty,
+      period: periodOf(win),
       sample,
       summary: evaluation.summary,
       findings: evaluation.findings,
       notEvaluated: evaluation.notEvaluated,
     };
+
+    // 期间被系统兜底 / 被人工放开，都必须说出来：用户看着「0 命中」时得知道算的是哪一段
+    if (win.defaulted) {
+      result.warnings.push(
+        `未指定统计区间，已按系统默认取数：${win.fromDay} ~ ${win.toDay}（近 ${win.defaultMonths} 个自然月）`,
+      );
+    }
+    if (win.forced) {
+      result.warnings.push(
+        `本次按人工确认放宽了取数上限：区间覆盖 ${win.months} 个自然月，超过上限 ${win.maxMonths} 个月，取数与判定都会更慢`,
+      );
+    }
 
     // 「没有数据」≠「没有异常」：样本全 0 时必须说出来，否则面板会把「一条没查」渲染成绿色通过
     if (sampleTotal(result.sample) === 0) result.notEvaluated.push('本次扫描范围内没有任何可用数据，未执行判定（不能视作「无异常」）');
@@ -246,24 +314,22 @@ export class AnomalyService {
    * 规则失去判定依据（且是静默失效——聚合结果照样跑得通，只是结论变成空的），
    * 所以这里的 `findMany` 全部保留，只在调用处写明 `// @no-limit:` 理由。
    *
-   * 真正该做的是**缩小取数范围**（强制期间/项目集上限）或把事实层物化，那是独立议题，
-   * 记在 TODO.md「工作台/台账聚合」条目下。
+   * 成本只跟**区间内的单据量**走，所以杠杆落在「把区间限死」上（P1-4 第三阶段）：
+   * 默认近 12 个自然月、上限 24 个自然月、超限要先人工确认——口径在 `anomaly-window.ts`，
+   * 量测与选型依据见 docs/ai-anomaly-input-cost.md。物化事实层当时评估为「降 IO 不降行数」，暂不做。
    */
   private async collect(
     query: PaymentAnomalyQuery,
     projectId: string,
-  ): Promise<{ input: PaymentAnomalyInput; sample: Record<string, number> }> {
-    const from = query?.from ? startOfDay(new Date(query.from)) : null;
-    const to = query?.to ? endOfDay(new Date(query.to)) : null;
-    if (from && Number.isNaN(from.getTime())) throw new BadRequestException(`起始日期不合法：${query.from}`);
-    if (to && Number.isNaN(to.getTime())) throw new BadRequestException(`结束日期不合法：${query.to}`);
-    if (from && to && from > to) throw new BadRequestException('起始日期不能晚于结束日期');
+    limits: AnomalyWindowLimits,
+  ): Promise<{ input: PaymentAnomalyInput; sample: Record<string, number>; window: ResolvedAnomalyWindow }> {
+    const win = this.resolveWindow(query, limits);
 
     // 下钻到补充协议时，取数必须带上整条链：结算/付款/清单量分散在母合同与各补充协议上，
     // 只取当前合同会让「累计口径」的规则（R1-a/R1-b/R2/R6）把分母算窄，甚至
     // 反过来断言「项目内没有清单量可供对比」（2026-10-23 审计）
     const chainIds = await this.resolveChainIds(projectId, query?.contractId);
-    const range = { from, to, contractId: query?.contractId || null, contractIds: chainIds };
+    const range = { from: win.from, to: win.to, contractId: query?.contractId || null, contractIds: chainIds };
     const w = buildAnomalyWhere(range, projectId);
 
     const [
@@ -320,7 +386,7 @@ export class AnomalyService {
       ]);
 
     // 形状搬运 + 清单量按链根聚合，全部在纯函数里（离线评测脚本复用同一份）
-    return buildPaymentAnomalyInput(
+    const dataset = buildPaymentAnomalyInput(
       {
         contracts: contracts as any[],
         settlements: settlements as any[],
@@ -334,6 +400,58 @@ export class AnomalyService {
       },
       range,
     );
+    return { ...dataset, window: win };
+  }
+
+  /**
+   * **取数区间的唯一入口**：默认值、上限、force 语义全在 `resolveAnomalyWindow`（纯函数、有 spec 锁），
+   * 这里只负责把「不许扫」翻译成 400。
+   *
+   * 为什么超上限要 400 而不是「截断到上限」：截断会让结论**看起来完整但少算了单据**，
+   * 财务场景里这比报错危险得多（业务 2026-11-22 定：拒绝 + 明确提示 + 人工确认后放行）。
+   */
+  private resolveWindow(query: PaymentAnomalyQuery, limits: AnomalyWindowLimits): ResolvedAnomalyWindow {
+    const outcome = resolveAnomalyWindow(
+      { from: query?.from, to: query?.to, force: parseBoolFlag(query?.force) === true },
+      new Date(),
+      limits,
+    );
+    if (!outcome.ok) throw new BadRequestException(outcome.message);
+    if (outcome.window.overLimit && !outcome.window.forced) {
+      throw new BadRequestException(overLimitMessage(outcome.window.months, outcome.window.maxMonths));
+    }
+    return outcome.window;
+  }
+
+  /**
+   * 统计区间体检（只读、不取业务数据，面板点「开始扫描」前先问一句）。
+   *
+   * 存在的理由：超上限时要弹「仍然扫描」确认框，而**前端不该自己算月份**——
+   * 那会变成第二份区间规则（默认值/上限都走系统参数，前端算出来的数立刻就会与后端不一致）。
+   * 这里与 `payment()` 共用同一个 `resolveWindow`，只是把「拒」改成「告诉面板为什么拒」。
+   */
+  async window(query: PaymentAnomalyQuery): Promise<AnomalyWindowInfo> {
+    const cfg = await this.config();
+    const outcome = resolveAnomalyWindow(
+      { from: query?.from, to: query?.to, force: parseBoolFlag(query?.force) === true },
+      new Date(),
+      cfg.window,
+    );
+    // 参数本身不合法（日期格式/起止颠倒）不是「体检结论」而是错误：与扫描接口同一句 400
+    if (!outcome.ok) throw new BadRequestException(outcome.message);
+    const w = outcome.window;
+    return {
+      from: w.fromDay,
+      to: w.toDay,
+      months: w.months,
+      defaulted: w.defaulted,
+      overLimit: w.overLimit,
+      forced: w.forced,
+      allowed: !w.overLimit || w.forced,
+      defaultMonths: w.defaultMonths,
+      maxMonths: w.maxMonths,
+      message: w.overLimit ? overLimitMessage(w.months, w.maxMonths) : '',
+    };
   }
 
   /**
@@ -377,12 +495,14 @@ export class AnomalyService {
   }
 }
 
-/** 日期上界按「当天收尾」处理：库里 payDate/settleDate 可能带时分秒，直接比 00:00:00 会漏掉末日 */
-function endOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-/** 日期下界按「当天零点」处理（与 endOfDay 对称，避免 12:30 的起始日把上午数据漏掉） */
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+/** 响应里的区间（含口径元数据）：面板据此说明「算的是哪一段、超没超上限」 */
+function periodOf(w: ResolvedAnomalyWindow): PaymentAnomalyResult['period'] {
+  return {
+    from: w.fromDay,
+    to: w.toDay,
+    defaulted: w.defaulted,
+    months: w.months,
+    maxMonths: w.maxMonths,
+    forced: w.forced,
+  };
 }

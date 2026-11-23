@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { pickFields } from '../../common/pick-fields';
 import { SysParamService } from '../../common/services/sys-param.service';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 import { SECRET_PARAM_KEYS } from '../../common/utils/public-params';
 import { checkPasswordStrength } from '../../common/utils/password-policy';
 
@@ -25,7 +27,7 @@ const ROLE_WRITABLE_FIELDS = ['code', 'name', 'remark', 'status'];
 /** 出参统一剥掉 bcrypt 哈希：新增/修改/重置密码都不许把 `password` 回给前端 */
 function stripPassword<T extends Record<string, any> | null | undefined>(row: T): T {
   if (!row) return row;
-  const { password, ...rest } = row as any;
+  const { password: _password, ...rest } = row as any;
   return rest as T;
 }
 
@@ -37,7 +39,8 @@ export class SystemService {
   async users(query: any = {}) {
     const { skip, take } = paginate(query);
     const where: any = {};
-    if (query.keyword) where.OR = [{ username: { contains: query.keyword } }, { realName: { contains: query.keyword } }];
+    const kw = keywordWhere(['username', 'realName'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -46,7 +49,7 @@ export class SystemService {
       }),
       this.prisma.user.count({ where }),
     ]);
-    return buildResult(list.map(({ password, ...u }: any) => u), total, query);
+    return buildResult(list.map(({ _password, ...u }: any) => u), total, query);
   }
 
   async createUser(data: any) {
@@ -226,23 +229,10 @@ export class SystemService {
     if (query.result) where.result = query.result;
     if (query.bizType) where.bizType = query.bizType;
     if (query.projectId) where.projectId = query.projectId;
-    if (query.keyword) {
-      where.OR = [
-        { username: { contains: query.keyword } },
-        { action: { contains: query.keyword } },
-        { url: { contains: query.keyword } },
-        { bizId: { contains: query.keyword } },
-      ];
-    }
-    if (query.startDate || query.endDate) {
-      where.createdAt = {};
-      if (query.startDate) where.createdAt.gte = new Date(query.startDate);
-      if (query.endDate) {
-        const end = new Date(query.endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
-      }
-    }
+    const kw = keywordWhere(['username', 'action', 'url', 'bizId'], query.keyword);
+    if (kw) where.OR = kw.OR;
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.createdAt = range;
     const [list, total] = await Promise.all([
       this.prisma.operationLog.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.operationLog.count({ where }),

@@ -77,6 +77,16 @@
   `server/test/containerQuery.spec.mts` 锁死——**改断点要三处同步**（`containerSize.ts` ↔ `index.css` 的
   `--cq-*` ↔ `containers.css`）。
 
+## 金额 / 数量 / 比率的展示（**只有一个实现**）
+
+- 一律用 `web/src/utils/money.ts`：`formatAmount`（不带币种）、`formatMoney`（带 `¥`）、
+  `formatNumber`（数量，最多 N 位不补零）、`formatPercent`（0~1 → 百分数）。
+- **禁止**在页面/组件里再写 `toLocaleString('zh-CN')`：无参数的写法会把 JS 浮点原样吐出
+  （后端 `Number(Decimal)` 求和后的 `1234.5600000000001`），带参数的又各有 7 种组合，
+  导致同一笔金额在不同页面显示成 `¥1,234.50` / `1,234.00` / `1,234`。
+- 空值（`null`/`undefined`/`''`/非数字）显示占位符（默认 `-`），**不兜成 0**（与台账三态契约一致）；
+  第三参数可换占位符（HTML 文档用 `''`、分析面板用 `—`）。锁定：`test/moneyFormat.spec.mts`。
+
 ## 列表页列显隐（两条路别混用）
 
 - ① 通用列表页 `ModuleListPage.columnConfigKey`：偏好存 **localStorage**，纯逻辑在 `utils/listColumns.ts`；
@@ -105,3 +115,22 @@
   （编辑到一半被淘汰 = 无声的数据丢失）；纯逻辑锁在 `server/test/tabsStore.spec.mts`。
 - 「我的待办」分类镜像：后端 `constants/todoCategories.ts` ↔ 前端
   `constants/dashboardTodoTabs.ts`，改一侧必须同步另一侧（`dashboardTodo.spec.mts` 锁）。
+
+## 反馈提示（`message` 等 antd 静态 API）
+
+- **一律 `import { message } from '@/utils/antdStatic'`**，**禁止** `import { message } from 'antd'`。
+  桥接模块把调用转发给 `App.tsx` 里 `<AntdStaticBridge/>` 绑定的 `App.useApp().message`，
+  组件内、组件外（`api/http.ts` 拦截器）都能用同一份实现。
+- 为什么：antd 静态 API 在自己的 React 根里渲染，**拿不到 `ConfigProvider theme`** —— DESIGN token 不生效
+  （弹出来的提示与全站风格不一致），且每次调用都在控制台报警
+  `Warning: [antd: message] Static function can not consume context like dynamic theme`。
+  2026-11-22 之前全站 61 个文件、297 处调用都是静态 API（真渲染核验时暴露），已统一收口。
+- 组件内新代码也可以用官方的 `const { message } = App.useApp()`（效果等价）；
+  组件外（拦截器、工具函数）没有 hooks 上下文，只能用桥接模块。
+- **确认框也必须走桥接**：`import { modal } from '@/utils/antdStatic'` 后用 `modal.confirm(...)`，
+  **禁止** `Modal.confirm/info/success/error/warning`（同一类问题：静态 API 拿不到主题）。原 36 处已于 2026-11-22 全部收口，现存 **0** 处。
+- 锁定：`server/test/antdStaticApi.spec.mts`（扫描 `web/src`，禁静态 import + 校验桥接已挂载 + Modal 存量上限）。
+- **「超过阈值要人工确认」优先做成页内确认条，而不是 `modal.confirm`**（2026-11-22，预警面板实测）：
+  说明文本长时弹层会把整块结果区盖住，用户确认完还得再找回来；页内 `Alert` + 「仍然扫描 / 缩小区间」
+  两个按钮既说清了原因，也让「确认」变成页面上的一次状态切换（也好被 CDP 真渲染核验）。
+  弹层留给「删一条」「覆盖一条」这类一句话就能说清的破坏性操作。

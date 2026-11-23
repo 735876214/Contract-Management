@@ -42,7 +42,7 @@ export class DashboardController {
   }
 
   @Get('reminders')
-  reminders(@ProjectId() projectId: string, @CurrentUser() user: JwtUser, @Query() query: any) {
+  reminders(@ProjectId() projectId: string, @CurrentUser() user: JwtUser, @Query() _query: any) {
     return this.service.reminders(projectId, user);
   }
 

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { keywordWhere } from '../../common/utils/list-where';
 
 import { API_CODE } from '../../common/error-codes';
 import { MISSING_PROJECT_CONTEXT } from '../../common/utils/project-context-message';
@@ -56,12 +57,8 @@ export class FinalSettlementService {
     const where: any = { projectId };
     if (query.contractId) where.contractId = query.contractId;
     if (query.statusCode) where.statusCode = query.statusCode;
-    if (query.keyword) {
-      where.OR = [
-        { code: { contains: query.keyword } },
-        { contract: { name: { contains: query.keyword } } },
-      ];
-    }
+    const kw = keywordWhere(['code', 'contract.name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [list, total] = await Promise.all([
       this.prisma.finalSettlement.findMany({
         where,

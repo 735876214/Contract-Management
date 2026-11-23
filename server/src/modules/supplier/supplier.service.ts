@@ -8,6 +8,7 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { requestContext } from '../../common/services/request-context';
+import { keywordWhere } from '../../common/utils/list-where';
 import { sharedScopeWhere } from '../../common/utils/project-scope';
 
 const SUPPLIER_FIELDS = [
@@ -41,14 +42,8 @@ export class SupplierService {
     const { skip, take } = paginate(query, maxPageSize);
     const base = await this.scopeWhere(projectId);
     const where: any = { ...base };
-    if (query.keyword) {
-      where.OR = [
-        { name: { contains: query.keyword } },
-        { legalPerson: { contains: query.keyword } },
-        { contactName: { contains: query.keyword } },
-        { contactPhone: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['name', 'legalPerson', 'contactName', 'contactPhone'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.status !== undefined && query.status !== '') where.status = Number(query.status);
     const [list, total] = await Promise.all([
       this.prisma.supplier.findMany({ where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
@@ -186,7 +181,7 @@ export class SupplierService {
     const ownerProjectId = scope === 'PROJECT' ? projectId || null : null;
     const notDup = this.runner.batchDup();
     return this.tasks.submit<any>({ module: 'supplier', moduleName: '供应商库', projectId, fileName: meta?.fileName, userId: meta?.user?.userId, username: meta?.user?.username }, rows, {
-      plan: async (r, { rowNo }) => {
+      plan: async (r, { rowNo: _rowNo }) => {
         const name = String(r['供应商名称'] ?? '').trim();
         if (!name) throw new RowError('供应商名称为必填项', '供应商名称');
         notDup(name, `供应商名称「${name}」在本次导入中重复`, '供应商名称');

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import {
   Alert,
   Button,
@@ -17,7 +18,7 @@ import {
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
-import { aiApi, type AiAnomalyFinding, type AiAnomalyResult } from '@/api/modules';
+import { aiApi, type AiAnomalyFinding, type AiAnomalyResult, type AiAnomalyWindow } from '@/api/modules';
 import { contractApi } from '@/api/business';
 import { coverageState } from '../utils/aiCoverage';
 import EmptyState from '@/components/EmptyState';
@@ -55,13 +56,8 @@ const LEVEL_META = {
   MEDIUM: { label: '中', color: 'orange' },
 } as const;
 
-const money = (v: string | null) => {
-  if (v === null || v === undefined || v === '') return '-';
-  const n = Number(v);
-  return Number.isFinite(n)
-    ? n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : v;
-};
+/** 金额（后端可能以字符串下发 Decimal；非数字/空值统一 `-`） */
+const money = (v: any) => formatAmount(v);
 
 /**
  * 结算 / 付款异常预警面板（课题 6-9）。
@@ -72,10 +68,15 @@ const money = (v: string | null) => {
  * - 「未判定」与「样本量」必须同时可见 —— 只说"0 命中"会把人误导成"账没问题"。
  */
 export default function AnomalyPanel() {
+  // 默认**近 12 个自然月**（含本月）：与后端缺省区间同口径，用户不用点「开始扫描」就知道算哪一段
   const [range, setRange] = useState<[Dayjs, Dayjs]>([
-    dayjs().subtract(2, 'month').startOf('month'),
-    dayjs().endOf('month'),
+    dayjs().subtract(11, 'month').startOf('month'),
+    dayjs(),
   ]);
+  /** 区间口径（默认跨度/上限）从后端取：改系统参数后这里自动跟上，前端不写死数字 */
+  const [windowLimit, setWindowLimit] = useState<{ defaultMonths: number; maxMonths: number } | null>(null);
+  /** 区间超上限时的待确认项（null = 无需确认） */
+  const [pendingRange, setPendingRange] = useState<AiAnomalyWindow | null>(null);
   const [contractId, setContractId] = useState<string>('');
   const [useAi, setUseAi] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -91,7 +92,15 @@ export default function AnomalyPanel() {
       .catch(() => setContracts([]));
   }, []);
 
-  const scan = async () => {
+  useEffect(() => {
+    // 只为了把「默认近 N 个月 / 超过 M 个月要确认」写准：取不到就不显示，不编数字
+    aiApi
+      .anomalyWindow({})
+      .then((res) => setWindowLimit({ defaultMonths: res.defaultMonths, maxMonths: res.maxMonths }))
+      .catch(() => setWindowLimit(null));
+  }, []);
+
+  const doScan = async (force: boolean) => {
     setLoading(true);
     try {
       const res = await aiApi.paymentAnomaly({
@@ -99,6 +108,7 @@ export default function AnomalyPanel() {
         to: range[1].format('YYYY-MM-DD'),
         contractId: contractId || undefined,
         narrative: useAi ? undefined : '0',
+        force: force ? '1' : undefined,
       });
       setResult(res);
     } catch {
@@ -106,6 +116,31 @@ export default function AnomalyPanel() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * 扫描前先做一次**区间体检**：
+   * - 区间超过取数上限时，后端会硬拒（400），但界面上先问一句更省事——
+   *   用户点「仍然扫描」等于明确知道「这次会慢」，而不是被一个红条挡住再自己猜怎么继续；
+   * - 月份**不在前端算**：默认跨度与上限都是系统参数，前端算必然与后端漂移。
+   */
+  const scan = async () => {
+    const from = range[0].format('YYYY-MM-DD');
+    const to = range[1].format('YYYY-MM-DD');
+    let check: Awaited<ReturnType<typeof aiApi.anomalyWindow>> | null = null;
+    try {
+      check = await aiApi.anomalyWindow({ from, to });
+    } catch {
+      // 体检接口不通不该挡扫描：真正的口径仍由扫描接口把关（超限会 400 并说清原因）
+      check = null;
+    }
+    if (check && !check.allowed) {
+      // 超上限：**不直接扫、也不弹层**，就在页面上挂一条可确认的提示（理由见下面的 Alert 注释）
+      setPendingRange(check);
+      return;
+    }
+    setPendingRange(null);
+    await doScan(false);
   };
 
   const coverage = result
@@ -192,6 +227,7 @@ export default function AnomalyPanel() {
             value={range}
             allowClear={false}
             presets={[
+              { label: '近 12 个月', value: [dayjs().subtract(11, 'month').startOf('month'), dayjs()] },
               { label: '本月', value: [dayjs().startOf('month'), dayjs().endOf('month')] },
               {
                 label: '上月',
@@ -203,8 +239,17 @@ export default function AnomalyPanel() {
               },
               { label: '今年', value: [dayjs().startOf('year'), dayjs().endOf('year')] },
             ]}
-            onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])}
+            onChange={(v) => {
+              if (!v || !v[0] || !v[1]) return;
+              setRange([v[0], v[1]]);
+              setPendingRange(null); // 区间变了，旧的超限确认作废
+            }}
           />
+          {windowLimit && (
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+              默认近 {windowLimit.defaultMonths} 个月，超过 {windowLimit.maxMonths} 个月需确认后继续
+            </Text>
+          )}
         </span>
         <span>
           <Text type="secondary">合同 </Text>
@@ -227,6 +272,39 @@ export default function AnomalyPanel() {
           开始扫描
         </Button>
       </Space>
+
+      {pendingRange && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="统计区间超过取数上限"
+          description={
+            <Space direction="vertical" size={8}>
+              <span>{pendingRange.message}</span>
+              {/*
+                为什么是页内确认条而不是弹层：这段说明较长，弹层会把结果区整块挡住；
+                而且「确认后继续」是页面上的一次状态切换，用按钮表达比模态更直观（也更好自动核验）。
+              */}
+              <Space wrap>
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() => {
+                    setPendingRange(null);
+                    void doScan(true);
+                  }}
+                >
+                  仍然扫描（覆盖 {pendingRange.months} 个月）
+                </Button>
+                <Button size="small" onClick={() => setPendingRange(null)}>
+                  缩小区间
+                </Button>
+              </Space>
+            </Space>
+          }
+        />
+      )}
 
       {!result && !loading && (
         <EmptyState
@@ -285,6 +363,10 @@ export default function AnomalyPanel() {
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   扫描时间 {dayjs(result.generatedAt).format('YYYY-MM-DD HH:mm')} · 区间{' '}
                   {result.period.from || '不限'} ~ {result.period.to || '不限'}
+                  {result.period.months != null && ` · 覆盖 ${result.period.months} 个自然月`}
+                  {result.period.maxMonths != null && `（上限 ${result.period.maxMonths}）`}
+                  {result.period.defaulted && ' · 系统默认区间'}
+                  {result.period.forced && ' · 已确认超过上限'}
                 </Text>
               </div>
             </Col>

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
@@ -7,6 +7,7 @@ import { pagedAll } from '../../common/utils/paged';
 import { ExcelService } from '../../common/services/excel.service';
 import { SysParamService } from '../../common/services/sys-param.service';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 @Injectable()
 export class RepaymentService {
@@ -23,12 +24,10 @@ export class RepaymentService {
     if (query.code) where.code = { contains: query.code };
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.contractId) where.contractId = query.contractId;
-    if (query.startDate || query.endDate) {
-      where.signDate = {};
-      if (query.startDate) where.signDate.gte = new Date(query.startDate);
-      if (query.endDate) where.signDate.lte = new Date(query.endDate);
-    }
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { material: { contains: query.keyword } }];
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.signDate = range;
+    const kw = keywordWhere(['code', 'material'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [list, total] = await Promise.all([
       this.prisma.repaymentAgreement.findMany({
         where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

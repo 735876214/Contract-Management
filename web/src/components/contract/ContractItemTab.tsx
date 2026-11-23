@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Alert, AutoComplete, Button, Input, InputNumber, Popconfirm, Space, Table, Tag } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import { contractApi } from '@/api/business';
 import { dictApi } from '@/api/dict';
@@ -7,6 +8,7 @@ import {
   calcPriceWithTax,
   calcTotalWithTax as calcTotal,
 } from '../../../../server/src/common/calc/amounts.ts';
+import { formatAmount } from '@/utils/money';
 
 /** 含税单价/含税合价统一走共享原语（4 位精度），不再本地复制公式 */
 
@@ -151,7 +153,7 @@ export default function ContractItemTab({
           保存清单
         </Button>
         <span style={{ color: 'var(--cms-muted)' }}>
-          合计（暂定含税）：<b style={{ color: 'var(--cms-error)' }}>¥{totalAmount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>
+          合计（暂定含税）：<b style={{ color: 'var(--cms-error)' }}>¥{formatAmount(totalAmount)}</b>
         </span>
       </Space>
 

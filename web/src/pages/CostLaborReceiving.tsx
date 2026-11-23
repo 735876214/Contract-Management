@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { formatAmount, formatNumber } from '@/utils/money';
+import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
 import { LABOR_RECEIVING_DOC_STATUS as DOC_STATUS } from '@/constants/laborReceivingStatus';
@@ -34,7 +36,7 @@ function DocList() {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该领用单据？（明细一并删除）',
       okText: '确认删除',
       okType: 'danger',
@@ -230,7 +232,7 @@ function DocEditor({ id }: { id: string }) {
   };
 
   const markComplete = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '标记为已完成？',
       content: '完成后单据仍可编辑。',
       onOk: async () => {
@@ -251,7 +253,7 @@ function DocEditor({ id }: { id: string }) {
         title: '单价(元)',
         dataIndex: 'unitPrice',
         width: 120,
-        render: (v: number | null) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })),
+        render: (v: number | null) => (v == null ? '-' : formatAmount(v)),
       },
       {
         title: '上期末累计',
@@ -259,14 +261,14 @@ function DocEditor({ id }: { id: string }) {
         width: 100,
         align: 'right' as const,
         className: 'col-secondary',
-        render: (v: number) => v.toLocaleString('zh-CN'),
+        render: (v: number) => formatNumber(v),
       },
       {
         title: '本期领用',
         dataIndex: 'receivedQty',
         width: 100,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '退库数量',
@@ -281,7 +283,7 @@ function DocEditor({ id }: { id: string }) {
         dataIndex: 'netQty',
         width: 90,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '库存盘点',
@@ -314,21 +316,21 @@ function DocEditor({ id }: { id: string }) {
         width: 90,
         align: 'right' as const,
         className: 'col-secondary',
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '节(-)超(+)',
         dataIndex: 'saveOver',
         width: 100,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN')),
+        render: (v: number | null) => (v == null ? '-' : formatNumber(v)),
       },
       {
         title: '结算扣款(元)',
         dataIndex: 'deductAmount',
         width: 120,
         align: 'right' as const,
-        render: (v: number | null) => (v == null ? '-' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2 })),
+        render: (v: number | null) => (v == null ? '-' : formatAmount(v)),
       },
       {
         title: '备注',

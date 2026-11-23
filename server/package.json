@@ -22,7 +22,9 @@
     "test:quote": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiQuoteBidder.spec.mts test/aiQuotePrompt.spec.mts",
     "test:fulfillment": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiFulfillmentRules.spec.mts test/aiFulfillmentPrompt.spec.mts",
     "test:scm": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/aiScmFacts.spec.mts",
-    "lint": "eslint \"src/**/*.ts\" --max-warnings 44"
+    "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
+    "stats:anomaly-input": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/anomaly-input-stats.mts",
+    "seed:scale-fixture": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/anomaly-scale-fixture.mts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
@@ -31,7 +33,6 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.0",
-    "@nestjs/serve-static": "^4.0.0",
     "@pdf-lib/fontkit": "^1.1.1",
     "@prisma/client": "^5.10.2",
     "archiver": "^8.0.0",

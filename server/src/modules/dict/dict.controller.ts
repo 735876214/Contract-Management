@@ -20,6 +20,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { noFileImportResult } from '../../common/utils/import-result';
+import { sendFile } from '../../common/http/download';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('dict')
@@ -127,15 +129,8 @@ export class DictController {
   @Get('export')
   async export(@Query('typeCode') typeCode: string, @Res() res: Response) {
     const buffer = await this.dictService.exportItems(typeCode);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    // filename* 才是浏览器认的写法：中文/空格塞进 filename= 会乱码，而 typeCode 是
-    // query 原值，含引号或控制字符时 setHeader 直接抛 ERR_INVALID_CHAR（表现为 500）。
-    const ascii = String(typeCode || 'dict').replace(/[^\w.-]/g, '_').slice(0, 60);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="dict-${ascii}.xlsx"; filename*=UTF-8''${encodeURIComponent(`dict-${typeCode}.xlsx`)}`,
-    );
-    res.end(buffer);
+    // 文件名统一由 sendFile 生成（ASCII 兜底 + RFC 5987），typeCode 里的引号/控制字符不再能撑爆 setHeader
+    sendFile(res, `dict-${typeCode || 'dict'}.xlsx`, buffer, 'xlsx');
   }
 
   @RequirePermissions('dict:edit', 'system:config')
@@ -150,7 +145,7 @@ export class DictController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   async importValidate(@Query('typeCode') typeCode: string, @UploadedFile() file: any, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.dictService.importItems(typeCode, file.buffer, { fileName: file?.originalname, user, validateOnly: true });
   }
 

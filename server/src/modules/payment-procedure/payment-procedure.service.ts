@@ -1,14 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+
 import { toDate, localDayKey } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
-import { round2 } from '../../common/calc/money';
+import { deriveProcedureAmounts, procedureCodeCandidates } from './amounts';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';
 import { TxClient } from '../../common/services/import-runner.service';
 import { PAYMENT_EXCLUDED_STATUSES } from '../../constants/statuses';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 开累两值的**同一实现**（与台账、防超付闸门、工作台预警共用）：不要在别处另算一遍
 import { chainSettledTotal, chainPaidTotal } from '../../common/utils/contract-chain';
 
@@ -39,18 +40,10 @@ export class PaymentProcedureService {
     if (query.contractId) where.contractId = query.contractId;
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.statusCode) where.statusCode = query.statusCode;
-    if (query.keyword) {
-      where.OR = [
-        { code: { contains: query.keyword } },
-        { contract: { name: { contains: query.keyword } } },
-        { supplier: { name: { contains: query.keyword } } },
-      ];
-    }
-    if (query.startDate || query.endDate) {
-      where.payDate = {};
-      if (query.startDate) where.payDate.gte = new Date(query.startDate);
-      if (query.endDate) where.payDate.lte = new Date(query.endDate);
-    }
+    const kw = keywordWhere(['code', 'contract.name', 'supplier.name'], query.keyword);
+    if (kw) where.OR = kw.OR;
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.payDate = range;
     const [list, total] = await Promise.all([
       this.prisma.paymentProcedure.findMany({
         where,
@@ -98,21 +91,15 @@ export class PaymentProcedureService {
       chainSettledTotal(this.prisma, contractId),
       chainPaidTotal(this.prisma, contractId, undefined, PAYMENT_EXCLUDED_STATUSES),
     ]);
-    return {
-      supplierId: contract.supplierId,
-      settleCumAmount: round2(settled),
-      paidCumAmount: round2(paid),
-      unpaidAmount: round2(round2(settled) - round2(paid)),
-    };
+    // 四个数字的舍入与「未付款可为负」的语义都在 amounts.ts（纯函数，spec 锁定）
+    return { supplierId: contract.supplierId, ...deriveProcedureAmounts(settled, paid) };
   }
 
   /** 单据编号：`FK-<合同编号>-<日期>`，同项目已存在则追加序号（表上有 `@@unique([projectId, code])`） */
   private async nextCode(projectId: string, contractId: string, payDate: Date | null) {
     const contract = await this.prisma.contract.findFirst({ where: { id: contractId, projectId }, select: { code: true } });
     const day = localDayKey(payDate ?? new Date()).replace(/-/g, '');
-    const base = `FK-${contract?.code || 'HT'}-${day}`;
-    for (let i = 0; i < 20; i += 1) {
-      const code = i === 0 ? base : `${base}-${i + 1}`;
+    for (const code of procedureCodeCandidates(contract?.code, day, 20)) {
       const dup = await this.prisma.paymentProcedure.findFirst({ where: { projectId, code }, select: { id: true } });
       if (!dup) return code;
     }

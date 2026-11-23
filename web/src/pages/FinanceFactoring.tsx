@@ -1,21 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button,
-  Card,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  Space,
-  Modal,
-  message,
-  DatePicker,
-  Table,
-  Row,
-  Col,
-  Statistic,
-} from 'antd';
+import { Button, Card, Form, Input, InputNumber, Select, Space, DatePicker, Table, Row, Col, Statistic } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { financeApi } from '@/api/modules';
@@ -26,9 +13,8 @@ import ContractFundParams from '@/components/finance/ContractFundParams';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
-/** 金额口径与「结算台账」一致：`¥` 前缀 + 千分位（最多两位小数），空值显示 `-` */
-const money = (v: any) =>
-  v === null || v === undefined || v === '' ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+/** 金额口径与「结算台账」一致：`¥` + 千分位，固定两位小数；空值显示 `-` */
+const money = (v: any) => formatMoney(v);
 
 const dateStr = (v: any) => (v ? dayjs(v).format('YYYY-MM-DD') : '-');
 
@@ -92,7 +78,7 @@ function FactoringList({ contractOptions }: { contractOptions: any[] }) {
   }, []);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该保理费用记录？',
       okText: '确认删除',
       okType: 'danger',

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { withToken } from '../utils/download';
-import {
-  Button, Form, Input, Space, Modal, message, InputNumber, Select, Descriptions, Alert, Table, Tag,
-} from 'antd';
+import { Button, Form, Input, Space, Modal, InputNumber, Select, Descriptions, Alert, Table, Tag } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, SwapOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { contractMaterialApi, materialApi } from '@/api/modules';
 import { contractApi, supplierApi } from '@/api/business';
@@ -18,9 +18,8 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../../server/src/common/c
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
 const LIST_PATH = LIST_PATHS.contractMaterial;
 
-/** 前端实时计算（与服务端共用同一份 4 位舍入实现） */
-const fmtNum = (v: any, digits = 4) =>
-  v == null || v === '' ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: digits });
+/** 前端实时计算（与服务端共用同一份 4 位舍入实现）；显示口径走 utils/money */
+const fmtNum = (v: any, digits = 4) => formatNumber(v, digits);
 
 /**
  * 合同物资清单（需求修正3；问题四：统一标准列表页规约）
@@ -139,7 +138,7 @@ function ContractMaterialsList() {
   };
 
   const removeRow = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除该清单行？',
       content: '删除该行不影响物资基础库。',
       okText: '确认删除',
@@ -448,11 +447,14 @@ function MaterialRowEditor({ seed }: { seed: unknown }) {
   }, [editing]);
 
   // 实时计算预览（与服务端同口径：4 位小数）
-  const watched: any = Form.useWatch((values: any) => values, form) || {};
+  const watched: any = Form.useWatch((values: any) => values, form);
   const preview = useMemo(() => {
-    const qty = watched.qty;
-    const p = watched.priceBeforeTax;
-    const pct = watched.taxRatePct;
+    // useWatch 在首个渲染周期返回 undefined：兜底必须写在 memo **内部**
+    // （写成 `|| {}` 会让依赖每次渲染都是新对象，memo 形同失效）
+    const w: any = watched || {};
+    const qty = w.qty;
+    const p = w.priceBeforeTax;
+    const pct = w.taxRatePct;
     // 统一引擎：与服务端 material.service 的 calcPriceWithTax/calcTotalWithTax 同口径
     const withTax = p != null ? calcPriceWithTax(p, pct ?? 0) : null;
     const total = withTax != null && qty != null ? calcTotalWithTax(withTax, qty) : null;

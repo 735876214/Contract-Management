@@ -1,46 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  DatePicker,
-  Descriptions,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Space,
-  Spin,
-  Table,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Checkbox, Col, DatePicker, Descriptions, Input, InputNumber, Row, Space, Spin, Table, Tag, Tooltip } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
-import { EyeOutlined, FileWordOutlined, SaveOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SendOutlined, RollbackOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
-import {
-  getProcurementVariableGroups,
-  replaceProcurementVariables,
-} from '@/constants/procurementVariables';
+
 import ImportButton from '@/components/ImportButton';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import BidderPanel from '@/components/procurement/BidderPanel';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -49,18 +23,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/result-report';
-import {
-  buildResultReportDocHtml,
-  buildResultReportVariableValues,
-  defaultFinalPrice,
-  fmtAmount,
-  rankByFirstRound,
-  rankBySecondRound,
-  type RankedSupplier,
-  type ResultCandidate,
-  type ResultReportData,
-  type ResultSupplier,
-} from '@/utils/procurementResultReport';
+import { buildResultReportDocHtml, buildResultReportVariableValues, defaultFinalPrice, fmtAmount, rankByFirstRound, rankBySecondRound, type RankedSupplier, type ResultCandidate, type ResultReportData, type ResultSupplier } from '@/utils/procurementResultReport';
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'RESULT_REPORT';
@@ -355,7 +318,7 @@ export default function ResultReport() {
   /** 任务 7：成交报告「退回 → 重发」（纯状态回退；若下游合同已签章则禁止） */
   const handleRejectResultReport = async () => {
     if (!taskId) return;
-    Modal.confirm({
+    modal.confirm({
       title: '成交报告退回重发',
       content:
         '确认退回成交报告吗？退回后报告恢复为「编制中」可重新编辑并再次发布（重发），已自动生成的合同草稿将被清理。',

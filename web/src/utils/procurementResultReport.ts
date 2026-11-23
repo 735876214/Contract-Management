@@ -36,6 +36,8 @@ import {
 import { projectVars } from './projectVars.ts';
 
 /** 响应单位明细行（导入「响应单位情况汇总表」，10 列） */
+import { formatAmount } from './money.ts';
+
 export interface ResultSupplier {
   /** 序号（导入表列，可空，展示时按行序重排） */
   seq?: number | null;
@@ -133,12 +135,8 @@ const fmtDate = (v: string | Date | null | undefined): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-/** 金额格式化（千分位 + 2 位小数）；空值返回空串 */
-export const fmtAmount = (v: number | null | undefined): string => {
-  const n = numOrNull(v);
-  if (n == null) return '';
-  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
+/** 金额格式化（千分位 + 2 位小数）；空值返回空串（文档正文口径） */
+export const fmtAmount = (v: number | null | undefined): string => formatAmount(numOrNull(v), 2, '');
 
 /** 数量格式化（整数；空值返回空串） */
 export const fmtCount = (v: number | null | undefined): string => {

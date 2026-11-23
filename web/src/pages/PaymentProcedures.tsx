@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '@/utils/money';
 import { withToken } from '../utils/download';
-import { Button, Form, Input, Select, Space, Modal, message, Row, Col, DatePicker, Alert } from 'antd';
+import { Button, Form, Input, Select, Space, Row, Col, DatePicker, Alert } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { paymentProcedureApi, docTemplateApi } from '@/api/modules';
@@ -10,8 +12,7 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /**
  * 付款手续编制（业务口径 2026-10-16）：数据项为供应商名称 / 开累结算金额 / 开累付款金额 /
@@ -50,7 +51,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该付款手续？',
       okText: '确认删除',
       okType: 'danger',

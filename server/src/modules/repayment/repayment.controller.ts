@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('repayments')
@@ -33,9 +34,7 @@ export class RepaymentController {
   @Get('export')
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const buffer = await this.service.export(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=repayments.xlsx');
-    res.end(buffer);
+    sendFile(res, 'repayments.xlsx', buffer, 'xlsx');
   }
 
   @RequirePermissions('repayment:view')

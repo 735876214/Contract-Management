@@ -2,18 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
-import { IMPORT_MAX_ROWS, assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
+import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
 import { ImportTaskService } from '../../common/services/import-task.service';
 import { pickFields } from '../../common/pick-fields';
-import {
-  DICT_TYPES,
-  INVOICE_REVIEW_STATUS,
-  INVOICE_STATUS,
-  countedInvoiceWhere,
-  isInvoiceTerminalStatus,
-} from '../../constants/statuses';
+import { DICT_TYPES, INVOICE_REVIEW_STATUS, INVOICE_STATUS, countedInvoiceWhere, isInvoiceTerminalStatus } from '../../constants/statuses';
 import { DictService } from '../dict';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
@@ -25,6 +19,7 @@ import { periodMonthKey } from '../../common/utils/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
 import { calcAmount, taxAmountDiff } from '../../common/calc/amounts';
 import { isFilledNumber } from '../../common/utils/ledger-derived';
+import { keywordWhere } from '../../common/utils/list-where';
 
 const INVOICE_FIELD_LABEL: Record<string, string> = { amountBeforeTax: '税前金额', amountWithTax: '含税金额' };
 const INVOICE_FIELDS = [
@@ -66,7 +61,8 @@ export class InvoiceService {
     if (query.reviewStatus) where.reviewStatus = query.reviewStatus;
     if (query.goodsCategory) where.goodsCategory = query.goodsCategory;
     if (query.invoiceNo) where.invoiceNo = { contains: query.invoiceNo };
-    if (query.keyword) where.OR = [{ invoiceNo: { contains: query.keyword } }, { issuer: { contains: query.keyword } }];
+    const kw = keywordWhere(['invoiceNo', 'issuer'], query.keyword);
+    if (kw) where.OR = kw.OR;
     // 红冲原票候选：只要有效票（终态票不能再作为红冲对象）。用 AND 包住上面可能已有的 OR
     if (query.excludeTerminal) where.AND = [...(where.AND ?? []), countedInvoiceWhere()];
     const [list, total] = await Promise.all([
@@ -514,7 +510,7 @@ export class InvoiceService {
   }
 
   /** 批量写入发票台账（识别结果由用户匹配合同、补全税率后提交） */
-  async batchCreate(items: any[], projectId: string, user: any) {
+  async batchCreate(items: any[], projectId: string, _user: any) {
     let created = 0;
     const errors: string[] = [];
     for (const [i, it] of items.entries()) {
@@ -737,7 +733,7 @@ export class InvoiceService {
   }
 
   /** 发票台账填写模板（需求 3.3，实际字段口径） */
-  async template(projectId: string) {
+  async template(_projectId: string) {
     const [goods, review, finance, status, types] = await Promise.all([
       this.dict.options('goods_category'), this.dict.options('invoice_review_status'),
       this.dict.options('finance_transfer_status'), this.dict.options('invoice_status'), this.dict.options('invoice_type'),

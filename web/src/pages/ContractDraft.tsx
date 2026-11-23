@@ -1,25 +1,9 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
+import { formatMoney } from '@/utils/money';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Tabs,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Tabs, Tag, Tooltip } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import {
   CheckOutlined,
   EyeOutlined,
@@ -43,8 +27,7 @@ import ClauseSelectRow from '@/components/clause/ClauseSelectRow';
 /** 草稿超时阈值（需求 2.1.3：新增后 2 小时内未完成即视为超时） */
 const OVERDUE_HOURS = 2;
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 计算草稿超时剩余/超出分钟数：正数为剩余，负数为已超时 */
 function overdueMinutes(createTime: string): number {
@@ -78,7 +61,7 @@ export default function ContractDraft() {
   const tabRefresh = useTabRefresh(LIST_PATH);
   useEffect(() => {
     if (tabRefresh) refreshList();
-  }, [tabRefresh]);
+  }, [tabRefresh, refreshList]);
 
   // ===== 新增合同（编辑器页签的 "new" 形态） =====
   const [createForm] = Form.useForm();
@@ -275,7 +258,7 @@ export default function ContractDraft() {
       setActiveTab('basic');
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: '发布确认',
       width: 520,
       content: (
@@ -310,7 +293,7 @@ export default function ContractDraft() {
   // ==================== 删除草稿 ====================
   const handleRemove = (row: ModuleListRow) => {
     const r = row as any;
-    Modal.confirm({
+    modal.confirm({
       title: '删除草稿',
       content: `确认删除草稿「${r.name || r.code}」？删除后不可恢复。`,
       okText: '删除',

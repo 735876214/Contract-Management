@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { message } from 'antd';
+import { formatMoney } from '@/utils/money';
+import { message } from '@/utils/antdStatic';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Col, Row, Space, Statistic, List, Tag, Spin } from 'antd';
 import { FileTextOutlined, AccountBookOutlined, WalletOutlined } from '@ant-design/icons';
@@ -13,7 +14,8 @@ import { LIST_PATHS } from '@/constants/listPaths';
 import EmptyState from '@/components/EmptyState';
 import { TodoCard, DashboardNoticeModal } from './dashboardTodo';
 
-const money = (v: number) => `¥${(v || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+/** 金额展示：未填显示 `-`（原实现 `(v || 0)` 会把「未填」显示成 `¥0`，与台账三态契约相反） */
+const money = (v: any) => formatMoney(v);
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -54,7 +56,7 @@ export default function Dashboard() {
         message.error(e?.message ? `工作台数据加载失败：${e.message}` : '工作台数据加载失败，请稍后重试');
       })
       .finally(() => setLoading(false));
-  }, [tabRefresh]);
+  }, [tabRefresh, ensure]);
 
   const { ref: trendRef, size: trendSize } = useContainerWidth<HTMLDivElement>();
   const { ref: pieRef, size: pieSize } = useContainerWidth<HTMLDivElement>();

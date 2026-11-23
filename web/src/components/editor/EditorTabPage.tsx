@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Button, Modal, Space } from 'antd';
+import { Button, Space } from 'antd';
+import { modal } from '@/utils/antdStatic';
 import { CheckOutlined } from '@ant-design/icons';
 import { useTabsStore } from '@/store/tabs';
 import { useEditorTab, useTabDirty } from '@/hooks/useTabs';
@@ -64,7 +65,7 @@ export default function EditorTabPage({
       editorTab.closeEditor({ refresh: false });
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: '放弃未保存的内容？',
       content: '关闭后本次修改不会生效。',
       okText: '放弃并关闭',

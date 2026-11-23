@@ -69,6 +69,21 @@
 
 正文 14px（AntD `fontSize`）；表格内数字沿用正文尺寸与 sans。
 
+### 2.1 数字排版（金额/数量列）
+
+数字与汉字是两套排印规则，这里单独定口径（**锁定于 `server/test/designNumeric.spec.mts`**）：
+
+1. **等宽数字（tabular-nums）**：`.ant-table` 与 `.ant-statistic-content` 全局声明
+   `font-variant-numeric: tabular-nums`（在 `index.css` 一处收口，页面不得各自覆盖）。
+   Inter 默认是**比例数字**（"1" 比 "8" 窄）：金额列即使右对齐，位数一变中间就歪；
+   等宽数字让整列天然成"数字塔"，扫一列就能比大小。正文里的零星数字保持比例数字（排印更好看）。
+2. **金额列一律右对齐**：单行列定义里带金额语义（金额/单价/总价/合价/合计/总额/含税/不含税）的列
+   必须 `align: 'right'`。右对齐 + 等宽数字才是可比的数字列；居左的金额列只能靠肉眼读。
+3. **列宽不做统一**：宽度按**数量级**由页面给（现网区间 100–160px，下限 100）。
+   统一成同一个宽度是反效果——大额（千万级）会被截成 `...` 或折行，小额又白占版面。
+4. **格式化只有一处实现**：`utils/money.ts` 的 `formatMoney`/`formatAmount`/`formatNumber`，
+   空值显示 `-`（见 `.claude/rules/frontend-conventions.md`「金额 / 数量 / 比率的展示」）。
+
 ## 3. 颜色
 
 ### 3.1 色板（`theme.palette`，与 index.css 的 `--cms-*` 一一对应）

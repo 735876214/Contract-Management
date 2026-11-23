@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import * as path from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import * as path from 'path';
+
 import { checkFileUrl } from '../../common/utils/safe-url';
 import { num } from '../../common/calc/numeric';
-import { fmtDate } from '../../common/calc/time';
+import { fmtDate, startOfDay, endOfDay } from '../../common/calc/time';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { round2 } from '../../common/calc/money';
 import { projectWhere } from '../../common/utils/project-scope';
@@ -23,21 +24,10 @@ import { MaterialService, replaceContractMaterials } from '../material';
 import { assertContractRejectable } from '../../constants/workflowGuards';
 import { computeSupplementDelta } from '../../common/utils/supplement-delta';
 import { pickSupplierSnapshot } from '../../common/utils/supplier-snapshot';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 // 付款安排与「当前生效比例」的单一事实源（零依赖纯函数；台账列/逾期引擎/付款预警共用同一判定）
-import {
-  paymentModeViolation,
-  resolveEffectivePayRatio,
-} from '../../common/utils/pay-ratio';
-import {
-  CONTRACT_EXECUTION_STATUS,
-  CONTRACT_STATUS,
-  FINAL_SETTLEMENT_STATUS,
-  INVOICE_STATUS,
-  LEGACY_CONTRACT_STATUS_COMPLETED,
-  paidPaymentWhere,
-  SETTLEMENT_STATUS,
-  SITE_CONFIRM_STATUS,
-} from '../../constants/statuses';
+import { paymentModeViolation, resolveEffectivePayRatio } from '../../common/utils/pay-ratio';
+import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, FINAL_SETTLEMENT_STATUS, INVOICE_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, paidPaymentWhere, SETTLEMENT_STATUS, SITE_CONFIRM_STATUS } from '../../constants/statuses';
 import { contractStageTaskStatus, stageChain } from '../../constants/procurementFlow';
 import { TemplateService } from '../template';
 import { ContractDraftService } from './contract-draft.service';
@@ -85,11 +75,6 @@ const CONTRACT_STATUSES: readonly string[] = [
   CONTRACT_STATUS.SIGNED,
 ];
 const PUBLISHED_STATUSES: readonly string[] = [CONTRACT_STATUS.APPROVING, CONTRACT_STATUS.SIGNED];
-const EXT_FIELDS = [
-  'financeCode', 'procurementSrc', 'isDirectPurchase', 'bidName', 'currentPayRatio',
-  'settlementPayRatio',
-  'supplierCategory', 'bidStartDate', 'bidWinDate', 'disclosureDate', 'complaint',
-];
 
 const FIELD_LABELS: Record<string, string> = {
   code: '合同编号',
@@ -127,17 +112,15 @@ export class ContractService {
   async findAll(query: any = {}, projectId: string) {
     const { skip, take } = paginate(query);
     const where: any = { projectId };
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }];
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     if (query.code) where.code = { contains: query.code };
     if (query.name) where.name = { contains: query.name };
     if (query.typeCode) where.typeCode = query.typeCode;
     if (query.supplierId) where.supplierId = query.supplierId;
     if (query.execStatus) where.execStatus = query.execStatus;
-    if (query.startDate || query.endDate) {
-      where.signDate = {};
-      if (query.startDate) where.signDate.gte = new Date(query.startDate);
-      if (query.endDate) where.signDate.lte = new Date(query.endDate);
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.signDate = range;
     const [list, total] = await Promise.all([
       this.prisma.contract.findMany({
         where,
@@ -1207,13 +1190,13 @@ export class ContractService {
     const and: any[] = [{ projectId }];
     // 需求修正6：待签章/已签章；status=null 与历史 COMPLETED 数据一并兼容展示
     and.push({ OR: [{ status: { in: [...PUBLISHED_STATUSES, LEGACY_CONTRACT_STATUS_COMPLETED] } }, { status: null }] });
-    if (query.keyword) {
-      and.push({ OR: [{ code: { contains: query.keyword } }, { name: { contains: query.keyword } }] });
-    }
+    const kw = keywordWhere(['code', 'name'], query.keyword);
+    if (kw) and.push(kw);
     if (query.supplierId) and.push({ supplierId: query.supplierId });
     const signDate: any = {};
-    if (query.signDateStart) signDate.gte = new Date(query.signDateStart);
-    if (query.signDateEnd) signDate.lte = new Date(`${query.signDateEnd}T23:59:59`);
+    // 本地日区间原语（与列表筛选同口径）：'YYYY-MM-DD' 交给 new Date 会按 UTC 解析
+    if (query.signDateStart) signDate.gte = startOfDay(query.signDateStart);
+    if (query.signDateEnd) signDate.lte = endOfDay(query.signDateEnd);
     if (Object.keys(signDate).length) and.push({ signDate });
     const where = { AND: and };
     const [list, total] = await Promise.all([
@@ -1551,7 +1534,7 @@ export class ContractService {
   }
 
   /** 合同台账填写模板（需求 3.3，实际字段口径） */
-  async template(projectId: string) {
+  async template(_projectId: string) {
     const types = await this.dict.options('contract_type');
     const columns: TemplateColumn[] = [
       { label: '合同编号', key: 'code', required: true, width: 20, example: 'HT-2026-0001', desc: '项目内唯一，按编号规则填写' },

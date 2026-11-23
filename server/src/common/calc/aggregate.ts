@@ -10,15 +10,9 @@
  *
  * 业务特例通过 options 参数化，不在这里判断合同类型/模块来源。
  */
-import { round, round2 } from './money.ts';
+import { round } from './money.ts';
 import { num } from './numeric.ts';
-import {
-  compareMonthKey,
-  monthKey,
-  parseMonthKey,
-  periodMonthKey,
-  toDate,
-} from './time.ts';
+import { compareMonthKey, monthKey, parseMonthKey, periodMonthKey, toDate } from './time.ts';
 
 /**
  * 任意来源 → 规范月份键 `YYYY-MM`。

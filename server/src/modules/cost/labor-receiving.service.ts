@@ -15,6 +15,7 @@ import {
   type DeriveReceivingInput,
 } from '../../common/utils/labor-receiving';
 import { periodKeyOf, startDayOf, periodLabel } from '../../common/utils/settlement-period';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /**
  * 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位 × 结算期）。
@@ -75,13 +76,8 @@ export class LaborReceivingService {
     const where: any = { projectId };
     if (query.period) where.period = query.period;
     if (query.status) where.status = query.status;
-    if (query.keyword) {
-      where.OR = [
-        { docNo: { contains: query.keyword } },
-        { subcontractorName: { contains: query.keyword } },
-        { contractName: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['docNo', 'subcontractorName', 'contractName'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [rows, total] = await Promise.all([
       this.prisma.laborReceivingDoc.findMany({
         where, skip, take,

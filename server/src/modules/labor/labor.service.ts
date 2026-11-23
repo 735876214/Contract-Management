@@ -4,8 +4,8 @@ import { SUBCONTRACTOR_STATUS } from '../../constants/statuses';
 import { PrismaClient } from '@prisma/client';
 import { toDate } from '../../common/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
-import { pickFields } from '../../common/pick-fields';
 import { resolveOrCreateSubcontractor } from '../subcontractor';
+import { keywordWhere } from '../../common/utils/list-where';
 
 /** 允许从前端写入的字段白名单（原分包商库字段 + 台账独有的授权期间） */
 const EDITABLE_FIELDS = [
@@ -53,14 +53,8 @@ export class LaborService {
     const where: any = {};
     if (projectId) where.projectId = projectId;
     if (query.status) where.status = query.status;
-    if (query.keyword) {
-      where.OR = [
-        { subcontractorName: { contains: query.keyword } },
-        { legalPerson: { contains: query.keyword } },
-        { authorizedPerson: { contains: query.keyword } },
-        { subcontractContent: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['subcontractorName', 'legalPerson', 'authorizedPerson', 'subcontractContent'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [list, total] = await Promise.all([
       this.prisma.laborAuthLedger.findMany({
         where,
@@ -81,13 +75,8 @@ export class LaborService {
   async options(query: any = {}, projectId?: string) {
     const where: any = { status: { in: [SUB_STATUS.EDITING, SUB_STATUS.COMPLETED] } };
     if (projectId) where.projectId = projectId;
-    if (query.keyword) {
-      where.OR = [
-        { subcontractorName: { contains: query.keyword } },
-        { legalPerson: { contains: query.keyword } },
-        { authorizedPerson: { contains: query.keyword } },
-      ];
-    }
+    const kw = keywordWhere(['subcontractorName', 'legalPerson', 'authorizedPerson'], query.keyword);
+    if (kw) where.OR = kw.OR;
     return this.prisma.laborAuthLedger.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

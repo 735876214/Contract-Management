@@ -1,25 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Card,
-  Table,
-  Button,
-  Form,
-  Input,
-  Select,
-  Tree,
-  Space,
-  Modal,
-  Popconfirm,
-  Tag,
-  Row,
-  Col,
-  message,
-} from 'antd';
+import { formatDateTime } from '@/utils/money';
+import { Card, Table, Button, Form, Input, Select, Tree, Space, Modal, Popconfirm, Tag, Row, Col } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { systemApi } from '@/api/auth';
 import { useTable } from '@/hooks/useTable';
 
 const STATUS_TAG = (v: any) => (v === 1 || v === '1' ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>);
+
+/**
+ * 系统参数分组名映射：参数键首段 → 中文名。
+ * 放在**模块级**：写成组件内字面量会让它每次渲染都是新对象，
+ * 进而成为 useMemo/useEffect 的依赖项（ESLint 也会报 missing dependency）。
+ */
+const GROUP_LABELS: Record<string, string> = {
+  contract: '合同参数',
+  supplier: '供应商参数',
+  repayment: '还款协议',
+  multi: '项目模式',
+};
 
 /* ---------------- 用户管理 ---------------- */
 function UsersTab() {
@@ -368,14 +367,6 @@ function ParamsTab() {
   const load = () => systemApi.params().then((r: any) => setParams(r || []));
   useEffect(() => { load(); }, []);
 
-  /** 分组名映射：参数键首段 → 中文名 */
-  const GROUP_LABELS: Record<string, string> = {
-    contract: '合同参数',
-    supplier: '供应商参数',
-    repayment: '还款协议',
-    multi: '项目模式',
-  };
-
   /** 按参数键首段分组 */
   const groups = useMemo(() => {
     const map: Record<string, number> = {};
@@ -592,7 +583,7 @@ function LogsPage() {
               title: '时间',
               dataIndex: 'createdAt',
               width: 180,
-              render: (v: any) => (v ? new Date(v).toLocaleString('zh-CN') : '-'),
+              render: (v: any) => formatDateTime(v),
             },
             {
               title: '操作',

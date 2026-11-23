@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Input, InputNumber, Modal, Select, Space, Table, message } from 'antd';
+import { formatNumber } from '@/utils/money';
+import { formatAmount } from '@/utils/money';
+import { Button, Input, InputNumber, Modal, Select, Space, Table } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { costApi } from '@/api/modules';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
@@ -17,8 +20,8 @@ import { withToken } from '@/utils/download';
  */
 const LIST_PATH = '/cost/profit-loss';
 
-const money = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 }));
-const qty = (v: any) => (v == null ? '-' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 3 }));
+const money = (v: any) => formatAmount(v);
+const qty = (v: any) => formatNumber(v, 3);
 
 export default function CostProfitLoss() {
   const editorTab = useEditorTab(LIST_PATH);
@@ -37,7 +40,7 @@ function ProfitList() {
   const refreshList = () => setListRefresh((k) => k + 1);
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: `确认删除该盈亏分析记录？（明细一并删除）`,
       okText: '确认删除',
       okType: 'danger',
@@ -106,7 +109,7 @@ function ProfitList() {
 /** 新建：选结算期（只列尚无记录的期），确定即创建并生成快照 */
 function CreateButton({
   creating,
-  setCreating,
+  setCreating: _setCreating,
   onCreated,
 }: {
   creating: boolean;
@@ -222,7 +225,7 @@ function ProfitEditor({ id }: { id: string }) {
   };
 
   const doReSnapshot = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '重新抓取当期快照？',
       content: '手填项（责任人/劳务计价已扣/备注）按 分包单位+材料+规格 自动回填，快照列以当期最新数据重算。',
       onOk: async () => {

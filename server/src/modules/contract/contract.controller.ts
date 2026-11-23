@@ -22,6 +22,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('contracts')
@@ -82,9 +84,7 @@ export class ContractController {
   @Get(':id/export-word')
   async exportWord(@Param('id') id: string, @ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename } = await this.contractService.exportWord(id, projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'docx');
   }
 
   /** 合同签章：上传签章合同文件 + 签订日期，状态置为「已签章」（需求修正4） */
@@ -106,9 +106,7 @@ export class ContractController {
   @Get(':id/signed-file')
   async signedFile(@Param('id') id: string, @Res() res: Response) {
     const { buffer, filename } = await this.contractService.signedFile(id);
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'bin');
   }
 
   // ---------------- 合同起草：物料编码清单（Tab1） ----------------
@@ -200,9 +198,7 @@ export class ContractController {
   @Get('template')
   async template(@ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename } = await this.contractService.template(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 归档前检查（下游完整性）：阻断项/提示项（业务口径 2026-10-18，单向归档） */
@@ -321,7 +317,7 @@ export class ContractController {
   @Post('import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   import(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
-    if (!file) return { created: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacyNoUpdate();
     return this.contractService.import(file.buffer, projectId, user);
   }
 
@@ -329,7 +325,7 @@ export class ContractController {
   @Post('import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.contractService.import(file.buffer, projectId, user, file?.originalname, true);
   }
 

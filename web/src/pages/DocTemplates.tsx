@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, Form, Input, Select, Space, Modal, message, Table, Popconfirm, Tag, Card } from 'antd';
+import { Button, Form, Input, Select, Space, Modal, Table, Popconfirm, Tag, Card } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DeleteOutlined, EditOutlined, FileExcelOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { docTemplateApi } from '@/api/modules';
 import { dictApi, type DictOption } from '@/api/dict';

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatAmount } from '@/utils/money';
 import { Alert, Button, Card, Col, Row, Select, Space, Statistic, Switch, Table, Tag, Typography } from 'antd';
 import { AuditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -42,13 +43,8 @@ const LEVEL_META = {
   MEDIUM: { label: '需复核', color: 'orange' },
 } as const;
 
-const money = (v: string | null) => {
-  if (v === null || v === undefined || v === '') return '-';
-  const n = Number(v);
-  return Number.isFinite(n)
-    ? n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : v;
-};
+/** 金额（后端可能以字符串下发 Decimal；非数字/空值统一 `-`） */
+const money = (v: any) => formatAmount(v);
 
 /**
  * 异常报价与价差预警面板（课题 3-9）。

@@ -762,11 +762,50 @@ export interface AiAnomalyNarrative {
   unknownNumbers: string[];
 }
 
+/**
+ * 统计区间的**口径元数据**（后端解析后的结果）。
+ *
+ * 默认跨度与上限都来自系统参数（`ai.anomaly.windowDefaultMonths` / `windowMaxMonths`），
+ * 所以面板**不自己算月份**、也不写死 12/24——否则改一次参数前端就骗人一次。
+ */
+export interface AiAnomalyPeriod {
+  from: string | null;
+  to: string | null;
+  /** 区间是系统默认给出的（调用方没给日期） */
+  defaulted: boolean;
+  /** 覆盖的自然月数；未执行判定（已停用）时为 null */
+  months: number | null;
+  /** 取数上限（自然月）：超过要先人工确认 */
+  maxMonths: number | null;
+  /** 超过上限但已人工确认放开（结论仍覆盖全区间，但更慢） */
+  forced: boolean;
+}
+
+/**
+ * 统计区间体检结果（`GET /ai/anomaly/window`）。
+ *
+ * 面板点「开始扫描」前先问一句：`allowed=false` 时弹「仍然扫描」确认，确认后带 `force=1` 重发。
+ * `allowed=false` 不是错误（不会弹红条），日期格式错/起止颠倒才 400。
+ */
+export interface AiAnomalyWindow {
+  from: string;
+  to: string;
+  months: number;
+  defaulted: boolean;
+  overLimit: boolean;
+  forced: boolean;
+  allowed: boolean;
+  defaultMonths: number;
+  maxMonths: number;
+  /** 超限时给用户看的说明（与扫描接口 400 的文案同一份）；未超限为空串 */
+  message: string;
+}
+
 export interface AiAnomalyResult {
   /** 系统参数 `ai.anomaly.enabled` 关掉时为 false：不报错，面板显示「已停用」 */
   enabled: boolean;
   generatedAt: string;
-  period: { from: string | null; to: string | null };
+  period: AiAnomalyPeriod;
   /** 参与判定的单据量：0 命中时据此说明「算过哪些数据」，是可信度的依据 */
   sample: Record<string, number>;
   tolerances: { amount: string; qtyPct: number; jaccard: number };
@@ -1191,8 +1230,20 @@ export const aiApi = {
    * 结算 / 付款异常预警（课题 6-9）：只读扫描，规则在服务端算，模型只写结论。
    * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。
    */
-  paymentAnomaly: (query: { from?: string; to?: string; contractId?: string; narrative?: '0' | '1' }) =>
-    http.get<any, AiAnomalyResult>('/ai/anomaly/payment', { params: query, timeout: 180000 } as any),
+  paymentAnomaly: (query: {
+    from?: string;
+    to?: string;
+    contractId?: string;
+    narrative?: '0' | '1';
+    /** '1' = 用户已在界面上确认「超过取数上限也照扫」；不给则超限直接 400 */
+    force?: '0' | '1';
+  }) => http.get<any, AiAnomalyResult>('/ai/anomaly/payment', { params: query, timeout: 180000 } as any),
+  /**
+   * 统计区间体检（只读、不取业务数据）：面板据此判断要不要弹「仍然扫描」确认。
+   * 口径在服务端（默认跨度/上限都走系统参数），前端**不重复算月份**。
+   */
+  anomalyWindow: (query: { from?: string; to?: string }) =>
+    http.get<any, AiAnomalyWindow>('/ai/anomaly/window', { params: query }),
   /**
    * 异常报价与价差识别预警（课题 3-9）：只读扫描，规则在服务端算，模型只写结论。
    * `narrative=0` 可强制跳过模型（面板「只看规则结果」用）。

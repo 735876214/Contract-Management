@@ -34,7 +34,8 @@ export default function DictSelect({
 
   useEffect(() => {
     ensure(typeCode);
-  }, [typeCode]);
+    // ensure 来自 zustand store，引用稳定；漏了它会让 typeCode 切换时读到旧断言
+  }, [typeCode, ensure]);
 
   return (
     <Select
@@ -60,7 +61,8 @@ export function DictTag({ typeCode, value }: { typeCode: string; value?: string 
   const options = useDictStore((s) => s.cache[typeCode] || []);
   useEffect(() => {
     ensure(typeCode);
-  }, [typeCode]);
+    // ensure 来自 zustand store，引用稳定；漏了它会让 typeCode 切换时读到旧断言
+  }, [typeCode, ensure]);
   if (!value) return <span>-</span>;
   const hit = options.find((o) => o.value === value);
   return <Tag color={hit?.color || 'default'}>{hit?.label || value}</Tag>;
@@ -72,6 +74,7 @@ export function DictText({ typeCode, value }: { typeCode: string; value?: string
   const label = useDictStore((s) => s.label(typeCode, value));
   useEffect(() => {
     ensure(typeCode);
-  }, [typeCode]);
+    // ensure 来自 zustand store，引用稳定；漏了它会让 typeCode 切换时读到旧断言
+  }, [typeCode, ensure]);
   return <span>{label}</span>;
 }

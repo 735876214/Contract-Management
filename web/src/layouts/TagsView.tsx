@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Dropdown, Modal } from 'antd';
+import { Dropdown } from 'antd';
+import { modal } from '@/utils/antdStatic';
 import { CloseOutlined, EditOutlined, MenuOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTabsStore } from '@/store/tabs';
@@ -33,7 +34,6 @@ export default function TagsView() {
   const refresh = useTabsStore((s) => s.refresh);
   const dirtyKeys = useTabsStore((s) => s.dirtyKeys);
 
-  const index = useMemo(() => tabs.findIndex((t) => t.key === activeKey), [tabs, activeKey]);
   const closableCount = useMemo(() => tabs.filter((t) => t.closable).length, [tabs]);
 
   /** 关闭后落到 `activate` 指定的标签；为 null 表示当前标签没被关掉 */
@@ -47,7 +47,7 @@ export default function TagsView() {
       run();
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: '该页有未保存的内容',
       content: '关闭后未保存的内容将丢失，确定关闭吗？',
       okText: '仍然关闭',
@@ -64,7 +64,7 @@ export default function TagsView() {
       run();
       return;
     }
-    Modal.confirm({
+    modal.confirm({
       title: `有 ${hit.length} 个标签存在未保存的内容`,
       content: '关闭后这些标签里未保存的内容将丢失，确定继续吗？',
       okText: '仍然关闭',
@@ -94,7 +94,7 @@ export default function TagsView() {
         refresh(key);
         return;
       }
-      Modal.confirm({
+      modal.confirm({
         title: '该页有未保存的内容',
         content: '刷新会重新加载页面，未保存的内容将丢失，确定刷新吗？',
         okText: '仍然刷新',

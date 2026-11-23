@@ -104,6 +104,28 @@ describe('anomaly-config · 阈值与开关解析', () => {
       assert.ok(key in ANOMALY_PARAM_DEFAULTS, `缺少默认值：${key}`);
     }
   });
+
+  it('取数期间参数：默认 12 / 上限 24，非法回落留痕，越界夹紧，上限小于默认要抬齐', () => {
+    assert.deepEqual(parseAnomalyConfig({}).window, { defaultMonths: 12, maxMonths: 24 });
+    assert.equal(parseAnomalyConfig({ [ANOMALY_PARAM_KEYS.windowDefaultMonths]: '6' }).window.defaultMonths, 6);
+    assert.equal(parseAnomalyConfig({ [ANOMALY_PARAM_KEYS.windowMaxMonths]: '36' }).window.maxMonths, 36);
+
+    const bad = parseAnomalyConfig({ [ANOMALY_PARAM_KEYS.windowMaxMonths]: 'abc' });
+    assert.equal(bad.window.maxMonths, 24);
+    assert.ok(bad.problems.some((x) => x.includes('ai.anomaly.windowMaxMonths=abc')));
+
+    // 上限 < 默认 = 配置自相矛盾（默认一开就超限）：抬到默认值**并留痕**，静默改数是调参最怕的事
+    const contradiction = parseAnomalyConfig({
+      [ANOMALY_PARAM_KEYS.windowDefaultMonths]: '12',
+      [ANOMALY_PARAM_KEYS.windowMaxMonths]: '3',
+    });
+    assert.equal(contradiction.window.maxMonths, 12);
+    assert.ok(contradiction.problems.some((x) => x.includes('已夹到 12')));
+
+    // 越界夹到 [1, 120]：0 会把区间压成空窗口，9999 等于全库扫描
+    assert.equal(parseAnomalyConfig({ [ANOMALY_PARAM_KEYS.windowMaxMonths]: '9999' }).window.maxMonths, 120);
+    assert.equal(parseAnomalyConfig({ [ANOMALY_PARAM_KEYS.windowDefaultMonths]: '0' }).window.defaultMonths, 1);
+  });
 });
 
 describe('anomaly-prompt · 数字提取与对账', () => {

@@ -5,8 +5,10 @@ import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { CurrentUser, ProjectId } from '../../common/decorators/user.decorator';
 import { IMPORT_UPLOAD_OPTIONS } from '../../common/utils/upload-rules';
+import { sendFile } from '../../common/http/download';
+import { noFileImportResult, noFileImportResultLegacyNoUpdate } from '../../common/utils/import-result';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('payments')
@@ -24,9 +26,7 @@ export class PaymentController {
   @Get('records/export')
   async exportRecords(@ProjectId() projectId: string, @Res() res: Response) {
     const buffer = await this.service.exportRecords(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=payment-records.xlsx');
-    res.end(buffer);
+    sendFile(res, 'payment-records.xlsx', buffer, 'xlsx');
   }
 
   /** 下载填写模板（需求 3.3） */
@@ -34,9 +34,7 @@ export class PaymentController {
   @Get('records/template')
   async templateRecords(@ProjectId() projectId: string, @Res() res: Response) {
     const { buffer, filename } = await this.service.templateRecords(projectId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    res.end(buffer);
+    sendFile(res, filename, buffer, 'xlsx');
   }
 
   /** 上传导入数据（需求 3.4） */
@@ -44,7 +42,7 @@ export class PaymentController {
   @Post('records/import')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importRecords(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { created: 0, errors: ['未上传文件'] };
+    if (!file) return noFileImportResultLegacyNoUpdate();
     return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user });
   }
 
@@ -53,7 +51,7 @@ export class PaymentController {
   @Post('records/import/validate')
   @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   importRecordsValidate(@UploadedFile() file: any, @ProjectId() projectId: string, @CurrentUser() user: any) {
-    if (!file) return { total: 0, created: 0, updated: 0, errors: [{ row: 0, message: '未上传文件' }], valid: false };
+    if (!file) return noFileImportResult();
     return this.service.importRecords(file.buffer, projectId, { fileName: file?.originalname, user, validateOnly: true });
   }
 

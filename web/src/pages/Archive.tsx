@@ -15,7 +15,7 @@ export default function Archive() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [detailKey, setDetailKey] = useState<string | null>(null);
-  const [detail, setDetail] = useState<any[] | null>(null);
+  const [, setDetail] = useState<any[] | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const load = () => {

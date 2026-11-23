@@ -1,22 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  DatePicker,
-  Empty,
-  Segmented,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
-  Upload,
-  message,
-} from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Segmented, Select, Space, Spin, Table, Tag, Tooltip, Typography, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, InboxOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import { aiApi, type AiInspectCandidate, type AiInspectResult } from '@/api/modules';

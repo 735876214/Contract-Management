@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Modal, message, Alert, Typography, Progress, Table, Checkbox } from 'antd';
+import { Button, Modal, Alert, Typography, Progress, Table, Checkbox } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { ImportOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import http, { stripApiBase } from '@/api/http';
 

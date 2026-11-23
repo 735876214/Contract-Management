@@ -1,43 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Table,
-  Tooltip,
-  Upload,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
-import {
-  DeleteOutlined,
-  EyeOutlined,
-  FileWordOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, FileWordOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -46,13 +21,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/framework';
-import {
-  buildExplanationDocHtml,
-  buildExplanationVariableValues,
-  type CostRow,
-  type InquiryRow,
-  type PriceCompareRow,
-} from '@/utils/frameworkExplanation';
+import { buildExplanationDocHtml, buildExplanationVariableValues, type CostRow, type InquiryRow, type PriceCompareRow } from '@/utils/frameworkExplanation';
 // 询价最低价规则收敛到统一引擎（前后端单一实现，避免前端 Math.min 与服务端口径漂移）
 import { lowestPriceSuppliers } from '../../../../server/src/common/calc/procurement.ts';
 
@@ -395,7 +364,7 @@ export default function FrameworkExplanation() {
       content: currentTask?.content,
     };
     return buildExplanationVariableValues(form, ctx);
-  }, [form, currentTask]);
+  }, [form, currentTask, project]);
 
   const exportFilename = `${
     project.nameAbbr || project.name || '项目'
@@ -478,7 +447,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('inquiryRows', row.key, { totalPrice: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -532,7 +501,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('priceCompareRows', row.key, { execPrice: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -557,7 +526,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('costRows', row.key, { amount: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     {
@@ -621,7 +590,7 @@ export default function FrameworkExplanation() {
         editable
           ? numberCell(v, (n) => updateRow('referenceSuppliers', row.key, { amount: n }))
           : v != null
-            ? v.toLocaleString('zh-CN')
+            ? formatNumber(v)
             : '-',
     },
     ...opColumn<ReferenceSupplier>('referenceSuppliers'),
@@ -639,7 +608,7 @@ export default function FrameworkExplanation() {
       referenceSuppliers: winners.map((r) => ({ key: nextKey(), supplier: r.supplier, amount: r.amount })),
     }));
     message.success(
-      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${winners[0].amount.toLocaleString('zh-CN')} 元），可继续手动增改`,
+      `已自动填充询价最低价供应商 ${winners.length} 家（最低价 ${formatNumber(winners[0].amount, 2)} 元），可继续手动增改`,
     );
   };
 
@@ -753,7 +722,7 @@ export default function FrameworkExplanation() {
         const list: any[] = row.module?.referenceSuppliers ?? [];
         if (!list.length) return '-';
         const sum = list.reduce((s, r) => s + (Number(r?.amount) || 0), 0);
-        return sum.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return formatNumber(sum, 2);
       },
     },
   ];

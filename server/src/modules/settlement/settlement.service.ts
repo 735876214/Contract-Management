@@ -9,6 +9,7 @@ import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
 import { TxClient } from '../../common/services/import-runner.service';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
+import { keywordWhere } from '../../common/utils/list-where';
 /**
  * 发票/收领单的 `settlementId` 挂接关系**归各自模块所有**（第 22 轮审计 P3）：
  * 结算单只描述「按结算期把谁挂上来」的意图，实际写表走这两个模块的公开入口。
@@ -397,7 +398,8 @@ export class SettlementService {
     if (query.contractId) where.contractId = query.contractId;
     if (query.typeCode) where.typeCode = query.typeCode;
     if (query.statusCode) where.statusCode = query.statusCode;
-    if (query.keyword) where.OR = [{ code: { contains: query.keyword } }, { contract: { name: { contains: query.keyword } } }];
+    const kw = keywordWhere(['code', 'contract.name'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const [list, total] = await Promise.all([
       this.prisma.settlement.findMany({
         where, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

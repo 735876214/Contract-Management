@@ -1,21 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  DatePicker,
-  Descriptions,
-  Drawer,
-  Input,
-  Popconfirm,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Checkbox, DatePicker, Descriptions, Drawer, Input, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DeleteOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';

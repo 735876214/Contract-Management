@@ -9,6 +9,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { ProjectId, CurrentUser } from '../../common/decorators/user.decorator';
 import { renderSubcontractorLetter, letterFileName } from './labor-letter';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 劳务管理 · 分包授权台账（原「分包商库」并入，附件需求 2026-10-17）。
@@ -41,9 +42,7 @@ export class LaborController {
   async export(@ProjectId() projectId: string, @Res() res: Response) {
     const { exportLaborAuthWorkbook } = await import('./labor-excel');
     const buffer = await exportLaborAuthWorkbook(this.service['prisma'], projectId, this.storage);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent('分包材料员授权信息表.xlsx')}`);
-    res.end(buffer);
+    sendFile(res, '分包材料员授权信息表.xlsx', buffer, 'xlsx');
   }
 
   @RequirePermissions('labor:view')

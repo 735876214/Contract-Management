@@ -5,6 +5,7 @@ import { projectVars } from './projectVars.ts';
  * 变量占位符：{{项目名称}} {{承接单位}} {{采购内容}} {{事前说明-询价情况}} {{事前说明-价格对比表}} {{事前说明-成本分析表}}
  */
 
+import { formatNumber } from './money.ts';
 export interface InquiryRow {
   rank?: string | number | null;
   unit?: string | null;
@@ -43,8 +44,7 @@ const esc = (s: unknown): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-const fmtNum = (v: number | null | undefined): string =>
-  v == null ? '' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const fmtNum = (v: number | null | undefined): string => formatNumber(v, 2, '');
 
 const cell = (v: unknown): string => `<td>${v == null || v === '' ? '' : esc(v)}</td>`;
 

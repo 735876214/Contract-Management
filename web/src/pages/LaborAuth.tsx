@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal,
-  Popconfirm, Row, Select, Space, Table, Tag, Upload, message,
-} from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { UploadFile } from 'antd';
-import {
-  ArrowLeftOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, PlusOutlined,
-  ReloadOutlined, SaveOutlined, SearchOutlined, UploadOutlined,
-} from '@ant-design/icons';
+import { DownloadOutlined, EyeOutlined, FilePdfOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { withToken } from '../utils/download';
 import { contractApi, laborApi } from '@/api/business';
@@ -30,9 +25,6 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 const toUploadList = (url?: string | null, name?: string): UploadFile[] =>
   url ? [{ uid: '-1', name: name || '已上传文件', status: 'done', url }] : [];
 
-/** 从 Upload 事件里取后端返回的 url */
-const urlOf = (file: any): string =>
-  file?.response?.url || file?.url || file?.response?.[0]?.url || '';
 
 const FORM_FIELDS = [
   ['subcontractorName', '分包商名称', true],

@@ -1,23 +1,8 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
 import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '../../../server/src/common/calc/amounts.ts';
-import {
-  Alert,
-  Button,
-  Card,
-  Form,
-  Input,
-  Select,
-  Space,
-  Modal,
-  message,
-  Row,
-  Col,
-  InputNumber,
-  DatePicker,
-  Table,
-  Tag,
-} from 'antd';
+import { Alert, Button, Card, Form, Input, Select, Space, Row, Col, InputNumber, DatePicker, Table, Tag } from 'antd';
+import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';
@@ -30,9 +15,9 @@ import EditorTabPage from '@/components/editor/EditorTabPage';
 import Can from '@/components/Can';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
+import { formatAmount, formatMoney, formatNumber } from '@/utils/money';
 
-const money = (v: number) =>
-  v == null ? '-' : `¥${Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+const money = (v: any) => formatMoney(v);
 
 /** 期边界显示：服务端返回的**已经是 `YYYY-MM-DD` 字符串**（不是 Date，避免时区差一天），截前 10 位即可 */
 const fmtDay = (v: any) => (v ? String(v).slice(0, 10) : '-');
@@ -121,7 +106,7 @@ function SettlementsTab({
 
   /** 生成本期结算：从上一期总日报带出明细，按合同各生成一张草稿结算单（服务端幂等） */
   const doGenerate = (refDate?: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: `生成本期结算${pending?.month ? `（${pending.month}）` : ''}`,
       content: pending
         ? `将抓取 ${fmtDay(pending.startDate)} ~ ${fmtDay(pending.endDate)} 内的总日报行（含收领单推送与手工录入），按物资合同各生成一张草稿结算单；结算明细从总日报带出后可修改。已有结算单或已归档的合同会自动跳过。`
@@ -139,7 +124,7 @@ function SettlementsTab({
         }
         // 缺物资主数据的日报行无法形成清单项级明细，服务端已跳过并返回明细原因
         if (res?.warnings?.length) {
-          Modal.warning({
+          modal.warning({
             title: `有 ${res.skippedRows ?? 0} 条总日报行未带出明细`,
             content: (
               <div>
@@ -156,7 +141,7 @@ function SettlementsTab({
   };
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该结算单？',
       okText: '确认删除',
       okType: 'danger',
@@ -171,7 +156,7 @@ function SettlementsTab({
   /** 筛选项（问题四：标准筛选区） */
   /** 任务 7：结算驳回 → 回填（纯状态回退到「草稿」） */
   const handleRejectSettlement = (row: any) => {
-    Modal.confirm({
+    modal.confirm({
       title: '结算驳回回填',
       content: '确认将该结算单驳回回「草稿」状态、可重新编辑提交吗？',
       okText: '确认驳回',
@@ -502,7 +487,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
       </Form>
 
       {/* 清单项级结算明细（业务 2026-10-17）：结算量 ≤ 合同链清单量（后端闸门 settlement.over_amount_policy） */}
-      <Card size="small" title={`结算明细（${items.length} 行，合计 ¥${itemsTotal.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}）`}
+      <Card size="small" title={`结算明细（${items.length} 行，合计 ¥${formatAmount(itemsTotal)}）`}
         extra={
           <Space>
             {/* 业务口径 2026-11-21：挂上收领单的结算单也能一键落明细（收领单明细优先、日报行兜底） */}
@@ -591,7 +576,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
                       ? calcPriceWithTax(r.priceBeforeTax, r.taxRatePct)
                       : null;
                   const total = withTax != null && r.qty != null ? calcTotalWithTax(withTax, r.qty, 2) : null;
-                  return total == null ? '-' : <b>{total.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</b>;
+                  return total == null ? '-' : <b>{formatAmount(total)}</b>;
                 },
               },
               {
@@ -603,7 +588,7 @@ function SettlementEditor({ contractOptions, seed }: { contractOptions: any[]; s
                   const remain = base - used;
                   return (
                     <Tag color={remain - (Number(r.qty) || 0) < 0 ? 'red' : 'green'}>
-                      {remain.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}
+                      {formatNumber(remain, 4)}
                     </Tag>
                   );
                 },
@@ -656,7 +641,7 @@ function LedgerTab({
   };
 
   const handleRemove = (row: ModuleListRow) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该台账记录？',
       okText: '确认删除',
       okType: 'danger',

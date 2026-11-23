@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { toDate, localDayKey } from '../../common/calc/time';
@@ -52,11 +52,14 @@ export class PaymentService {
    */
   private async checkOverPayment(
     contractId: string | null | undefined,
-    currentAmount: number,
+    currentAmount: number | null,
     statusCode: any,
     excludeId?: string,
   ): Promise<{ overAmountWarning?: string }> {
     if (!contractId) return {};
+    // 本次发生额未填（`num()` 给 null）时没有可比对的对象：跳过而不是拿 0 去比，
+    // 否则「未填金额」会被当成「0 元付款」，既不报超付、也会让 used 的语义失真
+    if (currentAmount === null || currentAmount === undefined) return {};
     if (PaymentService.NON_PAYING_STATUSES.includes(String(statusCode ?? ''))) return {};
     const policy = normalizePolicy(await this.sysParam.get('payment.over_amount_policy', 'WARN'));
     if (policy === 'OFF') return {};
@@ -150,7 +153,7 @@ export class PaymentService {
   }
 
   async removeRecord(id: string, projectId?: string) {
-    const before = assertInProject(
+    assertInProject(
       await this.prisma.paymentRecord.findUnique({ where: { id } }),
       projectId,
       '付款记录不存在',
@@ -188,7 +191,7 @@ export class PaymentService {
 
   // ---------------- 付款台账模板与导入 ----------------
   /** 付款台账填写模板（需求 3.3，实际字段口径） */
-  async templateRecords(projectId: string) {
+  async templateRecords(_projectId: string) {
     const [methods, status] = await Promise.all([
       this.dict.options('payment_method'), this.dict.options('payment_status'),
     ]);

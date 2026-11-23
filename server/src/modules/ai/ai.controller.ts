@@ -25,6 +25,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser, ProjectId } from '../../common/decorators/user.decorator';
+import { sendFile } from '../../common/http/download';
 
 /**
  * 上传限额：multer 层 50MB 是**硬上限**（与 nginx `client_max_body_size 50m`、
@@ -185,13 +186,29 @@ export class AiController {
    * `format=pdf` 需要服务器有中文字体（未安装时返回 400 并给出安装提示）。
    */
   /**
+   * 统计区间体检（`anomaly/payment` 的前置问询）——**只读**、不取任何业务数据。
+   *
+   * 面板点「开始扫描」前先问一句这段区间行不行：超上限时弹「仍然扫描」确认，确认后带 `force=1` 重发。
+   * 放在服务端算的理由是**口径只有一份**——默认跨度与上限都来系统参数，前端自己算月份立刻会与后端不一致。
+   * `allowed=false` 不是错误（面板要拿它弹确认框）；日期格式错/起止颠倒才 400。
+   */
+  @RequirePermissions('ai:view')
+  @Get('anomaly/window')
+  anomalyWindow(@Query() query: PaymentAnomalyQuery) {
+    return this.anomaly.window(query || {});
+  }
+
+  /**
    * 结算 / 付款异常预警（课题 6-9）——**只读**，不写库、不发通知。
    *
    * 权限：`ai:view` 够看结果，但命中项带合同/结算/付款金额，
    * service 里会再要 `contract:view`（与汇报材料同口径的敏感数据保护）。
    *
    * 参数全部可选：`from`/`to`（结算日期区间，YYYY-MM-DD）、`contractId`（只看单合同）、
-   * `narrative=0`（只看规则结果，不调模型）。
+   * `narrative=0`（只看规则结果，不调模型）、`force=1`（人工确认「超过取数上限也照扫」）。
+   *
+   * 不给 `from`/`to` 时按系统默认取近 12 个自然月；区间超过上限（默认 24 个月）且没带 `force=1`
+   * 一律 **400** 并说清「超了多少 / 上限多少 / 怎么继续」——不截断，截断会让结论看起来完整但少算单据。
    */
   @RequirePermissions('ai:view')
   @Get('anomaly/payment')
@@ -256,13 +273,9 @@ export class AiController {
     const { buffer, fileName } = isPdf
       ? await this.report.exportPdf(body || {})
       : await this.report.exportDocx(body || {});
-    res.setHeader('Content-Type', isPdf ? 'application/pdf' : this.service.docxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="report.${isPdf ? 'pdf' : 'docx'}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    res.end(buffer);
+    sendFile(res, fileName, buffer, isPdf ? 'pdf' : 'docx', {
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
   }
 
   // @body: typed=inline
@@ -283,15 +296,11 @@ export class AiController {
       user,
     );
     // 统计放进响应头：附件流的正文是二进制，前端拿不到 JSON
-    res.setHeader('Content-Type', this.service.xlsxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-    );
-    res.setHeader('x-ai-filled', String(result.filled));
-    res.setHeader('x-ai-skipped', String(result.skipped.length));
-    res.setHeader('Access-Control-Expose-Headers', 'x-ai-filled, x-ai-skipped, Content-Disposition');
-    res.end(result.buffer);
+    sendFile(res, result.fileName, result.buffer, 'xlsx', {
+      'x-ai-filled': String(result.filled),
+      'x-ai-skipped': String(result.skipped.length),
+      'Access-Control-Expose-Headers': 'x-ai-filled, x-ai-skipped, Content-Disposition',
+    });
   }
 
   /**
@@ -323,18 +332,11 @@ export class AiController {
     @Res() res: Response,
   ) {
     const result = await this.service.fillTable(file, body || {}, formContext(body, projectId), user);
-    res.setHeader('Content-Type', this.service.xlsxMime);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(result.fileName)}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-    );
-    res.setHeader('x-ai-filled-rows', String(result.filledRows));
-    res.setHeader('x-ai-skipped', String(result.skippedCells));
-    res.setHeader('x-ai-truncated', result.truncated ? '1' : '0');
-    res.setHeader(
-      'Access-Control-Expose-Headers',
-      'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
-    );
-    res.end(result.buffer);
+    sendFile(res, result.fileName, result.buffer, 'xlsx', {
+      'x-ai-filled-rows': String(result.filledRows),
+      'x-ai-skipped': String(result.skippedCells),
+      'x-ai-truncated': result.truncated ? '1' : '0',
+      'Access-Control-Expose-Headers': 'x-ai-filled-rows, x-ai-skipped, x-ai-truncated, Content-Disposition',
+    });
   }
 }

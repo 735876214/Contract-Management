@@ -1,4 +1,6 @@
 import { type AnomalyTolerances, moneyToCents, resolveTolerances } from './anomaly-types.ts';
+import { parseBoolFlag, parseDecimal, parseInteger } from '../common/params.ts';
+import { ANOMALY_WINDOW_DEFAULTS, resolveWindowLimits, type AnomalyWindowLimits } from './anomaly-window.ts';
 
 /**
  * 异常预警的**阈值与开关**：全部走系统参数（`SysParam`），改完点「刷新缓存」即生效，不用发版。
@@ -22,6 +24,10 @@ export const ANOMALY_PARAM_KEYS = {
   qtyTolerancePct: 'ai.anomaly.qtyTolerancePct',
   /** 明细重合度（0..1）：低于此值不算「同一批明细」 */
   jaccard: 'ai.anomaly.jaccard',
+  /** 取数期间默认跨度（自然月）：调用方不给 from/to 时用，默认 12 */
+  windowDefaultMonths: 'ai.anomaly.windowDefaultMonths',
+  /** 取数期间上限（自然月）：超过要先人工确认（force=1），默认 24 */
+  windowMaxMonths: 'ai.anomaly.windowMaxMonths',
 } as const;
 
 /** 参数键的默认值（`SysParam` 里没有该键时使用） */
@@ -31,30 +37,39 @@ export const ANOMALY_PARAM_DEFAULTS: Record<string, string> = {
   [ANOMALY_PARAM_KEYS.amountTolerance]: '1.00',
   [ANOMALY_PARAM_KEYS.qtyTolerancePct]: '2',
   [ANOMALY_PARAM_KEYS.jaccard]: '0.8',
+  [ANOMALY_PARAM_KEYS.windowDefaultMonths]: String(ANOMALY_WINDOW_DEFAULTS.defaultMonths),
+  [ANOMALY_PARAM_KEYS.windowMaxMonths]: String(ANOMALY_WINDOW_DEFAULTS.maxMonths),
 };
 
 export interface AnomalyConfig {
   enabled: boolean;
   narrative: boolean;
   tolerances: AnomalyTolerances;
+  /** 取数期间的默认跨度与上限（自然月），口径见 anomaly-window.ts */
+  window: AnomalyWindowLimits;
   /** 值非法被回落的项（形如 `ai.anomaly.jaccard=abc，已回落 0.8`），进响应 warnings */
   problems: string[];
 }
 
-/** '1'/'0'/'true'/'false'/'on'/'off' 都能认；其它值 → 回落 + 留痕 */
+/**
+ * 开关：认得 `1/true/on/yes/y` 与 `0/false/off/no/n`；其它值 → 回落默认值 + 留痕。
+ * 解析原语与其它预警阈值共用 `ai/common/params.ts`，本文件不再自己写一份（两处各写必然漂移）。
+ */
 function parseFlag(raw: string | undefined, key: string, def: boolean, problems: string[]): boolean {
   if (raw == null || raw === '') return def;
-  const v = String(raw).trim().toLowerCase();
-  if (['1', 'true', 'on', 'yes', 'y'].includes(v)) return true;
-  if (['0', 'false', 'off', 'no', 'n'].includes(v)) return false;
-  problems.push(`${key}=${raw}，已回落 ${def ? '1' : '0'}`);
-  return def;
+  const v = parseBoolFlag(raw);
+  if (v === null) {
+    problems.push(`${key}=${raw}，已回落 ${def ? '1' : '0'}`);
+    return def;
+  }
+  return v;
 }
 
+/** 十进制数（容忍千分位与尾部 %）；非法 → 回落默认值 + 留痕 */
 function parseNumber(raw: string | undefined, key: string, def: number, problems: string[]): number {
   if (raw == null || raw === '') return def;
-  const n = Number(String(raw).trim());
-  if (!Number.isFinite(n)) {
+  const n = parseDecimal(raw);
+  if (n === null) {
     problems.push(`${key}=${raw}，已回落 ${def}`);
     return def;
   }
@@ -94,7 +109,33 @@ export function parseAnomalyConfig(raw: Record<string, string | undefined>): Ano
   const jaccard = jRaw < 0 ? 0 : jRaw > 1 ? 1 : jRaw;
   if (jRaw !== jaccard) problems.push(`${ANOMALY_PARAM_KEYS.jaccard}=${jRaw}，已夹到 ${jaccard}`);
 
-  return { enabled, narrative, tolerances: resolveTolerances({ amount, qtyPct, jaccard }), problems };
+  /**
+   * 取数期间的默认跨度与上限（自然月）：值非法 → 回落默认 + 留痕，再由 `resolveWindowLimits` 夹逼。
+   * 「上限 < 默认」会被抬到默认值——否则默认一开就超限，那套配置没有可执行语义。
+   */
+  const defRaw = raw[ANOMALY_PARAM_KEYS.windowDefaultMonths];
+  const maxRaw = raw[ANOMALY_PARAM_KEYS.windowMaxMonths];
+  const windowDefaultMonths = parseInteger(defRaw);
+  const windowMaxMonths = parseInteger(maxRaw);
+  if (defRaw != null && defRaw !== '' && windowDefaultMonths === null) {
+    problems.push(`${ANOMALY_PARAM_KEYS.windowDefaultMonths}=${defRaw}，已回落 ${ANOMALY_WINDOW_DEFAULTS.defaultMonths}`);
+  }
+  if (maxRaw != null && maxRaw !== '' && windowMaxMonths === null) {
+    problems.push(`${ANOMALY_PARAM_KEYS.windowMaxMonths}=${maxRaw}，已回落 ${ANOMALY_WINDOW_DEFAULTS.maxMonths}`);
+  }
+  const window = resolveWindowLimits({
+    defaultMonths: windowDefaultMonths ?? ANOMALY_WINDOW_DEFAULTS.defaultMonths,
+    maxMonths: windowMaxMonths ?? ANOMALY_WINDOW_DEFAULTS.maxMonths,
+  });
+  // 越界夹紧与自洽修正也要说出来：静默改数是调参最怕的事（调了没生效，人只会反复调）
+  if (windowDefaultMonths !== null && windowDefaultMonths !== window.defaultMonths) {
+    problems.push(`${ANOMALY_PARAM_KEYS.windowDefaultMonths}=${windowDefaultMonths}，已夹到 ${window.defaultMonths}`);
+  }
+  if (windowMaxMonths !== null && windowMaxMonths !== window.maxMonths) {
+    problems.push(`${ANOMALY_PARAM_KEYS.windowMaxMonths}=${windowMaxMonths}，已夹到 ${window.maxMonths}`);
+  }
+
+  return { enabled, narrative, tolerances: resolveTolerances({ amount, qtyPct, jaccard }), window, problems };
 }
 
 /** 需要 `SysParamService.get` 的键（service 按这个列表取，避免漏键静默走默认值） */

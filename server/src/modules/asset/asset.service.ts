@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
@@ -12,10 +12,8 @@ import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService, TemplateColumn } from '../../common/services/import-template.service';
 import { StyledExcelService } from '../../common/services/styled-excel.service';
 import { DictService } from '../dict';
-import {
-  resolveAssetSourceFilter,
-  summarizeAssetFlow,
-} from '../../common/utils/asset-flow';
+import { resolveAssetSourceFilter, summarizeAssetFlow } from '../../common/utils/asset-flow';
+import { dateRange, keywordWhere } from '../../common/utils/list-where';
 
 const ASSET_FIELDS = [
   'date', 'sourceCode', 'categoryL1Code', 'categoryFocusCode', 'name', 'spec', 'unit',
@@ -55,9 +53,8 @@ export class AssetService {
   async findAll(query: any = {}, projectId: string, maxPageSize = 500) {
     const { skip, take } = paginate(query, maxPageSize);
     const where: any = { projectId };
-    if (query.keyword) {
-      where.OR = [{ name: { contains: query.keyword } }, { spec: { contains: query.keyword } }, { receiveUnit: { contains: query.keyword } }];
-    }
+    const kw = keywordWhere(['name', 'spec', 'receiveUnit'], query.keyword);
+    if (kw) where.OR = kw.OR;
     const sourceFilter = resolveAssetSourceFilter(query.sourceCode, query.direction);
     if (sourceFilter) where.sourceCode = sourceFilter;
     if (query.categoryL1Code) where.categoryL1Code = query.categoryL1Code;
@@ -79,11 +76,8 @@ export class AssetService {
    */
   async flowSummary(projectId: string, query: any = {}) {
     const where: any = { projectId };
-    if (query.startDate || query.endDate) {
-      where.date = {};
-      if (query.startDate) where.date.gte = new Date(query.startDate);
-      if (query.endDate) where.date.lte = new Date(`${query.endDate}T23:59:59`);
-    }
+    const range = dateRange(query.startDate, query.endDate);
+    if (range) where.date = range;
     const grouped = await this.prisma.assetLedger.groupBy({
       by: ['sourceCode'],
       where,
@@ -169,7 +163,7 @@ export class AssetService {
   }
 
   async remove(id: string, projectId?: string) {
-    const old = assertInProject(
+    assertInProject(
       await this.prisma.assetLedger.findUnique({ where: { id } }),
       projectId,
       '资产台账记录不存在',

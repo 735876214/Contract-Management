@@ -2,6 +2,14 @@
 
 > **何时加载**：新增/修改测试、改金额判定/状态流转/导入、或不确定"跑哪套测试"时。
 
+## 静态检查（改完一起跑）
+
+- `cd server && npm run lint` / `cd web && npm run lint`（CI 两个 job 各一步）。口径 = **0 error**；
+  warning 用 `--max-warnings` 冻结存量（只许变少，清一条同步下调预算）。
+- 本仓两条特有口径是 **error 级**：金额展示只能走 `@/utils/money`（禁止裸 `toLocaleString`）、
+  列表日期区间只能走 `common/calc/time` 的本地日原语（禁止 `new Date(query.endDate)`）。
+- 细则见 [docs/development.md §7](../../docs/development.md)。
+
 ## 两套测试，别混用
 
 - `server/test/*.spec.*`：纯函数 / 漂移锁，**无 DB、秒级**，随 `npm test`（含 CI 门禁）。

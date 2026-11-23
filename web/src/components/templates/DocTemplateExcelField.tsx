@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Space, Upload, message } from 'antd';
+import { Button, Space, Upload } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { FileExcelOutlined, UploadOutlined } from '@ant-design/icons';
 import { fileApi } from '@/api/auth';
 import { isExcelTemplateFileName, toFileUrl, toStorageKey } from '@/utils/templateFile';

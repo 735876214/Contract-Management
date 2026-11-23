@@ -37,15 +37,14 @@
 
 ## 可直接开工（工程项，按性价比排序）
 
-> 下列 4 项来自 **2026-11-22 代码质量评审**（对应 PR 只落地了隔离 fail-closed / 错误码 / 分页口径 /
-> 前端重复 helper，其余按"需迁移 / 需全量前端回归"单独排期）。证据均为源码位置，可直接开工。
+> 2026-11-22 质量审计的落地情况：**类型安全（strict）、ESLint 门禁、大服务拆分**已由
+> `2863841`（P0–P1 质量整改）在 main 上完成；`PR #32` 落地隔离 fail-closed / 稳定错误码 / 分页口径；
+> `PR #31` 补的是它没覆盖的**口径单一实现**与**样板去重**（导出/导入/列表筛选、keyword 过滤、文件下载各收敛一处，
+> 台账合规筛选改窄投影，lint 预算收到 0，int 覆盖 27 → 32）。下面只留**尚未做**的。
 
-- **剩余模块的 DB 集成测试**：`payment` / `finance` / `labor` / `archive` / `auth` / `asset` /
-  `payment-procedure` / `other-project` 仍无 `test-integration/*.int.spec.ts`（`finance` 1.4k 行、0 spec 提及）。
+- **剩余模块的 DB 集成测试**：`finance` / `auth` / `asset` / `supplier` / `payment`（付款登记本身）
+  仍无独立的 `test-integration/*.int.spec.ts`（`finance` 1.4k 行仍是零集成覆盖）。
   照 `procurement-publish.int.spec.ts` 的写法补，首行写 `// @domains: <模块目录名>`。
-- **台账「合规」筛选的内存全扫**：`server/src/modules/ledger/ledger.service.ts` 的 `compliance` 是内存派生列，
-  带该筛选时 `findMany` 不带 `skip/take`（整项目合同进内存后再切片）。根治需把判定落成可查询列（**迁移级**）；
-  临时方案是加"该筛选下的上限/截断提示"。
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。

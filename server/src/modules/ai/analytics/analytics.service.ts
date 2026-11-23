@@ -5,7 +5,7 @@ import { StorageService } from '../../../common/services/storage.service';
 import { projectScopedSub } from '../../../common/utils/storage-keys';
 import { StyledExcelService } from '../../../common/services/styled-excel.service';
 import type { JwtUser } from '../../../common/decorators/user.decorator';
-import { datasetByKey, filterDatasets, limitDatasets, DEFAULT_DATASET_KEYS, MAX_DATASETS } from './dataset-registry';
+import { filterDatasets, limitDatasets, DEFAULT_DATASET_KEYS, MAX_DATASETS } from './dataset-registry';
 import { parseIntentRules, normalizeModelIntent, type ModelIntentPatch } from '../intent/intent-rules';
 import type { AiAnalyticsPlanInput } from '../intent/intent.types';
 import { IntentService } from '../intent/intent.service';
@@ -17,14 +17,7 @@ import type { AiAnalyticsFacts, AiAnalyticsIntent, AiAnalyticsPlanResult } from 
 import { DatasetCollector } from './dataset-collector.service';
 import { AnalyticsStore } from './analytics-store.service';
 import { ReportService } from '../report.service';
-import {
-  analyticsFactNumbers,
-  analyticsFactsToMarkdown,
-  analyticsTitle,
-  buildAnalyticsFacts,
-  buildNarratedReport,
-  reportPresentation,
-} from './dataset-facts';
+import { analyticsFactNumbers, analyticsFactsToMarkdown, analyticsTitle, buildAnalyticsFacts, buildNarratedReport, reportPresentation } from './dataset-facts';
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt';
 import { buildAnalyticsWorkbookModel } from './workbook-builder';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod, type DayRange } from '../common/period';

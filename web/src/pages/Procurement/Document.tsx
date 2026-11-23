@@ -1,48 +1,22 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatNumber } from '@/utils/money';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Descriptions,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Row,
-  Space,
-  Spin,
-  Table,
-  Tooltip,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Descriptions, InputNumber, Modal, Row, Space, Spin, Table } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
-import {
-  EyeOutlined,
-  FileWordOutlined,
-  SaveOutlined,
-  SendOutlined,
-} from '@ant-design/icons';
+import { EyeOutlined, FileWordOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
 import { projectApi } from '@/api/business';
 import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
-import {
-  getProcurementVariableGroups,
-} from '@/constants/procurementVariables';
+import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, {
-  moduleStatusOf,
-  type ModuleListFilterField,
-  type ModuleListRow,
-  useModuleDelete,
-} from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
 import { buildProcurementDoc, exportProcurementWord } from '@/utils/procurementExport';
 import { highlightPlaceholders } from '@/utils/docExport';
 import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
@@ -52,15 +26,7 @@ import { editorTabKey } from '@/utils/tabs';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/document';
-import {
-  buildDocumentDocHtml,
-  buildDocumentVariableValues,
-  fmtAmount,
-  stripHtml,
-  sumAmount,
-  type DocumentData,
-  type DocumentPurchaseItem,
-} from '@/utils/procurementDocument';
+import { buildDocumentDocHtml, buildDocumentVariableValues, fmtAmount, stripHtml, sumAmount, type DocumentData, type DocumentPurchaseItem } from '@/utils/procurementDocument';
 
 /** 模块类型（与采购模板 moduleType、变量占位符前缀一致） */
 const MODULE_TYPE = 'DOCUMENT';
@@ -454,13 +420,13 @@ export default function Document() {
       title: '暂定数量',
       dataIndex: 'qty',
       width: 100,
-      render: (v: number | null) => (v != null ? Number(v).toLocaleString('zh-CN') : '-'),
+      render: (v: number | null) => (v != null ? formatNumber(v) : '-'),
     },
     // 以下四列留空（由投标方填写）
-    { title: '税前单价', dataIndex: 'preTaxPrice', width: 100, render: priceCell },
-    { title: '税率', dataIndex: 'taxRate', width: 80, render: priceCell },
-    { title: '综合单价', dataIndex: 'unitPrice', width: 100, render: priceCell },
-    { title: '合价', dataIndex: 'amount', width: 110, render: priceCell },
+    { title: '税前单价', dataIndex: 'preTaxPrice', width: 100, align: 'right' as const, render: priceCell },
+    { title: '税率', dataIndex: 'taxRate', width: 80, align: 'right' as const, render: priceCell },
+    { title: '综合单价', dataIndex: 'unitPrice', width: 100, align: 'right' as const, render: priceCell },
+    { title: '合价', dataIndex: 'amount', width: 110, align: 'right' as const, render: priceCell },
     { title: '备注', dataIndex: 'remark', width: 140, render: (v: string | null) => v || '-' },
   ];
 
@@ -484,7 +450,7 @@ export default function Document() {
       width: 140,
       render: (_v, row) =>
         row.module?.responseDeposit != null
-          ? Number(row.module.responseDeposit).toLocaleString('zh-CN')
+          ? formatNumber(row.module.responseDeposit, 2)
           : '-',
     },
   ];

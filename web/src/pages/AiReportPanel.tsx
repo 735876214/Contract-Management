@@ -1,27 +1,13 @@
-import { Fragment, useState, type ReactNode } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Collapse,
-  DatePicker,
-  Empty,
-  Form,
-  Input,
-  Segmented,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
+import { useState } from 'react';
+import { Alert, Button, Card, Collapse, DatePicker, Empty, Form, Input, Segmented, Space, Spin, Tag, Typography } from 'antd';
+import { message } from '@/utils/antdStatic';
 import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { aiApi, type AiReportDelta, type AiReportResult } from '@/api/modules';
 import ReportMarkdown from '@/components/ReportMarkdown';
 import { MIME_DOCX, MIME_PDF, downloadBlob, fileNameFromDisposition } from '@/utils/reportExport';
 
-const { Text, Paragraph, Title } = Typography;
+const { Text, Paragraph } = Typography;
 
 /** 环比文案：上期为 0 时后端给的是 null，这里如实写「上期为 0」，不编百分比 */
 function pctText(d: AiReportDelta): string {

@@ -1,4 +1,5 @@
-import { Space, Tag, Tooltip, message } from 'antd';
+import { Space, Tag, Tooltip } from 'antd';
+import { message } from '@/utils/antdStatic';
 import type { DocVarGroup } from '@/constants/docVariables';
 
 /**
