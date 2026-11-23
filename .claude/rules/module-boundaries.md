@@ -35,6 +35,14 @@ export { SettlementService } from './settlement.service';
 
 - `archive` 的 11 个域读取已收敛到 `server/src/query/archive-queries.ts`；
   `modules/archive/**` **不得出现 `prisma.<模型>`**，由检查器锁定。
+- 同理，**工作台**是纯只读聚合器（读合同/结算/台账/付款/发票/总结算/付款手续/逾期应付/采购/履约 10 张表），
+  它的全部跨域读取已收敛到 `server/src/query/dashboard-queries.ts`；
+  `modules/dashboard/**` **不得出现 `prisma.<模型>`**，同样由检查器锁定
+  （2026-11-23 收敛前是 37 处，口径改动要在工作台里再抄一遍 where，抄漏就是第二套口径）。
+- **合同台账**的跨域读取（合同 / 合同清单 / 日报 / 结算 / 发票 / 付款 / 总结算 / 项目名）收敛到
+  `server/src/query/ledger-queries.ts`。注意与上面两者**不同**：台账**拥有** `SettlementLedger`，
+  自身表的读写仍留在 `ledger.service.ts`，所以**不能**用「不得出现 `prisma.<模型>`」去锁它
+  （检查器目前也没有"只读他人表"的规则——读侧的 owner 判定不可靠，容易误报）。这条靠 review 守。
 - 新的跨域只读查询按 `<域>-queries.ts` 放进 `server/src/query/`，通过 `server/src/query/index.ts` 导出；
   函数只读、不带事务、每个都显式带 `projectId`。
 - AI 分两类：
@@ -44,6 +52,10 @@ export { SettlementService } from './settlement.service';
     作废/红冲发票不计入）只在这一处维护。`field-resolver` / `report` / `dataset-collector` /
     `scm` 已接入；**不要再在 AI service 里手写这几张表的同一套 where**。
     数据集明细查询（工作簿逐行取数）仍留在 `dataset-collector` 内，因为它们字段各异、不复用。
+    **但口径片段不得内联**：`statusCode: { not: 'DRAFT' }`、`notIn: ['FAILED','REFUNDED']`、
+    `in: ['CANCELLED','RED']` 这类手写等价 where 一律禁止（在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行），
+    必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
+    由检查器 `INLINE_PREDICATE_RULES` 锁定 `AI_READ_ONLY_DIRS`（2026-11-23 加，现状 0 违规）。
   - `ai/register.service.ts` 是**刻意的写路径**（复用 `ContractService` / `SupplierService` 的编号唯一、
     名称拼接、字典校验），**允许**依赖业务模块公开入口，不要"优化"掉。
 

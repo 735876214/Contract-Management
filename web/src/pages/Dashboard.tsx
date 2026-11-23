@@ -124,7 +124,7 @@ export default function Dashboard() {
           <Card className="cq stat-card"><Statistic title="合同数量" value={overview.contractCount || 0} prefix={<FileTextOutlined />} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card className="cq stat-card"><Statistic title="合同总额" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
+          <Card className="cq stat-card"><Statistic title="合同总额（含补充协议增量）" value={overview.contractAmount || 0} precision={2} prefix="¥" /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card className="cq stat-card"><Statistic title="累计结算额" value={overview.settleAmount || 0} precision={2} prefix={<AccountBookOutlined />} /></Card>

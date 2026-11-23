@@ -49,6 +49,12 @@
   `payMonth` 做**字符串精确匹配**——空串行永远不会被任何月份的统计命中，等于"保存成功、账上少一块"。
   修法：在 `payment.service` 的写入路径上对 `payMonth` 单独要求非空（别改共享助手，会波及结算月份）。
   证据：`server/test-integration/payment.int.spec.ts` 的 ③ 只覆盖了格式档位，空串档位待补。
+- **`check-query-limits.mjs` 存在漏检盲区**（2026-11-23 写看板聚合时发现）：
+  门禁用 `PARENT_KEY` 正则判"是否按父实体过滤"，但该正则会把 **`select: { id: true }` 里的 `id:`**
+  也当成父实体键 → 任何带 id 投影的项目级全量 `findMany` **全部漏检**（实测：去掉
+  `dashboard.service.ts#contractChainRows` 的 `// @no-limit` 后门禁仍报 0 违规）。
+  修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
+  需先跑 `--list` 评估数量再加 `take`/理由。
 
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为

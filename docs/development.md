@@ -94,8 +94,8 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（107 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（37 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（108 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（38 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
@@ -145,6 +145,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
   | `test/bodyWhitelist.spec.mts` | **请求体白名单门禁自守**（当前仓库通过门禁 · 负向 fixture 必须判失败 · 豁免条数不超过脚本 `MAX_ALLOW`，防止门禁退化） |
   | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
+| `test/metricsRegistry.spec.mts` | **报表口径单一实现锁**（2026-11-23 架构评审 P1：治「同一指标各处各算一遍」）：每个登记指标在 `server/src` 内**恰好一个** `// @metric: <id>` 标记（两处=口径分叉、零处=实现被删）· 标记文件必须等于 `constants/metrics.ts` 登记的 `impl` 且符号存在 · 无孤儿标记 · `docs/report-metrics.md` 逐行登记（三处漂移即红） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/antdStaticApi.spec.mts` | **antd 静态 API 主题桥锁**（`web/src` 不得再从 antd 直接引入静态 `message`；`App.tsx` 必须把 `App.useApp().message` 绑到 `utils/antdStatic.ts`；静态 `Modal.xxx` 必须为 0） |
   | `test/designNumeric.spec.mts` | **数字排版锁**（DESIGN.md §2.1）：表格/KPI 必须声明等宽数字 `tabular-nums` 且只在 `index.css` 收口；金额语义的列必须 `align: 'right'` |
@@ -333,6 +334,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 | `asset.int.spec.ts` | **资产台账写路径**（此前零集成覆盖）：7 个派生金额列由 service 计算（`totalAmount = qty × price`）· 在用/闲置/报废/丢失合计 ≠ 数量 **400**，而调入费/维保费（纯费用行）不受约束 · 计量单位必须命中字典 `measurement_unit` · 乐观锁缺 version **409**、修改后 version 自增（2026-11-23 修的正是这里）· 进出场汇总三分：采购/调入=进场、调出=出场、维保费**只计金额不混入进场数量** |
 | `supplier.int.spec.ts` | **供应商库写路径**（此前零集成覆盖）：`name` 全库唯一（同名 400 且不留残行）· 乐观锁缺 version/旧版本号 **409**、改名撞名 400 · 被合同引用时**不可删除**（文案点明仅可停用，防裸 P2003 → 500）· 停用/启用只翻 `status` 不改名 |
 | `auth.int.spec.ts` | **登录/改密的真实写路径**（此前只有纯函数层）：**账号枚举防线**——密码错与用户不存在**同一句文案**、停用账号只在**密码正确**时才提示「账号已停用」· 弱口令改密 400 且**零写入** · 改密成功 `tokenVersion` +1 且旧口令立即失效、原密码错 403 · 撞库节流：同「用户名+IP」连错 5 次 → **429**（锁定期间连 bcrypt 都不做） |
+| `dashboard.int.spec.ts` | **工作台「合同额」按合同链只计一次**（2026-11-23 P1，治看板/台账口径不一致）：无补充协议时与旧实现等价 · 有补充协议时 = 主合同 + Σ`changeAmount` 且**忽略手填 `amount`** · 草稿补充协议（`changeAmount` 空）贡献 0 · `contractType` 按**链根类型**归桶且各桶之和 == `overview.contractAmount` · 父合同在别项目（本项目行集缺失）时按自身金额计入、不漏不掺 |
 
 ```bash
 # 1) 准备一个**专用测试库**（库名必须含 test 或 int，否则测试拒绝启动——防误连开发/生产库）
@@ -613,9 +615,14 @@ node scripts/check-import-integrity.mjs
 [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 
 **跨域读取层**：`server/src/query/` 是唯一允许散写跨域只读查询的地方。`archive` 的 11 个域读取已收敛到
-`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；AI 的窗口事实
+`query/archive-queries.ts`，`modules/archive/**` 不得再出现 `prisma.<模型>`；工作台同口径，全部读取收敛在
+`query/dashboard-queries.ts`（`modules/dashboard/**` 同样不得出现 `prisma.<模型>`）；
+合同台账的跨域读取收敛在 `query/ledger-queries.ts`（台账拥有 `SettlementLedger`，自身表读写留在 service，故此条无检查器锁）；AI 的窗口事实
 （合同链 / 结算 / 付款 / 发票 / 项目范围 / 日报与采购计数）统一走 `query/ai-fact-queries.ts`，
 `field-resolver` / `report` / `dataset-collector` / `scm` 已接入；AI 只读子域（`analytics` / `anomaly` /
-`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外。
+`analysis`）不得依赖业务模块，`ai/register.service.ts` 的写路径是刻意例外；
+只读子域**允许**写明细查询（数据集逐行取数），但**不得内联口径片段**（
+`statusCode: { not: 'DRAFT' }` / `notIn: ['FAILED','REFUNDED']` / `in: ['CANCELLED','RED']`），
+必须 import `notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
 两类规则都由 `check-module-boundaries` 锁定。
 

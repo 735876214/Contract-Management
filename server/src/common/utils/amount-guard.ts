@@ -51,6 +51,7 @@ export interface OverAmountResult {
  * - 上限为 null/undefined → 视为无上限（exceeded=false）
  * - 比较前统一 round 到 2 位小数，规避浮点误差（0.1+0.2 类问题）
  */
+// @metric: overdue-over-amount
 export function checkOverAmount(input: OverAmountInput): OverAmountResult {
   const used = round2(toNum(input.used));
   const current = round2(toNum(input.current));

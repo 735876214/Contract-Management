@@ -114,6 +114,30 @@ export function chainRowCountByRoot<T extends ContractChainRowLike>(rows: readon
  * @param rows 项目内（或至少覆盖整条链）的合同行
  * @param contractId 参与计算的合同（主合同或任一补充协议）
  */
+/**
+ * 由「链根行 + 其直接补充协议行」算 ChainAmounts —— **本文件的唯一算式**。
+ * 两个导出入口（单合同 `resolveChainAmounts` / 全量 `chainAmountsByRoot`）都走这里，
+ * 保证"看板总额"与"台账合同额"永远是同一个数。
+ */
+function buildChainAmounts(
+  rootRow: ContractChainRow,
+  supplements: readonly ContractChainRow[],
+): ChainAmounts {
+  const supplementTotal = round2(
+    supplements.reduce((s, r) => s + (isFilled(r.changeAmount) ? Number(r.changeAmount) : 0), 0),
+  );
+  const mainAmount = isFilled(rootRow.amount) ? round2(Number(rootRow.amount)) : null;
+  return {
+    rootId: String(rootRow.id),
+    chainIds: [String(rootRow.id), ...supplements.map((r) => String(r.id))],
+    mainAmount,
+    supplementTotal,
+    supplementCount: supplements.length,
+    currentAmount: mainAmount === null ? null : round2(mainAmount + supplementTotal),
+  };
+}
+
+// @metric: contract-chain-amount
 export function resolveChainAmounts(rows: ContractChainRow[], contractId: string): ChainAmounts {
   const empty: ChainAmounts = {
     rootId: null,
@@ -129,22 +153,40 @@ export function resolveChainAmounts(rows: ContractChainRow[], contractId: string
 
   // 上溯到链根（防环；断链时停在最后一个可达节点，与旧行为一致）
   const rootId = resolveChainRoot(byId, id).rootId;
-
-  const supplements = rows.filter((r) => String(r.parentContractId ?? '') === rootId);
-  const supplementTotal = round2(
-    supplements.reduce((s, r) => s + (isFilled(r.changeAmount) ? Number(r.changeAmount) : 0), 0),
+  return buildChainAmounts(
+    byId.get(rootId)!,
+    rows.filter((r) => String(r.parentContractId ?? '') === rootId),
   );
-  const rootRow = byId.get(rootId)!;
-  const mainAmount = isFilled(rootRow.amount) ? round2(Number(rootRow.amount)) : null;
+}
 
-  return {
-    rootId,
-    chainIds: [rootId, ...supplements.map((r) => String(r.id))],
-    mainAmount,
-    supplementTotal,
-    supplementCount: supplements.length,
-    currentAmount: mainAmount === null ? null : round2(mainAmount + supplementTotal),
-  };
+/**
+ * **一次算全部链**的金额（O(n)）：按 `parentContractId` 分组一次，链根只遍历一遍。
+ *
+ * 聚合报表（工作台「合同总额」、类型分布、台账合计）必须用它——
+ * 逐合同调 `resolveChainAmounts` 会退化成 O(n²)（每个合同都全表 filter 一遍）。
+ *
+ * 断链（父行缺失/跨项目/已删）按「最后一个可达节点为根」处理，与 `resolveChainAmounts` 同口径；
+ * 主合同金额未填的链返回 `currentAmount: null`（未知，调用方按 0 参与合计并另计条数）。
+ */
+export function chainAmountsByRoot(rows: readonly ContractChainRow[]): Map<string, ChainAmounts> {
+  const byId = indexContractRows(rows);
+  const childrenByParent = new Map<string, ContractChainRow[]>();
+  for (const r of rows) {
+    const parentId = String(r.parentContractId ?? '');
+    if (!parentId) continue;
+    const list = childrenByParent.get(parentId);
+    if (list) list.push(r);
+    else childrenByParent.set(parentId, [r]);
+  }
+  const out = new Map<string, ChainAmounts>();
+  for (const r of rows) {
+    const { rootId } = resolveChainRoot(byId, String(r.id));
+    if (out.has(rootId)) continue;
+    const rootRow = byId.get(rootId);
+    if (!rootRow) continue;
+    out.set(rootId, buildChainAmounts(rootRow, childrenByParent.get(rootId) ?? []));
+  }
+  return out;
 }
 
 /* ==================================================================== *
@@ -204,6 +246,7 @@ export async function contractChainAmount(db: any, contractId: string): Promise<
 }
 
 /** 链上累计结算额（`actualAmount` 回退 `amount`，排除草稿与 excludeId 自身） */
+// @metric: contract-settled-total
 export async function chainSettledTotal(db: any, contractId: string, excludeId?: string): Promise<number> {
   const ids = await contractChainIds(db, contractId);
   if (!ids.length) return 0;
@@ -220,6 +263,7 @@ export async function chainSettledTotal(db: any, contractId: string, excludeId?:
  * 求和即含已生效变更增量；同物资跨链成员叠加。
  * 返回 Map(materialBaseId → 合计 qty)；链上没有清单 → 空 Map。
  */
+// @metric: contract-material-qty
 export async function chainMaterialQty(db: any, contractId: string): Promise<Map<string, number>> {
   const ids = await contractChainIds(db, contractId);
   const map = new Map<string, number>();
@@ -266,6 +310,7 @@ export async function chainSettledItemQty(
  * - `excludeStatuses`：排除**不构成实际出资**的状态（如 `FAILED 付款失败` / `REFUNDED 已退款`），
  *   否则一笔失败记录会虚增"累计付款"，在 BLOCK 策略下误挡后续正常付款
  */
+// @metric: contract-paid-total
 export async function chainPaidTotal(
   db: any,
   contractId: string,

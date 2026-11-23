@@ -76,9 +76,11 @@ describe('发票终态口径（作废/红冲）', () => {
     const consumers: Array<[string, number]> = [
       // [文件, 至少出现次数（import + 各调用点）]
       ['../src/modules/settlement/settlement.service.ts', 3], // computeLedgerAutoFields + refreshLedger
-      ['../src/modules/ledger/ledger.service.ts', 2],
+      // 台账的发票聚合已收进查询层（2026-11-23），service 本身不再直查表
+      ['../src/query/ledger-queries.ts', 2], // loadLedgerContractFacts
       ['../src/modules/contract/contract-fulfillment.service.ts', 2],
-      ['../src/modules/dashboard/dashboard.service.ts', 3], // overview + invoiceStats.byType
+      // 工作台的发票金额聚合已收进查询层（2026-11-23），service 本身不再直查表
+      ['../src/query/dashboard-queries.ts', 3], // loadOverviewTotals + loadInvoiceStatsGroups
       ['../src/query/ai-fact-queries.ts', 2], // AI 读取层的 loadInvoiceFacts 统一接口径
       ['../src/modules/ai/analytics/dataset-collector.service.ts', 3], // 发票记录 + 履约/台账聚合
     ];

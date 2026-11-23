@@ -3,14 +3,28 @@ import { PrismaClient } from '@prisma/client';
 import { num } from '../../common/calc/numeric';
 import { localDayKey } from '../../common/calc/time';
 import { groupSumByMonth, monthSequence } from '../../common/calc/index.ts';
-import { resolveChainAmounts } from '../../common/utils/contract-chain';
+import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../common/utils/contract-chain';
 import { evaluateAmountAlert, evaluatePaymentRatioAlert } from '../../common/utils/amount-alert';
-import { paidPaymentWhere, countedInvoiceWhere, INVOICE_STATUS } from '../../constants/statuses';
-import { sumSettlementAmount } from '../../common/utils/group-sum';
-import { FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
-import { CONTRACT_EXECUTION_STATUS, CONTRACT_STATUS, MILESTONE_STATUS, SETTLEMENT_STATUS } from '../../constants/statuses';
-import { notDraft } from '../../common/utils/contract-chain';
+import { chainContractTotal } from '../../common/utils/ledger-derived';
+import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses';
 import { TODO_CATEGORIES, type TodoGroup, type TodoLevel } from '../../constants/todoCategories';
+import {
+  loadAmountAlertSources,
+  loadContractChainRows,
+  loadContractsToSign,
+  loadDraftSettlements,
+  loadInvoiceStatsGroups,
+  loadInvoicesToVerify,
+  loadOverdueDraftContracts,
+  loadOverdueInterestPayables,
+  loadOverdueMilestones,
+  loadOverviewTotals,
+  loadPaymentRatioAlertSources,
+  loadProcurementTodos,
+  loadTrendGroups,
+  loadUnsettledFinalSettlements,
+  loadUnpaidPaymentProcedures,
+} from '../../query/dashboard-queries';
 
 /** 草稿超时阈值（与前端 OverdueDraftReminder / 合同起草页同一口径：新增后 2 小时内未完成） */
 const OVERDUE_HOURS = 2;
@@ -27,43 +41,43 @@ export class DashboardService {
    * 任何一行明细。`_sum` / `count` 的口径与原来的 `sumBy(rows, field)` 完全一致（NULL 计 0，两位小数）。
    */
   async overview(projectId: string, _user: any) {
-    const [contractAgg, executingCount, ledgerSum, paymentSum, invoiceSum, settlementCount] =
-      await Promise.all([
-        this.prisma.contract.aggregate({
-          where: { projectId },
-          _count: { _all: true },
-          _sum: { amount: true },
-        }),
-        this.prisma.contract.count({
-          where: { projectId, execStatus: CONTRACT_EXECUTION_STATUS.EXECUTING },
-        }),
-        this.prisma.settlementLedger.aggregate({
-          where: { projectId },
-          _sum: { monthSettleAmount: true },
-        }),
-        // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
-        // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
-        this.prisma.paymentRecord.aggregate({
-          where: { projectId, ...paidPaymentWhere() },
-          _sum: { amount: true },
-        }),
-        // 作废/红冲发票不计入「累计开票额」（业务口径 2026-11-12；空状态历史票仍计入）
-        this.prisma.invoice.aggregate({
-          where: { projectId, ...countedInvoiceWhere() },
-          _sum: { amountWithTax: true },
-        }),
-        this.prisma.settlement.count({ where: { projectId } }),
-      ]);
+    /**
+     * 合同额口径（2026-11-23 架构评审 P1，见 docs/report-metrics.md）：**按合同链只计一次**。
+     *
+     * 原来是 `contract.aggregate({ _sum: { amount: true } })` 裸加所有合同行——
+     * 补充协议的 `amount` 是**手填自由值**（涨价场景常填"剩余数量 × 新价"），
+     * 逐行相加会把那部分数量的原值重复计入；而且它与台账「合同额」（按链根算）
+     * 不是同一个数，同一项目两个页面给出不同总额。
+     *
+     * 现在两次口径同源：`chainAmountsByRoot`（链金额唯一算式）+ `chainContractTotal`（链合计）。
+     */
+    /**
+     * 取数走查询层（`query/dashboard-queries.ts`）：四个总量的 where/口径只在那里维护一份，
+     * 本方法只负责组装与取整。
+     */
+    const [contractRows, totals] = await Promise.all([
+      loadContractChainRows(this.prisma, projectId),
+      loadOverviewTotals(this.prisma, projectId),
+    ]);
+    const chains = chainAmountsByRoot(contractRows);
     /** 金额列统一「NULL → 0，两位小数」，与原先 `Number(sumBy(...).toFixed(2))` 同口径 */
     const money = (v: unknown) => Number((num(v) || 0).toFixed(2));
     return {
-      contractCount: contractAgg._count._all,
-      contractAmount: money(contractAgg._sum.amount),
-      settleAmount: money(ledgerSum._sum.monthSettleAmount),
-      paidAmount: money(paymentSum._sum.amount),
-      invoiceAmount: money(invoiceSum._sum.amountWithTax),
-      settlementCount,
-      executingCount,
+      /** 合同**行数**（含补充协议）：与「合同数量」卡片口径一致，未变 */
+      contractCount: contractRows.length,
+      /** **链数**（= 主合同数）：合同额按链计，所以张数与金额要能对上（前端可展示"含 N 份补充协议"） */
+      contractChainCount: chains.size,
+      supplementCount: contractRows.filter((r) => r.parentContractId).length,
+      contractAmount: money(
+        chainContractTotal(
+          [...chains].map(([rootId, c]) => ({ id: rootId, rootId, currentAmount: c.currentAmount })),
+        ),
+      ),
+      settleAmount: money(totals.settleAmountSum),
+      paidAmount: money(totals.paidAmountSum),
+      invoiceAmount: money(totals.invoiceAmountSum),
+      settlementCount: totals.settlementCount,
+      executingCount: contractRows.filter((r) => r.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
     };
   }
 
@@ -75,20 +89,7 @@ export class DashboardService {
    * （它仍然负责 `2026-9`/`2026年9月` 这类自由文本的容错与两位小数收敛，口径不搬到 SQL 里）。
    */
   async trend(projectId: string, now: Date = new Date()) {
-    const [settleGroups, payGroups] = await Promise.all([
-      this.prisma.settlementLedger.groupBy({
-        by: ['settleMonth'],
-        where: { projectId },
-        _sum: { monthSettleAmount: true },
-      }),
-      // 只统计**构成实际出资**的付款（排除付款失败/已退款）——与防超付闸门、合同台账同一份清单，
-      // 否则工作台的「累计付款额」会大于台账的同一口径数字（业务口径 2026-10-16）
-      this.prisma.paymentRecord.groupBy({
-        by: ['payMonth'],
-        where: { projectId, ...paidPaymentWhere() },
-        _sum: { amount: true },
-      }),
-    ]);
+    const { settleGroups, payGroups } = await loadTrendGroups(this.prisma, projectId);
     const months = monthSequence(now, 12);
     const settleMap = groupSumByMonth(settleGroups, {
       monthOf: (g: any) => g.settleMonth,
@@ -105,21 +106,44 @@ export class DashboardService {
     }));
   }
 
+  /**
+   * 按合同类型统计（金额分布图）。
+   *
+   * 口径（2026-11-23，与 `overview.contractAmount` 同源）：**金额按合同链归到链根的类型**。
+   * 原来 `groupBy(typeCode)._sum.amount` 把补充协议的手填 `amount` 记到**补充协议自己的类型**下，
+   * 于是「各类型金额之和」与工作台「合同总额」对不上；现在两者相等（有 int spec 锁住）。
+   *
+   * `count` 仍是**合同行数**（含补充协议，口径未变）；`chainCount` 是落在该类型的**链数**。
+   */
   async contractType(projectId: string) {
-    const contracts = await this.prisma.contract.groupBy({ by: ['typeCode'], where: { projectId }, _count: { _all: true }, _sum: { amount: true } });
-    return contracts.map((c: any) => ({
-      typeCode: c.typeCode,
-      count: c._count._all,
-      amount: Number((num(c._sum.amount) || 0).toFixed(2)),
-    }));
+    const rows = await loadContractChainRows(this.prisma, projectId);
+    const chains = chainAmountsByRoot(rows);
+    const rowById = indexContractRows(rows);
+    const acc = new Map<string, { count: number; chainCount: number; amount: number }>();
+    const bucketOf = (typeCode: string) => {
+      const cur = acc.get(typeCode) ?? { count: 0, chainCount: 0, amount: 0 };
+      acc.set(typeCode, cur);
+      return cur;
+    };
+    for (const r of rows) bucketOf(String(r.typeCode ?? '')).count += 1;
+    for (const [rootId, chain] of chains) {
+      const bucket = bucketOf(String(rowById.get(rootId)?.typeCode ?? ''));
+      bucket.chainCount += 1;
+      bucket.amount = Number((bucket.amount + (chain.currentAmount ?? 0)).toFixed(2));
+    }
+    return [...acc.entries()]
+      .map(([typeCode, v]) => ({
+        typeCode,
+        count: v.count,
+        chainCount: v.chainCount,
+        amount: Number((v.amount || 0).toFixed(2)),
+      }))
+      .sort((a, b) => b.amount - a.amount || String(a.typeCode).localeCompare(String(b.typeCode)));
   }
 
   async invoiceStats(projectId: string) {
-    const [byType, byStatus] = await Promise.all([
-      // 按类型汇总只统计有效发票（作废/红冲不计入金额与张数）；状态分布仍保留全部状态
-      this.prisma.invoice.groupBy({ by: ['typeCode'], where: { projectId, ...countedInvoiceWhere() }, _count: { _all: true }, _sum: { amountWithTax: true } }),
-      this.prisma.invoice.groupBy({ by: ['statusCode'], where: { projectId }, _count: { _all: true } }),
-    ]);
+    // 按类型只统计有效发票（作废/红冲不计入金额与张数）；状态分布保留全部状态——两份 where 都在查询层
+    const { byType, byStatus } = await loadInvoiceStatsGroups(this.prisma, projectId);
     return {
       byType: byType.map((i: any) => ({ typeCode: i.typeCode, count: i._count._all, amount: Number((num(i._sum.amountWithTax) || 0).toFixed(2)) })),
       byStatus: byStatus.map((i: any) => ({ statusCode: i.statusCode, count: i._count._all })),
@@ -129,7 +153,7 @@ export class DashboardService {
   /** 提醒：发票待查验 + 合同金额红/黄预警 */
   async reminders(projectId: string, _user: any) {
     const [pendingInvoices, amountAlerts, paymentRatioAlerts] = await Promise.all([
-      this.prisma.invoice.findMany({ where: { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY }, take: 10 }),
+      loadInvoicesToVerify(this.prisma, projectId, 10).then((r) => r.rows),
       this.amountAlerts(projectId),
       this.paymentRatioAlerts(projectId),
     ]);
@@ -177,15 +201,7 @@ export class DashboardService {
   private async todoContractDraft(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('CONTRACT_DRAFT');
     const since = new Date(Date.now() - OVERDUE_HOURS * 3600_000);
-    const [rows, count] = await Promise.all([
-      this.prisma.contract.findMany({
-        where: { projectId, status: CONTRACT_STATUS.DRAFT, createdAt: { lt: since } },
-        orderBy: { createdAt: 'asc' },
-        take: limit,
-        select: { id: true, code: true, name: true, createdAt: true },
-      }),
-      this.prisma.contract.count({ where: { projectId, status: CONTRACT_STATUS.DRAFT, createdAt: { lt: since } } }),
-    ]);
+    const { rows, count } = await loadOverdueDraftContracts(this.prisma, projectId, { since, take: limit });
     return {
       key: 'CONTRACT_DRAFT',
       label: '',
@@ -206,28 +222,9 @@ export class DashboardService {
     const limit = this.todoLimit('OVERDUE_MILESTONE');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const where = {
-      projectId,
-      planDate: { lt: today },
-      statusCode: { notIn: [MILESTONE_STATUS.DONE, MILESTONE_STATUS.SKIPPED] },
-      // 归档合同不出现在待办：过滤放进 where，保证 count 与 items 口径一致
-      // （此前只对 items 后置过滤，count 会把已归档合同的节点也算进去）。
-      contract: { archivedAt: null },
-    };
-    const [rows, count] = await Promise.all([
-      this.prisma.contractFulfillment.findMany({
-        where,
-        orderBy: { planDate: 'asc' },
-        take: limit,
-        select: {
-          id: true,
-          name: true,
-          planDate: true,
-          contract: { select: { id: true, code: true, name: true, archivedAt: true } },
-        },
-      }),
-      this.prisma.contractFulfillment.count({ where }),
-    ]);
+    // 归档合同不出现在待办：过滤放进 where，保证 count 与 items 口径一致
+    // （此前只对 items 后置过滤，count 会把已归档合同的节点也算进去）。
+    const { rows, count } = await loadOverdueMilestones(this.prisma, projectId, { today, take: limit });
     return {
       key: 'OVERDUE_MILESTONE',
       label: '',
@@ -247,14 +244,7 @@ export class DashboardService {
   /** 合同待签章 */
   private async todoContractSign(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('CONTRACT_SIGN');
-    const where = { projectId, status: CONTRACT_STATUS.APPROVING, archivedAt: null };
-    const [rows, count] = await Promise.all([
-      this.prisma.contract.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, code: true, name: true },
-      }),
-      this.prisma.contract.count({ where }),
-    ]);
+    const { rows, count } = await loadContractsToSign(this.prisma, projectId, limit);
     return {
       key: 'CONTRACT_SIGN', label: '', count,
       items: rows.map((c) => ({
@@ -270,14 +260,7 @@ export class DashboardService {
   /** 结算单待提交（草稿） */
   private async todoSettlementDraft(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('SETTLEMENT_DRAFT');
-    const where = { projectId, statusCode: SETTLEMENT_STATUS.DRAFT };
-    const [rows, count] = await Promise.all([
-      this.prisma.settlement.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, code: true, amount: true, contract: { select: { name: true } } },
-      }),
-      this.prisma.settlement.count({ where }),
-    ]);
+    const { rows, count } = await loadDraftSettlements(this.prisma, projectId, limit);
     return {
       key: 'SETTLEMENT_DRAFT', label: '', count,
       items: rows.map((s) => ({
@@ -295,14 +278,7 @@ export class DashboardService {
     const limit = this.todoLimit('FINAL_SETTLEMENT');
     // 总结算单只有 PENDING_ATTACHMENT / SETTLED 两个状态，DONE_SETTLED 是**合同执行状态**的值，
     // 写在这里永远匹配不到 → 已上传附件的单据永久滞留在工作台待办（第 5 轮审计）。
-    const where = { projectId, statusCode: { not: FINAL_SETTLEMENT_STATUS.SETTLED } };
-    const [rows, count] = await Promise.all([
-      this.prisma.finalSettlement.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, code: true, statusCode: true, contract: { select: { name: true } } },
-      }),
-      this.prisma.finalSettlement.count({ where }),
-    ]);
+    const { rows, count } = await loadUnsettledFinalSettlements(this.prisma, projectId, limit);
     return {
       key: 'FINAL_SETTLEMENT', label: '', count,
       items: rows.map((f) => ({
@@ -318,14 +294,7 @@ export class DashboardService {
   /** 付款手续待编制：口径 = 已有付款手续单据但尚未付款（payDate 为空）的，提示去处理 */
   private async todoPaymentProcedure(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('PAYMENT_PROCEDURE');
-    const where = { projectId, payDate: null };
-    const [rows, count] = await Promise.all([
-      this.prisma.paymentProcedure.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, code: true, contract: { select: { name: true } } },
-      }),
-      this.prisma.paymentProcedure.count({ where }),
-    ]);
+    const { rows, count } = await loadUnpaidPaymentProcedures(this.prisma, projectId, limit);
     return {
       key: 'PAYMENT_PROCEDURE', label: '', count,
       items: rows.map((p) => ({
@@ -341,14 +310,7 @@ export class DashboardService {
   /** 待查验发票 */
   private async todoInvoiceVerify(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('INVOICE_VERIFY');
-    const where = { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY };
-    const [rows, count] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, invoiceNo: true, issuer: true, amountWithTax: true },
-      }),
-      this.prisma.invoice.count({ where }),
-    ]);
+    const { rows, count } = await loadInvoicesToVerify(this.prisma, projectId, limit);
     return {
       key: 'INVOICE_VERIFY', label: '', count,
       items: rows.map((i) => ({
@@ -364,29 +326,11 @@ export class DashboardService {
   /** 逾期利息待对账（已产生逾期利息的应付款项） */
   private async todoOverdueInterest(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('OVERDUE_INTEREST');
-    // finance 模块按 contractId 归属（CLAUDE.md 铁律 3 的例外），故先取本项目合同再查其逾期行。
-    // **不要加 take 上限**：合同 id 只是过滤条件（select 单列，开销很小），
-    // 截断会让超出部分合同的逾期行静默从待办与计数里消失。
-    const contracts = await this.prisma.contract.findMany({
-      where: { projectId, archivedAt: null }, select: { id: true },
-    });
-    const contractIds = contracts.map((c) => c.id);
-    if (!contractIds.length) return { key: 'OVERDUE_INTEREST', label: '', count: 0, items: [] };
-    // 主子表改造后应付款项已经没有 paymentAmount 列，付清与否由引擎算出的
-    // remaining/overdueInterest 表达：这里只挑「真的计了逾期利息且未减免」的期数，
-    // 与列表页统计卡同口径（overdueInterest 由 recalcOverdue 持久化，null 即未计息）。
-    const where = {
-      contractId: { in: contractIds },
-      waived: false,
-      overdueInterest: { gt: 0 },
-    };
-    const [rows, count] = await Promise.all([
-      this.prisma.overduePayable.findMany({
-        where, orderBy: [{ settlementMonth: 'asc' }, { periodSeq: 'asc' }], take: limit,
-        select: { id: true, contractId: true, settlementMonth: true, periodSeq: true, payableAmount: true, overdueInterest: true },
-      }),
-      this.prisma.overduePayable.count({ where }),
-    ]);
+    // finance 的应付款项按 contractId 归属（CLAUDE.md 铁律 3 的例外），"先取本项目合同 id 再查逾期行"
+    // 这件事本身也收在查询层（含"合同 id 不截断"的理由）。
+    // 口径：只挑「真的计了逾期利息且未减免」的期数（overdueInterest 由 recalcOverdue 持久化，null 即未计息），
+    // 与列表页统计卡同口径。
+    const { rows, count } = await loadOverdueInterestPayables(this.prisma, projectId, limit);
     return {
       key: 'OVERDUE_INTEREST', label: '', count,
       items: rows.map((r) => ({
@@ -403,14 +347,7 @@ export class DashboardService {
   /** 采购待编制（各阶段未填写/编辑中的采购任务） */
   private async todoProcurement(projectId: string): Promise<TodoGroup> {
     const limit = this.todoLimit('PROCUREMENT_TODO');
-    const where = { projectId, status: { in: ['NOT_STARTED', 'LIST_EDITING'] } };
-    const [rows, count] = await Promise.all([
-      this.prisma.procurementTask.findMany({
-        where, orderBy: { createdAt: 'asc' }, take: limit,
-        select: { id: true, taskNo: true, content: true, status: true },
-      }),
-      this.prisma.procurementTask.count({ where }),
-    ]);
+    const { rows, count } = await loadProcurementTodos(this.prisma, projectId, limit);
     return {
       key: 'PROCUREMENT_TODO', label: '', count,
       items: rows.map((t) => ({
@@ -440,17 +377,8 @@ export class DashboardService {
    * 结算额排除草稿（与闸门一致）。主合同金额未填（金额未知）时该项无法判定 → 不报（宁漏勿误）。
    */
   private async amountAlerts(projectId: string) {
-    const [contracts, settledByContract] = await Promise.all([
-      // 合同行**必须**全量取回：金额预警要按合同链（主合同 + Σ 补充协议 changeAmount）逐条算，
-      // 而链结构只能靠 parentContractId 在内存里解析。这里取的已是窄列（6 列），不再是明细表。
-      this.prisma.contract.findMany({
-        where: { projectId, archivedAt: null },
-        select: { id: true, parentContractId: true, amount: true, changeAmount: true, code: true, name: true },
-      }),
-      // 结算额按合同聚合走 SQL（P1-4）：原来把整项目结算单明细取回内存按 contractId 求和。
-      // 口径 = `actualAmount ?? amount`，由 `sumSettlementAmount` 在 SQL 侧精确复刻。
-      sumSettlementAmount(this.prisma, 'contractId', { projectId, ...notDraft }),
-    ]);
+    // 取数（含"为什么必须全量取回合同行"）收在查询层；这里只做预警判定与排序。
+    const { contracts, settledByContract } = await loadAmountAlertSources(this.prisma, projectId);
 
     const alerts: {
       contractId: string;
@@ -515,27 +443,11 @@ export class DashboardService {
    * 只做**展示**：不拦截任何单据，也不改 `payment.over_amount_policy` 的策略。
    */
   private async paymentRatioAlerts(projectId: string) {
-    const [contracts, settledByContract, paidGroups] = await Promise.all([
-      this.prisma.contract.findMany({
-        where: { projectId },
-        select: { id: true, parentContractId: true, code: true, name: true },
-      }),
-      // 开累结算/开累付款按合同聚合走 SQL（P1-4）：口径见下方注释，不再取明细行
-      sumSettlementAmount(this.prisma, 'contractId', { projectId, ...notDraft }),
-      this.prisma.paymentRecord.groupBy({
-        by: ['contractId'],
-        where: { projectId, ...paidPaymentWhere() },
-        _sum: { amount: true },
-      }),
-    ]);
-    // 付款比例派生列只取本项目合同：原先无 where 全表读，合同数越多本接口越慢，
-    // 也违反「查询必须自带 projectId」。父合同不在本项目时缺少派生列 → 该链按无比例跳过。
-    const exts = contracts.length
-      ? await this.prisma.contractExt.findMany({
-          where: { contractId: { in: contracts.map((c) => c.id) } },
-          select: { contractId: true, currentPayRatio: true },
-        })
-      : [];
+    // 取数（链行 + 开累结算 + 开累付款 + 生效比例派生列，含"为何必须带 projectId"）收在查询层
+    const { contracts, settledByContract, paidGroups, exts } = await loadPaymentRatioAlertSources(
+      this.prisma,
+      projectId,
+    );
 
     const paidByContract = new Map<string, number>(
       paidGroups

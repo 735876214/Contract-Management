@@ -116,6 +116,7 @@ export function previousSettlementPeriod(startDay: number, refDate: Date | strin
  * 本来就该归到一起；用自然月比会把它们判成"不同月"而拒绝关联。
  * 起始日 = 1 日时两者等价（业务给的例子就是这个情形）。
  */
+// @metric: settlement-period-key
 export function periodKeyOf(startDay: number, date: unknown): MonthKey | null {
   if (date === null || date === undefined || date === '') return null;
   const d = date instanceof Date ? date : new Date(date as any);

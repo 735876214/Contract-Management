@@ -31,6 +31,12 @@ const INFRA_MODULES = new Set(['auth']);
 
 /** 归档是聚合器，但跨域读取必须走 query/，不得自己 prisma.<模型> */
 const ARCHIVE_DIR = 'server/src/modules/archive/';
+/**
+ * 工作台同样是纯只读聚合器（读 10 张表），跨域读取一律走 `query/dashboard-queries.ts`。
+ * 2026-11-23 收敛前它有 37 处 `prisma.<模型>`——口径改动要在工作台里再抄一遍 where，
+ * 抄漏就是第二套口径，而且检查器锁不住。收敛后为 0，从此由本规则守门。
+ */
+const DASHBOARD_DIR = 'server/src/modules/dashboard/';
 
 /**
  * AI 根目录的 service 不得直查业务域事实表（必须走 server/src/query/）。
@@ -61,6 +67,33 @@ const AI_READ_ONLY_DIRS = [
   'server/src/modules/ai/analytics/',
   'server/src/modules/ai/anomaly/',
   'server/src/modules/ai/analysis/',
+];
+
+/**
+ * **AI 只读子域不得内联口径片段**（2026-11-23 架构评审 P1）。
+ *
+ * §3.1 允许只读子域自己写**明细查询**（数据集逐行取数，字段各异、无法复用 `load*Facts()`），
+ * 但口径的原子片段只能来自单一来源：`notDraft` / `paidPaymentWhere()` / `countedInvoiceWhere()`。
+ * 手写等价 where 的后果是"排除草稿/排除失败退款/排除红冲"各写一遍，改一处漏一处——
+ * 这类副本在 SQL 三值逻辑下还会静默漏掉 `NULL` 状态行。
+ */
+const INLINE_PREDICATE_RULES = [
+  {
+    re: /statusCode:\s*\{\s*not:\s*['"]DRAFT['"]\s*\}/g,
+    hint: "改用 common/utils/contract-chain 的 notDraft（它显式把 NULL 算作非草稿）",
+  },
+  {
+    re: /notIn:\s*\[[^\]]*['"]DRAFT['"][^\]]*\]/g,
+    hint: '改用 notDraft：手写 notIn 会在 SQL 三值逻辑下漏掉 statusCode IS NULL 的行',
+  },
+  {
+    re: /(?:notIn|in):\s*\[[^\]]*['"](?:FAILED|REFUNDED)['"][^\]]*\]/g,
+    hint: '改用 constants/statuses 的 paidPaymentWhere() / PAYMENT_EXCLUDED_STATUSES',
+  },
+  {
+    re: /(?:notIn|in):\s*\[[^\]]*['"](?:CANCELLED|RED)['"][^\]]*\]/g,
+    hint: '改用 constants/statuses 的 countedInvoiceWhere() / INVOICE_EXCLUDED_STATUSES',
+  },
 ];
 
 /** fan-out 超过该值的模块会在输出里标为聚合器（仅供参考，不是错误） */
@@ -176,6 +209,18 @@ for (const file of files) {
     }
   }
 
+  // 工作台：同上（聚合读取全部收进 query/dashboard-queries.ts）
+  if (file.startsWith(DASHBOARD_DIR)) {
+    const m = /\bprisma\.[A-Za-z]\w*/.exec(src);
+    if (m) {
+      readViolations.push({
+        file,
+        line: src.slice(0, m.index).split('\n').length,
+        rule: `dashboard 不得直接查表（命中 ${m[0]}），改走 server/src/query/dashboard-queries.ts 的只读查询`,
+      });
+    }
+  }
+
   // AI 根目录：业务事实表必须走 query/（register 的写路径是刻意例外）
   const aiRel = file.startsWith(AI_ROOT_DIR) ? file.slice(AI_ROOT_DIR.length) : '';
   if (aiRel && !aiRel.includes('/') && !AI_ROOT_WRITE_ALLOWLIST.has(aiRel)) {
@@ -190,6 +235,21 @@ for (const file of files) {
   }
 
   const aiReadOnly = AI_READ_ONLY_DIRS.some((d) => file.startsWith(d));
+
+  // AI 只读子域：明细查询允许，但口径片段不得内联（必须 import 单一来源）
+  if (aiReadOnly) {
+    for (const rule of INLINE_PREDICATE_RULES) {
+      rule.re.lastIndex = 0;
+      let pm;
+      while ((pm = rule.re.exec(src))) {
+        readViolations.push({
+          file,
+          line: src.slice(0, pm.index).split('\n').length,
+          rule: `AI 只读子域不得内联口径片段（命中「${pm[0].replace(/\s+/g, ' ').trim()}」）— ${rule.hint}`,
+        });
+      }
+    }
+  }
   for (const m of src.matchAll(IMPORT_RE)) {
     const spec = m[1] || m[2];
     const target = resolve(file, spec);
