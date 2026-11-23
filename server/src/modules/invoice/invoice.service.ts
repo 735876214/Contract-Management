@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
-import { toDate, localDayKey } from '../../common/calc/time';
+import { num } from '@cms/calc/numeric';
+import { toDate, localDayKey } from '@cms/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
 import { ImportRunnerService, RowError, TxClient } from '../../common/services/import-runner.service';
@@ -17,7 +17,7 @@ import { SettlementService } from '../settlement';
 import { ProjectScopeService } from '../../common/services/project-scope.service';
 import { periodMonthKey } from '../../domain/settlement-period';
 import { parseImportDate, pickDictCode } from '../../common/utils/import-parse';
-import { calcAmount, taxAmountDiff } from '../../common/calc/amounts';
+import { calcAmount, taxAmountDiff } from '@cms/calc/amounts';
 import { isFilledNumber } from '../ledger';
 import { keywordWhere } from '../../common/utils/list-where';
 

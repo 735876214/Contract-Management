@@ -14,7 +14,7 @@ const { Title, Paragraph } = Typography;
  * 供应链全景有「项目对照」「供应商集中度」两张表，落成段落会难读。
  */
 
-/** 行内语法：只处理 `**加粗**` 与 `` `代码` `` */
+/** 行内语法：只处理 `**加粗**` 与 ` `代码` ` */
 function inline(text: string, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = [];
   const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;

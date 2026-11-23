@@ -2,8 +2,8 @@
  * 展示层数值格式化（零依赖，前后端共用）。
  * 只负责"怎么显示"，任何参与落库/比较的数值必须先走 money.ts / amounts.ts 的原语。
  */
-import { num } from './numeric.ts';
-import { round } from './money.ts';
+import { num } from './numeric';
+import { round } from './money';
 
 /** 金额：千分位 + 2 位小数；空值返回空串（0 正常显示 0.00） */
 export function fmtAmount(v: unknown): string {

@@ -15,12 +15,12 @@
  * 注：**筛选范围**（列表接口支持按 `settlementMonth` 过滤）不属于本模块职责——
  * 调用方决定传入哪些行，本模块只负责"如何汇总这些行"。
  *
- * 舍入与月份排序已下沉到 `common/calc`：这里不再保留私有 `Math.round(v*100)/100`（浮点尾差）
+ * 舍入与月份排序已下沉到 `@cms/calc`：这里不再保留私有 `Math.round(v*100)/100`（浮点尾差）
  * 与原生字符串 `.sort()`（`2026-10` 会排在 `2026-9` 前）。
  */
-import { round2 } from '../../common/calc/money.ts';
-import { num } from '../../common/calc/numeric.ts';
-import { canonicalMonthKey, compareMonthKey } from '../../common/calc/index.ts';
+import { round2 } from '@cms/calc/money';
+import { num } from '@cms/calc/numeric';
+import { canonicalMonthKey, compareMonthKey } from '@cms/calc';
 
 /** 空月份仍像旧实现一样排最前；其余月份走统一 compareMonthKey（不能用 `'2026-10' < '2026-9'`） */
 const compareMonthAsc = (a: string, b: string): number => {

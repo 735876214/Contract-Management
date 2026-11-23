@@ -15,7 +15,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { notDraft } from '../constants/statuses.ts';
-import { round2 } from '../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 import {
   CHAIN_MAX_DEPTH,
   resolveChainAmounts,

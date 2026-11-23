@@ -101,6 +101,9 @@ services:
       # （个别文件系统不转发变更事件导致热重载失灵时，在 server/tsconfig.json 加
       #   "watchOptions": { "watchFile": "priorityPollingInterval" } 即可退化为轮询）
       - ./server:/app
+      # 共享计算引擎 `@cms/calc`：server/package.json 里是 `file:../packages/calc`，
+      # 容器内 node_modules/@cms/calc 是指向 /app/packages/calc 的软链，必须挂进来
+      - ./packages/calc:/app/packages/calc
       # 依赖目录用命名卷隔离：宿主机 Windows 的 node_modules 无法在 Linux 容器内使用
       - server-node-modules:/app/node_modules
       # 上传文件落到宿主机，便于直接查看导出物
@@ -117,6 +120,8 @@ services:
         # 全新空库也能一次建出全表，不再出现 P3018 relation "Contract" does not exist）。
         ./node_modules/.bin/prisma generate
         ./node_modules/.bin/prisma migrate deploy
+        # 共享计算引擎的编译产物（packages/calc/*.js）：产物比源码旧就重编，新则秒过
+        node ../packages/calc/build.mjs
         # 改了 prisma/schema.prisma 后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
         # 不要用 db push：那会让本机库脱离迁移历史，缺失的迁移只会在别人/生产上暴露。
         # 直接跑 nest CLI（不经 npm run / npx）：npm 夹在中间只是一层多余父子进程，
@@ -145,16 +150,16 @@ services:
     volumes:
       - ./web:/app
       - web-node-modules:/app/node_modules
-      # 前端有 3 个页面直接 import 后端共享计算引擎
-      # （`../../../server/src/common/calc/*.ts`：Settlements / ReceiptOrders / ContractMaterials）。
-      # 挂到 /server 正是 /app/src/pages 往上三级对应的位置，否则 dev 容器里解析不到、页面 500。
-      - ./server:/server:ro
+      # 共享计算引擎 `@cms/calc`（web/package.json 的 `file:../packages/calc`）：
+      # 容器内 node_modules/@cms/calc 指向 /app/packages/calc，不发挂就 500。
+      - ./packages/calc:/app/packages/calc
     command:
       - sh
       - -c
       - |
         set -e
         [ -x node_modules/.bin/vite ] || npm ci --legacy-peer-deps --no-audit --no-fund
+        node ../packages/calc/build.mjs
         exec ./node_modules/.bin/vite --host 0.0.0.0 --port 5173
 
 volumes:

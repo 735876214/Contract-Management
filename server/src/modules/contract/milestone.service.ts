@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { pickFields } from '../../common/pick-fields';
-import { toDate } from '../../common/calc/time';
+import { toDate } from '@cms/calc/time';
 import { assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { isMilestoneOverdue } from '../../domain/milestone';
 import { MILESTONE_STATUS } from '../../constants/statuses';

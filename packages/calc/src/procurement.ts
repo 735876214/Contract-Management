@@ -13,9 +13,9 @@
  * 注意职责边界：这里只算"如何从原始录入派生出值"，不决定"派生值能否覆盖用户手工录入"。
  * 最终确认价、引用金额、占比在 UI 上均可人工编辑，服务端写库时的覆盖策略由 service 层按业务语义决定。
  */
-import { round2 } from './money.ts';
-import { num } from './numeric.ts';
-import { mulDecimal } from './amounts.ts';
+import { round2 } from './money';
+import { num } from './numeric';
+import { mulDecimal } from './amounts';
 
 /**
  * 「是」判定（全站唯一口径）：兼容 是 / Y / YES / TRUE / 1。

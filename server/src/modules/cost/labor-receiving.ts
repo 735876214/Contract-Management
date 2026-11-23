@@ -18,7 +18,7 @@
 
 // 舍入唯一实现在 calc 引擎（字符串位移，半值远离零）；此前私有 r() 用 Math.round(v*p)/p，
 // 8.165→8.16、1234567.005 丢 1 分，与全站口径漂移。money.ts 零第三方依赖，不破坏 .mts 可加载性。
-import { round } from '../../common/calc/money.ts';
+import { round } from '@cms/calc/money';
 
 export interface DeriveReceivingInput {
   /** 上期末累计（由 service 按期链式推出；首期 0） */

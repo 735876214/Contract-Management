@@ -13,7 +13,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { LIST_PATHS } from '@/constants/listPaths';
-import { calcPriceWithTax, calcTotalWithTax } from '../../../server/src/common/calc/amounts.ts';
+import { calcPriceWithTax, calcTotalWithTax } from '@cms/calc/amounts';
 
 /** 列表与「添加/编辑清单行」是同一路由的两种形态（`?editor=new|<id>`） */
 const LIST_PATH = LIST_PATHS.contractMaterial;

@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
+import { num } from '@cms/calc/numeric';
 import { projectWhere } from '../../common/utils/project-scope';
-import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { calcPriceWithTax, calcTotalWithTax } from '@cms/calc/amounts';
 import { ContractLockService } from '../../common/services/contract-lock.service';
 import { DictService } from '../dict';
 

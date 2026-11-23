@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { localDayKey } from '../../common/calc/time';
-import { round2 } from '../../common/calc/money';
+import { localDayKey } from '@cms/calc/time';
+import { round2 } from '@cms/calc/money';
 import { PrismaClient } from '@prisma/client';
 import { resolveChainAmounts } from '../../domain/contract-chain';
 import { contractChainRows } from '../../query';

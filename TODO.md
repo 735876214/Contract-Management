@@ -56,13 +56,6 @@
   修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
   需先跑 `--list` 评估数量再加 `take`/理由。
 
-- **`packages/calc` 抽成真包（架构解耦 P3，需单独立项）**：`server/src/common/calc/` 9 个文件是
-  前后端共用的数值/时间原语，现在靠 `Dockerfile.single` 里一段 `COPY server/src/common/calc` 补丁 +
-  `web/vite.config.ts` 的 `fs.allow: ../server` 才跑得起来（源码事实：那种跨目录 import 是构建期 hack）。
-  做法：建成 `packages/calc` 真包、`server/package.json` 与 `web/package.json` 各加 `file:` 依赖
-  （**不要**用 npm workspaces 提升——CI 三个 job 各自 `npm ci`，compose 还挂载子目录）；
-  改完能删掉上面两处 hack。范围：`git grep -l "common/calc"` 命中 **67 个文件**，另有 5 个 parity spec
-  要跟着改（`aiAnalyticsParity` / `aiAnalyticsOptionsParity` / `frontendChainParity` / `errorCodesParity` / `routePermissionParity`）。
 - **`ai` 模块再分组（架构解耦 P4，量大但机械）**：单模块 **17,884 行 / 71 文件**（root 5,448 · analytics 3,373 ·
   anomaly 3,343 · quote 1,760 · fulfillment 1,629 · analysis 1,265 · common 560 · intent 506），
   「登记取价」「只读分析」「履约」三类挤在一个模块目录里，模块级检查器只能整体放行。

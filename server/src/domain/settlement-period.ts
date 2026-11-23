@@ -23,7 +23,7 @@ import {
   formatDay as calcFormatDay,
   monthKey as calcMonthKey,
   periodMonthKey as calcPeriodMonthKey,
-} from '../common/calc/time.ts';
+} from '@cms/calc/time';
 
 /** 月份键，`YYYY-MM` */
 export type MonthKey = string;

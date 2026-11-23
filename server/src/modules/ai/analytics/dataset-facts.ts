@@ -9,7 +9,7 @@
  * - 未填金额是**未知**，不兜成 0 参与比例（空值跳过，单列数据缺口）。
  */
 
-import { round2 } from '../../../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 import { formatYuan as fmtYuan, changeRateText } from '../common/format.ts';
 import { auditNumbers, numbersInText } from '../report-facts.ts';
 import {
@@ -397,7 +397,7 @@ export interface NarratedReportResult {
 const sanitizeNarrativeText = (raw: string): string =>
   String(raw ?? '')
     .split(/\r?\n/)
-    .filter((line) => !/^\s*(#{1,6}\s|\||>|```)/.test(line))
+    .filter((line) => !/^\s*(#{1,6}\s|\||>|``)/.test(line))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();

@@ -54,6 +54,9 @@ export { SettlementService } from './settlement.service';
 | `amount-guard.ts` | finance | payment 与 settlement 互引（约束 2） |
 
 需要读表的链 IO 不在这里，在 `server/src/query/contract-chain-queries.ts`——**口径归 owner，取数归 read model**。
+
+**跨前后端的纯计算原语**不在 `server/src/` 里，而在仓库根的 `packages/calc`（`@cms/calc`，
+`file:` 依赖）：它是计算引擎（金额/舍入/税率/时间/聚合），不承载业务口径，见 `packages/calc/README.md`。
 ## 3. 聚合器是刻意存在的
 
 `archive` / `ai` 的 fan-out 很大（`archive` 直接读 11 个域的表），这是"全库视角"的报表/分析层，

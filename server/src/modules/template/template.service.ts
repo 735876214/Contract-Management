@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '../../common/calc/numeric';
-import { fmtDate } from '../../common/calc/time';
+import { num } from '@cms/calc/numeric';
+import { fmtDate } from '@cms/calc/time';
 import { paginate, buildResult, assertVersion } from '../../common/utils/helpers';
-import { amountToChineseCapital } from '../../common/calc/money';
+import { amountToChineseCapital } from '@cms/calc/money';
 import { pickFields } from '../../common/pick-fields';
 import { DictService } from '../dict';
 import { requestContext } from '../../common/services/request-context';

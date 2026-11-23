@@ -2,10 +2,10 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { SITE_CONFIRM_STATUS } from '../../constants/workflowGuards';
 import { CONTRACT_STATUS, LEGACY_CONTRACT_STATUS_COMPLETED, RECEIPT_STATUS } from '../../constants/statuses';
-import { num } from '../../common/calc/numeric';
-import { toDate } from '../../common/calc/time';
+import { num } from '@cms/calc/numeric';
+import { toDate } from '@cms/calc/time';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
-import { calcPriceWithTax, calcTotalWithTax } from '../../common/calc/amounts';
+import { calcPriceWithTax, calcTotalWithTax } from '@cms/calc/amounts';
 import { DictService } from '../dict';
 import { TxClient } from '../../common/services/import-runner.service';
 import { SettlementService } from '../settlement';
@@ -167,7 +167,7 @@ export class ReceiptOrderService {
     if (query.receiver) where.receiver = { contains: query.receiver };
     const kw = keywordWhere(['orderNo', 'supplierName', 'receivingUnitName', 'materialContractNo', 'receiver'], query.keyword);
     if (kw) where.OR = kw.OR;
-    // 边界统一走 common/calc/time 的本地日原语（''YYYY-MM-DD'' 交给 new Date 会按 UTC 解析）
+    // 边界统一走 `@cms/calc/time` 的本地日原语（''YYYY-MM-DD'' 交给 new Date 会按 UTC 解析）
     const range = dateRange(query.startDate, query.endDate);
     if (range) where.orderDate = range;
     const [list, total] = await Promise.all([

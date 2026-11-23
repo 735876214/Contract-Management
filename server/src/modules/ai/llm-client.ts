@@ -8,7 +8,7 @@
  * 两个硬要求：
  * 1. **超时必须可控**：AI 调用是同步请求（仓库无 MQ / 无调度器），
  *    超时由 `AbortController` 兜底，绝不能让一个挂起的上游把 Node 事件循环拖住。
- * 2. **只取 JSON**：模型爱把 JSON 包在 ```json 围栏里、或前面加一句"好的，结果如下"。
+ * 2. **只取 JSON**：模型爱把 JSON 包在 ``json 围栏里、或前面加一句"好的，结果如下"。
  *    `extractJsonBlock()` 负责把这层噪声剥掉，解析失败返回 `null` 由调用方降级（不抛）。
  */
 
@@ -52,7 +52,7 @@ export function buildChatBody(
 
 /**
  * 从模型输出里剥出 JSON（对象或数组）。
- * 顺序：整体 `JSON.parse` → 去 ```json 围栏 → 取第一个 `{`/`[` 到最后一个闭合符。
+ * 顺序：整体 `JSON.parse` → 去 ``json 围栏 → 取第一个 `{`/`[` 到最后一个闭合符。
  * 全部失败返回 `null`（**不抛**）：调用方按"AI 没帮上忙"降级，而不是让整次请求 500。
  */
 export function extractJsonBlock(text: string): unknown {
@@ -70,7 +70,7 @@ export function extractJsonBlock(text: string): unknown {
   const direct = tryParse(raw);
   if (direct !== undefined) return direct;
 
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = raw.match(/``(?:json)?\s*([\s\S]*?)``/i);
   if (fenced) {
     const inner = tryParse(fenced[1].trim());
     if (inner !== undefined) return inner;
@@ -260,10 +260,10 @@ export async function chatText(
   return { text: stripFence(raw), usage };
 }
 
-/** 去掉模型偶尔自作主张包的 ```markdown 围栏 */
+/** 去掉模型偶尔自作主张包的 ``markdown 围栏 */
 export function stripFence(text: string): string {
   const raw = String(text ?? '').trim();
-  const m = /^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i.exec(raw);
+  const m = /^``(?:markdown|md)?\s*([\s\S]*?)\s*``$/i.exec(raw);
   return (m ? m[1] : raw).trim();
 }
 

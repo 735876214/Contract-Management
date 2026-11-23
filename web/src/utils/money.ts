@@ -13,7 +13,7 @@
  * 3. 数量最多 N 位小数、**不补零**（1.5 吨显示 `1.5`，不是 `1.5000`）：`formatNumber`。
  *
  * ⚠️ 页面里禁止再直接写 `toLocaleString`；舍入本身仍走
- * `server/src/common/calc/money.ts`（前后端同一实现，已由 `money.spec.ts` 锁住），
+ * `packages/calc/src/money.ts`（前后端同一实现，已由 `money.spec.ts` 锁住），
  * 本文件只负责**显示**。本文件零依赖，故能被 `server/test/*.spec.mts` 直接加载。
  */
 
@@ -51,7 +51,7 @@ export function formatMoney(v: unknown, digits = 2, blank = '-'): string {
  * 时间戳展示（本地口径，`2026-11-22 13:05:00`）。
  *
  * 只用于「操作时间/创建时间」这类**带时分秒**的列；业务日期（签订日、结算月）用
- * `common/calc/time` / `formatDay` 那一套，别用这里（会把日期显示成 `00:00:00`）。
+ * `@cms/calc/time` / `formatDay` 那一套，别用这里（会把日期显示成 `00:00:00`）。
  */
 export function formatDateTime(v: unknown, blank = '-'): string {
   if (v === null || v === undefined || v === '') return blank;

@@ -117,10 +117,10 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 - **唯一数据库：PostgreSQL**。模型全在 `server/prisma/schema.prisma`（单一 schema）。
 - 改了 schema 后：
 
-  ```bash
+  ``bash
   cd server
   npx prisma migrate dev --name <描述>   # 生成并应用迁移
-  ```
+  ``
 
 - **禁止 `prisma db push`**：它不会生成迁移文件，会让数据库脱离迁移历史，问题只在别人或生产上暴露。
 - `server/prisma/migrations/20260901000000_init` 是「空库 → 当前 schema」的**折叠基线**：
@@ -256,7 +256,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 - **两条本仓口径写进了 ESLint（2026-11-22 质量审计）**，均为 **error 级**、报错文案直接给修法：
   · `web/eslint.config.mjs`：金额/数量展示只能用 `@/utils/money`（禁止裸 `toLocaleString` ——
     无参写法会把 `1234.5600000000001` 直接印到页面）；
-  · `server/eslint.config.mjs`：列表日期区间只能用 `common/calc/time` 的 `startOfDay/endOfDay`
+  · `server/eslint.config.mjs`：列表日期区间只能用 `@cms/calc/time` 的 `startOfDay/endOfDay`
     （禁止 `new Date(query.endDate)` —— 按 UTC 解析会漏掉当天记录）。
   门禁本身（`npm run lint`、`--max-warnings` 冻结存量）见 §7「静态门禁」。
 
@@ -278,11 +278,11 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   > namespace 同样不支持。
 - 联调/验收脚本（**非单测**，需要先起本地栈，会写数据）：
 
-  ```bash
+  ``bash
   node scripts/e2e-procurement-flow.mjs      # 采购工作流端到端（走前端代理 5173/api）
   node scripts/verify-async-import.js        # 异步导入（>1000 行）验收；环境变量 BASE/ROWS
   node scripts/verify-import-rollback.js     # 导入事务回滚验收；环境变量 ROWS/BAD_ROW
-  ```
+  ``
 
   这些脚本**不在 CI 里跑**（CI 只跑无 DB 的单测 + DB 集成套件）；改动采购工作流时人工跑一遍。
   断言项数随用例增减（脚本末行自己会打印 `N/M 通过`），故不在此写死。
@@ -491,12 +491,12 @@ bash scripts/nas-deploy.sh
   （本机 HTTPS 的 POST 被阻断）。推完 `git status` 可能仍显示 `ahead 1`，需用同址
   `git fetch git@github.com:735876214/Contract-Management.git main:refs/remotes/origin/main` 复核远端。
 - **Prisma 命令的非交互姿势**：`prisma migrate dev` 在非交互 shell 直接拒绝。改完 schema 生成迁移用
-  ```bash
+  ``bash
   npx prisma migrate diff --from-migrations prisma/migrations \
     --to-schema-datamodel prisma/schema.prisma \
     --shadow-database-url "postgresql://cms:***@localhost:15432/cms_shadow?schema=public" \
     --script > prisma/migrations/<时间戳>_<名字>/migration.sql
-  ```
+  ``
   再 `npm run prisma:deploy`。⚠️ **影子库会被这条命令重置**——绝不能指向 `cms_int` 或任何真库
   （迁移历史会被清掉，随后 `migrate deploy` 报 P3005）。
 - **本机 `server/.env` 可有可无**（已 gitignore）：只用 dev 容器时不建也能跑；要**宿主机直跑后端**

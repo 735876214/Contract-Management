@@ -7,8 +7,8 @@
  * 精度由调用方显式传入（合同清单 4 位、收领单总价 2 位、结算合价 2 位），
  * 但舍入实现只有 money.ts 一份。
  */
-import { round } from './money.ts';
-import { num } from './numeric.ts';
+import { round } from './money';
+import { num } from './numeric';
 
 /**
  * 十进制精确乘法 —— 消除 "1.005 × 3" 类 double 边界（前后端共用，零依赖）。

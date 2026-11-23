@@ -21,18 +21,25 @@ WORKDIR /app/server
 # 2026-10 统一的原因：此前 package.json 声明 pnpm@12.3.4 且留有 pnpm-lock.yaml，
 # 但镜像与 CI 实际走 npm 且**没有 npm lockfile** → 依赖版本每次重新解析、构建不可复现；
 # 且 pnpm-lock.yaml 已过期（package.json 于 09-17 改过，锁文件停在 09-14）。
+# 共享计算引擎是 `file:` 依赖（server/package.json 里 `"@cms/calc": "file:../packages/calc"`），
+# npm ci 解析链接时需要它的 package.json 已经就位。
+COPY packages/calc/package.json /app/packages/calc/package.json
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
 
 # ---------- 后端：编译 ----------
 FROM backend-deps AS backend-build
+COPY packages/calc /app/packages/calc
 COPY server/ ./
+# 编译产物（packages/calc/*.js|*.d.ts）随仓库提交，这里由 prebuild 兜底重建：
+# 产物比源码旧就重编（产物新则秒过），保证镜像里 tsc 解析到的 @cms/calc 一定与源码同源。
 RUN ./node_modules/.bin/prisma generate \
  && npm run build
 
 # ---------- 后端：生产依赖（含 prisma CLI，启动时 migrate deploy 必需） ----------
 FROM node:20-slim AS backend-proddeps
 WORKDIR /app/server
+COPY packages/calc/package.json /app/packages/calc/package.json
 COPY server/package.json server/package-lock.json ./
 # 运行时需要 prisma CLI 执行 migrate deploy（见 start.sh）→ prisma 已**正式归入 dependencies**。
 # 2026-10 修正：它原先在 devDependencies，本阶段必须先「临时把 prisma 挪进 dependencies」
@@ -49,13 +56,13 @@ RUN ./node_modules/.bin/prisma generate
 # ---------- 前端：构建 ----------
 FROM node:20-slim AS frontend-build
 WORKDIR /app/web
+# 共享计算引擎 `@cms/calc` 是 web 的 `file:` 依赖：npm ci 前需要 package.json 就位，
+# 装完之后再把源码/产物补全（vite 与 tsc 都从 node_modules 解析，不再读 web/ 之外的相对路径）。
+COPY packages/calc/package.json /app/packages/calc/package.json
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
+COPY packages/calc /app/packages/calc
 COPY web/ ./
-# 前端直接引用后端共用的计算原语（`web/src/**` → `server/src/common/calc/*.ts`）：
-# 本阶段只 COPY 了 web/，这些相对路径 import 会在镜像里解析失败（TS2307）。
-# 把共用计算目录放到与仓库一致的相对位置，保证本地 `npm run build` 与镜像构建同源。
-COPY server/src/common/calc /app/server/src/common/calc
 ENV VITE_API_BASE=/api
 RUN npm run build
 
@@ -81,6 +88,8 @@ COPY --from=backend-proddeps /app/server/node_modules /app/server/node_modules
 COPY --from=backend-build /app/server/dist /app/server/dist
 COPY --from=backend-build /app/server/package.json /app/server/package.json
 COPY --from=backend-build /app/server/prisma /app/server/prisma
+# 运行时 node_modules/@cms/calc 是指向 /app/packages/calc 的软链，产物必须一起进镜像
+COPY --from=backend-build /app/packages/calc /app/packages/calc
 WORKDIR /app/server
 
 # 前端静态产物 + 单容器 nginx 配置 + 启动脚本

@@ -1,4 +1,4 @@
-import { round4 } from '../../common/calc/money.ts';
+import { round4 } from '@cms/calc/money';
 
 /**
  * 合同物资明细的落库映射（**纯函数**，舍入走共享原语）。

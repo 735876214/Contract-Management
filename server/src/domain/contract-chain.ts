@@ -1,5 +1,5 @@
 /**
- * **合同链金额口径的单一事实源**（纯函数，只依赖 `common/calc`）。
+ * **合同链金额口径的单一事实源**（纯函数，只依赖 `@cms/calc`）。
  *
  * 业务口径（2026-10-15 澄清）：
  * > **合同当前金额 = 主合同金额 + 补充协议金额**
@@ -19,7 +19,7 @@
  * `common/` 从此只放**基础设施**（响应/异常/Excel/导入/日志/存储/权限/where 组合器）；
  * 业务口径的纯函数原语统一放 `server/src/domain/`，规矩三条：
  * 1. **owner 写在文件头 + 登记在 `server/src/constants/metrics.ts`**（本文件 owner = `contract`）；
- * 2. **零 DB、零装饰器、只 import `domain/` 邻居或 `common/calc/`**，因此能被 `.mts` spec 与
+ * 2. **零 DB、零装饰器、只 import `domain/` 邻居或 `@cms/calc/`**，因此能被 `.mts` spec 与
  *    **AI 只读子域**（`ai/analytics` / `ai/anomaly` / `ai/analysis`）直接加载——后者**不得**依赖
  *    业务模块（检查器判红），这条约束决定了口径原语**不能**放进 `modules/<owner>/`；
  * 3. 需要读表的链 IO 在 `server/src/query/contract-chain-queries.ts`（只读层），
@@ -30,7 +30,7 @@
  *
  * 相对 import 须带 `.ts` 后缀（.claude/rules/testing.md：零依赖限制已解除，扩展名仍必须写）。
  */
-import { round2 } from '../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 
 /** 链计算所需的合同行（`db.contract.findMany` 的 select 结果形状） */
 export interface ContractChainRow {

@@ -54,6 +54,8 @@ Contract-Management/
 │   ├── src/modules/    # 30 个业务模块
 │   ├── test/           # node:test 纯函数单测（108 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（38 个 spec，需 PostgreSQL：npm run test:int）
+├── packages/calc/      # 前后端共享计算引擎 @cms/calc（file: 依赖；产物入库，CI 查新鲜度）
+│                       #   详见 packages/calc/README.md 与 docs/04 §2.2
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
 ├── mcp/                # 独立 MCP 服务端：外部 AI 经 MCP 协议查询/导出/导入（走既有 /api，复用 RBAC）
 ├── deploy/single/  docker-compose.yml  docker-compose.dev.yml  scripts/  .github/

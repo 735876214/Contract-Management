@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
-import { toDate, localDayKey } from '../../common/calc/time';
+import { toDate, localDayKey } from '@cms/calc/time';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { deriveProcedureAmounts, procedureCodeCandidates } from './amounts';
 import { pickFields } from '../../common/pick-fields';

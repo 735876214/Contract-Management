@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { startOfDay, endOfDay, nextDayStart, formatDay } from '../src/common/calc/time.ts';
+import { startOfDay, endOfDay, nextDayStart, formatDay } from '@cms/calc/time';
 import { dateRange, keywordWhere } from '../src/common/utils/list-where.ts';
 
 /**

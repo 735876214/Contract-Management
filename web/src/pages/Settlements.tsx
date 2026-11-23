@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { withToken } from '../utils/download';
-import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '../../../server/src/common/calc/amounts.ts';
+import { calcPriceWithTax, calcTotalWithTax, sumRounded } from '@cms/calc/amounts';
 import { Alert, Button, Card, Form, Input, Select, Space, Row, Col, InputNumber, DatePicker, Table, Tag } from 'antd';
 import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';

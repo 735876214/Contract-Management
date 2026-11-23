@@ -11,7 +11,7 @@
  *    这样本文件可以对同一份输入反复断言而不涉及浮点格式差异。
  */
 
-import { round2, round4 } from '../../common/calc/money.ts';
+import { round2, round4 } from '@cms/calc/money';
 
 export type RegisterGroup = 'supplier' | 'contract';
 export type RegisterFieldType = 'text' | 'code' | 'date' | 'money' | 'percent' | 'enum';

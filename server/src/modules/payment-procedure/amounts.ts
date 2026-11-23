@@ -4,7 +4,7 @@
  * 为什么单独成文件：这四个数字是**单据留痕**（编制当时的快照），口径错一位就会让单据与台账对不上，
  * 而 service 里全是 Prisma 调用、单测跑不起来。抽出来后 spec 能直接锁住舍入与负值语义。
  */
-import { round2 } from '../../common/calc/money.ts';
+import { round2 } from '@cms/calc/money';
 
 /**
  * 开累结算 / 开累付款 / 未付款。
