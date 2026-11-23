@@ -45,6 +45,12 @@
 - **剩余模块的 DB 集成测试**：`finance` / `auth` / `asset` / `supplier` / `payment`（付款登记本身）
   仍无独立的 `test-integration/*.int.spec.ts`（`finance` 1.4k 行仍是零集成覆盖）。
   照 `procurement-publish.int.spec.ts` 的写法补，首行写 `// @domains: <模块目录名>`。
+- **付款月份空串未被拦**（2026-11-23 补测时发现）：`assertYearMonth()` 对 `null/undefined/''` 统一放行
+  （它同时服务「结算月份可空」的调用方），于是 `createRecord({ payMonth: '' })` 能落库。而台账/看板对
+  `payMonth` 做**字符串精确匹配**——空串行永远不会被任何月份的统计命中，等于"保存成功、账上少一块"。
+  修法：在 `payment.service` 的写入路径上对 `payMonth` 单独要求非空（别改共享助手，会波及结算月份）。
+  证据：`server/test-integration/payment.int.spec.ts` 的 ③ 只覆盖了格式档位，空串档位待补。
+
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。
