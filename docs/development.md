@@ -600,6 +600,10 @@ node scripts/check-import-integrity.mjs
 - 模块级依赖图不允许出现环（Tarjan SCC，当前 0）；
 - `archive` / `ai` 是刻意的聚合器，fan-out 大会被标注，但仍须走公开入口。
 
+`scripts/check-tx-boundaries.mjs`（秒级）锁定**事务边界**：`$transaction` 回调体内不得调用跨域 service、
+不得做外部 IO（HTTP / 文件），超时放宽需写明理由。两处"锁 + 写入"必须同事务的位置登记在
+[.claude/rules/backend-conventions.md](../.claude/rules/backend-conventions.md) 的「不可拆事务清单」。
+
 新增跨模块符号时，**同时**加进该模块 `index.ts`。完整约定见
 [.claude/rules/module-boundaries.md](../.claude/rules/module-boundaries.md)。
 

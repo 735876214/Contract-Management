@@ -322,8 +322,14 @@ export class SettlementLedgerService {
       await this.pruneEmptyLedgerRows(exec, contractId);
     };
     // 整体放在一个事务里：清空与重挂之间不能有窗口（否则中途失败会留下"全部无关联"的台账）
+    /**
+     * 超时口径（2026-11-23）：原为 `timeout: 30000`，没有理由说明。
+     * 事务体是"清关联 → 逐月 upsert → 剪空行"，语句数随该合同的**月份数**线性增长（实测个位数月份），
+     * 默认 5s 足够；收紧到 15s + `maxWait` 5s，避免单连接长事务长期占连接。
+     * 若将来出现月份数极多的合同导致超时，应改为分批（每批一个事务）而不是把超时调回去。
+     */
     if (tx) await run(tx);
-    else await this.prisma.$transaction(async (t) => run(t), { timeout: 30000 });
+    else await this.prisma.$transaction(async (t) => run(t), { maxWait: 5000, timeout: 15000 });
 
     return months.size;
   }

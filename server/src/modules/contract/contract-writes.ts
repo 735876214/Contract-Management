@@ -34,6 +34,21 @@ export async function updateContractFundingParams(
 }
 
 /**
+ * 按 id 批量删除合同行（采购批量生成失败时回滚用）。
+ *
+ * ⚠️ 级联口径由 owner 决定：`ContractAttachment` / `ContractChangeLog` / `ContractMaterial` /
+ * `Settlement` / `Invoice` / `FinalSettlement` 等均为 `onDelete: Cascade`，删主行会连带清掉；
+ * 但 `DailyReport.contractId` 与 `RepaymentAgreement.contractId` 是 **Restrict**——
+ * 合同一旦产生日报或还款协议就删不掉（抛 P2003）。这是刻意的：有业务数据的合同不该被静默抹掉，
+ * 调用方必须把异常记下来，不能吞。
+ */
+export async function deleteContractsByIds(db: Db, ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const r = await db.contract.deleteMany({ where: { id: { in: ids } } });
+  return r.count;
+}
+
+/**
  * 删除某采购任务下**自动生成**的合同（采购成交报告退回时清孤儿）。
  * 只按 `taskId` 匹配——调用方已在状态机守卫里确认这些合同仍是草稿态。
  */

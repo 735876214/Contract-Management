@@ -200,6 +200,39 @@
   保证表头金额 = Σ 明细合价）；生成时「单头 + 明细 + 收领单回挂」在同一事务内，失败不留孤儿结算单。
   ⚠️ 它是**手动按钮**触发的（仓库不引入调度器），前端另有「上一期未生成」提示。
   锁定：`settlementPeriod.spec.mts` + `settlementFromDaily.spec.mts` + `test-integration/settlement-period-link.int.spec.ts`。
+
+## 事务边界（2026-11-23 定的口径）
+
+门禁：`node scripts/check-tx-boundaries.mjs`（CI + `verify-module`；带 `--self-test`）。
+
+### 允许 / 不允许
+
+- **只做数据库操作**：`$transaction` 回调里除了传进来的 `tx`，不要再做别的。
+- **禁止 `await this.<x>Service.method()`**：跨域 service 塞进事务 = 长事务 + 隐式耦合；
+  对方内部随时可能再开事务或发通知，范围失控。需要跨模块写表 → 用 owner 导出的
+  **无状态写入原语**（第一个参数是事务句柄），见 [module-boundaries.md](module-boundaries.md) §3.2。
+- **禁止外部 IO**（HTTP / 文件读写 / 生成下载）：耗时不可控，期间一直持有连接与行锁；
+  Prisma 交互式事务在 PostgreSQL 上是**单连接长事务**，慢 IO 会把连接池打穿。
+  导出/落盘一律放在事务**提交之后**（或走 `RunOptions.afterCommit`）。
+
+### 超时口径
+
+- 默认（`maxWait` 2s / `timeout` 5s）优先；**必须显式放宽时**写清理由，并同时给 `maxWait`。
+- 当前两处放宽到 15s 的全部在这两处：`invoice.service.ts`（红冲票 + 作废原票同事务）、
+  `settlement-ledger.service.ts`（清关联 → 逐月 upsert → 剪空行，语句数随月份数增长）。
+- 若因数据量超时，**先改分批（每批一个事务），不要靠调大 timeout 硬扛**。
+
+### 不可拆事务清单（拆了会静默失去正确性）
+
+这两处的事务范围**本身承载语义**，不要"优化"成两个事务或把锁挪到事务外：
+
+| 位置 | 为什么不能拆 |
+|---|---|
+| `settlement.service.ts` 的 `pg_advisory_xact_lock('settlement-period', …)` | 咨询锁**随事务提交/回滚自动释放**；拆成两个事务后，锁在写入前就释放，跨期并发的互斥失效（无报错、只是偶尔重复生成） |
+| `common/services/import-task.service.ts` 的导入去重锁 | 同上：锁与"检查是否已导入 + 写任务行"必须同事务，否则并发导入会双写 |
+
+新增这类"锁 + 写入"组合时，同样要写在同一事务里，并在本表登记。
+
 - **导入的收尾动作走 `RunOptions.afterCommit`**：发票导入后要挂结算单并刷台账，而这件事必须**读得到刚提交的数据**
   （事务内读不到未提交行）→ 写在 runner 的 `afterCommit`（同步与异步两条导入路径都覆盖），
   且失败**只记日志、不改变导入结果**（数据已提交，"少刷一次台账"比把导入标成失败轻得多）。

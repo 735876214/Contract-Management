@@ -6,7 +6,7 @@ import { round2 } from '../../common/calc/money';
 import { paginate, buildResult, assertVersion, versionedUpdate } from '../../common/utils/helpers';
 import { ExcelService } from '../../common/services/excel.service';
 import { ImportTemplateService } from '../../common/services/import-template.service';
-import { ContractService } from '../contract';
+import { ContractService, deleteContractsByIds } from '../contract';
 import { updateMaterialBaseUnit } from '../material';
 import {
   STAGE_KEYS,
@@ -814,11 +814,17 @@ export class ProcurementTaskService {
         }
       }
     } catch (err) {
-      // 任务 6：批量生成任一失败则回滚已生成的合同，避免产生残缺多合同
+      // 任务 6：批量生成任一失败则回滚已生成的合同，避免产生残缺多合同。
+      // 删合同是 contract 模块的语义（级联清附件/变更日志/清单，遇到日报或还款协议则 Restrict 拒删），
+      // 因此走它的写入原语，不再由本模块直写合同表（2026-11-23 门禁修复）。
       if (created.length) {
-        await this.prisma.contract
-          .deleteMany({ where: { id: { in: created.map((c) => c.id) } } })
-          .catch(() => undefined);
+        try {
+          await deleteContractsByIds(this.prisma, created.map((c) => c.id));
+        } catch (cleanupErr) {
+          // 回滚是**尽力而为**：合同已挂日报/还款协议时删不掉，只能把残缺合同暴露在日志里。
+          // （原实现是 `.catch(() => undefined)`，连失败都看不见。）
+          console.error('[采购任务] 回滚已生成合同失败，需人工清理：', created.map((c) => c.id), cleanupErr);
+        }
       }
       throw err;
     }
