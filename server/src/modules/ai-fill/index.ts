@@ -4,6 +4,7 @@
  * 其他模块只允许 `from '../ai-fill/index.ts'`；直接引内部文件会被 `scripts/check-module-boundaries.mjs` 判为越界。
  * 下面只导出**别的模块真正需要的符号**（按调用方实际 import 生成，不是 export *）。
  */
+export { AiFillModule } from './ai-fill.module.ts';
 
 export { FulfillmentService } from './fulfillment/fulfillment.service.ts';
 export type { FulfillmentAnomalyQuery } from './fulfillment/fulfillment.service.ts';

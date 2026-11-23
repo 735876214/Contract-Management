@@ -20,6 +20,10 @@ export {
   archiveReceiptScans,
 } from './archive-queries';
 
+export { loadAnomalyChainChildren, loadAnomalyChainParent, loadAnomalyChainSeed, loadAnomalyRows } from './ai-anomaly-queries';
+
+export { loadAiDatasetBundle, loadAiProjectCoreGroups, loadAiScopedProjects } from './ai-dataset-queries';
+
 export {
   countDailyReports,
   loadContractChainFacts,
