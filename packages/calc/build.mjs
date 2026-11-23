@@ -16,7 +16,7 @@
  * 已有产物且比源码新时直接跳过（本地 `npm test` 不重复编译）。
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, rmSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,6 +47,27 @@ const stale = srcFiles.some((f) => {
   const out = path.join(HERE, f.replace(/\.ts$/, '.js'));
   return !existsSync(out) || statSync(out).mtimeMs < newestSrc;
 });
+/**
+ * **在仓库根建 node_modules/@cms/calc 软链**（幂等）。
+ *
+ * 为什么需要（2026-11-23 CI 实测）：server/test/frontendChainParity.spec.mts 会 import
+ * web/src/utils/*.ts，而这些 web 文件自身 import '@cms/calc' —— Node 从**那个文件**的目录
+ * 开始向上找 node_modules。CI 的 server job 只跑了 server 的 npm ci，web/node_modules 不存在，
+ * 于是解析失败（本地因为装过 web 依赖，看不出来）。
+ * 根软链让「从任意目录向上找」都命中同一个包，与某个消费方装没装依赖无关。
+ */
+const rootScope = path.join(HERE, '../../node_modules/@cms');
+try {
+  mkdirSync(rootScope, { recursive: true });
+  const rootLink = path.join(rootScope, 'calc');
+  if (!existsSync(rootLink)) {
+    symlinkSync(path.join('..', '..', 'packages', 'calc'), rootLink, 'junction');
+    console.log('[calc] 已建立仓库根软链 node_modules/@cms/calc');
+  }
+} catch (e) {
+  console.warn('[calc] 跳过根软链（非致命）：' + e.message);
+}
+
 const force = process.argv.includes('--force');
 if (!stale && !force) {
   console.log('[calc] 产物已是最新，跳过编译');
@@ -60,4 +81,7 @@ if (!tsc) {
 }
 
 execFileSync(process.execPath, [tsc, '-p', path.join(HERE, 'tsconfig.json')], { stdio: 'inherit' });
+execFileSync(process.execPath, [tsc, '-p', path.join(HERE, 'tsconfig.json')], { stdio: 'inherit' });
 console.log('[calc] 编译完成 → packages/calc/*.js + *.d.ts');
+
+
