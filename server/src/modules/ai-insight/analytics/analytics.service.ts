@@ -11,15 +11,17 @@ import type { AiAnalyticsPlanInput } from '../intent/intent.types.ts';
 import { IntentService } from '../intent/intent.service.ts';
 import { AiSettingService } from '../../ai-core/ai-setting.service.ts';
 import { AiQuota } from '../../ai-core/ai-quota.ts';
-import { chatJson, chatText, LlmError } from '../../ai-core/llm-client.ts';
+import { chatJson, chatText, LlmError, streamChat, type LlmMessage } from '../../ai-core/llm-client.ts';
 import { aiModelFor } from '../../ai-core/ai-config.ts';
-import type { AiAnalyticsFacts, AiAnalyticsIntent, AiAnalyticsPlanResult } from '../../ai-core/dataset/analytics.types.ts';
+import type { AiAnalyticsFacts, AiAnalyticsIntent, AiAnalyticsPlanResult, AiCollectedDataset } from '../../ai-core/dataset/analytics.types.ts';
 import { DatasetCollector } from './dataset-collector.service.ts';
 import { AnalyticsStore } from './analytics-store.service.ts';
 import { ReportService } from '../report.service.ts';
 import { analyticsFactNumbers, analyticsFactsToMarkdown, analyticsTitle, buildAnalyticsFacts, buildNarratedReport, reportPresentation } from './dataset-facts.ts';
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt.ts';
 import { buildChatAnswer, buildChatAnswerMessages, chatFallbackAnswer } from './chat-answer.ts';
+import { CHAT_TOOLS, executeChatTool, type ChatToolContext } from './chat-tools.ts';
+import { numbersInText } from '../report-facts.ts';
 import { buildAnalyticsWorkbookModel } from './workbook-builder.ts';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod } from '../../ai-core/common/period.ts';
 import type { DayRange } from '../../ai-core/common/period.ts';
@@ -301,7 +303,10 @@ export class AnalyticsService {
    * 为什么不并进 `report()`：两者配额语义与失败兜底不同——报告失败要退回确定性报告（仍有产物），
    * 问答失败要退回事实摘要并退还配额；硬揉成一个方法会让两条路径的分支互相污染。
    */
-  async ask(body: AiAnalyticsPlanInput, projectId: string, user: JwtUser) {
+  /** 问数的公共前半段（ask 与 streamAsk 共用）：权限 → 配额 → 意图 → 期间 → 事实包。
+   * 抽出来是因为「非流式」与「流式」只差叙述方式，前半段重复两遍等于两套取数口径。
+   */
+  private async prepareAsk(body: AiAnalyticsPlanInput, projectId: string, user: JwtUser) {
     assertPermission(user, 'ai:use', '使用 AI 问数需要「使用 AI 助手」权限');
     const question = String(body?.text ?? '').trim();
     if (!question) throw new BadRequestException('请输入问题');
@@ -338,6 +343,12 @@ export class AnalyticsService {
     }
 
     const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
+    return { question, cfg, userId, plan, range, cmpRange, facts, scopeLabel, periodLabel };
+  }
+
+  async ask(body: AiAnalyticsPlanInput, projectId: string, user: JwtUser) {
+    const prep = await this.prepareAsk(body, projectId, user);
+    const { question, cfg, userId, plan, range, facts, scopeLabel, periodLabel } = prep;
     const warnings = [...facts.warnings];
     let answer = '';
     let discarded: string[] = [];
@@ -428,6 +439,189 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * **AI 问数（P3-B）：流式 + 只读工具循环。**
+   *
+   * 与 `ask()` 共用前半段（`prepareAsk`），差异只在叙述方式与工具：
+   * - 用 `streamChat` 逐块吐字（前端边收边显示，长回答不再干等 20 秒）；
+   * - 最多 2 轮「模型请求工具 → 后端执行 → 把结果作为 tool 消息喂回」；
+   * - **工具返回文本里的数字并入对账白名单**（`allowedNumbers`），否则模型复述工具结果会被误判编造；
+   * - 最终答案仍过 `buildChatAnswer`：对不上就整段作废、退回事实汇总，并通过 `final` 事件把
+   *   「作废」这件事告诉前端（前端必须用 final 覆盖已流出的文字，不能让用户以为那是结论）。
+   *
+   * 事件序列：`phase`（planning/answering/tool）→ `delta` × N → `final` → `done`；异常走 `error`。
+   */
+  async streamAsk(
+    body: AiAnalyticsPlanInput,
+    projectId: string,
+    user: JwtUser,
+    emit: (event: string, data: unknown) => void,
+  ) {
+    emit('phase', { phase: 'planning', message: '解析问题并取数…' });
+    const prep = await this.prepareAsk(body, projectId, user);
+    const { question, cfg, userId, plan, facts, scopeLabel, periodLabel } = prep;
+    const warnings = [...facts.warnings];
+    emit('phase', { phase: 'collected', scopeLabel, periodLabel, datasets: facts.datasets.map((d) => d.key) });
+
+    const availableDatasets = facts.datasets.map((d) => d.key);
+    const allowedNumbers: number[] = [];
+    const toolTrace: Array<{ name: string; ok: boolean; label: string }> = [];
+
+    const toolCtx: ChatToolContext = {
+      availableDatasets,
+      /** 工具取数：只允许注册表内 + 用户有权限的数据集（`allowedDatasetKeys`） */
+      collectDataset: async (datasetKey: string) => {
+        if (!this.allowedDatasetKeys(user).has(datasetKey)) return null;
+        const collected = await this.collector.collect(plan.projects, prep.range as DayRange, null, [datasetKey]);
+        const ds = collected.datasets.find((d) => d.key === datasetKey);
+        if (!ds) return null;
+        return { rowCount: ds.rows.length, text: this.renderDatasetText(ds) };
+      },
+    };
+
+    const messages: LlmMessage[] = buildChatAnswerMessages({ facts, question, scopeLabel, periodLabel });
+    messages[0].content = `${messages[0].content}`;
+    // 工具说明附在 system 末尾：告诉模型「已有数据集」与「工具是只读的」
+    messages[0] = {
+      role: 'system',
+      content:
+        `${messages[0].content}\n\n## 可用工具（只读）\n` +
+        `- read_context(doc)：读状态码/采购工作流/指标口径；\n` +
+        `- query_dataset(datasetKey)：按注册表取数，范围与期间沿用本次询问。\n` +
+        `已在事实清单里的数据集：${availableDatasets.join('、') || '（无）'}。` +
+        '只有事实清单不足以回答时才调用工具；工具结果里的数字可以引用，**不要据此再计算**。',
+    };
+
+    const MAX_ROUNDS = 2;
+    let finalRaw = '';
+    let usage: { promptTokens?: number; completionTokens?: number } | null = null;
+
+    try {
+      for (let round = 1; round <= MAX_ROUNDS; round += 1) {
+        emit('phase', { phase: 'answering', round });
+        const res = await streamChat(
+          globalThis.fetch as any,
+          {
+            baseUrl: cfg.baseUrl,
+            apiKey: cfg.apiKey,
+            model: aiModelFor(cfg, 'report'),
+            timeoutMs: Math.min(Math.max(cfg.timeoutMs, 60000), 120000),
+            temperature: 0.2,
+            maxTokens: Math.min(cfg.maxTokens, 1200),
+          },
+          messages,
+          { tools: CHAT_TOOLS, onDelta: (chunk) => emit('delta', { text: chunk }) },
+        );
+        usage = res.usage ?? usage;
+        finalRaw = res.text || finalRaw;
+        if (!res.toolCalls.length) break;
+
+        // 每轮最多执行 2 个工具调用（防一次刷出十几个把一轮对话拖爆）
+        const calls = res.toolCalls.slice(0, 2);
+        messages.push({
+          role: 'assistant',
+          content: res.text || '',
+          tool_calls: calls.map((c) => ({
+            id: c.id,
+            type: 'function' as const,
+            function: { name: c.name, arguments: c.arguments },
+          })),
+        });
+        for (const call of calls) {
+          emit('tool', { name: call.name, arguments: call.arguments });
+          const out = await executeChatTool(call.name, call.arguments, toolCtx);
+          toolTrace.push({ name: call.name, ok: out.ok, label: out.label });
+          allowedNumbers.push(...numbersInText(out.text));
+          messages.push({ role: 'tool', tool_call_id: call.id, content: out.text.slice(0, 8000) });
+        }
+      }
+    } catch (e) {
+      this.quota.refund(userId);
+      const msg = e instanceof LlmError ? e.message : String((e as any)?.message || e);
+      const fallback = chatFallbackAnswer(facts, `AI 回答失败，以下是本期间的事实汇总：${msg}`);
+      emit('final', { accepted: false, answer: fallback, discardedNumbers: [], warnings: [`AI 回答失败：${msg}`] });
+      return { id: null, persisted: false, question, answer: fallback, accepted: false, discardedNumbers: [], toolTrace, warnings: [`AI 回答失败：${msg}`] };
+    }
+
+    const built = buildChatAnswer(facts, finalRaw, question, allowedNumbers);
+    if (!built.accepted) this.quota.refund(userId);
+    warnings.push(...built.warnings);
+    if (toolTrace.length) {
+      warnings.push(`本轮调用了 ${toolTrace.length} 次只读工具：${toolTrace.map((t) => t.label).join('；')}`);
+    }
+    emit('final', {
+      accepted: built.accepted,
+      answer: built.answer,
+      discardedNumbers: built.discarded,
+      warnings: [...new Set(warnings)],
+      toolTrace,
+    });
+
+    const title = question.slice(0, 60);
+    const factsForStore = {
+      ...facts,
+      datasets: facts.datasets.map((d) => ({ ...d, rows: d.rows.slice(0, 200) })),
+      /** 工具调用轨迹（P3-B）：没有新列，放这里与事实快照同生共死 */
+      toolTrace,
+    };
+    let id: string | null = null;
+    let persisted = true;
+    try {
+      const row = await this.store.create(
+        this.recordPayload({
+          projectId,
+          user,
+          plan,
+          facts,
+          range: prep.range as DayRange,
+          periodLabel,
+          title,
+          warnings,
+          factsForStore,
+          source: built.accepted ? 'llm' : 'template',
+          markdown: built.answer,
+          hasReport: false,
+          discardedNumbers: built.discarded,
+          answerMode: 'chat',
+        }),
+      );
+      id = row.id;
+    } catch {
+      persisted = false;
+    }
+    return {
+      id,
+      persisted,
+      question,
+      answer: built.answer,
+      accepted: built.accepted,
+      discardedNumbers: built.discarded,
+      toolTrace,
+      scopeLabel,
+      periodLabel,
+      datasetKeys: plan.intent.datasets,
+      warnings: [...new Set(warnings)],
+      usage,
+    };
+  }
+
+  /** 数据集 → 给模型看的紧凑 markdown（最多 50 行；完整明细请用工作簿） */
+  private renderDatasetText(ds: AiCollectedDataset): string {
+    const cols = ds.columns ?? [];
+    const rows = ds.rows.slice(0, 50);
+    const head = `# 数据集 ${ds.key}（共 ${ds.totalRows ?? ds.rows.length} 行${ds.truncated ? '，已截断' : ''}）`;
+    const lines = [head, ''];
+    if (cols.length && rows.length) {
+      lines.push('| ' + cols.join(' | ') + ' |', '| ' + cols.map(() => '---').join(' | ') + ' |');
+      for (const r of rows) {
+        lines.push('| ' + cols.map((c) => String((r as any)?.[c] ?? '')).join(' | ') + ' |');
+      }
+    } else {
+      lines.push('（本期间该数据集没有数据行）');
+    }
+    if (ds.summary) lines.push('', ds.summary);
+    return lines.join('\n');
+  }
   /** 记录列表（问答历史走 `answerMode=chat` 过滤，与报告历史共用一张表与一套可见性规则） */
   listRecords(user: JwtUser, query: any) {
     return this.store.list(user, query || {});

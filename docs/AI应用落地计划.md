@@ -256,7 +256,17 @@ POST /api/ai/anomaly/payment/notify              -> 落 Notification(bizType='AI
 | 失败兜底 | 模型失败/编造数字 → 退回**程序直出的事实汇总**，并把对不上的数字交给前端展示 |
 | 写操作 | **不做**。唯一允许的「产出」是文件（走既有 `ai-fill`，不落库） |
 
-**P3-B（进行中）**：SSE 流式 + 只读工具循环（`query_dataset` / `read_context`），工具结果同样注入事实包并对账。
+**P3-B 流式 + 只读工具（已落地）**：`POST /api/ai/chat/ask/stream`（SSE）。
+
+- 事件序列 `phase` → `delta`×N → `final` → `done`（异常 `error`），15s 心跳防代理掐断；
+- 只读工具两个：`read_context`（读口径文档，与 MCP resources 同一份正文）、
+  `query_dataset`（按注册表取数，走 `DatasetCollector`，受 `allowedDatasetKeys` 权限过滤）；
+- 最多 2 轮工具循环、每轮最多 2 个调用；**工具返回文本里的数字并入对账白名单**，
+  否则模型复述工具结果会被误判编造；
+- 最终答案仍过 `buildChatAnswer`；**前端必须用 `final` 覆盖已流出的文字**——
+  对账不通过时正文会换成程序直出的事实汇总，不覆盖等于把作废内容当结论；
+- 流式请求带 `x-raw-response: 1`（否则 ResponseInterceptor 会用 JSON 包装破坏 SSE）；
+- 前端在流式不可用时自动退回非流式 `/chat/ask`（代理缓冲/老网关场景）：宁可慢，不能白问。
 
 **P3-C 写操作草案确认（明确暂缓，不做）**：
 - 与现行口径冲突：本仓现状是「AI 一期不落任何业务数据，最坏结果是下载到一个错的表」；

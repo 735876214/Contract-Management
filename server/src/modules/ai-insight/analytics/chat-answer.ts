@@ -89,6 +89,12 @@ export function buildChatAnswer(
   facts: AiAnalyticsFacts,
   raw: string,
   question = '',
+  /**
+   * 额外放行的数字：来自**工具返回的事实文本**（P3-B）。
+   * 工具结果是后端算的、已展示给用户，所以模型复述它不算编造；
+   * 但只放行工具原文里出现过的数字——不接受模型自己拼接的数。
+   */
+  extraNumbers: number[] = [],
 ): ChatAnswerResult {
   const answer = sanitizeAnswer(raw);
   if (!answer) {
@@ -99,7 +105,7 @@ export function buildChatAnswer(
       warnings: ['模型返回空回答，已改为事实摘要'],
     };
   }
-  const allowed = [...analyticsFactNumbers(facts), ...numbersInText(question)];
+  const allowed = [...analyticsFactNumbers(facts), ...numbersInText(question), ...extraNumbers];
   const audit = auditNumbers(answer, allowed);
   if (audit.unknown.length) {
     const shown = audit.unknown.slice(0, 5).join('、');

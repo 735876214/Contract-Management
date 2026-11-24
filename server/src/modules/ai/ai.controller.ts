@@ -15,7 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { AiService, AnalyticsService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
-import { listContextDocs, renderContextDoc } from './context-catalog.ts';
+import { listContextDocs, renderContextDoc } from '../ai-insight/index.ts';
 import { AiSettingService } from '../ai-core/ai-setting.service.ts';
 import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
 import { RegisterService, type RegisterConfirmInput } from '../ai-fill/index.ts';
@@ -182,6 +182,53 @@ export class AiController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.ai.ask(body || {}, projectId, user);
+  }
+
+  /**
+   * **问数（流式）**：SSE，事件序列 `phase` → `delta`×N → `final` → `done`（异常 `error`）。
+   *
+   * 为什么流式：一次问数要 5~20 秒（取数 + 两次上游调用），非流式体验是「点了没反应」。
+   *
+   * ⚠️ 前端必须**用 `final` 事件的正文覆盖已流出的文字**：`delta` 出的是模型原文，
+   * 对账不通过时会被整段作废，最终正文换成程序直出的事实汇总——
+   * 不覆盖就会让用户把作废的内容当成结论。
+   *
+   * 与非流式 `/chat/ask` 共用 `prepareAsk()`（同一套取数口径），差异只在叙述方式与工具循环。
+   */
+  // @body: typed=inline
+  @RequirePermissions('ai:use')
+  @Post('chat/ask/stream')
+  async askStream(
+    @Body() body: { text?: string; scope?: any; period?: any; datasets?: string[]; compare?: string; notes?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    // nginx 默认会缓冲 SSE，关掉它（与 deploy/nginx 的 proxy_buffering 同口径）
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const emit = (event: string, data: unknown): void => {
+      if (res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    // 心跳：取数阶段可能十几秒没有 delta，没有心跳会被中间代理掐断
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': ping\n\n');
+    }, 15000);
+
+    try {
+      const result = await this.ai.streamAsk(body || {}, projectId, user, emit);
+      emit('done', result);
+    } catch (e: any) {
+      emit('error', { message: e?.message || '问数失败' });
+    } finally {
+      clearInterval(heartbeat);
+      if (!res.writableEnded) res.end();
+    }
   }
 
   /** 问答历史（只回问答记录：`answerMode` 由服务端强制为 chat，不接受客户端传入） */

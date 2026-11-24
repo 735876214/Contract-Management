@@ -13,8 +13,24 @@
  */
 
 export interface LlmMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** 仅 `role='assistant'` 发起工具调用时携带（OpenAI 兼容形状，原样回给上游） */
+  tool_calls?: LlmToolCallPayload[];
+  /** 仅 `role='tool'`：对应哪一次工具调用 */
+  tool_call_id?: string;
+}
+
+/** 工具定义（OpenAI `tools` 形状；本项目只用 function 一类） */
+export interface ChatToolDef {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+export interface LlmToolCallPayload {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
 }
 
 export interface LlmOptions {
@@ -267,3 +283,151 @@ export function stripFence(text: string): string {
   return (m ? m[1] : raw).trim();
 }
 
+/**
+ * **流式调用**（P3-B）：`stream: true` + 逐块回调，可选 `tools`。
+ *
+ * 为什么要自己解 SSE：仓库不引 SDK（见文件头）。SSE 帧格式固定（`data: {...}\n\n`），
+ * 解析 20 行足够，不值得为它加一个依赖。
+ *
+ * 三个必须守住的点：
+ * 1. **总超时**：用 `AbortController` 兜底，避免上游挂住事件循环；
+ * 2. **增量拼接**：`delta.content` 可能被切成任意片段（半个汉字、半个数字都遇到过），
+ *    所以只做字符串拼接、**不在流式过程中解析数字**；
+ * 3. **tool_calls 按 index 累积**：OpenAI 兼容实现把 `id/name/arguments` 分批下发，
+ *    必须按 `index` 合并，否则会拿到残缺的 JSON 参数。
+ */
+export async function streamChat(
+  fetchImpl: typeof fetch,
+  opts: LlmOptions,
+  messages: LlmMessage[],
+  streamOpts: {
+    tools?: ChatToolDef[];
+    onDelta?: (chunk: string) => void;
+  } = {},
+): Promise<{
+  text: string;
+  toolCalls: Array<{ id: string; name: string; arguments: string }>;
+  usage?: { promptTokens?: number; completionTokens?: number };
+  finish?: string;
+}> {
+  const url = chatCompletionsUrl(opts.baseUrl);
+  if (!url || !opts.apiKey || !opts.model) {
+    throw new LlmError('AI 未配置（缺少接口地址 / API Key / 模型名，请到「系统管理 → AI 信息登记」填写）', 'NOT_CONFIGURED');
+  }
+  const budget = Math.max(1000, opts.timeoutMs);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budget);
+  const body: Record<string, unknown> = {
+    ...buildChatBody(opts, messages, false),
+    stream: true,
+  };
+  if (streamOpts.tools?.length) body.tools = streamOpts.tools;
+
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new LlmError(`AI 上游返回 ${res.status}：${detail.slice(0, 300)}`, 'HTTP', res.status);
+    }
+    /**
+     * 判「上游到底流了没有」要看 **Content-Type**，不能看 `res.body` 是否有值——
+     * JSON 响应同样带 body，按 body 判会把整段 JSON 当成 SSE 去分帧，结果 parsed 出空字符串，
+     * 表现为「模型有回答但前端一个字都看不到」（这条是写完测试才发现的）。
+     */
+    const contentType = String(res.headers?.get?.('content-type') ?? '');
+    if (contentType && !/event-stream/i.test(contentType)) {
+      const raw = await res.text();
+      let content = '';
+      let usage: { promptTokens?: number; completionTokens?: number } | undefined;
+      try {
+        const parsed: any = JSON.parse(raw);
+        content = String(parsed?.choices?.[0]?.message?.content ?? '');
+        usage = { promptTokens: parsed?.usage?.prompt_tokens, completionTokens: parsed?.usage?.completion_tokens };
+      } catch {
+        content = raw; // 纯文本响应：原样当正文，也好过返回空
+      }
+      if (content) streamOpts.onDelta?.(content);
+      return { text: content, toolCalls: [], usage };
+    }
+    if (!res.body) {
+      throw new LlmError('AI 上游返回了空响应（既不是流也不是 JSON）', 'HTTP');
+    }
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let text = '';
+    let finish: string | undefined;
+    let usage: { promptTokens?: number; completionTokens?: number } | undefined;
+    const toolAcc = new Map<number, { id: string; name: string; arguments: string }>();
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE 以空行分帧；保留最后一个不完整帧在 buffer 里
+      let idx = buffer.indexOf('\n\n');
+      while (idx >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        idx = buffer.indexOf('\n\n');
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          let chunk: any;
+          try {
+            chunk = JSON.parse(payload);
+          } catch {
+            continue; // 上游偶发心跳/非 JSON 行，跳过而不是整次失败
+          }
+          const choice = chunk?.choices?.[0];
+          const delta = choice?.delta;
+          const piece = typeof delta?.content === 'string' ? delta.content : '';
+          if (piece) {
+            text += piece;
+            streamOpts.onDelta?.(piece);
+          }
+          if (Array.isArray(delta?.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = typeof tc?.index === 'number' ? tc.index : 0;
+              const cur = toolAcc.get(i) ?? { id: '', name: '', arguments: '' };
+              if (tc?.id) cur.id = String(tc.id);
+              if (tc?.function?.name) cur.name += String(tc.function.name);
+              if (tc?.function?.arguments) cur.arguments += String(tc.function.arguments);
+              toolAcc.set(i, cur);
+            }
+          }
+          if (choice?.finish_reason) finish = String(choice.finish_reason);
+          if (chunk?.usage) {
+            usage = {
+              promptTokens: chunk.usage.prompt_tokens,
+              completionTokens: chunk.usage.completion_tokens,
+            };
+          }
+        }
+      }
+    }
+
+    return {
+      text,
+      toolCalls: [...toolAcc.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, v]) => ({ id: v.id || `call_${Math.random().toString(36).slice(2, 10)}`, name: v.name, arguments: v.arguments || '{}' }))
+        .filter((c) => c.name),
+      usage,
+      finish,
+    };
+  } catch (e: any) {
+    if (e instanceof LlmError) throw e;
+    if (e?.name === 'AbortError') throw new LlmError(`AI 流式调用超时（>${Math.round(budget / 1000)}s）`, 'TIMEOUT');
+    throw new LlmError(`AI 流式调用失败：${e?.message || '网络异常'}`, 'HTTP');
+  } finally {
+    clearTimeout(timer);
+  }
+}

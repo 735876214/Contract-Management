@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CONTEXT_DOC_MAP, listContextDocs, renderContextDoc } from '../src/modules/ai/context-catalog.ts';
+import { CONTEXT_DOC_MAP, listContextDocs, renderContextDoc } from '../src/modules/ai-insight/context-catalog.ts';
 import { METRICS } from '../src/constants/metrics.ts';
 import * as FLOW from '../src/constants/procurementFlow.ts';
 import * as STATUSES from '../src/constants/statuses.ts';
