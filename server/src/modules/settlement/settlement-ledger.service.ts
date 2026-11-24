@@ -671,7 +671,7 @@ export class SettlementLedgerService {
       contractChainAmount(this.prisma, contractId),
       chainSettledTotal(this.prisma, contractId),
     ]);
-    const ratioPct = chainAmount && chainAmount > 0 ? Number(((chainSettled / chainAmount) * 100).toFixed(2)) : null;
+    const ratioPct = chainAmount && chainAmount > 0 ? round2((chainSettled / chainAmount) * 100) : null;
     const TIERS: [string, (pct: number) => boolean][] = [
       ['未超100%', (p) => p <= 100],
       ['100%-110%', (p) => p > 100 && p <= 110],

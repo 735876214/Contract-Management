@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '@cms/calc/numeric';
+import { round4 } from '@cms/calc/money';
 import { localDayKey } from '@cms/calc/time';
 import { groupSumByMonth, monthSequence } from '@cms/calc';
 import { resolveChainAmounts, chainAmountsByRoot, indexContractRows } from '../../domain/contract-chain';
@@ -60,8 +61,8 @@ export class DashboardService {
       loadOverviewTotals(this.prisma, projectId),
     ]);
     const chains = chainAmountsByRoot(contractRows);
-    /** 金额列统一「NULL → 0，两位小数」，与原先 `Number(sumBy(...).toFixed(2))` 同口径 */
-    const money = (v: unknown) => Number((num(v) || 0).toFixed(2));
+    /** 金额列统一「NULL → 0，保留 4 位」，舍入走 calc.round4（与台账/结算同一实现） */
+    const money = (v: unknown) => round4(num(v) || 0);
     return {
       /** 合同**行数**（含补充协议）：与「合同数量」卡片口径一致，未变 */
       contractCount: contractRows.length,
@@ -129,14 +130,14 @@ export class DashboardService {
     for (const [rootId, chain] of chains) {
       const bucket = bucketOf(String(rowById.get(rootId)?.typeCode ?? ''));
       bucket.chainCount += 1;
-      bucket.amount = Number((bucket.amount + (chain.currentAmount ?? 0)).toFixed(2));
+      bucket.amount = round4(bucket.amount + (chain.currentAmount ?? 0));
     }
     return [...acc.entries()]
       .map(([typeCode, v]) => ({
         typeCode,
         count: v.count,
         chainCount: v.chainCount,
-        amount: Number((v.amount || 0).toFixed(2)),
+        amount: round4(v.amount || 0),
       }))
       .sort((a, b) => b.amount - a.amount || String(a.typeCode).localeCompare(String(b.typeCode)));
   }
@@ -145,7 +146,7 @@ export class DashboardService {
     // 按类型只统计有效发票（作废/红冲不计入金额与张数）；状态分布保留全部状态——两份 where 都在查询层
     const { byType, byStatus } = await loadInvoiceStatsGroups(this.prisma, projectId);
     return {
-      byType: byType.map((i: any) => ({ typeCode: i.typeCode, count: i._count._all, amount: Number((num(i._sum.amountWithTax) || 0).toFixed(2)) })),
+      byType: byType.map((i: any) => ({ typeCode: i.typeCode, count: i._count._all, amount: round4(num(i._sum.amountWithTax) || 0) })),
       byStatus: byStatus.map((i: any) => ({ statusCode: i.statusCode, count: i._count._all })),
     };
   }
@@ -412,7 +413,7 @@ export class DashboardService {
         settledRatioPct: r.settledRatioPct,
         supplementRatioPct: r.supplementRatioPct,
         currentAmount: chain.currentAmount,
-        settledTotal: Number(settledTotal.toFixed(2)),
+        settledTotal: round4(settledTotal),
       });
     }
 
@@ -485,8 +486,8 @@ export class DashboardService {
         code: c.code,
         name: c.name,
         payRatio: Number(ratio),
-        settledTotal: Number(settledTotal.toFixed(2)),
-        paidTotal: Number(paidTotal.toFixed(2)),
+        settledTotal: round4(settledTotal),
+        paidTotal: round4(paidTotal),
         limit: r.limit as number,
         paidRatioPct: r.paidRatioPct,
         reason: r.reason as string,

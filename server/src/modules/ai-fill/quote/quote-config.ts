@@ -9,6 +9,7 @@ import type { Cents } from '../../ai-core/common/money.ts';
 import { moneyToCents } from '../../ai-core/common/money.ts';
 import { clamp, parseBoolFlag, parseDecimal, parseInteger } from '../../ai-core/common/params.ts';
 import { DEFAULT_QUOTE_TOLERANCES, type QuoteTolerances } from './quote-types.ts';
+import { round2 } from '@cms/calc/money';
 
 /** 参数键（全部挂 `ai.quote.` 前缀，便于与 6-9 的 `ai.anomaly.*` 区分） */
 export const QUOTE_PARAM_KEYS = {
@@ -128,7 +129,7 @@ export function parseQuoteConfig(raw: Record<string, string | null | undefined>)
 /** 阈值的中文描述（面板与提示词共用同一句，避免两处措辞不一致） */
 export function quoteToleranceText(tol: QuoteTolerances): string {
   return [
-    `金额容差 ${(Number(tol.amount) / 100).toFixed(2)} 元`,
+    `金额容差 ${round2(Number(tol.amount) / 100).toFixed(2)} 元`,
     `二轮降幅 > ${tol.dropPct}%`,
     `首轮离散系数 < ${tol.spreadPct}%`,
     `成交价 < 控制价 ${tol.underBudgetPct}%`,
