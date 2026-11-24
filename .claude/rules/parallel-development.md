@@ -108,6 +108,13 @@ node scripts/check-import-integrity.mjs
 
 - 任务在 `feat|fix|refactor|chore/<slug>` 分支上完成 → **推分支 + PR**；`main` 只经合并进入。
   （原来"完成后直接 push main"在并行时会 race：谁后推谁覆盖别人的基线。）
+- **合并节奏**：上一个 push-run 转绿再合下一个，别在一分钟内连推/连合多个 PR。
+  2026-11-24 审计实测：连合 5 个 PR 时 workflow 被 `cancel-in-progress` 连续取消，
+  `#38`/`#39` 在 main 上真跑成 failure，8 分钟后才用 `85d3b2d fix(ci)` 补绿——
+  main 变红影响的是**所有人拉到的基线**，代价远高于多等两分钟。
+- **PR 绿 ≠ main 绿**：依赖本机状态（软链、未入库文件、本地 env）的改动在 PR job 里能过、在 main 上会失败。
+  合并前确认「换一台干净机器也成立」（例：`packages/calc` 的软链由 `build.mjs` 在 CI 里自建，
+  而不是靠本地 `web/node_modules` 恰好存在）。
 - 提交粒度 = 一个逻辑变更组；**不要把别的模块的改动 `git add -A` 卷进来**。
 - 提交信息沿用仓库风格：英文前缀 + scope、中文 body（`-` bullet，含"验收：…"），
   尾部 `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`。

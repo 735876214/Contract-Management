@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（108 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（109 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（38 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -152,6 +152,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/procurementVariables.spec.mts` | 采购变量「面板定义 ↔ 取值表」一致性锁 |
   | `test/procurementVariableRender.spec.mts` | 变量取值行为（金额单位/别名解析/占位符保留与转义） |
   | `test/routePermissionParity.spec.mts` | **路由权限守卫 ↔ 后端菜单一致性锁** + **前端兜底菜单 `menuConfig.ts` ↔ `MENU_TREE` 逐项同序锁**（deepEqual：key/label/icon/path/permission/children） |
+  | `test/permissionCatalog.spec.mts` | **权限码目录单一事实源锁**（2026-11-24 审计 P3）：`server/src/constants/permissions.ts` 是 `code/name/module` 的唯一来源 · 迁移里 `INSERT INTO "Permission"` 的码必须在目录里 · **按迁移顺序回放 INSERT+UPDATE 得到的最终标签必须等于目录值**（治「迁移与 seed 各写一套、谁先跑谁定标签」）· 新增迁移不得按角色**名称**授权（只认 `Role.code`，历史例外清单只减不增）· 控制器 `@RequirePermissions` 的码 ⊆ 目录且目录无孤儿码 · 前端菜单/路由守卫的码 ⊆ 目录 |
   | `test/ledgerColumns.spec.mts` | 合同台账列宽单位契约（Excel 字符宽 → 像素，防「表头竖排」复发） |
   | `test/amountGuard.spec.mts` | 防超结/防超付的金额上限判定 + 合同链口径（排除草稿、排除失败/退款、无金额→无上限） |
   | `test/overdueCalculator.spec.ts` | 逾期利息引擎（主子表：应付款项 + 付款流水；DAYS360 / 付款跨期分配 / 已付与未付余额分段计息 / 开累；手算对照） |
