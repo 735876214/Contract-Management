@@ -184,6 +184,25 @@ mcp/src/prompts.ts                                   ← 只声明结构（key/�
 
 推荐顺序：**先读 resources 的三份口径，再调工具取数**。
 
+### 5.3 插件工具（构建期生成，2026-11-24）
+
+插件的接口默认对 MCP **不可见**：工具清单原来手写在 `mcp/src/tools.ts`，插件新增接口要让 AI 用上，
+得再抄一遍定义——两份清单迟早各说一套。现在改成同源生成：
+
+```
+plugin.json 的 mcpTools  ──(scripts/gen-plugins.mjs 校验)──▶  mcp/src/generated/plugin-tools.generated.ts
+                                                              └─▶ mcp/src/server.ts 启动时注册
+```
+
+- **只读**：生成器只放行 `GET`；写工具要等 P3-C 的 5 条前置条件（草案确认/幂等/可回滚/只许新建/发起方标记）。
+- **工具级权限**：每个工具必须声明 `permissions`，MCP 侧先用 `cms_whoami` 拿到权限码做本地过滤，
+  后端 `@RequirePermissions` 仍是最终边界（与 §3.2 同口径）。
+- **审计**：插件工具走同一个 `tool()` 包装，所以 `OperationLog.actorTool` 记的是插件工具名，
+  与人工操作、与核心工具都能分开（见 §3.1）。
+- **不是运行时注册**：进程里只有静态数组，不加载插件代码。
+
+示例插件 `dev-example` 自带两个工具（`dev_example_summary` / `dev_example_permissions`），
+可直接当成写新工具的模板。校验规则见 `server/src/plugins/README.md` §3.1。
 ## 6. 验收
 
 - `cd mcp && npm test`：构建通过 + 4 个纯函数单测 + stdio/HTTP 协议冒烟（无需后端）。

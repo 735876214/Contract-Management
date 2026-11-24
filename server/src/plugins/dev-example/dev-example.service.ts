@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { pluginRuntimeRow } from '../plugin-catalog';
+import { PLUGIN_PERMISSIONS, pluginRuntimeRow } from '../plugin-catalog';
 
 /**
  * 插件的业务实现。
@@ -18,5 +18,12 @@ export class DevExampleService {
       servedAt: new Date().toISOString(),
       nodeVersion: process.version,
     };
+  }
+
+  /** 本插件声明的权限码（可按 group 过滤）；给 MCP 工具参数示例用 */
+  permissions(group?: string) {
+    const wanted = String(group ?? '').trim();
+    const rows = PLUGIN_PERMISSIONS.filter((p) => !wanted || p.module === wanted);
+    return { total: rows.length, rows };
   }
 }

@@ -117,7 +117,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（118 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（119 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（42 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -281,6 +281,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/aiPrompts.spec.mts` | **AI 口径提示词目录锁**（MCP `prompts` 原语的单一事实源）：渲染正文必须**含口径原文**（`REPORT_SYSTEM_PROMPT` / `ANOMALY_SYSTEM_PROMPT` / `SCM_SYSTEM_PROMPT`，防另写一份摘要）· 供应链四节标题逐字 · `kind` 切换公文骨架、非法值回落 monthly 而不 500 · 未知 key 抛错而非静默空串 · 正文不含机密字段名 · 列表接口只回元信息不带正文 · `mcp/src/prompts.ts` 的 key 与参数名与服务端目录一致 |
   | `test/mcpAudit.spec.mts` | **MCP 调用审计锁**：`x-cms-actor` / `x-cms-tool` → `OperationLog.actorTool`（null = 人工）· 无该头时不记录（普通 GET 不受影响）· 头值数组/大小写/空白容错 · 工具名归一（外部输入只留 `[a-z0-9_-]`、转小写、截断 64，防伪造注入）· **两端字面量一致性**（`mcp/` 是独立包，改了一边会让审计静默归零）· `headers()` 必须在统一出口注入审计头（否则导出/导入漏标）· 每个工具都必须走 `tool()` 包装注册 |
   | `test/pluginCatalog.spec.mts` | **构建期插件（B 档）装配漂移锁**：生成物新鲜度（改 `plugin.json` 未跑 `scripts/gen-plugins.mjs` 即红）· 权限码必须 `<插件名>:` 前缀且已并入单一事实源 `PERMISSIONS`（标签也要一致）· 每条插件菜单必须有路由守卫且守卫不得比菜单更严 · 插件菜单真的落在权威 `MENU_TREE` 里（挂载点/路径/权限码一致）· 插件权限码不得绕过清单写死进核心目录 · `CMS_PLUGINS_DISABLED` 能关插件且关掉后菜单进隐藏集合 · 菜单 key 全局唯一 |
+  | `test/pluginMcp.spec.mts` | **插件 → MCP 工具的同源锁**（2026-11-24）：MCP 工具不再手写第二份——插件的 `plugin.json` 声明 `mcpTools`（工具名/描述/GET 路由/权限码/查询参数），`scripts/gen-plugins.mjs` 校验后生成 `mcp/src/generated/plugin-tools.generated.ts`，MCP 服务据此注册。断言：生成物新鲜 · 清单与生成物逐条对应（数量、路径按 `apiPrefix` 拼接、权限码原样）· **method 只允许 GET**（写操作按 P3-C 暂缓）· path 必须是控制器里真实存在的 `@Get`（否则 AI 被导到 404）· 工具级权限非空且 ⊆ 插件声明 · 工具名带 `<插件名>_` 前缀且全局唯一、不与核心工具撞名 · 生成物真被 `mcp/src/server.ts` 注册且走 `tool()` 审计包装（绕过就无法与人工操作区分） |
   | `test/smallModules.spec.mts` | **三个零覆盖小模块的纯函数层**（`notification` / `other-project` / `payment-procedure`）：付款手续 `deriveProcedureAmounts` 三值各自 2 位舍入后相减、**未付款允许为负**、空值按 0、相等时为 `0` 不是 `-0` · `procedureCodeCandidates` 首个无后缀其后 `-2`/`-3`、合同号缺失回落 `HT` · 其他项目库导入状态**大小写/全角空格**都判对停用（原实现大小写敏感）· 通知列表 where 永远带当前用户、`isRead` 兼容 `true/1/read`、`projectId` 有值才过滤 |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。

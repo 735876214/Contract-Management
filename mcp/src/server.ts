@@ -19,6 +19,7 @@ import {
 } from './resources.js';
 import { PROMPTS } from './prompts.js';
 import { CONTEXT_RESOURCES, DICT_URI_TEMPLATE } from './context.js';
+import { PLUGIN_MCP_TOOLS } from './generated/plugin-tools.generated.js';
 import type { CmsConfig } from './config.js';
 
 type ToolResult = {
@@ -135,14 +136,18 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     import: '导入（会写库）',
   };
 
-  /** 是否有权对某资源执行某能力（OR 语义，与后端 PermissionsGuard 一致） */
-  async function allowed(resource: CmsResource, capability: Capability): Promise<boolean> {
+  /** 仅按权限码判断（OR 语义，与后端 PermissionsGuard 一致）；插件工具走这条 */
+  async function allowedCodes(codes: string[]): Promise<boolean> {
     if (permissionFilterOff()) return true;
-    const codes = permissionCodesFor(resource, capability);
     if (codes.length === 0) return true;
     const scope = await client.scope();
     if (scope.isSuperAdmin) return true;
     return codes.some((c) => scope.permissions.includes(c));
+  }
+
+  /** 是否有权对某资源执行某能力（OR 语义，与后端 PermissionsGuard 一致） */
+  async function allowed(resource: CmsResource, capability: Capability): Promise<boolean> {
+    return allowedCodes(permissionCodesFor(resource, capability));
   }
 
   /** 无权时给出**可解释**的错误：缺哪个码、怎么继续，而不是让模型自己猜 */
@@ -438,6 +443,57 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
       }
     },
   );
+
+  // ---------------- 插件工具（构建期生成，只读） ----------------
+  /**
+   * 插件自带能力的 MCP 侧入口。清单来自各插件 `plugin.json` 的 `mcpTools`，由
+   * `scripts/gen-plugins.mjs` 生成到 `generated/plugin-tools.generated.ts`。
+   *
+   * 为什么是生成而不是像 ApeAdmin 那样 `register_mcp_tools()` 运行时注册：本项目插件是构建期的，
+   * 运行时不加载插件代码；静态清单让 5 个门禁仍能审查到「插件暴露了什么给 AI」。
+   *
+   * 生成器只放行 GET（写操作按 AI 一期口径暂缓），所以这里不需要再判方法与写权限。
+   */
+  for (const t of PLUGIN_MCP_TOOLS) {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (const param of t.params) {
+      const base =
+        param.type === 'number' ? z.number() : param.type === 'boolean' ? z.boolean() : z.string();
+      shape[param.name] = param.required
+        ? base.describe(param.description)
+        : base.optional().describe(param.description);
+    }
+    tool(
+      t.name,
+      {
+        title: '插件工具 · ' + t.plugin,
+        description: t.description,
+        inputSchema: shape,
+      },
+      async (args) => {
+        try {
+          if (!(await allowedCodes(t.permissions))) {
+            throw new Error(
+              '当前账号无权调用插件工具「' +
+                t.name +
+                '」：需 ' +
+                t.permissions.join(' 或 ') +
+                '。请联系管理员分配后再试（可用 cms_whoami 查看当前权限码）。这不是接口故障，重试同样会失败。',
+            );
+          }
+          const query: Record<string, unknown> = {};
+          const raw = args as Record<string, unknown>;
+          for (const param of t.params) {
+            const v = raw[param.name];
+            if (v !== undefined && v !== null && v !== '') query[param.name] = v;
+          }
+          return ok(await client.requestJson(t.path, { method: 'GET', query }));
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    );
+  }
 
   // ---------------- 口径提示词（MCP prompts） ----------------
   /**

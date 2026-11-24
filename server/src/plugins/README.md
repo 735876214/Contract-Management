@@ -56,6 +56,39 @@ web/src/plugins/
 | `menus[]` | ✅ | `{ key, label, icon, path, permission, parent? }`；`permission` **必填**（无权限码的插件菜单对所有登录用户可见）；`icon` 必须已在 `Sider/utils/iconHelper.tsx` 的 `ICON_MAP` 注册；`parent` 必须是核心菜单的**顶层分组 key**（如 `system`），省略则自成一个顶层分组 |
 | `mcpTools[]` | ⭕ | `{ name, description }`，`name` 必须以 `<name>_` 开头。仅作**声明**，供插件管理页与后续 MCP 工具目录展示 |
 
+## 3.1 `mcpTools`：把插件能力暴露给外部 AI（2026-11-24）
+
+插件可以在 `plugin.json` 里声明 MCP 工具，由 `scripts/gen-plugins.mjs` 校验后生成
+`mcp/src/generated/plugin-tools.generated.ts`，MCP 服务启动时按这份静态清单注册：
+
+```json
+"mcpTools": [
+  {
+    "name": "dev_example_permissions",
+    "description": "列出示例插件声明的权限码与分组（只读）。",
+    "route": { "method": "GET", "path": "permissions" },
+    "permissions": ["dev-example:view"],
+    "params": [
+      { "name": "group", "type": "string", "required": false, "description": "按分组名精确过滤" }
+    ]
+  }
+]
+```
+
+校验规则（任一不满足门禁就红，`pluginMcp.spec.mts` 再兜一层）：
+
+| 规则 | 为什么 |
+|---|---|
+| `name` 必须是 `^[a-z][a-z0-9_]{2,63}$` 且以 `<插件名>_` 开头（插件名的 `-` 换成 `_`） | MCP 侧工具名唯一，前缀保证插件之间、插件与核心工具（`cms_*`）不撞名 |
+| `route.method` **只允许 `GET`** | 写操作（POST/PUT/PATCH/DELETE）按 AI 一期口径暂缓（见 `TODO.md` P3-C）；生成器直接拒绝，不靠人记 |
+| `route.path` 必须是控制器里真实存在的 `@Get(...)` | 否则 AI 被导到一个 404，还会被模型解释成「系统没这个能力」 |
+| `route.path` 不支持 `:id` 路径参数 | 路径参数要额外处理编码与注入，收益不抵风险；改成查询参数 |
+| `permissions` 非空且 ⊆ 本插件 `permissions` | 工具级权限是本项目 MCP 的既定口径（后端 `@RequirePermissions` 仍是最终边界） |
+| `params[].type` ∈ `string / number / boolean` | 只映射到查询串，不构造请求体 |
+
+**它不是运行时注册**：MCP 侧只有一份生成好的常量数组，进程里不加载任何插件代码——
+这与 ApeAdmin 的 `register_mcp_tools()` 是两种形态，取舍见 §8。想加/改工具：改清单 →
+`node scripts/gen-plugins.mjs` → 重新构建 `mcp/`。
 ## 4. 装配链路
 
 ```

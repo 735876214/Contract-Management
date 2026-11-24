@@ -12,10 +12,11 @@
 import {
   CORE_VERSION,
   PLUGIN_CATALOG,
+  PLUGIN_PERMISSIONS,
   type PluginCatalogEntry,
 } from './generated/plugin-catalog.generated.ts';
 
-export { CORE_VERSION };
+export { CORE_VERSION, PLUGIN_PERMISSIONS };
 export type { PluginCatalogEntry };
 
 /** 启用状态来源：清单默认值 / 环境变量 / 依赖不满足 / 正常启用 */
