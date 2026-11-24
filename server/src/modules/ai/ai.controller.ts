@@ -14,7 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
-import { AiService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
+import { AiService, AnalyticsService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
 import { listContextDocs, renderContextDoc } from './context-catalog.ts';
 import { AiSettingService } from '../ai-core/ai-setting.service.ts';
 import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
@@ -86,6 +86,8 @@ export class AiController {
     private quote: QuoteService,
     private fulfillment: FulfillmentService,
     private scm: ScmService,
+    /** 问数（P3-A）：复用 analytics 的意图/取数/对账/留痕，只换产出形态 */
+    private ai: AnalyticsService,
   ) {}
 
   /**
@@ -141,6 +143,59 @@ export class AiController {
   @Get('prompts/:key')
   prompt(@Param('key') key: string, @Query() query: any) {
     return renderAiPrompt(key, query || {});
+  }
+
+  /* ---------------- AI 问数（P3-A） ---------------- */
+
+  /**
+   * 问数可用性 + 可问的数据集（按权限过滤）。
+   *
+   * 前端据此决定输入框是否可点、以及「你可以问这些」的提示。
+   * `deniedDatasets` 单独列出：让用户知道是被权限挡住的，而不是系统没这个数据。
+   */
+  @RequirePermissions('ai:view')
+  @Get('chat/status')
+  async chatStatus(@CurrentUser() user: JwtUser) {
+    const cfg = await this.service.status();
+    const datasets = await this.ai.listDatasets(user);
+    return {
+      enabled: cfg.enabled,
+      model: cfg.model,
+      hourlyLimitPerUser: cfg.hourlyLimitPerUser,
+      maxQuestionChars: 2000,
+      ...datasets,
+    };
+  }
+
+  /**
+   * **问数**：一次问答。数字全部由程序算（DatasetCollector），模型只组织语言，
+   * 回答里的数字逐条回查；对不上就整段丢弃、退回事实摘要并告知前端。
+   *
+   * 默认统计范围 = **当前项目**（`x-project-id`）；显式传 `scope` 可跨项目（需 `dashboard:view`）。
+   */
+  // @body: typed=inline
+  @RequirePermissions('ai:use')
+  @Post('chat/ask')
+  ask(
+    @Body() body: { text?: string; scope?: any; period?: any; datasets?: string[]; compare?: string; notes?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.ai.ask(body || {}, projectId, user);
+  }
+
+  /** 问答历史（只回问答记录：`answerMode` 由服务端强制为 chat，不接受客户端传入） */
+  @RequirePermissions('ai:view')
+  @Get('chat/records')
+  chatRecords(@Query() query: any, @CurrentUser() user: JwtUser) {
+    return this.ai.listRecords(user, { ...(query || {}), answerMode: 'chat' });
+  }
+
+  /** 单条问答详情（含当时的事实快照与对账结果；非创建人 404） */
+  @RequirePermissions('ai:view')
+  @Get('chat/records/:id')
+  chatRecord(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.ai.getRecord(id, user);
   }
 
   /**

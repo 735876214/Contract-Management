@@ -1892,6 +1892,10 @@ model AiAnalyticsReport {
   compareMode          String? // 'none' | 'mom' | 'yoy'
   narrative            Boolean   @default(false)
   source               String? // 'llm' | 'template'
+  // 产出形态：'report' = 公文式报告（sections + 表格）；'chat' = 问答（一段回答 + 同一套数字对账）。
+  // 复用同一张表而不是新开 ChatLog：字段（intent/facts/对账/留痕）一模一样，
+  // 多一张表等于把「事实快照 + 对账结果」的读写路径复制一遍。
+  answerMode           String    @default("report")
   markdown             String?   @db.Text
   hasReport            Boolean   @default(false)
   workbookKey          String? // StorageService 相对键，绝不接受客户端传入
@@ -1906,4 +1910,6 @@ model AiAnalyticsReport {
   @@index([projectId, createdAt])
   @@index([projectId, createdBy, createdAt])
   @@index([createdBy, createdAt])
+  // 问答历史按 answerMode='chat' 过滤，报告历史不过滤 → 让两者都走索引
+  @@index([createdBy, answerMode, createdAt])
 }

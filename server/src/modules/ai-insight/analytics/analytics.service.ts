@@ -11,7 +11,7 @@ import type { AiAnalyticsPlanInput } from '../intent/intent.types.ts';
 import { IntentService } from '../intent/intent.service.ts';
 import { AiSettingService } from '../../ai-core/ai-setting.service.ts';
 import { AiQuota } from '../../ai-core/ai-quota.ts';
-import { chatJson, LlmError } from '../../ai-core/llm-client.ts';
+import { chatJson, chatText, LlmError } from '../../ai-core/llm-client.ts';
 import { aiModelFor } from '../../ai-core/ai-config.ts';
 import type { AiAnalyticsFacts, AiAnalyticsIntent, AiAnalyticsPlanResult } from '../../ai-core/dataset/analytics.types.ts';
 import { DatasetCollector } from './dataset-collector.service.ts';
@@ -19,6 +19,7 @@ import { AnalyticsStore } from './analytics-store.service.ts';
 import { ReportService } from '../report.service.ts';
 import { analyticsFactNumbers, analyticsFactsToMarkdown, analyticsTitle, buildAnalyticsFacts, buildNarratedReport, reportPresentation } from './dataset-facts.ts';
 import { buildAnalyticsNarrativeMessages } from './analytics-prompt.ts';
+import { buildChatAnswer, buildChatAnswerMessages, chatFallbackAnswer } from './chat-answer.ts';
 import { buildAnalyticsWorkbookModel } from './workbook-builder.ts';
 import { compareRange, localDayKey, rangeLabel, resolvePresetPeriod } from '../../ai-core/common/period.ts';
 import type { DayRange } from '../../ai-core/common/period.ts';
@@ -288,6 +289,154 @@ export class AnalyticsService {
    * 确定性报告（Phase 2，不调模型）：取数 → 事实包 → Markdown → 落库。
    * 事实 JSON 落库与返回都做**瘦身**（每数据集最多 200 行），完整明细留给工作簿（Phase 4）。
    */
+  /**
+   * **AI 问数（P3-A）**：一次问答。
+   *
+   * 复用 `report()` 的全部地基——`plan()`（意图+权限+项目解析）、`prepareFacts()`（程序算数）、
+   * `auditNumbers`（数字回查）、`recordPayload`（留痕）；只把「产出形态」换成一段回答：
+   * - 数字仍**只由** `DatasetCollector` 算（模型不许计算）；
+   * - 回答仍要**逐条对账**（`buildChatAnswer`），对不上就整段丢弃、退回事实摘要；
+   * - 留痕复用 `AiAnalyticsReport`，`answerMode='chat'`（不新开表，理由见该字段注释）。
+   *
+   * 为什么不并进 `report()`：两者配额语义与失败兜底不同——报告失败要退回确定性报告（仍有产物），
+   * 问答失败要退回事实摘要并退还配额；硬揉成一个方法会让两条路径的分支互相污染。
+   */
+  async ask(body: AiAnalyticsPlanInput, projectId: string, user: JwtUser) {
+    assertPermission(user, 'ai:use', '使用 AI 问数需要「使用 AI 助手」权限');
+    const question = String(body?.text ?? '').trim();
+    if (!question) throw new BadRequestException('请输入问题');
+    if (question.length > 2000) throw new BadRequestException('问题过长（上限 2000 字）');
+
+    const cfg = await this.setting.resolve();
+    if (!cfg.enabled) {
+      throw new BadRequestException('AI 未启用：请先在「系统管理 → AI 信息登记」配置上游地址与密钥');
+    }
+    const userId = user?.userId || user?.username || 'anonymous';
+    // 一次问答 = 最多两次上游调用（意图 + 回答），配额按「一次问答占一次」计（与 report 同口径）
+    this.quota.consume(userId, cfg.hourlyLimitPerUser);
+
+    let plan: AiAnalyticsPlanResult;
+    let range: DayRange | null;
+    let cmpRange: DayRange | null;
+    try {
+      // 问数默认「当前项目」（管理者问数基本都带项目上下文）；显式传 scope 时以调用方为准
+      plan = await this.plan(
+        { ...(body || {}), text: question, scope: { mode: 'current', ...((body || {}).scope ?? {}) } },
+        projectId,
+        user,
+        { consumeQuota: false },
+      );
+      range = resolvePresetPeriod(plan.intent.period.preset, new Date(), {
+        from: plan.intent.period.from,
+        to: plan.intent.period.to,
+      });
+      if (!range) throw new BadRequestException('期间无法解析：自定义期间需要合法的开始与结束日期');
+      cmpRange = compareRange(range, plan.intent.compare);
+    } catch (e) {
+      this.quota.refund(userId);
+      throw e;
+    }
+
+    const { facts, scopeLabel, periodLabel } = await this.prepareFacts(plan, range, cmpRange);
+    const warnings = [...facts.warnings];
+    let answer = '';
+    let discarded: string[] = [];
+    let accepted = false;
+    let source: 'template' | 'llm' = 'template';
+    let usage: { promptTokens?: number; completionTokens?: number } | null = null;
+
+    try {
+      const res = await chatText(
+        globalThis.fetch as any,
+        {
+          baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey,
+          // 问答沿用 `report` 用途的模型：输出短、但要能对上数字，与报告同一档最省心。
+          // 将来若要单独调优，加一个 `chat` 用途即可（ai-config 的用途体系是现成的）。
+          model: aiModelFor(cfg, 'report'),
+          timeoutMs: Math.min(Math.max(cfg.timeoutMs, 60000), 120000),
+          temperature: 0.2,
+          maxTokens: Math.min(cfg.maxTokens, 1200),
+        },
+        buildChatAnswerMessages({ facts, question, scopeLabel, periodLabel }),
+      );
+      const built = buildChatAnswer(facts, res.text, question);
+      answer = built.answer;
+      discarded = built.discarded;
+      accepted = built.accepted;
+      warnings.push(...built.warnings);
+      usage = res.usage ?? null;
+      if (accepted) source = 'llm';
+      // 模型回答被整段丢弃 → 与 report 同口径退还配额（用户拿到的仍是确定性事实摘要）
+      else this.quota.refund(userId);
+    } catch (e) {
+      this.quota.refund(userId);
+      const msg = e instanceof LlmError ? e.message : String((e as any)?.message || e);
+      answer = chatFallbackAnswer(facts, `AI 回答失败，以下是本期间的事实汇总：${msg}`);
+      warnings.push(`AI 回答失败：${msg}`);
+    }
+
+    const title = question.slice(0, 60);
+    const factsForStore = {
+      ...facts,
+      datasets: facts.datasets.map((d) => ({ ...d, rows: d.rows.slice(0, 200) })),
+    };
+    let id: string | null = null;
+    let persisted = true;
+    try {
+      const row = await this.store.create(
+        this.recordPayload({
+          projectId,
+          user,
+          plan,
+          facts,
+          range,
+          periodLabel,
+          title,
+          warnings,
+          factsForStore,
+          source,
+          markdown: answer,
+          hasReport: false,
+          discardedNumbers: discarded,
+          answerMode: 'chat',
+        }),
+      );
+      id = row.id;
+    } catch {
+      persisted = false;
+      warnings.push('回答已生成，但历史记录保存失败（本次结果仍可查看；请稍后重试或联系管理员）');
+    }
+
+    return {
+      id,
+      persisted,
+      question,
+      answer,
+      accepted,
+      discardedNumbers: discarded,
+      scope: facts.scope,
+      period: facts.period,
+      scopeLabel,
+      periodLabel,
+      datasetKeys: plan.intent.datasets,
+      datasets: facts.datasets.map((d) => ({ section: d.section, label: d.label, rowCount: d.rows.length })),
+      source,
+      usage,
+      warnings: [...new Set(warnings)],
+      factNumbers: analyticsFactNumbers(facts),
+    };
+  }
+
+  /** 记录列表（问答历史走 `answerMode=chat` 过滤，与报告历史共用一张表与一套可见性规则） */
+  listRecords(user: JwtUser, query: any) {
+    return this.store.list(user, query || {});
+  }
+
+  /** 单条记录详情（本人或超管；非创建人 404，不泄露存在性） */
+  getRecord(id: string, user: JwtUser) {
+    return this.store.detail(id, user);
+  }
   async report(body: AnalyticsReportInput, projectId: string, user: JwtUser) {
     const cfg = await this.setting.resolve();
     const userId = user?.userId || user?.username || 'anonymous';
@@ -429,6 +578,8 @@ export class AnalyticsService {
     hasReport: boolean;
     unknownNumbers?: string[];
     discardedNumbers?: string[];
+    /** `report`（默认）| `chat` */
+    answerMode?: string;
     workbook?: { key: string; name: string; size: number };
   }) {
     return {
@@ -452,6 +603,7 @@ export class AnalyticsService {
       compareMode: input.facts.compareMode,
       narrative: input.source === 'llm',
       source: input.source,
+      answerMode: input.answerMode ?? 'report',
       markdown: input.markdown,
       hasReport: input.hasReport,
       ...(input.workbook
