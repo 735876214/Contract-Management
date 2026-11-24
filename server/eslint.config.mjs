@@ -47,22 +47,35 @@ export default tseslint.config(
   },
   {
     /**
-     * 本仓特有口径（2026-11-22 质量审计）：列表日期区间只能用 `common/calc/time` 的本地日原语。
+     * 本仓特有口径（2026-11-22 质量审计）：列表日期区间只能用 `@cms/calc/time` 的本地日原语。
      * `new Date('YYYY-MM-DD')` 按 **UTC** 解析（本地 08:00），库里存本地 00:00 的记录会被漏掉；
      * 全仓曾有 7 处这么写，另有手拼 'T23:59:59' 与就地 setHours 两种写法，已统一。
+     *
+     * 2026-11-24 追加：**金额/数量舍入只能走 `@cms/calc/money` 的 round2 / round4**。
+     * `Number(x.toFixed(2))` 是另一套舍入（1.005 → `1`、8.165 → `8.16`，而 round2 给 1.01 / 8.17），
+     * 与 `test/money.spec.ts` 锁定的口径**相反**；原先 25 处散在台账/看板/预警/文案里，
+     * 已全部收敛到 calc 原语，此规则防回流。
+     *
+     * 适用范围从 `src/modules` 扩到整个 `src`（同样的日期写法在 query/domain/common 也出现过，
+     * 只盯模块等于给别处开绿灯）。
      */
-    files: ['src/modules/**/*.ts'],
+    files: ['src/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
         {
           selector: "NewExpression[callee.name='Date'][arguments.0.property.name='endDate']",
           message:
-            "日期区间右边界用 common/calc/time 的 endOfDay(endDate)，或 lt: nextDayStart(endDate)：new Date('YYYY-MM-DD') 按 UTC 解析（本地 08:00），会漏掉当天记录。",
+            "日期区间右边界用 @cms/calc/time 的 endOfDay(endDate)，或 lt: nextDayStart(endDate)：new Date('YYYY-MM-DD') 按 UTC 解析（本地 08:00），会漏掉当天记录。",
         },
         {
           selector: "NewExpression[callee.name='Date'][arguments.0.property.name='startDate']",
-          message: '日期区间左边界用 common/calc/time 的 startOfDay(startDate)（本地零点，非 UTC）。',
+          message: '日期区间左边界用 @cms/calc/time 的 startOfDay(startDate)（本地零点，非 UTC）。',
+        },
+        {
+          selector: "CallExpression[callee.name='Number'] > CallExpression[callee.property.name='toFixed']",
+          message:
+            '金额/数量舍入用 @cms/calc/money 的 round2 / round4（Number(x.toFixed(2)) 是另一套舍入：1.005 → 1、8.165 → 8.16，与 money.spec 锁定的口径相反）。',
         },
       ],
     },

@@ -195,3 +195,32 @@ describe('付款超比例预警：开累付款 / 开累结算', () => {
     assert.equal(evalPay({ settledTotal: 80_000, paidTotal: 80_001, payRatio: 1 }).exceeded, true);
   });
 });
+
+/**
+ * **舍入单一实现**（2026-11-24 整改）：金额走 `@cms/calc/money` 的 round4、百分数走 round2。
+ *
+ * 这条锁的意义：`Number(x.toFixed(2))` 在**半值**上是另一套舍入（1.005 → `1`、8.165 → `8.16`），
+ * 与 `money.spec.ts` 声明的「半值远离零」（→ 1.01 / 8.17）相反。台账、看板、预警原先各有
+ * 一处这么写，导致同一笔金额在三处能差 1 分；现已全部收敛到 calc 原语，此用例防回流。
+ */
+describe('舍入单一实现：金额 round4 / 百分数 round2', () => {
+  it('付款上限保留 4 位（半值不再被 toFixed(2) 抹掉）', () => {
+    // 10 × 0.10005 = 1.0005：旧写法 Number((10 * 0.10005).toFixed(2)) 给 1
+    const r = evaluatePaymentRatioAlert({ settledTotal: 10, paidTotal: 2, payRatio: 0.10005 });
+    assert.equal(r.limit, 1.0005, '上限按 round4 算，不给 1.00');
+  });
+
+  it('百分数仍是两位（round2），不引入 4 位噪声', () => {
+    const tiny = evaluateAmountAlert({ ...base, settledTotal: 1 });
+    assert.equal(tiny.settledRatioPct, 0);
+    const third = evaluateAmountAlert({ mainAmount: 3, supplementTotal: 0, currentAmount: 3, settledTotal: 1 });
+    assert.equal(third.settledRatioPct, 33.33, '1/3 → 33.33，不是 33.3333');
+  });
+
+  it('预警文案里的比例同样是两位（ratio × 100 走 round2）', () => {
+    const r = evaluatePaymentRatioAlert({ settledTotal: 1000, paidTotal: 2000, payRatio: 0.333333 });
+    assert.equal(r.exceeded, true);
+    assert.match(r.reason!, /33\.33%/);
+    assert.doesNotMatch(r.reason!, /33\.3333%/);
+  });
+});

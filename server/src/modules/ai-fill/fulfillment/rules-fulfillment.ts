@@ -20,6 +20,7 @@ import {
 } from '../../../constants/statuses.ts';
 import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
 import { moneyToCents } from '../../ai-core/common/money.ts';
+import { round2 } from '@cms/calc/money';
 import type { Cents } from '../../ai-core/common/money.ts';
 import {
   FULFILLMENT_CODES,
@@ -416,8 +417,8 @@ export function c6ProgressPaymentGap(input: FulfillmentInput, ctx: FulfillmentRu
       title: `付款进度 ${paidPct}% 高于履约完成率 ${donePct}（差 ${gap} 个百分点）`,
       facts: [
         `合同：${String(rootContract.code ?? '')}${rootContract.name ? ` ${rootContract.name}` : ''}${chainNote}`,
-        `合同当前金额：${(Number(currentCents) / 100).toFixed(2)} 元（母合同 + 补充协议增量）`,
-        `累计付款：${(Number(paid) / 100).toFixed(2)} 元（占 ${paidPct}%）`,
+        `合同当前金额：${round2(Number(currentCents) / 100).toFixed(2)} 元（母合同 + 补充协议增量）`,
+        `累计付款：${round2(Number(paid) / 100).toFixed(2)} 元（占 ${paidPct}%）`,
         `履约节点：已完成 ${done} / 未完成 ${open}（完成率 ${donePct}%，整链合计）`,
         `差额：${gap} 个百分点（超出阈值 ${ctx.tol.progressGapPct} 个百分点）`,
       ],

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { num } from '@cms/calc/numeric';
+import { round4 } from '@cms/calc/money';
 import { fmtDate } from '@cms/calc/time';
 import { paginate, buildResult } from '../../common/utils/helpers';
 import { pagedAll } from '../../common/utils/paged';
@@ -220,12 +221,12 @@ export class LedgerService {
         firstEntryDate: fmtDate(firstEntryDate),
         compliance,
         complaint: ext.complaint,
-        cumSettleAmount: Number(cumSettleAmount.toFixed(2)),
-        auditedSettleAmount: Number(auditedSettleAmount.toFixed(2)),
+        cumSettleAmount: round4(cumSettleAmount),
+        auditedSettleAmount: round4(auditedSettleAmount),
         cumSettleBeforeTax,
         cumInputTax,
-        cumInvoiceAmount: Number(cumInvoiceAmount.toFixed(2)),
-        cumPaidAmount: Number(cumPaidAmount.toFixed(2)),
+        cumInvoiceAmount: round4(cumInvoiceAmount),
+        cumPaidAmount: round4(cumPaidAmount),
         // 派生金额列统一走单一实现（口径见 modules/ledger/ledger-derived.ts）：
         // 合同额未填 → 相关列留空，而不是算成 0 / 负数
         ...deriveLedgerAmounts({
@@ -239,7 +240,7 @@ export class LedgerService {
           payRatio: ext.currentPayRatio,
         }),
         // 审减额 = 送审 − 审定（同一口径、均排除草稿）；不能再拿「含草稿的开累结算」相减
-        settleReduceAmount: Number((submittedSettleAmount - auditedSettleAmount).toFixed(2)),
+        settleReduceAmount: round4(submittedSettleAmount - auditedSettleAmount),
         yearSettle,
         yearPaid,
       };
@@ -336,11 +337,11 @@ export class LedgerService {
       contractAmount: chainContractTotal(
         list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),
       ),
-      settleAmount: Number(sumBy('cumSettleAmount').toFixed(2)),
-      invoiceAmount: Number(sumBy('cumInvoiceAmount').toFixed(2)),
-      paidAmount: Number(sumBy('cumPaidAmount').toFixed(2)),
-      payableAmount: Number(sumBy('payableAmount').toFixed(2)),
-      debt100: Number(sumBy('debt100').toFixed(2)),
+      settleAmount: round4(sumBy('cumSettleAmount')),
+      invoiceAmount: round4(sumBy('cumInvoiceAmount')),
+      paidAmount: round4(sumBy('cumPaidAmount')),
+      payableAmount: round4(sumBy('payableAmount')),
+      debt100: round4(sumBy('debt100')),
       complianceIssues: list.filter((r) => r.compliance && r.compliance !== '无问题').length,
     };
   }
