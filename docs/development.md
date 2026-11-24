@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（109 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（110 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（42 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -232,6 +232,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | `test/secretParams.spec.ts` | **系统参数读取白名单**（第 24 轮审计：`GET /auth/profile` 曾回吐 `sysParam.getAll()`，把 `ai.apiKey` 明文交给**任意登录用户**，违反产品口径「密钥只写不读」）：`ai.apiKey` 必过滤 · 其余键原样保留 · 返回**新对象**（不污染进程内缓存本体）· 空/脏输入不抛错 · 清单不得为空（防恒真） |
 | `test/passwordPolicy.spec.ts` | **口令强度口径**（第 24 轮审计：改密/重置只校验长度 ≥ 6，`123456` 直接放行）：≥ 8 位 · 必须同时含字母与数字 · **常见弱口令黑名单**（大小写不敏感，`admin123`/`password123` 等）· 超长拒绝 · 空口令拒绝 · 默认口令必须被判弱 |
 | `test/money.spec.ts` | **金额/税率的舍入口径**（2026-10-20 第 4 轮审计：`toFixed` 家族是**四舍六入五成双**，`1.005 → 1.00`、`8.85 → 8.8`；`num()` 不拒绝 `Infinity`、`-0`）：`round2/round4` 按「四舍五入」且带 EPSILON 修正 · 大额与负数对称 · `toMoney` 空值/非法值给 null 而不是 0 · 税额、含税/不含税互算在 1e-4 精度内闭合 |
+| `test/contractDecimals.spec.mts` | **合同金额 JSON 口径单一实现**（2026-11-24 收口）：`Decimal` 原样下发的 string → number（与台账同口径）· `null` 保持 `null`（未填 ≠ 0）· 只转已知金额/比率列（`formData` 这类 JSON 文本不许误转）· `ext` 两个比例列同口径 · 幂等 |
 | `test/commonGuards.spec.ts` | **导入解析 / 附件地址 / 结算状态三个守卫**（2026-10-20 第 8、9 轮审计）：`parseImportDate` 认 `2026年1月31日`、`2026/1/31`、Excel 序列号（45000 → 2023-03-15），识破 `2026-02-30`，空值给 null 而不是 1970 · `pickDictCode` 非空未命中返回 null 由调用方报行级错误（不能静默写 NULL） · `isSafeFileUrl` 只放行站内 `/...` 与 http(s)，`javascript:`/`data:`/`//host` 一律拒 · `assertSettlementProgress` 只允许沿链路前进，回退必须走驳回 |
 | `test/csvExport.spec.ts` | **导出防护与字段长度兜底**（2026-10-21 第 16、19 轮审计）：`csvCell` 给以 `= + - @` 开头的值补单引号（Excel 打开 CSV 会把 `=cmd|'/c calc'!A1` 当公式执行），负数与小数保留为数字、按 RFC 4180 包裹引号换行 · `pickFields` 超 10 万 字符的字符串抛 400（Prisma 的 String 是 text，无 DTO 时能塞进几 MB） |
   | `test/settlementPeriod.spec.mts` | **月度结算期纯函数**（业务口径 2026-10-16）：期 = 起始日 → 下月同日的前一日 · 自动生成结算抓的是**上一期**（业务原例：起始日 1 日、10/2 运行 → 抓 9/1–9/30）· 起始日 26 时**期跨自然月**（标签取期末所在月）· 起始日 29/30/31 在小月取月末 · `periodKeyOf` 判「同一结算期」（发票/收领单归属结算单就用它；起始日 1 日时与自然月等价）· `periodMonthKey` 容错解析「结算账期」自由文本 |

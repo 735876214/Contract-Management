@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { normalizeContractDecimals } from './contract-decimals';
 import * as path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 
@@ -134,7 +135,8 @@ export class ContractService {
       }),
       this.prisma.contract.count({ where }),
     ]);
-    return buildResult(list, total, query);
+    // 金额列统一转 number（口径见 ./contract-decimals.ts）：别再把 Decimal 以 string 漏给前端
+    return buildResult(list.map((r: any) => normalizeContractDecimals(r)), total, query);
   }
 
   async options(projectId: string, keyword?: string) {
@@ -148,7 +150,7 @@ export class ContractService {
       // paginate 的上限同口径，超出部分靠 keyword 搜（前端是远程搜索）。
       take: 500,
       select: { id: true, code: true, name: true, supplierId: true, amount: true, taxRatePct: true, typeCode: true },
-    });
+    }).then((rows) => rows.map((r) => normalizeContractDecimals(r)));
   }
 
   async findOne(id: string) {
@@ -175,7 +177,7 @@ export class ContractService {
       : [];
     const clauseMap = new Map(clauseList.map((x: any) => [x.id, x]));
     const pick = (cid: string | null) => (cid ? clauseMap.get(cid) || null : null);
-    return {
+    return normalizeContractDecimals({
       ...c,
       clauses: {
         technical: pick(c.technicalClauseId),
@@ -183,7 +185,7 @@ export class ContractService {
         payment: pick(c.paymentClauseId),
         acceptance: pick(c.acceptanceClauseId),
       },
-    };
+    });
   }
 
   // ---------------- 归档（业务口径 2026-10-18：单向，不提供解除归档） ----------------
