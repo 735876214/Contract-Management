@@ -229,6 +229,13 @@ export class SystemService {
     if (query.result) where.result = query.result;
     if (query.bizType) where.bizType = query.bizType;
     if (query.projectId) where.projectId = query.projectId;
+    /**
+     * 「来源」筛选（2026-11-24 MCP 审计）：`actor=mcp` 只看外部 AI 工具发起的，`actor=human` 只看人工。
+     * 用 `actorTool` 是否为空来判——这也是该列存在的唯一目的，别再让 bizType 兼职。
+     */
+    if (query.actor === 'mcp') where.actorTool = { not: null };
+    else if (query.actor === 'human') where.actorTool = null;
+    if (query.actorTool) where.actorTool = query.actorTool;
     const kw = keywordWhere(['username', 'action', 'url', 'bizId'], query.keyword);
     if (kw) where.OR = kw.OR;
     const range = dateRange(query.startDate, query.endDate);

@@ -46,6 +46,7 @@ const ScmAnalysisPanel = lazy(() => import('@/pages/ScmAnalysisPanel'));
 const AiAnalytics = lazy(() => import('@/pages/AiAnalytics'));
 const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
+const PluginsPage = lazy(() => import('@/pages/Plugins'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
 const ContractDraft = lazy(() => import('@/pages/ContractDraft'));
 const ContractQuery = lazy(() => import('@/pages/ContractQuery'));
@@ -66,6 +67,11 @@ const ProcurementDocument = lazy(() => import('@/pages/Procurement/Document'));
 const ProcurementResultReport = lazy(() => import('@/pages/Procurement/ResultReport'));
 const ProcurementPriceCompare = lazy(() => import('@/pages/Procurement/PriceCompare'));
 const ProcurementFrameworkExplanation = lazy(() => import('@/pages/Procurement/FrameworkExplanation'));
+
+// 插件页面懒加载（构建期插件，页面在 web/src/plugins/<key>/index.tsx）
+// <plugin-lazy> 由 scripts/gen-plugins.mjs 生成，勿手改
+const DevExamplePluginPage = lazy(() => import('@/plugins/dev-example'));
+// </plugin-lazy>
 
 /**
  * 路由元素工厂：按 `ROUTE_PERMISSIONS` 自动包裹权限守卫。
@@ -193,6 +199,11 @@ export const routes: RouteObject[] = [
       { path: 'base/doc-template', element: perm('/base/doc-template', <DocTemplates />) },
       { path: 'base/clause', element: perm('/base/clause', <Clauses />) },
 
+      // 插件路由（构建期插件，path/守卫码由 plugin.json 生成，勿手改）
+      // <plugin-routes> 由 scripts/gen-plugins.mjs 生成，勿手改
+      { path: 'plugin/dev-example', element: perm('/plugin/dev-example', <DevExamplePluginPage />) },
+      // </plugin-routes>
+
       // —— 系统管理 ——
       { path: 'system', element: <Navigate to="/system/user" replace /> },
       { path: 'system/user', element: perm('/system/user', <SystemUsersPage />) },
@@ -203,6 +214,7 @@ export const routes: RouteObject[] = [
       // AI 信息登记（2026-10-20）：登记全站共用的上游地址/密钥/模型，页面与 AI 助手是两回事，
       // 权限也分开——改配置属于系统配置（system:config），用 AI 属于 ai:view / ai:use
       { path: 'system/ai-register', element: perm('/system/ai-register', <AiSettings />) },
+      { path: 'system/plugins', element: perm('/system/plugins', <PluginsPage />) },
 
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：

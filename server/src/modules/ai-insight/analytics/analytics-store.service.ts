@@ -24,6 +24,8 @@ export interface CreateAnalyticsReportInput {
   compareMode?: string | null;
   narrative?: boolean;
   source?: string | null;
+  /** `report`（公文式报告，默认）| `chat`（问答） */
+  answerMode?: string;
   markdown?: string | null;
   hasReport?: boolean;
   workbookKey?: string | null;
@@ -38,6 +40,8 @@ export interface ListAnalyticsReportsQuery {
   keyword?: string;
   /** `report` | `workbook`（按 hasReport / hasWorkbook 过滤） */
   has?: string;
+  /** `report` | `chat`；不传 = 两种都返回 */
+  answerMode?: string;
   /** 可选筛选项；**不传 = 本人全部**（跨项目生成的「全部项目」报告切项目后仍可见） */
   projectId?: string;
   from?: string;
@@ -85,6 +89,7 @@ export class AnalyticsStore {
         compareMode: input.compareMode ?? null,
         narrative: input.narrative ?? false,
         source: input.source ?? 'template',
+        answerMode: input.answerMode ?? 'report',
         markdown: input.markdown ?? null,
         hasReport: input.hasReport ?? false,
         workbookKey: input.workbookKey ?? null,
@@ -108,6 +113,8 @@ export class AnalyticsStore {
     const has = String(query?.has ?? '').toLowerCase();
     if (has === 'report') where.hasReport = true;
     if (has === 'workbook') where.hasWorkbook = true;
+    const answerMode = String(query?.answerMode ?? '').toLowerCase();
+    if (answerMode === 'report' || answerMode === 'chat') where.answerMode = answerMode;
     if (query?.keyword) where.title = { contains: String(query.keyword), mode: 'insensitive' };
     if (query?.from || query?.to) {
       where.createdAt = {};
@@ -139,6 +146,7 @@ export class AnalyticsStore {
           hasWorkbook: true,
           narrative: true,
           source: true,
+          answerMode: true,
           createdAt: true,
         },
       }),

@@ -105,7 +105,7 @@ export function fallbackNarrative(evaluation: AnomalyEvaluation): AnomalyNarrati
   };
 }
 
-const SYSTEM_PROMPT = `你是工程/采购企业的结算与付款内审助手。用户会给你一批**已由程序判定**的疑点（JSON），你只负责把它们写成给财务和项目负责人看的结论与动作建议。
+export const ANOMALY_SYSTEM_PROMPT = `你是工程/采购企业的结算与付款内审助手。用户会给你一批**已由程序判定**的疑点（JSON），你只负责把它们写成给财务和项目负责人看的结论与动作建议。
 
 铁律（必须全部遵守）：
 1. 只使用用户消息里出现过的数字与单据编号，**不得计算任何新的数字**（不要算合计、占比、差额、平均值，程序已经算好了）。fact 里给什么就写什么。
@@ -164,7 +164,7 @@ export function buildAnomalyMessages(input: AnomalyNarrativeInput): LlmMessage[]
   lines.push('请按 system 里的铁律与输出格式给出 JSON。');
 
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: ANOMALY_SYSTEM_PROMPT },
     { role: 'user', content: lines.join('\n') },
   ];
 }

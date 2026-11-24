@@ -1,4 +1,5 @@
 import type { MenuItem } from './types';
+import { applyPluginMenus, PLUGIN_MENU_NODES } from '../../plugins/generated/plugin-catalog.generated.ts';
 
 /**
  * 本地菜单兜底配置（`/api/menu` 失败时使用）。
@@ -7,7 +8,8 @@ import type { MenuItem } from './types';
  * `server/test/routePermissionParity.spec.mts` 用 deepEqual 锁定两者，改菜单时两处一起改。
  * 顺序不是装饰：兜底态下用户看到的层级与正式态必须一致，否则排障时会误判"菜单丢了"。
  */
-export const MENU_CONFIG: MenuItem[] = [
+/** 核心菜单兜底（手写部分）；插件菜单由下方 `MENU_CONFIG` 合并。 */
+const CORE_MENU_CONFIG: MenuItem[] = [
   { key: 'dashboard', label: '工作台', icon: 'DashboardOutlined', path: '/dashboard', permission: 'dashboard:view' },
   {
     key: 'procurement',
@@ -119,6 +121,15 @@ export const MENU_CONFIG: MenuItem[] = [
       { key: 'system-dict', label: '字典管理', icon: 'BookOutlined', path: '/system/dict', permission: 'dict:view' },
       { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:user' },
       { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
+      { key: 'system-plugins', label: '插件管理', icon: 'AppstoreOutlined', path: '/system/plugins', permission: 'system:config' },
     ],
   },
 ];
+
+/**
+ * 全量兜底菜单 = 核心 + 插件菜单。
+ *
+ * 插件节点与后端 `MENU_TREE` 来自同一份生成物（字段一字不差），
+ * 所以 `routePermissionParity.spec.mts` 的逐项同序 deepEqual 依旧成立。
+ */
+export const MENU_CONFIG: MenuItem[] = applyPluginMenus(CORE_MENU_CONFIG, PLUGIN_MENU_NODES);

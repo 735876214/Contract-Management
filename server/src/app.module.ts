@@ -33,6 +33,7 @@ import { LaborModule } from './modules/labor/labor.module';
 import { CostModule } from './modules/cost/cost.module';
 import { ArchiveModule } from './modules/archive/archive.module';
 import { AiModule } from './modules/ai';
+import { enabledNestModules } from './plugins';
 
 @Module({
   imports: [
@@ -70,6 +71,11 @@ import { AiModule } from './modules/ai';
     CostModule,
     ArchiveModule,
     AiModule,
+
+    // 构建期插件（B 档）：未启用的插件不挂载，其路由自然 404。
+    // 启用状态只有一个判断入口 `isPluginEnabled`（见 server/src/plugins/plugin-catalog.ts），
+    // 菜单可见性走同一套判断，不会出现「模块挂了但菜单没隐藏」的半启用状态。
+    ...enabledNestModules(),
   ],
 })
 export class AppModule {}

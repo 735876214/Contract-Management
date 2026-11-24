@@ -4,6 +4,7 @@
  * 所有对外接口真实走既有 `/api`（同一套 JWT + RBAC + 项目隔离），
  * MCP 服务端不直接连数据库、不复制任何业务规则。
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
@@ -17,6 +18,41 @@ export interface ApiEnvelope<T = unknown> {
   timestamp?: number;
 }
 
+/**
+ * **MCP 审计上下文**：当前正在执行的工具名（AsyncLocalStorage，异步安全）。
+ *
+ * 每个工具 handler 由 `runWithTool(name, …)` 包一层，本文件发出的**所有** /api 请求
+ * 都会带上 `x-cms-actor: mcp` + `x-cms-tool: <name>`；后端 `OperationLogInterceptor`
+ * 认这两个头后把该请求无论方法都记一条，写进 `OperationLog.actorTool`。
+ *
+ * 为什么需要它：MCP 的 8 个工具里 4 个是纯 GET 查询，而默认审计口径只记写方法与
+ * GET 导出下载 —— 不带这个头，「AI 查走了什么」一条日志都不会留下。
+ *
+ * 头名字面量必须与 `server/src/constants/mcpAudit.ts` 一致（独立包，不能 import），
+ * 由 `server/test/mcpAudit.spec.mts` 反向校验本文件里确实写着同样的字面量。
+ */
+const toolContext = new AsyncLocalStorage<string>();
+
+export const MCP_ACTOR_HEADER = 'x-cms-actor';
+export const MCP_TOOL_HEADER = 'x-cms-tool';
+export const MCP_ACTOR = 'mcp';
+
+/** 在审计上下文里执行 `fn`：期间发出的请求都标记为 `tool` 发起 */
+export function runWithTool<T>(tool: string, fn: () => Promise<T>): Promise<T> {
+  return toolContext.run(tool, fn);
+}
+
+/** 当前工具名（不在工具上下文里时 undefined，例如进程启动期的自检请求） */
+export function currentTool(): string | undefined {
+  return toolContext.getStore();
+}
+
+function auditHeaders(): Record<string, string> {
+  const tool = toolContext.getStore();
+  if (!tool) return {};
+  return { [MCP_ACTOR_HEADER]: MCP_ACTOR, [MCP_TOOL_HEADER]: tool };
+}
+
 export class CmsApiError extends Error {
   constructor(
     public readonly code: number,
@@ -26,6 +62,12 @@ export class CmsApiError extends Error {
     super(`[CMS ${code}] ${message} (${path})`);
     this.name = 'CmsApiError';
   }
+}
+
+/** 当前账号的权限范围（来自 `/auth/profile`） */
+export interface UserScope {
+  isSuperAdmin: boolean;
+  permissions: string[];
 }
 
 export interface LoginResult {
@@ -46,6 +88,8 @@ interface RequestOptions {
 export class CmsClient {
   private token: string | undefined;
   private loginInFlight: Promise<string> | undefined;
+  /** 权限范围缓存：与签发它的 token 绑定，重登后自动失效（避免角色改完还按旧权限过滤） */
+  private scopeCache: { token: string; scope: UserScope } | undefined;
 
   constructor(private readonly config: CmsConfig) {
     this.token = config.token;
@@ -91,6 +135,59 @@ export class CmsClient {
     return this.requestJson('/auth/profile', { method: 'GET' });
   }
 
+  /**
+   * 当前账号的权限范围（缓存到 token 变更为止）。
+   *
+   * 用途：工具级权限过滤——本 MCP 的每个工具在本地先判一次，让「这个账号能不能查合同」
+   * 在**调用前**就说清楚，而不是等后端回 1403 让 AI 自己去猜原因。
+   * 本地判断**不是**安全边界：后端每个接口都有自己的 `@RequirePermissions`。
+   */
+  async scope(): Promise<UserScope> {
+    const token = await this.ensureToken();
+    if (this.scopeCache && this.scopeCache.token === token) return this.scopeCache.scope;
+    const raw = (await this.profile()) as any;
+    const scope: UserScope = {
+      isSuperAdmin: raw?.isSuperAdmin === true,
+      permissions: Array.isArray(raw?.permissions)
+        ? raw.permissions.filter((x: unknown): x is string => typeof x === 'string')
+        : [],
+    };
+    this.scopeCache = { token, scope };
+    return scope;
+  }
+
+  /**
+   * 取一份口径提示词的正文（服务端 `GET /api/ai/prompts/:key`）。
+   *
+   * 正文的**单一事实源在服务端**（`ai-insight/prompt-catalog.ts` → 各 prompt 文件），
+   * 本包不存副本——否则系统更新了口径，外部 AI 还在按旧口径出结论。
+   */
+  /** 取一份口径上下文文档（markdown 正文），服务端 `GET /api/ai/context/:key` */
+  async contextDoc(key: string): Promise<{ key: string; uri: string; title: string; markdown: string }> {
+    return this.requestJson(`/ai/context/${encodeURIComponent(key)}`, { method: 'GET' });
+  }
+
+  /**
+   * 取某类字典的启用项（`GET /api/dict/options/:typeCode`）。
+   *
+   * 该接口后端**只要求登录**（前端下拉数据源），故这里不做工具级权限判定——
+   * 本地判定比后端更严会挡住本来能读的人，正是我们要避免的那类误伤。
+   */
+  async dictOptions(typeCode: string): Promise<unknown[]> {
+    const list = await this.requestJson<unknown[]>(`/dict/options/${encodeURIComponent(typeCode)}`, {
+      method: 'GET',
+    });
+    return Array.isArray(list) ? list : [];
+  }
+
+  async promptText(key: string, args: Record<string, string | undefined> = {}): Promise<string> {
+    const data = await this.requestJson<{ text: string }>(`/ai/prompts/${encodeURIComponent(key)}`, {
+      method: 'GET',
+      query: args as Record<string, unknown>,
+    });
+    return String(data?.text ?? '');
+  }
+
   // ---- 基础请求 ----
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
@@ -106,7 +203,8 @@ export class CmsClient {
   }
 
   private headers(extra?: Record<string, string>, withAuth = true): Record<string, string> {
-    const h: Record<string, string> = { Accept: 'application/json', ...extra };
+    // 审计头放在 extra 之前：业务头（项目上下文等）可覆盖同名键，但审计标记不该被覆盖
+    const h: Record<string, string> = { Accept: 'application/json', ...extra, ...auditHeaders() };
     if (withAuth && this.token) h.Authorization = `Bearer ${this.token}`;
     return h;
   }

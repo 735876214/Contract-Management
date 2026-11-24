@@ -13,7 +13,7 @@ import type { ScmFacts } from './scm-types.ts';
 /** 固定小节（逐字匹配；缺节会在响应 `missingSections` 里报给用户） */
 export const SCM_SECTIONS = ['一、总体情况', '二、项目对照', '三、供应商集中度', '四、风险与建议'] as const;
 
-const SYSTEM_PROMPT = [
+export const SCM_SYSTEM_PROMPT = [
   '你是工程/采购型企业的供应链运营分析助理。你要根据「系统已算好的事实清单」写一份供经营层阅读的供应链全景报告。',
   '',
   '铁律（违反任何一条即为废稿）：',
@@ -48,7 +48,7 @@ export function buildScmMessages(facts: ScmFacts): LlmMessage[] {
   ].join('\n');
 
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: SCM_SYSTEM_PROMPT },
     { role: 'user', content: user },
   ];
 }

@@ -20,6 +20,8 @@
  * 新增权限码时，先在 `server/src/modules/<模块>` 的 controller 上标注 `@RequirePermissions('x:y')`，
  * 再在这里补一行（`test/permissionCatalog.spec.mts` 会拦住只做一半的情况）。
  */
+import { PLUGIN_PERMISSIONS } from '../plugins/generated/plugin-catalog.generated.ts';
+
 export interface PermissionDef {
   /** 权限码，`module:action` */
   code: string;
@@ -29,7 +31,8 @@ export interface PermissionDef {
   module: string;
 }
 
-export const PERMISSIONS: PermissionDef[] = [
+/** 核心权限码（手写部分）。插件权限码由下方 `PERMISSIONS` 合并进来。 */
+const CORE_PERMISSIONS: PermissionDef[] = [
   { code: 'dashboard:view', name: '查看看板', module: '看板' },
   { code: 'dict:view', name: '查看字典', module: '字典管理' },
   { code: 'dict:edit', name: '维护字典', module: '字典管理' },
@@ -83,3 +86,12 @@ export const PERMISSIONS: PermissionDef[] = [
   { code: 'ai:view', name: '查看 AI 助手', module: 'AI 助手' },
   { code: 'ai:use', name: '使用 AI 助手', module: 'AI 助手' },
 ];
+
+/**
+ * 全量权限码目录 = 核心 + 插件。
+ *
+ * 插件权限码来自 `server/src/plugins/<key>/plugin.json` 的 `permissions`（生成物 `PLUGIN_PERMISSIONS`）。
+ * 强制 `<插件名>:` 前缀由 `scripts/gen-plugins.mjs` 校验——这样角色配置页按 `module` 分组时，
+ * 一眼能看出哪些权限属于可选插件。
+ */
+export const PERMISSIONS: PermissionDef[] = [...CORE_PERMISSIONS, ...PLUGIN_PERMISSIONS];

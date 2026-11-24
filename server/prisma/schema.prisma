@@ -1291,6 +1291,10 @@ model OperationLog {
   duration     Int?
   bizType      String?
   bizId        String?
+  // 发起方工具：null = 人工操作（页面 / 脚本 / 运维）；'cms_query' 等 = 外部 AI 经 MCP 工具发起。
+  // 为什么单开一列而不是把 bizType 改成 'MCP_TOOL'：bizType 有既定语义（模型名/业务类型），
+  // 被 import-task 回填与前端「业务类型」列消费；拿它兼职做「谁发起的」会同时毁掉两个含义。
+  actorTool    String?
   projectId    String?
   // —— 导入专项统计 ——
   importFile   String?
@@ -1305,6 +1309,8 @@ model OperationLog {
   @@index([createdAt])
   @@index([userId])
   @@index([module, action])
+  // 「只看 AI 发起的操作」是审计最常问的问题之一，且多数行 actorTool 为 null
+  @@index([actorTool])
 }
 
 // ---------------- 异步导入任务 ----------------
@@ -1886,6 +1892,10 @@ model AiAnalyticsReport {
   compareMode          String? // 'none' | 'mom' | 'yoy'
   narrative            Boolean   @default(false)
   source               String? // 'llm' | 'template'
+  // 产出形态：'report' = 公文式报告（sections + 表格）；'chat' = 问答（一段回答 + 同一套数字对账）。
+  // 复用同一张表而不是新开 ChatLog：字段（intent/facts/对账/留痕）一模一样，
+  // 多一张表等于把「事实快照 + 对账结果」的读写路径复制一遍。
+  answerMode           String    @default("report")
   markdown             String?   @db.Text
   hasReport            Boolean   @default(false)
   workbookKey          String? // StorageService 相对键，绝不接受客户端传入
@@ -1900,4 +1910,6 @@ model AiAnalyticsReport {
   @@index([projectId, createdAt])
   @@index([projectId, createdBy, createdAt])
   @@index([createdBy, createdAt])
+  // 问答历史按 answerMode='chat' 过滤，报告历史不过滤 → 让两者都走索引
+  @@index([createdBy, answerMode, createdAt])
 }

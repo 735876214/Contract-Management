@@ -49,6 +49,59 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 - `cms_whoami` 会对 `/auth/profile` 返回体做递归脱敏（`apiKey`/`secret`/`password`/`token` 等字段替换为 `***`），
   避免系统参数里的机密透传给外部 AI。后端 `/auth/profile` 的 `params` 建议另行做服务端白名单（纵深防御）。
 
+### 3.1 调用审计（2026-11-24）
+
+**问题**：MCP 的 8 个工具里 4 个是纯 GET 查询（`cms_query` / `cms_get` / `cms_whoami` /
+`cms_list_resources`），而 `OperationLogInterceptor` 默认只记写方法与 GET 导出下载——
+这 4 个工具**一条日志都不留**；写操作（`cms_import`）虽然记了，但与人工点「导入」
+在日志里完全无法区分。于是「AI 查走/导走了什么、谁给的权限」事后答不出来。
+
+**做法**：`mcp/` 发出的每个请求都带两个头（由 `mcp/src/cms-client.ts` 的 `headers()` 统一注入，
+工具名通过 `AsyncLocalStorage` 传递，不靠每个 handler 手动拼）：
+
+```
+x-cms-actor: mcp
+x-cms-tool: cms_query        # 具体工具名
+```
+
+后端 `OperationLogInterceptor` 认到这两个头就**无论方法**都记一条，写进
+`OperationLog.actorTool`（人工操作为 `null`）。日志页（系统管理 → 日志）多一列「来源」
+（`AI · cms_query` / `人工`）和一个「来源」筛选（`actor=mcp` / `actor=human`）。
+
+**为什么单开一列**：`bizType` 有既定语义（模型名/业务类型，被 import-task 回填与前端
+「业务类型」列消费），拿它兼职做「谁发起的」会同时毁掉两个含义。
+
+**为什么头名有两份字面量**：`mcp/` 是独立 Node 包，不能 import `server/src`。
+所以 `server/src/constants/mcpAudit.ts` 是权威定义，`server/test/mcpAudit.spec.mts`
+反向校验 `mcp/src/cms-client.ts` 里确实写着同样的字面量，并断言每个工具都走
+`tool()` 包装注册——**两端不一致或漏包都会让审计静默归零**（不报错，只是查不到 AI 操作），
+这是这个锁存在的全部理由。
+
+### 3.2 工具级权限（2026-11-24）
+
+**问题**：`cms_list_resources` 原来无条件列出 14 个资源，`cms_query` 也不判权限——
+一个只有 `dashboard:view` 的账号也会看到「合同/结算/付款」全部能力，点进去才撞 403，
+外部 AI 还会反复重试同一个越权调用。
+
+**做法**：`mcp/src/resources.ts` 给每个资源声明 `permissions: { read, write }`，
+值**照抄**后端 controller 的 `@RequirePermissions`（多处是 OR 语义，例如台账
+`ledger:view` 或 `contract:view`、字典 `dict:view` 或 `system:config`）：
+
+- `read` 覆盖查询 / 导出 / 模板下载（后端这三类接口都是 `X:view`）；
+- `write` 只覆盖导入（后端是 `X:edit`）；
+- 权限来自 `GET /auth/profile` 的 `permissions` + `isSuperAdmin`，按 token 缓存（重登即失效）。
+
+效果：`cms_list_resources` 只列当前账号能操作的资源，并把被挡掉的放进 `hiddenByPermission`；
+每次调用前本地判定，无权时给出**可解释**的错误（缺哪个码、找谁要），而不是让模型对着 1403 猜。
+
+**定位很重要**：本地过滤只是 UX，**安全边界仍在后端**。所以
+- 漏写/写错只会「挡住有权限的人」（可解释、可关），不会「放行没权限的人」；
+- 项目隔离照旧生效——权限通过不等于能跨项目取数（受限账号查 `/projects` 仍是空列表）；
+- `CMS_MCP_PERMISSION_FILTER=off` 可关掉本地过滤，退回后端判定。
+
+`server/test/mcpPermissions.spec.mts` 锁住「每个声明的权限码都真实存在于权限码目录」——
+抄成 `contract:veiw` 的后果是**静默的**（该资源永远被判无权，且不报错），只能靠这条锁发现。
+
 ## 4. 资源 → 接口映射（单一事实源：`mcp/src/resources.ts`）
 
 | 资源 key | 列表/详情 | 导出 | 模板 | 导入 |
@@ -77,7 +130,59 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 
 见 [../mcp/README.md](../mcp/README.md) §工具一览。8 个工具：`cms_list_resources` /
 `cms_whoami` / `cms_query` / `cms_get` / `cms_export` / `cms_download_template` /
-`cms_export_contract_word` / `cms_import`。
+`cms_export_contract_word` / `cms_import`，外加 3 个口径提示词（§5.1）与 3 个口径资源 + 1 个字典资源模板（§5.2）。
+
+### 5.1 口径提示词（MCP `prompts`，2026-11-24）
+
+外部 AI 不知道本企业口径时会「自己算合计」「编造增长率」「没命中的当成没问题」。
+系统内的 prompt 早把红线写死了，通过 MCP 的 `prompts` 原语暴露出去即可让外部 AI 用**同一份原文**：
+
+| prompt | 正文来源 | 参数 |
+|---|---|---|
+| `cms_report` | `REPORT_SYSTEM_PROMPT` + `templatePromptText(kind)` | `kind`、`extra` |
+| `cms_payment_anomaly` | `ANOMALY_SYSTEM_PROMPT` | — |
+| `cms_supply_chain` | `SCM_SYSTEM_PROMPT` + `SCM_SECTIONS` | — |
+
+链路上**没有第二份正文**：
+
+```
+server/src/modules/ai-insight/prompt-catalog.ts     ← 单一事实源（正文仍来自各 prompt 文件）
+        ↓ GET /api/ai/prompts, GET /api/ai/prompts/:key（权限 ai:view）
+mcp/src/prompts.ts                                   ← 只声明结构（key/标题/参数）
+        ↓ MCP prompts/list, prompts/get
+外部 AI
+```
+
+好处：系统更新口径后，外部 AI 下次 `prompts/get` 自动拿到新版本，`mcp/` 不必跟着发版。
+`server/test/aiPrompts.spec.mts` 锁住「渲染正文必须含口径原文」（防它悄悄变成一份摘要）
+以及「mcp 侧 key/参数名与服务端目录一致」。
+
+### 5.2 口径上下文（MCP `resources`，2026-11-24）
+
+外部 AI 的第二个缺口比 prompts 更基础：**它不认识字段值**。拿到 `status: 'PARTIAL'`、
+`execStatus: 'DONE_UNSETTLED'` 之后只能按常识解释，于是出现「把失败付款算进累计付款」
+「自己给采购任务编一个阶段顺序」「把台账合同额当成看板合同额」。这些不是幻觉，是缺口径。
+
+| uri | 内容 | 正文来源 |
+|---|---|---|
+| `cms://context/statuses` | 所有 status 取值 + **不计入统计的状态** + 字典类型清单 | `constants/statuses.ts` |
+| `cms://context/procurement-flow` | 采购类型、阶段定义、按类型的阶段链、任务状态中文标签 | `constants/procurementFlow.ts` |
+| `cms://context/metrics` | 每个金额/数量指标的唯一实现、owner、口径说明 | `constants/metrics.ts` |
+| `cms://dict/{typeCode}`（资源模板） | 字典项 `code → 中文标签` | DB `DictItem`（`GET /api/dict/options/:typeCode`） |
+
+两条设计约束：
+
+1. **文档由常量生成，不手写**（`server/src/modules/ai/context-catalog.ts`）。新加一个状态常量，
+   文档自动跟着变；`server/test/aiContext.spec.mts` 逐条校验「常量里的每一项都在文档里出现」——
+   这里真正的风险不是写错，而是**漏掉**（常量加了、文档没跟上，外部 AI 就按旧口径解释新数据，且不报错）。
+2. **中文标签不写进文档**。字典驱动的状态码标签在库里（`DictItem`），所以 statuses 文档只列
+   code 并明确指路 `cms://dict/{typeCode}`。硬编码一份标签就是第二事实源，而且会和库里改过的标签对不上。
+
+特别值得一说的是 `cms://context/metrics`：它就是 `docs/report-metrics.md` 的机器可读版本，
+含「累计结算排除草稿」「合同额按链根只计一次」「累计付款排除 FAILED/REFUNDED」这类**排除项**——
+恰恰是外部 AI 最容易自行发明的地方。
+
+推荐顺序：**先读 resources 的三份口径，再调工具取数**。
 
 ## 6. 验收
 

@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（110 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（118 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（42 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -250,6 +250,14 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 
   | `test/timeBounds.spec.mts` | **列表筛选的日期区间边界（本地日原语）+ 列表 where 片段**：`startOfDay/endOfDay/nextDayStart` 按**本地**零点（`new Date('YYYY-MM-DD')` 是 UTC 解析，本地 08:00，会漏掉当天记录）· `endOfDay` 含当天最后一毫秒 · `nextDayStart` 跨月跨年进位 · 拒绝 `2026-02-30`（否则筛选悄悄挪到 3 月）· 空值/非法值返回 null 不落 where · 不改入参 Date · `dateRange` 只给一端时另一端不出现 · `keywordWhere` 空关键字返回 null、按给定字段展开（不猜字段） |
   | `test/moneyFormat.spec.mts` | **前端金额/数量展示的单一实现**（`web/src/utils/money.ts`）：空值一律占位符、**不兜成 0**（显式 0 仍是 0）· 金额固定两位 + 千分位 · `1234.5600000000001` 浮点尾数被吃掉 · 数量最多 N 位不补零 · 占位符可覆盖（HTML 文档空串 / 面板长横线）· 比率 0~1 → 百分数 |
+  | `test/mcpPermissions.spec.mts` | **MCP 工具级权限的漂移锁**：`mcp/src/resources.ts` 每个资源都要声明 `permissions{read,write}` 且 `read` 非空 · 声明的每个权限码都必须存在于后端权限码目录（抄成 `contract:veiw` 会让该资源永远被判无权、**且不报错**）· `permissionCodesFor` 必须保持「import 走 write、其余走 read」· `server.ts` 的 6 个资源工具都要有 `assertAllowed`、`cms_list_resources` 必须把被挡掉的资源列进 `hiddenByPermission` |
+  | `test/llmStream.spec.ts` | **LLM 流式 SSE 解析锁**（P3-B，`.ts` 不是 `.mts`——`llm-client.ts` 里 `LlmError` 用了参数属性，Node strip-only 加载会 SyntaxError）· 逐字拼接 content 并按序回调 `onDelta` · **一个帧被拆在两个网络包里不丢字**（按 `\n\n` 分帧 + 缓存余量）· `tool_calls` 按 index 合并（id/name/arguments 分批下发，否则参数是残缺 JSON）· 并行工具调用按 index 排序而非到达顺序 · 非 JSON 的 data 行跳过不整次失败 · **上游忽略 stream 直接回 JSON 时按 Content-Type 兜底**（按 `res.body` 判会把 JSON 当 SSE 解析出空串——写完用例才发现的真 bug）· 未配置上游抛 LlmError |
+  | `test/chatTools.spec.mts` | **问数只读工具集锁**（P3-B）：工具清单**只有** `read_context` / `query_dataset` 两个（多一个写接口就是洞，写操作 P3-C 已暂缓）· 每个工具必须有描述（否则模型不会正确选）· `read_context` 返回的口径正文与 MCP resources **同一份**（不许另写摘要）· 未知 doc / 缺 datasetKey / 数据集无权限 / 参数非 JSON / 未知工具 → **一律回可读说明让模型自纠，不抛异常**（抛异常会把整轮对话打成 500） |
+  | `test/aiChatAnswer.spec.mts` | **AI 问数的措辞与数字对账**（P3-A）：system prompt 必须写死「禁止计算 / 不许出现清单外数字 / 不覆盖就说系统不包含 / ≤200 字 / 不写标题表格」· 消息含范围+期间+事实清单 · 数字都在清单里→采用 · **模型自己加总的数字→整段丢弃并报出该数字** · 用户问题里的数字放行（复述不算编造）· 空回答不返回空串 · 剥掉标题/表格/代码块行 · 兜底文案 = 原因 + 完整事实清单 |
+  | `test/aiContext.spec.mts` | **AI 口径上下文锁**（MCP `resources` 单一事实源）：状态码文档必须覆盖 `constants/statuses.ts` 里**每个**状态分组与其中每个码 · **统计排除项必须在文档里**（失败/退款付款不计入累计付款、作废/红冲发票不计入开票统计——最容易被外部 AI 自行发明的一条）· 必须列出全部字典类型并指路 `cms://dict/{typeCode}`（标签在库里，不许硬编码第二份）· 采购工作流覆盖阶段/类型/阶段链/每条任务状态中文标签 · 指标文档覆盖 `METRICS` 每个 id+名称+owner · 未知 key 抛错 · 正文不含机密字段名 · `mcp/src/context.ts` 的 key 与服务端一致 |
+  | `test/aiPrompts.spec.mts` | **AI 口径提示词目录锁**（MCP `prompts` 原语的单一事实源）：渲染正文必须**含口径原文**（`REPORT_SYSTEM_PROMPT` / `ANOMALY_SYSTEM_PROMPT` / `SCM_SYSTEM_PROMPT`，防另写一份摘要）· 供应链四节标题逐字 · `kind` 切换公文骨架、非法值回落 monthly 而不 500 · 未知 key 抛错而非静默空串 · 正文不含机密字段名 · 列表接口只回元信息不带正文 · `mcp/src/prompts.ts` 的 key 与参数名与服务端目录一致 |
+  | `test/mcpAudit.spec.mts` | **MCP 调用审计锁**：`x-cms-actor` / `x-cms-tool` → `OperationLog.actorTool`（null = 人工）· 无该头时不记录（普通 GET 不受影响）· 头值数组/大小写/空白容错 · 工具名归一（外部输入只留 `[a-z0-9_-]`、转小写、截断 64，防伪造注入）· **两端字面量一致性**（`mcp/` 是独立包，改了一边会让审计静默归零）· `headers()` 必须在统一出口注入审计头（否则导出/导入漏标）· 每个工具都必须走 `tool()` 包装注册 |
+  | `test/pluginCatalog.spec.mts` | **构建期插件（B 档）装配漂移锁**：生成物新鲜度（改 `plugin.json` 未跑 `scripts/gen-plugins.mjs` 即红）· 权限码必须 `<插件名>:` 前缀且已并入单一事实源 `PERMISSIONS`（标签也要一致）· 每条插件菜单必须有路由守卫且守卫不得比菜单更严 · 插件菜单真的落在权威 `MENU_TREE` 里（挂载点/路径/权限码一致）· 插件权限码不得绕过清单写死进核心目录 · `CMS_PLUGINS_DISABLED` 能关插件且关掉后菜单进隐藏集合 · 菜单 key 全局唯一 |
   | `test/smallModules.spec.mts` | **三个零覆盖小模块的纯函数层**（`notification` / `other-project` / `payment-procedure`）：付款手续 `deriveProcedureAmounts` 三值各自 2 位舍入后相减、**未付款允许为负**、空值按 0、相等时为 `0` 不是 `-0` · `procedureCodeCandidates` 首个无后缀其后 `-2`/`-3`、合同号缺失回落 `HT` · 其他项目库导入状态**大小写/全角空格**都判对停用（原实现大小写敏感）· 通知列表 where 永远带当前用户、`isRead` 兼容 `true/1/read`、`projectId` 有值才过滤 |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。

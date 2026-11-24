@@ -1326,6 +1326,16 @@ export const aiApi = {
   // ---------- AI 经营数据助手（Phase 1–2）----------
   /** 数据集注册表：只返回已实现且当前用户有权限的条目 */
   analyticsDatasets: () => http.get<any, AiAnalyticsDatasetsResult>('/ai/analytics/datasets'),
+
+  /** 问数（P3-A）：可用性 + 可问数据集（按权限过滤） */
+  chatStatus: () => http.get<any, any>('/ai/chat/status'),
+  /** 一次问答：数字由后端算、模型只组织语言，返回里带未对上的数字 */
+  chatAsk: (body: Record<string, unknown>) =>
+    http.post<any, any>('/ai/chat/ask', body, { timeout: 120000 } as any),
+  /** 问答历史（只回 answerMode=chat 的记录） */
+  chatRecords: (params?: Record<string, unknown>) =>
+    http.get<any, any>('/ai/chat/records', { params }),
+  chatRecord: (id: string) => http.get<any, any>(`/ai/chat/records/${id}`),
   /** 自然语言/结构化选择 → 最终意图（规则解析 + 逐字段覆盖） */
   analyticsPlan: (body: Record<string, unknown>) =>
     http.post<any, AiAnalyticsPlanResult>('/ai/analytics/plan', body, { timeout: 60000 } as any),

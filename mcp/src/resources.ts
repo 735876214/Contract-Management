@@ -14,9 +14,30 @@ export interface RequiredQueryByCapability {
   import?: string[];
 }
 
+/**
+ * 该资源需要的权限码（**照抄后端 controller 的 `@RequirePermissions`**）。
+ *
+ * - 数组内是 **OR** 语义（与 `PermissionsGuard` 一致：任一命中即通过）；
+ * - `read` 覆盖查询 / 导出 / 模板下载（后端这三类接口都是 `X:view`）；
+ * - `write` 只覆盖导入（后端导入接口是 `X:edit`）；
+ * - 空数组 = 不做本地判断。
+ *
+ * 定位：**本地过滤只是 UX**，不是安全边界——真正的边界在后端每个接口上。
+ * 所以这里的漏写/写错只会让「有权限的人被本地挡住」（可解释、可用
+ * `CMS_MCP_PERMISSION_FILTER=off` 关掉），不会让「没权限的人越权」。
+ * 也因此不要在这里发明新权限码：`server/test/mcpPermissions.spec.mts` 会校验
+ * 这里的每个码都真实存在于后端权限码目录（`server/src/constants/permissions.ts`）。
+ */
+export interface ResourcePermissions {
+  read: string[];
+  write: string[];
+}
+
 export interface CmsResource {
   /** 工具里使用的资源 key（同时也作为 MCP 的 enum 值） */
   key: string;
+  /** 查询/导出/导入所需的权限码（与后端接口一一对应） */
+  permissions: ResourcePermissions;
   /** 中文名，便于 AI 理解 */
   label: string;
   /** 列表基路径 */
@@ -44,6 +65,7 @@ export type Capability = 'query' | 'export' | 'template' | 'import';
 export const RESOURCES: CmsResource[] = [
   {
     key: 'projects',
+    permissions: { read: ['project:view'], write: ['project:edit'] },
     label: '项目',
     path: 'projects',
     detailPath: 'projects',
@@ -55,6 +77,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'suppliers',
+    permissions: { read: ['supplier:view'], write: ['supplier:edit'] },
     label: '供应商/分包商',
     path: 'suppliers',
     detailPath: 'suppliers',
@@ -69,6 +92,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'contracts',
+    permissions: { read: ['contract:view'], write: ['contract:edit'] },
     label: '合同',
     path: 'contracts',
     detailPath: 'contracts',
@@ -80,6 +104,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'materials',
+    permissions: { read: ['material:view'], write: ['material:edit'] },
     label: '物料主数据',
     path: 'materials',
     needsProject: true,
@@ -91,6 +116,8 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'contract-materials',
+    // 合同清单物料归 material 模块（MaterialController 的 contract-materials/* 路由）
+    permissions: { read: ['material:view'], write: ['material:edit'] },
     label: '合同清单物料',
     path: 'contract-materials',
     needsProject: true,
@@ -108,6 +135,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'daily-reports',
+    permissions: { read: ['daily:view'], write: ['daily:edit'] },
     label: '日报',
     path: 'daily-reports',
     detailPath: 'daily-reports',
@@ -118,6 +146,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'assets',
+    permissions: { read: ['asset:view'], write: ['asset:edit'] },
     label: '资产',
     path: 'assets',
     needsProject: true,
@@ -129,6 +158,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'settlements',
+    permissions: { read: ['settlement:view'], write: ['settlement:edit'] },
     label: '结算（结算台账）',
     path: 'settlements',
     detailPath: 'settlements',
@@ -140,6 +170,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'payments',
+    permissions: { read: ['payment:view'], write: ['payment:edit'] },
     label: '付款记录',
     path: 'payments/records',
     needsProject: true,
@@ -151,6 +182,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'invoices',
+    permissions: { read: ['invoice:view'], write: ['invoice:edit'] },
     label: '发票',
     path: 'invoices',
     detailPath: 'invoices',
@@ -162,6 +194,8 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'ledger',
+    // 台账接口是 OR 语义：ledger:view **或** contract:view（LedgerController 全部路由）
+    permissions: { read: ['ledger:view', 'contract:view'], write: [] },
     label: '合同台账',
     path: 'ledger/contracts',
     needsProject: true,
@@ -170,6 +204,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'repayments',
+    permissions: { read: ['repayment:view'], write: [] },
     label: '还款协议',
     path: 'repayments',
     detailPath: 'repayments',
@@ -178,6 +213,7 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'procurement-tasks',
+    permissions: { read: ['procurement:view'], write: [] },
     label: '采购任务',
     path: 'procurement-tasks',
     detailPath: 'procurement-tasks',
@@ -186,6 +222,8 @@ export const RESOURCES: CmsResource[] = [
   },
   {
     key: 'dict',
+    // 字典接口是 OR 语义：dict:view/dict:edit **或** system:config（DictController）
+    permissions: { read: ['dict:view', 'system:config'], write: ['dict:edit', 'system:config'] },
     label: '字典',
     path: 'dict/items',
     needsProject: false,
@@ -213,4 +251,14 @@ export function getResource(key: string): CmsResource {
 
 export function requiredQueryFor(resource: CmsResource, capability: Capability): string[] {
   return resource.requiredQuery?.[capability] ?? [];
+}
+
+/**
+ * 某能力所需的权限码（OR 语义；空数组 = 不判断）。
+ *
+ * 注意 read 同时覆盖查询 / 导出 / 模板下载——后端这三个接口都是 `X:view`；
+ * 只有 import 需要 `X:edit`。
+ */
+export function permissionCodesFor(resource: CmsResource, capability: Capability): string[] {
+  return capability === 'import' ? resource.permissions.write : resource.permissions.read;
 }

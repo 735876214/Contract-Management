@@ -502,7 +502,13 @@ function LogsPage() {
   const applyFilters = () => op.search(filters);
   const resetFilters = () => {
     setFilters({});
-    op.search({ keyword: undefined, module: undefined, action: undefined, result: undefined });
+    op.search({
+      keyword: undefined,
+      module: undefined,
+      action: undefined,
+      result: undefined,
+      actor: undefined,
+    });
   };
 
   return (
@@ -534,7 +540,7 @@ function LogsPage() {
             style={{ width: 110 }}
             value={filters.action}
             onChange={(v) => setFilters((f: any) => ({ ...f, action: v }))}
-            options={['新增', '修改', '删除', '导入', '导出', '启停'].map((v) => ({ label: v, value: v }))}
+            options={['新增', '修改', '删除', '导入', '导出', '查询', '启停'].map((v) => ({ label: v, value: v }))}
           />
           <Select
             allowClear
@@ -543,6 +549,18 @@ function LogsPage() {
             value={filters.result}
             onChange={(v) => setFilters((f: any) => ({ ...f, result: v }))}
             options={[{ label: '成功', value: 'SUCCESS' }, { label: '失败', value: 'FAIL' }]}
+          />
+          {/* 来源（2026-11-24 MCP 审计）：AI 经 MCP 工具发起的操作会带 actorTool，人工为 null */}
+          <Select
+            allowClear
+            placeholder="来源"
+            style={{ width: 150 }}
+            value={filters.actor}
+            onChange={(v) => setFilters((f: any) => ({ ...f, actor: v }))}
+            options={[
+              { label: 'AI / MCP 调用', value: 'mcp' },
+              { label: '人工操作', value: 'human' },
+            ]}
           />
           <Button type="primary" onClick={applyFilters}>查询</Button>
           <Button onClick={resetFilters}>重置</Button>
@@ -556,6 +574,13 @@ function LogsPage() {
           scroll={{ x: 1500 }}
           columns={[
             { title: '用户', dataIndex: 'username', width: 120, render: (v: any) => v || '-' },
+            {
+              title: '来源',
+              dataIndex: 'actorTool',
+              width: 150,
+              render: (v: any) =>
+                v ? <Tag color="purple">AI · {v}</Tag> : <Tag>人工</Tag>,
+            },
             { title: '模块', dataIndex: 'module', width: 130 },
             { title: '动作', dataIndex: 'action', width: 80 },
             {
@@ -604,6 +629,16 @@ function LogsPage() {
         >
           {detail && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <strong>发起方</strong>
+                <div style={{ marginTop: 4 }}>
+                  {detail.actorTool ? (
+                    <Tag color="purple">AI · MCP 工具 {detail.actorTool}</Tag>
+                  ) : (
+                    <Tag>人工操作</Tag>
+                  )}
+                </div>
+              </div>
               <div>
                 <strong>请求参数</strong>
                 <pre style={{ maxHeight: 200, overflow: 'auto', background: 'var(--cms-surface-soft)', padding: 8, borderRadius: 4, margin: '4px 0 0' }}>
