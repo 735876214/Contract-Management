@@ -6,13 +6,14 @@ import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { paymentProcedureApi, docTemplateApi } from '@/api/modules';
+import type { PaymentProcedureRow } from '@/api/types/payment';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
 
-const money = (v: any) => formatMoney(v);
+const money = (v: unknown) => formatMoney(v);
 
 /**
  * 付款手续编制（业务口径 2026-10-16）：数据项为供应商名称 / 开累结算金额 / 开累付款金额 /
@@ -70,9 +71,10 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
 
   const extraColumns: any[] = [
     { title: '单据编号', dataIndex: 'code', width: 200, fixed: 'left' },
-    { title: '供应商名称', key: 'supplier', width: 220, render: (_v: any, r: any) => r.supplier?.name || r.contract?.supplier?.name || '-' },
-    { title: '合同编号', key: 'contractCode', width: 170, render: (_v: any, r: any) => r.contract?.code || '-' },
-    { title: '合同名称', key: 'contractName', width: 240, ellipsis: true, render: (_v: any, r: any) => r.contract?.name || '-' },
+    // ⚠️ 服务端 findAll 的 contract 只 select { id, code, name }，没有 supplier —— 故只到 r.supplier?.name
+    { title: '供应商名称', key: 'supplier', width: 220, render: (_v: unknown, r: PaymentProcedureRow) => r.supplier?.name || '-' },
+    { title: '合同编号', key: 'contractCode', width: 170, render: (_v: unknown, r: PaymentProcedureRow) => r.contract?.code || '-' },
+    { title: '合同名称', key: 'contractName', width: 240, ellipsis: true, render: (_v: unknown, r: PaymentProcedureRow) => r.contract?.name || '-' },
     { title: '开累结算金额', dataIndex: 'settleCumAmount', width: 150, align: 'right', render: money },
     { title: '开累付款金额', dataIndex: 'paidCumAmount', width: 150, align: 'right', render: money },
     {
@@ -81,12 +83,12 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
       width: 150,
       align: 'right',
       // 付超了（未付款为负）用错误色标出来 —— 这正是付款手续要暴露的异常
-      render: (v: any) =>
+      render: (v: PaymentProcedureRow['unpaidAmount'] | undefined) =>
         v == null ? '-' : (
           <span style={Number(v) < 0 ? { color: 'var(--cms-error)' } : undefined}>{money(v)}</span>
         ),
     },
-    { title: '付款时间', dataIndex: 'payDate', width: 120, render: (v: any) => v?.slice(0, 10) || '-' },
+    { title: '付款时间', dataIndex: 'payDate', width: 120, render: (v: PaymentProcedureRow['payDate']) => v?.slice(0, 10) || '-' },
     { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
   ];
 

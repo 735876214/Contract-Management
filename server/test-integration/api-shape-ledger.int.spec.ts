@@ -1,9 +1,8 @@
 // @domains: ledger, contract
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bootIntApp, makeContract, makeProject, type IntContext } from './helpers';
+import { bootIntApp, makeContract, makeProject, readQueryParamKeys, readWebTypeKeys, type IntContext } from './helpers';
 import { LedgerService } from '../src/modules/ledger';
 
 /**
@@ -27,15 +26,8 @@ import { LedgerService } from '../src/modules/ledger';
  * CJS 的 int spec 不能 `require` 它（`ERR_REQUIRE_ESM`）。所以下面用正则抽 `as const` 数组，
  * 并**先钉死抽到的条数**——格式被改写时本用例会明确报错，而不是静默空转。
  */
-const repoRoot = join(__dirname, '..', '..');
-const typeSource = readFileSync(join(repoRoot, 'web', 'src', 'api', 'types', 'ledger.ts'), 'utf8');
-
-/** 从 `export const NAME = [ ... ] as const;` 里抽出键名 */
-const readKeyArray = (name: string): string[] => {
-  const m = typeSource.match(new RegExp(`export const ${name} = \\[([\\s\\S]*?)\\] as const;`));
-  assert.ok(m, `没在 web/src/api/types/ledger.ts 里找到 ${name}，本用例的解析锚点已失效`);
-  return [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-};
+const TYPE_FILE = 'web/src/api/types/ledger.ts';
+const readKeyArray = (name: string): string[] => readWebTypeKeys(TYPE_FILE, name);
 
 describe('集成 · 台账接口契约（响应字段集 / 请求参数名）', () => {
   let ctx: IntContext;
@@ -82,17 +74,10 @@ describe('集成 · 台账接口契约（响应字段集 / 请求参数名）', 
   });
 
   it('请求参数名与 findAll() 实际读取的 query.* 键逐字一致', () => {
-    const src = readFileSync(join(__dirname, '..', 'src', 'modules', 'ledger', 'ledger.service.ts'), 'utf8');
-    const start = src.indexOf('async findAll(');
-    assert.ok(start > 0, '没找到 findAll()，本用例的切片锚点已失效');
-    const body = src.slice(start, src.indexOf('async summary(', start));
-    const used = new Set([...body.matchAll(/query\.([a-zA-Z_][\w]*)/g)].map((m) => m[1]));
-    // 分页键由 paginate() 消费，不会以 query.page 的形式出现
-    used.add('page');
-    used.add('pageSize');
+    const used = readQueryParamKeys(join(__dirname, '..', 'src', 'modules', 'ledger', 'ledger.service.ts'), 'async findAll(', 'async summary(');
 
     assert.deepEqual(
-      [...used].sort(),
+      used,
       readKeyArray('LEDGER_LIST_PARAM_KEYS').sort(),
       '台账查询参数名与前端声明不一致——改任一侧都要同步另一侧（页面 extraFilters 的 key 必须来自 LEDGER_LIST_PARAM_KEYS）',
     );

@@ -6,6 +6,17 @@ import type {
   LedgerListResponse,
   LedgerSummary,
 } from './types/ledger';
+import type {
+  PaymentProcedureListParams,
+  PaymentProcedureListResponse,
+  PaymentProcedureRow,
+  PaymentProcedureWritePayload,
+  PaymentRecordCreatePayload,
+  PaymentRecordListParams,
+  PaymentRecordListResponse,
+  PaymentRecordRow,
+  PaymentRecordUpdatePayload,
+} from './types/payment';
 
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
@@ -281,11 +292,14 @@ export const settlementApi = {
   },
 };
 
+/** 付款台账（类型见 `./types/payment`）。⚠️ 不支持 `keyword` 过滤，金额字段是 Decimal 原样下发的 **string**。 */
 export const paymentApi = {
-  records: (params?: any) => http.get<any, any>('/payments/records', { params }),
-  createRecord: (data: any) => http.post<any, any>('/payments/records', data),
-  updateRecord: (id: string, data: any) => http.put<any, any>(`/payments/records/${id}`, data),
-  removeRecord: (id: string) => http.delete<any, any>(`/payments/records/${id}`),
+  records: (params?: PaymentRecordListParams) =>
+    http.get<PaymentRecordListResponse, PaymentRecordListResponse>('/payments/records', { params }),
+  createRecord: (data: PaymentRecordCreatePayload) => http.post<PaymentRecordRow, PaymentRecordRow>('/payments/records', data),
+  updateRecord: (id: string, data: PaymentRecordUpdatePayload) =>
+    http.put<PaymentRecordRow, PaymentRecordRow>(`/payments/records/${id}`, data),
+  removeRecord: (id: string) => http.delete<boolean, boolean>(`/payments/records/${id}`),
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
   recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
   recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
@@ -298,12 +312,16 @@ export const paymentApi = {
 };
 
 /** 付款手续编制（业务口径 2026-10-16）：开累两值由服务端按合同链口径取数并快照，前端不提交 */
+/** 付款手续（类型见 `./types/payment`）。「开累」三列是服务端快照，前端直传会被忽略。 */
 export const paymentProcedureApi = {
-  list: (params?: any) => http.get<any, any>('/payment-procedures', { params }),
-  detail: (id: string) => http.get<any, any>(`/payment-procedures/${id}`),
-  create: (data: any) => http.post<any, any>('/payment-procedures', data),
-  update: (id: string, data: any) => http.put<any, any>(`/payment-procedures/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
+  list: (params?: PaymentProcedureListParams) =>
+    http.get<PaymentProcedureListResponse, PaymentProcedureListResponse>('/payment-procedures', { params }),
+  detail: (id: string) => http.get<PaymentProcedureRow, PaymentProcedureRow>(`/payment-procedures/${id}`),
+  create: (data: PaymentProcedureWritePayload) =>
+    http.post<PaymentProcedureRow, PaymentProcedureRow>('/payment-procedures', data),
+  update: (id: string, data: PaymentProcedureWritePayload) =>
+    http.put<PaymentProcedureRow, PaymentProcedureRow>(`/payment-procedures/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/payment-procedures/${id}`),
 };
 
 /** 总结算单（结算及付款管理，业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 */
