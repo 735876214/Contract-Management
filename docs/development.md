@@ -95,7 +95,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
 | server | `npm run test` | node:test **纯函数单测**（109 个 spec，无 DB，**CI 门禁**） |
-| server | `npm run test:int` | **DB 集成测试**（38 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
+| server | `npm run test:int` | **DB 集成测试**（39 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
 | server | `npm run test:anomaly` | 6-9 预警的 5 个用例文件快速回归（规则/阈值/措辞/取数形状/评分，无 DB） |
@@ -302,6 +302,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
 | `settlement-link.int.spec.ts` | 结算台账 ↔ 结算单关联：结算单保存后**自动生成台账行并挂 `settlementId`**（改造前 `syncLedgerByContract` 全仓无调用点）· **同合同同月第二张结算单被 400 拦住** · 改月份时**先清后挂**（`settlementId` 唯一键，否则新月建行撞旧月）· 删结算单后台账行退回「仅费用行」· **只有资金费用没有结算单时也建行** · 台账「保理贴息/逾期利息」写入一律 400 · **换合同同时解绑旧合同的收领单** · **未挂合同（`contractId`/`materialContractId` 为空）的已挂发票/收领单不被合同过滤漏掉或误解绑** |
 | `ledger-derived.int.spec.ts` | **合同台账派生金额口径**（2026-11-14 审计修复）：项目「合同额」合计按**链**只计一次（补充协议的自由 `amount` 不参与相加）· 「审定结算额」**排除草稿**且 `actualAmount` 为空时回退 `amount` · 税率未填时税前/进项税留 `null`（未知不兜 0%），显式 0/13% 正常拆分 |
 | `ledger-compliance-filter.int.spec.ts` | **台账「合规性问题」筛选**（2026-11-22 全量行收口）：窄投影扫一遍算命中 id、只回查当页完整行，判定仍是同一份 `calcLedgerCompliance`；断言六种结果各自命中且互不串、`total` 为**命中条数**、跨页不重不漏、顺序与未筛选一致 |
+| `api-shape-ledger.int.spec.ts` | **台账接口契约双侧锁**（锁 `web/src/api/types/ledger.ts`）：① **响应**——`findAll()` 返回的键必须都在 `LEDGER_ROW_KEYS` 里、声明的非 optional 键必须真实出现（后端偷偷加/删字段、前端凭空造字段都会红）；② **请求**——`LEDGER_LIST_PARAM_KEYS` 必须与 `findAll()` 实际读取的 `query.*` 逐字一致。起因：台账页 `extraFilters` 的 key 写成 `code/type/executionStatus/category` 而服务端认 `contractCode/typeCode/execStatus/supplierCategory`，**四个筛选器静默失效**（发 `code=DEMO` 仍返回全部，发 `contractCode=DEMO` 才收窄） |
 | `other-project.int.spec.ts` | **其他项目库写路径**：GLOBAL 共享下「同名」**跨项目也算重复**（落库 `projectId` 为空）· 乐观锁缺 `version` / 版本过期一律 **409** · 被收领单的 `supplyUnitId`/`receivingUnitId`（泛型 ID 无外键）引用时**不可删除、仅可停用** · 停用/启用只翻 `status` 不改名称 |
 | `notification.int.spec.ts` | **站内通知读写边界**：`send` 必须给收件人（`userId=null` 是查不到的孤儿 → 400）· **只能标记自己的已读**（跨用户 → 404，不暴露存在性）· `readAll` 只清自己的未读 · 列表/未读数按用户过滤、`isRead` 兼容历史 `'read'/'unread'` |
 | `payment-procedure.int.spec.ts` | **付款手续的「开累」快照**（业务口径 2026-10-16）：新建时开累结算/付款/未付款由**服务端按合同链口径**算出并落库（前端直传被忽略、供应商由合同带出）· **快照语义**：不换合同时事后补录付款**不改写**已出单据 · **换合同**才按新合同重取四个数字 · 编号 `FK-<合同号>-<YYYYMMDD>`、同日第二张追加 `-2` · 付款超结算时「未付款」为负（不抹平） |
