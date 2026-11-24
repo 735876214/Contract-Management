@@ -1,7 +1,7 @@
 import { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { AppModule } from '../src/app.module';
@@ -19,6 +19,34 @@ import { runStartupSeed } from '../src/seed';
  *
  * 本地跑法见 docs/development.md §5「DB 集成测试」。
  */
+
+/**
+ * 读 `web/src/api/types/*.ts` 里 `export const NAME = [ ... ] as const;` 的键名清单。
+ *
+ * 为什么按**文本**解析而不是 import：`web/package.json` 是 `"type": "module"`，
+ * CJS 的 int spec `require` 它会 `ERR_REQUIRE_ESM`。抽不到时直接抛错（别让用例静默空转）。
+ *
+ * 用法：`readWebTypeKeys('web/src/api/types/payment.ts', 'PAYMENT_RECORD_ROW_KEYS')`。
+ */
+export function readWebTypeKeys(relPath: string, constName: string): string[] {
+  const abs = path.join(__dirname, '..', '..', relPath);
+  const src = readFileSync(abs, 'utf8');
+  const m = src.match(new RegExp(`export const ${constName} = \\[([\\s\\S]*?)\\] as const;`));
+  if (!m) throw new Error(`没在 ${relPath} 里找到 ${constName}（契约解析锚点已失效）`);
+  return [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+}
+
+/** 从 service 源码里抽 `query.*` 实际读取的键（+ page/pageSize，它们由 paginate() 消费）。 */
+export function readQueryParamKeys(absFile: string, methodAnchor: string, nextAnchor: string): string[] {
+  const src = readFileSync(absFile, 'utf8');
+  const start = src.indexOf(methodAnchor);
+  if (start < 0) throw new Error(`没找到 ${methodAnchor}（切片锚点已失效）`);
+  const body = src.slice(start, src.indexOf(nextAnchor, start));
+  const used = new Set([...body.matchAll(/query\.([a-zA-Z_][\w]*)/g)].map((m) => m[1]));
+  used.add('page');
+  used.add('pageSize');
+  return [...used].sort();
+}
 
 export interface IntContext {
   app: INestApplicationContext;

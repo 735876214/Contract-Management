@@ -55,7 +55,7 @@ Contract-Management/
 │   │                   #   statuses.ts、metrics.ts（指标口径登记）、workflowGuards.ts
 │   ├── src/modules/    # 33 个业务模块（AI 按职责拆成 ai / ai-core / ai-insight / ai-fill）
 │   ├── test/           # node:test 纯函数单测（109 个 spec，无 DB；清单见 docs/development.md §5）
-│   └── test-integration/ # DB 集成测试（39 个 spec，需 PostgreSQL：npm run test:int）
+│   └── test-integration/ # DB 集成测试（40 个 spec，需 PostgreSQL：npm run test:int）
 ├── packages/calc/      # 前后端共享计算引擎 @cms/calc（file: 依赖；产物入库，CI 查新鲜度）
 │                       #   详见 packages/calc/README.md 与 docs/04 §2.2
 ├── web/                # React 前端（src/{api,components,constants,hooks,layouts,pages,store,utils}）
@@ -82,7 +82,7 @@ docker compose -f docker-compose.dev.yml up     # 本地开发（前端 :5173 / 
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
 cd server && npm test          # node:test 纯函数单测（109 个 spec，无 DB）
-cd server && npm run test:int  # DB 集成测试（39 个 spec，改金额/状态/导入必跑）
+cd server && npm run test:int  # DB 集成测试（40 个 spec，改金额/状态/导入必跑）
 ```
 
 ## 5. 验收铁律
