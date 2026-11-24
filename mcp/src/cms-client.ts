@@ -64,6 +64,12 @@ export class CmsApiError extends Error {
   }
 }
 
+/** 当前账号的权限范围（来自 `/auth/profile`） */
+export interface UserScope {
+  isSuperAdmin: boolean;
+  permissions: string[];
+}
+
 export interface LoginResult {
   token: string;
   userInfo?: unknown;
@@ -82,6 +88,8 @@ interface RequestOptions {
 export class CmsClient {
   private token: string | undefined;
   private loginInFlight: Promise<string> | undefined;
+  /** 权限范围缓存：与签发它的 token 绑定，重登后自动失效（避免角色改完还按旧权限过滤） */
+  private scopeCache: { token: string; scope: UserScope } | undefined;
 
   constructor(private readonly config: CmsConfig) {
     this.token = config.token;
@@ -125,6 +133,41 @@ export class CmsClient {
   /** 当前身份信息（含权限码与可访问项目），帮助外部 AI 自省可用范围 */
   async profile(): Promise<unknown> {
     return this.requestJson('/auth/profile', { method: 'GET' });
+  }
+
+  /**
+   * 当前账号的权限范围（缓存到 token 变更为止）。
+   *
+   * 用途：工具级权限过滤——本 MCP 的每个工具在本地先判一次，让「这个账号能不能查合同」
+   * 在**调用前**就说清楚，而不是等后端回 1403 让 AI 自己去猜原因。
+   * 本地判断**不是**安全边界：后端每个接口都有自己的 `@RequirePermissions`。
+   */
+  async scope(): Promise<UserScope> {
+    const token = await this.ensureToken();
+    if (this.scopeCache && this.scopeCache.token === token) return this.scopeCache.scope;
+    const raw = (await this.profile()) as any;
+    const scope: UserScope = {
+      isSuperAdmin: raw?.isSuperAdmin === true,
+      permissions: Array.isArray(raw?.permissions)
+        ? raw.permissions.filter((x: unknown): x is string => typeof x === 'string')
+        : [],
+    };
+    this.scopeCache = { token, scope };
+    return scope;
+  }
+
+  /**
+   * 取一份口径提示词的正文（服务端 `GET /api/ai/prompts/:key`）。
+   *
+   * 正文的**单一事实源在服务端**（`ai-insight/prompt-catalog.ts` → 各 prompt 文件），
+   * 本包不存副本——否则系统更新了口径，外部 AI 还在按旧口径出结论。
+   */
+  async promptText(key: string, args: Record<string, string | undefined> = {}): Promise<string> {
+    const data = await this.requestJson<{ text: string }>(`/ai/prompts/${encodeURIComponent(key)}`, {
+      method: 'GET',
+      query: args as Record<string, unknown>,
+    });
+    return String(data?.text ?? '');
   }
 
   // ---- 基础请求 ----

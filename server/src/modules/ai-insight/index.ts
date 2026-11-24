@@ -18,3 +18,6 @@ export type { PaymentAnomalyQuery } from './anomaly/anomaly.service.ts';
 export { FieldResolverService } from './field-resolver.service.ts';
 export { IntentService } from './intent/intent.service.ts';
 export { ReportService } from './report.service.ts';
+// 口径提示词目录：对外（MCP prompts）暴露同一份正文，不复制第二份
+export { AI_PROMPT_CATALOG, AI_PROMPT_MAP, listAiPrompts, renderAiPrompt } from './prompt-catalog.ts';
+export type { AiPromptArgument, AiPromptDef } from './prompt-catalog.ts';

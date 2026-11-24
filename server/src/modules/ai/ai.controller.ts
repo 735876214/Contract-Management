@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Put,
   Query,
@@ -13,7 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
-import { AiService } from '../ai-insight/index.ts';
+import { AiService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
 import { AiSettingService } from '../ai-core/ai-setting.service.ts';
 import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
 import { RegisterService, type RegisterConfirmInput } from '../ai-fill/index.ts';
@@ -119,6 +120,26 @@ export class AiController {
   @Get('status')
   status() {
     return this.service.status();
+  }
+
+  /**
+   * 口径提示词目录（**只读、纯静态文本**，不含任何业务数据或密钥）。
+   *
+   * 主要消费方是 `mcp/`：外部 AI 通过 MCP 的 `prompts/list` / `prompts/get` 拿到同一份口径原文，
+   * 于是「怎么写汇报材料」「异常预警的红线」在站内 AI 与外部 AI 之间只有一份定义。
+   * 正文仍由各 prompt 文件持有，本接口只做曝光（见 `ai-insight/prompt-catalog.ts`）。
+   */
+  @RequirePermissions('ai:view')
+  @Get('prompts')
+  prompts() {
+    return { prompts: listAiPrompts() };
+  }
+
+  /** 渲染指定口径提示词；`kind`/`extra` 等参数走 query string */
+  @RequirePermissions('ai:view')
+  @Get('prompts/:key')
+  prompt(@Param('key') key: string, @Query() query: any) {
+    return renderAiPrompt(key, query || {});
   }
 
   /**

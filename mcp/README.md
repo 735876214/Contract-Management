@@ -81,6 +81,7 @@ CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
 | `CMS_MCP_HTTP_PORT` | 否 | `--http` 模式端口，默认 `8787` |
 | `CMS_MCP_HTTP_HOST` | 否 | `--http` 监听地址，默认 `127.0.0.1`；设 `0.0.0.0` 对外时必须配 Token |
 | `CMS_MCP_HTTP_TOKEN` | HTTP 模式建议 | Bearer Token 鉴权；未设时仅回环可访问，非回环则拒绝启动 |
+| `CMS_MCP_PERMISSION_FILTER` | 否 | 默认开启工具级权限过滤；设 `off` 关闭，退回「由后端 1403 报错」 |
 
 ## 工具一览
 
@@ -99,6 +100,40 @@ CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
 `daily-reports` / `assets` / `settlements` / `payments` / `invoices` / `ledger` /
 `repayments` / `procurement-tasks` / `dict`。各资源能力见 `src/resources.ts`（单一事实源）。
 
+### 工具级权限（按账号过滤）
+
+每个资源在 `src/resources.ts` 里声明 `permissions: { read, write }`，值照抄后端 controller 的
+`@RequirePermissions`（多处是 **OR** 语义，例如台账 `ledger:view` **或** `contract:view`）。
+于是：
+
+- `cms_list_resources` 只列出**当前账号真能操作**的资源，并把被挡掉的资源放进 `hiddenByPermission`
+  ——不列出来的同时说明「被挡住了」，避免 AI 误以为系统里没这些数据；
+- 每次调用前先本地判定，无权时给出**可解释**的错误（缺哪个权限码、找谁要），
+  而不是让模型对着后端 `1403` 自己猜；
+- **本地过滤只是 UX，不是安全边界**：真正的边界仍在后端每个接口，
+  项目隔离（`x-project-id` + `ProjectMember`）照旧生效——权限通过不等于能跨项目看数据。
+
+若某部署的角色体系与本仓默认权限码不一致，可用 `CMS_MCP_PERMISSION_FILTER=off` 关掉本地过滤，
+退回「由后端 1403 报错」的行为，不会丢功能。
+
+### 口径提示词（MCP prompts）
+
+除 8 个工具外还注册了 3 个 **MCP prompt**，把系统内的**口径原文**给外部 AI 复用：
+
+| prompt | 作用 | 参数 |
+|---|---|---|
+| `cms_report` | 写汇报材料的口径 + 公文骨架 | `kind`（monthly/project/brief）、`extra` |
+| `cms_payment_anomaly` | 结算/付款异常预警的红线 | — |
+| `cms_supply_chain` | 供应链运营全景的红线与四节固定结构 | — |
+
+为什么需要：外部 AI 不知道本企业口径时会「自己算合计」「编造增长率」「没命中的当成没问题」。
+这些红线系统内的 prompt 早就写死了，通过 MCP 暴露出去即可让外部 AI 用**同一份原文**。
+
+实现边界：`src/prompts.ts` **只声明结构**（key/标题/参数），正文一律向服务端取
+（`GET /api/ai/prompts/:key`，单一事实源在 `server/src/modules/ai-insight/prompt-catalog.ts`）。
+所以系统更新口径后，外部 AI 下次 `prompts/get` 自动拿到新版本，本包不必跟着发版。
+权限走后端 `ai:view`：没有该权限时 `prompts/get` 返回可读的 1403。
+
 ## 测试
 
 ```bash
@@ -113,7 +148,8 @@ node test/e2e.mjs # 端到端（需后端在线 + 种子账号，真跑登录/�
 mcp/
 ├── src/
 │   ├── config.ts       # 环境变量 → 配置
-│   ├── resources.ts    # 资源目录（路径/能力，单一事实源）
+│   ├── resources.ts    # 资源目录（路径/能力/所需权限码，单一事实源）
+│   ├── prompts.ts      # 口径提示词的结构声明（正文向服务端取）
 │   ├── cms-client.ts   # 登录/信封解包/项目头/二进制下载/multipart 上传
 │   ├── server.ts       # 8 个工具的注册
 │   └── index.ts        # 入口：stdio 默认 / --http 模式

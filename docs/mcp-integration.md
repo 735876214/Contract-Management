@@ -77,6 +77,31 @@ x-cms-tool: cms_query        # 具体工具名
 `tool()` 包装注册——**两端不一致或漏包都会让审计静默归零**（不报错，只是查不到 AI 操作），
 这是这个锁存在的全部理由。
 
+### 3.2 工具级权限（2026-11-24）
+
+**问题**：`cms_list_resources` 原来无条件列出 14 个资源，`cms_query` 也不判权限——
+一个只有 `dashboard:view` 的账号也会看到「合同/结算/付款」全部能力，点进去才撞 403，
+外部 AI 还会反复重试同一个越权调用。
+
+**做法**：`mcp/src/resources.ts` 给每个资源声明 `permissions: { read, write }`，
+值**照抄**后端 controller 的 `@RequirePermissions`（多处是 OR 语义，例如台账
+`ledger:view` 或 `contract:view`、字典 `dict:view` 或 `system:config`）：
+
+- `read` 覆盖查询 / 导出 / 模板下载（后端这三类接口都是 `X:view`）；
+- `write` 只覆盖导入（后端是 `X:edit`）；
+- 权限来自 `GET /auth/profile` 的 `permissions` + `isSuperAdmin`，按 token 缓存（重登即失效）。
+
+效果：`cms_list_resources` 只列当前账号能操作的资源，并把被挡掉的放进 `hiddenByPermission`；
+每次调用前本地判定，无权时给出**可解释**的错误（缺哪个码、找谁要），而不是让模型对着 1403 猜。
+
+**定位很重要**：本地过滤只是 UX，**安全边界仍在后端**。所以
+- 漏写/写错只会「挡住有权限的人」（可解释、可关），不会「放行没权限的人」；
+- 项目隔离照旧生效——权限通过不等于能跨项目取数（受限账号查 `/projects` 仍是空列表）；
+- `CMS_MCP_PERMISSION_FILTER=off` 可关掉本地过滤，退回后端判定。
+
+`server/test/mcpPermissions.spec.mts` 锁住「每个声明的权限码都真实存在于权限码目录」——
+抄成 `contract:veiw` 的后果是**静默的**（该资源永远被判无权，且不报错），只能靠这条锁发现。
+
 ## 4. 资源 → 接口映射（单一事实源：`mcp/src/resources.ts`）
 
 | 资源 key | 列表/详情 | 导出 | 模板 | 导入 |
@@ -105,7 +130,32 @@ x-cms-tool: cms_query        # 具体工具名
 
 见 [../mcp/README.md](../mcp/README.md) §工具一览。8 个工具：`cms_list_resources` /
 `cms_whoami` / `cms_query` / `cms_get` / `cms_export` / `cms_download_template` /
-`cms_export_contract_word` / `cms_import`。
+`cms_export_contract_word` / `cms_import`，外加 3 个口径提示词（见 §5.1）。
+
+### 5.1 口径提示词（MCP `prompts`，2026-11-24）
+
+外部 AI 不知道本企业口径时会「自己算合计」「编造增长率」「没命中的当成没问题」。
+系统内的 prompt 早把红线写死了，通过 MCP 的 `prompts` 原语暴露出去即可让外部 AI 用**同一份原文**：
+
+| prompt | 正文来源 | 参数 |
+|---|---|---|
+| `cms_report` | `REPORT_SYSTEM_PROMPT` + `templatePromptText(kind)` | `kind`、`extra` |
+| `cms_payment_anomaly` | `ANOMALY_SYSTEM_PROMPT` | — |
+| `cms_supply_chain` | `SCM_SYSTEM_PROMPT` + `SCM_SECTIONS` | — |
+
+链路上**没有第二份正文**：
+
+```
+server/src/modules/ai-insight/prompt-catalog.ts     ← 单一事实源（正文仍来自各 prompt 文件）
+        ↓ GET /api/ai/prompts, GET /api/ai/prompts/:key（权限 ai:view）
+mcp/src/prompts.ts                                   ← 只声明结构（key/标题/参数）
+        ↓ MCP prompts/list, prompts/get
+外部 AI
+```
+
+好处：系统更新口径后，外部 AI 下次 `prompts/get` 自动拿到新版本，`mcp/` 不必跟着发版。
+`server/test/aiPrompts.spec.mts` 锁住「渲染正文必须含口径原文」（防它悄悄变成一份摘要）
+以及「mcp 侧 key/参数名与服务端目录一致」。
 
 ## 6. 验收
 
