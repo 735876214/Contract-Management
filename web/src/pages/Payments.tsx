@@ -6,10 +6,11 @@ import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined } from '@ant-design/icons';
 import { fileApi } from '@/api/auth';
 import { paymentApi } from '@/api/modules';
+import type { ColumnsType } from 'antd/es/table';
 import type { PaymentRecordRow } from '@/api/types/payment';
 import DictSelect from '@/components/DictSelect';
 import { contractApi } from '@/api/business';
-import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { type ModuleListFilterField } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import ImportButton from '@/components/ImportButton';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
@@ -52,7 +53,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
-  const handleRemove = (row: ModuleListRow) => {
+  const handleRemove = (row: PaymentRecordRow) => {
     modal.confirm({
       title: '确认删除该台账记录？',
       okText: '确认删除',
@@ -72,7 +73,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
   ];
 
   /** 表格列（问题四：generic 模式完整列定义） */
-  const extraColumns: any[] = [
+  const extraColumns: ColumnsType<PaymentRecordRow> = [
     { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: unknown, r: PaymentRecordRow) => r.contract?.supplier?.name || '-' },
     { title: '合同名称', key: 'contractName', width: 260, render: (_v: unknown, r: PaymentRecordRow) => r.contract?.name || '-' },
     { title: '合同编号', key: 'contractCode', width: 160, render: (_v: unknown, r: PaymentRecordRow) => r.contract?.code || '-' },
@@ -95,7 +96,7 @@ function RecordList({ contractOptions }: { contractOptions: any[] }) {
   ];
 
   return (
-    <ModuleListPage
+    <ModuleListPage<PaymentRecordRow>
       mode="generic"
       columnConfigKey="payment.list"
       fetcher={(params) => paymentApi.records(params)}

@@ -6,9 +6,10 @@ import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { paymentProcedureApi, docTemplateApi } from '@/api/modules';
+import type { ColumnsType } from 'antd/es/table';
 import type { PaymentProcedureRow } from '@/api/types/payment';
 import { contractApi } from '@/api/business';
-import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { type ModuleListFilterField } from '@/components/procurement/ModuleListPage';
 import EditorTabPage from '@/components/editor/EditorTabPage';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import Can from '@/components/Can';
@@ -51,7 +52,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
   const [listRefresh, setListRefresh] = useState(0);
   const refreshList = () => setListRefresh((k) => k + 1);
 
-  const handleRemove = (row: ModuleListRow) => {
+  const handleRemove = (row: PaymentProcedureRow) => {
     modal.confirm({
       title: '确认删除该付款手续？',
       okText: '确认删除',
@@ -69,7 +70,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
     { key: 'keyword', label: '关键词', control: 'input', placeholder: '编号 / 合同 / 供应商' },
   ];
 
-  const extraColumns: any[] = [
+  const extraColumns: ColumnsType<PaymentProcedureRow> = [
     { title: '单据编号', dataIndex: 'code', width: 200, fixed: 'left' },
     // ⚠️ 服务端 findAll 的 contract 只 select { id, code, name }，没有 supplier —— 故只到 r.supplier?.name
     { title: '供应商名称', key: 'supplier', width: 220, render: (_v: unknown, r: PaymentProcedureRow) => r.supplier?.name || '-' },
@@ -93,7 +94,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
   ];
 
   return (
-    <ModuleListPage
+    <ModuleListPage<PaymentProcedureRow>
       mode="generic"
       columnConfigKey="paymentProcedure.list"
       fetcher={(params) => paymentProcedureApi.list(params)}
@@ -104,7 +105,7 @@ function ProcedureList({ contractOptions }: { contractOptions: any[] }) {
       editPermission="payment:edit"
       onEdit={(row) => editorTab.openEdit(row.id, row)}
       onDelete={handleRemove}
-      rowMenuItems={(row: ModuleListRow) => [
+      rowMenuItems={(row) => [
         {
           key: 'doc',
           label: '导出付款单',

@@ -5,6 +5,7 @@ import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic } from 'antd'
 import { message, modal } from '@/utils/antdStatic';
 import { ExportOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
+import type { ColumnsType } from 'antd/es/table';
 import type { LedgerColumn, LedgerListParams, LedgerRow, LedgerSummary } from '@/api/types/ledger';
 import { contractApi, supplierApi } from '@/api/business';
 import DictSelect from '@/components/DictSelect';
@@ -12,7 +13,7 @@ import ImportButton from '@/components/ImportButton';
 import ContractEditor from '@/components/contract/ContractEditor';
 import ContractDetailModal from '@/components/contract/ContractDetailModal';
 import Can from '@/components/Can';
-import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { type ModuleListFilterField } from '@/components/procurement/ModuleListPage';
 import { useContainerWidth } from '@/hooks/useContainerWidth';
 import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { LIST_PATHS } from '@/constants/listPaths';
@@ -132,7 +133,7 @@ function LedgerList() {
           width: c.width || 140,
           ...(frozenLeftKeys.includes(c.key) ? { fixed: 'left' as const } : {}),
           render: (v: unknown) => renderCell(c.key, v),
-        })),
+        })) as ColumnsType<LedgerRow>,
     [frozenLeftKeys],
   );
 
@@ -241,16 +242,16 @@ function LedgerList() {
         </Row>
       )}
 
-      <ModuleListPage
+      <ModuleListPage<LedgerRow>
         mode="generic"
         fetcher={fetcher}
         extraFilters={extraFilters}
-        extraColumns={tableColumns as any}
+        extraColumns={tableColumns}
         refreshKey={listRefresh + tabRefresh}
-        onView={(row) => openDetail(row as unknown as LedgerRow)}
+        onView={(row) => openDetail(row)}
         editPermission="contract:edit"
-        rowMenuItems={(row: ModuleListRow, ctx) => {
-          const r = row as unknown as LedgerRow;
+        rowMenuItems={(row, ctx) => {
+          const r = row;
           // 写操作统一用组件给出的 canEdit（与 editPermission 同源），避免页面另起一套门禁
           if (!ctx.canEdit) return [];
           // 归档是单向终态：编辑/删除都禁用，与合并前的维护页口径一致

@@ -87,7 +87,20 @@ export const PUBLISHED_AT_FILTER: ModuleListFilterField = {
   control: 'dateRange',
 };
 
-export interface ModuleListPageProps {
+/** generic 模式下页面自己的行类型（只需有 id；module 模式仍用 ModuleListRow） */
+export interface ModuleListRowLike {
+  id: string;
+}
+
+/**
+ * 列表页外壳的 props。
+ *
+ * `TRow` 是**行类型参数**（2026-11-24 泛型化）：module 模式（采购六模块）用默认的 `ModuleListRow`，
+ * generic 模式由页面传自己的行类型（`LedgerRow` / `PaymentRecordRow` / `SettlementRow` …），
+ * 这样 `extraColumns` 的 `render(_, row)` 就是有类型的行，不必再写成 `(row: any)`。
+ * 约束只要求 `id`——module 模式的采购列在内部自己收窄回 `ModuleListRow`。
+ */
+export interface ModuleListPageProps<TRow extends ModuleListRowLike = ModuleListRow> {
   /** 后端 module 参数（PRE_MEETING / NOTICE / DOCUMENT / RESULT_REPORT / PRICE_COMPARE / FRAMEWORK_EXPLANATION）；generic 模式下可省略 */
   moduleKey?: string;
   /** 列表模式：module=采购任务联表（默认，含采购公共列/公共筛选）；generic=通用标准列表（列/筛选全由页面定义） */
@@ -99,7 +112,7 @@ export interface ModuleListPageProps {
   /** 特有筛选项（排在公共筛选之后） */
   extraFilters?: ModuleListFilterField[];
   /** 特有表格列（module 模式插在「采购类型」之后、「发布时间」之前；generic 模式为完整列定义） */
-  extraColumns?: ColumnsType<ModuleListRow>;
+  extraColumns?: ColumnsType<TRow>;
   /** 工具栏左侧内容（如范围说明/新建按钮） */
   toolbarLeft?: ReactNode;
   /** 筛选行内、「查询」按钮之前的内容（如采购发起的「任务发起」按钮） */
@@ -107,23 +120,23 @@ export interface ModuleListPageProps {
   /** 列表刷新键（外部保存/发布后 +1 触发重查） */
   refreshKey?: number;
   /** 行操作：查看（进入只读详情；仅 showOpColumn 时使用） */
-  onView?: (row: ModuleListRow) => void;
+  onView?: (row: TRow) => void;
   /** 是否显示「操作」列（问题四：无行操作的页面如合同台账可关闭；默认 true） */
   showOpColumn?: boolean;
   /** 行操作：编辑（可选；不传则「更多」中不显示编辑项） */
-  onEdit?: (row: ModuleListRow) => void;
+  onEdit?: (row: TRow) => void;
   /** 行是否可编辑的判定（控制「更多 → 编辑」是否禁用；默认按模块状态=编辑中可编辑） */
-  rowEditable?: (row: ModuleListRow) => boolean;
+  rowEditable?: (row: TRow) => boolean;
   /** 行操作：删除模块并回退流程（问题二；不传则「更多」中不显示删除项） */
-  onDelete?: (row: ModuleListRow) => void;
+  onDelete?: (row: TRow) => void;
   /** 行是否可删除的判定（控制「更多 → 删除」是否禁用；默认已进入合同阶段不可删） */
-  rowDeletable?: (row: ModuleListRow) => boolean;
+  rowDeletable?: (row: TRow) => boolean;
   /**
    * 「更多」菜单追加项（问题四：各页面自定义行操作，如总采购清单/下载等）；children 渲染为子菜单。
    * `ctx.canEdit` = 当前用户在本页是否有编辑权限（来自 `editPermission`）：**写操作必须用它门禁**，
    * 只读项（查看/导出/下载）不要门禁。
    */
-  rowMenuItems?: (row: ModuleListRow, ctx: { canEdit: boolean }) => {
+  rowMenuItems?: (row: TRow, ctx: { canEdit: boolean }) => {
     key: string;
     label: ReactNode;
     disabled?: boolean;
@@ -176,9 +189,9 @@ export interface ModuleListPageProps {
    * 可展开行内容（2026-11-20 逾期利息台账主子结构用：一行 = 一期应付款项，展开看该期被哪些付款抵过）。
    * 传了才启用 AntD `expandable`；窄容器卡片视图不支持展开（卡片形态另有点击入口）。
    */
-  expandedRowRender?: (row: ModuleListRow) => ReactNode;
+  expandedRowRender?: (row: TRow) => ReactNode;
   /** 哪些行可展开（不传 = 全部可展开）；用于「没有下挂明细就别给箭头」 */
-  rowExpandable?: (row: ModuleListRow) => boolean;
+  rowExpandable?: (row: TRow) => boolean;
 }
 
 /**
@@ -195,7 +208,7 @@ const PER_ROW_MAX = 4;
 /** 由每行字段数推出 `Col flex`（用 CSS 值而不是 AntD 断点 prop：断点 prop 是视口驱动的） */
 const filterColFlexOf = (perRow: number) => `0 0 ${(100 / perRow).toFixed(4)}%`;
 
-export default function ModuleListPage({
+export default function ModuleListPage<TRow extends ModuleListRowLike = ModuleListRow>({
   moduleKey,
   mode = 'module',
   fetcher,
@@ -224,7 +237,7 @@ export default function ModuleListPage({
   tableSummary,
   expandedRowRender,
   rowExpandable,
-}: ModuleListPageProps) {
+}: ModuleListPageProps<TRow>) {
   const isModuleMode = mode === 'module';
   /**
    * **容器**驱动（DESIGN.md §10.2）：冻结列、紧凑行高、筛选区列数由**列表页自身宽度**决定，
@@ -246,7 +259,7 @@ export default function ModuleListPage({
   );
   const filterColFlex = filterColFlexOf(perRow);
   const [form] = Form.useForm();
-  const [rows, setRows] = useState<ModuleListRow[]>([]);
+  const [rows, setRows] = useState<TRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -384,7 +397,7 @@ export default function ModuleListPage({
 
   /* ---------------- 表格列 ---------------- */
 
-  const columns: ColumnsType<ModuleListRow> = [
+  const columns: ColumnsType<TRow> = [
     // 采购模块公共列（generic 模式下由页面通过 extraColumns 自行定义完整列）
     ...(isModuleMode
       ? ([
@@ -393,7 +406,7 @@ export default function ModuleListPage({
             key: 'moduleStatus',
             width: 90,
             render: (_v, row) => {
-              const s = moduleStatusOf(row);
+              const s = moduleStatusOf(row as unknown as ModuleListRow);
               return <Tag color={s.color}>{s.label}</Tag>;
             },
           },
@@ -423,7 +436,7 @@ export default function ModuleListPage({
             className: 'col-secondary',
             render: (v: string) => <Tag color={taskTypeTone(v)}>{taskTypeLabel(v)}</Tag>,
           },
-        ] as ColumnsType<ModuleListRow>)
+        ] as ColumnsType<TRow>)
       : []),
     ...extraColumns,
     ...(isModuleMode
@@ -433,10 +446,12 @@ export default function ModuleListPage({
             key: 'publishedAt',
             width: 140,
             className: 'col-secondary',
-            render: (_v, row) =>
-              row.module?.publishedAt ? dayjs(row.module.publishedAt).format('YYYY-MM-DD HH:mm') : '-',
+            render: (_v, row) => {
+              const r = row as unknown as ModuleListRow;
+              return r.module?.publishedAt ? dayjs(r.module.publishedAt).format('YYYY-MM-DD HH:mm') : '-';
+            },
           },
-        ] as ColumnsType<ModuleListRow>)
+        ] as ColumnsType<TRow>)
       : []),
     ...(showOpColumn
       ? ([
@@ -450,11 +465,11 @@ export default function ModuleListPage({
         const editable = rowEditable
           ? rowEditable(row)
           : isModuleMode
-            ? moduleStatusOf(row).value !== 'PUBLISHED'
+            ? moduleStatusOf(row as unknown as ModuleListRow).value !== 'PUBLISHED'
             : true;
         const deletable = rowDeletable
           ? rowDeletable(row)
-          : !['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes(row.status);
+          : !['CONTRACT_EDITING', 'CONTRACT_APPROVING', 'COMPLETED'].includes((row as unknown as ModuleListRow).status);
         const moreItems: {
           key: string;
           label: ReactNode;
@@ -483,7 +498,7 @@ export default function ModuleListPage({
         moreItems.push(...(rowMenuItems?.(row, { canEdit: canEditRow }) ?? []));
         // 问题一：module 模式首按钮按模块状态切换——未填写/编辑中显示「编辑」（直接进编辑界面），
         // 已完成显示「查看」（进入任务查看弹窗）；generic 模式保持「查看」
-        const published = isModuleMode && moduleStatusOf(row).value === 'PUBLISHED';
+        const published = isModuleMode && moduleStatusOf(row as unknown as ModuleListRow).value === 'PUBLISHED';
         const primary =
           published || !effectiveOnEdit
             ? onView
@@ -508,7 +523,7 @@ export default function ModuleListPage({
         );
       },
     },
-  ] as ColumnsType<ModuleListRow>)
+  ] as ColumnsType<TRow>)
       : []),
   ];
 
@@ -659,7 +674,7 @@ export default function ModuleListPage({
 
       {/* 3. 数据表格 + 分页（窄容器下高频页可切卡片视图，docs/09 §4 阶段 B） */}
       {containerSize.isNarrow && mobileCards ? (
-        <MobileCardList<ModuleListRow>
+        <MobileCardList<TRow>
           rows={rows}
           columns={visibleColumns}
           loading={loading}
@@ -675,7 +690,7 @@ export default function ModuleListPage({
           }}
         />
       ) : (
-        <Table<ModuleListRow>
+        <Table<TRow>
           size={containerSize.isNarrow ? 'small' : 'middle'}
           rowKey="id"
           columns={visibleColumns}
@@ -686,8 +701,8 @@ export default function ModuleListPage({
           {...(expandedRowRender
             ? {
                 expandable: {
-                  expandedRowRender: (row: ModuleListRow) => expandedRowRender(row),
-                  ...(rowExpandable ? { rowExpandable: (row: ModuleListRow) => rowExpandable(row) } : {}),
+                  expandedRowRender: (row: TRow) => expandedRowRender(row),
+                  ...(rowExpandable ? { rowExpandable: (row: TRow) => rowExpandable(row) } : {}),
                 },
               }
             : {})}

@@ -6,10 +6,11 @@ import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';
+import type { ColumnsType } from 'antd/es/table';
 import type { SettlementLedgerRow, SettlementRow } from '@/api/types/settlement';
 import { dictApi, type DictOption } from '@/api/dict';
 import { contractApi } from '@/api/business';
-import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { type ModuleListFilterField } from '@/components/procurement/ModuleListPage';
 import ImportButton from '@/components/ImportButton';
 import DictSelect, { DictTag } from '@/components/DictSelect';
 import EditorTabPage from '@/components/editor/EditorTabPage';
@@ -141,7 +142,7 @@ function SettlementsTab({
     });
   };
 
-  const handleRemove = (row: ModuleListRow) => {
+  const handleRemove = (row: SettlementRow) => {
     modal.confirm({
       title: '确认删除该结算单？',
       okText: '确认删除',
@@ -183,7 +184,7 @@ function SettlementsTab({
   ];
 
   /** 表格列（问题四：generic 模式完整列定义） */
-  const extraColumns: any[] = [
+  const extraColumns: ColumnsType<SettlementRow> = [
     { title: '结算单编号', dataIndex: 'code', width: 160, fixed: 'left' },
     { title: '合同', key: 'contract', width: 260, render: (_v: unknown, r: SettlementRow) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
     { title: '供应商', key: 'supplier', width: 220, render: (_v: unknown, r: SettlementRow) => r.contract?.supplier?.name || '-' },
@@ -215,7 +216,7 @@ function SettlementsTab({
           }
         />
       )}
-      <ModuleListPage
+      <ModuleListPage<SettlementRow>
         mode="generic"
         columnConfigKey="settlement.list"
         fetcher={(params) => settlementApi.list(params)}
@@ -227,7 +228,7 @@ function SettlementsTab({
         editPermission="settlement:edit"
         onEdit={(row) => editorTab.openEdit(row.id, row)}
         onDelete={handleRemove}
-        rowMenuItems={(row: ModuleListRow & { statusCode?: string }, { canEdit }) =>
+        rowMenuItems={(row: SettlementRow, { canEdit }) =>
           // 任务 7：仅已提交的结算单可驳回回填（generic 模式下行即结算单记录）；
           // 驳回是 settlement:edit 写操作，只读用户不显示
           canEdit && row.statusCode !== 'DRAFT'
@@ -641,7 +642,7 @@ function LedgerTab({
     }
   };
 
-  const handleRemove = (row: ModuleListRow) => {
+  const handleRemove = (row: SettlementLedgerRow) => {
     modal.confirm({
       title: '确认删除该台账记录？',
       okText: '确认删除',
@@ -662,7 +663,7 @@ function LedgerTab({
   ];
 
   /** 表格列（问题四：generic 模式完整列定义） */
-  const extraColumns: any[] = [
+  const extraColumns: ColumnsType<SettlementLedgerRow> = [
     { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.supplier?.name || '-' },
     { title: '合同名称', key: 'contractName', width: 260, render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.name || '-' },
     { title: '合同编号', key: 'contractCode', width: 160, render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.code || '-' },
@@ -683,7 +684,7 @@ function LedgerTab({
 
   return (
     <>
-      <ModuleListPage
+      <ModuleListPage<SettlementLedgerRow>
         mode="generic"
         columnConfigKey="settlement.ledger"
         fetcher={(params) => settlementApi.ledger(params)}
