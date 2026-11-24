@@ -162,6 +162,24 @@ export class CmsClient {
    * 正文的**单一事实源在服务端**（`ai-insight/prompt-catalog.ts` → 各 prompt 文件），
    * 本包不存副本——否则系统更新了口径，外部 AI 还在按旧口径出结论。
    */
+  /** 取一份口径上下文文档（markdown 正文），服务端 `GET /api/ai/context/:key` */
+  async contextDoc(key: string): Promise<{ key: string; uri: string; title: string; markdown: string }> {
+    return this.requestJson(`/ai/context/${encodeURIComponent(key)}`, { method: 'GET' });
+  }
+
+  /**
+   * 取某类字典的启用项（`GET /api/dict/options/:typeCode`）。
+   *
+   * 该接口后端**只要求登录**（前端下拉数据源），故这里不做工具级权限判定——
+   * 本地判定比后端更严会挡住本来能读的人，正是我们要避免的那类误伤。
+   */
+  async dictOptions(typeCode: string): Promise<unknown[]> {
+    const list = await this.requestJson<unknown[]>(`/dict/options/${encodeURIComponent(typeCode)}`, {
+      method: 'GET',
+    });
+    return Array.isArray(list) ? list : [];
+  }
+
   async promptText(key: string, args: Record<string, string | undefined> = {}): Promise<string> {
     const data = await this.requestJson<{ text: string }>(`/ai/prompts/${encodeURIComponent(key)}`, {
       method: 'GET',

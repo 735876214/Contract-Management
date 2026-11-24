@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { AiService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
+import { listContextDocs, renderContextDoc } from './context-catalog.ts';
 import { AiSettingService } from '../ai-core/ai-setting.service.ts';
 import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
 import { RegisterService, type RegisterConfirmInput } from '../ai-fill/index.ts';
@@ -140,6 +141,26 @@ export class AiController {
   @Get('prompts/:key')
   prompt(@Param('key') key: string, @Query() query: any) {
     return renderAiPrompt(key, query || {});
+  }
+
+  /**
+   * 口径上下文目录（**只读、纯静态文本**）：状态码与统计排除项 / 采购工作流 / 报表指标口径。
+   *
+   * 消费方是 `mcp/` 的 resources 原语：外部 AI 拿到 `status: 'PARTIAL'` 之后要能查到它的含义，
+   * 以及「哪些状态不计入统计」这种口径级规则——否则它会自己发明一套。
+   * 内容全部由 `server/src/constants/*` 生成（见 `context-catalog.ts`），没有第二份手写稿。
+   */
+  @RequirePermissions('ai:view')
+  @Get('context')
+  contextList() {
+    return { docs: listContextDocs() };
+  }
+
+  /** 渲染指定口径文档（markdown 正文） */
+  @RequirePermissions('ai:view')
+  @Get('context/:key')
+  contextDoc(@Param('key') key: string) {
+    return renderContextDoc(key);
   }
 
   /**

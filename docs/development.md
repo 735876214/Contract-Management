@@ -94,7 +94,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（113 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（114 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（38 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -250,6 +250,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/timeBounds.spec.mts` | **列表筛选的日期区间边界（本地日原语）+ 列表 where 片段**：`startOfDay/endOfDay/nextDayStart` 按**本地**零点（`new Date('YYYY-MM-DD')` 是 UTC 解析，本地 08:00，会漏掉当天记录）· `endOfDay` 含当天最后一毫秒 · `nextDayStart` 跨月跨年进位 · 拒绝 `2026-02-30`（否则筛选悄悄挪到 3 月）· 空值/非法值返回 null 不落 where · 不改入参 Date · `dateRange` 只给一端时另一端不出现 · `keywordWhere` 空关键字返回 null、按给定字段展开（不猜字段） |
   | `test/moneyFormat.spec.mts` | **前端金额/数量展示的单一实现**（`web/src/utils/money.ts`）：空值一律占位符、**不兜成 0**（显式 0 仍是 0）· 金额固定两位 + 千分位 · `1234.5600000000001` 浮点尾数被吃掉 · 数量最多 N 位不补零 · 占位符可覆盖（HTML 文档空串 / 面板长横线）· 比率 0~1 → 百分数 |
   | `test/mcpPermissions.spec.mts` | **MCP 工具级权限的漂移锁**：`mcp/src/resources.ts` 每个资源都要声明 `permissions{read,write}` 且 `read` 非空 · 声明的每个权限码都必须存在于后端权限码目录（抄成 `contract:veiw` 会让该资源永远被判无权、**且不报错**）· `permissionCodesFor` 必须保持「import 走 write、其余走 read」· `server.ts` 的 6 个资源工具都要有 `assertAllowed`、`cms_list_resources` 必须把被挡掉的资源列进 `hiddenByPermission` |
+  | `test/aiContext.spec.mts` | **AI 口径上下文锁**（MCP `resources` 单一事实源）：状态码文档必须覆盖 `constants/statuses.ts` 里**每个**状态分组与其中每个码 · **统计排除项必须在文档里**（失败/退款付款不计入累计付款、作废/红冲发票不计入开票统计——最容易被外部 AI 自行发明的一条）· 必须列出全部字典类型并指路 `cms://dict/{typeCode}`（标签在库里，不许硬编码第二份）· 采购工作流覆盖阶段/类型/阶段链/每条任务状态中文标签 · 指标文档覆盖 `METRICS` 每个 id+名称+owner · 未知 key 抛错 · 正文不含机密字段名 · `mcp/src/context.ts` 的 key 与服务端一致 |
   | `test/aiPrompts.spec.mts` | **AI 口径提示词目录锁**（MCP `prompts` 原语的单一事实源）：渲染正文必须**含口径原文**（`REPORT_SYSTEM_PROMPT` / `ANOMALY_SYSTEM_PROMPT` / `SCM_SYSTEM_PROMPT`，防另写一份摘要）· 供应链四节标题逐字 · `kind` 切换公文骨架、非法值回落 monthly 而不 500 · 未知 key 抛错而非静默空串 · 正文不含机密字段名 · 列表接口只回元信息不带正文 · `mcp/src/prompts.ts` 的 key 与参数名与服务端目录一致 |
   | `test/mcpAudit.spec.mts` | **MCP 调用审计锁**：`x-cms-actor` / `x-cms-tool` → `OperationLog.actorTool`（null = 人工）· 无该头时不记录（普通 GET 不受影响）· 头值数组/大小写/空白容错 · 工具名归一（外部输入只留 `[a-z0-9_-]`、转小写、截断 64，防伪造注入）· **两端字面量一致性**（`mcp/` 是独立包，改了一边会让审计静默归零）· `headers()` 必须在统一出口注入审计头（否则导出/导入漏标）· 每个工具都必须走 `tool()` 包装注册 |
   | `test/pluginCatalog.spec.mts` | **构建期插件（B 档）装配漂移锁**：生成物新鲜度（改 `plugin.json` 未跑 `scripts/gen-plugins.mjs` 即红）· 权限码必须 `<插件名>:` 前缀且已并入单一事实源 `PERMISSIONS`（标签也要一致）· 每条插件菜单必须有路由守卫且守卫不得比菜单更严 · 插件菜单真的落在权威 `MENU_TREE` 里（挂载点/路径/权限码一致）· 插件权限码不得绕过清单写死进核心目录 · `CMS_PLUGINS_DISABLED` 能关插件且关掉后菜单进隐藏集合 · 菜单 key 全局唯一 |

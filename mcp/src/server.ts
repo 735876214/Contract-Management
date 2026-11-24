@@ -6,7 +6,7 @@
  *  - 导出：cms_export / cms_download_template / cms_export_contract_word
  *  - 导入：cms_import（含 validateOnly 预校验）
  */
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { CmsClient, runWithTool } from './cms-client.js';
 import {
@@ -18,6 +18,7 @@ import {
   type CmsResource,
 } from './resources.js';
 import { PROMPTS } from './prompts.js';
+import { CONTEXT_RESOURCES, DICT_URI_TEMPLATE } from './context.js';
 import type { CmsConfig } from './config.js';
 
 type ToolResult = {
@@ -464,6 +465,57 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
       }) as never,
     );
   }
+
+  // ---------------- 口径上下文（MCP resources） ----------------
+  /**
+   * 只读口径资源：状态码与统计排除项 / 采购工作流 / 指标口径。
+   *
+   * 正文一律向服务端取（`GET /api/ai/context/:key`，内容由 `server/src/constants/*` 生成），
+   * 本包只声明 uri 与元信息。客户端可以在**不调工具**的情况下先读这三份，再决定怎么查数——
+   * 这比「让模型自己猜 PARTIAL 是什么意思」可靠得多。
+   */
+  for (const spec of CONTEXT_RESOURCES) {
+    server.registerResource(
+      spec.key,
+      spec.uri,
+      { title: spec.name, description: spec.description, mimeType: spec.mimeType },
+      (async (uri: URL) => {
+        const doc = await client.contextDoc(spec.key);
+        return { contents: [{ uri: uri.href, mimeType: spec.mimeType, text: doc.markdown }] };
+      }) as never,
+    );
+  }
+
+  /**
+   * 字典项资源模板 `cms://dict/{typeCode}`。
+   *
+   * 状态码的中文标签在数据库里（`DictItem`），不在代码里——上面那份 statuses 文档只有 code。
+   * 标签必须走这条资源取，否则就是在 MCP 里硬编码第二份标签。
+   * 不做本地权限判定：后端该接口只要求登录（前端下拉数据源同款）。
+   */
+  server.registerResource(
+    'dict',
+    new ResourceTemplate(DICT_URI_TEMPLATE, { list: undefined }),
+    {
+      title: '数据字典',
+      description: '按 typeCode 取字典项（code → 中文标签）。typeCode 清单见 cms://context/statuses。',
+      mimeType: 'application/json',
+    },
+    (async (uri: URL, variables: Record<string, string | string[]>) => {
+      const raw = variables?.typeCode;
+      const typeCode = Array.isArray(raw) ? String(raw[0] || '') : String(raw || '');
+      const items = await client.dictOptions(typeCode);
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({ typeCode, items }, null, 2),
+          },
+        ],
+      };
+    }) as never,
+  );
 
   return server;
 }

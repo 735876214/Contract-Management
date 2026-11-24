@@ -61,5 +61,19 @@ assert.deepEqual(
   'cms_report 的参数应为 kind / extra',
 );
 
+// 口径上下文：resources 的注册面（正文要后端在线，故此处只验 list）
+const { resources } = await client.listResources();
+const uris = resources.map((r) => r.uri).sort();
+console.log('resources:', uris.join(', '));
+assert.deepEqual(
+  uris,
+  ['cms://context/metrics', 'cms://context/procurement-flow', 'cms://context/statuses'],
+  `口径资源清单不对：${uris.join(', ')}`,
+);
+const { resourceTemplates } = await client.listResourceTemplates();
+const tpls = resourceTemplates.map((r) => r.uriTemplate);
+console.log('resourceTemplates:', tpls.join(', '));
+assert.ok(tpls.includes('cms://dict/{typeCode}'), '缺少字典资源模板 cms://dict/{typeCode}');
+
 await client.close();
 console.log('SMOKE OK');

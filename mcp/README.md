@@ -116,6 +116,27 @@ CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
 若某部署的角色体系与本仓默认权限码不一致，可用 `CMS_MCP_PERMISSION_FILTER=off` 关掉本地过滤，
 退回「由后端 1403 报错」的行为，不会丢功能。
 
+### 口径上下文（MCP resources）
+
+除工具与提示词，还注册了 3 个**只读资源** + 1 个资源模板，让外部 AI 知道「字段值是什么意思」：
+
+| uri | 内容 |
+|---|---|
+| `cms://context/statuses` | 所有 status 字段的合法取值 + **不计入统计的状态** + 字典类型清单 |
+| `cms://context/procurement-flow` | 采购任务类型、固定阶段链（前一阶段未发布后续不可编辑）、阶段↔状态 |
+| `cms://context/metrics` | 每个金额/数量指标的唯一实现、owner 与口径说明（含关键排除项） |
+| `cms://dict/{typeCode}` | 字典项 `code → 中文标签`（状态码的中文标签在库里，不在代码里） |
+
+为什么需要：AI 拿到 `status: 'PARTIAL'`、`execStatus: 'DONE_UNSETTLED'` 会按自己的理解解释，
+于是出现「把失败付款算进累计付款」「自己给采购任务编一个阶段顺序」「把台账合同额当成看板合同额」。
+这些不是幻觉，是**缺口径**——系统里有唯一答案，只是没告诉它。
+
+实现边界：正文由服务端 `GET /api/ai/context/:key` 下发（`server/src/modules/ai/context-catalog.ts`），
+而那份文档本身又由 `server/src/constants/{statuses,procurementFlow,metrics}.ts` **生成**——
+常量改了文档自动跟着变，不存在第二份手写稿。`server/test/aiContext.spec.mts` 锁住「常量里每一项都要出现在文档里」。
+
+推荐用法：**先读这三份资源，再调工具取数**。这比让模型自己猜状态码含义可靠得多。
+
 ### 口径提示词（MCP prompts）
 
 除 8 个工具外还注册了 3 个 **MCP prompt**，把系统内的**口径原文**给外部 AI 复用：
@@ -150,6 +171,7 @@ mcp/
 │   ├── config.ts       # 环境变量 → 配置
 │   ├── resources.ts    # 资源目录（路径/能力/所需权限码，单一事实源）
 │   ├── prompts.ts      # 口径提示词的结构声明（正文向服务端取）
+│   ├── context.ts      # 口径上下文资源（状态码/采购工作流/指标口径 + 字典模板）
 │   ├── cms-client.ts   # 登录/信封解包/项目头/二进制下载/multipart 上传
 │   ├── server.ts       # 8 个工具的注册
 │   └── index.ts        # 入口：stdio 默认 / --http 模式

@@ -130,7 +130,7 @@ x-cms-tool: cms_query        # 具体工具名
 
 见 [../mcp/README.md](../mcp/README.md) §工具一览。8 个工具：`cms_list_resources` /
 `cms_whoami` / `cms_query` / `cms_get` / `cms_export` / `cms_download_template` /
-`cms_export_contract_word` / `cms_import`，外加 3 个口径提示词（见 §5.1）。
+`cms_export_contract_word` / `cms_import`，外加 3 个口径提示词（§5.1）与 3 个口径资源 + 1 个字典资源模板（§5.2）。
 
 ### 5.1 口径提示词（MCP `prompts`，2026-11-24）
 
@@ -156,6 +156,33 @@ mcp/src/prompts.ts                                   ← 只声明结构（key/�
 好处：系统更新口径后，外部 AI 下次 `prompts/get` 自动拿到新版本，`mcp/` 不必跟着发版。
 `server/test/aiPrompts.spec.mts` 锁住「渲染正文必须含口径原文」（防它悄悄变成一份摘要）
 以及「mcp 侧 key/参数名与服务端目录一致」。
+
+### 5.2 口径上下文（MCP `resources`，2026-11-24）
+
+外部 AI 的第二个缺口比 prompts 更基础：**它不认识字段值**。拿到 `status: 'PARTIAL'`、
+`execStatus: 'DONE_UNSETTLED'` 之后只能按常识解释，于是出现「把失败付款算进累计付款」
+「自己给采购任务编一个阶段顺序」「把台账合同额当成看板合同额」。这些不是幻觉，是缺口径。
+
+| uri | 内容 | 正文来源 |
+|---|---|---|
+| `cms://context/statuses` | 所有 status 取值 + **不计入统计的状态** + 字典类型清单 | `constants/statuses.ts` |
+| `cms://context/procurement-flow` | 采购类型、阶段定义、按类型的阶段链、任务状态中文标签 | `constants/procurementFlow.ts` |
+| `cms://context/metrics` | 每个金额/数量指标的唯一实现、owner、口径说明 | `constants/metrics.ts` |
+| `cms://dict/{typeCode}`（资源模板） | 字典项 `code → 中文标签` | DB `DictItem`（`GET /api/dict/options/:typeCode`） |
+
+两条设计约束：
+
+1. **文档由常量生成，不手写**（`server/src/modules/ai/context-catalog.ts`）。新加一个状态常量，
+   文档自动跟着变；`server/test/aiContext.spec.mts` 逐条校验「常量里的每一项都在文档里出现」——
+   这里真正的风险不是写错，而是**漏掉**（常量加了、文档没跟上，外部 AI 就按旧口径解释新数据，且不报错）。
+2. **中文标签不写进文档**。字典驱动的状态码标签在库里（`DictItem`），所以 statuses 文档只列
+   code 并明确指路 `cms://dict/{typeCode}`。硬编码一份标签就是第二事实源，而且会和库里改过的标签对不上。
+
+特别值得一说的是 `cms://context/metrics`：它就是 `docs/report-metrics.md` 的机器可读版本，
+含「累计结算排除草稿」「合同额按链根只计一次」「累计付款排除 FAILED/REFUNDED」这类**排除项**——
+恰恰是外部 AI 最容易自行发明的地方。
+
+推荐顺序：**先读 resources 的三份口径，再调工具取数**。
 
 ## 6. 验收
 
