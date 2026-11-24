@@ -5,6 +5,7 @@ import { Button, Card, Checkbox, Col, Modal, Row, Space, Statistic } from 'antd'
 import { message, modal } from '@/utils/antdStatic';
 import { ExportOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { ledgerApi } from '@/api/modules';
+import type { LedgerColumn, LedgerListParams, LedgerRow, LedgerSummary } from '@/api/types/ledger';
 import { contractApi, supplierApi } from '@/api/business';
 import DictSelect from '@/components/DictSelect';
 import ImportButton from '@/components/ImportButton';
@@ -17,7 +18,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { LIST_PATHS } from '@/constants/listPaths';
 import { useDictStore } from '@/store/dict';
 
-const money = (v: any) => formatMoney(v);
+const money = (v: unknown) => formatMoney(v);
 
 const COMPLIANCE_OPTIONS = [
   '无问题',
@@ -28,31 +29,31 @@ const COMPLIANCE_OPTIONS = [
   '时间数据不完整',
 ];
 
-const renderYearMap = (v: any) => {
+const renderYearMap = (v: LedgerRow['yearSettle'] | null | undefined) => {
   if (!v || typeof v !== 'object') return '-';
   return Object.entries(v)
-    .map(([y, a]) => `${y}: ${money(a as any)}`)
+    .map(([y, a]) => `${y}: ${money(a)}`)
     .join('  ');
 };
 
-const renderCompliance = (v: any) => {
+const renderCompliance = (v: LedgerRow['compliance'] | undefined) => {
   if (!v || v === '无问题') return <span style={{ color: 'var(--cms-success)' }}>无问题</span>;
   if (v === '时间数据不完整') return <span style={{ color: 'var(--cms-warning)' }}>时间数据不完整</span>;
   return <span style={{ color: 'var(--cms-error)' }}>{v}</span>;
 };
 
 /** 小数比例列（如付款比例 0.65）：页面乘 100 显示为 65.00%，与导出 `0.00%` 格式一致 */
-const pct = (v: any) => (v == null || v === '' ? '-' : `${(Number(v) * 100).toFixed(2)}%`);
+const pct = (v: LedgerRow['currentPayRatio']) => (v == null ? '-' : `${(Number(v) * 100).toFixed(2)}%`);
 /** 百分数口径列（税率 13 = 13%）：单轨后直接拼 %，不再乘 100 */
-const pctVal = (v: any) => (v == null || v === '' ? '-' : `${Number(v).toFixed(2)}%`);
+const pctVal = (v: LedgerRow['taxRatePct']) => (v == null ? '-' : `${Number(v).toFixed(2)}%`);
 
-const renderCell = (key: string, v: any) => {
-  if (key === 'taxRate' || key === 'taxRatePct') return pctVal(v);
-  if (key === 'currentPayRatio') return pct(v);
+const renderCell = (key: string, v: unknown) => {
+  if (key === 'taxRate' || key === 'taxRatePct') return pctVal(v as LedgerRow['taxRatePct']);
+  if (key === 'currentPayRatio') return pct(v as LedgerRow['currentPayRatio']);
   if (/amount$/i.test(key) || /debt/i.test(key) || key === 'amount') return money(v);
-  if (key === 'yearSettle' || key === 'yearPaid') return renderYearMap(v);
-  if (key === 'compliance') return renderCompliance(v);
-  return v == null || v === '' ? '-' : v;
+  if (key === 'yearSettle' || key === 'yearPaid') return renderYearMap(v as LedgerRow['yearSettle'] | null | undefined);
+  if (key === 'compliance') return renderCompliance(v as LedgerRow['compliance'] | undefined);
+  return v == null || v === '' ? '-' : (v as string);
 };
 
 /**
@@ -78,17 +79,18 @@ function LedgerList() {
   const [detailId, setDetailId] = useState<string | null>(null);
   /** 发票作废/红冲等跨标签动作会 bump 本路径，缓存页必须重新取数（含顶部统计） */
   const tabRefresh = useTabRefresh(LIST_PATHS.contractLedger);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [columns, setColumns] = useState<any[]>([]);
-  const [summary, setSummary] = useState<any>(null);
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+  const [columns, setColumns] = useState<LedgerColumn[]>([]);
+  const [summary, setSummary] = useState<LedgerSummary | null>(null);
   const [colModal, setColModal] = useState(false);
   const [colChecked, setColChecked] = useState<string[]>([]);
   const [listRefresh, setListRefresh] = useState(0);
 
   /** 标准列表数据源：台账接口返回 { list, total, columns }，columns 用于动态列渲染 */
   const fetcher = useMemo(
-    () => async (params: Record<string, any>) => {
-      const res: any = await ledgerApi.contracts(params);
+    () => async (params: LedgerListParams) => {
+      const res = await ledgerApi.contracts(params);
+      // 列表接口顺带把**动态列定义**带回来（列宽已是像素），故取数时同步一次列设置
       if (res?.columns) setColumns(res.columns);
       return res;
     },
@@ -97,12 +99,12 @@ function LedgerList() {
 
   /** 顶部统计卡（不走列表接口，增删改后需单独重取） */
   const loadSummary = useCallback(() => {
-    ledgerApi.summary().then((res: any) => setSummary(res)).catch(() => setSummary(null));
+    ledgerApi.summary().then((res) => setSummary(res)).catch(() => setSummary(null));
   }, []);
 
   useEffect(() => {
     ensure(['contract_type', 'contract_execution_status', 'supplier_category']);
-    supplierApi.options().then((res: any) => setSuppliers(res || []));
+    supplierApi.options().then((res: Array<{ id: string; name: string }>) => setSuppliers(res || []));
     loadSummary();
   }, [tabRefresh, loadSummary, ensure]);
 
@@ -120,7 +122,7 @@ function LedgerList() {
   );
 
   const buildColumns = useCallback(
-    (cols: any[]) =>
+    (cols: LedgerColumn[]) =>
       cols
         .filter((c) => c.visible)
         .map((c) => ({
@@ -129,7 +131,7 @@ function LedgerList() {
           key: c.key,
           width: c.width || 140,
           ...(frozenLeftKeys.includes(c.key) ? { fixed: 'left' as const } : {}),
-          render: (v: any) => renderCell(c.key, v),
+          render: (v: unknown) => renderCell(c.key, v),
         })),
     [frozenLeftKeys],
   );
@@ -158,17 +160,18 @@ function LedgerList() {
     loadSummary();
   }, [loadSummary]);
 
-  const openDetail = (row: any) => {
+  const openDetail = (row: LedgerRow) => {
     setDetailId(row.id);
   };
 
   /** 编辑取全量（含 ext / version）；列表 DTO 是拍平的展示字段，不参与保存 */
-  const openEdit = async (row: any) => {
+  const openEdit = async (row: LedgerRow) => {
+    // 编辑取**全量**（含 ext / version）；列表 DTO 是拍平的展示字段，不参与保存
     const res: any = await contractApi.detail(row.id);
     editorTab.openEdit(row.id, res);
   };
 
-  const confirmRemove = (row: any) => {
+  const confirmRemove = (row: LedgerRow) => {
     modal.confirm({
       title: '确认删除该合同？',
       content: '存在下游单据或补充协议时会被服务端拒绝，请改为归档；仅物资清单等随合同级联删除。',
@@ -185,7 +188,9 @@ function LedgerList() {
 
   /** 筛选项（问题四：标准筛选区） */
   const extraFilters: ModuleListFilterField[] = [
-    { key: 'code', label: '合同编号', control: 'input' },
+    // ⚠️ key 必须与服务端 findAll() 认的参数名逐字一致（见 api/types/ledger.ts 的 LEDGER_LIST_PARAM_KEYS）：
+    // 曾写成 code/type/executionStatus/category，导致这四个筛选器全部静默失效（2026-11-24 修复）
+    { key: 'contractCode', label: '合同编号', control: 'input' },
     {
       key: 'supplierId',
       label: '供应商',
@@ -193,10 +198,10 @@ function LedgerList() {
       options: suppliers.map((s) => ({ value: s.id, label: s.name })),
       placeholder: '全部',
     },
-    { key: 'type', label: '合同类型', control: 'input', render: () => <DictSelect typeCode="contract_type" placeholder="全部" /> },
-    { key: 'executionStatus', label: '合同执行情况', control: 'input', render: () => <DictSelect typeCode="contract_execution_status" placeholder="全部" /> },
+    { key: 'typeCode', label: '合同类型', control: 'input', render: () => <DictSelect typeCode="contract_type" placeholder="全部" /> },
+    { key: 'execStatus', label: '合同执行情况', control: 'input', render: () => <DictSelect typeCode="contract_execution_status" placeholder="全部" /> },
     { key: 'compliance', label: '合规性问题', control: 'select', options: COMPLIANCE_OPTIONS.map((o) => ({ value: o, label: o })) },
-    { key: 'category', label: '分供方类别', control: 'input', render: () => <DictSelect typeCode="supplier_category" placeholder="全部" /> },
+    { key: 'supplierCategory', label: '分供方类别', control: 'input', render: () => <DictSelect typeCode="supplier_category" placeholder="全部" /> },
     { key: 'keyword', label: '关键词', control: 'input' },
   ];
 
@@ -242,10 +247,10 @@ function LedgerList() {
         extraFilters={extraFilters}
         extraColumns={tableColumns as any}
         refreshKey={listRefresh + tabRefresh}
-        onView={(row) => openDetail(row as any)}
+        onView={(row) => openDetail(row as unknown as LedgerRow)}
         editPermission="contract:edit"
         rowMenuItems={(row: ModuleListRow, ctx) => {
-          const r = row as any;
+          const r = row as unknown as LedgerRow;
           // 写操作统一用组件给出的 canEdit（与 editPermission 同源），避免页面另起一套门禁
           if (!ctx.canEdit) return [];
           // 归档是单向终态：编辑/删除都禁用，与合并前的维护页口径一致

@@ -1,4 +1,11 @@
 import http from './http';
+import type {
+  LedgerColumn,
+  LedgerColumnsConfig,
+  LedgerListParams,
+  LedgerListResponse,
+  LedgerSummary,
+} from './types/ledger';
 
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
@@ -367,11 +374,18 @@ export const assetApi = {
   exportUrl: () => `${http.defaults.baseURL}/assets/export`,
 };
 
+/**
+ * 合同台账（类型见 `./types/ledger`）。
+ *
+ * ⚠️ `contracts` 的查询参数名以服务端 `findAll()` 为准（`contractCode / typeCode / execStatus / supplierCategory`），
+ * 不是页面筛选项的 label；键名由 `server/test-integration/api-shape-ledger.int.spec.ts` 双侧锁住。
+ */
 export const ledgerApi = {
-  contracts: (params?: any) => http.get<any, any>('/ledger/contracts', { params }),
-  columns: () => http.get<any, any>('/ledger/columns'),
-  saveColumns: (config: Record<string, boolean>) => http.put<any, any>('/ledger/columns', config),
-  summary: () => http.get<any, any>('/ledger/summary'),
+  contracts: (params?: LedgerListParams) =>
+    http.get<LedgerListResponse, LedgerListResponse>('/ledger/contracts', { params }),
+  columns: () => http.get<LedgerColumn[], LedgerColumn[]>('/ledger/columns'),
+  saveColumns: (config: LedgerColumnsConfig) => http.put<void, void>('/ledger/columns', config),
+  summary: () => http.get<LedgerSummary, LedgerSummary>('/ledger/summary'),
   exportUrl: () => `${http.defaults.baseURL}/ledger/export`,
 };
 
