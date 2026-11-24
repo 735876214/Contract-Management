@@ -10,9 +10,9 @@ import type { Dateish, Decimalish, Paged, Versioned } from './common.ts';
  *   以及四个条款对象（technical/quality/payment/acceptance）。
  *
  * ## 三个必须记住的点
- * 1. **金额/数量是 Prisma `Decimal` 原样下发 → JSON 里是 string**（本仓合同接口没有过 `num()`），
- *    所以 `amount` 的类型是 `Decimalish`；做算术前先 `Number(v)`。
- * 2. **不要用 `amount` 做链式求和**：补充协议的 `amount` 是手填自由值，链口径用
+ * 1. **金额/数量对外一律 number**（2026-11-24 收口：`contract.service` 读路径统一过
+ *    `normalizeContractDecimals()`，与台账同口径）。此前 Decimal 原样下发是 **string**，
+ *    导致同一笔钱「台账是 number、合同是 string」，那条不一致已消除。
  *    `amount（主合同）+ Σ changeAmount（带符号）`，实现见 `server/src/domain/contract-chain.ts`。
  * 3. `status`（起草流转 DRAFT/COMPLETED）与 `execStatus`（执行情况字典）是**两个不同字段**，
  *    页面上的「状态」列到底取哪个由业务口径决定，别混用。
@@ -40,9 +40,9 @@ export interface ContractRow {
   subTypeCode: string | null;
   supplierId: string | null;
   signDate: Dateish;
-  amount: Decimalish | null;
+  amount: number | null;
   /** 税率（百分数，如 13.00） */
-  taxRatePct: Decimalish | null;
+  taxRatePct: number | null;
   /** dict: payment_method */
   paymentMethodCode: string | null;
   /** dict: yes_no */
@@ -60,9 +60,9 @@ export interface ContractRow {
   /** dict: supplement_agreement_type */
   supplementTypeCode: string | null;
   /** 该补充协议带来的带符号增量（增项为正、减项为负） */
-  changeAmount: Decimalish | null;
+  changeAmount: number | null;
   /** 带符号数量增量（同上） */
-  changeQty: Decimalish | null;
+  changeQty: number | null;
   /** 变更生效日 */
   changeEffectiveDate: Dateish;
   /** dict: contract_execution_status */
@@ -99,11 +99,11 @@ export interface ContractRow {
   /** 资金费用-付款模式：100 / 3382 / CUSTOM（可覆盖系统默认） */
   paymentMode: string | null;
   /** 延期月利率（如 0.006 表示 0.6%） */
-  monthlyRate: Decimalish | null;
+  monthlyRate: number | null;
   /** 逾期宽限天数 */
   graceDays: number | null;
   /** 逾期利息上限比例（如 0.05 表示 5%） */
-  interestCapRatio: Decimalish | null;
+  interestCapRatio: number | null;
   createdBy: string | null;
   /** 关联采购任务（一对多：一个任务可生成多个合同） */
   taskId: string | null;
@@ -217,11 +217,13 @@ export interface ContractDetail extends Omit<ContractRow, 'supplier'> {
   project: { id: string; name: string; codeAbbr: string | null; industryType: string | null } | null;
   parentContract: { id: string; code: string; name: string } | null;
   supplements: Array<{ id: string; code: string; name: string }>;
-  /** 四个条款对象（按 clausenId 回填；未选的为 null） */
-  technicalClause?: Record<string, unknown> | null;
-  qualityClause?: Record<string, unknown> | null;
-  paymentClause?: Record<string, unknown> | null;
-  acceptanceClause?: Record<string, unknown> | null;
+  /** 四个条款对象（服务端 `findOne` 返回的是**嵌套**的 `clauses`，不是平铺字段；未选的为 null） */
+  clauses: {
+    technical: Record<string, unknown> | null;
+    quality: Record<string, unknown> | null;
+    payment: Record<string, unknown> | null;
+    acceptance: Record<string, unknown> | null;
+  };
 }
 
 /** 新建/更新合同（字段与后端写入白名单一致；服务端还会做编号生成与链增量重算）。 */
