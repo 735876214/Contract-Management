@@ -62,7 +62,9 @@ describe('集成 · 合同域接口契约（响应字段集 / 请求参数名）
     assert.deepEqual(missing, [], `合同行：类型声明为必填但后端没返回：\n  ${missing.join('\n  ')}`);
 
     const asJson = JSON.parse(JSON.stringify(res.list[0]));
-    assert.equal(typeof asJson.amount, 'string', '合同金额经 JSON 后应是字符串（Decimal.toJSON）；改成 num() 请同步类型');
+    // 2026-11-24 收口：合同金额对外是 **number**（`normalizeContractDecimals` 在输出处过 num()），
+    // 与台账一致；此前是 Decimal 原样下发的 string。
+    assert.equal(typeof asJson.amount, 'number', '合同金额经 JSON 后应是 number（口径见 contract-decimals.ts）');
     assert.ok('status' in asJson && 'execStatus' in asJson, 'status（起草流转）与 execStatus（执行情况）是**两个**字段，两个都要在');
   });
 
