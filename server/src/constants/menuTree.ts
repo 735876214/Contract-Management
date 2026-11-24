@@ -12,6 +12,8 @@
  * - 前端兜底 `Sider/menuConfig.ts` 必须与本文件**逐项同序**（`routePermissionParity.spec.mts` 锁定）。
  */
 
+import { applyPluginMenus, PLUGIN_MENU_NODES } from '../plugins/generated/plugin-catalog.generated.ts';
+
 /** 菜单项结构（icon 为图标名字符串，前端动态映射） */
 export interface MenuNode {
   key: string;
@@ -22,7 +24,8 @@ export interface MenuNode {
   children?: MenuNode[];
 }
 
-export const MENU_TREE: MenuNode[] = [
+/** 核心菜单（手写部分）。插件菜单由下方 `MENU_TREE` 合并进来，别在这里直接写插件项。 */
+const CORE_MENU_TREE: MenuNode[] = [
   { key: 'dashboard', label: '工作台', icon: 'DashboardOutlined', path: '/dashboard', permission: 'dashboard:view' },
   // 采购管理模块（位于合同管理上方）
   // 说明：与前端 Sider/menuConfig.ts 的采购分组保持一致；子项权限码为 contract:view
@@ -169,9 +172,22 @@ export const MENU_TREE: MenuNode[] = [
       // 让 AI 助手不依赖 docker 环境变量也能用。权限 `system:config`——
       // 这改的是全站配置（含密钥），只给管理员，业务用户看不到。
       { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
+      // 构建期插件（B 档）：列出已声明插件的装配情况与启用状态（只读；启停走环境变量 + 重启）
+      { key: 'system-plugins', label: '插件管理', icon: 'AppstoreOutlined', path: '/system/plugins', permission: 'system:config' },
     ],
   },
 ];
+
+/**
+ * 权威菜单树 = 核心菜单 + 已声明插件菜单。
+ *
+ * 插件节点来自 `server/src/plugins/<key>/plugin.json` 的 `menus`，由
+ * `node scripts/gen-plugins.mjs` 生成（`PLUGIN_MENU_NODES`，全量静态）。
+ * 这样 `routePermissionParity` / `permissionCatalog` 两个漂移锁看到的始终是**完整**菜单；
+ * 「某个插件当前是否启用」是**运行期**问题，由 `MenuService` 用 `hiddenPluginMenuKeys()` 过滤，
+ * 不在这里做成环境相关的静态值（否则单测与 CI 会随 env 飘）。
+ */
+export const MENU_TREE: MenuNode[] = applyPluginMenus(CORE_MENU_TREE, PLUGIN_MENU_NODES);
 
 /** 展平菜单树为 [{ path, permission }]，忽略无 path 的分组节点 */
 export function flattenMenu(nodes: MenuNode[] = MENU_TREE): Array<{ path: string; permission?: string }> {

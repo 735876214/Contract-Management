@@ -179,7 +179,15 @@ describe('权限码目录（单一事实源）漂移锁', () => {
         d.isDirectory() ? walk(`${dir}/${d.name}`) : d.name.endsWith('.ts') ? [`${dir}/${d.name}`] : [],
       );
 
-    for (const file of walk('server/src/modules')) {
+    /**
+     * 扫描面 = 业务模块 + 构建期插件。插件控制器同样声明 `@RequirePermissions`，
+     * 不扫它的话插件权限码会被判成「目录里的孤儿码」（2026-11-24 引入 B 档插件时踩到）。
+     */
+    const controllerFiles = [
+      ...walk('server/src/modules'),
+      ...walk('server/src/plugins').filter((f) => f.endsWith('.controller.ts')),
+    ];
+    for (const file of controllerFiles) {
       const src = read(file);
       for (const deco of src.matchAll(/@RequirePermissions\(([^)]*)\)/g)) {
         for (const m of deco[1].matchAll(CODE_RE)) used.set(m[1], [...(used.get(m[1]) ?? []), file]);

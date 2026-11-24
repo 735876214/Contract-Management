@@ -263,7 +263,29 @@ const trackedSet = new Set(tracked);
 
 const MODULES_DIR = 'server/src/modules/';
 const isTs = (f) => /\.(ts|tsx)$/.test(f) && !f.endsWith('.d.ts');
-const moduleOf = (f) => (f.startsWith(MODULES_DIR) ? f.slice(MODULES_DIR.length).split('/')[0] : null);
+
+/**
+ * **构建期插件目录**（B 档，2026-11-24）：`server/src/plugins/<key>/` 与 `modules/<名>/`
+ * 同等对待。理由：插件代码如果不进这张图，就等于「门禁外挂」——插件可以随意深层引别人的
+ * service、直写别人的表，而检查器一句不报。这正是「运行时加载第三方代码」不可接受的核心原因
+ * （见 server/src/plugins/README.md §为什么不做热插拔）。
+ *
+ * 两类路径**不算模块**：
+ * - `server/src/plugins/` 根下的手写文件（门面 / 运行期投影）。
+ * - `server/src/plugins/generated/`（生成物，由 scripts/gen-plugins.mjs 产出）。
+ */
+const PLUGINS_DIR = 'server/src/plugins/';
+const PLUGIN_RESERVED_DIRS = new Set(['generated']);
+const moduleOf = (f) => {
+  if (f.startsWith(MODULES_DIR)) return f.slice(MODULES_DIR.length).split('/')[0];
+  if (f.startsWith(PLUGINS_DIR)) {
+    const [head, ...rest] = f.slice(PLUGINS_DIR.length).split('/');
+    if (rest.length === 0) return null;
+    if (PLUGIN_RESERVED_DIRS.has(head)) return null;
+    return head;
+  }
+  return null;
+};
 
 const IMPORT_RE = /\bfrom\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 /** 只匹配静态 import：循环检测用它（动态 import 是运行期加载，不成环） */
@@ -277,7 +299,9 @@ function resolve(fromFile, spec) {
   return null;
 }
 
-const files = tracked.filter((f) => f.startsWith(MODULES_DIR) && isTs(f) && !f.endsWith('/index.ts'));
+const files = tracked.filter(
+  (f) => (f.startsWith(MODULES_DIR) || f.startsWith(PLUGINS_DIR)) && isTs(f) && !f.endsWith('/index.ts'),
+);
 const violations = [];
 const readViolations = [];
 const edges = new Map(); // module -> Set<module>
@@ -375,6 +399,7 @@ for (const file of files) {
     // 库型目录（ai-core）允许按文件引用；其余模块必须走 index.ts（见 LIBRARY_MODULES）
     const isPublicEntry =
       target === `${MODULES_DIR}${toMod}/index.ts` ||
+      target === `${PLUGINS_DIR}${toMod}/index.ts` ||
       EXTRA_PUBLIC_ENTRIES.has(target) ||
       LIBRARY_MODULES.has(toMod);
     if (!isPublicEntry) {

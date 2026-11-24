@@ -1,0 +1,24 @@
+{
+  "name": "dev-example",
+  "displayName": "插件开发示例",
+  "version": "0.1.0",
+  "description": "构建期插件（B 档）的最小子集示范：一个后端模块 + 一个前端页面 + 一条菜单 + 一个权限码，全部由 plugin.json 声明后生成装配",
+  "author": "CMS",
+  "enabledByDefault": true,
+  "dependencies": ["core>=1.1.0"],
+  "apiPrefix": "plugin/dev-example",
+  "permissions": [
+    { "code": "dev-example:view", "name": "查看插件开发示例", "group": "插件" }
+  ],
+  "menus": [
+    {
+      "key": "system-dev-example",
+      "label": "插件开发示例",
+      "icon": "SolutionOutlined",
+      "path": "/plugin/dev-example",
+      "permission": "dev-example:view",
+      "parent": "system"
+    }
+  ],
+  "mcpTools": []
+}

@@ -11,7 +11,10 @@
  *    —— 即路由守卫**不得比菜单更严**，否则会出现「菜单可见、点进去 403」；
  * 3. 未登记的路径 = 不拦截（如 `/message`，后端这些接口本身不做权限校验）。
  */
-export const ROUTE_PERMISSIONS: Record<string, string[]> = {
+import { PLUGIN_ROUTE_PERMISSIONS } from '../plugins/generated/plugin-catalog.generated.ts';
+
+/** 核心页面守卫表（手写部分）；插件页面由下方 `ROUTE_PERMISSIONS` 合并。 */
+const CORE_ROUTE_PERMISSIONS: Record<string, string[]> = {
   // 采购管理（后端 `/procurement-tasks` 要求 `contract:view`，菜单同一权限码）
   '/procurement/initiate': ['procurement:view'],
   '/procurement/pre-meeting': ['procurement:view'],
@@ -82,6 +85,19 @@ export const ROUTE_PERMISSIONS: Record<string, string[]> = {
   // AI 信息登记（2026-10-20）：登记全站共用的上游地址/密钥/模型，属于系统配置，
   // 所以守卫用 system:config（不是 ai:view）——普通用户看不到、也改不了全站密钥
   '/system/ai-register': ['system:config'],
+  // 插件管理（构建期插件 B 档）：只读展示已声明插件的装配情况与启用状态，属系统配置
+  '/system/plugins': ['system:config'],
+};
+
+/**
+ * 全量路由守卫表 = 核心 + 插件页面。
+ *
+ * 插件页面的 path → 权限码由 `plugin.json` 的 `menus[].permission` 生成（生成物
+ * `PLUGIN_ROUTE_PERMISSIONS`），因此「菜单可见 = 路由放行」在插件侧也是构造性成立的。
+ */
+export const ROUTE_PERMISSIONS: Record<string, string[]> = {
+  ...CORE_ROUTE_PERMISSIONS,
+  ...PLUGIN_ROUTE_PERMISSIONS,
 };
 
 /**
