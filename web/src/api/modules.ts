@@ -7,6 +7,18 @@ import type {
   LedgerSummary,
 } from './types/ledger';
 import type {
+  SettlementCreatePayload,
+  SettlementDetail,
+  SettlementLedgerListParams,
+  SettlementLedgerListResponse,
+  SettlementLedgerRow,
+  SettlementLedgerWritePayload,
+  SettlementListParams,
+  SettlementListResponse,
+  SettlementRow,
+  SettlementUpdatePayload,
+} from './types/settlement';
+import type {
   PaymentProcedureListParams,
   PaymentProcedureListResponse,
   PaymentProcedureRow,
@@ -254,19 +266,33 @@ export const contractMaterialApi = {
     `${http.defaults.baseURL}/contract-materials/import/validate?contractId=${contractId}`,
 };
 
+/**
+ * 结算单 + 结算台账（类型见 `./types/settlement`）。
+ *
+ * ⚠️ 金额字段是 Prisma `Decimal` 原样下发的 **string**；查询参数名以服务端为准
+ * （`SETTLEMENT_LIST_PARAM_KEYS` / `SETTLEMENT_LEDGER_LIST_PARAM_KEYS`），由
+ * `test-integration/api-shape-settlement.int.spec.ts` 双侧锁。
+ * 导入/导出/生成/预览这几条仍是 `any`——它们的响应是「操作结果包」（skipped/created/提示文案），
+ * 逐字段声明收益低，留到真正消费时再收。
+ */
 export const settlementApi = {
-  list: (params?: any) => http.get<any, any>('/settlements', { params }),
-  detail: (id: string) => http.get<any, any>(`/settlements/${id}`),
-  create: (data: any) => http.post<any, any>('/settlements', data),
-  update: (id: string, data: any) => http.put<any, any>(`/settlements/${id}`, data),
+  list: (params?: SettlementListParams) =>
+    http.get<SettlementListResponse, SettlementListResponse>('/settlements', { params }),
+  detail: (id: string) => http.get<SettlementDetail, SettlementDetail>(`/settlements/${id}`),
+  create: (data: SettlementCreatePayload) => http.post<SettlementRow, SettlementRow>('/settlements', data),
+  update: (id: string, data: SettlementUpdatePayload) =>
+    http.put<SettlementRow, SettlementRow>(`/settlements/${id}`, data),
   // 任务 7：结算驳回 → 回填
   reject: (id: string, version?: number) => http.post<any, any>(`/settlements/${id}/reject`, { version }),
-  remove: (id: string) => http.delete<any, any>(`/settlements/${id}`),
-  ledger: (params?: any) => http.get<any, any>('/settlements/ledger', { params }),
-  ledgerDetail: (id: string) => http.get<any, any>(`/settlements/ledger/${id}`),
-  createLedger: (data: any) => http.post<any, any>('/settlements/ledger', data),
-  updateLedger: (id: string, data: any) => http.put<any, any>(`/settlements/ledger/${id}`, data),
-  removeLedger: (id: string) => http.delete<any, any>(`/settlements/ledger/${id}`),
+  remove: (id: string) => http.delete<boolean, boolean>(`/settlements/${id}`),
+  ledger: (params?: SettlementLedgerListParams) =>
+    http.get<SettlementLedgerListResponse, SettlementLedgerListResponse>('/settlements/ledger', { params }),
+  ledgerDetail: (id: string) => http.get<SettlementLedgerRow, SettlementLedgerRow>(`/settlements/ledger/${id}`),
+  createLedger: (data: SettlementLedgerWritePayload) =>
+    http.post<SettlementLedgerRow, SettlementLedgerRow>('/settlements/ledger', data),
+  updateLedger: (id: string, data: SettlementLedgerWritePayload) =>
+    http.put<SettlementLedgerRow, SettlementLedgerRow>(`/settlements/ledger/${id}`, data),
+  removeLedger: (id: string) => http.delete<boolean, boolean>(`/settlements/ledger/${id}`),
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
