@@ -6,6 +6,7 @@ import { message, modal } from '@/utils/antdStatic';
 import { PlusOutlined, ExportOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { settlementApi, dailyApi, contractMaterialApi } from '@/api/modules';
+import type { SettlementLedgerRow, SettlementRow } from '@/api/types/settlement';
 import { dictApi, type DictOption } from '@/api/dict';
 import { contractApi } from '@/api/business';
 import ModuleListPage, { type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
@@ -17,7 +18,7 @@ import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
 import { usePermission } from '@/hooks/usePermission';
 import { formatAmount, formatMoney, formatNumber } from '@/utils/money';
 
-const money = (v: any) => formatMoney(v);
+const money = (v: unknown) => formatMoney(v);
 
 /** 期边界显示：服务端返回的**已经是 `YYYY-MM-DD` 字符串**（不是 Date，避免时区差一天），截前 10 位即可 */
 const fmtDay = (v: any) => (v ? String(v).slice(0, 10) : '-');
@@ -184,14 +185,14 @@ function SettlementsTab({
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
     { title: '结算单编号', dataIndex: 'code', width: 160, fixed: 'left' },
-    { title: '合同', key: 'contract', width: 260, render: (_v: any, r: any) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
-    { title: '供应商', key: 'supplier', width: 220, render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
-    { title: '结算类型', dataIndex: 'typeCode', width: 110, render: (v: any) => <DictTag typeCode="settlement_type" value={v} /> },
+    { title: '合同', key: 'contract', width: 260, render: (_v: unknown, r: SettlementRow) => `${r.contract?.code || ''} ${r.contract?.name || ''}`.trim() || '-' },
+    { title: '供应商', key: 'supplier', width: 220, render: (_v: unknown, r: SettlementRow) => r.contract?.supplier?.name || '-' },
+    { title: '结算类型', dataIndex: 'typeCode', width: 110, render: (v: SettlementRow['typeCode'] | undefined) => <DictTag typeCode="settlement_type" value={v ?? undefined} /> },
     { title: '结算金额', dataIndex: 'amount', width: 140, align: 'right', render: money },
     { title: '扣款金额', dataIndex: 'deductAmount', width: 140, align: 'right', render: money },
     { title: '实际结算金额', dataIndex: 'actualAmount', width: 150, align: 'right', render: money },
-    { title: '结算日期', dataIndex: 'settleDate', width: 120, render: (v: any) => v?.slice(0, 10) },
-    { title: '结算状态', dataIndex: 'statusCode', width: 110, render: (v: any) => <DictTag typeCode="settlement_status" value={v} /> },
+    { title: '结算日期', dataIndex: 'settleDate', width: 120, render: (v: SettlementRow['settleDate']) => v?.slice(0, 10) },
+    { title: '结算状态', dataIndex: 'statusCode', width: 110, render: (v: SettlementRow['statusCode'] | undefined) => <DictTag typeCode="settlement_status" value={v ?? undefined} /> },
     { title: '备注', dataIndex: 'remark', width: 160, ellipsis: true },
   ];
 
@@ -662,9 +663,9 @@ function LedgerTab({
 
   /** 表格列（问题四：generic 模式完整列定义） */
   const extraColumns: any[] = [
-    { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: any, r: any) => r.contract?.supplier?.name || '-' },
-    { title: '合同名称', key: 'contractName', width: 260, render: (_v: any, r: any) => r.contract?.name || '-' },
-    { title: '合同编号', key: 'contractCode', width: 160, render: (_v: any, r: any) => r.contract?.code || '-' },
+    { title: '供应商名称', key: 'supplier', width: 220, fixed: 'left', render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.supplier?.name || '-' },
+    { title: '合同名称', key: 'contractName', width: 260, render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.name || '-' },
+    { title: '合同编号', key: 'contractCode', width: 160, render: (_v: unknown, r: SettlementLedgerRow) => r.contract?.code || '-' },
     { title: '结算月份（账期）', dataIndex: 'settleMonth', width: 110 },
     { title: '本月结算额', dataIndex: 'monthSettleAmount', width: 130, align: 'right', render: money },
     { title: '本月开票额', dataIndex: 'monthInvoiceAmount', width: 130, align: 'right', render: money },
@@ -677,7 +678,7 @@ function LedgerTab({
     { title: '逾期利息', dataIndex: 'overdueInterest', width: 120, align: 'right', render: money },
     { title: '本年结算对应收入', dataIndex: 'yearSettleIncome', width: 150, align: 'right', render: money },
     { title: '开累结算对应收入', dataIndex: 'cumSettleIncome', width: 160, align: 'right', render: money },
-    { title: '是否挂账', dataIndex: 'isOnAccount', width: 100, render: (v: any) => <DictTag typeCode="yes_no" value={v} /> },
+    { title: '是否挂账', dataIndex: 'isOnAccount', width: 100, render: (v: SettlementLedgerRow['isOnAccount'] | undefined) => <DictTag typeCode="yes_no" value={v ?? undefined} /> },
   ];
 
   return (
