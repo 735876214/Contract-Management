@@ -1,4 +1,14 @@
 import http from './http';
+import type {
+  ContractCodeCheck,
+  ContractDetail,
+  ContractListParams,
+  ContractListResponse,
+  ContractOption,
+  ContractRow,
+  ContractUpdatePayload,
+  ContractWritePayload,
+} from './types/contract';
 
 // 其余业务模块的 API 定义在 modules.ts 中，此处统一再导出，便于页面按需引入
 export {
@@ -78,15 +88,23 @@ export const otherProjectApi = {
   validateUrl: () => `${http.defaults.baseURL}/other-projects/import/validate`,
 };
 
+/**
+ * 合同（类型见 `./types/contract`）。
+ *
+ * ⚠️ 查询参数名与台账**不同**：这里是 `code` / `name` / `execStatus` / `startDate` / `endDate`，
+ * 台账那边是 `contractCode` / `typeCode` / `supplierCategory`——两套名字由
+ * `test-integration/api-shape-contract.int.spec.ts` 与 `api-shape-ledger.int.spec.ts` 各锁一份。
+ * 金额是 Prisma Decimal 原样下发（string），做算术前先 `Number()`。
+ */
 export const contractApi = {
-  list: (params?: any) => http.get<any, any>('/contracts', { params }),
-  options: (keyword?: string) => http.get<any, any>('/contracts/options', { params: { keyword } }),
-  detail: (id: string) => http.get<any, any>(`/contracts/${id}`),
-  create: (data: any) => http.post<any, any>('/contracts', data),
-  update: (id: string, data: any) => http.put<any, any>(`/contracts/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/contracts/${id}`),
+  list: (params?: ContractListParams) => http.get<ContractListResponse, ContractListResponse>('/contracts', { params }),
+  options: (keyword?: string) => http.get<ContractOption[], ContractOption[]>('/contracts/options', { params: { keyword } }),
+  detail: (id: string) => http.get<ContractDetail, ContractDetail>(`/contracts/${id}`),
+  create: (data: ContractWritePayload) => http.post<ContractRow, ContractRow>('/contracts', data),
+  update: (id: string, data: ContractUpdatePayload) => http.put<ContractRow, ContractRow>(`/contracts/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/contracts/${id}`),
   checkCode: (code: string, excludeId?: string) =>
-    http.get<any, any>('/contracts/check-code', { params: { code, excludeId } }),
+    http.get<ContractCodeCheck, ContractCodeCheck>('/contracts/check-code', { params: { code, excludeId } }),
   nextCode: (params: { typeCode?: string; subTypeCode?: string; projectId?: string; codeAbbr?: string }) =>
     http.get<any, any>('/contracts/next-code', { params }),
   nextSupplementCode: (id: string) => http.get<any, any>(`/contracts/${id}/next-supplement-code`),

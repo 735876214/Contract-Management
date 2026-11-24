@@ -1,4 +1,34 @@
 import http from './http';
+import type {
+  LedgerColumn,
+  LedgerColumnsConfig,
+  LedgerListParams,
+  LedgerListResponse,
+  LedgerSummary,
+} from './types/ledger';
+import type {
+  SettlementCreatePayload,
+  SettlementDetail,
+  SettlementLedgerListParams,
+  SettlementLedgerListResponse,
+  SettlementLedgerRow,
+  SettlementLedgerWritePayload,
+  SettlementListParams,
+  SettlementListResponse,
+  SettlementRow,
+  SettlementUpdatePayload,
+} from './types/settlement';
+import type {
+  PaymentProcedureListParams,
+  PaymentProcedureListResponse,
+  PaymentProcedureRow,
+  PaymentProcedureWritePayload,
+  PaymentRecordCreatePayload,
+  PaymentRecordListParams,
+  PaymentRecordListResponse,
+  PaymentRecordRow,
+  PaymentRecordUpdatePayload,
+} from './types/payment';
 
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
@@ -236,19 +266,33 @@ export const contractMaterialApi = {
     `${http.defaults.baseURL}/contract-materials/import/validate?contractId=${contractId}`,
 };
 
+/**
+ * 结算单 + 结算台账（类型见 `./types/settlement`）。
+ *
+ * ⚠️ 金额字段是 Prisma `Decimal` 原样下发的 **string**；查询参数名以服务端为准
+ * （`SETTLEMENT_LIST_PARAM_KEYS` / `SETTLEMENT_LEDGER_LIST_PARAM_KEYS`），由
+ * `test-integration/api-shape-settlement.int.spec.ts` 双侧锁。
+ * 导入/导出/生成/预览这几条仍是 `any`——它们的响应是「操作结果包」（skipped/created/提示文案），
+ * 逐字段声明收益低，留到真正消费时再收。
+ */
 export const settlementApi = {
-  list: (params?: any) => http.get<any, any>('/settlements', { params }),
-  detail: (id: string) => http.get<any, any>(`/settlements/${id}`),
-  create: (data: any) => http.post<any, any>('/settlements', data),
-  update: (id: string, data: any) => http.put<any, any>(`/settlements/${id}`, data),
+  list: (params?: SettlementListParams) =>
+    http.get<SettlementListResponse, SettlementListResponse>('/settlements', { params }),
+  detail: (id: string) => http.get<SettlementDetail, SettlementDetail>(`/settlements/${id}`),
+  create: (data: SettlementCreatePayload) => http.post<SettlementRow, SettlementRow>('/settlements', data),
+  update: (id: string, data: SettlementUpdatePayload) =>
+    http.put<SettlementRow, SettlementRow>(`/settlements/${id}`, data),
   // 任务 7：结算驳回 → 回填
   reject: (id: string, version?: number) => http.post<any, any>(`/settlements/${id}/reject`, { version }),
-  remove: (id: string) => http.delete<any, any>(`/settlements/${id}`),
-  ledger: (params?: any) => http.get<any, any>('/settlements/ledger', { params }),
-  ledgerDetail: (id: string) => http.get<any, any>(`/settlements/ledger/${id}`),
-  createLedger: (data: any) => http.post<any, any>('/settlements/ledger', data),
-  updateLedger: (id: string, data: any) => http.put<any, any>(`/settlements/ledger/${id}`, data),
-  removeLedger: (id: string) => http.delete<any, any>(`/settlements/ledger/${id}`),
+  remove: (id: string) => http.delete<boolean, boolean>(`/settlements/${id}`),
+  ledger: (params?: SettlementLedgerListParams) =>
+    http.get<SettlementLedgerListResponse, SettlementLedgerListResponse>('/settlements/ledger', { params }),
+  ledgerDetail: (id: string) => http.get<SettlementLedgerRow, SettlementLedgerRow>(`/settlements/ledger/${id}`),
+  createLedger: (data: SettlementLedgerWritePayload) =>
+    http.post<SettlementLedgerRow, SettlementLedgerRow>('/settlements/ledger', data),
+  updateLedger: (id: string, data: SettlementLedgerWritePayload) =>
+    http.put<SettlementLedgerRow, SettlementLedgerRow>(`/settlements/ledger/${id}`, data),
+  removeLedger: (id: string) => http.delete<boolean, boolean>(`/settlements/ledger/${id}`),
   exportLedgerUrl: () => `${http.defaults.baseURL}/settlements/ledger/export`,
   ledgerTemplateUrl: () => `${http.defaults.baseURL}/settlements/ledger/template`,
   ledgerImportUrl: () => `${http.defaults.baseURL}/settlements/ledger/import`,
@@ -274,11 +318,14 @@ export const settlementApi = {
   },
 };
 
+/** 付款台账（类型见 `./types/payment`）。⚠️ 不支持 `keyword` 过滤，金额字段是 Decimal 原样下发的 **string**。 */
 export const paymentApi = {
-  records: (params?: any) => http.get<any, any>('/payments/records', { params }),
-  createRecord: (data: any) => http.post<any, any>('/payments/records', data),
-  updateRecord: (id: string, data: any) => http.put<any, any>(`/payments/records/${id}`, data),
-  removeRecord: (id: string) => http.delete<any, any>(`/payments/records/${id}`),
+  records: (params?: PaymentRecordListParams) =>
+    http.get<PaymentRecordListResponse, PaymentRecordListResponse>('/payments/records', { params }),
+  createRecord: (data: PaymentRecordCreatePayload) => http.post<PaymentRecordRow, PaymentRecordRow>('/payments/records', data),
+  updateRecord: (id: string, data: PaymentRecordUpdatePayload) =>
+    http.put<PaymentRecordRow, PaymentRecordRow>(`/payments/records/${id}`, data),
+  removeRecord: (id: string) => http.delete<boolean, boolean>(`/payments/records/${id}`),
   exportRecordsUrl: () => `${http.defaults.baseURL}/payments/records/export`,
   recordsTemplateUrl: () => `${http.defaults.baseURL}/payments/records/template`,
   recordsImportUrl: () => `${http.defaults.baseURL}/payments/records/import`,
@@ -291,12 +338,16 @@ export const paymentApi = {
 };
 
 /** 付款手续编制（业务口径 2026-10-16）：开累两值由服务端按合同链口径取数并快照，前端不提交 */
+/** 付款手续（类型见 `./types/payment`）。「开累」三列是服务端快照，前端直传会被忽略。 */
 export const paymentProcedureApi = {
-  list: (params?: any) => http.get<any, any>('/payment-procedures', { params }),
-  detail: (id: string) => http.get<any, any>(`/payment-procedures/${id}`),
-  create: (data: any) => http.post<any, any>('/payment-procedures', data),
-  update: (id: string, data: any) => http.put<any, any>(`/payment-procedures/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/payment-procedures/${id}`),
+  list: (params?: PaymentProcedureListParams) =>
+    http.get<PaymentProcedureListResponse, PaymentProcedureListResponse>('/payment-procedures', { params }),
+  detail: (id: string) => http.get<PaymentProcedureRow, PaymentProcedureRow>(`/payment-procedures/${id}`),
+  create: (data: PaymentProcedureWritePayload) =>
+    http.post<PaymentProcedureRow, PaymentProcedureRow>('/payment-procedures', data),
+  update: (id: string, data: PaymentProcedureWritePayload) =>
+    http.put<PaymentProcedureRow, PaymentProcedureRow>(`/payment-procedures/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/payment-procedures/${id}`),
 };
 
 /** 总结算单（结算及付款管理，业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 */
@@ -367,11 +418,18 @@ export const assetApi = {
   exportUrl: () => `${http.defaults.baseURL}/assets/export`,
 };
 
+/**
+ * 合同台账（类型见 `./types/ledger`）。
+ *
+ * ⚠️ `contracts` 的查询参数名以服务端 `findAll()` 为准（`contractCode / typeCode / execStatus / supplierCategory`），
+ * 不是页面筛选项的 label；键名由 `server/test-integration/api-shape-ledger.int.spec.ts` 双侧锁住。
+ */
 export const ledgerApi = {
-  contracts: (params?: any) => http.get<any, any>('/ledger/contracts', { params }),
-  columns: () => http.get<any, any>('/ledger/columns'),
-  saveColumns: (config: Record<string, boolean>) => http.put<any, any>('/ledger/columns', config),
-  summary: () => http.get<any, any>('/ledger/summary'),
+  contracts: (params?: LedgerListParams) =>
+    http.get<LedgerListResponse, LedgerListResponse>('/ledger/contracts', { params }),
+  columns: () => http.get<LedgerColumn[], LedgerColumn[]>('/ledger/columns'),
+  saveColumns: (config: LedgerColumnsConfig) => http.put<void, void>('/ledger/columns', config),
+  summary: () => http.get<LedgerSummary, LedgerSummary>('/ledger/summary'),
   exportUrl: () => `${http.defaults.baseURL}/ledger/export`,
 };
 

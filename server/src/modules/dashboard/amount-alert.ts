@@ -1,5 +1,5 @@
 /**
- * **合同金额红/黄预警的判定**（纯函数、零依赖）。
+ * **合同金额红/黄预警的判定**（纯函数、零 IO 依赖；舍入走 `@cms/calc/money`）。
  *
  * 业务口径（2026-10-15 澄清，阈值由业务方给定）：
  *
@@ -19,6 +19,8 @@
  *
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
+
+import { round2, round4 } from '@cms/calc/money';
 
 /** 阈值（倍数）。恰好等于阈值**不**预警，必须严格大于 */
 export const ALERT_THRESHOLDS = {
@@ -52,9 +54,9 @@ export interface AmountAlertResult {
   supplementRatioPct: number | null;
 }
 
-/** 百分数（两位小数）。⚠️ 别漏 `Number(...)`——`toFixed` 返回的是字符串 */
+/** 百分数（两位小数，走 calc.round2：与全站舍入同一实现，别再用 toFixed） */
 const pct = (numerator: number, denominator: number): number =>
-  Number((((Number(numerator) || 0) / denominator) * 100).toFixed(2));
+  round2(((Number(numerator) || 0) / denominator) * 100);
 
 /**
  * 判定单个合同的预警级别。
@@ -137,17 +139,17 @@ export function evaluatePaymentRatioAlert(input: PaymentRatioAlertInput): Paymen
   if (!Number.isFinite(ratio) || ratio <= 0) return { exceeded: false, limit: null, paidRatioPct, reason: null };
   if (settled <= 0) return { exceeded: false, limit: null, paidRatioPct, reason: null };
 
-  const limit = Number((settled * ratio).toFixed(2));
+  const limit = round4(settled * ratio);
   // "超过"是严格大于：恰好等于上限不算超
   if (paid <= limit) return { exceeded: false, limit, paidRatioPct, reason: null };
 
-  const pctOfRatio = Number((ratio * 100).toFixed(2));
+  const pctOfRatio = round2(ratio * 100);
   return {
     exceeded: true,
     limit,
     paidRatioPct,
     reason:
-      `开累付款 ${paid.toFixed(2)} 已超过「开累结算 ${settled.toFixed(2)} × 生效比例 ${pctOfRatio}%」` +
-      `= ${limit.toFixed(2)}（已付占开累结算 ${paidRatioPct}%）`,
+      `开累付款 ${round2(paid).toFixed(2)} 已超过「开累结算 ${round2(settled).toFixed(2)} × 生效比例 ${pctOfRatio}%」` +
+      `= ${round4(limit).toFixed(2)}（已付占开累结算 ${paidRatioPct}%）`,
   };
 }

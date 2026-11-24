@@ -10,6 +10,8 @@
  * 这套思路与 `report.service.ts` 的 `unknownNumbers` 一致。
  */
 
+import { round4 } from '@cms/calc/money';
+
 /** 一段结论 + 若干动作（两个课题共用同一形状） */
 export interface Narrative {
   /** 总体结论 */
@@ -36,7 +38,7 @@ export interface NarratableFinding {
 export function normalizeNumberToken(raw: string): string {
   const n = Number(String(raw).replace(/,/g, ''));
   if (!Number.isFinite(n)) return String(raw);
-  return String(Number(n.toFixed(4)));
+  return String(round4(n));
 }
 
 /**
