@@ -12,7 +12,8 @@
 
 **技术栈**：前端 React 18 + TypeScript + Vite 5 + AntD 5 + Zustand + ECharts；
 后端 NestJS 10 + Prisma 5 + **PostgreSQL 16**（唯一数据库）；鉴权 JWT + RBAC（权限码 `module:action`）；
-包管理 npm（统一带 `--legacy-peer-deps`）。
+包管理 npm（统一带 `--legacy-peer-deps`）；**Redis 7 可选**（`REDIS_URL` 未配则自动降级进程内实现，
+见 `server/src/common/redis/`，口径见 [docs/development.md](docs/development.md) §2「Redis（可选）」）。
 
 ## 2. 目录地图
 

@@ -1,6 +1,7 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Public } from './decorators/public.decorator';
+import { RedisService } from './redis';
 
 /**
  * 健康检查（2026-11-21 质量评估 P2：可观测性缺口）。
@@ -18,7 +19,10 @@ export class HealthController {
   private readonly logger = new Logger(HealthController.name);
   private readonly startedAt = Date.now();
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly redis: RedisService,
+  ) {}
 
   @Public()
   @Get()
@@ -33,10 +37,15 @@ export class HealthController {
       dbError = e?.message ? String(e.message).split('\n')[0] : 'unknown';
       this.logger.error(`健康检查：数据库不可用 -> ${dbError}`);
     }
+    // Redis 是**可选**依赖：`memory` 表示没配或已降级（单实例口径仍可用），不算故障。
+    // 但部署方需要能从探针上分辨「我以为在用 Redis，其实早就退化了」。
+    const redisPing = await this.redis.ping();
     const payload = {
       status: db === 'up' ? 'ok' : 'down',
       db,
       dbLatencyMs: Date.now() - dbStartedAt,
+      redis: this.redis.configured ? (redisPing ? 'up' : 'degraded') : 'off',
+      redisBackend: this.redis.kind,
       uptimeSec: Math.round((Date.now() - this.startedAt) / 1000),
     };
     if (db !== 'up') throw new ServiceUnavailableException(payload);

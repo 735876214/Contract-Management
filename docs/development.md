@@ -13,6 +13,7 @@
   否则镜像/CI 的 `npm ci` 会因 `package.json` 与锁文件不一致而失败。
 - Docker + Docker Compose（开发与部署）
 - PostgreSQL 16（由 compose 提供，本地默认映射 `15432`）
+- Redis 7（**可选**，由 compose 提供，本地默认映射 `16379`；不装也能跑，见下方「Redis（可选）」）
 
 ## 2. 本地启动
 
@@ -22,7 +23,7 @@
 docker compose -f docker-compose.dev.yml up
 # 前端 http://localhost:5173（Vite HMR）
 # 后端 http://localhost:3000/api
-# PostgreSQL 映射到本机 15432；上传文件落 ./data-dev
+# PostgreSQL 映射到本机 15432；Redis 映射到 16379；上传文件落 ./data-dev
 # 首次启动自动装依赖（数分钟）；无需宿主机装 node/npm
 ```
 
@@ -50,6 +51,26 @@ npm ci --legacy-peer-deps
 npm run dev                        # http://localhost:5173（/api 反代 localhost:3000）
 ```
 
+
+**Redis（可选，2026-11-24 引入）**：`REDIS_URL` 不配就自动走**进程内实现**，行为与改造前一致
+（单实例口径），所以 CI、单容器部署、以及只想跑起来看看的人**都不需要装 Redis**。配了才拿到
+跨实例语义：登录失败节流共享窗口、AI 问数的 run 事件流能被任意实例读到（断线续传的前提）。
+
+降级口径（写死在 `server/src/common/redis/redis.service.ts`，不要在调用方各写一套）：
+
+- 没配 → `kind='memory'`；配了但连不上 → 启动时打一条 WARN 后降级 memory；
+- **运行中掉线 → 该次命令就地降级 memory 并永久切到 memory**（直到进程重启），不抛异常、不每次重试
+  ——登录是高频路径，故障时把请求挂在连接超时上比降级更糟；
+- `GET /api/health` 回报 `redis: off|up|degraded` 与 `redisBackend`，用来发现「以为在用 Redis，其实早退化了」。
+
+验证本机 Redis 通不通：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d redis
+docker exec cms-redis-dev redis-cli ping            # PONG
+curl -s localhost:3000/api/health                   # 看 redis / redisBackend 字段
+```
+
 ### 环境变量
 
 `server/.env`（参考 `server/.env.example`）：
@@ -62,6 +83,8 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | `PORT` | `3000` | 后端端口 |
 | `UPLOAD_DIR` | `./uploads` | 上传目录（静态映射 `/api/files`） |
 | `DEFAULT_ADMIN_USERNAME/PASSWORD` | `admin`/`admin123` | 空库启动自动建管理员 |
+| `REDIS_URL` | 未设 | **可选**连接串（dev compose 已给 `redis://redis:6379/0`）；未设 → 进程内后端 |
+| `REDIS_KEY_PREFIX` | `cms:` | 与其它系统共用同一 Redis 实例时用来隔离键空间 |
 
 **AI 助手（可选）**：`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 三项齐全才启用（OpenAI Chat
 Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记」页面填这三项**——存进 `SysParam`、
