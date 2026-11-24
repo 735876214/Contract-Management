@@ -13,6 +13,15 @@ import tseslint from 'typescript-eslint';
  *
  * 真正**当 error** 的是这几类「几乎一定是 bug」的：console 残留、未定义变量、
  * 重复 import、无用的表达式语句、不可达代码、无效的 eslint-disable。
+ *
+ * ⚠ **必须带大栈跑**（见 package.json 的 lint script：`node --stack-size=8000 ./node_modules/eslint/bin/eslint.js`）：
+ * `src/assets/cscec-logo.base64.ts` 是单行 ~89KB 的 base64 生成物，typescript-eslint 解析它的递归深度
+ * 正好卡在 Node 默认栈容量的**边界**上（Node 20/24 都复现，与版本无关）：
+ *   - 单独 lint 这个文件 → **稳定**抛 `Parsing error: Maximum call stack size exceeded`（8/8 次）；
+ *   - 全量 lint 时 → **抖动**，同一命令可能失败也可能通过（实测首次 FAIL、随后 3 次 OK）。
+ * 内容本身零 error（--stack-size=8000 下全量稳定 exit 0），所以这不是代码问题，是栈容量问题。
+ * 改回裸 `eslint` 会让 CI 的 lint 门禁**随机红**；正解要么像现在这样加大栈，
+ * 要么把该生成物加进下面的 ignores。
  */
 export default tseslint.config(
   { ignores: ['dist/**', 'prisma/migrations/**', 'node_modules/**', 'eslint.probe.config.mjs'] },
