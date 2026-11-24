@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { dictTypes, dictItems, sysParams } from './seed-data';
+import { PERMISSIONS } from './constants/permissions';
 import {
   LEGACY_CATEGORY_CODE_MAP,
   LEGACY_CATEGORY_NAME_MAP,
@@ -211,10 +212,9 @@ export async function fixLegacyData(prisma: PrismaClient): Promise<void> {
  * **项目管理员**与**普通员工** —— AI 助手是录入效率工具，不是管理功能；
  * 超级管理员走 `isSuperAdmin` 直通，无需授权行。角色不存在时跳过（不造角色）。
  */
-const AI_PERMISSIONS = [
-  { code: 'ai:view', name: '查看 AI 助手', module: 'AI 助手' },
-  { code: 'ai:use', name: '使用 AI 助手', module: 'AI 助手' },
-];
+const AI_PERMISSION_CODES = ['ai:view', 'ai:use'];
+/** 标签（`name`/`module`）取自权限目录单一事实源；这里只声明「启动时补哪几条」 */
+const AI_PERMISSIONS = PERMISSIONS.filter((p) => AI_PERMISSION_CODES.includes(p.code));
 const AI_PERMISSION_ROLE_CODES = ['PROJECT_MANAGER', 'STAFF'];
 
 async function seedAiPermissions(prisma: PrismaClient): Promise<void> {

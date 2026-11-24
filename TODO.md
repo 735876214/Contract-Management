@@ -56,6 +56,11 @@
   修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
   需先跑 `--list` 评估数量再加 `take`/理由。
 
+- **门禁豁免与 fan-out 聚合器复核**（2026-11-24 审计 P3 备忘，非缺陷）：
+  `check-query-limits` 现有 **33 处** `// @no-limit:` 豁免，模块边界检查点名 `archive`(10) / `receipt-order`(6)
+  两个高 fan-out 聚合器。豁免只该留给「口径本身就需要全量」的少数情形——逐条复核：能加 `take` 或父实体过滤的
+  就去掉豁免，确实必须全量的把理由在注释里写死（现有注释多数只写了「为什么必须全量」，没写"什么时候该重看"）。
+  `archive` / `receipt-order` 若继续长，考虑把聚合搬到 `src/query/` 层收口。
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。

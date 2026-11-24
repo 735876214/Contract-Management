@@ -100,6 +100,12 @@ server/src/
   `npm install --package-lock-only --legacy-peer-deps` 刷新锁文件。
 - **npm 提示「install scripts not yet covered by allowScripts」**：npm 11 起的告警，
   prisma / esbuild 等确需构建脚本，可忽略（镜像内的 npm 10 不做拦截）。
+- **dev 容器里报 `TS2307: Cannot find module '@cms/calc/*'`**：`server|web/package.json` 的
+  `file:../packages/calc` 在容器里被解析成 **`/packages/calc`**（`/app` = `./server`，`..` 就是根），
+  所以 `docker-compose.dev.yml` 必须把 `./packages/calc` 挂到 **`/packages/calc`**——挂到
+  `/app/packages/calc` 时 npm 建的软链是断的，src 里所有 `@cms/calc/*` 全部报错。
+  另外**改过挂载必须 `up -d` 重建容器**：`restart` 只重启进程，不会应用新挂载
+  （2026-11-24 实测，旧容器里根本没有 `/packages/calc`）。
 - **本地文件存储**：默认落 `server/uploads`，由 `/api/files/**` 静态映射；
   **落盘统一走 `server/src/common/services/storage.service.ts`（`StorageService`）**。
   通用上传经 `save()` 落盘（单文件 ≤50MB、单请求 ≤10 个，拒绝 html/svg/js/exe 等危险类型）。
@@ -170,6 +176,51 @@ docker compose up -d --build    # 构建并启动，产出同一个 ghcr.io/7358
 ```
 
 内部 `start.sh` 让后端与 nginx 任一进程退出即整体退出，由重启策略自愈。
+
+### 不可逆迁移：升级前必备份、升完对一次账
+
+镜像启动时会自动 `prisma migrate deploy`，所以「先备份再拉镜像」是**唯一的人工窗口**。
+下面这些迁移删表 / 删列 / 改写金额，结构可以由旧镜像重建，**数据不行**：
+
+| 迁移 | 不可逆动作 |
+|---|---|
+| `20261014000000_p1_consistency` | 删 `PaymentRecord.applyId` / `ProcurementTask.contractId` |
+| `20261021000000_drop_contract_type_enum` | 删 `Contract.contractType` |
+| `20261029000000_merge_subcontractor_into_labor` | 删 `LaborAuthLedger.subcontractorId` 与 `Subcontractor` 表（当时合并进台账，`20261120120000` 又建回） |
+| `20261101000000_monthly_profit_loss` | DROP `ProfitLossAnalysis` |
+| `20261102000000_drop_subcontract_receiving` | DROP `SubcontractReceiving` |
+| `20261116000000_calc_single_source` | 删 4 张表的 `taxRate`（税率改由共享计算引擎按税率表推） |
+| `20261120000000_overdue_payable_payment` | **DROP `OverdueInterest`**，并丢弃「材料款与付款皆空」的计息承载行 |
+| `20261120000001_overdue_payable_material_share` | 按 `paymentRatio` 把 `materialAmount` 回乘成「该期份额」（**依赖上一迁移搬的是毛额**这一假设） |
+| `20261120120000_subcontractor_other_project_libs` | 合并重复 `LaborReceivingDoc`（冲突明细先删）、非供应商类型的 `ReceiptOrder.supplierId` 置空、`subcontractorId` 改指 `Subcontractor` |
+
+升级动作（两步都别省）：
+
+```bash
+scripts/backup.sh                        # 先备份（库 + 附件）。cron 有每日备份也建议手工再跑一次
+docker compose pull && docker compose up -d
+```
+
+逾期利息这批判迁移**还应在库里对一次账**：升级前在旧库跑第一段，升级后跑第二段，数字应相等。
+
+```sql
+-- 升级前（旧单表 OverdueInterest）
+SELECT count(*) AS 期数, COALESCE(SUM("overdueInterest"), 0) AS 利息合计
+FROM "OverdueInterest" WHERE "materialAmount" > 0;
+SELECT count(*) AS 笔数, COALESCE(SUM("paymentAmount"), 0) AS 付款合计
+FROM "OverdueInterest" WHERE "paymentAmount" > 0 AND "paymentDate" IS NOT NULL;
+
+-- 升级后（主子表）
+SELECT count(*) AS 期数, COALESCE(SUM("overdueInterest"), 0) AS 利息合计 FROM "OverduePayable";
+SELECT count(*) AS 笔数, COALESCE(SUM("paymentAmount"), 0) AS 付款合计 FROM "OverduePayment";
+
+-- 材料款份额：升级后应等于「升级前 materialAmount × COALESCE(paymentRatio,1)」的合计。
+-- 若差一个比例（0.8 / 0.9…），说明历史行里已经存过含比例的金额，被 `20261120000001` 二次打折了。
+SELECT COALESCE(SUM("materialAmount"), 0) AS 材料款份额合计 FROM "OverduePayable";
+```
+
+> 迁移文件是**历史记录、不追改**：搬数口径写错时补一个归一迁移（参照
+> `20261124080000_lib_permission_canonical_labels` 修权限标签的写法），别回头改已上线的 SQL。
 
 ## 备份与恢复（2026-10-17 起，已演练验证）
 

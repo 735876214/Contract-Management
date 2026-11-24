@@ -53,6 +53,9 @@ data-drill/
 # 构建/测试临时目录（曾被误提交，见 a255be6）
 .tmpbuild/
 
+# 取数改造期间的 AST 导出快照（2026-11-24 审计：7775b09 误入库，仓库内无任何引用）
+.dc-extract.json
+
 # 并行开发：每任务一棵 git worktree（本机生成，不入库）
 .worktrees/
 # 模块级验收的临时 tsconfig、锁文件与临时上传目录

@@ -22,7 +22,7 @@ Contract-Management/
 ├── .claude/rules/      # 规则与产品口径（按需加载，先读 rules-index.md）
 ├── server/             # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（66 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 46 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 47 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -44,15 +44,17 @@ Contract-Management/
 │   │                               #    / calc_single_source / procurement_permissions
 │   │                               #    / overdue_payable_payment / overdue_payable_material_share
 │   │                               #    / final_settlement_reduce_amount / project_branch_company / final_settlement_doc_number
-│   │                               #    / subcontractor_other_project_libs / user_token_version）
+│   │                               #    / subcontractor_other_project_libs / user_token_version
+│   │                               #    / lib_permission_canonical_labels）
 │   ├── src/common/     # 通用层（仅基础设施）：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   │                   #   common/utils 是**白名单制**，不放业务口径（见 .claude/rules/module-boundaries.md §2.5）
 │   ├── src/domain/     # 业务口径**纯函数原语**（零 DB/零装饰器）：合同链算式、结算期、金额上限…
 │   │                   #   6 个文件各有 owner，登记在 constants/metrics.ts（为什么不在模块里见 §2.5）
 │   ├── src/query/      # 跨域**只读**查询层（read model）：<域>-queries.ts，只读、不带事务、显式 projectId
-│   ├── src/constants/  # procurementFlow.ts（采购工作流单一事实源）、statuses.ts、metrics.ts、workflowGuards.ts
+│   ├── src/constants/  # 单一事实源：procurementFlow.ts（采购工作流）、permissions.ts（权限码目录）、
+│   │                   #   statuses.ts、metrics.ts（指标口径登记）、workflowGuards.ts
 │   ├── src/modules/    # 33 个业务模块（AI 按职责拆成 ai / ai-core / ai-insight / ai-fill）
-│   ├── test/           # node:test 纯函数单测（108 个 spec，无 DB；清单见 docs/development.md §5）
+│   ├── test/           # node:test 纯函数单测（109 个 spec，无 DB；清单见 docs/development.md §5）
 │   └── test-integration/ # DB 集成测试（38 个 spec，需 PostgreSQL：npm run test:int）
 ├── packages/calc/      # 前后端共享计算引擎 @cms/calc（file: 依赖；产物入库，CI 查新鲜度）
 │                       #   详见 packages/calc/README.md 与 docs/04 §2.2
@@ -79,7 +81,7 @@ docker compose -f docker-compose.dev.yml up     # 本地开发（前端 :5173 / 
 # 验收（改完必做）
 cd web    && npm run build     # = tsc --noEmit && vite build
 cd server && npm run build     # = nest build
-cd server && npm test          # node:test 纯函数单测（108 个 spec，无 DB）
+cd server && npm test          # node:test 纯函数单测（109 个 spec，无 DB）
 cd server && npm run test:int  # DB 集成测试（38 个 spec，改金额/状态/导入必跑）
 ```
 
