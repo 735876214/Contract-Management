@@ -8,7 +8,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { CmsClient } from './cms-client.js';
+import { CmsClient, runWithTool } from './cms-client.js';
 import { RESOURCES, getResource, requiredQueryFor, type Capability } from './resources.js';
 import type { CmsConfig } from './config.js';
 
@@ -89,9 +89,28 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     version: '1.0.0',
   });
 
+  /**
+   * 注册工具（**一律走这个**，不要在下面直接调 `server.registerTool`）。
+   *
+   * 作用：把 handler 包进 `runWithTool(name)`，于是该工具发出的每个 `/api` 请求都带上
+   * `x-cms-actor: mcp` + `x-cms-tool: <name>`，后端据此写审计——**含纯 GET 查询**
+   * （cms_query / cms_get / cms_whoami / cms_list_resources 原本一条日志都不留）。
+   *
+   * 后果提醒：绕过这个包装注册的工具，在审计里与人工操作**完全无法区分**。
+   * 所以这里用一个私有别名（而不是直接暴露 server.registerTool）让「漏包」写不出来。
+   */
+  /**
+   * 类型断言刻意保留 `typeof server.registerTool`：这样每个调用点的 `args` 仍由
+   * `inputSchema` 推导（与手写 registerTool 时一模一样），不必给 8 个 handler 手标参数类型；
+   * 实现体里只是多了 runWithTool 这一层。
+   */
+  const tool = ((name: string, config: unknown, handler: (args: unknown) => Promise<ToolResult>) =>
+    server.registerTool(name as never, config as never, ((args: unknown) =>
+      runWithTool(name, () => handler(args))) as never)) as unknown as typeof server.registerTool;
+
   // ---------------- 元信息 ----------------
 
-  server.registerTool(
+  tool(
     'cms_list_resources',
     {
       title: '列出可操作的资源与能力',
@@ -125,7 +144,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     },
   );
 
-  server.registerTool(
+  tool(
     'cms_whoami',
     {
       title: '查看当前身份与权限',
@@ -144,7 +163,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
 
   // ---------------- 查询 ----------------
 
-  server.registerTool(
+  tool(
     'cms_query',
     {
       title: '查询列表（分页 + 关键字 + 筛选）',
@@ -173,7 +192,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     },
   );
 
-  server.registerTool(
+  tool(
     'cms_get',
     {
       title: '查询单条详情',
@@ -205,7 +224,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
 
   // ---------------- 导出 ----------------
 
-  server.registerTool(
+  tool(
     'cms_export',
     {
       title: '导出 Excel 到本地文件',
@@ -237,7 +256,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     },
   );
 
-  server.registerTool(
+  tool(
     'cms_download_template',
     {
       title: '下载导入模板',
@@ -267,7 +286,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
     },
   );
 
-  server.registerTool(
+  tool(
     'cms_export_contract_word',
     {
       title: '导出合同 Word',
@@ -293,7 +312,7 @@ export function createServer(config: CmsConfig, client = new CmsClient(config)):
 
   // ---------------- 导入 ----------------
 
-  server.registerTool(
+  tool(
     'cms_import',
     {
       title: '导入 Excel（可预校验）',

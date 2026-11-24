@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { from, Observable, switchMap, tap, catchError, throwError } from 'rxjs';
 import { LogService } from '../services/log.service';
 import { slimSecrets } from '../utils/mask';
+import { mcpAuditContext } from '../../constants/mcpAudit';
 
 /**
  * 全局操作日志拦截器（需求 2.6）
@@ -101,7 +102,18 @@ export class OperationLogInterceptor implements NestInterceptor {
     const probeUrl: string = req.originalUrl || req.url || '';
     const isReadExport =
       method === 'GET' && /(export|download|signed-file|archive|attachment)/i.test(probeUrl);
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isReadExport) return next.handle();
+    /**
+     * 外部 AI 经 MCP 发起的请求（2026-11-24 审计）：`mcp/` 会带 `x-cms-actor: mcp` + `x-cms-tool`。
+     *
+     * 认到这个头就**无论方法**都记——MCP 的 8 个工具里有 4 个是纯 GET 查询
+     * （cms_query / cms_get / cms_whoami / cms_list_resources），按「只记写方法」的口径
+     * 它们一条日志都不会留下，「AI 查走了什么」就永远答不出来。
+     * 落库写进 `actorTool`，人工操作该列为 null，二者在日志页可按「来源」筛选区分。
+     */
+    const mcpAudit = mcpAuditContext(req.headers || {});
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isReadExport && !mcpAudit) {
+      return next.handle();
+    }
 
     const started = Date.now();
     const url: string = req.originalUrl || req.url || '';
@@ -111,7 +123,9 @@ export class OperationLogInterceptor implements NestInterceptor {
     const route = ROUTE_MAP[biz] || { module: biz || '未知模块' };
 
     const isImport = /import/i.test(url);
-    let action = ACTION_MAP[method] || method;
+    // GET 的兜底动作：原来是裸 'GET'（只出现在导出下载与 MCP 查询上），改成中文口径；
+    // 导出/下载下面会被覆盖成「导出」，MCP 查询则由 `actorTool` 标明是哪个工具。
+    let action = ACTION_MAP[method] || (method === 'GET' ? '查询' : method);
     if (isImport) action = '导入';
     if (/export|download/i.test(url)) action = '导出';
     if (/toggle/i.test(url)) action = '启停';
@@ -182,6 +196,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               importRows,
               successCount,
               failCount,
+              actorTool: mcpAudit?.tool ?? null,
             });
           }),
           catchError((err) => {
@@ -201,6 +216,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               bizType: route.model || biz,
               bizId: bizId ?? undefined,
               projectId: (req.headers['x-project-id'] as string) || undefined,
+              actorTool: mcpAudit?.tool ?? null,
             });
             return throwError(() => err);
           }),

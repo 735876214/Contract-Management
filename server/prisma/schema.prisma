@@ -1291,6 +1291,10 @@ model OperationLog {
   duration     Int?
   bizType      String?
   bizId        String?
+  // 发起方工具：null = 人工操作（页面 / 脚本 / 运维）；'cms_query' 等 = 外部 AI 经 MCP 工具发起。
+  // 为什么单开一列而不是把 bizType 改成 'MCP_TOOL'：bizType 有既定语义（模型名/业务类型），
+  // 被 import-task 回填与前端「业务类型」列消费；拿它兼职做「谁发起的」会同时毁掉两个含义。
+  actorTool    String?
   projectId    String?
   // —— 导入专项统计 ——
   importFile   String?
@@ -1305,6 +1309,8 @@ model OperationLog {
   @@index([createdAt])
   @@index([userId])
   @@index([module, action])
+  // 「只看 AI 发起的操作」是审计最常问的问题之一，且多数行 actorTool 为 null
+  @@index([actorTool])
 }
 
 // ---------------- 异步导入任务 ----------------

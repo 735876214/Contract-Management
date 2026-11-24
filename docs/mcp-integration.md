@@ -49,6 +49,34 @@ MCP 不直连数据库，所有调用都带 `Authorization: Bearer <token>` 与 
 - `cms_whoami` 会对 `/auth/profile` 返回体做递归脱敏（`apiKey`/`secret`/`password`/`token` 等字段替换为 `***`），
   避免系统参数里的机密透传给外部 AI。后端 `/auth/profile` 的 `params` 建议另行做服务端白名单（纵深防御）。
 
+### 3.1 调用审计（2026-11-24）
+
+**问题**：MCP 的 8 个工具里 4 个是纯 GET 查询（`cms_query` / `cms_get` / `cms_whoami` /
+`cms_list_resources`），而 `OperationLogInterceptor` 默认只记写方法与 GET 导出下载——
+这 4 个工具**一条日志都不留**；写操作（`cms_import`）虽然记了，但与人工点「导入」
+在日志里完全无法区分。于是「AI 查走/导走了什么、谁给的权限」事后答不出来。
+
+**做法**：`mcp/` 发出的每个请求都带两个头（由 `mcp/src/cms-client.ts` 的 `headers()` 统一注入，
+工具名通过 `AsyncLocalStorage` 传递，不靠每个 handler 手动拼）：
+
+```
+x-cms-actor: mcp
+x-cms-tool: cms_query        # 具体工具名
+```
+
+后端 `OperationLogInterceptor` 认到这两个头就**无论方法**都记一条，写进
+`OperationLog.actorTool`（人工操作为 `null`）。日志页（系统管理 → 日志）多一列「来源」
+（`AI · cms_query` / `人工`）和一个「来源」筛选（`actor=mcp` / `actor=human`）。
+
+**为什么单开一列**：`bizType` 有既定语义（模型名/业务类型，被 import-task 回填与前端
+「业务类型」列消费），拿它兼职做「谁发起的」会同时毁掉两个含义。
+
+**为什么头名有两份字面量**：`mcp/` 是独立 Node 包，不能 import `server/src`。
+所以 `server/src/constants/mcpAudit.ts` 是权威定义，`server/test/mcpAudit.spec.mts`
+反向校验 `mcp/src/cms-client.ts` 里确实写着同样的字面量，并断言每个工具都走
+`tool()` 包装注册——**两端不一致或漏包都会让审计静默归零**（不报错，只是查不到 AI 操作），
+这是这个锁存在的全部理由。
+
 ## 4. 资源 → 接口映射（单一事实源：`mcp/src/resources.ts`）
 
 | 资源 key | 列表/详情 | 导出 | 模板 | 导入 |

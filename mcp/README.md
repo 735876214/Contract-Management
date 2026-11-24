@@ -121,6 +121,20 @@ mcp/
 └── .env.example
 ```
 
+## 调用审计
+
+本进程发出的每个 `/api` 请求都会带 `x-cms-actor: mcp` + `x-cms-tool: <工具名>`，
+后端据此写操作日志的 `actorTool` 列（人工操作为空）。**包含纯查询工具**——
+它们原本一条日志都不留。查「谁让 AI 干了什么」：系统管理 → 日志 → 来源 = `AI / MCP 调用`
+（接口 `GET /api/system/logs/operations?actor=mcp`，或按工具名 `?actorTool=cms_query`）。
+
+注意：
+- 头由 `cms-client.ts` 的 `headers()` **统一注入**，工具名走 `AsyncLocalStorage`，
+  所以新增工具只要走 `server.ts` 里的 `tool()` 注册包装就会自动带上；
+- 绕过 `tool()` 直接调 `server.registerTool` 注册的工具**不会被标为 AI 操作**
+  （`server/test/mcpAudit.spec.mts` 会拦住这种写法）；
+- 审计记录在**后端**（PostgreSQL），不在本包；本包不留任何调用历史。
+
 ## 安全提示
 
 - 账号请使用**最小权限**的专用账号（只授 `*:view` 或按需 `*:edit`），不要用超级管理员跑对外 AI。
