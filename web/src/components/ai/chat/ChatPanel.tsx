@@ -351,6 +351,34 @@ export default function ChatPanel() {
               />
             ) : null}
 
+            {/**
+             * 提示（warnings）：取数口径提示、工具调用次数、模型意图回退等。
+             * 这些原来是**一句都不显示**的——用户看不到「本轮调用了 1 次只读工具」或「模型返回的意图不是对象」，
+             * 于是既无法判断结论依据，也没法在出问题时告诉运维发生了什么。收进折叠区：默认不打扰，需要时能展开。
+             */}
+            {result.warnings?.length ? (
+              <Collapse
+                size="small"
+                items={[
+                  {
+                    key: 'warnings',
+                    label: <Text type="secondary">提示 {result.warnings.length} 条（取数与模型过程的说明，不影响结论）</Text>,
+                    children: (
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {result.warnings.map((w: string, i: number) => (
+                          <li key={i}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {w}
+                            </Text>
+                          </li>
+                        ))}
+                      </ul>
+                    ),
+                  },
+                ]}
+              />
+            ) : null}
+
             <ReportMarkdown text={result.answer} />
 
             {result.toolTrace?.length ? (
