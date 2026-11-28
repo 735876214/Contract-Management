@@ -29,6 +29,22 @@ import type {
   PaymentRecordRow,
   PaymentRecordUpdatePayload,
 } from './types/payment';
+import type {
+  ProcurementBiddersResponse,
+  ProcurementDocumentData,
+  ProcurementFrameworkExplanationData,
+  ProcurementNoticeData,
+  ProcurementPreMeetingMinutesData,
+  ProcurementPriceCompareData,
+  ProcurementPriceCompareItem,
+  ProcurementResultReportData,
+  ProcurementStageFormEnvelope,
+  ProcurementTaskDetail,
+  ProcurementTaskListParams,
+  ProcurementTaskListResponse,
+  ProcurementTaskRow,
+  ProcurementTotalList,
+} from './types/procurement';
 
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
@@ -53,15 +69,16 @@ export const procurementApi = {
  * 阶段链前置约束：前一任务未发布时后续任务禁用（编辑/发布均由后端校验）。
  */
 export const procurementTaskApi = {
-  list: (params?: any) => http.get<any, any>('/procurement-tasks', { params }),
-  detail: (id: string) => http.get<any, any>(`/procurement-tasks/${id}`),
+  list: (params?: ProcurementTaskListParams) =>
+    http.get<ProcurementTaskListResponse, ProcurementTaskListResponse>('/procurement-tasks', { params }),
+  detail: (id: string) => http.get<ProcurementTaskDetail, ProcurementTaskDetail>(`/procurement-tasks/${id}`),
   create: (data: {
     type: string;
     content: string;
     purpose?: string;
     preMeetingRequired?: boolean;
     procurementCategory?: string;
-  }) => http.post<any, any>('/procurement-tasks', data),
+  }) => http.post<ProcurementTaskRow, ProcurementTaskRow>('/procurement-tasks', data),
   update: (
     id: string,
     data: {
@@ -80,19 +97,23 @@ export const procurementTaskApi = {
       /** 乐观锁：列表/详情带回的 version（服务端 `assertVersion` 强制校验）——**必填**，缺失即 409 */
       version: number;
     },
-  ) => http.put<any, any>(`/procurement-tasks/${id}`, data),
+  ) => http.put<ProcurementTaskDetail, ProcurementTaskDetail>(`/procurement-tasks/${id}`, data),
   /** 发布当前阶段子任务，状态自动流转到下一阶段「编制中」 */
   publish: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/publish`),
   /** 合同阶段状态同步（生成合同/合同状态变化后调用） */
   syncContractStatus: (id: string) => http.post<any, any>(`/procurement-tasks/${id}/sync-contract-status`),
   /** 总采购清单（任务 2.2）：frozen=true 表示已发布冻结 */
-  totalList: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/total-list`),
+  totalList: (id: string) =>
+    http.get<ProcurementTotalList, ProcurementTotalList>(`/procurement-tasks/${id}/total-list`),
   /** 保存总采购清单（全量替换；服务端校验基础库/字典/控制价并同步计量单位到基础库） */
   saveTotalList: (id: string, items: unknown[]) =>
     http.put<any, any>(`/procurement-tasks/${id}/total-list`, { items }),
   /** 框架协议事前说明（任务 3.1）：仅 FRAMEWORK 类型任务可用 */
   frameworkExplanation: (id: string) =>
-    http.get<any, any>(`/procurement-tasks/${id}/framework-explanation`),
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementFrameworkExplanationData>,
+      ProcurementStageFormEnvelope<ProcurementFrameworkExplanationData>
+    >(`/procurement-tasks/${id}/framework-explanation`),
   saveFrameworkExplanation: (
     id: string,
     data: {
@@ -110,7 +131,10 @@ export const procurementTaskApi = {
     http.post<any, any>(`/procurement-tasks/${id}/framework-explanation/import-price-compare`),
   /** 采前会会议纪要（任务 3.2）：仅「单项采购」且预计采购金额 ≥ 100 万时生成 */
   preMeetingMinutes: (id: string) =>
-    http.get<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`),
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementPreMeetingMinutesData>,
+      ProcurementStageFormEnvelope<ProcurementPreMeetingMinutesData>
+    >(`/procurement-tasks/${id}/pre-meeting-minutes`),
   savePreMeetingMinutes: (
     id: string,
     data: {
@@ -129,7 +153,11 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/pre-meeting-minutes`, data),
   /** 采购公告（任务 3.3）：仅「单项采购」任务可用；采购清单来自总采购清单（只读） */
-  notice: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/notice`),
+  notice: (id: string) =>
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementNoticeData>,
+      ProcurementStageFormEnvelope<ProcurementNoticeData>
+    >(`/procurement-tasks/${id}/notice`),
   saveNotice: (
     id: string,
     data: {
@@ -144,9 +172,35 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/notice`, data),
   /** 采购文件（任务 3.4）：仅「单项采购」任务可用；入口条件为采购公告已完成，采购清单来自总采购清单 */
-  document: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/document`),
+  document: (id: string) =>
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementDocumentData>,
+      ProcurementStageFormEnvelope<ProcurementDocumentData>
+    >(`/procurement-tasks/${id}/document`),
   /** 关联合同模板（补充四：采购文件「导出合同模板 / 预览合同模板」数据来源） */
-  contractTemplate: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/contract-template`),
+  contractTemplate: (id: string) =>
+    http.get<
+      {
+        task: ProcurementTaskRow;
+        typeCode: string | null;
+        templateId: string | null;
+        templateName: string | null;
+        content: string;
+        techQuality: string;
+        acceptanceMethod: string;
+        paymentMethod: string;
+      },
+      {
+        task: ProcurementTaskRow;
+        typeCode: string | null;
+        templateId: string | null;
+        templateName: string | null;
+        content: string;
+        techQuality: string;
+        acceptanceMethod: string;
+        paymentMethod: string;
+      }
+    >(`/procurement-tasks/${id}/contract-template`),
   saveDocument: (
     id: string,
     data: {
@@ -156,7 +210,11 @@ export const procurementTaskApi = {
     },
   ) => http.put<any, any>(`/procurement-tasks/${id}/document`, data),
   /** 成交报告（任务 3.5）：仅「单项采购」任务可用；入口条件为采购文件已完成 */
-  resultReport: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/result-report`),
+  resultReport: (id: string) =>
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementResultReportData>,
+      ProcurementStageFormEnvelope<ProcurementResultReportData>
+    >(`/procurement-tasks/${id}/result-report`),
   saveResultReport: (
     id: string,
     data: {
@@ -184,7 +242,8 @@ export const procurementTaskApi = {
   resultReportTemplateUrl: (id: string) =>
     `${http.defaults.baseURL}/procurement-tasks/${id}/result-report/template`,
   /** 结构化投标单位 + 评标记录（招标域）：读取时服务端对存量 JSON 快照做幂等回填 */
-  bidders: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/bidders`),
+  bidders: (id: string) =>
+    http.get<ProcurementBiddersResponse, ProcurementBiddersResponse>(`/procurement-tasks/${id}/bidders`),
   /** 保存投标单位（状态 / 投标文件 / 最终确认价 / 备注；单位与两轮报价来自导入表，不在此改） */
   saveBidders: (id: string, bidders: unknown[]) =>
     http.put<any, any>(`/procurement-tasks/${id}/bidders`, { bidders }),
@@ -192,7 +251,19 @@ export const procurementTaskApi = {
   saveEvaluations: (id: string, evaluations: unknown[]) =>
     http.put<any, any>(`/procurement-tasks/${id}/evaluations`, { evaluations }),
   /** 采购价格对比表（任务 3.6）：仅「单项采购」任务可用；入口条件为成交报告已完成 */
-  priceCompare: (id: string) => http.get<any, any>(`/procurement-tasks/${id}/price-compare`),
+  priceCompare: (id: string) =>
+    http.get<
+      ProcurementStageFormEnvelope<ProcurementPriceCompareData> & {
+        content: string;
+        items: ProcurementPriceCompareItem[];
+        resultReportCompleted: boolean;
+      },
+      ProcurementStageFormEnvelope<ProcurementPriceCompareData> & {
+        content: string;
+        items: ProcurementPriceCompareItem[];
+        resultReportCompleted: boolean;
+      }
+    >(`/procurement-tasks/${id}/price-compare`),
   savePriceCompare: (
     id: string,
     data: {
