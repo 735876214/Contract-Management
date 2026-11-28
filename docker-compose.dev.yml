@@ -36,10 +36,17 @@
 #   （vite.config.ts 的 /api 反代默认已指向 http://localhost:3000，无需改配置）
 #
 # ⚠ 与生产 compose 的差异（有意为之，勿照搬）：
-#   1. 用完整版 node:20（非 slim）：自带 openssl，prisma generate 能正确识别引擎平台；
+#   1. 用完整版 **node:24**（非 slim）：自带 openssl，prisma generate 能正确识别引擎平台；
+#      版本必须与 CI（.github/workflows/build.yml 的 node-version: 24）一致——node 20 既不能原生
+#      加载 `.spec.mts`，ts-node 的 CJS 钩子 require `.mts` 又会 ERR_REQUIRE_ESM，
+#      结果是容器里 `npm test` 的**全部 .mts 用例在加载阶段就红**（2026-11-28 实测），
+#      于是「本地绿 = CI 绿」这条基本假设不成立；
 #   2. 不设 restart 策略：依赖安装 / 编译失败时容器停在 exited 便于看日志，而不是无限重启刷屏；
 #   3. JWT_SECRET / 数据库密码是写死的弱值，仅限本地，生产必须用 .env 注入随机值；
-#   4. node_modules 用命名卷隔离，避免宿主机（Windows）依赖与容器（Linux）二进制互相污染。
+#   4. node_modules 用命名卷隔离，避免宿主机（macOS/Windows）依赖与容器（Linux）二进制互相污染；
+#   5. **整仓挂到 /repo**（工作目录 /repo/server、/repo/web）：容器内必须保持仓库相对布局，
+#      否则 test/*.spec.mts 读兄弟目录（web/、mcp/、docs/、CLAUDE.md）全部 ENOENT，
+#      `npm test` 只能整片红——「本地绿 = CI 绿」就从这里断的。
 #
 # ⚠ 僵尸进程（2026-10 修复，**三个服务都必须保留 `init: true`，勿删**）：
 #   `init: true` 让 docker-init(tini) 当容器 PID1，专职「回收孤儿进程 + 转发信号」。
@@ -91,10 +98,11 @@ services:
       retries: 20
 
   server:
-    image: node:20              # 完整版（含 openssl）：prisma generate 需要
+    image: node:24              # 完整版（含 openssl）：prisma generate 需要；与 CI 的 node 24 对齐（.mts 测试必需）
     container_name: cms-server-dev
     init: true                  # tini 作 PID1：回收热重启/调试产生的孤儿进程，并把信号转发给 watcher
-    working_dir: /app
+    # 工作目录 = 仓库里的 server/：容器内保持**仓库相对布局**（见下面 volumes 的整仓挂载）
+    working_dir: /repo/server
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,17 +130,20 @@ services:
       # 依赖装不动 / 太慢时可换镜像源（去掉注释）
       # npm_config_registry: "https://registry.npmmirror.com"
     volumes:
+      # **整仓**挂到 /repo（不是只挂 ./server）：容器内必须保持仓库相对布局，
+      # 否则 `npm test` 里那批 .mts 用例按仓库相对路径读兄弟目录时全部 ENOENT——
+      #   test/aiAnalyticsOptionsParity.spec.mts → '/web/src/components/ai/analytics/constants.ts'
+      #   test/aiContext.spec.mts               → '/mcp/src/context.ts'
+      #   test/docStats.spec.mts                → '/docs/development.md'、'/CLAUDE.md'
+      # （2026-11-28 实测：只挂 ./server 时容器里 npm test 整片红，宿主机同分支全绿。）
+      # 整仓挂载后 `../packages/calc`（server/package.json 的 `file:../packages/calc`）自然解析到
+      # /repo/packages/calc，不再需要单独把 calc 挂到 /packages/calc。
       # 源码挂载 → 容器内 tsc --watch 感知宿主机改动，实现后端热重载
       # （个别文件系统不转发变更事件导致热重载失灵时，在 server/tsconfig.json 加
       #   "watchOptions": { "watchFile": "priorityPollingInterval" } 即可退化为轮询）
-      - ./server:/app
-      # 共享计算引擎 `@cms/calc`：server/package.json 里是 `file:../packages/calc`。
-      # 容器里 /app = ./server，所以 `../packages/calc` 解析成 **/packages/calc**——npm ci 建的
-      # node_modules/@cms/calc 软链正是指向它（`../../..` = 仓库根）。**挂载目标必须就是这个路径**，
-      # 挂到 /app/packages/calc 的话软链会断（src 里全部 `@cms/calc/*` import 报 TS2307）。
-      - ./packages/calc:/packages/calc
-      # 依赖目录用命名卷隔离：宿主机 Windows 的 node_modules 无法在 Linux 容器内使用
-      - server-node-modules:/app/node_modules
+      - .:/repo
+      # 依赖目录用命名卷隔离：宿主机（macOS/Windows）的 node_modules 无法在 Linux 容器内使用
+      - server-node-modules:/repo/server/node_modules
       # 上传文件落到宿主机，便于直接查看导出物
       - ./data-dev:/data
     command:
@@ -148,8 +159,8 @@ services:
         ./node_modules/.bin/prisma generate
         ./node_modules/.bin/prisma migrate deploy
         # 共享计算引擎的编译产物（packages/calc/*.js）：产物比源码旧就重编，新则秒过。
-        # 容器内布局与仓库一致：working_dir=/app（= ./server），calc 挂在 /packages/calc，
-        # 所以相对路径 ../packages/calc 成立（与宿主机写法相同）。
+        # 容器内布局与仓库一致：working_dir=/repo/server，整仓挂在 /repo，
+        # 所以相对路径 ../packages/calc = /repo/packages/calc（与宿主机写法相同）。
         node ../packages/calc/build.mjs
         # 改了 prisma/schema.prisma 后，用 `npx prisma migrate dev --name xxx` 生成迁移文件。
         # 不要用 db push：那会让本机库脱离迁移历史，缺失的迁移只会在别人/生产上暴露。
@@ -159,10 +170,10 @@ services:
         exec ./node_modules/.bin/nest start --watch
 
   web:
-    image: node:20
+    image: node:24              # 与 server 一致：node 20 跑不了 .mts 类型的单测/工具脚本
     container_name: cms-web-dev
     init: true                  # 同上：vite 重启 esbuild 服务等短命子进程由 tini 回收
-    working_dir: /app
+    working_dir: /repo/web
     depends_on:
       - server
     ports:
@@ -177,18 +188,17 @@ services:
       CHOKIDAR_INTERVAL: "800"
       # npm_config_registry: "https://registry.npmmirror.com"
     volumes:
-      - ./web:/app
-      - web-node-modules:/app/node_modules
-      # 共享计算引擎 `@cms/calc`（web/package.json 的 `file:../packages/calc`）：
-      # 同 server——容器内 `../packages/calc` 就是 **/packages/calc**（软链指向），不挂就 500。
-      - ./packages/calc:/packages/calc
+      # 与 server 同一套布局：整仓挂 /repo（web/package.json 的 `file:../packages/calc` 因此解析到
+      # /repo/packages/calc，node_modules/@cms/calc 软链不断，否则 src 里 `@cms/calc/*` 全 500）
+      - .:/repo
+      - web-node-modules:/repo/web/node_modules
     command:
       - sh
       - -c
       - |
         set -e
         [ -x node_modules/.bin/vite ] || npm ci --legacy-peer-deps --no-audit --no-fund
-        # 同 server：容器内布局与仓库一致，../packages/calc = /packages/calc
+        # 同 server：容器内布局与仓库一致，../packages/calc = /repo/packages/calc
         node ../packages/calc/build.mjs
         exec ./node_modules/.bin/vite --host 0.0.0.0 --port 5173
 
