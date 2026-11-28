@@ -9,6 +9,7 @@ import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from './common/services/storage.service';
 import { requestContext } from './common/services/request-context';
+import { buildCorsOptions, parseCorsOrigins, describeCorsPolicy } from './common/cors';
 import { randomUUID } from 'node:crypto';
 import { runStartupSeed } from './seed';
 
@@ -35,7 +36,11 @@ async function bootstrap() {
   // 否则连接只能等 PostgreSQL 侧超时回收（2026-11-21 P0-3）。
   app.enableShutdownHooks();
 
-  app.enableCors({ origin: true, credentials: true });
+  // CORS：默认**同源部署**（单容器 nginx 反代 /api、vite 代理），不向浏览器回 CORS 头；
+  // 跨源托管前端时用 CORS_ORIGINS 白名单显式列出（口径见 common/cors.ts）。
+  // 原来写的是 origin: true + credentials: true —— 任意来源都回显，只靠 SameSite=Lax 兜底。
+  const corsAllowed = parseCorsOrigins(process.env.CORS_ORIGINS);
+  app.enableCors(buildCorsOptions({ CORS_ORIGINS: process.env.CORS_ORIGINS }));
   app.setGlobalPrefix('api');
   // 授权委托书等需要返回「打印就绪 HTML」的接口，跳过统一 JSON 包装，
   // 否则前端拿到的会是 {code,data,message} 而非可直接 write 的文档
@@ -57,6 +62,10 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
   await app.listen(port);
   new Logger('Bootstrap').log(`CMS server running on http://localhost:${port}/api`);
+  // 启动即声明 CORS 口径：配成 * 是本地调试才该有的样子，生产上必须能一眼看出来
+  const corsPolicy = describeCorsPolicy(corsAllowed);
+  if (corsAllowed.includes('*')) new Logger('Bootstrap').warn(corsPolicy);
+  else new Logger('Bootstrap').log(corsPolicy);
 
   // 启动播种（空库首启初始化 + 每次启动的历史数据修正）统一入口。
   // ⚠️ 必须走这一条：它用事务级咨询锁把整段播种**串行化**，避免多进程同时启动时

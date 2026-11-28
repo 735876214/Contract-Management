@@ -86,6 +86,7 @@ curl -s localhost:3000/api/health                   # 看 redis / redisBackend �
 | `REDIS_URL` | 未设 | **可选**连接串（dev compose 已给 `redis://redis:6379/0`）；未设 → 进程内后端 |
 | `REDIS_KEY_PREFIX` | `cms:` | 与其它系统共用同一 Redis 实例时用来隔离键空间 |
 | `PARAM_SECRET_KEY` | 未设 | 系统参数里**密钥类值**的静态加密密钥（`openssl rand -base64 32`）。不设则明文落库并在启动时 WARN |
+| `CORS_ORIGINS` | 未设 | **可选**跨源白名单（逗号分隔、写完整 `scheme://host[:port]`）。不设 = 同源部署、**不回任何 CORS 头**；`*` = 回显任意来源（仅本地调试，启动 WARN）。见 `server/src/common/cors.ts` |
 
 **AI 助手（可选）**：`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 三项齐全才启用（OpenAI Chat
 Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记」页面填这三项**——存进 `SysParam`、
@@ -118,7 +119,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（123 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（124 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（42 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -285,6 +286,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/pluginCatalog.spec.mts` | **构建期插件（B 档）装配漂移锁**：生成物新鲜度（改 `plugin.json` 未跑 `scripts/gen-plugins.mjs` 即红）· 权限码必须 `<插件名>:` 前缀且已并入单一事实源 `PERMISSIONS`（标签也要一致）· 每条插件菜单必须有路由守卫且守卫不得比菜单更严 · 插件菜单真的落在权威 `MENU_TREE` 里（挂载点/路径/权限码一致）· 插件权限码不得绕过清单写死进核心目录 · `CMS_PLUGINS_DISABLED` 能关插件且关掉后菜单进隐藏集合 · 菜单 key 全局唯一 |
   | `test/pluginMcp.spec.mts` | **插件 → MCP 工具的同源锁**（2026-11-24）：MCP 工具不再手写第二份——插件的 `plugin.json` 声明 `mcpTools`（工具名/描述/GET 路由/权限码/查询参数），`scripts/gen-plugins.mjs` 校验后生成 `mcp/src/generated/plugin-tools.generated.ts`，MCP 服务据此注册。断言：生成物新鲜 · 清单与生成物逐条对应（数量、路径按 `apiPrefix` 拼接、权限码原样）· **method 只允许 GET**（写操作按 P3-C 暂缓）· path 必须是控制器里真实存在的 `@Get`（否则 AI 被导到 404）· 工具级权限非空且 ⊆ 插件声明 · 工具名带 `<插件名>_` 前缀且全局唯一、不与核心工具撞名 · 生成物真被 `mcp/src/server.ts` 注册且走 `tool()` 审计包装（绕过就无法与人工操作区分） |
   | `test/secretBox.spec.mts` | **系统参数密钥静态加密**（2026-11-24，aes-256-gcm）：加解密往返（中文/4096 字符/符号原样还原）· 密文带 `enc:v1:` 自描述前缀且不含明文 · 同一明文两次加密不同（随机 IV）· **已是密文不二次加密** · 空串原样（空 = 清除该项）· **非前缀值按明文放行**（老数据不用迁移脚本，重存即升级）· 未配 `PARAM_SECRET_KEY` 时 `seal` 原样返回明文（否则老部署一保存就 500）· 没密钥却读到密文、换了密钥、密文被篡改、格式残缺 → 一律 `SecretBoxError` 且文案点明怎么自救 |
+  | `test/cors.spec.mts` | **CORS 白名单口径锁**（2026-11-28 收敛）：`parseCorsOrigins` 空值→空表、去空白/去重/忽略尾部斜杠 · `normalizeOrigin` 只留 `scheme://host[:port]`（丢掉 path/query、默认端口归一、大小写归一）· **无 `Origin` 的请求不算 CORS**（回 false，不让响应里出现空的 `Access-Control-Allow-Origin`）· 不配白名单 = 谁都不放行（同源部署）· 精确匹配**不做**子串/前缀：`https://a.com.evil.io` / `?x=https://a.com` / 换协议 / 换端口 / 子域 一律拒 · `CORS_ORIGINS=*` 回显任意来源且日志提醒「仅本地调试」· `buildCorsOptions` 的 origin 回调 + `credentials` + 预检缓存 · 三种口径的启动文案 |
   | `test/requestId.spec.mts` | **请求链路 id**（2026-11-24）：上下文能带出 requestId 且与 projectId 互不影响 · 请求之外不伪造 id · 错误信封「有值才有这个键」（无值不多出 undefined 噪音键）· 与 `main.ts` 的耦合点：**响应头在 `next()` 之前写**（异常分支也要带上）、沿用上游 `x-request-id`、projectId 与 requestId 塞同一个 ALS |
   | `test/chatRunEvents.spec.mts` | **AI 问数后台 run 的事件流原语**（2026-11-24，断线续传）：序列化/解析往返（中文/嵌套/null）· 坏数据（空串、非 JSON、缺 event、数组、null）一律返回 null **不抛** · SSE 帧形状（event 行 + **单行** data + 空行收尾）· 续传起点：缺省/脏数据/负数一律当 0，小数取整（5.9→5，不多补一条）· 终态只有 done/failed/stopped 且大小写敏感 · **终态且已看到全部事件才算收流**（否则「done 了但少最后一段」）· 时间常量关系（事件 TTL ≥ 30min、僵尸判定远大于轮询间隔） |
   | `test/smallModules.spec.mts` | **三个零覆盖小模块的纯函数层**（`notification` / `other-project` / `payment-procedure`）：付款手续 `deriveProcedureAmounts` 三值各自 2 位舍入后相减、**未付款允许为负**、空值按 0、相等时为 `0` 不是 `-0` · `procedureCodeCandidates` 首个无后缀其后 `-2`/`-3`、合同号缺失回落 `HT` · 其他项目库导入状态**大小写/全角空格**都判对停用（原实现大小写敏感）· 通知列表 where 永远带当前用户、`isRead` 兼容 `true/1/read`、`projectId` 有值才过滤 |
