@@ -78,6 +78,15 @@ export {
 export { TASK_STATUS_LABELS };
 
 
+/** 各阶段在任务阶段链上的下标（-1 = 该采购类型没有这个阶段），见 `stageIndexes()` */
+interface StageIndexes {
+  frameworkExplainIdx: number;
+  noticeIndex: number;
+  documentIndex: number;
+  reportIndex: number;
+  priceIndex: number;
+}
+
 @Injectable()
 export class ProcurementTaskService {
   constructor(
@@ -513,90 +522,10 @@ export class ProcurementTaskService {
     if (current.stage >= chain.length) {
       throw new BadRequestException('各阶段均已发布，任务处于合同阶段');
     }
-    // 任务 2.2：发布总采购清单前必须已编制至少一条明细
-    if (current.stage === 0) {
-      const count = await this.prisma.procurementTotalItem.count({ where: { taskId: current.id } });
-      if (count === 0) throw new BadRequestException('请先编制总采购清单（至少一条明细）后再发布');
-    }
-    // 任务 3.1：发布「框架协议事前说明」前必须已保存内容（框架简介为必填主内容）
-    // 注意：引用框架协议链已插入「价格对比表」（stage 1），框架说明相应后移到 stage 2
-    const frameworkExplainIdx =
-      current.type === 'FRAMEWORK'
-        ? stageChain('FRAMEWORK', false).findIndex((s) => s.key === 'FRAMEWORK_EXPLAIN')
-        : -1;
-    if (current.stage === frameworkExplainIdx && frameworkExplainIdx >= 0) {
-      const expl = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: current.id } });
-      if (!expl || !String(expl.frameworkIntro ?? '').trim()) {
-        throw new BadRequestException('请先编辑并保存框架协议事前说明（至少填写框架简介）后再发布');
-      }
-      // 需求：框架协议事前说明未勾选单位则无法发起（后端兜底，与前端 openPublishPreview 校验一致）
-      const refSuppliers = parseJsonArray<{ supplier?: string }>(expl.referenceSuppliers).filter((r) =>
-        String(r?.supplier ?? '').trim(),
-      );
-      if (!refSuppliers.length) {
-        throw new BadRequestException('请先在「引用供应商及金额」中勾选至少一家单位后再发布框架协议事前说明');
-      }
-    }
-    // 任务 3.2：发布「采前会会议纪要」前必须已保存内容（会议时间与采购内容为必填）
-    if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
-      const minutes = await this.prisma.preMeetingMinutes.findUnique({ where: { taskId: current.id } });
-      if (!minutes?.meetingTime || !String(minutes.content ?? '').trim()) {
-        throw new BadRequestException('请先编辑并保存采前会会议纪要（至少填写会议时间与采购内容）后再发布');
-      }
-    }
-    // 任务 3.3：发布「采购公告」前必须已保存内容（采购编号、采购时间与采购内容为必填）
-    const noticeIndex = current.type === 'SINGLE' ? noticeStageIndex(current) : -1;
-    if (noticeIndex >= 0 && current.stage === noticeIndex) {
-      const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId: current.id } });
-      if (
-        !String(notice?.procurementNo ?? '').trim() ||
-        !notice?.procurementTime ||
-        !String(notice?.content ?? '').trim()
-      ) {
-        throw new BadRequestException(
-          '请先编辑并保存采购公告（至少填写采购编号、采购时间与采购内容）后再发布',
-        );
-      }
-    }
-    // 任务 3.4：发布「采购文件」前必须已保存内容（采购时间与响应保证金为必填）
-    const documentIndex = current.type === 'SINGLE' ? documentStageIndex(current) : -1;
-    if (documentIndex >= 0 && current.stage === documentIndex) {
-      const doc = await this.prisma.procurementDocument.findUnique({ where: { taskId: current.id } });
-      if (!doc?.procurementTime || doc?.responseDeposit == null) {
-        throw new BadRequestException(
-          '请先编辑并保存采购文件（至少填写采购时间与响应保证金）后再发布',
-        );
-      }
-    }
-    // 任务 3.5：发布「成交报告」前必须已保存内容（采购开启时间必填，且已导入响应单位明细）
-    const reportIndex = current.type === 'SINGLE' ? resultReportStageIndex(current) : -1;
-    if (reportIndex >= 0 && current.stage === reportIndex) {
-      const report = await this.prisma.procurementResultReport.findUnique({
-        where: { taskId: current.id },
-      });
-      if (!report?.openTime) {
-        throw new BadRequestException('请先编辑并保存成交报告（至少填写采购开启时间）后再发布');
-      }
-      const supplierCount = parseJsonArray(report.suppliers).length;
-      if (supplierCount === 0) {
-        throw new BadRequestException(
-          '请先导入「响应单位情况汇总表」（至少一条响应单位）后再发布',
-        );
-      }
-    }
-    // 任务 3.6：发布「采购价格对比表」前必须已保存内容（计价方式与采购效益分析说明为必填）
-    // 单项采购与引用框架协议均有此阶段，统一按阶段链取下标
-    const priceIndex = priceCompareStageIndex(current);
-    if (priceIndex >= 0 && current.stage === priceIndex) {
-      const pc = await this.prisma.procurementPriceCompare.findUnique({
-        where: { taskId: current.id },
-      });
-      if (!String(pc?.pricingMethod ?? '').trim() || !String(pc?.benefitAnalysis ?? '').trim()) {
-        throw new BadRequestException(
-          '请先编辑并保存采购价格对比表（至少填写计价方式与采购效益分析说明）后再发布',
-        );
-      }
-    }
+
+    // 各阶段下标只算一次：前置校验（assertPublishable）与发布时间回填（stampStagePublishedAt）共用同一组数
+    const stages = this.stageIndexes(current);
+    await this.assertPublishable(current, preMeetingRequired, stages);
 
     const nextStage = current.stage + 1;
     // 合同阶段的状态细分依赖关联合同状态；此查询同时充当「是否已生成合同」的幂等判据
@@ -620,6 +549,128 @@ export class ProcurementTaskService {
           version: { increment: 1 },
         },
       });
+      await this.stampStagePublishedAt(tx, id, current, stages, preMeetingRequired);
+      return next;
+    });
+
+    await this.afterPublish(current, id, user, nextStage, chain.length, linked, stages);
+
+    return { ...serializeTask(updated), stages: this.buildStages(updated) };
+  }
+
+  /**
+   * 各阶段在**当前任务阶段链**上的下标（-1 = 该类型没有这个阶段）。
+   * 校验与回填必须同源：框架链里「事前说明」是 stage 2（价格对比表被插到了 stage 1），
+   * 各自 hard-code 下标就会出现「发布价格对比表把事前说明标成已发布」这类错位。
+   */
+  private stageIndexes(current: any): StageIndexes {
+    // 任务 3.1：发布「框架协议事前说明」前必须已保存内容（框架简介为必填主内容）
+    // 注意：引用框架协议链已插入「价格对比表」（stage 1），框架说明相应后移到 stage 2
+    const frameworkExplainIdx =
+      current.type === 'FRAMEWORK'
+        ? stageChain('FRAMEWORK', false).findIndex((s) => s.key === 'FRAMEWORK_EXPLAIN')
+        : -1;
+    const noticeIndex = current.type === 'SINGLE' ? noticeStageIndex(current) : -1;
+    const documentIndex = current.type === 'SINGLE' ? documentStageIndex(current) : -1;
+    const reportIndex = current.type === 'SINGLE' ? resultReportStageIndex(current) : -1;
+    // 任务 3.6：发布「采购价格对比表」前必须已保存内容（计价方式与采购效益分析说明为必填）
+    // 单项采购与引用框架协议均有此阶段，统一按阶段链取下标
+    const priceIndex = priceCompareStageIndex(current);
+    return { frameworkExplainIdx, noticeIndex, documentIndex, reportIndex, priceIndex };
+  }
+
+  /**
+   * 发布前置校验（2026-11-28 从 publish 里拆出，纯搬运、无口径改动）。
+   * 逐阶段检查「必填内容是否已保存」，缺什么就 400 说清缺什么；报错文案是前端提示的唯一来源。
+   */
+  private async assertPublishable(current: any, preMeetingRequired: boolean, stages: StageIndexes): Promise<void> {
+    const { frameworkExplainIdx, noticeIndex, documentIndex, reportIndex, priceIndex } = stages;
+    // 任务 2.2：发布总采购清单前必须已编制至少一条明细
+    if (current.stage === 0) {
+      const count = await this.prisma.procurementTotalItem.count({ where: { taskId: current.id } });
+      if (count === 0) throw new BadRequestException('请先编制总采购清单（至少一条明细）后再发布');
+    }
+    if (current.stage === frameworkExplainIdx && frameworkExplainIdx >= 0) {
+      const expl = await this.prisma.frameworkExplanation.findUnique({ where: { taskId: current.id } });
+      if (!expl || !String(expl.frameworkIntro ?? '').trim()) {
+        throw new BadRequestException('请先编辑并保存框架协议事前说明（至少填写框架简介）后再发布');
+      }
+      // 需求：框架协议事前说明未勾选单位则无法发起（后端兜底，与前端 openPublishPreview 校验一致）
+      const refSuppliers = parseJsonArray<{ supplier?: string }>(expl.referenceSuppliers).filter((r) =>
+        String(r?.supplier ?? '').trim(),
+      );
+      if (!refSuppliers.length) {
+        throw new BadRequestException('请先在「引用供应商及金额」中勾选至少一家单位后再发布框架协议事前说明');
+      }
+    }
+    // 任务 3.2：发布「采前会会议纪要」前必须已保存内容（会议时间与采购内容为必填）
+    if (current.stage === 1 && current.type === 'SINGLE' && preMeetingRequired) {
+      const minutes = await this.prisma.preMeetingMinutes.findUnique({ where: { taskId: current.id } });
+      if (!minutes?.meetingTime || !String(minutes.content ?? '').trim()) {
+        throw new BadRequestException('请先编辑并保存采前会会议纪要（至少填写会议时间与采购内容）后再发布');
+      }
+    }
+    // 任务 3.3：发布「采购公告」前必须已保存内容（采购编号、采购时间与采购内容为必填）
+    if (noticeIndex >= 0 && current.stage === noticeIndex) {
+      const notice = await this.prisma.procurementNotice.findUnique({ where: { taskId: current.id } });
+      if (
+        !String(notice?.procurementNo ?? '').trim() ||
+        !notice?.procurementTime ||
+        !String(notice?.content ?? '').trim()
+      ) {
+        throw new BadRequestException(
+          '请先编辑并保存采购公告（至少填写采购编号、采购时间与采购内容）后再发布',
+        );
+      }
+    }
+    // 任务 3.4：发布「采购文件」前必须已保存内容（采购时间与响应保证金为必填）
+    if (documentIndex >= 0 && current.stage === documentIndex) {
+      const doc = await this.prisma.procurementDocument.findUnique({ where: { taskId: current.id } });
+      if (!doc?.procurementTime || doc?.responseDeposit == null) {
+        throw new BadRequestException(
+          '请先编辑并保存采购文件（至少填写采购时间与响应保证金）后再发布',
+        );
+      }
+    }
+    // 任务 3.5：发布「成交报告」前必须已保存内容（采购开启时间必填，且已导入响应单位明细）
+    if (reportIndex >= 0 && current.stage === reportIndex) {
+      const report = await this.prisma.procurementResultReport.findUnique({
+        where: { taskId: current.id },
+      });
+      if (!report?.openTime) {
+        throw new BadRequestException('请先编辑并保存成交报告（至少填写采购开启时间）后再发布');
+      }
+      const supplierCount = parseJsonArray(report.suppliers).length;
+      if (supplierCount === 0) {
+        throw new BadRequestException(
+          '请先导入「响应单位情况汇总表」（至少一条响应单位）后再发布',
+        );
+      }
+    }
+    if (priceIndex >= 0 && current.stage === priceIndex) {
+      const pc = await this.prisma.procurementPriceCompare.findUnique({
+        where: { taskId: current.id },
+      });
+      if (!String(pc?.pricingMethod ?? '').trim() || !String(pc?.benefitAnalysis ?? '').trim()) {
+        throw new BadRequestException(
+          '请先编辑并保存采购价格对比表（至少填写计价方式与采购效益分析说明）后再发布',
+        );
+      }
+    }
+  }
+
+  /**
+   * 事务内回填「本阶段发布时间」：状态由 stage 推导（已发布即「已完成」），
+   * 与阶段推进放在同一事务里，避免「阶段已推进、模块仍显示编辑中」的半截状态。
+   */
+  private async stampStagePublishedAt(
+    tx: any,
+    id: string,
+    current: any,
+    stages: StageIndexes,
+    preMeetingRequired: boolean,
+  ): Promise<void> {
+    const { frameworkExplainIdx, noticeIndex, documentIndex, reportIndex, priceIndex } = stages;
       // 事前说明阶段发布 → 回填发布时间（状态由 stage 推导：已发布即「已完成」）
       // ⚠️ 阶段下标必须用上面按阶段链算出的 frameworkExplainIdx（框架链里事前说明是 stage 2），
       // 不能硬写 1——1 是「价格对比表」，会导致刚发布价格对比表就把事前说明标成已发布、
@@ -665,13 +716,26 @@ export class ProcurementTaskService {
           data: { publishedAt: new Date() },
         });
       }
-      return next;
-    });
+  }
 
+  /**
+   * 发布之后的**可失败附属动作**：自动生成关联合同、框架协议回填价格对比表。
+   * 都在事务外——失败只记日志，不阻断发布流转（与改造前口径一致）。
+   */
+  private async afterPublish(
+    current: any,
+    id: string,
+    user: any,
+    nextStage: number,
+    chainLength: number,
+    linked: any,
+    stages: StageIndexes,
+  ): Promise<void> {
+    const { priceIndex } = stages;
     // 补充一：全部阶段发布完毕（单项采购=采购价格对比表 / 引用框架协议=框架协议事前说明）后，
     // 自动在「合同起草」生成关联合同（草稿）并关联本任务。
     // 幂等判据：本任务是否已有关联合同——关联只由 Contract.taskId 一条表达，故直接查合同表。
-    if (nextStage >= chain.length && !linked) {
+    if (nextStage >= chainLength && !linked) {
       try {
         await this.generateLinkedContract(current, current.projectId, user);
       } catch (err) {
@@ -693,8 +757,6 @@ export class ProcurementTaskService {
         }
       }
     }
-
-    return { ...serializeTask(updated), stages: this.buildStages(updated) };
   }
 
   /**
