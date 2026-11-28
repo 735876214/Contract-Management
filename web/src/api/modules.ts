@@ -30,6 +30,109 @@ import type {
   PaymentRecordUpdatePayload,
 } from './types/payment';
 import type {
+  FinanceContractParams,
+  FinanceFactoringResponse,
+  FinanceFactoringRow,
+  FinanceLedgerListParams,
+  FinanceOverduePayableCreated,
+  FinanceOverduePayment,
+  FinanceOverduePaymentsResponse,
+  FinanceOverduePreviewResponse,
+  FinanceOverdueResponse,
+  FinancePaymentMode,
+} from './types/finance';
+import type {
+  DailyContractSettledQty,
+  DailyMaterialType,
+  DailyReportListParams,
+  DailyReportListResponse,
+  DailyReportRow,
+  DailyUnconfirmedSummary,
+} from './types/daily';
+import type {
+  RepaymentAgreementRow,
+  RepaymentCheckCode,
+  RepaymentListParams,
+  RepaymentListResponse,
+  RepaymentSuggestCode,
+} from './types/repayment';
+import type {
+  SubcontractorListParams,
+  SubcontractorListResponse,
+  SubcontractorOption,
+  SubcontractorRow,
+} from './types/subcontractor';
+import type {
+  FinalSettlementListParams,
+  FinalSettlementListResponse,
+  FinalSettlementRow,
+} from './types/final-settlement';
+import type {
+  NotificationListParams,
+  NotificationListResponse,
+  NotificationRow,
+  NotificationUnreadCount,
+} from './types/notification';
+import type {
+  DashboardContractTypePoint,
+  DashboardInvoiceStats,
+  DashboardOverview,
+  DashboardReminders,
+  DashboardTodos,
+  DashboardTrendPoint,
+} from './types/dashboard';
+import type { DocTemplateListParams, DocTemplateRow } from './types/doc-template';
+import type {
+  LaborAuthLedgerListParams,
+  LaborAuthLedgerListResponse,
+  LaborAuthLedgerRow,
+} from './types/labor';
+import type {
+  CostLaborReceivingDocDetail,
+  CostLaborReceivingDocListParams,
+  CostLaborReceivingDocListResponse,
+  CostLaborReceivingOptions,
+  CostMonthlyProfitLossDetailResponse,
+  CostMonthlyProfitLossListParams,
+  CostMonthlyProfitLossListResponse,
+} from './types/cost';
+import type { AssetFlowSummary, AssetLedgerRow, AssetListParams, AssetListResponse } from './types/asset';
+import type {
+  ContractMaterialAllParams,
+  ContractMaterialAllResponse,
+  ContractMaterialListResponse,
+  ContractMaterialRow,
+  MaterialBaseRow,
+  MaterialListParams,
+  MaterialListResponse,
+} from './types/material';
+import type {
+  InvoiceBatchCreateResult,
+  InvoiceCheckNo,
+  InvoiceListParams,
+  InvoiceListResponse,
+  InvoiceRecognizeItem,
+  InvoiceRow,
+} from './types/invoice';
+import type {
+  ReceiptContractMaterialsResponse,
+  ReceiptContractOption,
+  ReceiptOrderListParams,
+  ReceiptOrderListResponse,
+  ReceiptOrderNextNo,
+  ReceiptOrderRow,
+  ReceiptPartyOptionsResponse,
+  ReceiptReceivingUnitOptionsResponse,
+  ReceiptSubcontractorMaterialsResponse,
+} from './types/receipt-order';
+import type {
+  ProcurementTemplateListParams,
+  ProcurementTemplateListResponse,
+  ProcurementTemplateRow,
+  ProcurementTemplateVersionRow,
+} from './types/procurement-template';
+import type { ArchiveEntry } from './types/archive';
+import type {
   ProcurementBiddersResponse,
   ProcurementDocumentData,
   ProcurementFrameworkExplanationData,
@@ -49,19 +152,22 @@ import type {
 /** 采购模板（全项目通用；能力对齐合同模板：版本历史/回滚/标签/状态） */
 export const procurementApi = {
   /** 列表：支持 keyword / moduleType / status / page / pageSize（返回 { list, total, page, pageSize }） */
-  list: (params?: any) => http.get<any, any>('/procurement-templates', { params }),
-  detail: (id: string) => http.get<any, any>(`/procurement-templates/${id}`),
+  list: (params?: ProcurementTemplateListParams) =>
+    http.get<ProcurementTemplateListResponse, ProcurementTemplateListResponse>('/procurement-templates', { params }),
+  detail: (id: string) =>
+    http.get<ProcurementTemplateRow, ProcurementTemplateRow>(`/procurement-templates/${id}`),
   // 同业务类型已有模板时后端执行覆盖（upsert），前端负责覆盖前确认
   create: (data: { moduleType: string; templateName: string; content: string; variables?: string[]; tags?: string | null; status?: number }) =>
-    http.post<any, any>('/procurement-templates', data),
+    http.post<ProcurementTemplateRow, ProcurementTemplateRow>('/procurement-templates', data),
   update: (id: string, data: { moduleType?: string; templateName?: string; content?: string; variables?: string[]; tags?: string | null; status?: number; version?: number }) =>
-    http.put<any, any>(`/procurement-templates/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/procurement-templates/${id}`),
+    http.put<ProcurementTemplateRow, ProcurementTemplateRow>(`/procurement-templates/${id}`, data),
+  remove: (id: string) => http.delete<{ id: string }, { id: string }>(`/procurement-templates/${id}`),
   /** 版本历史（新→旧） */
-  versions: (id: string) => http.get<any, any>(`/procurement-templates/${id}/versions`),
+  versions: (id: string) =>
+    http.get<ProcurementTemplateVersionRow[], ProcurementTemplateVersionRow[]>(`/procurement-templates/${id}/versions`),
   /** 回滚：基于旧版本内容创建新版本 */
   rollback: (id: string, data: { versionId: string }) =>
-    http.post<any, any>(`/procurement-templates/${id}/rollback`, data),
+    http.post<ProcurementTemplateRow, ProcurementTemplateRow>(`/procurement-templates/${id}/rollback`, data),
 };
 
 /**
@@ -285,21 +391,28 @@ export const procurementTaskApi = {
 };
 
 export const dailyApi = {
-  list: (params?: any) => http.get<any, any>('/daily-reports', { params }),
-  detail: (id: string) => http.get<any, any>(`/daily-reports/${id}`),
-  create: (data: any) => http.post<any, any>('/daily-reports', data),
-  update: (id: string, data: any) => http.put<any, any>(`/daily-reports/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/daily-reports/${id}`),
-  materialTypes: (category: string) => http.get<any, any>('/daily-reports/material-types', { params: { category } }),
+  list: (params?: DailyReportListParams) =>
+    http.get<DailyReportListResponse, DailyReportListResponse>('/daily-reports', { params }),
+  detail: (id: string) => http.get<DailyReportRow, DailyReportRow>(`/daily-reports/${id}`),
+  create: (data: Record<string, unknown>) => http.post<DailyReportRow, DailyReportRow>('/daily-reports', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<DailyReportRow, DailyReportRow>(`/daily-reports/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/daily-reports/${id}`),
+  materialTypes: (category: string) =>
+    http.get<DailyMaterialType[], DailyMaterialType[]>('/daily-reports/material-types', { params: { category } }),
   // 按合同聚合日报「结算数量」合计（补充协议：原合同剩余数量 = 原合同数量 − 日报已发生数量）
   contractSettledQty: (contractId: string) =>
-    http.get<any, any>('/daily-reports/contract-settled-qty', { params: { contractId } }),
+    http.get<DailyContractSettledQty[], DailyContractSettledQty[]>('/daily-reports/contract-settled-qty', {
+      params: { contractId },
+    }),
   // 现场确认（口径见 .claude/rules/backend-conventions.md「日报/现场确认」）：单条传 id，批量传 ids；action = CONFIRM | REJECT
   confirm: (payload: { id?: string; ids?: string[]; action: 'CONFIRM' | 'REJECT'; remark?: string }) =>
     http.post<any, any>('/daily-reports/confirm', payload),
   // 某合同下未确认/已驳回的现场记录汇总（结算页提示用）
   unconfirmedSummary: (contractId: string) =>
-    http.get<any, any>('/daily-reports/unconfirmed-summary', { params: { contractId } }),
+    http.get<DailyUnconfirmedSummary, DailyUnconfirmedSummary>('/daily-reports/unconfirmed-summary', {
+      params: { contractId },
+    }),
   exportUrl: () => `${http.defaults.baseURL}/daily-reports/export`,
   // 日报导入（第 22 轮审计 P2-10）：后端 POST /daily-reports/import 与 /import/validate 都在，
   // 但日报**没有填写模板**、页面也没挂导入按钮，原来这里留的 importUrl/validateUrl 无人使用（孤儿接口）。
@@ -307,12 +420,15 @@ export const dailyApi = {
 };
 
 export const materialApi = {
-  list: (params?: any) => http.get<any, any>('/materials', { params }),
-  options: (keyword?: string) => http.get<any, any>('/materials/options', { params: { keyword } }),
-  create: (data: any) => http.post<any, any>('/materials', data),
-  update: (id: string, data: any) => http.put<any, any>(`/materials/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/materials/${id}`),
-  toggle: (id: string) => http.post<any, any>(`/materials/${id}/toggle`),
+  list: (params?: MaterialListParams) =>
+    http.get<MaterialListResponse, MaterialListResponse>('/materials', { params }),
+  options: (keyword?: string) =>
+    http.get<MaterialBaseRow[], MaterialBaseRow[]>('/materials/options', { params: { keyword } }),
+  create: (data: Record<string, unknown>) => http.post<MaterialBaseRow, MaterialBaseRow>('/materials', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<MaterialBaseRow, MaterialBaseRow>(`/materials/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/materials/${id}`),
+  toggle: (id: string) => http.post<MaterialBaseRow, MaterialBaseRow>(`/materials/${id}/toggle`),
   exportUrl: () => `${http.defaults.baseURL}/materials/export`,
   templateUrl: () => `${http.defaults.baseURL}/materials/template`,
   importUrl: () => `${http.defaults.baseURL}/materials/import`,
@@ -320,15 +436,23 @@ export const materialApi = {
 };
 
 export const contractMaterialApi = {
-  list: (contractId: string) => http.get<any, any>('/contract-materials', { params: { contractId } }),
+  list: (contractId: string) =>
+    http.get<ContractMaterialListResponse, ContractMaterialListResponse>('/contract-materials', {
+      params: { contractId },
+    }),
   // 项目下所有合同物资清单（需求修正3）：供应商/物资名称/合同编号组合筛选
-  listAll: (params?: any) => http.get<any, any>('/contract-materials/all', { params }),
+  listAll: (params?: ContractMaterialAllParams) =>
+    http.get<ContractMaterialAllResponse, ContractMaterialAllResponse>('/contract-materials/all', { params }),
   derive: (contractId: string, materialIds: string[]) =>
-    http.post<any, any>('/contract-materials/derive', { contractId, materialIds }),
+    http.post<{ created: number; removed: true }, { created: number; removed: true }>('/contract-materials/derive', {
+      contractId,
+      materialIds,
+    }),
   templateUrl: () => `${http.defaults.baseURL}/contract-materials/template`,
-  create: (data: any) => http.post<any, any>('/contract-materials', data),
-  update: (id: string, data: any) => http.put<any, any>(`/contract-materials/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/contract-materials/${id}`),
+  create: (data: Record<string, unknown>) => http.post<ContractMaterialRow, ContractMaterialRow>('/contract-materials', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<ContractMaterialRow, ContractMaterialRow>(`/contract-materials/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/contract-materials/${id}`),
   sort: (items: { id: string; sortOrder: number }[]) => http.put<any, any>('/contract-materials/sort', { items }),
   exportUrl: (contractId: string, format: 'xlsx' | 'csv' = 'xlsx') =>
     `${http.defaults.baseURL}/contract-materials/export?contractId=${contractId}&format=${format}`,
@@ -423,48 +547,57 @@ export const paymentProcedureApi = {
 
 /** 总结算单（结算及付款管理，业务口径 2026-10-16）：抓取该合同全部月度结算 → 附件上传 → 已结算 */
 export const finalSettlementApi = {
-  list: (params?: any) => http.get<any, any>('/final-settlements', { params }),
-  detail: (id: string) => http.get<any, any>(`/final-settlements/${id}`),
+  list: (params?: FinalSettlementListParams) =>
+    http.get<FinalSettlementListResponse, FinalSettlementListResponse>('/final-settlements', { params }),
+  detail: (id: string) => http.get<FinalSettlementRow, FinalSettlementRow>(`/final-settlements/${id}`),
   /** 生成：`contractId` 必填；一个合同只允许一张（重复会 400） */
-  generate: (contractId: string) => http.post<any, any>('/final-settlements/generate', { contractId }),
-  update: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}`, data),
+  generate: (contractId: string) =>
+    http.post<FinalSettlementRow, FinalSettlementRow>('/final-settlements/generate', { contractId }),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<FinalSettlementRow, FinalSettlementRow>(`/final-settlements/${id}`, data),
   /** 编辑明细（月份/金额）+ 审减金额：保存即重算合计（仅「待上传附件」状态可改） */
-  updateItems: (id: string, data: any) => http.put<any, any>(`/final-settlements/${id}/items`, data),
+  updateItems: (id: string, data: Record<string, unknown>) =>
+    http.put<FinalSettlementRow, FinalSettlementRow>(`/final-settlements/${id}/items`, data),
   /** 上传附件 → 已结算 → 合同「已完已结」+ 付款比例切 100% */
   attach: (id: string, data: { url: string; fileName: string }) =>
-    http.post<any, any>(`/final-settlements/${id}/attach`, data),
-  remove: (id: string) => http.delete<any, any>(`/final-settlements/${id}`),
+    http.post<FinalSettlementRow, FinalSettlementRow>(`/final-settlements/${id}/attach`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/final-settlements/${id}`),
   exportUrl: (id: string, templateId?: string) =>
     `${http.defaults.baseURL}/final-settlements/${id}/export${templateId ? `?templateId=${templateId}` : ''}`,
 };
 
 /** 单据模板（基础信息管理，业务口径 2026-10-17）：五类单据的 Excel 模板 */
 export const docTemplateApi = {
-  list: (params?: any) => http.get<any, any>('/doc-templates', { params }),
-  detail: (id: string) => http.get<any, any>(`/doc-templates/${id}`),
-  create: (data: any) => http.post<any, any>('/doc-templates', data),
-  update: (id: string, data: any) => http.put<any, any>(`/doc-templates/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/doc-templates/${id}`),
+  list: (params?: DocTemplateListParams) =>
+    http.get<DocTemplateRow[], DocTemplateRow[]>('/doc-templates', { params }),
+  detail: (id: string) => http.get<DocTemplateRow, DocTemplateRow>(`/doc-templates/${id}`),
+  create: (data: Record<string, unknown>) => http.post<DocTemplateRow, DocTemplateRow>('/doc-templates', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<DocTemplateRow, DocTemplateRow>(`/doc-templates/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/doc-templates/${id}`),
   /** 渲染付款单（付款手续 → Excel）；`templateId` 可指定模板，不传则用启用中的「付款单」模板 */
   renderPaymentUrl: (procedureId: string, templateId?: string) =>
     `${http.defaults.baseURL}/doc-templates/render/payment-procedure/${procedureId}${templateId ? `?templateId=${templateId}` : ''}`,
 };
 
 export const invoiceApi = {
-  list: (params?: any) => http.get<any, any>('/invoices', { params }),
-  detail: (id: string) => http.get<any, any>(`/invoices/${id}`),
-  create: (data: any) => http.post<any, any>('/invoices', data),
-  update: (id: string, data: any) => http.put<any, any>(`/invoices/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/invoices/${id}`),
-  checkNo: (no: string, excludeId?: string) => http.get<any, any>('/invoices/check-no', { params: { no, excludeId } }),
-  verify: (id: string) => http.post<any, any>(`/invoices/${id}/verify`),
+  list: (params?: InvoiceListParams) => http.get<InvoiceListResponse, InvoiceListResponse>('/invoices', { params }),
+  detail: (id: string) => http.get<InvoiceRow, InvoiceRow>(`/invoices/${id}`),
+  create: (data: Record<string, unknown>) => http.post<InvoiceRow, InvoiceRow>('/invoices', data),
+  update: (id: string, data: Record<string, unknown>) => http.put<InvoiceRow, InvoiceRow>(`/invoices/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/invoices/${id}`),
+  checkNo: (no: string, excludeId?: string) =>
+    http.get<InvoiceCheckNo, InvoiceCheckNo>('/invoices/check-no', { params: { no, excludeId } }),
+  verify: (id: string) => http.post<InvoiceRow, InvoiceRow>(`/invoices/${id}/verify`),
   /** 作废（终态）：保留结算单关联，不计入台账/履约/工作台等金额口径 */
-  cancel: (id: string) => http.post<any, any>(`/invoices/${id}/cancel`),
+  cancel: (id: string) => http.post<InvoiceRow, InvoiceRow>(`/invoices/${id}/cancel`),
   /** 红冲（终态）：同上 */
-  red: (id: string) => http.post<any, any>(`/invoices/${id}/red`),
+  red: (id: string) => http.post<InvoiceRow, InvoiceRow>(`/invoices/${id}/red`),
   // 批量识别：上传发票图片解码二维码 → 用户选合同后批量入台账
-  recognize: (formData: FormData) => http.post<any, any[]>('/invoices/recognize', formData),
-  batchCreate: (items: any[]) => http.post<any, any>('/invoices/batch', { items }),
+  recognize: (formData: FormData) =>
+    http.post<InvoiceRecognizeItem[], InvoiceRecognizeItem[]>('/invoices/recognize', formData),
+  batchCreate: (items: unknown[]) =>
+    http.post<InvoiceBatchCreateResult, InvoiceBatchCreateResult>('/invoices/batch', { items }),
   exportUrl: () => `${http.defaults.baseURL}/invoices/export`,
   templateUrl: () => `${http.defaults.baseURL}/invoices/template`,
   importUrl: () => `${http.defaults.baseURL}/invoices/import`,
@@ -472,9 +605,10 @@ export const invoiceApi = {
 };
 
 export const assetApi = {
-  list: (params?: any) => http.get<any, any>('/assets', { params }),
+  list: (params?: AssetListParams) => http.get<AssetListResponse, AssetListResponse>('/assets', { params }),
   /** 物资进出场汇总（零新表，2026-10-18） */
-  flowSummary: (params?: any) => http.get<any, any>('/assets/flow-summary', { params }),
+  flowSummary: (params?: { startDate?: string; endDate?: string }) =>
+    http.get<AssetFlowSummary, AssetFlowSummary>('/assets/flow-summary', { params }),
   templateUrl: () => `${http.defaults.baseURL}/assets/template`,
   importUrl: () => `${http.defaults.baseURL}/assets/import`,
   validateUrl: () => `${http.defaults.baseURL}/assets/import/validate`,
@@ -483,9 +617,9 @@ export const assetApi = {
     fd.append('file', file);
     return http.post<any, any>('/assets/import', fd);
   },
-  create: (data: any) => http.post<any, any>('/assets', data),
-  update: (id: string, data: any) => http.put<any, any>(`/assets/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/assets/${id}`),
+  create: (data: Record<string, unknown>) => http.post<AssetLedgerRow, AssetLedgerRow>('/assets', data),
+  update: (id: string, data: Record<string, unknown>) => http.put<AssetLedgerRow, AssetLedgerRow>(`/assets/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/assets/${id}`),
   exportUrl: () => `${http.defaults.baseURL}/assets/export`,
 };
 
@@ -505,34 +639,44 @@ export const ledgerApi = {
 };
 
 export const repaymentApi = {
-  list: (params?: any) => http.get<any, any>('/repayments', { params }),
-  detail: (id: string) => http.get<any, any>(`/repayments/${id}`),
-  create: (data: any) => http.post<any, any>('/repayments', data),
-  update: (id: string, data: any) => http.put<any, any>(`/repayments/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/repayments/${id}`),
-  suggestCode: () => http.get<any, any>('/repayments/suggest-code'),
-  checkCode: (code: string, excludeId?: string) => http.get<any, any>('/repayments/check-code', { params: { code, excludeId } }),
+  list: (params?: RepaymentListParams) =>
+    http.get<RepaymentListResponse, RepaymentListResponse>('/repayments', { params }),
+  detail: (id: string) => http.get<RepaymentAgreementRow, RepaymentAgreementRow>(`/repayments/${id}`),
+  create: (data: Record<string, unknown>) => http.post<RepaymentAgreementRow, RepaymentAgreementRow>('/repayments', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<RepaymentAgreementRow, RepaymentAgreementRow>(`/repayments/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/repayments/${id}`),
+  suggestCode: () => http.get<RepaymentSuggestCode, RepaymentSuggestCode>('/repayments/suggest-code'),
+  checkCode: (code: string, excludeId?: string) =>
+    http.get<RepaymentCheckCode, RepaymentCheckCode>('/repayments/check-code', { params: { code, excludeId } }),
   exportUrl: () => `${http.defaults.baseURL}/repayments/export`,
 };
 
 /** 劳务管理 · 分包授权台账（附件需求 2026-10-17 新增模块；原「分包商库」并入，含委托书全流程） */
 export const laborApi = {
-  list: (params?: any) => http.get<any, any>('/labor/auth-ledger', { params }),
-  options: (keyword?: string) => http.get<any, any>('/labor/auth-ledger/options', { params: { keyword } }),
-  detail: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}`),
-  create: (data: any) => http.post<any, any>('/labor/auth-ledger', data),
-  update: (id: string, data: any) => http.put<any, any>(`/labor/auth-ledger/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/labor/auth-ledger/${id}`),
+  list: (params?: LaborAuthLedgerListParams) =>
+    http.get<LaborAuthLedgerListResponse, LaborAuthLedgerListResponse>('/labor/auth-ledger', { params }),
+  options: (keyword?: string) =>
+    http.get<LaborAuthLedgerRow[], LaborAuthLedgerRow[]>('/labor/auth-ledger/options', { params: { keyword } }),
+  detail: (id: string) => http.get<LaborAuthLedgerRow, LaborAuthLedgerRow>(`/labor/auth-ledger/${id}`),
+  create: (data: Record<string, unknown>) =>
+    http.post<LaborAuthLedgerRow, LaborAuthLedgerRow>('/labor/auth-ledger', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<LaborAuthLedgerRow, LaborAuthLedgerRow>(`/labor/auth-ledger/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/labor/auth-ledger/${id}`),
   /** 授权委托书打印就绪 HTML（iframe 预览） */
-  letterHtml: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter`),
+  letterHtml: (id: string) => http.get<string, string>(`/labor/auth-ledger/${id}/letter`),
   /** 委托书文件名（分包材料员授权委托书_{分包商}_{日期}.pdf） */
-  letterFileName: (id: string) => http.get<any, any>(`/labor/auth-ledger/${id}/letter-filename`),
+  letterFileName: (id: string) =>
+    http.get<{ fileName: string }, { fileName: string }>(`/labor/auth-ledger/${id}/letter-filename`),
   /** 未落库前的实时预览（按表单值渲染 HTML） */
-  previewHtml: (values: any) => http.post<any, any>('/labor/auth-ledger/preview', values),
+  previewHtml: (values: Record<string, unknown>) => http.post<string, string>('/labor/auth-ledger/preview', values),
   /** 导出 PDF 版委托书 → 落库（状态：编辑中） */
-  exportMark: (data: any) => http.post<any, any>('/labor/auth-ledger/export-mark', data),
+  exportMark: (data: Record<string, unknown>) =>
+    http.post<LaborAuthLedgerRow, LaborAuthLedgerRow>('/labor/auth-ledger/export-mark', data),
   /** 上传签字盖章版委托书 + 签字截图 → 状态：已完成 */
-  complete: (id: string, data: any) => http.post<any, any>(`/labor/auth-ledger/${id}/complete`, data),
+  complete: (id: string, data: Record<string, unknown>) =>
+    http.post<LaborAuthLedgerRow, LaborAuthLedgerRow>(`/labor/auth-ledger/${id}/complete`, data),
   /** 分包材料员授权信息表.xlsx（图片内嵌；归档「11.分包授权台账」的 Excel 源） */
   exportWorkbookUrl: () => `${http.defaults.baseURL}/labor/auth-ledger/export`,
 };
@@ -541,90 +685,129 @@ export const laborApi = {
 export const costApi = {
   /** 月度盈亏分析（附件需求 2026-10-17 第三批；一个月一条，明细=当期节超快照） */
   monthlyProfitLoss: {
-    list: (params?: any) => http.get<any, any>('/cost/monthly-profit-loss', { params }),
-    detail: (id: string) => http.get<any, any>(`/cost/monthly-profit-loss/${id}`),
-    create: (data: any) => http.post<any, any>('/cost/monthly-profit-loss', data),
-    update: (id: string, data: any) => http.put<any, any>(`/cost/monthly-profit-loss/${id}`, data),
-    remove: (id: string) => http.delete<any, any>(`/cost/monthly-profit-loss/${id}`),
+    list: (params?: CostMonthlyProfitLossListParams) =>
+      http.get<CostMonthlyProfitLossListResponse, CostMonthlyProfitLossListResponse>('/cost/monthly-profit-loss', {
+        params,
+      }),
+    detail: (id: string) =>
+      http.get<CostMonthlyProfitLossDetailResponse, CostMonthlyProfitLossDetailResponse>(
+        `/cost/monthly-profit-loss/${id}`,
+      ),
+    create: (data: Record<string, unknown>) =>
+      http.post<CostMonthlyProfitLossDetailResponse, CostMonthlyProfitLossDetailResponse>(
+        '/cost/monthly-profit-loss',
+        data,
+      ),
+    update: (id: string, data: Record<string, unknown>) =>
+      http.put<CostMonthlyProfitLossDetailResponse, CostMonthlyProfitLossDetailResponse>(
+        `/cost/monthly-profit-loss/${id}`,
+        data,
+      ),
+    remove: (id: string) => http.delete<boolean, boolean>(`/cost/monthly-profit-loss/${id}`),
     /** 重新抓取当期快照（手填项按 分包单位+材料+规格 回填） */
-    reSnapshot: (id: string) => http.post<any, any>(`/cost/monthly-profit-loss/${id}/re-snapshot`),
+    reSnapshot: (id: string) =>
+      http.post<CostMonthlyProfitLossDetailResponse, CostMonthlyProfitLossDetailResponse>(
+        `/cost/monthly-profit-loss/${id}/re-snapshot`,
+      ),
     exportUrl: (id: string) => `${http.defaults.baseURL}/cost/monthly-profit-loss/${id}/export`,
   },
   /** 分包单位领用**单据**（附件需求 2026-10-17 第二批单据化；一单 = 分包单位×结算期） */
   laborReceiving: {
-    options: () => http.get<any, any>('/cost/labor-receiving/options'),
-    listDocs: (params?: any) => http.get<any, any>('/cost/labor-receiving/docs', { params }),
-    createDoc: (data: any) => http.post<any, any>('/cost/labor-receiving/docs', data),
-    docDetail: (id: string) => http.get<any, any>(`/cost/labor-receiving/docs/${id}`),
-    updateDoc: (id: string, data: any) => http.put<any, any>(`/cost/labor-receiving/docs/${id}`, data),
-    removeDoc: (id: string) => http.delete<any, any>(`/cost/labor-receiving/docs/${id}`),
+    options: () =>
+      http.get<CostLaborReceivingOptions, CostLaborReceivingOptions>('/cost/labor-receiving/options'),
+    listDocs: (params?: CostLaborReceivingDocListParams) =>
+      http.get<CostLaborReceivingDocListResponse, CostLaborReceivingDocListResponse>('/cost/labor-receiving/docs', {
+        params,
+      }),
+    createDoc: (data: Record<string, unknown>) =>
+      http.post<CostLaborReceivingDocDetail, CostLaborReceivingDocDetail>('/cost/labor-receiving/docs', data),
+    docDetail: (id: string) =>
+      http.get<CostLaborReceivingDocDetail, CostLaborReceivingDocDetail>(`/cost/labor-receiving/docs/${id}`),
+    updateDoc: (id: string, data: Record<string, unknown>) =>
+      http.put<CostLaborReceivingDocDetail, CostLaborReceivingDocDetail>(`/cost/labor-receiving/docs/${id}`, data),
+    removeDoc: (id: string) => http.delete<boolean, boolean>(`/cost/labor-receiving/docs/${id}`),
     docExportUrl: (id: string) => `${http.defaults.baseURL}/cost/labor-receiving/docs/${id}/export`,
   },
 };
 
 /** 项目资料归档（附件需求 2026-10-17）：目录树 + 一键/按目录打包 ZIP */
 export const archiveApi = {
-  entries: () => http.get<any, any>('/archive/entries'),
+  entries: () => http.get<ArchiveEntry[], ArchiveEntry[]>('/archive/entries'),
   downloadUrl: (scope?: string) =>
     `${http.defaults.baseURL}/archive/download${scope && scope !== 'all' ? `?scope=${encodeURIComponent(scope)}` : ''}`,
 };
 
 export const financeApi = {
   // 合同资金参数（付款模式/月利率/宽限期/上限比例）
-  contractParams: (contractId: string) => http.get<any, any>(`/finance/contract-params/${contractId}`),
-  saveContractParams: (contractId: string, data: any) => http.put<any, any>(`/finance/contract-params/${contractId}`, data),
+  contractParams: (contractId: string) =>
+    http.get<FinanceContractParams, FinanceContractParams>(`/finance/contract-params/${contractId}`),
+  saveContractParams: (contractId: string, data: Record<string, unknown>) =>
+    http.put<FinanceContractParams, FinanceContractParams>(`/finance/contract-params/${contractId}`, data),
   // 保理费用台账（不传 contractId = 本项目全部合同，与结算台账一样打开即看全量）
-  factoring: (contractId?: string, params?: any) => {
-    const query: any = { ...(params ?? {}) };
+  factoring: (contractId?: string, params?: FinanceLedgerListParams) => {
+    const query: Record<string, unknown> = { ...(params ?? {}) };
     if (contractId) query.contractId = contractId;
     else delete query.contractId;
-    return http.get<any, any>('/finance/factoring-costs', { params: query });
+    return http.get<FinanceFactoringResponse, FinanceFactoringResponse>('/finance/factoring-costs', { params: query });
   },
-  createFactoring: (data: any) => http.post<any, any>('/finance/factoring-costs', data),
-  updateFactoring: (id: string, data: any) => http.put<any, any>(`/finance/factoring-costs/${id}`, data),
-  removeFactoring: (id: string) => http.delete<any, any>(`/finance/factoring-costs/${id}`),
+  createFactoring: (data: Record<string, unknown>) =>
+    http.post<FinanceFactoringRow, FinanceFactoringRow>('/finance/factoring-costs', data),
+  updateFactoring: (id: string, data: Record<string, unknown>) =>
+    http.put<FinanceFactoringRow, FinanceFactoringRow>(`/finance/factoring-costs/${id}`, data),
+  removeFactoring: (id: string) => http.delete<boolean, boolean>(`/finance/factoring-costs/${id}`),
   exportFactoringUrl: (contractId?: string) =>
     `${http.defaults.baseURL}/finance/factoring-costs/export${contractId ? `?contractId=${contractId}` : ''}`,
   // 逾期利息台账（同上：不传 contractId = 本项目全部合同）
-  overdue: (contractId?: string, params?: any) => {
-    const query: any = { ...(params ?? {}) };
+  overdue: (contractId?: string, params?: FinanceLedgerListParams) => {
+    const query: Record<string, unknown> = { ...(params ?? {}) };
     if (contractId) query.contractId = contractId;
     else delete query.contractId;
-    return http.get<any, any>('/finance/overdue-interests', { params: query });
+    return http.get<FinanceOverdueResponse, FinanceOverdueResponse>('/finance/overdue-interests', { params: query });
   },
   generateOverdue: (data: { contractId: string; settlementMonth: string; materialAmount: number }) =>
-    http.post<any, any>('/finance/overdue-interests/generate', data),
-  createOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests', data),
-  updateOverdue: (id: string, data: any) => http.put<any, any>(`/finance/overdue-interests/${id}`, data),
-  removeOverdue: (id: string) => http.delete<any, any>(`/finance/overdue-interests/${id}`),
+    http.post<FinanceOverduePayableCreated[], FinanceOverduePayableCreated[]>(
+      '/finance/overdue-interests/generate',
+      data,
+    ),
+  createOverdue: (data: Record<string, unknown>) =>
+    http.post<FinanceOverduePayableCreated, FinanceOverduePayableCreated>('/finance/overdue-interests', data),
+  updateOverdue: (id: string, data: Record<string, unknown>) =>
+    http.put<FinanceOverduePayableCreated, FinanceOverduePayableCreated>(`/finance/overdue-interests/${id}`, data),
+  removeOverdue: (id: string) => http.delete<boolean, boolean>(`/finance/overdue-interests/${id}`),
   exportOverdueUrl: (contractId: string) => `${http.defaults.baseURL}/finance/overdue-interests/export?contractId=${contractId}`,
   /** 付款模式定义（单一事实源在后端 pay-ratio.ts）：{ mode, label, tranches:[{ratio, plusMonths, day}] } */
-  paymentModes: () => http.get<any, any>('/finance/payment-modes'),
+  paymentModes: () => http.get<FinancePaymentMode[], FinancePaymentMode[]>('/finance/payment-modes'),
   /** 保存前预览派生列（直接调后端引擎，避免前端复刻一套算法导致「预览一个数、存完另一个数」） */
-  previewOverdue: (data: any) => http.post<any, any>('/finance/overdue-interests/preview', data),
+  previewOverdue: (data: Record<string, unknown>) =>
+    http.post<FinanceOverduePreviewResponse, FinanceOverduePreviewResponse>('/finance/overdue-interests/preview', data),
   /** 付款流水（子表，合同级；每笔带 allocations = 抵到了哪几期、各段天数与利息） */
   overduePayments: (contractId: string) =>
-    http.get<any, any>('/finance/overdue-payments', { params: { contractId } }),
-  createOverduePayment: (data: any) => http.post<any, any>('/finance/overdue-payments', data),
-  updateOverduePayment: (id: string, data: any) => http.put<any, any>(`/finance/overdue-payments/${id}`, data),
-  removeOverduePayment: (id: string) => http.delete<any, any>(`/finance/overdue-payments/${id}`),
+    http.get<FinanceOverduePaymentsResponse, FinanceOverduePaymentsResponse>('/finance/overdue-payments', {
+      params: { contractId },
+    }),
+  createOverduePayment: (data: Record<string, unknown>) =>
+    http.post<FinanceOverduePayment, FinanceOverduePayment>('/finance/overdue-payments', data),
+  updateOverduePayment: (id: string, data: Record<string, unknown>) =>
+    http.put<FinanceOverduePayment, FinanceOverduePayment>(`/finance/overdue-payments/${id}`, data),
+  removeOverduePayment: (id: string) => http.delete<boolean, boolean>(`/finance/overdue-payments/${id}`),
 };
 
 export const notificationApi = {
-  list: (params?: any) => http.get<any, any>('/notifications', { params }),
-  unreadCount: () => http.get<any, any>('/notifications/unread-count'),
-  read: (id: string) => http.post<any, any>(`/notifications/${id}/read`),
-  readAll: () => http.post<any, any>('/notifications/read-all'),
+  list: (params?: NotificationListParams) =>
+    http.get<NotificationListResponse, NotificationListResponse>('/notifications', { params }),
+  unreadCount: () => http.get<NotificationUnreadCount, NotificationUnreadCount>('/notifications/unread-count'),
+  read: (id: string) => http.post<NotificationRow, NotificationRow>(`/notifications/${id}/read`),
+  readAll: () => http.post<boolean, boolean>('/notifications/read-all'),
 };
 
 export const dashboardApi = {
-  overview: () => http.get<any, any>('/dashboard/overview'),
-  trend: () => http.get<any, any>('/dashboard/trend'),
-  contractType: () => http.get<any, any>('/dashboard/contract-type'),
-  invoiceStats: () => http.get<any, any>('/dashboard/invoice-stats'),
-  reminders: () => http.get<any, any>('/dashboard/reminders'),
+  overview: () => http.get<DashboardOverview, DashboardOverview>('/dashboard/overview'),
+  trend: () => http.get<DashboardTrendPoint[], DashboardTrendPoint[]>('/dashboard/trend'),
+  contractType: () => http.get<DashboardContractTypePoint[], DashboardContractTypePoint[]>('/dashboard/contract-type'),
+  invoiceStats: () => http.get<DashboardInvoiceStats, DashboardInvoiceStats>('/dashboard/invoice-stats'),
+  reminders: () => http.get<DashboardReminders, DashboardReminders>('/dashboard/reminders'),
   /** 我的待办（业务口径 2026-10-16）：按模块分类聚合，0 条的分类也返回（Tab 常驻） */
-  todos: () => http.get<any, any>('/dashboard/todos'),
+  todos: () => http.get<DashboardTodos, DashboardTodos>('/dashboard/todos'),
 };
 
 /**
@@ -633,30 +816,46 @@ export const dashboardApi = {
  * - push：把明细推送到总日报
  */
 export const receiptOrderApi = {
-  list: (params?: any) => http.get<any, any>('/receipt-orders', { params }),
-  detail: (id: string) => http.get<any, any>(`/receipt-orders/${id}`),
-  nextNo: () => http.get<any, any>('/receipt-orders/next-no'),
+  list: (params?: ReceiptOrderListParams) =>
+    http.get<ReceiptOrderListResponse, ReceiptOrderListResponse>('/receipt-orders', { params }),
+  detail: (id: string) => http.get<ReceiptOrderRow, ReceiptOrderRow>(`/receipt-orders/${id}`),
+  nextNo: () => http.get<ReceiptOrderNextNo, ReceiptOrderNextNo>('/receipt-orders/next-no'),
   contractMaterials: (contractId: string) =>
-    http.get<any, any>('/receipt-orders/contract-materials', { params: { contractId } }),
+    http.get<ReceiptContractMaterialsResponse, ReceiptContractMaterialsResponse>('/receipt-orders/contract-materials', {
+      params: { contractId },
+    }),
   // 需求 2.4.1 供应单位 4 类 Tab 数据源（供应商/其他项目/分包商/本项目）
   partyOptions: (keyword?: string) =>
-    http.get<any, any>('/receipt-orders/party-options', { params: { keyword } }),
+    http.get<ReceiptPartyOptionsResponse, ReceiptPartyOptionsResponse>('/receipt-orders/party-options', {
+      params: { keyword },
+    }),
   // 需求 2.4.2 领用单位 3 类 Tab 数据源（分包商/本项目/其他项目）
   receivingUnitOptions: (keyword?: string) =>
-    http.get<any, any>('/receipt-orders/receiving-unit-options', { params: { keyword } }),
+    http.get<ReceiptReceivingUnitOptionsResponse, ReceiptReceivingUnitOptionsResponse>(
+      '/receipt-orders/receiving-unit-options',
+      { params: { keyword } },
+    ),
   // 需求 2.5 互锁：按分包商带出其关联分包合同
   subcontractorContracts: (subcontractorId: string) =>
-    http.get<any, any>('/receipt-orders/subcontractor-contracts', { params: { subcontractorId } }),
+    http.get<ReceiptContractOption[], ReceiptContractOption[]>('/receipt-orders/subcontractor-contracts', {
+      params: { subcontractorId },
+    }),
   // 供应单位=供应商时，物资合同下拉 = 该供应商在本项目的合同（2026-10-17 业务口径）
   supplierContracts: (supplierId: string) =>
-    http.get<any, any>('/receipt-orders/supplier-contracts', { params: { supplierId } }),
+    http.get<ReceiptContractOption[], ReceiptContractOption[]>('/receipt-orders/supplier-contracts', {
+      params: { supplierId },
+    }),
   // 领用单位=分包商时，带出该分包商在本项目领用过的所有材料（与分包单位领用汇总同源口径）
   subcontractorMaterials: (subcontractorId: string) =>
-    http.get<any, any>('/receipt-orders/subcontractor-materials', { params: { subcontractorId } }),
-  create: (data: any) => http.post<any, any>('/receipt-orders', data),
-  update: (id: string, data: any) => http.put<any, any>(`/receipt-orders/${id}`, data),
-  push: (id: string) => http.post<any, any>(`/receipt-orders/${id}/push`),
-  remove: (id: string) => http.delete<any, any>(`/receipt-orders/${id}`),
+    http.get<ReceiptSubcontractorMaterialsResponse, ReceiptSubcontractorMaterialsResponse>(
+      '/receipt-orders/subcontractor-materials',
+      { params: { subcontractorId } },
+    ),
+  create: (data: Record<string, unknown>) => http.post<ReceiptOrderRow, ReceiptOrderRow>('/receipt-orders', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<ReceiptOrderRow, ReceiptOrderRow>(`/receipt-orders/${id}`, data),
+  push: (id: string) => http.post<{ pushed: number }, { pushed: number }>(`/receipt-orders/${id}/push`),
+  remove: (id: string) => http.delete<boolean, boolean>(`/receipt-orders/${id}`),
 };
 
 /**
@@ -665,26 +864,31 @@ export const receiptOrderApi = {
  * 上传签字盖章版 + 签字截图后流转为「已完成」。
  */
 export const subcontractorApi = {
-  list: (params?: any) => http.get<any, any>('/subcontractors', { params }),
-  options: (keyword?: string) => http.get<any, any>('/subcontractors/options', { params: { keyword } }),
-  detail: (id: string) => http.get<any, any>(`/subcontractors/${id}`),
-  create: (data: any) => http.post<any, any>('/subcontractors', data),
-  update: (id: string, data: any) => http.put<any, any>(`/subcontractors/${id}`, data),
-  remove: (id: string) => http.delete<any, any>(`/subcontractors/${id}`),
+  list: (params?: SubcontractorListParams) =>
+    http.get<SubcontractorListResponse, SubcontractorListResponse>('/subcontractors', { params }),
+  options: (keyword?: string) =>
+    http.get<SubcontractorOption[], SubcontractorOption[]>('/subcontractors/options', { params: { keyword } }),
+  detail: (id: string) => http.get<SubcontractorRow, SubcontractorRow>(`/subcontractors/${id}`),
+  create: (data: Record<string, unknown>) => http.post<SubcontractorRow, SubcontractorRow>('/subcontractors', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    http.put<SubcontractorRow, SubcontractorRow>(`/subcontractors/${id}`, data),
+  remove: (id: string) => http.delete<boolean, boolean>(`/subcontractors/${id}`),
   /** 导出 PDF 后落库（编辑中），同分包商 + 同授权人去重 */
-  exportMark: (data: any) => http.post<any, any>('/subcontractors/export-mark', data),
+  exportMark: (data: Record<string, unknown>) =>
+    http.post<SubcontractorRow, SubcontractorRow>('/subcontractors/export-mark', data),
   /** 上传签字盖章版委托书 + 签字截图 → 已完成 */
-  complete: (id: string, data: any) => http.post<any, any>(`/subcontractors/${id}/complete`, data),
+  complete: (id: string, data: Record<string, unknown>) =>
+    http.post<SubcontractorRow, SubcontractorRow>(`/subcontractors/${id}/complete`, data),
   /** 授权委托书正文 HTML（打印就绪），用于预览与导出 PDF */
   letterHtml: (id: string) =>
-    http.get<any, string>(`/subcontractors/${id}/letter`, {
+    http.get<string, string>(`/subcontractors/${id}/letter`, {
       responseType: 'text',
       headers: { 'x-raw-response': '1' },
       transformResponse: [(d: any) => d],
     } as any),
   /** 按表单值实时渲染委托书 HTML（未落库前预览） */
-  previewHtml: (data: any) =>
-    http.post<any, string>('/subcontractors/preview', data, {
+  previewHtml: (data: Record<string, unknown>) =>
+    http.post<string, string>('/subcontractors/preview', data, {
       responseType: 'text',
       headers: { 'x-raw-response': '1' },
       transformResponse: [(d: any) => d],
@@ -1399,7 +1603,23 @@ export const aiApi = {
   analyticsDatasets: () => http.get<any, AiAnalyticsDatasetsResult>('/ai/analytics/datasets'),
 
   /** 问数（P3-A）：可用性 + 可问数据集（按权限过滤） */
-  chatStatus: () => http.get<any, any>('/ai/chat/status'),
+  chatStatus: () =>
+    http.get<
+      {
+        enabled: boolean;
+        model: string;
+        hourlyLimitPerUser: number;
+        maxQuestionChars: number;
+        [extra: string]: unknown;
+      },
+      {
+        enabled: boolean;
+        model: string;
+        hourlyLimitPerUser: number;
+        maxQuestionChars: number;
+        [extra: string]: unknown;
+      }
+    >('/ai/chat/status'),
   /** 一次问答：数字由后端算、模型只组织语言，返回里带未对上的数字 */
   chatAsk: (body: Record<string, unknown>) =>
     http.post<any, any>('/ai/chat/ask', body, { timeout: 120000 } as any),
