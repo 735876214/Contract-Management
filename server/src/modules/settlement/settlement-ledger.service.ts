@@ -113,7 +113,7 @@ export class SettlementLedgerService {
        * 历史/导入的空状态发票仍计入。这里必须用 `AND` 包裹：原条件本身就是 `OR`，
        * 直接展开 `{ OR }` 会把两个条件互相覆盖。
        */
-      // @no-limit: 单行台账自动字段：本合同 + 本期发票全量归集（AND 组合，静态看不出）
+      // @no-limit: 单行台账自动字段：本合同 + 本期发票全量归集（AND 组合，静态看不出）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
       db.invoice.findMany({
         where: {
           AND: [
@@ -128,8 +128,8 @@ export class SettlementLedgerService {
         },
         select: { id: true, settlementId: true, settlePeriod: true, invoiceDate: true, amountWithTax: true },
       }),
-      db.factoringCost.findMany({ where: { contractId } }), // @no-limit: 单合同保理费用行（按 contractId 有界）
-      db.overduePayable.findMany({ where: { contractId } }), // @no-limit: 单合同逾期利息行（按 contractId 有界）
+      db.factoringCost.findMany({ where: { contractId } }), // @no-limit: 单合同保理费用行（按 contractId 有界）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
+      db.overduePayable.findMany({ where: { contractId } }), // @no-limit: 单合同逾期利息行（按 contractId 有界）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
     ]);
     // 审定口径（actualAmount ?? amount）统一走共享原语，避免台账/合同链各写一次 ??
     const monthSettleAmount = sumAmounts(settlements, (r: any) => settlementAmountOf(r, 'actual'));
@@ -290,7 +290,7 @@ export class SettlementLedgerService {
     const months = new Set<string>();
     const startDay = await this.startDayOf(projectId, db);
     // (a) 该合同所有结算单所在的**账期**（期末所在月），不是自然月（第 21 轮审计）
-    // @no-limit: 单个合同的全部结算单（按 contractId，天然有界）
+    // @no-limit: 单个合同的全部结算单（按 contractId，天然有界）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
     const settlements = await db.settlement.findMany({
       where: { contractId },
       select: { settleDate: true },
@@ -300,7 +300,7 @@ export class SettlementLedgerService {
       if (m) months.add(m);
     }
     // (b) 已有台账行的月份（含**仅费用行**：无结算单但有资金费用/逾期利息）
-    // @no-limit: 单个合同的全部台账行（按 contractId，天然有界）
+    // @no-limit: 单个合同的全部台账行（按 contractId，天然有界）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
     const rows = await db.settlementLedger.findMany({
       where: { contractId },
       select: { settleMonth: true },
@@ -377,14 +377,14 @@ export class SettlementLedgerService {
     // 资金费用两张表没有 projectId 列（只挂 contractId），先取本项目合同再按 id 过滤：
     // 原先 `findMany({ select })` 全表读，再在内存里用 contractIds 过筛——
     // 表一大就整表进内存，且与「查询必须自带项目过滤」的铁律相悖。
-    // @no-limit: 先取本项目全部合同 id（单列）再喂给没有 projectId 列的财务表
+    // @no-limit: 先取本项目全部合同 id（单列）再喂给没有 projectId 列的财务表｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
     const contracts = await this.prisma.contract.findMany({ where: { projectId }, select: { id: true } });
     const contractIdList = contracts.map((c: any) => c.id);
     const [settlements, invoices, factoring, overdue] = await Promise.all([
-      // @no-limit: 组合发现要扫本项目全部结算单（3 列）
+      // @no-limit: 组合发现要扫本项目全部结算单（3 列）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
       this.prisma.settlement.findMany({ where: { projectId }, select: { contractId: true, settleDate: true } }),
       // 作废/红冲发票不参与「合同 + 月份」组合发现：否则会凭空建出一个 0 金额的台账行
-      // @no-limit: 组合发现要扫本项目计入口径的发票（3 列）
+      // @no-limit: 组合发现要扫本项目计入口径的发票（3 列）｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
       this.prisma.invoice.findMany({
         where: { projectId, ...countedInvoiceWhere() },
         select: { contractId: true, settlePeriod: true, invoiceDate: true },
@@ -419,7 +419,7 @@ export class SettlementLedgerService {
      * 省掉每个组合的一次点查；② 按 8 并发分批跑 upsert，把往返从「串行 N」压成「N/8」。
      * 单行 upsert 内部仍是原来的节奏（自动字段、settlementId 都在那里落），不改语义。
      */
-    // @no-limit: 已有台账行的 (contractId, settleMonth) 全量取回定位新增/更新，避免逐组合点查
+    // @no-limit: 已有台账行的 (contractId, settleMonth) 全量取回定位新增/更新，避免逐组合点查｜重看触发：合同 × 月份组合 > 5000 时改成后台任务分批跑（现在是同步 HTTP 里跑完）
     const existing = await this.prisma.settlementLedger.findMany({
       where: { projectId },
       select: { contractId: true, settleMonth: true },

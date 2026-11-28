@@ -243,7 +243,7 @@ export class FinanceService {
     if (!contractId && !projectId) throw new BadRequestException('缺少合同ID或项目上下文');
     // 不选合同 = 本项目全部合同的费用行；选了合同则锁定该合同
     const where: any = contractId ? { contractId } : { contract: { projectId } };
-    // @no-limit: 合计行必须覆盖筛选后全部行，分页在内存里切片（见本方法注释）
+    // @no-limit: 合计行必须覆盖筛选后全部行，分页在内存里切片（见本方法注释）｜重看触发：本项目合同 > 2000 时改成 SQL 预聚合（现在逐合同重算后合并）
     const all = await this.prisma.factoringCost.findMany({
       where,
       orderBy: [{ contractId: 'asc' }, { seqNo: 'asc' }, { createdAt: 'asc' }],
@@ -586,7 +586,7 @@ export class FinanceService {
     pick: <T extends { settlementMonth?: string | null }>(rows: T[]) => T[],
   ) {
     const defaults = await this.overdueDefaults();
-    // @no-limit: 跨合同逾期重算要本项目全部合同骨架（6 列），截断会让合计失真
+    // @no-limit: 跨合同逾期重算要本项目全部合同骨架（6 列），截断会让合计失真｜重看触发：本项目合同 > 2000 时改成 SQL 预聚合（现在逐合同重算后合并）
     const contracts: any[] = await this.prisma.contract.findMany({
       where: { projectId },
       select: {

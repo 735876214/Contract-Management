@@ -210,7 +210,16 @@ function analyzeArgs(argsText) {
   if (!whereMember) return { bounded: false, how: '没有顶层 where（全表/全项目扫）' };
   if (whereMember.kind !== 'object') return { bounded: false, how: 'where 不是字面量（变量/函数调用，静态看不出）' };
   const wm = members(whereMember.valueText).map(classify).filter(Boolean);
-  const hit = wm.find((x) => PARENT_KEYS.has(x.key) && (x.kind === 'scalar' || x.kind === 'shorthand' || x.kind === 'in'));
+  /**
+   * 父实体键的三条有界写法。⚠️ 标量值必须是**真值**：
+   * `contractId: null` 是「IS NULL」筛选（例如 settlementId: null 找未挂单的收领单），
+   * 它恰恰是**跨合同的全量**，不能被当成「按父实体过滤」（2026-11-28 补的第四个漏判）。
+   */
+  const hit = wm.find(
+    (x) =>
+      PARENT_KEYS.has(x.key) &&
+      (x.kind === 'in' || x.kind === 'shorthand' || (x.kind === 'scalar' && !/^(null|undefined)$/.test(x.valueText))),
+  );
   if (hit) return { bounded: true, how: 'where.' + hit.key + (hit.kind === 'in' ? '（in 列表）' : '') };
   const fuzzy = wm.filter((x) => PARENT_KEYS.has(x.key));
   if (fuzzy.length) return { bounded: false, how: 'where.' + fuzzy.map((x) => x.key).join('/') + ' 只是模糊条件，不构成父子过滤' };
@@ -314,6 +323,9 @@ function selftest() {
     // (3) 模糊条件不算父子过滤
     { name: 'bad-contains', expect: 1, code: 'class A {\n  async x() {\n    return this.prisma.a.findMany({ where: { projectId: p, contractNo: { contains: kw } } });\n  }\n}' },
     // where 不是字面量：静态看不出，要写理由
+    // (4) IS NULL 不是父子过滤
+    { name: 'bad-null-parent', expect: 1, code: 'class A {\n  async x() {\n    return this.prisma.a.findMany({ where: { projectId: p, settlementId: null } });\n  }\n}' },
+    { name: 'ok-parent-nonnull', expect: 0, code: 'class A {\n  async x() {\n    return this.prisma.a.findMany({ where: { contractId: c1, settlementId: null } });\n  }\n}' },
     { name: 'bad-where-var', expect: 1, code: 'class A {\n  async x() {\n    return this.prisma.a.findMany({ where });\n  }\n}' },
     // 完全没有 where
     { name: 'bad-no-where', expect: 1, code: 'class A {\n  async x() {\n    return this.prisma.a.findMany({ select: { id: true } });\n  }\n}' },

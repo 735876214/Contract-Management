@@ -25,7 +25,7 @@ export async function loadLedgerContractPage(
   opts: { where: Record<string, any>; pageIds: string[] | null; skip: number; take: number },
 ) {
   const [rows, total] = await Promise.all([
-    // @no-limit: 分页由调用方控制——命中 id 分支按 id 集合取当页（有界）；常规分支带 skip/take
+    // @no-limit: 分页由调用方控制——命中 id 分支按 id 集合取当页（有界）；常规分支带 skip/take｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.contract.findMany({
       where: opts.pageIds ? { ...opts.where, id: { in: opts.pageIds } } : opts.where,
       ...(opts.pageIds ? {} : { skip: opts.skip, take: opts.take }),
@@ -52,37 +52,37 @@ export async function loadLedgerContractFacts(db: Db, contractIds: string[]) {
     return { items: [], reports: [], ledgerRows: [], settlements: [], invoices: [], payments: [], finalSettlements: [] };
   }
   const [items, reports, ledgerRows, settlements, invoices, payments, finalSettlements] = await Promise.all([
-    // @no-limit: 按当页合同 id 集合取（有界）
+    // @no-limit: 按当页合同 id 集合取（有界）｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.contractMaterial.findMany({
       where: { contractId: { in: contractIds } },
       select: { contractId: true, materialBase: { select: { name: true } } },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界），仅两列
+    // @no-limit: 按当页合同 id 集合取（有界），仅两列｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.dailyReport.findMany({
       where: { contractId: { in: contractIds } },
       select: { contractId: true, entryDate: true },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界），仅三列
+    // @no-limit: 按当页合同 id 集合取（有界），仅三列｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.settlementLedger.findMany({
       where: { contractId: { in: contractIds } },
       select: { contractId: true, settleMonth: true, monthSettleAmount: true },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界）
+    // @no-limit: 按当页合同 id 集合取（有界）｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.settlement.findMany({
       where: { contractId: { in: contractIds }, ...notDraft },
       select: { contractId: true, actualAmount: true, amount: true },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界）；另取税前/税率，供「开累发票税前 / 进项税额」逐张派生
+    // @no-limit: 按当页合同 id 集合取（有界）；另取税前/税率，供「开累发票税前 / 进项税额」逐张派生｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.invoice.findMany({
       where: { contractId: { in: contractIds }, ...countedInvoiceWhere() },
       select: { contractId: true, amountBeforeTax: true, amountWithTax: true, taxRatePct: true },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界）
+    // @no-limit: 按当页合同 id 集合取（有界）｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.paymentRecord.findMany({
       where: { contractId: { in: contractIds }, ...paidPaymentWhere() },
       select: { contractId: true, payMonth: true, amount: true },
     }),
-    // @no-limit: 按当页合同 id 集合取（有界）；一合同至多一张（@@unique(projectId, contractId)）
+    // @no-limit: 按当页合同 id 集合取（有界）；一合同至多一张（@@unique(projectId, contractId)）｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
     db.finalSettlement.findMany({
       where: { contractId: { in: contractIds }, statusCode: FINAL_SETTLEMENT_STATUS.SETTLED },
       select: { contractId: true, totalAmount: true },
@@ -97,7 +97,7 @@ export async function loadLedgerContractFacts(db: Db, contractIds: string[]) {
  * 避免逐行查库退化成 N+1。
  */
 export async function loadLedgerChainRows(db: Db, projectId: string) {
-  // @no-limit: 链结构只能内存解析（父行可能不在当页），取的是 4 个窄列
+  // @no-limit: 链结构只能内存解析（父行可能不在当页），取的是 4 个窄列｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
   return db.contract.findMany({
     where: { projectId },
     select: { id: true, parentContractId: true, amount: true, changeAmount: true },
@@ -109,7 +109,7 @@ export async function loadLedgerChainRows(db: Db, projectId: string) {
  * `groupBy + _min` 与展示侧的 `Math.min(...entryDate)` 同口径。
  */
 export async function loadComplianceScan(db: Db, where: Record<string, any>) {
-  // @no-limit: 内存派生列筛选必须先扫全项目合同（只取 4 个窄列、不取整行），规则无法进 SQL where
+  // @no-limit: 内存派生列筛选必须先扫全项目合同（只取 4 个窄列、不取整行），规则无法进 SQL where｜重看触发：台账行 > 5000 时把合规性筛选下推到 SQL（内存派生列要重写口径）
   const contracts = await db.contract.findMany({
     where,
     select: {

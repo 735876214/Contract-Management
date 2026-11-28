@@ -1009,7 +1009,7 @@ export class SettlementService {
      * 结算来源 = **总日报行**（业务口径 2026-10-18：有总日报之后才有结算单）。
      * 收领单推送的日报行与手工录入的日报行同属来源；`require_confirmed` 开启时只算「已确认」行。
      */
-    // @no-limit: 结算来源=期内总日报行，必须全量（contractId 只排空，不限定单张合同）
+    // @no-limit: 结算来源=期内总日报行，必须全量（contractId 只排空，不限定单张合同）｜重看触发：期内日报行 > 2 万时改成后台批处理（现在同步跑，超网关超时风险）
     const rows = await this.prisma.dailyReport.findMany({
       where: {
         projectId,
@@ -1070,7 +1070,7 @@ export class SettlementService {
     const period = previousSettlementPeriod(startDay, opts.refDate ? new Date(opts.refDate) : new Date());
     const gated = await this.requireConfirmed();
     // 结算明细来源：期内总日报行（业务口径 2026-10-18）
-    // @no-limit: 同上：期内总日报行全量，contractId 只是可选限定
+    // @no-limit: 同上：期内总日报行全量，contractId 只是可选限定｜重看触发：期内日报行 > 2 万时改成后台批处理（现在同步跑，超网关超时风险）
     const dailyRows = await this.prisma.dailyReport.findMany({
       where: {
         projectId,
@@ -1093,6 +1093,7 @@ export class SettlementService {
       },
     });
     // 收领单只用于回挂（发票/台账按关联归集），不再参与明细金额计算
+    // @no-limit: settlementId: null 是「IS NULL」筛选，本来就是全项目未挂单的收领单（要全部回挂）｜重看触发：期内收领单 > 2000 时按合同分批回挂
     const receipts = await this.prisma.receiptOrder.findMany({
       where: {
         projectId,
