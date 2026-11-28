@@ -129,7 +129,7 @@ export default function PreMeetingMinutes() {
   const sf = useProcurementStageForm<MinutesDetail, MinutesForm>({
     moduleType: MODULE_TYPE,
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.preMeetingMinutes(id) as Promise<MinutesDetail>,
+    load: (id) => procurementTaskApi.preMeetingMinutes(id) as unknown as Promise<MinutesDetail>,
     initForm: () => EMPTY_FORM,
     onLoaded: (d, setForm) => {
       const data = (d?.data ?? {}) as NonNullable<MinutesDetail['data']>;

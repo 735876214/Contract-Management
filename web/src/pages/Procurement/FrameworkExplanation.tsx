@@ -94,7 +94,7 @@ export default function FrameworkExplanation() {
     moduleType: 'FRAMEWORK_EXPLANATION',
     exportModuleType: 'FRAMEWORK',
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.frameworkExplanation(id) as Promise<ExplanationDetail>,
+    load: (id) => procurementTaskApi.frameworkExplanation(id) as unknown as Promise<ExplanationDetail>,
     initForm: () => EMPTY_FORM,
     onLoaded: (d, setForm) => {
       const data = (d?.data ?? {}) as any;

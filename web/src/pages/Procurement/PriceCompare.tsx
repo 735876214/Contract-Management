@@ -74,7 +74,7 @@ export default function PriceCompare() {
   const sf = useProcurementStageForm<PriceDetail, PriceForm>({
     moduleType: MODULE_TYPE,
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.priceCompare(id) as Promise<PriceDetail>,
+    load: (id) => procurementTaskApi.priceCompare(id) as unknown as Promise<PriceDetail>,
     initForm: () => EMPTY_FORM,
     onLoaded: (d, setForm) => {
       const data = (d?.data ?? {}) as NonNullable<PriceDetail['data']>;

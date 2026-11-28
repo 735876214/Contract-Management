@@ -134,7 +134,7 @@ export default function Notice() {
   const sf = useProcurementStageForm<NoticeDetail, NoticeForm>({
     moduleType: MODULE_TYPE,
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.notice(id) as Promise<NoticeDetail>,
+    load: (id) => procurementTaskApi.notice(id) as unknown as Promise<NoticeDetail>,
     initForm: noticeInitForm,
     buildSavePayload: (form) => ({
       procurementNo: form.procurementNo,

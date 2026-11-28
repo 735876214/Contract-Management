@@ -130,7 +130,7 @@ export default function Document() {
   const sf = useProcurementStageForm<DocumentDetail, DocumentForm>({
     moduleType: MODULE_TYPE,
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.document(id) as Promise<DocumentDetail>,
+    load: (id) => procurementTaskApi.document(id) as unknown as Promise<DocumentDetail>,
     initForm: documentInitForm,
     buildSavePayload: (form) => ({
       procurementTime: form.procurementTime || null,

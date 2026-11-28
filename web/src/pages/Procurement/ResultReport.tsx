@@ -94,7 +94,7 @@ export default function ResultReport() {
   const sf = useProcurementStageForm<ResultDetail, ResultForm>({
     moduleType: MODULE_TYPE,
     listPath: LIST_PATH,
-    load: (id) => procurementTaskApi.resultReport(id) as Promise<ResultDetail>,
+    load: (id) => procurementTaskApi.resultReport(id) as unknown as Promise<ResultDetail>,
     // 带额外状态（suppliers/candidates）：由 onLoaded 自行 setForm
     initForm: () => EMPTY_FORM,
     onLoaded: (d, setForm) => {
