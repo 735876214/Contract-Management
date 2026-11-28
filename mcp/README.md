@@ -177,7 +177,8 @@ mcp/
 │   ├── prompts.ts      # 口径提示词的结构声明（正文向服务端取）
 │   ├── context.ts      # 口径上下文资源（状态码/采购工作流/指标口径 + 字典模板）
 │   ├── cms-client.ts   # 登录/信封解包/项目头/二进制下载/multipart 上传
-│   ├── server.ts       # 核心工具的注册（插件工具在 generated/ 下）
+│   ├── server.ts       # 核心工具的注册（插件工具清单在 generated/ 下）
+│   ├── generated/      # 构建期生成：plugin-tools.generated.ts（插件 MCP 工具，勿手改）
 │   └── index.ts        # 入口：stdio 默认 / --http 模式
 ├── test/               # unit + smoke + http + e2e
 └── .env.example
