@@ -5,7 +5,7 @@
 
 ## 1. 环境要求
 
-- Node 20（CI/镜像用 `node:20-slim`；本地开发容器用 `node:20`，含 openssl，Prisma 需要）
+- **Node ≥ 22.18**（本地开发容器与 CI 都用 `node:24`；测试文件 `test/*.spec.mts` 依赖 Node 的类型擦除直接加载 `.mts`，node:20 会直接报无法识别。生产镜像 `deploy/single/Dockerfile.single` 仍用 `node:20-slim`——它只跑编译产物，不跑测试）
 - **npm**（锁文件 `server/package-lock.json`、`web/package-lock.json` **已入库**）。
   安装命令统一带 `--legacy-peer-deps`，与镜像/CI 的 `npm ci --legacy-peer-deps` 完全一致
   （2026-10 从 pnpm 收敛到 npm，原因见 README「依赖管理」）。
