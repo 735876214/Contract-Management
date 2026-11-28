@@ -1,10 +1,14 @@
 /**
  * 冒烟测试：用官方 SDK 客户端以 stdio 启动服务端，完成 MCP 握手并列出工具。
- * 不依赖后端在线（只验证协议与工具注册），断言工具数量与关键工具存在。
+ * 不依赖后端在线（只验证协议与工具注册），断言工具数量与关键工具存在
+ * （核心工具 + 插件工具 = 注册面全集）。
  */
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+// 插件工具清单由 plugin.json 的 mcpTools 构建期生成（pretest 已先 build），这里跟着生成物走：
+// 每加一个插件工具就手改一次断言，等于把「两份清单各说一套」的问题搬进测试里。
+import { PLUGIN_MCP_TOOLS } from '../dist/generated/plugin-tools.generated.js';
 
 const transport = new StdioClientTransport({
   command: process.execPath,
@@ -34,8 +38,16 @@ const expected = [
   'cms_export_contract_word',
   'cms_import',
 ];
-for (const n of expected) assert.ok(names.includes(n), `缺少工具 ${n}`);
-assert.equal(names.length, expected.length, `工具数量应为 ${expected.length}，实际 ${names.length}`);
+for (const n of expected) assert.ok(names.includes(n), `缺少核心工具 ${n}`);
+
+// 插件工具（dev-example 等）与核心工具一视同仁：必须在注册面上，且数量不能多也不能少
+const expectedPlugin = PLUGIN_MCP_TOOLS.map((t) => t.name);
+for (const n of expectedPlugin) assert.ok(names.includes(n), `缺少插件工具 ${n}`);
+assert.equal(
+  names.length,
+  expected.length + expectedPlugin.length,
+  `工具数量应为 ${expected.length + expectedPlugin.length}（核心 ${expected.length} + 插件 ${expectedPlugin.length}），实际 ${names.length}`,
+);
 
 // cms_list_resources 不依赖后端，返回资源目录
 const res = await client.callTool({ name: 'cms_list_resources', arguments: {} });

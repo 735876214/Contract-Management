@@ -96,6 +96,10 @@ CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
 | `cms_export_contract_word` | 按合同 id 导出 Word |
 | `cms_import` | 导入 Excel（multipart）；`validateOnly=true` 只预校验不写库 |
 
+插件还会自带工具：`plugin.json` 的 `mcpTools` 经 `scripts/gen-plugins.mjs` 校验（**只允许 GET**、
+权限 ⊆ 插件声明、path 必须是控制器里真实存在的 `@Get`）后生成为 `src/generated/plugin-tools.generated.ts`，
+启动时与核心工具一起注册。示例插件 `dev-example` 就带两个（`dev_example_summary` / `dev_example_permissions`）。
+
 支持的资源：`projects` / `suppliers` / `contracts` / `materials` / `contract-materials` /
 `daily-reports` / `assets` / `settlements` / `payments` / `invoices` / `ledger` /
 `repayments` / `procurement-tasks` / `dict`。各资源能力见 `src/resources.ts`（单一事实源）。
@@ -139,7 +143,7 @@ CMS_MCP_HTTP_TOKEN=换成强随机串 node dist/index.js --http 8787
 
 ### 口径提示词（MCP prompts）
 
-除 8 个工具外还注册了 3 个 **MCP prompt**，把系统内的**口径原文**给外部 AI 复用：
+除上面这些工具外还注册了 3 个 **MCP prompt**，把系统内的**口径原文**给外部 AI 复用：
 
 | prompt | 作用 | 参数 |
 |---|---|---|
@@ -173,7 +177,7 @@ mcp/
 │   ├── prompts.ts      # 口径提示词的结构声明（正文向服务端取）
 │   ├── context.ts      # 口径上下文资源（状态码/采购工作流/指标口径 + 字典模板）
 │   ├── cms-client.ts   # 登录/信封解包/项目头/二进制下载/multipart 上传
-│   ├── server.ts       # 8 个工具的注册
+│   ├── server.ts       # 核心工具的注册（插件工具在 generated/ 下）
 │   └── index.ts        # 入口：stdio 默认 / --http 模式
 ├── test/               # unit + smoke + http + e2e
 └── .env.example

@@ -128,7 +128,7 @@ x-cms-tool: cms_query        # 具体工具名
 
 ## 5. 工具
 
-见 [../mcp/README.md](../mcp/README.md) §工具一览。8 个工具：`cms_list_resources` /
+见 [../mcp/README.md](../mcp/README.md) §工具一览。8 个核心工具：`cms_list_resources` /
 `cms_whoami` / `cms_query` / `cms_get` / `cms_export` / `cms_download_template` /
 `cms_export_contract_word` / `cms_import`，外加 3 个口径提示词（§5.1）与 3 个口径资源 + 1 个字典资源模板（§5.2）。
 
