@@ -1419,6 +1419,44 @@ model SysParam {
   updatedAt DateTime @updatedAt
 }
 
+// ---------------- AI 问数的后台 run（2026-11-24，断线续传） ----------------
+//
+// 为什么需要新表：P3-B 的流式生成绑在 HTTP 请求上——浏览器关页/代理掐断，生成就地丢失，
+// 用户回来只看到半截文字。ApeAdmin 的做法是「后台 run + 事件序号续传」，这里借它的形态：
+// 生成在服务端跑完并落库，前端只是订阅者；断线重连带 `from=<已看事件数>` 接着收。
+//
+// 事件流本体放 Redis（`ai:run:<id>:events`，2 小时 TTL）：它又长又只在生成期间有意义，
+// 不该进业务库；库里只留「终态快照」（答案/是否采用/告警/工具轨迹/对应报告 id），
+// 所以即使 Redis 丢了或进程重启，也能从快照把结果完整交给用户（只是不能逐字重放）。
+model AiChatRun {
+  id            String   @id @default(cuid())
+  projectId     String
+  createdBy     String? // 用户 ID 快照（不建关系：用户删除后历史仍在）
+  createdByName String?
+  question      String   @db.Text
+  // pending → running → done | failed | stopped（终态不再变化）
+  status        String   @default("pending")
+  answerText    String?  @db.Text
+  accepted      Boolean? // 数字对账是否通过；false 表示正文已退回事实汇总
+  warningsJson  Json?
+  toolTraceJson Json?
+  discardedJson Json?
+  // 成功落库后的 AiAnalyticsReport.id（answerMode='chat'）：答案的**唯一事实源**仍是那张表，
+  // 这里只存指针。刻意不建 @relation：报告可被用户删除，而 run 作为历史快照要留下。
+  reportId      String?
+  error         String?  @db.Text
+  // 已产出事件数（Redis 列表长度快照）：断线续传时用它判断「还有没有没送出去的事件」
+  eventCount    Int      @default(0)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([createdBy, createdAt])
+  // 启动时清理「进程重启留下的僵尸 run」按 (status, updatedAt) 扫
+  @@index([status, updatedAt])
+}
+
 // ---------------- 收领单（日报管理 → 收领单，与总日报平级） ----------------
 
 model ReceiptOrder {

@@ -118,7 +118,7 @@ const AI_FAMILY_MODULES = new Set(['ai-core']);
  *
  * 唯一例外是 AI **自己的表**（分析报告存档），它本来就该由 AI 自己读写。
  */
-const AI_OWN_MODELS = new Set(['aiAnalyticsReport']);
+const AI_OWN_MODELS = new Set(['aiAnalyticsReport', 'aiChatRun']);
 
 /**
  * **AI 只读子域不得内联口径片段**（2026-11-23 架构评审 P1）。

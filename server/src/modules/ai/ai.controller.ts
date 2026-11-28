@@ -14,7 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
-import { AiService, AnalyticsService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
+import { AiService, AnalyticsService, ChatRunService, listAiPrompts, renderAiPrompt } from '../ai-insight/index.ts';
 import { listContextDocs, renderContextDoc } from '../ai-insight/index.ts';
 import { AiSettingService } from '../ai-core/ai-setting.service.ts';
 import type { AiSettingInput, AiSettingTestInput } from '../ai-core/ai-setting.service.ts';
@@ -88,6 +88,7 @@ export class AiController {
     private scm: ScmService,
     /** 问数（P3-A）：复用 analytics 的意图/取数/对账/留痕，只换产出形态 */
     private ai: AnalyticsService,
+    private readonly chatRun: ChatRunService,
   ) {}
 
   /**
@@ -229,6 +230,57 @@ export class AiController {
       clearInterval(heartbeat);
       if (!res.writableEnded) res.end();
     }
+  }
+
+  /**
+   * **问数（后台 run）**：建 run 后**立即返回 runId**，生成在服务端跑完。
+   *
+   * 与上面的 `/chat/ask/stream` 的区别（为什么要有两套）：那套把生成绑在 HTTP 请求上，
+   * 关页/断网/代理掐断 = 这次生成白丢，刷新页面也找不回。这套借 ApeAdmin 的 run 架构：
+   * 生成在服务端跑完并落库，前端只是订阅者，断线重连带 `from=<已看事件数>` 续传。
+   * 老接口保留（不回退既有前端与 mcp 的用法），新前端走 run。
+   *
+   * 事件序列与 `/chat/ask/stream` 完全一致（同一份 `streamAsk`）：`phase` → `delta`×N → `final` → `done`。
+   */
+  // @body: typed=inline
+  @RequirePermissions('ai:use')
+  @Post('chat/runs')
+  createChatRun(
+    @Body() body: { text?: string; scope?: any; period?: any; datasets?: string[]; compare?: string; notes?: string },
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.chatRun.create((body || {}) as any, projectId, user);
+  }
+
+  /** run 快照：刷新页面/重连时先取它，再决定要不要从 `bufferedEvents` 续传 */
+  @RequirePermissions('ai:view')
+  @Get('chat/runs/:id')
+  chatRunSnapshot(@Param('id') id: string, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.chatRun.snapshot(id, projectId, user);
+  }
+
+  /**
+   * 订阅 run 的事件流（SSE）。`from` = 客户端已经看过多少条事件（断点续传的关键参数）。
+   * 与上面的流式接口一样，前端要带 `x-raw-response: 1`，否则会被统一信封包住。
+   */
+  @RequirePermissions('ai:use')
+  @Get('chat/runs/:id/stream')
+  async chatRunStream(
+    @Param('id') id: string,
+    @Query('from') from: string,
+    @ProjectId() projectId: string,
+    @CurrentUser() user: JwtUser,
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.chatRun.stream(id, projectId, user, from, res);
+  }
+
+  /** 停止：置标记，执行器收尾时**跳过落库**（不凭空多出一条问答记录），只保留已生成的部分答案 */
+  @RequirePermissions('ai:use')
+  @Post('chat/runs/:id/stop')
+  stopChatRun(@Param('id') id: string, @ProjectId() projectId: string, @CurrentUser() user: JwtUser) {
+    return this.chatRun.stop(id, projectId, user);
   }
 
   /** 问答历史（只回问答记录：`answerMode` 由服务端强制为 chat，不接受客户端传入） */

@@ -47,6 +47,7 @@ const AiAnalytics = lazy(() => import('@/pages/AiAnalytics'));
 const AiSettings = lazy(() => import('@/pages/AiSettings'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const PluginsPage = lazy(() => import('@/pages/Plugins'));
+const McpAuditPage = lazy(() => import('@/pages/McpAudit'));
 const Clauses = lazy(() => import('@/pages/Clauses'));
 const ContractDraft = lazy(() => import('@/pages/ContractDraft'));
 const ContractQuery = lazy(() => import('@/pages/ContractQuery'));
@@ -215,6 +216,7 @@ export const routes: RouteObject[] = [
       // 权限也分开——改配置属于系统配置（system:config），用 AI 属于 ai:view / ai:use
       { path: 'system/ai-register', element: perm('/system/ai-register', <AiSettings />) },
       { path: 'system/plugins', element: perm('/system/plugins', <PluginsPage />) },
+      { path: 'system/mcp', element: perm('/system/mcp', <McpAuditPage />) },
 
       // —— 旧扁平路径（历史书签 / 深链兼容）：**重定向保号** ——
       // 原约定是「新旧路径并存，勿删」（两套路径渲染同一组件）；此处收敛为 301 式重定向：
