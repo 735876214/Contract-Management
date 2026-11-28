@@ -83,11 +83,6 @@
   类型文件 + api 泛型 + `api-shape-<域>.int.spec.ts`（用 `test-integration/helpers.ts` 的
   `readWebTypeKeys()` / `readQueryParamKeys()`）。辅助端点若返回「操作结果包」（`skipped/created/提示文案`），
   等真正消费时再收，别为类型而类型。
-- **两个超长方法是拆分后的残留**：`settlement.service.ts:1010 generateForPeriod` **235 行**
-  （起始日检查 → 读日报/收领单 → 双重分组 → 逐合同排序加锁 → 已有单补挂 → 明细构建 → 4 类 skipped 统计 →
-  事务建单 → 提交后刷台账 → 12 字段结果对象）、`procurement-task.service.ts:500 publish` **210 行**。
-  加法：`generateForPeriod` 抽 `generateOne(contractId, ctx)`，把 6 个松散 `skipped*` 字段收成 `GenerationStats`；
-  纯搬运、无口径改动，改完必须跑 `test:int`（`settlement-link` / `settlement-item` 覆盖这条链）。
 
 ## 四域扩展（已收口，不再立项）
 
