@@ -1,3 +1,4 @@
+import { formatDay } from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 /**
  * 采购文件 · 文档构建与变量取值（批次二 · 任务 3.4）
@@ -81,13 +82,6 @@ const esc = (s: unknown): string =>
 
 const cell = (v: unknown): string => `<td>${v == null || v === '' ? '' : esc(v)}</td>`;
 
-const fmtDate = (v: string | Date | null | undefined): string => {
-  if (!v) return '';
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 
 /** 金额格式化（千分位 + 2 位小数）；空值返回空串（文档正文口径，与台账的 `-` 不同） */
 export function fmtAmount(v: number | null | undefined): string {
@@ -169,7 +163,7 @@ export function buildDocumentInfoTableHtml(data: DocumentData, ctx: DocumentCont
   const rows: [string, string][] = [
     ['采购编号', esc(ctx.procurementNo ?? '')],
     ['采购内容', esc(ctx.content ?? '')],
-    ['采购时间', esc(fmtDate(data.procurementTime))],
+    ['采购时间', esc(formatDay(data.procurementTime) ?? '')],
     ['响应保证金', data.responseDeposit == null ? '' : esc(`${fmtAmount(data.responseDeposit)} 元`)],
   ];
   return (
@@ -192,7 +186,7 @@ export function buildDocumentVariableValues(
     技术质量标准: rich(ctx.techQuality),
     验收方式: rich(ctx.acceptanceMethod),
     付款方式: rich(ctx.paymentMethod),
-    采购时间: fmtDate(data.procurementTime),
+    采购时间: formatDay(data.procurementTime) ?? '',
     响应保证金: data.responseDeposit == null ? '' : fmtAmount(data.responseDeposit),
     报价说明: rich(data.quoteDescription),
     '采购文件-采购清单': buildDocumentPurchaseListHtml(data.purchaseItems ?? [], data.quoteDescription),

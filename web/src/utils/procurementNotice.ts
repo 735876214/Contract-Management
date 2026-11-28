@@ -1,3 +1,4 @@
+import { formatDay } from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 /**
  * 采购公告 · 文档构建与变量取值（批次二 · 任务 3.3）
@@ -105,13 +106,6 @@ const esc = (s: unknown): string =>
 
 const cell = (v: unknown): string => `<td>${v == null || v === '' ? '' : esc(v)}</td>`;
 
-const fmtDate = (v: string | Date | null | undefined): string => {
-  if (!v) return '';
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 
 /** 富文本区：为空给占位，非空直接注入（内容来自富文本编辑器） */
 const rich = (html?: string | null): string => {
@@ -152,7 +146,7 @@ export function buildNoticeInfoTableHtml(data: NoticeData, ctx: NoticeContext): 
   const entries = contactEntries(data.contacts, data.contactPhones);
   const rows: [string, string][] = [
     ['采购编号', esc(data.procurementNo ?? '')],
-    ['采购时间', esc(fmtDate(data.procurementTime))],
+    ['采购时间', esc(formatDay(data.procurementTime) ?? '')],
     ['采购内容', esc(data.content ?? ctx.content ?? '')],
     ['联系人', multiCell(entries, (e) => e.name, '联系人')],
     ['联系电话', multiCell(entries, (e) => e.phone, '联系电话')],
@@ -173,7 +167,7 @@ export function buildNoticeVariableValues(
     // 项目基本情况变量：采购 6 个单据模块共用同一份取值（utils/projectVars.ts）
     ...projectVars(ctx),
     采购编号: String(data.procurementNo ?? ''),
-    采购时间: fmtDate(data.procurementTime),
+    采购时间: formatDay(data.procurementTime) ?? '',
     采购内容: String(data.content ?? ctx.content ?? ''),
     技术质量标准: rich(data.techQuality),
     验收方式: rich(data.acceptanceMethod),

@@ -15,6 +15,7 @@ import {
 } from '../supplier';
 import { renderTemplate, pendingPlaceholders } from './template-render';
 import { keywordWhere } from '../../common/utils/list-where';
+import { sumAmounts } from '@cms/calc';
 
 // version 只用于乐观锁校验（create/update 里都由服务端显式赋值，不会被请求体覆盖）
 const TPL_FIELDS = ['name', 'categoryCode', 'tags', 'status', 'content', 'pageSetup', 'projectId', 'parentId', 'createdBy', 'version'];
@@ -277,7 +278,7 @@ export class TemplateService {
     );
 
     // 暂定含税合价合计（用于「合同额大写」）
-    const materialTotal = rows.reduce((sum: number, r: any) => sum + (Number(r.totalWithTax) || 0), 0);
+    const materialTotal = sumAmounts(rows, (r: any) => r.totalWithTax);
 
     return { codeTable, itemTable, materialTotal };
   }

@@ -22,6 +22,7 @@
 import { round } from '@cms/calc/money';
 import { buildOverdueStats, summarizeOverdue, type OverdueStats } from './overdue-summary';
 import { modeTranchesOf } from '../contract';
+import { sumAmounts } from '@cms/calc';
 
 export { round };
 
@@ -257,7 +258,7 @@ export function recalculatePayables(
     list,
     (row, idx) => (row.waived ? 0 : derived.get(idx)?.overdueInterest || 0),
     // 应付款项主子表里付款额不在主表上：实际付款合计必须由付款流水给出，否则恒为 0
-    { totalPayment: round(payList.reduce((a, { p }) => a + (Number(p.paymentAmount) || 0), 0), 2) || 0 },
+    { totalPayment: round(sumAmounts(payList, ({ p }) => p.paymentAmount), 2) || 0 },
   );
 
   return {

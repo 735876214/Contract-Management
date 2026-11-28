@@ -25,6 +25,7 @@ import { monthKey } from '../../domain/settlement-period';
 import { CONTRACT_EXECUTION_STATUS, FINAL_SETTLEMENT_STATUS } from '../../constants/statuses';
 import { FINAL_SETTLEMENT_MAX_ITEMS, renderFinalSettlementXlsx } from './final-settlement-excel';
 import { formatFinalSettlementDocNumber } from './final-settlement-doc-number';
+import { sumAmounts } from '@cms/calc';
 
 // 只允许改备注；审减金额一并只走 updateItems（自带「待上传附件」状态守卫），
 // 否则已结算（已冻结快照）后仍能经 PUT /:id 单改审减，绕过冻结口径。
@@ -192,7 +193,7 @@ export class FinalSettlementService {
       settlementId: s.id,
       sortOrder: i + 1,
     }));
-    const totalAmount = round2(items.reduce((t, i) => t + (Number(i.amount) || 0), 0));
+    const totalAmount = sumAmounts(items, (i) => i.amount);
     const docNumber = await this.buildDocNumber(projectId, new Date(), false);
 
     try {
@@ -317,7 +318,7 @@ export class FinalSettlementService {
 
     const existing = new Map<string, any>((before.items || []).map((x: any) => [x.id, x]));
     const keepIds = new Set(normalized.filter((n) => n.id && existing.has(n.id)).map((n) => n.id as string));
-    const totalAmount = round2(normalized.reduce((t, i) => t + (Number(i.amount) || 0), 0));
+    const totalAmount = sumAmounts(normalized, (i) => i.amount);
     // 审减金额：缺省（未传）沿用原值；显式传入必须是有限数字（"abc" 不静默归 0）；
     // 且不得大于合计（否则审定金额为负，打印出负值）。负合计（净退货合同）不套此上限。
     let reduceAmount: number;

@@ -10,6 +10,7 @@
  */
 
 import { round2 } from '@cms/calc/money';
+import { sumAmounts } from '@cms/calc';
 import { formatYuan as fmtYuan, changeRateText } from '../../ai-core/common/format.ts';
 import { auditNumbers, numbersInText } from '../report-facts.ts';
 import { AI_DATASETS, datasetByKey } from '../../ai-core/dataset/dataset-registry.ts';
@@ -292,8 +293,8 @@ export function analyticsFactsToMarkdown(facts: AiAnalyticsFacts, options: Repor
     }
     const rest = allProjects.slice(TABLE_ROWS_IN_REPORT);
     if (rest.length) {
-      const sum = (pick: (p: AiAnalyticsProjectFact) => number): number =>
-        round2(rest.reduce((s, p) => s + pick(p), 0));
+      // 金额求和走 @cms/calc 的 sumAmounts（内部 round2），别在页面/报表里再写一遍 reduce
+      const sum = (pick: (p: AiAnalyticsProjectFact) => number): number => sumAmounts(rest, pick);
       lines.push(
         `| 其余 ${rest.length} 个项目合计 | ${rest.reduce((s, p) => s + p.contractCount, 0)} | ${fmtYuan(sum((p) => p.signedYuan))} | ${fmtYuan(sum((p) => p.settledYuan))} | ${fmtYuan(sum((p) => p.paidYuan))} | ${fmtYuan(sum((p) => p.invoicedYuan))} | ${fmtYuan(sum((p) => p.uninvoicedYuan))} |`,
       );

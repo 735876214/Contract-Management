@@ -83,18 +83,6 @@
   类型文件 + api 泛型 + `api-shape-<域>.int.spec.ts`（用 `test-integration/helpers.ts` 的
   `readWebTypeKeys()` / `readQueryParamKeys()`）。辅助端点若返回「操作结果包」（`skipped/created/提示文案`），
   等真正消费时再收，别为类型而类型。
-- **页面内的临时求和闭包绕过 calc 聚合（6 处）**：`ledger.service.ts:318`（`sumBy`）、
-  `cost/monthly-profit-loss.service.ts:325`、`contract/pay-ratio.ts:102`、`ai-insight/report.service.ts:332`、
-  `ai-insight/field-resolver.service.ts:291`、`ai-insight/analytics/dataset-facts.ts:295` 各有 `reduce(... + Number(...))`。
-  内存侧单一实现在 `packages/calc/aggregate.ts`、SQL 侧在 `common/utils/group-sum.ts`，这些是漏网。
-  建议先替换成 calc 原语，再给 eslint 加一条「`src/modules/` 内金额列求和必须走 calc」的限制
-  （按 `reduce` 里 `+ Number(` 的形态拦），否则下次还会长回来。
-- **日期 UTC 规则在 web 侧没有门禁**：`server/eslint.config.mjs` 的 `no-restricted-syntax`
-  （`new Date(x.startDate|endDate)`）2026-11-24 已从 `src/modules` 扩到整个 `src/`，但 `web/` 不在其中；
-  实测 4 处同名写法：`web/src/utils/preMeetingMinutes.ts:212`、`procurementResultReport.ts:132`、
-  `procurementDocument.ts:86`、`procurementNotice.ts:110`（`const d = v instanceof Date ? v : new Date(v)`）。
-  当前 +08:00 下不显现偏移，但浏览器换时区会把 `2026-01-05` 打成 `2026-01-04`，而这是**印在正式单据上**的日期。
-  加法：`web/eslint.config.mjs` 加同款规则 + 4 处改用 `@cms/calc/time` 的本地日原语。
 - **两个超长方法是拆分后的残留**：`settlement.service.ts:1010 generateForPeriod` **235 行**
   （起始日检查 → 读日报/收领单 → 双重分组 → 逐合同排序加锁 → 已有单补挂 → 明细构建 → 4 类 skipped 统计 →
   事务建单 → 提交后刷台账 → 12 字段结果对象）、`procurement-task.service.ts:500 publish` **210 行**。

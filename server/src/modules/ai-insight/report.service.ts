@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 const HTMLtoDOCX: any = require('html-to-docx');
 import fontkit from '@pdf-lib/fontkit';
 import { StorageService } from '../../common/services/storage.service.ts';
-import { round2 } from '@cms/calc/money';
+import { sumAmounts } from '@cms/calc';
 import { assertPermission } from '../../common/utils/assert-permission.ts';
 import { CONTRACT_EXECUTION_STATUS } from '../../constants/statuses.ts';
 import {
@@ -329,8 +329,8 @@ export class ReportService {
       // 日报按**进场日期**（业务日期）归期，与结算生成/归档检查同一口径
       countDailyReports(this.prisma, projectId, { from, to }),
     ]);
-    const sum = (rows: any[], pick: (r: any) => unknown): number =>
-      round2(rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0));
+    // 金额求和走 @cms/calc 的 sumAmounts（内部 num() + round2，与台账/看板同一口径）
+    const sum = (rows: any[], pick: (r: any) => unknown): number => sumAmounts(rows, pick);
     return {
       contractsSigned: signed.length,
       /**

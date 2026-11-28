@@ -32,6 +32,7 @@
 import {
   defaultFinalPrice as defaultFinalPriceShared,
   isYesFlag,
+  formatDay,
 } from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 
@@ -127,13 +128,6 @@ const cell = (v: unknown): string => {
   return `<td>${esc(v)}</td>`;
 };
 
-const fmtDate = (v: string | Date | null | undefined): string => {
-  if (!v) return '';
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 
 /** 金额格式化（千分位 + 2 位小数）；空值返回空串（文档正文口径） */
 export const fmtAmount = (v: number | null | undefined): string => formatAmount(numOrNull(v), 2, '');
@@ -304,7 +298,7 @@ export function buildResultInfoTableHtml(
     ['采购内容', esc(ctx.content ?? '')],
     ['预计采购金额', esc(fmtAmount(ctx.estimatedAmount))],
     ['成交单位数量', esc(fmtCount(data.unitCount))],
-    ['采购开启时间', esc(fmtDate(data.openTime))],
+    ['采购开启时间', esc(formatDay(data.openTime) ?? '')],
     ['开启地点', esc(data.openPlace ?? '')],
     ['评审小组成员', esc(data.reviewMembers ?? '')],
     ['审核通过响应单位数量', esc(fmtCount(data.approvedCount))],
@@ -332,7 +326,7 @@ export function buildResultReportVariableValues(
     // 单位（元）写进变量名：与采前会的同名量（万元）区分，避免差 10000 倍
     '预计采购金额(元)': fmtAmount(ctx.estimatedAmount),
     成交单位数量: fmtCount(data.unitCount),
-    采购开启时间: fmtDate(data.openTime),
+    采购开启时间: formatDay(data.openTime) ?? '',
     开启地点: String(data.openPlace ?? ''),
     评审小组成员: String(data.reviewMembers ?? ''),
     审核通过响应单位数量: fmtCount(data.approvedCount),

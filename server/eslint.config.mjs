@@ -77,6 +77,14 @@ export default tseslint.config(
           message:
             '金额/数量舍入用 @cms/calc/money 的 round2 / round4（Number(x.toFixed(2)) 是另一套舍入：1.005 → 1、8.165 → 8.16，与 money.spec 锁定的口径相反）。',
         },
+        {
+          // 2026-11-28：内存里手写求和是「口径长回来的入口」——空值处理、舍入位数、
+          // 选哪些字段，每个人写法都不一样。金额用 @cms/calc 的 sumAmounts（内部 num + round2），
+          // 数量/比例用 @cms/calc/numeric 的 sum（不舍入）；SQL 侧走 common/utils/group-sum。
+          selector: "CallExpression[callee.property.name='reduce'] CallExpression[callee.name='Number']",
+          message:
+            '别在 reduce 里手写 Number(...) 求和：金额走 @cms/calc 的 sumAmounts、数量/比例走 @cms/calc/numeric 的 sum（组求和走 aggregate/groupBy）。',
+        },
       ],
     },
   },

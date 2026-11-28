@@ -54,6 +54,14 @@ export default tseslint.config(
           message:
             '金额/数量展示统一用 @/utils/money 的 formatAmount / formatMoney / formatNumber；时间戳用 formatDateTime。',
         },
+        {
+          // 2026-11-28：与服务端同款规则。纯日期字段（*.startDate / *.endDate / *.signDate …）
+          // 用 new Date(x) 解析走的是 **UTC**，浏览器时区不是 +08:00 时会回退一天，
+          // 而这串日期常直接印在正式单据上。格式化走 @cms/calc/time 的 formatDay / localDayKey。
+          selector: "NewExpression[callee.name='Date'][arguments.0.property.name=/Date$/]",
+          message:
+            '纯日期字段别用 new Date(x.xxxDate)：按 UTC 解析，非 +08:00 时区会回退一天。用 @cms/calc/time 的 formatDay / startOfDay / endOfDay。',
+        },
       ],
     },
   },

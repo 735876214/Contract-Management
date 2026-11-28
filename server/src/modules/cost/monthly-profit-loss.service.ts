@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '@cms/calc/numeric';
+import { num, sum } from '@cms/calc/numeric';
 import { assertInProject, assertVersion, buildResult, paginate, versionedUpdate } from '../../common/utils/helpers';
 import { round2, round4 } from '@cms/calc/money';
 import { periodLabel } from '../../domain/settlement-period';
@@ -322,10 +322,11 @@ export class MonthlyProfitLossService {
     let actualSum = 0;
     let actualKnown = true;
     for (const [, list] of byMat) {
-      const sum = (f: string) => list.reduce((s, x) => s + (Number(x[f]) || 0), 0);
+      // 数量求和走 @cms/calc 的 sum（空值忽略、不舍入：数量列不做金额级四舍五入）
+      const sumOf = (f: string) => sum(list, (x: any) => x[f]);
       // 任一行未填 → 合计 null（未知 ≠ 0；只加已知行会低估）
       const nullableSum = (f: string) =>
-        list.some((x) => x[f] == null) ? null : sum(f);
+        list.some((x) => x[f] == null) ? null : sumOf(f);
       const qty = nullableSum('entryQty');
       const theory = nullableSum('theoryUseQty');
       const actual = nullableSum('actualUseQty');
