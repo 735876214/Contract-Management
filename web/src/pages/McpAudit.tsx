@@ -110,6 +110,7 @@ export default function McpAuditPage() {
         <Table
           size="small"
           rowKey="tool"
+          scroll={{ x: 620 }}
           dataSource={overview?.tools || []}
           pagination={false}
           columns={[
@@ -154,6 +155,7 @@ export default function McpAuditPage() {
         <Table
           size="small"
           rowKey="id"
+          scroll={{ x: 900 }}
           loading={loading}
           dataSource={calls}
           pagination={{ current: page, pageSize, total, showSizeChanger: true, onChange: (p, s) => { setPage(p); setPageSize(s); } }}

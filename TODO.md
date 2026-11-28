@@ -36,13 +36,6 @@
   **有数据时**的手机端排版（演示库样本为 0，目前只验证过空态；表结构已补 `scroll`）。
 - **LLM 措辞质量人工评分**：网关一直没配密钥，目前只验证了模板降级链路；配好密钥后补一次人工打分
   （结论是否点名到单据、动作是否可执行、有没有编数字）。
-- **AI 问数 / 插件管理页的前端真渲染核对**（2026-11-24 P3-B 交付时遗留）：
-  `web/src/components/ai/chat/ChatPanel.tsx` 与 `web/src/pages/Plugins.tsx` 只过了 `tsc` + `eslint` + `vite build`，
-  **没有按 [docs/development.md](docs/development.md) §5.2 真渲染看一眼**（CLAUDE.md 验收铁律第 5 条）。要核三处：
-  ① 问数 Tab 流式输出——`delta` 追加与 `final` **覆盖**（对账不通过时正文会换成事实汇总，不能残留模型原文）；
-  ② 工具调用的 warning 提示条与 `toolTrace` 在面板里是否可读；③ 插件管理页在 720 / 1440 两档下的表格排版。
-  阻塞原因：需要 dev 容器 + 登录态 + **可用的 AI 上游**（网关密钥未配，当前只能看到模板降级链路），
-  与上方「LLM 措辞质量人工评分」同一前置条件，配好密钥后一并做。
 - **HTTPS 部署**：NAS 反代 + 证书。当前 JWT 走 httpOnly Cookie，无 HTTPS 时既有安全面问题，
   也拿不到 `getUserMedia`（现场拍照）。见
   [docs/09-移动端可行性评估-375px实测.md](docs/09-移动端可行性评估-375px实测.md) §4 阶段 C。
