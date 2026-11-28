@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatNumber } from '@/utils/money';
-import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Upload } from 'antd';
 import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
@@ -8,16 +7,12 @@ import type { UploadFile } from 'antd/es/upload/interface';
 import { DeleteOutlined, EyeOutlined, FileWordOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
-import { projectApi } from '@/api/business';
-import { useAuthStore } from '@/store/auth';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
-import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
-import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { editorTabKey } from '@/utils/tabs';
+import { useProcurementStageForm } from '@/hooks/useProcurementStageForm';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/framework';
@@ -95,141 +90,87 @@ const EMPTY_FORM: ExplanationForm = {
 };
 
 export default function FrameworkExplanation() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const currentProjectId = useAuthStore((s) => s.currentProjectId);
+  const sf = useProcurementStageForm<ExplanationDetail, ExplanationForm>({
+    moduleType: 'FRAMEWORK_EXPLANATION',
+    exportModuleType: 'FRAMEWORK',
+    listPath: LIST_PATH,
+    load: (id) => procurementTaskApi.frameworkExplanation(id) as Promise<ExplanationDetail>,
+    initForm: () => EMPTY_FORM,
+    onLoaded: (d, setForm) => {
+      const data = (d?.data ?? {}) as any;
+      setForm({
+        frameworkIntro: data.frameworkIntro ?? '',
+        negotiation: data.negotiation ?? '',
+        inquiryRows: withKeys(data.inquiryRows ?? []),
+        priceCompareRows: withKeys(data.priceCompareRows ?? []),
+        execution: data.execution ?? '',
+        costRows: withKeys(data.costRows ?? []),
+        referenceSuppliers: withKeys(data.referenceSuppliers ?? []),
+      });
+      setFileList(
+        (data.attachments ?? []).map((f: any, i: number) => ({
+          uid: f.url || `att-${i}`,
+          name: f.fileName || `附件${i + 1}`,
+          status: 'done' as const,
+          response: f,
+        })),
+      );
+    },
+    buildSavePayload: (form) => ({
+      frameworkIntro: form.frameworkIntro,
+      negotiation: form.negotiation,
+      inquiryRows: form.inquiryRows.map(stripKey),
+      priceCompareRows: form.priceCompareRows.map(stripKey),
+      execution: form.execution,
+      costRows: form.costRows.map(stripKey),
+      referenceSuppliers: form.referenceSuppliers
+        .map(stripKey)
+        .filter((r) => String(r.supplier ?? '').trim()),
+      attachments: attachmentsFromList(fileList),
+    }),
+    save: (id, payload) => procurementTaskApi.saveFrameworkExplanation(id, payload as any),
+    emptyForm: EMPTY_FORM,
+    validatePublish: (form) => {
+      if (!String(form.frameworkIntro ?? '').trim()) return '请先填写「框架简介」再发布';
+      const hasUnit = form.referenceSuppliers.some((r) => String(r?.supplier ?? '').trim().length > 0);
+      if (!hasUnit)
+        return '请先在「引用供应商及金额」中填写至少一家单位，再发布框架协议事前说明';
+      return null;
+    },
+    publishSuccessMessage: '已发布，框架协议事前说明状态变更为「已完成」',
+  });
+  const {
+    tabRefresh,
+    taskId,
+    listRefresh,
+    handleDeleteModule,
+    handleViewRow,
+    editRow,
+    handleRowExport,
+    detail,
+    detailLoading,
+    form,
+    setForm,
+    patchForm,
+    currentTask: currentTaskRaw,
+    editable,
+    dirty,
+    saving,
+    publishing,
+    modalMode,
+    setModalMode,
+    openPublishPreview,
+    handlePublish,
+    handleSave,
+    project,
+    viewRow,
+    setViewRow,
+  } = sf;
+  const currentTask = currentTaskRaw as ExplanationDetail['task'] | null;
 
-  /**
-   * 列表与「编辑」是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释。
-   * 编辑态原本是弹窗，现改为编辑器页签（底部操作栏 sticky，长表单不再把按钮滚出视口）。
-   */
-  const editorTab = useEditorTab(LIST_PATH);
-  const tabRefresh = useTabRefresh(LIST_PATH);
-  const taskId = editorTab.editorId === 'new' ? null : editorTab.editorId;
-  /** 兼容旧深链 `?taskId=xxx`：归一成编辑器页签 */
-  useEffect(() => {
-    const legacy = searchParams.get('taskId');
-    if (legacy && !editorTab.isEditor) navigate(editorTabKey(LIST_PATH, legacy), { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  /** 列表刷新键：编辑器页签关闭后由 closeEditor 的 bump 触发；本键用于页内（删除等） */
-  const [listRefresh, setListRefresh] = useState(0);
-  /** 问题二：删除模块记录并回退流程 */
-  const handleDeleteModule = useModuleDelete('FRAMEWORK_EXPLANATION', () => setListRefresh((k) => k + 1));
-
-  const [detail, setDetail] = useState<ExplanationDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  const [form, setForm] = useState<ExplanationForm>(EMPTY_FORM);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   /** 从采购价格对比表导入「价格对比表」明细 */
   const [importing, setImporting] = useState(false);
-  /** 发布后默认预览（只读）；点「重新编辑」解锁 */
-  const [reEditing, setReEditing] = useState(false);
-  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
-  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 未保存改动（关闭编辑器页签前确认） */
-  const [dirty, setDirty] = useState(false);
-  /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
-  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
-  /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
-  const reEditRef = useRef(false);
-
-  const [project, setProject] = useState<{
-    name?: string;
-    nameAbbr?: string;
-    undertaker?: string;
-    provinceCity?: string;
-    siteLocation?: string;
-    projectAddress?: string;
-  }>({});
-
-  const currentTask = detail?.task ?? null;
-  /** 当前是否可编辑：编辑中阶段，或已发布后主动点「重新编辑」 */
-  const editable = !!detail && (detail.editable || (detail.published && reEditing));
-
-  useEffect(() => {
-    if (!currentProjectId) return;
-    projectApi
-      .detail(currentProjectId)
-      .then((res: any) => setProject(res ?? {}))
-      .catch(() => setProject({}));
-  }, [currentProjectId]);
-
-  const loadDetail = useCallback((id: string) => {
-    setDetailLoading(true);
-    procurementTaskApi
-      .frameworkExplanation(id)
-      .then((res: any) => {
-        const d: ExplanationDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
-        setDetail(d);
-        const data = d?.data ?? {};
-        setForm({
-          frameworkIntro: data.frameworkIntro ?? '',
-          negotiation: data.negotiation ?? '',
-          inquiryRows: withKeys(data.inquiryRows ?? []),
-          priceCompareRows: withKeys(data.priceCompareRows ?? []),
-          execution: data.execution ?? '',
-          costRows: withKeys(data.costRows ?? []),
-          referenceSuppliers: withKeys(data.referenceSuppliers ?? []),
-        });
-        setFileList(
-          (data.attachments ?? []).map((f, i) => ({
-            uid: f.url || `att-${i}`,
-            name: f.fileName || `附件${i + 1}`,
-            status: 'done' as const,
-            response: f,
-          })),
-        );
-        setReEditing(reEditRef.current && !!d.published);
-        reEditRef.current = false;
-      })
-      .catch(() => {
-        setDetail(null);
-        setForm(EMPTY_FORM);
-      })
-      .finally(() => setDetailLoading(false));
-  }, []);
-
-  /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
-  const handleViewRow = (row: ModuleListRow) => {
-    if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
-    else editRow(row);
-  };
-  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑）—— 打开编辑器页签，reEdit 随种子递过去 */
-  const editRow = (row: ModuleListRow, reEdit = false) => {
-    editorTab.openEdit(row.id, { reEdit });
-  };
-  /** 编辑器页签挂载时：按种子里的 reEdit 决定初始是否可编辑，并拉详情 */
-  useEffect(() => {
-    if (!taskId) return;
-    reEditRef.current = !!(editorTab.seed as { reEdit?: boolean } | undefined)?.reEdit;
-    loadDetail(taskId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
-
-  /** 关闭编辑器页签（发布后回到列表，并让列表重新取数） */
-  const closeEdit = () => {
-    setDirty(false);
-    editorTab.closeEditor();
-  };
-
-  /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
-  const handleRowExport = async (row: ModuleListRow) => {
-    try {
-      const filename = await exportTaskModuleWord('FRAMEWORK', row.id);
-      message.success(`已导出：${filename}`);
-    } catch (e: any) {
-      message.error(e?.message || '导出失败，请稍后重试');
-    }
-  };
-
-  const patchForm = (patch: Partial<ExplanationForm>) => {
-    setForm((f) => ({ ...f, ...patch }));
-    setDirty(true);
-  };
 
   const updateRow = (
     field: 'inquiryRows' | 'priceCompareRows' | 'costRows' | 'referenceSuppliers',
@@ -257,34 +198,6 @@ export default function FrameworkExplanation() {
       .map((f) => f.response as { fileName?: string; url?: string; size?: number | null } | undefined)
       .filter((f): f is { fileName?: string; url?: string; size?: number | null } => !!f?.url);
 
-  const buildSavePayload = () => ({
-    frameworkIntro: form.frameworkIntro,
-    negotiation: form.negotiation,
-    inquiryRows: form.inquiryRows.map(stripKey),
-    priceCompareRows: form.priceCompareRows.map(stripKey),
-    execution: form.execution,
-    costRows: form.costRows.map(stripKey),
-    referenceSuppliers: form.referenceSuppliers
-      .map(stripKey)
-      .filter((r) => String(r.supplier ?? '').trim()),
-    attachments: attachmentsFromList(fileList),
-  });
-
-  const handleSave = async () => {
-    if (!taskId) return;
-    setSaving(true);
-    try {
-      await procurementTaskApi.saveFrameworkExplanation(taskId, buildSavePayload());
-      message.success('已保存');
-      // 编辑器页签形态下「保存」不关标签，就地重载详情与列表
-      loadDetail(taskId);
-      setDirty(false);
-      setListRefresh((x) => x + 1);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   /** 从采购价格对比表导入「价格对比表」明细（任务 3.6；幂等覆盖本表） */
   const handleImportPriceCompare = async () => {
     if (!taskId) return;
@@ -300,39 +213,6 @@ export default function FrameworkExplanation() {
       message.error(e?.message || '导入失败，请确认采购价格对比表已录入明细');
     } finally {
       setImporting(false);
-    }
-  };
-
-  /** 发布流程第 1 步：校验必填 → 打开「发布前预览」（统一预览发布流程） */
-  const openPublishPreview = () => {
-    if (!taskId) return;
-    if (!String(form.frameworkIntro ?? '').trim()) {
-      message.warning('请先填写「框架简介」再发布');
-      return;
-    }
-    // 需求：框架协议事前说明未勾选/未填写「单位」则无法发起（引用供应商及金额为必填，至少一家）
-    const hasUnit = form.referenceSuppliers.some((r) =>
-      String(r?.supplier ?? '').trim().length > 0,
-    );
-    if (!hasUnit) {
-      message.warning('请先在「引用供应商及金额」中填写至少一家单位，再发布框架协议事前说明');
-      return;
-    }
-    setModalMode('publish');
-  };
-
-  /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
-  const handlePublish = async () => {
-    if (!taskId) return;
-    setPublishing(true);
-    try {
-      await procurementTaskApi.saveFrameworkExplanation(taskId, buildSavePayload());
-      await procurementTaskApi.publish(taskId);
-      message.success('已发布，框架协议事前说明状态变更为「已完成」');
-      setModalMode(null);
-      closeEdit();
-    } finally {
-      setPublishing(false);
     }
   };
 

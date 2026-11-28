@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { formatNumber } from '@/utils/money';
-import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Col, DatePicker, Descriptions, Input, InputNumber, Modal, Row, Space, Spin, Table, Upload } from 'antd';
 import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
@@ -9,18 +8,14 @@ import { DeleteOutlined, EyeOutlined, FileWordOutlined, ImportOutlined, PlusOutl
 import dayjs from 'dayjs';
 import http from '@/api/http';
 import { procurementTaskApi } from '@/api/modules';
-import { projectApi } from '@/api/business';
-import { useAuthStore } from '@/store/auth';
 import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { exportProcurementWord } from '@/utils/procurementExport';
-import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
-import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { editorTabKey } from '@/utils/tabs';
+import { useProcurementStageForm } from '@/hooks/useProcurementStageForm';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/pre-meeting';
@@ -131,148 +126,95 @@ function Field({
 }
 
 export default function PreMeetingMinutes() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const currentProjectId = useAuthStore((s) => s.currentProjectId);
+  const sf = useProcurementStageForm<MinutesDetail, MinutesForm>({
+    moduleType: MODULE_TYPE,
+    listPath: LIST_PATH,
+    load: (id) => procurementTaskApi.preMeetingMinutes(id) as Promise<MinutesDetail>,
+    initForm: () => EMPTY_FORM,
+    onLoaded: (d, setForm) => {
+      const data = (d?.data ?? {}) as NonNullable<MinutesDetail['data']>;
+      setForm({
+        meetingTime: data.meetingTime ? dayjs(data.meetingTime).format('YYYY-MM-DD') : null,
+        // 采购内容默认带出采购任务内容
+        content: data.content || String(d?.task?.content ?? ''),
+        host: data.host ?? '',
+        attendees: data.attendees ?? '',
+        writer: data.writer ?? '',
+        reviewer: data.reviewer ?? '',
+        purchaseItems: withKeys(data.purchaseItems ?? []),
+        techQuality: data.techQuality ?? '',
+        acceptance: data.acceptance ?? '',
+        paymentTerms: data.paymentTerms ?? '',
+        costRows: withKeys(data.costRows ?? []),
+      });
+      setFileList(
+        (data.inquirySheets ?? []).map((f, i) => ({
+          uid: f.url || `sheet-${i}`,
+          name: f.fileName || `询价单${i + 1}`,
+          status: 'done' as const,
+          url: f.url,
+          response: f,
+        })),
+      );
+      // 首次进入（尚未保存过）时，采购清单与成本分析表自动从总采购清单带出
+      const empty = (data.purchaseItems ?? []).length === 0 && (data.costRows ?? []).length === 0;
+      if (empty && d?.editable) void importFromTotalList(d.task?.id ?? taskId ?? '', { silent: true });
+    },
+    buildSavePayload: (form) => ({
+      meetingTime: form.meetingTime || null,
+      content: form.content,
+      host: form.host,
+      attendees: form.attendees,
+      writer: form.writer,
+      reviewer: form.reviewer,
+      purchaseItems: form.purchaseItems.map(stripKey),
+      techQuality: form.techQuality,
+      acceptance: form.acceptance,
+      paymentTerms: form.paymentTerms,
+      costRows: form.costRows.map(stripKey),
+      inquirySheets: sheetsFromList(fileList),
+    }),
+    save: (id, payload) => procurementTaskApi.savePreMeetingMinutes(id, payload as any),
+    emptyForm: EMPTY_FORM,
+    validatePublish: (form) => {
+      if (!form.meetingTime || !String(form.content ?? '').trim())
+        return '请先填写「会议时间」与「采购内容」再发布';
+      return null;
+    },
+    publishSuccessMessage: '已发布，采前会会议纪要状态变更为「已完成」',
+  });
+  const {
+    tabRefresh,
+    taskId,
+    listRefresh,
+    handleDeleteModule,
+    handleViewRow,
+    editRow,
+    handleRowExport,
+    detail,
+    detailLoading,
+    form,
+    setForm,
+    patchForm,
+    currentTask: currentTaskRaw,
+    editable,
+    dirty,
+    saving,
+    publishing,
+    modalMode,
+    setModalMode,
+    openPublishPreview,
+    handlePublish,
+    handleSave,
+    project,
+    viewRow,
+    setViewRow,
+  } = sf;
+  const currentTask = currentTaskRaw as MinutesDetail['task'] | null;
 
-  /**
-   * 列表与「编辑」是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释。
-   * 编辑态原本是弹窗，现改为编辑器页签（底部操作栏 sticky，长表单不再把按钮滚出视口）。
-   */
-  const editorTab = useEditorTab(LIST_PATH);
-  const tabRefresh = useTabRefresh(LIST_PATH);
-  const taskId = editorTab.editorId === 'new' ? null : editorTab.editorId;
-  /** 兼容旧深链 `?taskId=xxx`：归一成编辑器页签 */
-  useEffect(() => {
-    const legacy = searchParams.get('taskId');
-    if (legacy && !editorTab.isEditor) navigate(editorTabKey(LIST_PATH, legacy), { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  /** 列表刷新键：编辑器页签关闭后由 closeEditor 的 bump 触发；本键用于页内（删除等） */
-  const [listRefresh, setListRefresh] = useState(0);
-  /** 问题二：删除模块记录并回退流程 */
-  const handleDeleteModule = useModuleDelete('PRE_MEETING', () => setListRefresh((k) => k + 1));
-
-  const [detail, setDetail] = useState<MinutesDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  const [form, setForm] = useState<MinutesForm>(EMPTY_FORM);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  /** 发布后默认预览（只读）；点「重新编辑」解锁 */
-  const [reEditing, setReEditing] = useState(false);
-  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
-  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 未保存改动（关闭编辑器页签前确认） */
-  const [dirty, setDirty] = useState(false);
-  /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
-  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
-  /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
-  const reEditRef = useRef(false);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-
-  const [project, setProject] = useState<{
-    name?: string;
-    nameAbbr?: string;
-    undertaker?: string;
-    provinceCity?: string;
-    siteLocation?: string;
-    projectAddress?: string;
-  }>({});
-
-  const currentTask = detail?.task ?? null;
-  /** 当前是否可编辑：编辑中阶段，或已发布后主动点「重新编辑」 */
-  const editable = !!detail && (detail.editable || (detail.published && reEditing));
-
-  useEffect(() => {
-    if (!currentProjectId) return;
-    projectApi
-      .detail(currentProjectId)
-      .then((res: any) => setProject(res ?? {}))
-      .catch(() => setProject({}));
-  }, [currentProjectId]);
-
-  const loadDetail = useCallback((id: string) => {
-    setDetailLoading(true);
-    procurementTaskApi
-      .preMeetingMinutes(id)
-      .then((res: any) => {
-        const d: MinutesDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
-        setDetail(d);
-        const data = (d?.data ?? {}) as NonNullable<MinutesDetail['data']>;
-        setForm({
-          meetingTime: data.meetingTime ? dayjs(data.meetingTime).format('YYYY-MM-DD') : null,
-          // 采购内容默认带出采购任务内容
-          content: data.content || String(d?.task?.content ?? ''),
-          host: data.host ?? '',
-          attendees: data.attendees ?? '',
-          writer: data.writer ?? '',
-          reviewer: data.reviewer ?? '',
-          purchaseItems: withKeys(data.purchaseItems ?? []),
-          techQuality: data.techQuality ?? '',
-          acceptance: data.acceptance ?? '',
-          paymentTerms: data.paymentTerms ?? '',
-          costRows: withKeys(data.costRows ?? []),
-        });
-        setFileList(
-          (data.inquirySheets ?? []).map((f, i) => ({
-            uid: f.url || `sheet-${i}`,
-            name: f.fileName || `询价单${i + 1}`,
-            status: 'done' as const,
-            url: f.url,
-            response: f,
-          })),
-        );
-        setReEditing(reEditRef.current && !!d.published);
-        reEditRef.current = false;
-        // 首次进入（尚未保存过）时，采购清单与成本分析表自动从总采购清单带出
-        const empty = (data.purchaseItems ?? []).length === 0 && (data.costRows ?? []).length === 0;
-        if (empty && d?.editable) void importFromTotalList(id, { silent: true });
-      })
-      .catch(() => {
-        setDetail(null);
-        setForm(EMPTY_FORM);
-        setFileList([]);
-      })
-      .finally(() => setDetailLoading(false));
-    // importFromTotalList 为稳定引用（依赖 setState），此处不纳入依赖
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
-  const handleViewRow = (row: ModuleListRow) => {
-    if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
-    else editRow(row);
-  };
-  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑）—— 打开编辑器页签，reEdit 随种子递过去 */
-  const editRow = (row: ModuleListRow, reEdit = false) => {
-    editorTab.openEdit(row.id, { reEdit });
-  };
-  /** 编辑器页签挂载时：按种子里的 reEdit 决定初始是否可编辑，并拉详情 */
-  useEffect(() => {
-    if (!taskId) return;
-    reEditRef.current = !!(editorTab.seed as { reEdit?: boolean } | undefined)?.reEdit;
-    loadDetail(taskId);
-    // taskId 变化即换记录；loadDetail 为稳定引用
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
-
-  /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
-  const handleRowExport = async (row: ModuleListRow) => {
-    try {
-      const filename = await exportTaskModuleWord(MODULE_TYPE, row.id);
-      message.success(`已导出：${filename}`);
-    } catch (e: any) {
-      message.error(e?.message || '导出失败，请稍后重试');
-    }
-  };
-
-  const patchForm = (patch: Partial<MinutesForm>) => {
-    setForm((f) => ({ ...f, ...patch }));
-    setDirty(true);
-  };
 
   const updateRow = (
     field: 'purchaseItems' | 'costRows',
@@ -300,6 +242,7 @@ export default function PreMeetingMinutes() {
   /** 从「总采购清单」导入采购清单 / 成本分析表初始值 */
   const importFromTotalList = useCallback(
     async (id: string, opts: { silent?: boolean } = {}) => {
+      if (!id) return;
       setImporting(true);
       try {
         const res: any = await procurementTaskApi.totalList(id);
@@ -329,65 +272,8 @@ export default function PreMeetingMinutes() {
         setImporting(false);
       }
     },
-    [],
+    [setForm],
   );
-
-  const buildSavePayload = () => ({
-    meetingTime: form.meetingTime || null,
-    content: form.content,
-    host: form.host,
-    attendees: form.attendees,
-    writer: form.writer,
-    reviewer: form.reviewer,
-    purchaseItems: form.purchaseItems.map(stripKey),
-    techQuality: form.techQuality,
-    acceptance: form.acceptance,
-    paymentTerms: form.paymentTerms,
-    costRows: form.costRows.map(stripKey),
-    inquirySheets: sheetsFromList(fileList),
-  });
-
-  const handleSave = async () => {
-    if (!taskId) return;
-    setSaving(true);
-    try {
-      await procurementTaskApi.savePreMeetingMinutes(taskId, buildSavePayload());
-      message.success('已保存');
-      // 编辑器页签形态下「保存」不关标签，就地重载详情与列表
-      loadDetail(taskId);
-      setDirty(false);
-      setListRefresh((x) => x + 1);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** 发布流程第 1 步：校验必填 → 打开「发布前预览」（统一预览发布流程） */
-  const openPublishPreview = () => {
-    if (!taskId) return;
-    if (!form.meetingTime || !String(form.content ?? '').trim()) {
-      message.warning('请先填写「会议时间」与「采购内容」再发布');
-      return;
-    }
-    setModalMode('publish');
-  };
-
-  /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
-  const handlePublish = async () => {
-    if (!taskId) return;
-    setPublishing(true);
-    try {
-      await procurementTaskApi.savePreMeetingMinutes(taskId, buildSavePayload());
-      await procurementTaskApi.publish(taskId);
-      message.success('已发布，采前会会议纪要状态变更为「已完成」');
-      setModalMode(null);
-      setDirty(false);
-      // 发布即完成本模块 → 关掉编辑器页签并让列表重新取数
-      editorTab.closeEditor();
-    } finally {
-      setPublishing(false);
-    }
-  };
 
   /** 文档数据（Dayjs → Date；剔除表格 key） */
   const docData = useMemo<PreMeetingData>(

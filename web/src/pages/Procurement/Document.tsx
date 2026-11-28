@@ -1,28 +1,23 @@
 import { sanitizeHtml } from '@/utils/sanitizeHtml';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { formatNumber } from '@/utils/money';
-import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Col, DatePicker, Descriptions, InputNumber, Modal, Row, Space, Spin, Table } from 'antd';
 import { message } from '@/utils/antdStatic';
 import type { ColumnsType } from 'antd/es/table';
 import { EyeOutlined, FileWordOutlined, SendOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { procurementTaskApi } from '@/api/modules';
-import { projectApi } from '@/api/business';
-import { useAuthStore } from '@/store/auth';
 import { taskStatusLabel, taskTypeLabel } from '@/constants/procurementWorkflow';
 import { getProcurementVariableGroups } from '@/constants/procurementVariables';
 import RichTextEditor from '@/components/RichTextEditor';
 import PreviewPublishModal from '@/components/PreviewPublishModal';
 import TaskViewModal from '@/components/procurement/TaskViewModal';
-import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow, useModuleDelete } from '@/components/procurement/ModuleListPage';
+import ModuleListPage, { moduleStatusOf, type ModuleListFilterField, type ModuleListRow } from '@/components/procurement/ModuleListPage';
 import { buildProcurementDoc, exportProcurementWord } from '@/utils/procurementExport';
 import { highlightPlaceholders } from '@/utils/docExport';
-import { exportTaskModuleWord } from '@/utils/procurementTaskDocs';
 import EditorTabPage from '@/components/editor/EditorTabPage';
-import { useEditorTab, useTabRefresh } from '@/hooks/useTabs';
-import { editorTabKey } from '@/utils/tabs';
+import { useProcurementStageForm } from '@/hooks/useProcurementStageForm';
 
 /** 列表与编辑器是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释 */
 const LIST_PATH = '/procurement/document';
@@ -121,184 +116,75 @@ function injectContractThreeFields(
   return html;
 }
 
+/** 详情 → 表单（采购文件） */
+function documentInitForm(d: DocumentDetail): DocumentForm {
+  const data = (d?.data ?? {}) as NonNullable<DocumentDetail['data']>;
+  return {
+    procurementTime: data.procurementTime ? dayjs(data.procurementTime).format('YYYY-MM-DD') : null,
+    responseDeposit: data.responseDeposit ?? null,
+    quoteDescription: data.quoteDescription ?? '',
+  };
+}
+
 export default function Document() {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const currentProjectId = useAuthStore((s) => s.currentProjectId);
+  const sf = useProcurementStageForm<DocumentDetail, DocumentForm>({
+    moduleType: MODULE_TYPE,
+    listPath: LIST_PATH,
+    load: (id) => procurementTaskApi.document(id) as Promise<DocumentDetail>,
+    initForm: documentInitForm,
+    buildSavePayload: (form) => ({
+      procurementTime: form.procurementTime || null,
+      responseDeposit: form.responseDeposit,
+      quoteDescription: form.quoteDescription,
+    }),
+    save: (id, payload) => procurementTaskApi.saveDocument(id, payload as any),
+    emptyForm: EMPTY_FORM,
+    validatePublish: (form) => {
+      if (!form.procurementTime) return '请先选择「采购时间」再发布';
+      if (form.responseDeposit == null) return '请先填写「响应保证金」再发布';
+      return null;
+    },
+    publishSuccessMessage: '已发布，采购文件状态变更为「已完成」',
+  });
+  const {
+    tabRefresh,
+    taskId,
+    listRefresh,
+    handleDeleteModule,
+    handleViewRow,
+    editRow,
+    handleRowExport,
+    detail,
+    detailLoading,
+    form,
+    patchForm,
+    currentTask: currentTaskRaw,
+    editable,
+    dirty,
+    saving,
+    publishing,
+    modalMode,
+    setModalMode,
+    openPublishPreview,
+    handlePublish,
+    handleSave,
+    project,
+    viewRow,
+    setViewRow,
+  } = sf;
+  const currentTask = currentTaskRaw as DocumentDetail['task'] | null;
 
-  /**
-   * 列表与「编辑」是同一路由的两种形态（`?editor=<taskId>`），见 `useEditorTab` 的注释。
-   * 编辑态原本是弹窗，现改为编辑器页签（底部操作栏 sticky，长表单不再把按钮滚出视口）。
-   */
-  const editorTab = useEditorTab(LIST_PATH);
-  const tabRefresh = useTabRefresh(LIST_PATH);
-  const taskId = editorTab.editorId === 'new' ? null : editorTab.editorId;
-  /** 兼容旧深链 `?taskId=xxx`：归一成编辑器页签 */
-  useEffect(() => {
-    const legacy = searchParams.get('taskId');
-    if (legacy && !editorTab.isEditor) navigate(editorTabKey(LIST_PATH, legacy), { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  /** 列表刷新键：编辑器页签关闭后由 closeEditor 的 bump 触发；本键用于页内（删除等） */
-  const [listRefresh, setListRefresh] = useState(0);
-  /** 问题二：删除模块记录并回退流程 */
-  const handleDeleteModule = useModuleDelete('DOCUMENT', () => setListRefresh((k) => k + 1));
-
-  const [detail, setDetail] = useState<DocumentDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  const [form, setForm] = useState<DocumentForm>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  /** 发布后默认只读；点「重新编辑」解锁 */
-  const [reEditing, setReEditing] = useState(false);
-  /** 统一预览/发布弹窗（批次四 · 任务 4.2）：publish=发布前确认；preview=纯预览 */
-  const [modalMode, setModalMode] = useState<'preview' | 'publish' | null>(null);
-  /** 未保存改动（关闭编辑器页签前确认） */
-  const [dirty, setDirty] = useState(false);
-  /** 任务查看弹窗（问题一：已完成行「查看」→ 任务信息+采购明细+Word 文档） */
-  const [viewRow, setViewRow] = useState<ModuleListRow | null>(null);
-  /** 重新编辑标记：loadDetail 完成后按此恢复可编辑（已发布行「重新编辑」） */
-  const reEditRef = useRef(false);
   /** 补充四：合同模板预览 */
   const [contractPreviewOpen, setContractPreviewOpen] = useState(false);
   const [contractHtml, setContractHtml] = useState('');
 
-  const [project, setProject] = useState<{
-    name?: string;
-    nameAbbr?: string;
-    undertaker?: string;
-    provinceCity?: string;
-    siteLocation?: string;
-    projectAddress?: string;
-  }>({});
-
-  const currentTask = detail?.task ?? null;
-  /** 当前是否可编辑：采购文件编制中，或已发布后主动点「重新编辑」 */
-  const editable = !!detail && (detail.editable || (detail.published && reEditing));
   /** 采购内容（默认取采购公告内容 / 采购任务内容） */
   const content = detail?.notice?.content || currentTask?.content || '';
 
   /** 采购清单（只读） */
   const purchaseItems = useMemo(() => detail?.purchaseItems ?? [], [detail]);
 
-  useEffect(() => {
-    if (!currentProjectId) return;
-    projectApi
-      .detail(currentProjectId)
-      .then((res: any) => setProject(res ?? {}))
-      .catch(() => setProject({}));
-  }, [currentProjectId]);
-
-  const loadDetail = useCallback((id: string) => {
-    setDetailLoading(true);
-    procurementTaskApi
-      .document(id)
-      .then((res: any) => {
-        const d: DocumentDetail = res; // 响应拦截器已解开 body.data，res 即完整 payload（含 task 与 data 记录）
-        setDetail(d);
-        const data = (d?.data ?? {}) as NonNullable<DocumentDetail['data']>;
-        setForm({
-          procurementTime: data.procurementTime
-            ? dayjs(data.procurementTime).format('YYYY-MM-DD')
-            : null,
-          responseDeposit: data.responseDeposit ?? null,
-          quoteDescription: data.quoteDescription ?? '',
-        });
-        setReEditing(reEditRef.current && !!d.published);
-        reEditRef.current = false;
-      })
-      .catch(() => {
-        setDetail(null);
-        setForm(EMPTY_FORM);
-      })
-      .finally(() => setDetailLoading(false));
-  }, []);
-
-  /** 列表行操作（问题一）：已完成行 → 任务查看弹窗；未填写/编辑中 → 直接进入编辑界面 */
-  const handleViewRow = (row: ModuleListRow) => {
-    if (moduleStatusOf(row).value === 'PUBLISHED') setViewRow(row);
-    else editRow(row);
-  };
-  /** 列表行操作：编辑（reEdit=true 为已发布后的重新编辑）—— 打开编辑器页签，reEdit 随种子递过去 */
-  const editRow = (row: ModuleListRow, reEdit = false) => {
-    editorTab.openEdit(row.id, { reEdit });
-  };
-  /** 编辑器页签挂载时：按种子里的 reEdit 决定初始是否可编辑，并拉详情 */
-  useEffect(() => {
-    if (!taskId) return;
-    reEditRef.current = !!(editorTab.seed as { reEdit?: boolean } | undefined)?.reEdit;
-    loadDetail(taskId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
-
-  /** 行「更多 → 导出Word」（问题二）：按任务直接构建并导出本模块文档 */
-  const handleRowExport = async (row: ModuleListRow) => {
-    try {
-      const filename = await exportTaskModuleWord(MODULE_TYPE, row.id);
-      message.success(`已导出：${filename}`);
-    } catch (e: any) {
-      message.error(e?.message || '导出失败，请稍后重试');
-    }
-  };
-
-  const patchForm = (patch: Partial<DocumentForm>) => {
-    setForm((f) => ({ ...f, ...patch }));
-    setDirty(true);
-  };
-
   /* ---------------- 保存 / 发布 / 导出 ---------------- */
-
-  const buildSavePayload = () => ({
-    procurementTime: form.procurementTime || null,
-    responseDeposit: form.responseDeposit,
-    quoteDescription: form.quoteDescription,
-  });
-
-  const handleSave = async () => {
-    if (!taskId) return;
-    setSaving(true);
-    try {
-      await procurementTaskApi.saveDocument(taskId, buildSavePayload());
-      message.success('已保存');
-      // 编辑器页签形态下「保存」不关标签，就地重载详情与列表
-      loadDetail(taskId);
-      setDirty(false);
-      setListRefresh((x) => x + 1);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** 发布流程第 1 步：校验必填 → 打开「发布前预览」 */
-  const openPublishPreview = () => {
-    if (!form.procurementTime) {
-      message.warning('请先选择「采购时间」再发布');
-      return;
-    }
-    if (form.responseDeposit == null) {
-      message.warning('请先填写「响应保证金」再发布');
-      return;
-    }
-    setModalMode('publish');
-  };
-
-  /** 发布流程第 2 步：确认发布（先落库当前编辑内容） */
-  const handlePublish = async () => {
-    if (!taskId) return;
-    setPublishing(true);
-    try {
-      await procurementTaskApi.saveDocument(taskId, buildSavePayload());
-      await procurementTaskApi.publish(taskId);
-      message.success('已发布，采购文件状态变更为「已完成」');
-      setModalMode(null);
-      setDirty(false);
-      // 发布即完成本模块 → 关掉编辑器页签并让列表重新取数
-      editorTab.closeEditor();
-    } finally {
-      setPublishing(false);
-    }
-  };
 
   const docData = useMemo<DocumentData>(
     () => ({
