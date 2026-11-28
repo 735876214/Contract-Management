@@ -86,6 +86,11 @@
   导致同一笔金额在不同页面显示成 `¥1,234.50` / `1,234.00` / `1,234`。
 - 空值（`null`/`undefined`/`''`/非数字）显示占位符（默认 `-`），**不兜成 0**（与台账三态契约一致）；
   第三参数可换占位符（HTML 文档用 `''`、分析面板用 `—`）。锁定：`test/moneyFormat.spec.mts`。
+- **纯日期显示**（"2026-01-05" 这种不带时分的业务日期，常直接印在正式单据上）一律用
+  `@cms/calc/time` 的 `formatDay` / `localDayKey`：`new Date('2026-01-05')` 是按 **UTC** 解析的，
+  浏览器时区不是 +08:00 时 `getDate()` 会回退一天（单据上就印错日期）。eslint 已拦
+  `new Date(x.xxxDate)`；单据类工具（`utils/preMeetingMinutes.ts` 等）原来各自写的 `fmtDate` 已并到
+  `formatDay`，跨时区行为由 `test/timeBounds.spec.mts`（子进程改 `TZ`）锁定。
 
 ## 列表页列显隐（两条路别混用）
 

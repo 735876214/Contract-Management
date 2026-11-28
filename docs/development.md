@@ -274,7 +274,7 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/containerQuery.spec.mts` | **组件级响应式（Container Queries）漂移锁**：视口值只许页面外壳用 · `@container` 条件只能写等于 `CONTAINER_BREAKPOINTS` 的字面值（`var()` 不被解析）· `container-type` 只许挂 `.cq`/`.ant-modal-body`/`.ant-drawer-body` · `containerSize.ts` ↔ `--cq-*` ↔ 规则三处一致 · `containers.css` 必须在 `index.css` 之后引入 · `.doc-preview` 必须挂 `.cq` · `.col-secondary` 规则成对 · 窄容器表单栅格覆盖不得含 `.cq` · `RichTextEditor` 必须 portal 全屏层且内容同步 effect 依赖 `fullscreen` |
    | `test/finalSettlementDocNumber.spec.mts` | **总结算书编号纯函数**（业务 2026-11-21）：`<分公司简称>-<项目编号>-WZZJS-<年份>-<流水号>` 拼装 · 流水号两位补零、超两位不截断 · 流水号 <=0/非数 一律按 1（不出 "00"）· 分公司简称为空兜底 `TMHB`、项目编号为空留空段 · 前缀/项目编号统一转大写去空格 · `normalizeBranchAbbr` 空串归 null · `BRANCH_ABBR_RE` 只放行大写字母数字且 ≤20 位 |
 
-  | `test/timeBounds.spec.mts` | **列表筛选的日期区间边界（本地日原语）+ 列表 where 片段**：`startOfDay/endOfDay/nextDayStart` 按**本地**零点（`new Date('YYYY-MM-DD')` 是 UTC 解析，本地 08:00，会漏掉当天记录）· `endOfDay` 含当天最后一毫秒 · `nextDayStart` 跨月跨年进位 · 拒绝 `2026-02-30`（否则筛选悄悄挪到 3 月）· 空值/非法值返回 null 不落 where · 不改入参 Date · `dateRange` 只给一端时另一端不出现 · `keywordWhere` 空关键字返回 null、按给定字段展开（不猜字段） |
+  | `test/timeBounds.spec.mts` | **列表筛选的日期区间边界（本地日原语）+ 列表 where 片段**：`startOfDay/endOfDay/nextDayStart` 按**本地**零点（`new Date('YYYY-MM-DD')` 是 UTC 解析，本地 08:00，会漏掉当天记录）· `endOfDay` 含当天最后一毫秒 · `nextDayStart` 跨月跨年进位 · 拒绝 `2026-02-30`（否则筛选悄悄挪到 3 月）· 空值/非法值返回 null 不落 where · 不改入参 Date · `dateRange` 只给一端时另一端不出现 · `keywordWhere` 空关键字返回 null、按给定字段展开（不猜字段）· **纯日期串的显示在任意时区都同一天**（子进程把 `TZ` 换成纽约/UTC+14/上海/UTC 四个值验 `formatDay('2026-01-05')`，钉住 2026-11-28 修掉的「单据日期随浏览器时区漂一天」） |
   | `test/moneyFormat.spec.mts` | **前端金额/数量展示的单一实现**（`web/src/utils/money.ts`）：空值一律占位符、**不兜成 0**（显式 0 仍是 0）· 金额固定两位 + 千分位 · `1234.5600000000001` 浮点尾数被吃掉 · 数量最多 N 位不补零 · 占位符可覆盖（HTML 文档空串 / 面板长横线）· 比率 0~1 → 百分数 |
   | `test/mcpPermissions.spec.mts` | **MCP 工具级权限的漂移锁**：`mcp/src/resources.ts` 每个资源都要声明 `permissions{read,write}` 且 `read` 非空 · 声明的每个权限码都必须存在于后端权限码目录（抄成 `contract:veiw` 会让该资源永远被判无权、**且不报错**）· `permissionCodesFor` 必须保持「import 走 write、其余走 read」· `server.ts` 的 6 个资源工具都要有 `assertAllowed`、`cms_list_resources` 必须把被挡掉的资源列进 `hiddenByPermission` |
   | `test/llmStream.spec.ts` | **LLM 流式 SSE 解析锁**（P3-B，`.ts` 不是 `.mts`——`llm-client.ts` 里 `LlmError` 用了参数属性，Node strip-only 加载会 SyntaxError）· 逐字拼接 content 并按序回调 `onDelta` · **一个帧被拆在两个网络包里不丢字**（按 `\n\n` 分帧 + 缓存余量）· `tool_calls` 按 index 合并（id/name/arguments 分批下发，否则参数是残缺 JSON）· 并行工具调用按 index 排序而非到达顺序 · 非 JSON 的 data 行跳过不整次失败 · **上游忽略 stream 直接回 JSON 时按 Content-Type 兜底**（按 `res.body` 判会把 JSON 当 SSE 解析出空串——写完用例才发现的真 bug）· 未配置上游抛 LlmError |
@@ -488,6 +488,9 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
   `react-hooks/exhaustive-deps` 的 20 条依赖数组（web 20→0），故现在没有「冻结存量」了。
   关掉的规则及理由写在各自的 `eslint.config.mjs` 里（`no-explicit-any` 存量约 1400 处、
   `no-require-imports` 因 html-to-docx/pngjs 无类型声明）。
+  `no-restricted-syntax` 里另有四条**本仓口径**（都是 error）：裸 `toLocaleString`（web）、
+  `new Date(query.endDate)` 这类 UTC 解析（两端）、`reduce` 里手写 `Number(...)` 求和（server）、
+  web 里 `new Date(x.xxxDate)`（纯日期字段）。
 - **TypeScript 严格模式**：`server` 与 `web` 均为 `strict: true`（2026-11-21 打开）。
   新代码不得再靠 `any` 绕过 null 检查；确实没有类型的第三方包用 `require(...) as any` 并注明原因。
 - **乐观锁**：更新时 `assertVersion(oldRow, data)`（不一致抛 409）。

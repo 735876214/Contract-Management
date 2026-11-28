@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { localDayKey } from '@cms/calc/time';
 import { round2 } from '@cms/calc/money';
+import { sumAmounts } from '@cms/calc';
 import { PrismaClient } from '@prisma/client';
 import { resolveChainAmounts } from '../../domain/contract-chain.ts';
 import { contractChainRows } from '../../query';
@@ -288,8 +289,8 @@ export class FieldResolverService {
       loadInvoiceFacts(this.prisma, [projectId], { excludeTerminal: true }),
     ]);
 
-    const sum = (rows: any[], pick: (r: any) => unknown): number =>
-      rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0);
+    // 金额求和走 @cms/calc 的 sumAmounts（不做两次手写舍入，口径与台账一致）
+    const sum = (rows: any[], pick: (r: any) => unknown): number => sumAmounts(rows, pick);
 
     const settlementAmountTotal = round2(sum(settlements, (r) => r.actualAmount ?? r.amount));
     const paymentAmountTotal = round2(sum(payments, (r) => r.amount));

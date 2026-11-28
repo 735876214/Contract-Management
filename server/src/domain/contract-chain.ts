@@ -30,6 +30,8 @@
  *
  * 相对 import 须带 `.ts` 后缀（.claude/rules/testing.md：零依赖限制已解除，扩展名仍必须写）。
  */
+
+import { sumAmounts } from '@cms/calc';
 import { round2 } from '@cms/calc/money';
 
 /** 链计算所需的合同行（`db.contract.findMany` 的 select 结果形状） */
@@ -129,9 +131,8 @@ function buildChainAmounts(
   rootRow: ContractChainRow,
   supplements: readonly ContractChainRow[],
 ): ChainAmounts {
-  const supplementTotal = round2(
-    supplements.reduce((s, r) => s + (isFilled(r.changeAmount) ? Number(r.changeAmount) : 0), 0),
-  );
+  // 求和走 @cms/calc 的 sumAmounts（内部 num() 与上面的 isFilled 同口径：非有限数按未填算 0）
+  const supplementTotal = sumAmounts(supplements, (r) => r.changeAmount);
   const mainAmount = isFilled(rootRow.amount) ? round2(Number(rootRow.amount)) : null;
   return {
     rootId: String(rootRow.id),

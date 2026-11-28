@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { num } from '@cms/calc/numeric';
+import { num, sum } from '@cms/calc/numeric';
 import { round4 } from '@cms/calc/money';
 import { fmtDate } from '@cms/calc/time';
 import { paginate, buildResult } from '../../common/utils/helpers';
@@ -316,7 +316,8 @@ export class LedgerService {
 
   async summary(projectId: string) {
     const list = await this.allRows(projectId);
-    const sumBy = (key: string) => list.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+    // 求和走 @cms/calc 的 sum（与 group-sum/aggregate 同一口径：空值忽略、不做额外舍入）
+    const sumBy = (key: string) => sum(list, (r: any) => r[key]);
     /** 按链根去重后的金额表：同一链上的主合同/补充协议行只留一条 */
     const rootAmounts = chainRootAmounts(
       list.map((r) => ({ id: r.id, rootId: r.chainRootId ?? null, currentAmount: r.currentAmount ?? null })),

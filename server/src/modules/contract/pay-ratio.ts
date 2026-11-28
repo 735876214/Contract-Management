@@ -21,6 +21,8 @@
  * 保持纯函数（零第三方依赖）；相对 import 须带 `.ts` 后缀（2026-10-17 解除零依赖限制，见 .claude/rules/testing.md）。
  */
 
+import { sum } from '@cms/calc/numeric';
+
 /** 一期付款：比例 + 结算月偏移 + 应付款日 */
 export interface PayTranche {
   ratio: number;
@@ -99,9 +101,9 @@ export function modeTranchesOf(mode: string | null | undefined): PayTranche[] | 
 export function monthlyRatioOfMode(mode: string | null | undefined): number | null {
   const tranches = modeTranchesOf(mode);
   if (!tranches?.length) return null;
-  const sum = tranches.reduce((s, t) => s + (Number(t.ratio) || 0), 0);
+  const total = sum(tranches, (t) => t.ratio);
   // 浮点求和（0.2+0.2+0.25）保留两位小数语义：比例是两位以内的业务数，四舍五入到 4 位足够
-  return Math.round(sum * 1e4) / 1e4;
+  return Math.round(total * 1e4) / 1e4;
 }
 
 export interface EffectivePayRatioInput {

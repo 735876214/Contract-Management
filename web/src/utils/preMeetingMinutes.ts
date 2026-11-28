@@ -31,6 +31,7 @@ import {
   deriveCostRow as deriveCostRowShared,
   summarizeCost as summarizeCostShared,
   costRowsFromTotalList as costRowsFromTotalListShared,
+  formatDay,
 } from '@cms/calc';
 import { projectVars } from './projectVars.ts';
 
@@ -207,13 +208,6 @@ export function absoluteUrl(url?: string | null): string {
   return u;
 }
 
-const fmtDate = (v: string | Date | null | undefined): string => {
-  if (!v) return '';
-  const d = v instanceof Date ? v : new Date(v);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
 
 /** 富文本区：为空给占位，非空直接注入（内容来自富文本编辑器） */
 const rich = (html?: string): string => {
@@ -228,7 +222,7 @@ export function buildBasicInfoTableHtml(
 ): string {
   const rows: [string, string][] = [
     ['项目名称', ctx.projectName ?? ''],
-    ['会议时间', fmtDate(data.meetingTime)],
+    ['会议时间', formatDay(data.meetingTime) ?? ''],
     ['采购内容', String(data.content ?? ctx.content ?? '')],
     ['主持人', String(data.host ?? '')],
     ['参会人员', String(data.attendees ?? '')],
@@ -253,7 +247,7 @@ export function buildPreMeetingVariableValues(
     采购内容: String(data.content ?? ctx.content ?? ''),
     // 单位（万元）写进变量名：与成交报告的同名量（元）区分，避免差 10000 倍
     '预计采购金额(万元)': ctx.estimatedAmountWan == null ? '' : fmtWan(ctx.estimatedAmountWan),
-    会议时间: fmtDate(data.meetingTime),
+    会议时间: formatDay(data.meetingTime) ?? '',
     主持人: String(data.host ?? ''),
     参会人员: String(data.attendees ?? ''),
     编写人: String(data.writer ?? ''),

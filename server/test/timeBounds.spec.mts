@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { startOfDay, endOfDay, nextDayStart, formatDay } from '@cms/calc/time';
 import { dateRange, keywordWhere } from '../src/common/utils/list-where.ts';
@@ -59,6 +61,23 @@ describe('日期区间边界（本地日原语）', () => {
   it('带时分的日期时间串不会把区间挪到别的天', () => {
     assert.equal(formatDay(endOfDay('2026-11-22T23:30:00')!), '2026-11-22');
     assert.equal(formatDay(startOfDay('2026-11-22T23:30:00')!), '2026-11-22');
+  });
+
+  it('纯日期串在**任何时区**都显示同一天（2026-11-28：单据上的日期不许随浏览器时区漂移）', () => {
+    // `formatDay` 对 `YYYY-MM-DD` 直通、不经过 Date。这里用**子进程**改 TZ 验：
+    // 进程内改 process.env.TZ 对已缓存的 Intl/Date 不可靠，而且这条口径本来就是
+    // 「浏览器时区未知」——只测 +08:00 等于没测（旧实现正是靠 +08:00 才一直没暴露）。
+    const calcTime = fileURLToPath(new URL("../../packages/calc/time.js", import.meta.url));
+    const run = (tz: string, arg: string) => {
+      const script =
+        'const t = require(' + JSON.stringify(calcTime) + '); process.stdout.write(String(t.formatDay(' + JSON.stringify(arg) + ')));';
+      return execFileSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: tz }, encoding: 'utf8' });
+    };
+    for (const tz of ['America/New_York', 'Pacific/Kiritimati', 'Asia/Shanghai', 'UTC']) {
+      assert.equal(run(tz, '2026-01-05'), '2026-01-05', 'TZ=' + tz + ' 下 2026-01-05 不许回退/前移一天');
+      assert.equal(run(tz, '2026-12-31'), '2026-12-31', 'TZ=' + tz + ' 下 2026-12-31 不许跨年');
+    }
+    assert.equal(run('America/New_York', '2026-02-30'), 'null', '格式对但不存在的日子仍然要拒');
   });
 
   it('空值/非法值一律返回 null（调用方跳过该条件，而不是把 null 写进 where）', () => {

@@ -1,3 +1,4 @@
+import { sum } from '@cms/calc/numeric';
 import { centsToYuan, moneyToCents, type AnomalyCode, type PaymentAnomalyInput, type ContractRow, type Finding, type SettlementRow, type PaymentRow } from './anomaly-types.ts';
 
 /**
@@ -168,7 +169,7 @@ export function buildSyntheticDataset(options: BuildOptions = {}): SyntheticData
     input.settlements.push(...settlements);
 
     // —— 付款：累计恰好 = 累计结算 × 80%（边界值，见 r2Overpay 的容差约定）——
-    const settledTotal = settlements.reduce((sum, s) => sum + Number(s.amount), 0);
+    const settledTotal = sum(settlements, (s) => s.amount); // 求和走 @cms/calc，别再手写 reduce + Number
     const limit = Math.floor(settledTotal * 0.8);
     const perPay = Math.floor(limit / periods);
     const payments: PaymentRow[] = [];

@@ -15,7 +15,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { notDraft } from '../constants/statuses.ts';
-import { round2 } from '@cms/calc/money';
+import { sumAmounts } from '@cms/calc';
 import {
   CHAIN_MAX_DEPTH,
   resolveChainAmounts,
@@ -77,7 +77,7 @@ export async function chainSettledTotal(db: Db, contractId: string, excludeId?: 
     where: { contractId: { in: ids }, ...notDraft, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { actualAmount: true, amount: true },
   });
-  return round2(rows.reduce((s, r) => s + (Number(r.actualAmount ?? r.amount) || 0), 0));
+  return sumAmounts(rows, (r: any) => r.actualAmount ?? r.amount);
 }
 
 /**
@@ -150,9 +150,8 @@ export async function chainPaidTotal(
     where: { contractId: { in: ids }, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { amount: true, statusCode: true },
   });
-  return round2(
-    rows
-      .filter((r) => !excludeStatuses.includes(String(r.statusCode ?? '')))
-      .reduce((s, r) => s + (Number(r.amount) || 0), 0),
+  return sumAmounts(
+    rows.filter((r) => !excludeStatuses.includes(String(r.statusCode ?? ''))),
+    (r: any) => r.amount,
   );
 }

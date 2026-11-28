@@ -6,8 +6,10 @@
 
 - `cd server && npm run lint` / `cd web && npm run lint`（CI 两个 job 各一步）。口径 = **0 error**；
   warning 用 `--max-warnings` 冻结存量（只许变少，清一条同步下调预算）。
-- 本仓两条特有口径是 **error 级**：金额展示只能走 `@/utils/money`（禁止裸 `toLocaleString`）、
-  列表日期区间只能走 `@cms/calc/time` 的本地日原语（禁止 `new Date(query.endDate)`）。
+- 本仓四条特有口径是 **error 级**：金额展示只能走 `@/utils/money`（禁止裸 `toLocaleString`）、
+  列表日期区间只能走 `@cms/calc/time` 的本地日原语（禁止 `new Date(query.endDate)`）、
+  **内存求和**不许手写 `reduce((s, x) => s + Number(x.y))`（金额走 `sumAmounts`、数量/比例走
+  `@cms/calc/numeric` 的 `sum`）、web 里**纯日期字段**不许 `new Date(x.xxxDate)`（走 `formatDay`）。
 - 细则见 [docs/development.md §7](../../docs/development.md)。
 
 ## 两套测试，别混用

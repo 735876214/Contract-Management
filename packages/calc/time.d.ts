@@ -1,5 +1,11 @@
 export declare function toDate(v: unknown): Date | null;
-/** 本地口径 `YYYY-MM-DD`；非法日期返回 null */
+/**
+ * 本地口径 `YYYY-MM-DD`；非法日期返回 null。
+ *
+ * 纯日期串（`2026-01-05`）**不经过 Date**：`new Date("2026-01-05")` 按 **UTC** 解析，
+ * 在 UTC 负偏移的时区里（浏览器可能不在 +08:00）回退成前一天，而这串日期是要印在正式单据上的。
+ * 这里只校验「是不是真日子」（`2026-02-30` → null），不做任何时区换算。
+ */
 export declare function formatDay(v: unknown): string | null;
 /** 本地口径 `YYYY-MM-DD`；兼容 helpers.localDayKey 的旧签名（非法日期返回空串） */
 export declare function localDayKey(now?: Date | string | null): string;

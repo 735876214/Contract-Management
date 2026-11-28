@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { CSCEC_LOGO_PNG_BASE64 } from '../../assets/cscec-logo.base64';
 import { sanitizeSheetName } from '../utils/excel-sheet';
-import { round2 } from '@cms/calc/money';
+import { sumAmounts } from '@cms/calc';
 
 /**
  * 中建项目管理表格样式导出服务
@@ -207,11 +207,8 @@ export class StyledExcelService {
           // 服务端算好合计写入数值，不再写 SUBTOTAL 公式：
           // ExcelJS 写的公式没有缓存值，导出的 xlsx 用别的工具读（或再导入本系统）时合计列读到的是
           // 公式对象而非数字，导出→改→导回闭环会静默丢合计。逐行求和后 round2 统一金额精度。
-          const total = opts.rows.reduce((acc, row) => {
-            const n = Number(row?.[c.key]);
-            return acc + (Number.isFinite(n) ? n : 0);
-          }, 0);
-          cell.value = round2(total);
+          // 求和与舍入都走 @cms/calc（sumAmounts = num() + round2，与本仓金额口径同一实现）
+          cell.value = sumAmounts(opts.rows, (row: any) => row?.[c.key]);
           if (NUMFMT[c.type as string]) cell.numFmt = NUMFMT[c.type as string];
         }
       });

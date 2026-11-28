@@ -19,14 +19,27 @@ exports.yearOf = yearOf;
  * UTC+8 下月初 1 号 00:00–07:59 会被写成前一天，导致同一天开的两张单落在不同月份。
  */
 const pad2 = (n) => String(n).padStart(2, '0');
+/** 纯日期串（无时间部分）。下面 `formatDay` 与 `localMidnight` 共用，必须先声明 */
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 function toDate(v) {
     if (v === null || v === undefined || v === '')
         return null;
     const d = v instanceof Date ? v : new Date(v);
     return Number.isNaN(d.getTime()) ? null : d;
 }
-/** 本地口径 `YYYY-MM-DD`；非法日期返回 null */
+/**
+ * 本地口径 `YYYY-MM-DD`；非法日期返回 null。
+ *
+ * 纯日期串（`2026-01-05`）**不经过 Date**：`new Date("2026-01-05")` 按 **UTC** 解析，
+ * 在 UTC 负偏移的时区里（浏览器可能不在 +08:00）回退成前一天，而这串日期是要印在正式单据上的。
+ * 这里只校验「是不是真日子」（`2026-02-30` → null），不做任何时区换算。
+ */
 function formatDay(v) {
+    if (typeof v === 'string') {
+        const s = v.trim();
+        if (DATE_ONLY_RE.test(s))
+            return localMidnight(s) ? s : null;
+    }
     const d = toDate(v);
     if (!d)
         return null;
@@ -46,7 +59,6 @@ function localDayKey(now = new Date()) {
  * `new Date('2026-11-22')` 是按 **UTC** 解析的（本地 08:00），拿它当"当天开始"会让
  * 「库里存本地 00:00 的记录」落在区间外——这正是本仓禁止 `toISOString()` 取业务日期的同一类坑。
  */
-const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 function localMidnight(v) {
     if (typeof v === 'string') {
         const m = DATE_ONLY_RE.exec(v.trim());

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { round2, round4 } from '@cms/calc/money';
 import { num } from '@cms/calc/numeric';
+import { sumAmounts } from '@cms/calc';
 import { resolveChainAmounts } from '../../../domain/contract-chain.ts';
 import {
   CONTRACT_EXECUTION_STATUS,
@@ -360,7 +361,7 @@ export class DatasetCollector {
       return {
         项目: `${p.code} ${p.name}`,
         本期新签合同: rows.length,
-        本期新签金额: round2(rows.reduce((s, c) => s + Number((c.parentContractId ? c.changeAmount : c.amount) ?? 0), 0)),
+        本期新签金额: sumAmounts(rows, (c: any) => (c.parentContractId ? c.changeAmount : c.amount)),
         链金额合计: chain ? (chain.hasUnknown ? null : chain.sum) : null,
         执行中合同: contracts.filter((c) => c.projectId === p.id && c.execStatus === CONTRACT_EXECUTION_STATUS.EXECUTING).length,
       };
@@ -369,7 +370,7 @@ export class DatasetCollector {
       ds(
         'contract.summary',
         summaryRows,
-        `本期新签 ${periodSigned.length} 份，金额 ${fmtYuan(periodSigned.reduce((s, c) => s + Number((c.parentContractId ? c.changeAmount : c.amount) ?? 0), 0))} 元（链金额合计含存量合同）`),
+        `本期新签 ${periodSigned.length} 份，金额 ${fmtYuan(sumAmounts(periodSigned, (c: any) => (c.parentContractId ? c.changeAmount : c.amount)))} 元（链金额合计含存量合同）`),
     );
     datasets.push(
       ds(
@@ -395,10 +396,10 @@ export class DatasetCollector {
           return {
             项目: `${p.code} ${p.name}`,
             结算单数: rows.length,
-            结算金额: round2(rows.reduce((s, r) => s + Number(r.actualAmount ?? r.amount ?? 0), 0)),
+            结算金额: sumAmounts(rows, (r: any) => r.actualAmount ?? r.amount),
           };
         }),
-        `本期结算 ${settlementRows.length} 张，金额 ${fmtYuan(settlementRows.reduce((s, r) => s + Number(r.actualAmount ?? r.amount ?? 0), 0))} 元（已排除草稿）`),
+        `本期结算 ${settlementRows.length} 张，金额 ${fmtYuan(sumAmounts(settlementRows, (r: any) => r.actualAmount ?? r.amount))} 元（已排除草稿）`),
     );
     datasets.push(
       ds(
@@ -438,7 +439,7 @@ export class DatasetCollector {
           金额: round2(Number(p.amount ?? 0)),
           状态: p.statusCode ?? '',
         })),
-        `本期付款 ${payments.length} 笔，金额 ${fmtYuan(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0))} 元（排除失败/退款）`),
+        `本期付款 ${payments.length} 笔，金额 ${fmtYuan(sumAmounts(payments, (p: any) => p.amount))} 元（排除失败/退款）`),
     );
     datasets.push(
       ds(
@@ -450,7 +451,7 @@ export class DatasetCollector {
           含税金额: round2(Number(i.amountWithTax ?? 0)),
           状态: i.statusCode ?? '',
         })),
-        `本期开票 ${invoices.length} 张，金额 ${fmtYuan(invoices.reduce((s, i) => s + Number(i.amountWithTax ?? 0), 0))} 元（排除作废/红冲）`),
+        `本期开票 ${invoices.length} 张，金额 ${fmtYuan(sumAmounts(invoices, (i: any) => i.amountWithTax))} 元（排除作废/红冲）`),
     );
 
     const fulfillmentRows = orderedProjects.map((p) => {
