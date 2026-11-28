@@ -25,3 +25,4 @@ export { AI_PROMPT_CATALOG, AI_PROMPT_MAP, listAiPrompts, renderAiPrompt } from 
 export { CONTEXT_DOC_MAP, listContextDocs, renderContextDoc } from './context-catalog.ts';
 export type { ContextDocMeta, ContextKey } from './context-catalog.ts';
 export type { AiPromptArgument, AiPromptDef } from './prompt-catalog.ts';
+export { ChatRunService } from './analytics/chat-run.service.ts';

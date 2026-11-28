@@ -104,6 +104,14 @@ export default function ChatPanel() {
     return body;
   };
 
+  /**
+   * 问数主流程（2026-11-24 改：后台 run + 断线续传）。
+   *
+   * 为什么不再直接把 `fetch('/chat/ask/stream')` 当唯一通路：那套把生成绑在这次 HTTP 请求上，
+   * 关页/切网/代理掐断，生成就白丢了，刷新页面也找不回（历史里只有跑完才存在的记录）。
+   * 现在的顺序是：建 run → 订阅事件流 → **断了就带事件序号续传一次** → 还不行就读快照。
+   * 任何一步失败都不会重跑模型（钱已经花了），最差也是把已落库的结论交给用户。
+   */
   const askStream = async () => {
     const text = question.trim();
     if (!text) {
@@ -118,26 +126,55 @@ export default function ChatPanel() {
     const apiBase = (import.meta as any).env?.VITE_API_BASE || '/api';
     const token = localStorage.getItem('cms_token') || '';
     const projectId = localStorage.getItem('cms_project_id') || currentProjectId || '';
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      'x-project-id': projectId,
+      // 让后端 ResponseInterceptor 原样返回（否则 SSE 会被 JSON 包装破坏）
+      'x-raw-response': '1',
+    };
     const body = buildBody();
     let acc = '';
+    /** 已消费的事件条数：断线重连时作为 `from` 报给后端，保证不重复、不丢字 */
+    let seen = 0;
 
-    try {
-      const res = await fetch(`${apiBase}/ai/chat/ask/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'x-project-id': projectId,
-          // 让后端 ResponseInterceptor 原样返回（否则 SSE 会被 JSON 包装破坏）
-          'x-raw-response': '1',
-        },
-        body: JSON.stringify(body),
-      });
+    const handleFrame = (event: string, data: any) => {
+      seen += 1;
+      if (event === 'phase') {
+        setPhase(data?.message || (data?.phase === 'answering' ? 'AI 正在作答…' : '处理中…'));
+      } else if (event === 'delta') {
+        acc += String(data?.text ?? '');
+        setStreaming(acc);
+      } else if (event === 'tool') {
+        setPhase(`读取中：${data?.name ?? '工具'}`);
+      } else if (event === 'final') {
+        // ⚠️ 必须覆盖：对账不通过时 final.answer 是程序直出的事实汇总
+        acc = String(data?.answer ?? '');
+        setStreaming('');
+        setResult({
+          answer: acc,
+          accepted: !!data?.accepted,
+          discardedNumbers: data?.discardedNumbers || [],
+          toolTrace: data?.toolTrace || [],
+          warnings: data?.warnings || [],
+          source: data?.accepted ? 'llm' : 'template',
+        });
+      } else if (event === 'stopped') {
+        setPhase('已停止（保留了已生成的部分，未写入问答记录）');
+      } else if (event === 'done') {
+        setResult((prev) => (prev ? { ...prev, id: data?.reportId ?? prev.id } : prev));
+        reloadHistory();
+      } else if (event === 'error') {
+        message.error(data?.message || '问数失败');
+      }
+    };
+
+    /** 订阅一次事件流；正常收完返回，网络中断会抛错（交给上层续传/快照） */
+    const consume = async (runId: string, from: number): Promise<void> => {
+      const res = await fetch(`${apiBase}/ai/chat/runs/${runId}/stream?from=${from}`, { headers });
       if (!res.ok || !res.body) {
         const detail = await res.text().catch(() => '');
         throw new Error(detail.slice(0, 200) || `流式请求失败（${res.status}）`);
       }
-
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -147,46 +184,51 @@ export default function ChatPanel() {
         buffer += decoder.decode(value, { stream: true });
         const parsed = parseFrames(buffer);
         buffer = parsed.rest;
-        for (const { event, data } of parsed.frames) {
-          if (event === 'phase') {
-            setPhase(data?.message || (data?.phase === 'answering' ? 'AI 正在作答…' : '处理中…'));
-          } else if (event === 'delta') {
-            acc += String(data?.text ?? '');
-            setStreaming(acc);
-          } else if (event === 'tool') {
-            setPhase(`读取中：${data?.name ?? '工具'}`);
-          } else if (event === 'final') {
-            // ⚠️ 必须覆盖：对账不通过时 final.answer 是程序直出的事实汇总
-            setStreaming('');
-            setResult({
-              answer: String(data?.answer ?? ''),
-              accepted: !!data?.accepted,
-              discardedNumbers: data?.discardedNumbers || [],
-              toolTrace: data?.toolTrace || [],
-              warnings: data?.warnings || [],
-              source: data?.accepted ? 'llm' : 'template',
-            });
-          } else if (event === 'done') {
-            setResult((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    id: data?.id ?? null,
-                    datasetKeys: data?.datasetKeys || [],
-                    scopeLabel: data?.scopeLabel,
-                    periodLabel: data?.periodLabel,
-                  }
-                : prev,
-            );
-            reloadHistory();
-          } else if (event === 'error') {
-            message.error(data?.message || '问数失败');
-          }
+        for (const { event, data } of parsed.frames) handleFrame(event, data);
+      }
+    };
+
+    try {
+      const created = await fetch(`${apiBase}/ai/chat/runs`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!created.ok) {
+        const detail = await created.text().catch(() => '');
+        throw new Error(detail.slice(0, 200) || `提问失败（${created.status}）`);
+      }
+      const { runId } = (await created.json()) as { runId?: string };
+      if (!runId) throw new Error('服务端没有返回 runId');
+
+      try {
+        await consume(runId, 0);
+      } catch (e1: any) {
+        // 第一次断（切网、代理掐断）：带已看条数续传一次，事件流在 Redis 里，不重复也不丢字
+        try {
+          await consume(runId, seen);
+        } catch {
+          // 还不行：读快照。这时生成多半已在服务端跑完并落库，结论不会白丢
+          const snap = await fetch(`${apiBase}/ai/chat/runs/${runId}`, { headers });
+          if (!snap.ok) throw e1;
+          const s = (await snap.json()) as any;
+          setStreaming('');
+          setResult({
+            id: s?.reportId ?? null,
+            answer: String(s?.answer ?? ''),
+            accepted: !!s?.accepted,
+            discardedNumbers: s?.discardedNumbers || [],
+            toolTrace: s?.toolTrace || [],
+            warnings: s?.warnings || [],
+            source: s?.accepted ? 'llm' : 'template',
+          });
+          message.info('连接中断，已为你取回本次生成的结果');
+          reloadHistory();
         }
       }
       setPhase('');
     } catch (e: any) {
-      // 流式不可用（代理缓冲 / 老网关）时退回非流式：宁可慢，不能白问
+      // run 接口不可用（老后端/网关拦 POST）时退回非流式：宁可慢，不能白问
       try {
         const res = (await aiApi.chatAsk(body)) as any;
         setResult({
@@ -210,7 +252,6 @@ export default function ChatPanel() {
       setLoading(false);
     }
   };
-
   const enabled = status?.enabled === true;
   const crossProjectAllowed = status?.crossProjectAllowed === true;
 

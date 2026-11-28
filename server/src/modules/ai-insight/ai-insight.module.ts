@@ -8,6 +8,7 @@ import { ScmService } from './analysis/scm.service.ts';
 import { AnalyticsService } from './analytics/analytics.service.ts';
 import { AnalyticsController } from './analytics/analytics.controller.ts';
 import { AnalyticsStore } from './analytics/analytics-store.service.ts';
+import { ChatRunService } from './analytics/chat-run.service.ts';
 import { DatasetCollector } from './analytics/dataset-collector.service.ts';
 import { IntentService } from './intent/intent.service.ts';
 
@@ -29,6 +30,7 @@ import { IntentService } from './intent/intent.service.ts';
     ScmService,
     AnalyticsService,
     AnalyticsStore,
+    ChatRunService,
     DatasetCollector,
     IntentService,
   ],
@@ -40,6 +42,7 @@ import { IntentService } from './intent/intent.service.ts';
     ScmService,
     AnalyticsService,
     AnalyticsStore,
+    ChatRunService,
     DatasetCollector,
     IntentService,
   ],

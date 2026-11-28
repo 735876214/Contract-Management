@@ -39,6 +39,11 @@ const ALLOWED_DANGLING: Record<string, string[]> = {
   // requestId（2026-11-24）：链路 id，来自 x-request-id 头，**不是**外键——命名撞上了 xxxId 的启发式，
   // 它不指向任何表，也没有可建的 @relation。
   OperationLog: ['bizId', 'projectId', 'requestId'],
+  // AiChatRun.reportId（2026-11-24）：指向 AiAnalyticsReport 的**快照指针**，不建 @relation——
+  // 报告可被用户删除，而 run 作为「这次生成发生过」的历史要留下（删了就成孤儿，但读的时候容忍缺失）。
+  // projectId：全仓一致的口径——业务行必带 projectId 做隔离，但它不指向 Project 表（
+  // 与 OperationLog/AiAnalyticsReport 等同处理），所以在白名单里；reportId 见上。
+  AiChatRun: ['projectId', 'reportId'],
   // 总采购清单 ID：批次二占位，尚无可引用的实体表
   ProcurementTask: ['totalListId'],
   // 项目负责人弱关联
