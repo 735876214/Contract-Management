@@ -24,6 +24,8 @@ export class LogService {
     bizId?: string | null;
     /** 发起方工具：null/undefined = 人工操作；`cms_query` 等 = 外部 AI 经 MCP 发起 */
     actorTool?: string | null;
+    /** 链路 id：与响应头 `x-request-id` 同源，用于「用户报障 → 定位日志行」 */
+    requestId?: string | null;
     projectId?: string | null;
     importFile?: string | null;
     importRows?: number;
@@ -61,6 +63,7 @@ export class LogService {
           duration: data.duration ?? null,
           bizType: data.bizType ?? null,
           actorTool: data.actorTool ?? null,
+          requestId: data.requestId ?? null,
           bizId: data.bizId ?? null,
           projectId: data.projectId ?? null,
           importFile: data.importFile ?? null,

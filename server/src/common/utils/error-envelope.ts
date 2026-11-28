@@ -20,6 +20,12 @@ export interface ErrorEnvelope {
   message: string;
   /** 毫秒时间戳，与 `ResponseInterceptor` 的成功分支同类型（number，非 ISO 字符串） */
   timestamp: number;
+  /**
+   * 链路 id（2026-11-24）：与响应头 `x-request-id`、`OperationLog.requestId` 同源。
+   * **只在有值时出现**——启动期/脚本/单测这类没有请求上下文的调用不带这个字段，
+   * 免得把 undefined 塞进 JSON 变成一个噪音键。
+   */
+  requestId?: string;
 }
 
 export function buildErrorEnvelope(input: {
@@ -27,11 +33,15 @@ export function buildErrorEnvelope(input: {
   message: string;
   /** 便于测试注入；默认取当前时间 */
   timestamp?: number;
+  /** 链路 id；传空/不传则不出现在信封里 */
+  requestId?: string;
 }): ErrorEnvelope {
-  return {
+  const envelope: ErrorEnvelope = {
     code: input.code,
     data: null,
     message: input.message,
     timestamp: input.timestamp ?? Date.now(),
   };
+  if (input.requestId) envelope.requestId = input.requestId;
+  return envelope;
 }

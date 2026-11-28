@@ -9,6 +9,7 @@ import { LogService } from './common/services/log.service';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from './common/services/storage.service';
 import { requestContext } from './common/services/request-context';
+import { randomUUID } from 'node:crypto';
 import { runStartupSeed } from './seed';
 
 async function bootstrap() {
@@ -17,10 +18,17 @@ async function bootstrap() {
   // 请求上下文（项目 id）→ AsyncLocalStorage：service 里按 id 取行的查询靠它补
   // `projectId` 过滤，堵住「守卫只管"能不能进这个项目"、不管这条数据属不属于它」的跨项目 IDOR。
   // 必须在路由之前注册；只认 header 与 query（multipart 的 body 在守卫阶段还读不到）。
-  app.use((req: any, _res: any, next: any) => {
+  app.use((req: any, res: any, next: any) => {
     const raw = req?.headers?.['x-project-id'] ?? req?.query?.projectId;
     const projectId = Array.isArray(raw) ? String(raw[0] ?? '').trim() : String(raw ?? '').trim();
-    requestContext.run({ projectId: projectId || undefined }, () => next());
+    /**
+     * 链路 id（2026-11-24）：上游（nginx / 网关）给了就沿用，否则生成一个短 uuid。
+     * 必须在 `next()` **之前**写响应头——否则异常分支先返回，头就丢了（恰恰是最需要它的场景）。
+     */
+    const incoming = String(req?.headers?.['x-request-id'] ?? '').trim();
+    const requestId = incoming && incoming.length <= 64 ? incoming : randomUUID().slice(0, 8);
+    res?.setHeader?.('x-request-id', requestId);
+    requestContext.run({ projectId: projectId || undefined, requestId }, () => next());
   });
 
   // 优雅关闭：容器 stop / 滚动更新时触发 onModuleDestroy → PrismaService.$disconnect()，

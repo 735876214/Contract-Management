@@ -1295,6 +1295,10 @@ model OperationLog {
   // 为什么单开一列而不是把 bizType 改成 'MCP_TOOL'：bizType 有既定语义（模型名/业务类型），
   // 被 import-task 回填与前端「业务类型」列消费；拿它兼职做「谁发起的」会同时毁掉两个含义。
   actorTool    String?
+  // 链路 id（2026-11-24）：与响应头 `x-request-id`、响应体 requestId 同源。
+  // 用途：用户报「刚才保存失败」时凭 id 定位到这条日志，而不是按时间戳在几十万行里捞；
+  // 上游 nginx/网关若也记这个头，两侧日志能对上同一条请求。
+  requestId    String?
   projectId    String?
   // —— 导入专项统计 ——
   importFile   String?
@@ -1311,6 +1315,7 @@ model OperationLog {
   @@index([module, action])
   // 「只看 AI 发起的操作」是审计最常问的问题之一，且多数行 actorTool 为 null
   @@index([actorTool])
+  @@index([requestId])
 }
 
 // ---------------- 异步导入任务 ----------------

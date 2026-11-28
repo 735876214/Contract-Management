@@ -117,6 +117,23 @@ plugin.json  ──gen-plugins.mjs──┬─> server/src/plugins/generated/plu
 6. 跑 `node scripts/gen-plugins.mjs`
 7. `cd server && npm run build` / `cd web && npm run build` / `cd server && npm test` 三绿
 
+### 一条命令起步：`npm run plugin:new`
+
+```bash
+cd server
+npm run plugin:new -- cost-report "成本报表" "按项目汇总的材料成本"
+```
+
+它会：复制 `dev-example` → `server/src/plugins/<key>/`（含 controller/service/module/index）+ `web/src/plugins/<key>/index.tsx`，
+把目录名、文件名的三类大小写形态（`kebab` / `Pascal` / `snake`）、权限码前缀、菜单 key、路由路径、
+MCP 工具名前缀**一次性替换干净**，然后立刻跑一遍 `gen-plugins` 完成装配。
+
+为什么要有它：手抄一遍就为了改这几处名字，漏一处生成器就红，红的原因还看不懂——
+抄一份踩一遍坑，比写业务代码还慢。（对应 ApeAdmin 的 `python -m src.plugins.scaffold`。）
+脚手架**不维护第二套模板**：模板就是 `dev-example` 目录本身，示例怎么演进它就跟着变。
+
+生成后 `plugin.json` 里的显示名/描述/版本/权限标签已经按新插件重写；菜单挂在「系统管理」下，
+要继续改业务就从 `controller/service` 开始。
 ### 插件要加表怎么办
 
 Prisma 是单 schema：插件的表也要写进 `server/prisma/schema.prisma`（约定表名 `<key>_` 前缀），

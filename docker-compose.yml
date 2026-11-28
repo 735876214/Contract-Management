@@ -108,6 +108,8 @@ services:
       # Redis（可选）：连不上会自动降级进程内实现，登录/问数照常可用（只是没有跨实例语义）。
       # 不想用 Redis 就把这行注释掉 / 删掉 redis 服务。
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # 系统参数里密钥类值的加密密钥（可选）：不填则明文落库；生成 openssl rand -base64 32
+      PARAM_SECRET_KEY: ${PARAM_SECRET_KEY:-}
       # 首次部署空库时自动创建的管理员凭据，装好后请立即改密码
       # ⚠️ 留空则后端回落到弱口令 admin123（见 server/src/seed.ts）：上外网前务必在 .env 填随机口令
       DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}

@@ -1,3 +1,4 @@
+import { requestContext } from '../services/request-context';
 import {
   CallHandler,
   ExecutionContext,
@@ -197,6 +198,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               successCount,
               failCount,
               actorTool: mcpAudit?.tool ?? null,
+              requestId: requestContext.requestId ?? null,
             });
           }),
           catchError((err) => {
@@ -217,6 +219,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               bizId: bizId ?? undefined,
               projectId: (req.headers['x-project-id'] as string) || undefined,
               actorTool: mcpAudit?.tool ?? null,
+              requestId: requestContext.requestId ?? null,
             });
             return throwError(() => err);
           }),

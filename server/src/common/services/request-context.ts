@@ -21,6 +21,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface RequestContext {
   /** 当前请求的项目（来自 `x-project-id` 或 `?projectId=`，缺失为 undefined） */
   projectId?: string;
+  /**
+   * 本次请求的链路 id（2026-11-24 引入）：响应头 `x-request-id` 与 `OperationLog.requestId` 同源。
+   * 用途：用户报「刚才保存失败了」时，能凭这个 id 直接定位到那一条操作日志，
+   * 而不是拿时间戳在几十万行日志里捞。
+   */
+  requestId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -49,6 +55,12 @@ export const requestContext = {
    */
   inRequest(): boolean {
     return storage.getStore() !== undefined;
+  },
+
+  /** 当前请求的链路 id；不在请求里（启动期/脚本/单测）返回 undefined */
+  get requestId(): string | undefined {
+    const id = storage.getStore()?.requestId;
+    return id ? id : undefined;
   },
 
   /** 当前请求的项目 id；不在请求里（启动期/脚本/单测）返回 undefined */
