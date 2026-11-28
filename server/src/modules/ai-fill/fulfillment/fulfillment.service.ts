@@ -282,6 +282,7 @@ export class FulfillmentService {
       ],
     };
 
+    // @no-limit: 履约预警要按链算全项目合同（骨架窄列），where 由 contractWhere 组装
     const allContracts = await this.prisma.contract.findMany({
       where: contractWhere,
       select: {
@@ -386,12 +387,14 @@ export class FulfillmentService {
     // ---- C7 专用口径：已定案终期结算（含已「完已结」而退出 C1–C6 的合同） ----
     // 「已出终期结算却仍有未完成节点」本来就不可能出现在 C1–C6 的主口径里（那批合同已被排除），
     // 所以要单独取一次，否则这条规则永远不触发（2026-10-23 审计）
+    // @no-limit: C7 口径单独取全场终期结算做链根判定（窄列 4 个）
     const settledRaw = await this.prisma.finalSettlement.findMany({
       where: { projectId },
       select: { id: true, contractId: true, statusCode: true, settledAt: true },
     });
     const settledAll = settledRaw.filter((f) => f.statusCode === FINAL_SETTLEMENT_STATUS.SETTLED);
     // 全项目合同骨架（窄列）用来解析链根：下钻时要判断某张终期结算是否属于这条链
+    // @no-limit: 链根解析要全项目合同骨架（id→parentContractId 两列）
     const skeleton = await this.prisma.contract.findMany({
       where: { projectId },
       select: { id: true, parentContractId: true },

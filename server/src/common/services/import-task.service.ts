@@ -65,6 +65,7 @@ export class ImportTaskService implements OnModuleInit {
   async reapStaleTasks(): Promise<number> {
     try {
       const now = new Date();
+      // @no-limit: 僵尸导入任务回收必须扫全部 PENDING/RUNNING（量级=并发导入数）
       const rows = await this.prisma.importTask.findMany({
         where: { status: { in: [...IMPORT_ACTIVE_STATUSES] } },
         select: {

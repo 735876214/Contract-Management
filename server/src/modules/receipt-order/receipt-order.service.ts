@@ -353,6 +353,7 @@ export class ReceiptOrderService {
         { signedFilePath: { not: null } },
       ],
     };
+    // @no-limit: 供应商下拉=本项目有签章件的合同的供应商去重，选择项必须全量
     const contracts = await this.prisma.contract.findMany({
       where,
       select: { supplierId: true, supplier: { select: { id: true, name: true, legalPerson: true, contactName: true, contactPhone: true } } },
@@ -475,6 +476,7 @@ export class ReceiptOrderService {
     const where: any = { projectId };
     if (ids.length) where.id = { in: ids };
     else where.typeCode = { in: ['LEASE_EXEC', 'LEASE'] };
+    // @no-limit: 分包合同下拉（本项目内该分包商的合同），选择项必须全量
     const list = await this.prisma.contract.findMany({
       where,
       select: { id: true, code: true, name: true, typeCode: true, supplierId: true },
@@ -505,6 +507,7 @@ export class ReceiptOrderService {
    */
   async subcontractorMaterials(subcontractorId: string, projectId: string) {
     if (!subcontractorId) throw new BadRequestException('缺少分包商 ID');
+    // @no-limit: 分包商领用材料清单=该分包商全部历史领用单明细去重，必须全量
     const orders = await this.prisma.receiptOrder.findMany({
       where: laborReceivingReceiptWhere(projectId, subcontractorId),
       orderBy: { orderDate: 'desc' },

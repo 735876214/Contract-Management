@@ -180,6 +180,7 @@ export class ProjectService {
 
   async members(projectId: string, user?: any) {
     await this.assertAccess(projectId, user);
+    // @no-limit: 项目成员列表（量级=项目参与人数），前端整表渲染
     return this.prisma.projectMember.findMany({
       where: { projectId },
       include: { user: { select: { id: true, realName: true, username: true, phone: true, email: true } } },

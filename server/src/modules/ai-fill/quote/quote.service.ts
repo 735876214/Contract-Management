@@ -255,6 +255,7 @@ export class QuoteService {
     const taskWhere: any = { projectId };
     if (query?.taskId) taskWhere.id = query.taskId;
 
+    // @no-limit: 报价预警按项目全量任务算（骨架 4 列），where 由 taskWhere 组装
     const tasks = await this.prisma.procurementTask.findMany({
       where: taskWhere,
       select: { id: true, taskNo: true, content: true, status: true },

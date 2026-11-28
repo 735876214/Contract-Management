@@ -1163,6 +1163,7 @@ export class ContractService {
 
   /** 当前用户的草稿列表（数据隔离：仅本人创建；需求 2.3 默认仅返回未完成草稿） */
   async findDrafts(userId: string, projectId?: string, status?: string) {
+    // @no-limit: 草稿列表只取本人未提交（where 由 draftWhere 组装），量级=个人草稿数
     return this.prisma.contract.findMany({
       where: this.draftWhere(userId, projectId, status || CONTRACT_STATUS.DRAFT),
       orderBy: { updatedAt: 'desc' },

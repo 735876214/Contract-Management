@@ -113,6 +113,7 @@ export async function loadInvoiceStatsGroups(db: Db, projectId: string) {
 export function loadInvoicesToVerify(db: Db, projectId: string, take?: number) {
   const where = { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY };
   return Promise.all([
+    // @no-limit: take 由调用方决定（工作台传 5、待办页取全部命中），同一 where 另有一条 count 配套
     db.invoice.findMany({
       where,
       orderBy: { createdAt: 'asc' },

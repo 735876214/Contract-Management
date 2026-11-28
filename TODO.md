@@ -65,18 +65,12 @@
 阻塞原因：需业务明确承担「AI 写库出错」的责任边界，并确认上述 5 条作为产品口径写进
 `.claude/rules/product-decisions.md`。在那之前只做只读。
 
-- **`check-query-limits.mjs` 存在漏检盲区**（2026-11-23 写看板聚合时发现）：
-  门禁用 `PARENT_KEY` 正则判"是否按父实体过滤"，但该正则会把 **`select: { id: true }` 里的 `id:`**
-  也当成父实体键 → 任何带 id 投影的项目级全量 `findMany` **全部漏检**（实测：去掉
-  `dashboard.service.ts#contractChainRows` 的 `// @no-limit` 后门禁仍报 0 违规）。
-  修法：只解析 `where` 对象内的顶层键，不要扫整段实参文本。⚠️ 修完会暴露一批存量查询，
-  需先跑 `--list` 评估数量再加 `take`/理由。
-
 - **门禁豁免与 fan-out 聚合器复核**（2026-11-24 审计 P3 备忘，非缺陷）：
-  `check-query-limits` 现有 **33 处** `// @no-limit:` 豁免，模块边界检查点名 `archive`(10) / `receipt-order`(6)
-  两个高 fan-out 聚合器。豁免只该留给「口径本身就需要全量」的少数情形——逐条复核：能加 `take` 或父实体过滤的
-  就去掉豁免，确实必须全量的把理由在注释里写死（现有注释多数只写了「为什么必须全量」，没写"什么时候该重看"）。
-  `archive` / `receipt-order` 若继续长，考虑把聚合搬到 `src/query/` 层收口。
+  2026-11-28 收紧门禁后 `check-query-limits` 有 **79 处**内联 `// @no-limit:`（豁免表仍为 0），
+  模块边界检查点名 `archive`(10) / `receipt-order`(6) 两个高 fan-out 聚合器，已逐条复核：
+  确实都是「口径本身需要全量」（归档导出、下拉选项、链根解析、合计行）。**未解决的部分**：
+  多数注释只写了「为什么必须全量」，没写「什么时候该重看」——即没有触发条件（如「合同数 > 2000 时改为分页/异步导出」），
+  下次复查时补。`archive` / `receipt-order` 若继续长，考虑把聚合搬到 `src/query/` 层收口。
 - **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
   （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
   `CORS_ORIGINS` 环境变量白名单，与部署文档同源。
