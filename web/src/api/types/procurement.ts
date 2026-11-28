@@ -233,6 +233,8 @@ export interface ProcurementStageFormEnvelope<TData> {
 export interface ProcurementFrameworkExplanationData {
   id: string;
   taskId: string;
+  /** 乐观锁：保存时原样回传（服务端据此校验），缺失则兼容旧行为 */
+  version?: number;
   frameworkIntro: string;
   negotiation: string;
   inquiryRows: Record<string, unknown>[];
@@ -248,6 +250,7 @@ export interface ProcurementFrameworkExplanationData {
 export interface ProcurementPreMeetingMinutesData {
   id: string;
   taskId: string;
+  version?: number;
   meetingTime: Dateish;
   content: string;
   host: string;
@@ -268,6 +271,7 @@ export interface ProcurementPreMeetingMinutesData {
 export interface ProcurementNoticeData {
   id: string;
   taskId: string;
+  version?: number;
   procurementNo: string;
   procurementTime: Dateish;
   content: string;
@@ -284,6 +288,7 @@ export interface ProcurementNoticeData {
 export interface ProcurementDocumentData {
   id: string;
   taskId: string;
+  version?: number;
   procurementTime: Dateish;
   responseDeposit: number | null;
   quoteDescription: string;
@@ -295,6 +300,7 @@ export interface ProcurementDocumentData {
 export interface ProcurementResultReportData {
   id: string;
   taskId: string;
+  version?: number;
   unitCount: number | null;
   openTime: Dateish;
   openPlace: string;
@@ -354,6 +360,7 @@ export interface ProcurementBiddersResponse {
 export interface ProcurementPriceCompareData {
   id: string;
   taskId: string;
+  version?: number;
   pricingMethod: string;
   benefitAnalysis: string;
   items: Record<string, unknown>[];

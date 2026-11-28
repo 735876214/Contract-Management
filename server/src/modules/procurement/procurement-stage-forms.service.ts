@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { num } from '@cms/calc/numeric';
 import { ExcelService } from '../../common/services/excel.service';
@@ -48,6 +48,52 @@ export class ProcurementStageFormsService {
   ) {}
 
   /**
+   * 阶段表单的「已完成/编辑中」状态块（六个详情接口共用，此前各抄一遍 4 行）。
+   * published 由各阶段进度推导传入。
+   */
+  private statusBlock(published: boolean) {
+    return {
+      published,
+      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
+      statusLabel: published ? '已完成' : '编辑中',
+    };
+  }
+
+  /**
+   * 六阶段表单统一 upsert（按 taskId 一对一），并对已有记录启用**乐观锁**：
+   * - 记录不存在 → 创建（无需 version）；
+   * - 记录存在且 body.version 传入 → 与库中 version 比对，不符抛 409，命中则 version+1 更新；
+   * - 记录存在但 body.version 未传 → 兼容旧调用（前端尚未回传 version 时）直接更新并 version+1，
+   *   不 409；一旦前端开始回传 version，即升级为严格互斥。
+   * delegate 为对应 Prisma model 的 upsert 代理（this.prisma.xxx）。
+   */
+  private async upsertStageRecord(
+    delegate: {
+      findUnique: (args: any) => Promise<any>;
+      create: (args: any) => Promise<any>;
+      update: (args: any) => Promise<any>;
+    },
+    taskId: string,
+    projectId: string,
+    payload: Record<string, any>,
+    clientVersion?: unknown,
+  ): Promise<any> {
+    const existing = await delegate.findUnique({ where: { taskId }, select: { id: true, version: true } });
+    if (!existing) {
+      return delegate.create({ data: { ...payload, projectId, taskId } });
+    }
+    if (clientVersion !== undefined && clientVersion !== null && clientVersion !== '') {
+      if (Number(clientVersion) !== Number(existing.version)) {
+        throw new ConflictException('数据已被其他用户修改，请刷新后重试');
+      }
+    }
+    return delegate.update({
+      where: { taskId },
+      data: { ...payload, version: { increment: 1 } },
+    });
+  }
+
+  /**
    * 框架协议事前说明（批次二 · 任务 3.1，仅 FRAMEWORK 类型任务）。
    * 状态由阶段进度推导：stage=1 编辑中（仅保存），stage≥2 已完成（发布后，仍可重新编辑）。
    */
@@ -62,9 +108,7 @@ export class ProcurementStageFormsService {
     return {
       task: serializeTask(task),
       editable: task.stage >= 1 && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       data: record ? this.serializeExplanation(record) : null,
     };
   }
@@ -123,13 +167,13 @@ export class ProcurementStageFormsService {
       referenceSuppliers: rows(body?.referenceSuppliers, ['supplier', 'amount']),
     };
 
-    const saved = await this.prisma.frameworkExplanation.upsert({
-      where: { taskId },
-      // Json? 列：payload 里存的是 JSON 文本或 null；Prisma 的 InputJsonValue 不接受裸 null
-      //（需 Prisma.JsonNull/DbNull 哨兵），运行期口径不变，这里显式断言。
-      create: { ...payload, projectId: task.projectId, taskId } as any,
-      update: payload as any,
-    });
+    const saved = await this.upsertStageRecord(
+      this.prisma.frameworkExplanation as any,
+      taskId,
+      task.projectId,
+      payload,
+      body?.version,
+    );
     return this.serializeExplanation(saved);
   }
 
@@ -174,12 +218,14 @@ export class ProcurementStageFormsService {
     costRows: JsonValue | null;
     attachments: JsonValue | null;
     publishedAt: Date | null;
+    version?: number;
     updatedAt: Date;
   }) {
     const parse = (v: any): any[] => parseJsonArray(v);
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       frameworkIntro: r.frameworkIntro ?? '',
       negotiation: r.negotiation ?? '',
       inquiryRows: parse(r.inquiryRows),
@@ -222,9 +268,7 @@ export class ProcurementStageFormsService {
       thresholdWan: PRE_MEETING_THRESHOLD_YUAN / 10000,
       estimatedAmountWan: toWan(amountYuan),
       editable: task.stage >= 1 && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       data: minutesData,
     };
   }
@@ -289,11 +333,13 @@ export class ProcurementStageFormsService {
       inquirySheets: images(body?.inquirySheets),
     };
 
-    const saved = await this.prisma.preMeetingMinutes.upsert({
-      where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId } as any, // Json? 列，同 saveFrameworkExplanation
-      update: payload as any,
-    });
+    const saved = await this.upsertStageRecord(
+      this.prisma.preMeetingMinutes as any,
+      taskId,
+      task.projectId,
+      payload,
+      body?.version,
+    );
     return this.serializeMinutes(saved);
   }
 
@@ -313,12 +359,14 @@ export class ProcurementStageFormsService {
     costRows: JsonValue | null;
     inquirySheets: JsonValue | null;
     publishedAt: Date | null;
+    version?: number;
     updatedAt: Date;
   }) {
     const parse = (v: any): any[] => parseJsonArray(v);
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       meetingTime: r.meetingTime,
       content: r.content ?? '',
       host: r.host ?? '',
@@ -362,9 +410,7 @@ export class ProcurementStageFormsService {
       /** 是否已进入或完成公告阶段（总清单、采前会已发布） */
       reached,
       editable: reached && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       /** 采购清单（只读）：来自总采购清单 */
       purchaseItems: items.map((i) => ({
         materialName: i.materialName,
@@ -407,11 +453,13 @@ export class ProcurementStageFormsService {
       contactPhones: list(body?.contactPhones, '联系电话'),
     };
 
-    const saved = await this.prisma.procurementNotice.upsert({
-      where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId } as any, // Json? 列，同 saveFrameworkExplanation
-      update: payload as any,
-    });
+    const saved = await this.upsertStageRecord(
+      this.prisma.procurementNotice as any,
+      taskId,
+      task.projectId,
+      payload,
+      body?.version,
+    );
     return this.serializeNotice(saved);
   }
 
@@ -427,6 +475,7 @@ export class ProcurementStageFormsService {
     contacts: JsonValue | null;
     contactPhones: JsonValue | null;
     publishedAt: Date | null;
+    version?: number;
     updatedAt: Date;
   }) {
     // 列已改 jsonb：Prisma 返回已解析数组；兼容历史调用传入的 JSON 字符串
@@ -434,6 +483,7 @@ export class ProcurementStageFormsService {
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       procurementNo: r.procurementNo ?? '',
       procurementTime: r.procurementTime,
       content: r.content ?? '',
@@ -479,9 +529,7 @@ export class ProcurementStageFormsService {
       noticeCompleted: task.stage > noticeIndex,
       reached,
       editable: reached && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       /** 来自采购公告的取值（采购编号/采购内容来自公告；技术质量标准/验收方式/付款方式来自采购发起 task） */
       notice: notice
         ? {
@@ -532,11 +580,13 @@ export class ProcurementStageFormsService {
       quoteDescription: text(body?.quoteDescription),
     };
 
-    const saved = await this.prisma.procurementDocument.upsert({
-      where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
-    });
+    const saved = await this.upsertStageRecord(
+      this.prisma.procurementDocument as any,
+      taskId,
+      task.projectId,
+      payload,
+      body?.version,
+    );
     return this.serializeDocument(saved);
   }
 
@@ -544,6 +594,7 @@ export class ProcurementStageFormsService {
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       procurementTime: r.procurementTime,
       responseDeposit: num(r.responseDeposit),
       quoteDescription: r.quoteDescription ?? '',
@@ -581,9 +632,7 @@ export class ProcurementStageFormsService {
       documentCompleted: task.stage > documentIndex,
       reached,
       editable: reached && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
       content: notice?.content ?? task.content ?? '',
       /** 预计采购金额（元，来自总采购清单） */
@@ -646,17 +695,23 @@ export class ProcurementStageFormsService {
       ...(candidates !== undefined ? { candidates } : {}),
     };
 
-    const saved = await this.prisma.procurementResultReport.upsert({
-      where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const rec = await this.upsertStageRecord(
+        tx.procurementResultReport as any,
+        taskId,
+        task.projectId,
+        payload,
+        body?.version,
+      );
+      // 定标结果同步到结构化行：勾选即「中标」（并写入最终确认价格），取消勾选回落到入围/已递交。
+      // 幂等：先补齐结构化行（存量/从未导入过的任务），再按 candidates 覆盖这两件事。
+      // 与报告快照同事务：中途失败不能留下「快照已改、结构化行没跟上」的两份事实分叉。
+      if (candidates !== undefined) {
+        await this.ensureBiddersFromSnapshot({ id: task.id, projectId: task.projectId }, tx);
+        await this.applyCandidateStatuses(task.id, candidates, tx);
+      }
+      return rec;
     });
-    // 定标结果同步到结构化行：勾选即「中标」（并写入最终确认价格），取消勾选回落到入围/已递交。
-    // 幂等：先补齐结构化行（存量/从未导入过的任务），再按 candidates 覆盖这两件事。
-    if (candidates !== undefined) {
-      await this.ensureBiddersFromSnapshot({ id: task.id, projectId: task.projectId });
-      await this.applyCandidateStatuses(task.id, candidates);
-    }
     return this.serializeResultReport(saved);
   }
 
@@ -835,10 +890,11 @@ export class ProcurementStageFormsService {
    * 之所以不做成一次性迁移脚本：空库、存量库、重复执行三种情况同一套逻辑即可覆盖，
    * 也不会因历史数据形态差异（缺字段/名称重复）让迁移半途失败。
    */
-  async ensureBiddersFromSnapshot(task: { id: string; projectId: string }): Promise<void> {
-    const existing = await this.prisma.procurementBidder.count({ where: { taskId: task.id } });
+  async ensureBiddersFromSnapshot(task: { id: string; projectId: string }, tx?: Prisma.TransactionClient): Promise<void> {
+    const db = tx ?? this.prisma;
+    const existing = await db.procurementBidder.count({ where: { taskId: task.id } });
     if (existing > 0) return;
-    const report = await this.prisma.procurementResultReport.findUnique({ where: { taskId: task.id } });
+    const report = await db.procurementResultReport.findUnique({ where: { taskId: task.id } });
     const suppliers = parseJsonArray<Record<string, any>>(report?.suppliers);
     if (!suppliers.length) return; // 无快照可回填（尚未导入）
     // 同名单位在导入表里重复时唯一键会撞：按名称去重，保留首行（与前端展示口径一致）
@@ -849,10 +905,20 @@ export class ProcurementStageFormsService {
       seen.add(n);
       return true;
     });
-    await this.prisma.$transaction(async (tx) => {
-      await this.syncBiddersFromSuppliers(tx, task, deduped);
-    });
-    await this.applyCandidateStatuses(task.id, parseJsonArray<Record<string, any>>(report?.candidates));
+    /**
+     * 回填 + 定标状态同步在同一事务：外传 tx 时沿用（保存成交报告路径），
+     * 否则自开事务（读取时幂等回填路径）。
+     */
+    const applyAll = async (t: Prisma.TransactionClient) => {
+      await this.syncBiddersFromSuppliers(t, task, deduped);
+      await this.applyCandidateStatuses(
+        task.id,
+        parseJsonArray<Record<string, any>>(report?.candidates),
+        t,
+      );
+    };
+    if (tx) await applyAll(tx);
+    else await this.prisma.$transaction(applyAll);
   }
 
   /**
@@ -861,8 +927,13 @@ export class ProcurementStageFormsService {
    * - 原先 `WON` 但已取消勾选 → 回落「入围 / 已递交」（纯函数 `bidderStatusWhenNotWon()`）并清空确认价；
    * - **其它状态（弃权/未中标等）不动**——那是用户在手维度的结果，服务端不覆盖。
    */
-  private async applyCandidateStatuses(taskId: string, candidates: Array<Record<string, any>>): Promise<void> {
-    const rows = await this.prisma.procurementBidder.findMany({ where: { taskId } });
+  private async applyCandidateStatuses(
+    taskId: string,
+    candidates: Array<Record<string, any>>,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    const rows = await db.procurementBidder.findMany({ where: { taskId } });
     if (!rows.length) return;
     const byName = new Map(rows.map((r) => [r.bidderName, r]));
     const won = new Set<string>();
@@ -878,7 +949,7 @@ export class ProcurementStageFormsService {
       const price = rawPrice !== null && Number.isFinite(rawPrice) ? rawPrice : null;
       const current = row.finalPreTaxTotal == null ? null : Number(row.finalPreTaxTotal);
       if (row.status !== BIDDER_STATUS.WON || current !== price) {
-        await this.prisma.procurementBidder.update({
+        await db.procurementBidder.update({
           where: { id: row.id },
           data: { status: BIDDER_STATUS.WON, finalPreTaxTotal: price },
         });
@@ -887,7 +958,7 @@ export class ProcurementStageFormsService {
 
     for (const row of rows) {
       if (row.status === BIDDER_STATUS.WON && !won.has(row.bidderName)) {
-        await this.prisma.procurementBidder.update({
+        await db.procurementBidder.update({
           where: { id: row.id },
           data: { status: bidderStatusWhenNotWon(row.passedFirst), finalPreTaxTotal: null },
         });
@@ -1136,9 +1207,7 @@ export class ProcurementStageFormsService {
       resultReportCompleted: task.stage > reportIndex,
       reached,
       editable: reached && !published,
-      published,
-      status: published ? MODULE_RECORD_STATUS.COMPLETED : MODULE_RECORD_STATUS.EDITING,
-      statusLabel: published ? '已完成' : '编辑中',
+      ...this.statusBlock(published),
       /** 采购内容（默认取采购公告内容，其次取采购任务内容） */
       content: notice?.content ?? task.content ?? '',
       /** 明细表行（派生 + 已保存的成交价/备注） */
@@ -1199,11 +1268,13 @@ export class ProcurementStageFormsService {
       benefitAnalysis: text(body?.benefitAnalysis),
       items: JSON.stringify(items),
     };
-    const saved = await this.prisma.procurementPriceCompare.upsert({
-      where: { taskId },
-      create: { ...payload, projectId: task.projectId, taskId },
-      update: payload,
-    });
+    const saved = await this.upsertStageRecord(
+      this.prisma.procurementPriceCompare as any,
+      taskId,
+      task.projectId,
+      payload,
+      body?.version,
+    );
     return this.serializePriceCompare(saved);
   }
 
@@ -1214,11 +1285,13 @@ export class ProcurementStageFormsService {
     benefitAnalysis: string | null;
     items: string | null;
     publishedAt: Date | null;
+    version?: number;
     updatedAt: Date;
   }) {
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       pricingMethod: r.pricingMethod ?? '',
       benefitAnalysis: r.benefitAnalysis ?? '',
       items: parseJsonArray<Record<string, any>>(r.items),
@@ -1241,11 +1314,13 @@ export class ProcurementStageFormsService {
     suppliers: JsonValue | null;
     candidates: JsonValue | null;
     publishedAt: Date | null;
+    version?: number;
     updatedAt: Date;
   }) {
     return {
       id: r.id,
       taskId: r.taskId,
+      version: r.version ?? 0,
       unitCount: r.unitCount,
       openTime: r.openTime,
       openPlace: r.openPlace ?? '',

@@ -919,49 +919,99 @@ export class ContractService {
     }
 
     // 补充协议：未传编号/顺序码时按「原合同编号（N+1）」自动生成
-    if (data.isSupplement === 'Y' && data.parentContractId) {
-      const parent = await db.contract.findUnique({ where: { id: data.parentContractId } });
+    const isSupplement = data.isSupplement === 'Y' && !!data.parentContractId;
+    const autoSeq = isSupplement && !data.supplementSeq;
+    const autoCode = isSupplement && !data.code;
+    /**
+     * 决定补充协议序号/编号/年度码（可重入：并发撞 `@@unique([parentContractId, supplementSeq])`
+     * 时用最新 count 重新派生，见下方重试）。父合同校验每轮都做，语义不变。
+     * 放在事务内执行：count 读的是事务快照，配合唯一约束让并发后到者 P2002 后重试。
+     */
+    const prepareSupplement = async (dbx: any) => {
+      if (!isSupplement) return;
+      const parent = await dbx.contract.findUnique({ where: { id: data.parentContractId } });
       if (!parent) throw new BadRequestException('父合同不存在');
       if (parent.isSupplement === 'Y') throw new BadRequestException('补充协议不能再派生补充协议，请选择主合同');
       if (parent.projectId !== projectId) throw new BadRequestException('父合同与当前项目不一致');
       if (parent.archivedAt) throw new BadRequestException('父合同已归档，不能新增补充协议');
-      if (!data.supplementSeq) {
-        const count = await db.contract.count({ where: { parentContractId: data.parentContractId } });
+      if (autoSeq) {
+        const count = await dbx.contract.count({ where: { parentContractId: data.parentContractId } });
         data.supplementSeq = count + 1;
       }
-      if (!data.code) data.code = `${parent.code}（${data.supplementSeq}）`;
+      if (autoCode) data.code = `${parent.code}（${data.supplementSeq}）`;
       if (!data.yearSeq) data.yearSeq = parent.yearSeq;
       await this.assertCodeUnique(data.code, projectId);
-    }
+    };
 
     const { attachments, ext, ...rest } = data;
     this.assertAmountAndRate(data.amount, data.taxRatePct);
     const safeAttachments = this.safeAttachments(attachments);
-    const contract = await db.contract.create({
-      data: {
-        ...pickFields(rest, CONTRACT_FIELDS, { label: '合同' }),
-        projectId,
-        /**
-         * 起草状态不接受前端指定（2026-10-21 第 11 轮审计）：`status` 留在
-         * `CONTRACT_FIELDS` 里是为了编辑草稿时能保留，但**新建**必须从「起草中」开始。
-         * 否则 POST /contracts 带 `status: 'SIGNED'` 就能跳过 publish() 与签章审核直接
-         * 落成已签章，而 signedFilePath、execStatus 都没联动 —— 台账/看板会把未签章
-         * 合同计入执行中。状态只能由 publish/setStatus/sign/reject 改。
-         */
-        status: CONTRACT_STATUS.DRAFT,
-        signDate: data.signDate ? new Date(data.signDate) : null,
-        amount: num(data.amount),
-        taxRatePct: num(data.taxRatePct),
-        createdBy: user?.userId,
-      },
-    });
-    if (ext) await this.saveExt(contract.id, ext, tx);
-    // 付款安排 / 扩展信息落库后重算「当前生效比例」（派生列，见 syncPayRatio）
-    await this.syncPayRatio(contract.id, tx);
-    if (safeAttachments.length) {
-      await db.contractAttachment.createMany({
-        data: safeAttachments.map((a: any) => ({ contractId: contract.id, fileName: a.fileName, url: a.url, size: a.size })),
+    /**
+     * 合同行 + 扩展信息 + 当前生效比例 + 附件必须**同一事务**落库（H1，第 CQ 轮审计）：
+     * 无事务时 saveExt / syncPayRatio / 附件任一步失败，会留下「有合同行、无扩展/附件」的半成品，
+     * 且 syncPayRatio 的派生列与合同主体不一致。调用方已带 tx（导入）时沿用其连接不嵌套。
+     * ⚠️ `material.derive` 仍放在事务**之外**：它走 this.prisma 的另一条连接，在事务内会跨连接锁等待。
+     * `contractFields` 与补充协议序号每轮重算：重试时序号/code 可能变（见下）。
+     */
+    const writeContract = async (db: any) => {
+      await prepareSupplement(db);
+      const contractFields = pickFields(rest, CONTRACT_FIELDS, { label: '合同' });
+      // prepareSupplement 可能已改写 data.code / data.supplementSeq / data.yearSeq，需覆盖回字段
+      contractFields.code = data.code;
+      if (isSupplement) {
+        contractFields.supplementSeq = data.supplementSeq;
+        if (data.yearSeq) contractFields.yearSeq = data.yearSeq;
+      }
+      const created: any = await db.contract.create({
+        data: {
+          ...contractFields,
+          projectId,
+          /**
+           * 起草状态不接受前端指定（2026-10-21 第 11 轮审计）：`status` 留在
+           * `CONTRACT_FIELDS` 里是为了编辑草稿时能保留，但**新建**必须从「起草中」开始。
+           * 否则 POST /contracts 带 `status: 'SIGNED'` 就能跳过 publish() 与签章审核直接
+           * 落成已签章，而 signedFilePath、execStatus 都没联动 —— 台账/看板会把未签章
+           * 合同计入执行中。状态只能由 publish/setStatus/sign/reject 改。
+           */
+          status: CONTRACT_STATUS.DRAFT,
+          signDate: data.signDate ? new Date(data.signDate) : null,
+          amount: num(data.amount),
+          taxRatePct: num(data.taxRatePct),
+          createdBy: user?.userId,
+        },
       });
+      if (ext) await this.saveExt(created.id, ext, db);
+      // 付款安排 / 扩展信息落库后重算「当前生效比例」（派生列，见 syncPayRatio）
+      await this.syncPayRatio(created.id, db);
+      if (safeAttachments.length) {
+        await db.contractAttachment.createMany({
+          data: safeAttachments.map((a: any) => ({ contractId: created.id, fileName: a.fileName, url: a.url, size: a.size })),
+        });
+      }
+      return created;
+    };
+    /**
+     * 并发建补充协议重试：撞 `(parentContractId, supplementSeq)` 或 `(projectId, code)` 唯一键时，
+     * 用最新 count/code 重派生再试（最多 5 次）。外层已带 tx（导入）时不重试——重试需新事务。
+     */
+    const isSupplementConflict = (e: any): boolean =>
+      e?.code === 'P2002' &&
+      (autoSeq || autoCode) &&
+      /supplementSeq|code/.test(String(e?.meta?.target ?? ''));
+    let contract: any;
+    if (tx) {
+      contract = await writeContract(tx);
+    } else {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          contract = await this.prisma.$transaction((t) => writeContract(t));
+          break;
+        } catch (e) {
+          if (attempt >= 5 || !isSupplementConflict(e)) throw e;
+          data.supplementSeq = undefined; // 触发下一轮用最新 count 重派生
+          data.code = autoCode ? undefined : data.code;
+        }
+      }
     }
     // 需求 2.1/2.3：创建合同时可从物资基础库（项目物资清单数据源）选择物资，
     // 派生生成合同物资清单（唯一数据源），序号从 1 开始

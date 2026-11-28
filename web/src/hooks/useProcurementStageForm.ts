@@ -182,11 +182,21 @@ export function useProcurementStageForm<TDetail extends StageFormDetailBase, TFo
     setDirty(true);
   };
 
+  /**
+   * 保存 body 注入乐观锁 version：详情 data 里带回了 version（服务端记录版本），
+   * 保存时原样回传，服务端据此做并发互斥（缺失则兼容旧行为）。
+   */
+  const withVersion = (payload: unknown): any => {
+    const ver = (detail?.data as { version?: number } | null | undefined)?.version;
+    if (ver === undefined || payload == null || typeof payload !== 'object') return payload;
+    return { ...(payload as Record<string, unknown>), version: ver };
+  };
+
   const handleSave = async () => {
     if (!taskId) return;
     setSaving(true);
     try {
-      await save(taskId, buildSavePayload(form));
+      await save(taskId, withVersion(buildSavePayload(form)));
       message.success('已保存');
       loadDetail(taskId);
       setDirty(false);
@@ -209,7 +219,7 @@ export function useProcurementStageForm<TDetail extends StageFormDetailBase, TFo
     if (!taskId) return;
     setPublishing(true);
     try {
-      await save(taskId, buildSavePayload(form));
+      await save(taskId, withVersion(buildSavePayload(form)));
       await procurementTaskApi.publish(taskId);
       message.success(publishSuccessMessage);
       setModalMode(null);

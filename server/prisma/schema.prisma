@@ -500,6 +500,9 @@ model Contract {
   receiptAsSupplySubcontract ReceiptOrder[]          @relation("ReceiptSupplySubcontract")
 
   @@unique([projectId, code])
+  // 补充协议序号并发唯一（第 CQ 轮审计 M5）：原「count+1」在并发下会派生两张同序号补充协议，
+  // 编号也撞。建唯一约束让后到者 P2002，写入侧据此重试取新序号（见 contract.service.create）。
+  @@unique([parentContractId, supplementSeq])
   @@index([projectId, supplierId])
   @@index([projectId, archivedAt])
   // 列表/台账/看板都按项目 + createdAt desc 排（第 15/16 轮审计：原来缺这个组合索引）

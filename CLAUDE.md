@@ -23,7 +23,7 @@ Contract-Management/
 ├── .claude/rules/      # 规则与产品口径（按需加载，先读 rules-index.md）
 ├── server/             # NestJS 后端
 │   ├── prisma/schema.prisma        # 全量数据模型（67 个 model）
-│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 51 个增量迁移
+│   ├── prisma/migrations/          # 折叠基线 20260901000000_init + 52 个增量迁移
 │   │                               #   （p1_consistency / site_confirmation / scrub_log_secrets
 │   │                               #    / import_task_recovery / canonicalize_template_placeholders
 │   │                               #    / tender_bidder_and_evaluation / contract_change_and_snapshot
@@ -47,7 +47,8 @@ Contract-Management/
 │   │                               #    / final_settlement_reduce_amount / project_branch_company / final_settlement_doc_number
 │   │                               #    / subcontractor_other_project_libs / user_token_version
 │   │                               #    / lib_permission_canonical_labels / operation_log_actor_tool
-│   │                               #    / ai_analytics_answer_mode / operation_log_request_id / ai_chat_run）
+│   │                               #    / ai_analytics_answer_mode / operation_log_request_id / ai_chat_run
+│   │                               #    / contract_supplement_seq_unique）
 │   ├── src/common/     # 通用层（仅基础设施）：统一响应/异常/装饰器/Excel/导入/日志/系统参数/存储
 │   │                   #   common/utils 是**白名单制**，不放业务口径（见 .claude/rules/module-boundaries.md §2.5）
 │   ├── src/domain/     # 业务口径**纯函数原语**（零 DB/零装饰器）：合同链算式、结算期、金额上限…
