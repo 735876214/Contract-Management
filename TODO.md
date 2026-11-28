@@ -65,11 +65,6 @@
 阻塞原因：需业务明确承担「AI 写库出错」的责任边界，并确认上述 5 条作为产品口径写进
 `.claude/rules/product-decisions.md`。在那之前只做只读。
 
-- **付款月份空串未被拦**（2026-11-23 补测时发现）：`assertYearMonth()` 对 `null/undefined/''` 统一放行
-  （它同时服务「结算月份可空」的调用方），于是 `createRecord({ payMonth: '' })` 能落库。而台账/看板对
-  `payMonth` 做**字符串精确匹配**——空串行永远不会被任何月份的统计命中，等于"保存成功、账上少一块"。
-  修法：在 `payment.service` 的写入路径上对 `payMonth` 单独要求非空（别改共享助手，会波及结算月份）。
-  证据：`server/test-integration/payment.int.spec.ts` 的 ③ 只覆盖了格式档位，空串档位待补。
 - **`check-query-limits.mjs` 存在漏检盲区**（2026-11-23 写看板聚合时发现）：
   门禁用 `PARENT_KEY` 正则判"是否按父实体过滤"，但该正则会把 **`select: { id: true }` 里的 `id:`**
   也当成父实体键 → 任何带 id 投影的项目级全量 `findMany` **全部漏检**（实测：去掉

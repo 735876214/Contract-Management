@@ -107,6 +107,34 @@ export class PaymentService {
    * 导出用全量付款记录：`findRecords({ pageSize: 2000 })` 会被单页上限（默认 500）截断，
    * 大于上限时导出文件**静默**少行、汇总行金额偏小。按页拉全量，与发票/台账导出同口径。
    */
+  /**
+   * 付款月份**必填**校验（2026-11-28）。
+   *
+   * 为什么不直接改共享的 `assertYearMonth`：它同时服务「结算月份可空」的调用方，
+   * 在那里收紧会让「本月还没结算」的合法场景直接 400。付款记录不同——月份是它进台账/看板
+   * 按月聚合的**唯一维度**，空串存进去等于「保存成功、账上少一块」（台账/看板对 payMonth 做字符串
+   * 精确匹配，空串行永远不会被任何月份命中）。
+   *
+   * 存量脏数据不在本方法处理范围：历史行的月份是空还是有值，机器猜不出来，需业务确认后再补。
+   */
+  private resolvePayMonth(value: unknown, payDate: unknown): string {
+    const s = String(value ?? '').trim();
+    if (s) {
+      assertYearMonth(s, '付款月份');
+      return s;
+    }
+    /**
+     * 没填月份：**从付款日期归档**。
+     *
+     * 为什么不直接拒：付款日期是这笔业务的既成事实，月份只是它的一个投影，让用户为了满足
+     * 统计口径再填一遍纯属添堵；而「日期有、月份空」的行同样会被月度聚合漏掉。
+     * 两样都没有才是真的信息缺失（不知道这笔钱算哪个月），那时必须拦。
+     */
+    const d = toDate(payDate);
+    if (d) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    throw new BadRequestException('付款月份为必填项（YYYY-MM，如 2026-09）；或不填月份、改填付款日期，由系统按日期归档');
+  }
+
   private allRecords(projectId: string): Promise<any[]> {
     return pagedAll((page, pageSize) => this.findRecords({ page, pageSize }, projectId, pageSize));
   }
@@ -117,12 +145,13 @@ export class PaymentService {
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
     // 台账/看板按字符串精确匹配 payMonth，非 YYYY-MM 会让该笔付款在所有月度统计里消失
-    assertYearMonth(data.payMonth, '付款月份');
+    const payMonth = this.resolvePayMonth(data.payMonth, data.payDate);
     const warn = tx
       ? {}
       : await this.checkOverPayment(data.contractId, num(data.amount) ?? 0, data.statusCode);
     const created: any = await db.paymentRecord.create({
-      data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
+      // payMonth 放在展开之后：空月份按付款日期推出来的值要覆盖掉空串
+      data: { ...pickFields(data, RECORD_FIELDS, { label: '付款记录' }), payMonth, projectId, amount: num(data.amount), payDate: toDate(data.payDate) },
     });
     return { ...created, ...warn };
   }
@@ -136,8 +165,13 @@ export class PaymentService {
     assertVersion(before, data);
     await this.dict.validate('payment_method', data.methodCode);
     await this.dict.validate(DICT_TYPES.PAYMENT_STATUS, data.statusCode);
-    assertYearMonth(data.payMonth, '付款月份');
+    // 不传 = 不改这一项（部分更新）；传了月份就校验，只传日期则按日期重算月份
+    const nextPayMonth =
+      data.payMonth !== undefined || data.payDate !== undefined
+        ? this.resolvePayMonth(data.payMonth, data.payDate ?? before?.payDate)
+        : undefined;
     const payload: any = pickFields(data, RECORD_UPDATE_FIELDS, { label: '付款记录' });
+    if (nextPayMonth !== undefined) payload.payMonth = nextPayMonth;
     await this.assertContractInProject(payload.contractId, projectId ?? before.projectId);
     if (payload.amount !== undefined) payload.amount = num(payload.amount);
     if (payload.payDate) payload.payDate = toDate(payload.payDate);

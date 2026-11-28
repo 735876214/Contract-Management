@@ -59,12 +59,10 @@ describe('集成 · 付款登记写路径', () => {
     assert.equal(rec.overAmountWarning, undefined, '失败付款不构成实际出资，不该报超付');
   });
 
-  it('③ 付款月份必须是 YYYY-MM', async () => {
+  it('③ 付款月份：非法格式必须 400；空月份按付款日期归档；两样都没有才拦', async () => {
     const project = await makeProject(ctx.prisma, 'PAY-MONTH');
     const contract = await makeContract(ctx.prisma, { projectId: project.id, amount: 1000 });
 
-    // 注意：空串不在本用例覆盖范围——共享助手 `assertYearMonth` 对空值放行
-    // （它同时服务「结算月份可空」的调用方）；空 payMonth 的缺口登记在 TODO.md。
     for (const bad of ['2026-9', '2026/09', '202609', '2026-13']) {
       await assert.rejects(
         () => svc.createRecord(base(contract.id, { payMonth: bad }), project.id),
@@ -72,8 +70,41 @@ describe('集成 · 付款登记写路径', () => {
         `非法付款月份「${bad}」必须 400`,
       );
     }
-  });
 
+    /**
+     * 空月份档位（2026-11-28）：共享助手 `assertYearMonth` 对空值一律放行（它同时服务「结算月份可空」），
+     * 对付款记录必须收紧——台账/看板对 payMonth 做**字符串精确匹配**，空串行永远不会被任何月份命中，
+     * 用户看到的是「保存成功」，账上的当月付款却静默少一块。
+     * 口径：月份空但**有付款日期** → 按日期归档（不拿统计口径去为难用户）；两样都没有 → 400。
+     */
+    for (const empty of ['', '   ', null, undefined]) {
+      const rec: any = await svc.createRecord(base(contract.id, { payMonth: empty }), project.id);
+      assert.equal(rec.payMonth, '2026-09', `空月份「${String(empty)}」应按付款日期 2026-09-15 归档`);
+    }
+
+    for (const empty of ['', '   ', null, undefined]) {
+      await assert.rejects(
+        () => svc.createRecord(base(contract.id, { payMonth: empty, payDate: null }), project.id),
+        (e: any) => e instanceof BadRequestException && /付款月份为必填/.test(e.message),
+        `没有月份也没有付款日期（「${String(empty)}」）必须 400`,
+      );
+    }
+
+    // 部分更新：不传月份/日期 = 不动这一项；只改日期 = 月份跟着日期走
+    const rec: any = await svc.createRecord(base(contract.id), project.id);
+    const kept: any = await svc.updateRecord(
+      rec.id,
+      { amount: 300, version: rec.version, methodCode: 'TRANSFER', statusCode: 'PAID' },
+      project.id,
+    );
+    assert.equal(kept.payMonth, '2026-09', '不传月份的部分更新不该把月份清掉');
+    const moved: any = await svc.updateRecord(
+      kept.id,
+      { payDate: '2026-10-03', version: kept.version },
+      project.id,
+    );
+    assert.equal(moved.payMonth, '2026-10', '只改付款日期时，月份应跟着日期重算（否则这行从 10 月的统计里消失）');
+  });
   it('④ 项目隔离：别项目合同 400（防把供应商开户行/账号跨项目带出）', async () => {
     const mine = await makeProject(ctx.prisma, 'PAY-P1');
     const other = await makeProject(ctx.prisma, 'PAY-P2');
