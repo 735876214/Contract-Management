@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../modules/auth';
 import { PermissionsGuard } from '../../modules/auth';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -22,5 +22,17 @@ export class DevExampleController {
   @Get('summary')
   summary() {
     return this.service.summary();
+  }
+
+  /**
+   * 带查询参数的只读接口。
+   *
+   * 同时也是 MCP 工具参数映射的示例：`plugin.json` 的 mcpTools[].params 只支持**查询参数**，
+   * 不放路径参数（`:id`）——路径参数要额外处理编码与注入，收益不抵风险。
+   */
+  @RequirePermissions('dev-example:view')
+  @Get('permissions')
+  permissions(@Query('group') group?: string) {
+    return this.service.permissions(group);
   }
 }

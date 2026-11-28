@@ -26,7 +26,8 @@
     "stats:anomaly-input": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/anomaly-input-stats.mts",
     "seed:scale-fixture": "node --require ts-node/register --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/anomaly-scale-fixture.mts",
     "pretest": "node ../packages/calc/build.mjs",
-    "pretest:int": "node ../packages/calc/build.mjs"
+    "pretest:int": "node ../packages/calc/build.mjs",
+    "plugin:new": "node ../scripts/new-plugin.mjs"
   },
   "dependencies": {
     "@cms/calc": "file:../packages/calc",
@@ -44,6 +45,7 @@
     "class-validator": "^0.14.1",
     "exceljs": "^4.4.0",
     "html-to-docx": "^1.8.0",
+    "ioredis": "^6.1.0",
     "jpeg-js": "^0.4.4",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",

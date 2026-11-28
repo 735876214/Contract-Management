@@ -5,10 +5,16 @@
   "description": "构建期插件（B 档）的最小子集示范：一个后端模块 + 一个前端页面 + 一条菜单 + 一个权限码，全部由 plugin.json 声明后生成装配",
   "author": "CMS",
   "enabledByDefault": true,
-  "dependencies": ["core>=1.1.0"],
+  "dependencies": [
+    "core>=1.1.0"
+  ],
   "apiPrefix": "plugin/dev-example",
   "permissions": [
-    { "code": "dev-example:view", "name": "查看插件开发示例", "group": "插件" }
+    {
+      "code": "dev-example:view",
+      "name": "查看插件开发示例",
+      "group": "插件"
+    }
   ],
   "menus": [
     {
@@ -20,5 +26,37 @@
       "parent": "system"
     }
   ],
-  "mcpTools": []
+  "mcpTools": [
+    {
+      "name": "dev_example_summary",
+      "description": "读取「插件开发示例」的装配事实：插件是否被挂载、对外接口/权限码/菜单/前端页面从哪里来（只读）。可用 cms_whoami 先确认当前账号权限。",
+      "route": {
+        "method": "GET",
+        "path": "summary"
+      },
+      "permissions": [
+        "dev-example:view"
+      ],
+      "params": []
+    },
+    {
+      "name": "dev_example_permissions",
+      "description": "列出「插件开发示例」声明的权限码与所属分组，用于确认插件授权是否已同步（只读）。",
+      "route": {
+        "method": "GET",
+        "path": "permissions"
+      },
+      "permissions": [
+        "dev-example:view"
+      ],
+      "params": [
+        {
+          "name": "group",
+          "type": "string",
+          "required": false,
+          "description": "按分组名精确过滤（如 插件）；省略则返回全部"
+        }
+      ]
+    }
+  ]
 }

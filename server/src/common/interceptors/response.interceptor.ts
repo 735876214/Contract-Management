@@ -1,10 +1,13 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
+import { requestContext } from '../services/request-context';
 
 export interface ApiResult<T> {
   code: number;
   data: T;
   message: string;
+  /** 链路 id：与响应头 `x-request-id`、`OperationLog.requestId` 同源（请求外调用时为 undefined） */
+  requestId?: string;
 }
 
 /**
@@ -23,10 +26,17 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResult<T> |
       map((raw) => {
         if (this.shouldSkip?.(context)) return raw;
         // 已经是标准结构则直接返回
+        const requestId = requestContext.requestId;
         if (raw && typeof raw === 'object' && 'code' in raw && 'data' in raw && 'message' in raw) {
-          return { ...raw, timestamp: Date.now() };
+          return { ...raw, timestamp: Date.now(), ...(requestId ? { requestId } : {}) };
         }
-        return { code: 0, data: raw ?? null, message: 'ok', timestamp: Date.now() };
+        return {
+          code: 0,
+          data: raw ?? null,
+          message: 'ok',
+          timestamp: Date.now(),
+          ...(requestId ? { requestId } : {}),
+        };
       }),
     );
   }

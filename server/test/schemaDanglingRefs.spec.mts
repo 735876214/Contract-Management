@@ -36,7 +36,9 @@ const ALLOWED_DANGLING: Record<string, string[]> = {
   ImportTask: ['projectId', 'userId'],
   // 通用通知 / 操作日志：按 bizType + bizId 弱关联
   Notification: ['bizId', 'projectId'],
-  OperationLog: ['bizId', 'projectId'],
+  // requestId（2026-11-24）：链路 id，来自 x-request-id 头，**不是**外键——命名撞上了 xxxId 的启发式，
+  // 它不指向任何表，也没有可建的 @relation。
+  OperationLog: ['bizId', 'projectId', 'requestId'],
   // 总采购清单 ID：批次二占位，尚无可引用的实体表
   ProcurementTask: ['totalListId'],
   // 项目负责人弱关联

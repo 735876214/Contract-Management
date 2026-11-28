@@ -13,6 +13,7 @@
   否则镜像/CI 的 `npm ci` 会因 `package.json` 与锁文件不一致而失败。
 - Docker + Docker Compose（开发与部署）
 - PostgreSQL 16（由 compose 提供，本地默认映射 `15432`）
+- Redis 7（**可选**，由 compose 提供，本地默认映射 `16379`；不装也能跑，见下方「Redis（可选）」）
 
 ## 2. 本地启动
 
@@ -22,7 +23,7 @@
 docker compose -f docker-compose.dev.yml up
 # 前端 http://localhost:5173（Vite HMR）
 # 后端 http://localhost:3000/api
-# PostgreSQL 映射到本机 15432；上传文件落 ./data-dev
+# PostgreSQL 映射到本机 15432；Redis 映射到 16379；上传文件落 ./data-dev
 # 首次启动自动装依赖（数分钟）；无需宿主机装 node/npm
 ```
 
@@ -50,6 +51,26 @@ npm ci --legacy-peer-deps
 npm run dev                        # http://localhost:5173（/api 反代 localhost:3000）
 ```
 
+
+**Redis（可选，2026-11-24 引入）**：`REDIS_URL` 不配就自动走**进程内实现**，行为与改造前一致
+（单实例口径），所以 CI、单容器部署、以及只想跑起来看看的人**都不需要装 Redis**。配了才拿到
+跨实例语义：登录失败节流共享窗口、AI 问数的 run 事件流能被任意实例读到（断线续传的前提）。
+
+降级口径（写死在 `server/src/common/redis/redis.service.ts`，不要在调用方各写一套）：
+
+- 没配 → `kind='memory'`；配了但连不上 → 启动时打一条 WARN 后降级 memory；
+- **运行中掉线 → 该次命令就地降级 memory 并永久切到 memory**（直到进程重启），不抛异常、不每次重试
+  ——登录是高频路径，故障时把请求挂在连接超时上比降级更糟；
+- `GET /api/health` 回报 `redis: off|up|degraded` 与 `redisBackend`，用来发现「以为在用 Redis，其实早退化了」。
+
+验证本机 Redis 通不通：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d redis
+docker exec cms-redis-dev redis-cli ping            # PONG
+curl -s localhost:3000/api/health                   # 看 redis / redisBackend 字段
+```
+
 ### 环境变量
 
 `server/.env`（参考 `server/.env.example`）：
@@ -62,6 +83,9 @@ npm run dev                        # http://localhost:5173（/api 反代 localho
 | `PORT` | `3000` | 后端端口 |
 | `UPLOAD_DIR` | `./uploads` | 上传目录（静态映射 `/api/files`） |
 | `DEFAULT_ADMIN_USERNAME/PASSWORD` | `admin`/`admin123` | 空库启动自动建管理员 |
+| `REDIS_URL` | 未设 | **可选**连接串（dev compose 已给 `redis://redis:6379/0`）；未设 → 进程内后端 |
+| `REDIS_KEY_PREFIX` | `cms:` | 与其它系统共用同一 Redis 实例时用来隔离键空间 |
+| `PARAM_SECRET_KEY` | 未设 | 系统参数里**密钥类值**的静态加密密钥（`openssl rand -base64 32`）。不设则明文落库并在启动时 WARN |
 
 **AI 助手（可选）**：`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 三项齐全才启用（OpenAI Chat
 Completions 兼容协议）。**更推荐在「系统管理 → AI 信息登记」页面填这三项**——存进 `SysParam`、
@@ -94,7 +118,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
 | server | `npm run start:dev` | 开发热重载 |
 | server | `npm run start:prod` | `node dist/src/main` |
 | server | `npm run seed` | 写入演示数据（字典/角色/项目/合同/…） |
-| server | `npm run test` | node:test **纯函数单测**（118 个 spec，无 DB，**CI 门禁**） |
+| server | `npm run test` | node:test **纯函数单测**（121 个 spec，无 DB，**CI 门禁**） |
 | server | `npm run test:int` | **DB 集成测试**（42 个 spec，需 `DATABASE_URL` 指向测试库，**CI 门禁**） |
 | server | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，见 §7「静态门禁」） |
 | web | `npm run lint` | **ESLint 静态门禁**（0 error / 0 warning，预算已收到 0） |
@@ -258,6 +282,9 @@ eceivedQty 实收、单价/税率取明细、合价取明细综合总价）· �
   | `test/aiPrompts.spec.mts` | **AI 口径提示词目录锁**（MCP `prompts` 原语的单一事实源）：渲染正文必须**含口径原文**（`REPORT_SYSTEM_PROMPT` / `ANOMALY_SYSTEM_PROMPT` / `SCM_SYSTEM_PROMPT`，防另写一份摘要）· 供应链四节标题逐字 · `kind` 切换公文骨架、非法值回落 monthly 而不 500 · 未知 key 抛错而非静默空串 · 正文不含机密字段名 · 列表接口只回元信息不带正文 · `mcp/src/prompts.ts` 的 key 与参数名与服务端目录一致 |
   | `test/mcpAudit.spec.mts` | **MCP 调用审计锁**：`x-cms-actor` / `x-cms-tool` → `OperationLog.actorTool`（null = 人工）· 无该头时不记录（普通 GET 不受影响）· 头值数组/大小写/空白容错 · 工具名归一（外部输入只留 `[a-z0-9_-]`、转小写、截断 64，防伪造注入）· **两端字面量一致性**（`mcp/` 是独立包，改了一边会让审计静默归零）· `headers()` 必须在统一出口注入审计头（否则导出/导入漏标）· 每个工具都必须走 `tool()` 包装注册 |
   | `test/pluginCatalog.spec.mts` | **构建期插件（B 档）装配漂移锁**：生成物新鲜度（改 `plugin.json` 未跑 `scripts/gen-plugins.mjs` 即红）· 权限码必须 `<插件名>:` 前缀且已并入单一事实源 `PERMISSIONS`（标签也要一致）· 每条插件菜单必须有路由守卫且守卫不得比菜单更严 · 插件菜单真的落在权威 `MENU_TREE` 里（挂载点/路径/权限码一致）· 插件权限码不得绕过清单写死进核心目录 · `CMS_PLUGINS_DISABLED` 能关插件且关掉后菜单进隐藏集合 · 菜单 key 全局唯一 |
+  | `test/pluginMcp.spec.mts` | **插件 → MCP 工具的同源锁**（2026-11-24）：MCP 工具不再手写第二份——插件的 `plugin.json` 声明 `mcpTools`（工具名/描述/GET 路由/权限码/查询参数），`scripts/gen-plugins.mjs` 校验后生成 `mcp/src/generated/plugin-tools.generated.ts`，MCP 服务据此注册。断言：生成物新鲜 · 清单与生成物逐条对应（数量、路径按 `apiPrefix` 拼接、权限码原样）· **method 只允许 GET**（写操作按 P3-C 暂缓）· path 必须是控制器里真实存在的 `@Get`（否则 AI 被导到 404）· 工具级权限非空且 ⊆ 插件声明 · 工具名带 `<插件名>_` 前缀且全局唯一、不与核心工具撞名 · 生成物真被 `mcp/src/server.ts` 注册且走 `tool()` 审计包装（绕过就无法与人工操作区分） |
+  | `test/secretBox.spec.mts` | **系统参数密钥静态加密**（2026-11-24，aes-256-gcm）：加解密往返（中文/4096 字符/符号原样还原）· 密文带 `enc:v1:` 自描述前缀且不含明文 · 同一明文两次加密不同（随机 IV）· **已是密文不二次加密** · 空串原样（空 = 清除该项）· **非前缀值按明文放行**（老数据不用迁移脚本，重存即升级）· 未配 `PARAM_SECRET_KEY` 时 `seal` 原样返回明文（否则老部署一保存就 500）· 没密钥却读到密文、换了密钥、密文被篡改、格式残缺 → 一律 `SecretBoxError` 且文案点明怎么自救 |
+  | `test/requestId.spec.mts` | **请求链路 id**（2026-11-24）：上下文能带出 requestId 且与 projectId 互不影响 · 请求之外不伪造 id · 错误信封「有值才有这个键」（无值不多出 undefined 噪音键）· 与 `main.ts` 的耦合点：**响应头在 `next()` 之前写**（异常分支也要带上）、沿用上游 `x-request-id`、projectId 与 requestId 塞同一个 ALS |
   | `test/smallModules.spec.mts` | **三个零覆盖小模块的纯函数层**（`notification` / `other-project` / `payment-procedure`）：付款手续 `deriveProcedureAmounts` 三值各自 2 位舍入后相减、**未付款允许为负**、空值按 0、相等时为 `0` 不是 `-0` · `procedureCodeCandidates` 首个无后缀其后 `-2`/`-3`、合同号缺失回落 `HT` · 其他项目库导入状态**大小写/全角空格**都判对停用（原实现大小写敏感）· 通知列表 where 永远带当前用户、`isRead` 兼容 `true/1/read`、`projectId` 有值才过滤 |
 
   > 断言项数（`node:test` 输出的 `pass` 数）**不写进文档**：它随每次加/改用例变动，以命令输出为准。

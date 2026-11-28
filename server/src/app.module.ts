@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
+import { RedisModule } from './common/redis';
 import { AuthModule } from './modules/auth/auth.module';
 import { DictModule } from './modules/dict/dict.module';
 import { ProjectModule } from './modules/project/project.module';
@@ -39,6 +40,7 @@ import { enabledNestModules } from './plugins';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    RedisModule,
     CommonModule,
     AuthModule,
     DictModule,

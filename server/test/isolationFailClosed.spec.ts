@@ -39,7 +39,8 @@ const isMissingContext = (e: unknown): boolean => {
 describe('requestContext.inRequest：请求内 / 请求外的唯一判据', () => {
   it('中间件对每个请求都 run（缺项目头时 store 存在但 projectId 为空）', () => {
     // 与 main.ts 保持耦合：中间件若改成"没有 projectId 就不 run"，本 spec 全套语义即失效
-    assert.match(middlewareSrc, /requestContext\.run\(\{ projectId: projectId \|\| undefined \}/);
+    // 2026-11-24：中间件同时带上了 requestId（链路追踪），这里只锁「每个请求都 run 且 projectId 可空」
+    assert.match(middlewareSrc, /requestContext\.run\(\{ projectId: projectId \|\| undefined,/);
     assert.equal(inRequest(undefined, () => requestContext.inRequest()), true);
     assert.equal(inRequest(undefined, () => requestContext.projectId), undefined);
   });

@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { mapPrismaError, prismaErrorCode } from '../utils/prisma-error';
 import { buildErrorEnvelope } from '../utils/error-envelope';
 import { API_CODE } from '../error-codes';
+import { requestContext } from '../services/request-context';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -63,6 +64,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // 统一信封（2026-11-21 审计 P0-2）：错误分支与成功分支同形（含 timestamp），
     // 否则按文档接入的 mcp/ 外部调用方拿不到 timestamp。HTTP 状态码保持原样。
-    response.status(status).json(buildErrorEnvelope({ code, message }));
+    response.status(status).json(buildErrorEnvelope({ code, message, requestId: requestContext.requestId }));
   }
 }

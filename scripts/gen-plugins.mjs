@@ -38,6 +38,28 @@ const DEP_RE = /^([a-z][a-z0-9-]*)(>=|==|<=|>|<)(\d+\.\d+\.\d+)$/;
 const PERM_RE = /^[a-z][a-z-]*:[a-z][a-z-]*$/;
 const CORE_VERSION = JSON.parse(readText(path.join(REPO, 'server/package.json'))).version;
 
+// ---------- 插件 MCP 工具（2026-11-24）----------
+// 借 ApeAdmin 的「插件自带 MCP 能力」，但**不抄它的运行时注册**：这里把 plugin.json 的
+// mcpTools 校验后生成为 mcp/ 侧的静态清单，MCP 包照旧是编译期装配，不加载任何插件代码。
+const MCP_TOOL_NAME_RE = /^[a-z][a-z0-9_]{2,63}$/;
+const MCP_PARAM_NAME_RE = /^[a-zA-Z][a-zA-Z0-9]{0,30}$/;
+const MCP_PARAM_TYPES = new Set(['string', 'number', 'boolean']);
+const ROUTE_DECORATORS = ['Get', 'Post', 'Put', 'Patch', 'Delete'];
+const allMcpToolNames = new Map();
+
+/** 扫控制器里真实存在的路由，形如 Get summary / Post（无参） */
+function routesOf(src) {
+  const out = new Set();
+  for (const name of ROUTE_DECORATORS) {
+    const bare = new RegExp('@' + name + '\\(\\s*\\)');
+    if (bare.test(src)) out.add(name.toUpperCase() + ' ');
+    const withArg = new RegExp('@' + name + '\\(\\s*[\'`\"]([^\'`\"]*)[\'`\"]\\s*\\)', 'g');
+    let hit;
+    while ((hit = withArg.exec(src))) out.add(name.toUpperCase() + ' ' + hit[1]);
+  }
+  return out;
+}
+
 /** dev-example -> DevExample */
 const pascal = (s) => s.split(/[-_]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
 /** 清单字符串一律禁止单引号与换行，生成物因此可以安全地做单引号字面量 */
@@ -175,6 +197,7 @@ for (const dirName of pluginDirs) {
       if (!controllerSrc.includes(q(p))) fail(dirName + '：权限码 ' + p + ' 已声明但控制器从未使用（权限码只增不减会长成噪音）');
     }
   }
+  const controllerText = existsSync(controllerFile) ? readText(controllerFile) : '';
 
   // ---------- 前端入口 ----------
   const webEntry = 'web/src/plugins/' + manifest.name + '/index.tsx';
@@ -184,11 +207,76 @@ for (const dirName of pluginDirs) {
     fail(dirName + '：' + webEntry + ' 必须以 export default 导出页面组件');
   }
 
-  const mcpTools = Array.isArray(manifest.mcpTools) ? manifest.mcpTools : [];
-  for (const t of mcpTools) {
-    const ok = t && typeof t.name === 'string' && t.name.startsWith(manifest.name + '_') && typeof t.description === 'string';
-    if (!ok) fail(at('mcpTools') + '：工具名必须以 ' + manifest.name + '_ 开头并带 description');
-  }
+  // ---------- MCP 工具（只读，映射到本插件的 GET 接口）----------
+  const mcpToolPrefix = manifest.name.replace(/-/g, '_') + '_';
+  const permSet = new Set(permCodes);
+  const pluginRoutes = routesOf(controllerText);
+  const rawTools = Array.isArray(manifest.mcpTools) ? manifest.mcpTools : [];
+  const mcpTools = [];
+  rawTools.forEach((t, i) => {
+    const where = at('mcpTools[' + i + ']');
+    if (!t || typeof t !== 'object') return fail(where + '：必须是对象');
+    const name = String(t.name || '');
+    if (!MCP_TOOL_NAME_RE.test(name)) return fail(where + '：工具名只能是 a-z0-9_，3~64 字符（MCP 侧要求）');
+    if (!name.startsWith(mcpToolPrefix)) {
+      return fail(where + '：工具名必须以 ' + mcpToolPrefix + ' 开头（插件名前缀，避免与核心工具撞名）');
+    }
+    if (allMcpToolNames.has(name)) {
+      return fail(where + '：工具名 ' + name + ' 与插件 ' + allMcpToolNames.get(name) + ' 重复');
+    }
+    allMcpToolNames.set(name, manifest.name);
+    const description = String(t.description || '').trim();
+    if (!description) return fail(where + '：缺 description（模型靠它选工具，必填）');
+    if (description.length > 200) return fail(where + '：description 超过 200 字（模型提示预算有限）');
+    if (FORBIDDEN_IN_STRING.test(description)) return fail(where + '：description 不能含单引号或换行');
+
+    const route = t.route && typeof t.route === 'object' ? t.route : null;
+    if (!route) return fail(where + '：缺 route（形如 { "method": "GET", "path": "summary" }）');
+    const method = String(route.method || '').toUpperCase();
+    if (method !== 'GET') {
+      return fail(
+        where + '：method 只允许 GET。写操作（POST/PUT/PATCH/DELETE）按 AI 一期口径暂缓（见 TODO.md P3-C），' +
+          '插件要暴露写能力必须等那 5 条前置条件落地',
+      );
+    }
+    const routePath = String(route.path || '').replace(/^\/+/, '');
+    if (!routePath) return fail(where + '：route.path 不能为空');
+    if (routePath.includes(':')) {
+      return fail(where + '：route.path 暂不支持路径参数（:id），请改成 query 参数（params）——路径参数要额外处理编码与注入');
+    }
+    if (!pluginRoutes.has('GET ' + routePath)) {
+      return fail(
+        where + '：控制器里找不到 @Get(' + q(routePath) + ')。MCP 工具必须指向真实存在的接口，' +
+          '否则 AI 会被导到一个 404（本插件实际路由：' + ([...pluginRoutes].join(' / ') || '无') + '）',
+      );
+    }
+
+    const perms = Array.isArray(t.permissions) ? t.permissions.map(String) : [];
+    if (perms.length === 0) return fail(where + '：必须声明 permissions（工具级权限是本项目 MCP 的既定口径）');
+    for (const code of perms) {
+      if (!permSet.has(code)) return fail(where + '：权限码 ' + code + ' 未在 plugin.json 的 permissions 里声明');
+    }
+
+    const params = [];
+    const seenParam = new Set();
+    const rawParams = Array.isArray(t.params) ? t.params : [];
+    rawParams.forEach((p, j) => {
+      const pw = where + '.params[' + j + ']';
+      if (!p || typeof p !== 'object') return fail(pw + '：必须是对象');
+      const pname = String(p.name || '');
+      if (!MCP_PARAM_NAME_RE.test(pname)) return fail(pw + '：参数名只能是字母开头的字母数字，1~31 字符');
+      if (seenParam.has(pname)) return fail(pw + '：参数名 ' + pname + ' 重复');
+      seenParam.add(pname);
+      const ptype = String(p.type || 'string');
+      if (!MCP_PARAM_TYPES.has(ptype)) return fail(pw + '：type 只允许 string / number / boolean');
+      const pdesc = String(p.description || '').trim();
+      if (!pdesc) return fail(pw + '：缺 description');
+      if (FORBIDDEN_IN_STRING.test(pdesc)) return fail(pw + '：description 不能含单引号或换行');
+      params.push({ name: pname, type: ptype, required: p.required === true, description: pdesc });
+    });
+
+    mcpTools.push({ name, description, plugin: manifest.name, path: routePath, permissions: perms, params });
+  });
 
   catalog.push({
     key: manifest.name,
@@ -443,10 +531,80 @@ const modulesLines = [
   '',
 ];
 
+// ---------- mcp/ 侧：插件工具清单 ----------
+const mcpLines = [
+  '/**',
+  ' * ⚠️ 自动生成，**不要手改**：改 plugin.json 的 mcpTools 后跑 node scripts/gen-plugins.mjs。',
+  ' *',
+  ' * 为什么生成而不是运行时注册（对比 ApeAdmin 的 register_mcp_tools）：本项目的插件是**构建期**的，',
+  ' * 运行时不加载任何插件代码；把清单生成为静态常量，MCP 包照旧编译期装配，静态门禁也照旧看得见。',
+  ' *',
+  ' * 约束（gen-plugins 校验，改坏了门禁会红）：只允许 GET（写操作按 AI 一期口径暂缓）；',
+  ' * 每个工具必须声明 permissions；path 必须能在插件控制器里找到对应的 @Get。',
+  ' */',
+  '',
+  "export type PluginToolParamType = 'string' | 'number' | 'boolean';",
+  '',
+  'export interface PluginToolParam {',
+  '  name: string;',
+  '  type: PluginToolParamType;',
+  '  required: boolean;',
+  '  description: string;',
+  '}',
+  '',
+  'export interface PluginTool {',
+  '  /** MCP 工具名（已含插件名前缀，全局唯一） */',
+  '  name: string;',
+  '  description: string;',
+  '  /** 所属插件 key */',
+  '  plugin: string;',
+  '  /** 后端完整路径（已拼上 /api 之后的部分），如 /plugin/dev-example/summary */',
+  '  path: string;',
+  '  /** 调用所需权限码（OR 语义，与后端 @RequirePermissions 一致） */',
+  '  permissions: string[];',
+  '  params: PluginToolParam[];',
+  '}',
+  '',
+  'export const PLUGIN_MCP_TOOLS: PluginTool[] = [',
+];
+for (const c of catalog) {
+  for (const t of c.mcpTools) {
+    mcpLines.push('  {');
+    mcpLines.push('    name: ' + q(t.name) + ',');
+    mcpLines.push('    description: ' + q(t.description) + ',');
+    mcpLines.push('    plugin: ' + q(t.plugin) + ',');
+    mcpLines.push('    path: ' + q('/' + c.apiPrefix + '/' + t.path) + ',');
+    mcpLines.push('    permissions: [' + t.permissions.map(q).join(', ') + '],');
+    if (t.params.length === 0) {
+      mcpLines.push('    params: [],');
+    } else {
+      mcpLines.push('    params: [');
+      for (const pr of t.params) {
+        mcpLines.push(
+          '      { name: ' +
+            q(pr.name) +
+            ', type: ' +
+            q(pr.type) +
+            ', required: ' +
+            pr.required +
+            ', description: ' +
+            q(pr.description) +
+            ' },',
+        );
+      }
+      mcpLines.push('    ],');
+    }
+    mcpLines.push('  },');
+  }
+}
+mcpLines.push('];');
+mcpLines.push('');
+
 const outputs = [
   { rel: 'server/src/plugins/generated/plugin-catalog.generated.ts', content: serverCatalog.join('\n') },
   { rel: 'server/src/plugins/generated/plugin-modules.generated.ts', content: modulesLines.join('\n') },
   { rel: 'web/src/plugins/generated/plugin-catalog.generated.ts', content: webCatalog.join('\n') },
+  { rel: 'mcp/src/generated/plugin-tools.generated.ts', content: mcpLines.join('\n') },
 ];
 
 const changed = [];

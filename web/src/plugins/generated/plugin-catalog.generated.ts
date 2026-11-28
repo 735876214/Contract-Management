@@ -86,7 +86,10 @@ export const PLUGIN_CATALOG: PluginCatalogEntry[] = [
     menus: [
       { key: 'system-dev-example', label: '插件开发示例', icon: 'SolutionOutlined', path: '/plugin/dev-example', permission: 'dev-example:view', parent: 'system' },
     ],
-    mcpTools: [],
+    mcpTools: [
+      { name: 'dev_example_summary', description: '读取「插件开发示例」的装配事实：插件是否被挂载、对外接口/权限码/菜单/前端页面从哪里来（只读）。可用 cms_whoami 先确认当前账号权限。' },
+      { name: 'dev_example_permissions', description: '列出「插件开发示例」声明的权限码与所属分组，用于确认插件授权是否已同步（只读）。' },
+    ],
     apiPrefix: 'plugin/dev-example',
     nestModule: 'DevExampleModule',
     webEntry: 'web/src/plugins/dev-example/index.tsx',

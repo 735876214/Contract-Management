@@ -1,3 +1,4 @@
+import { openSecret, sealSecret } from '../../common/crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { SysParamService } from '../../common/services/sys-param.service.ts';
 import {
@@ -96,7 +97,7 @@ export class AiSettingService {
       // 只有明确写了 true/false 才算"页面登记过开关"，其它（含未登记）返回 undefined → 交给 env 判断
       enabled: enabledRaw === 'true' ? true : enabledRaw === 'false' ? false : undefined,
       baseUrl: String(all[AI_PARAM_KEYS.baseUrl] ?? '').trim(),
-      apiKey: String(all[AI_PARAM_KEYS.apiKey] ?? '').trim(),
+      apiKey: this.readApiKey(all[AI_PARAM_KEYS.apiKey]),
       model: String(all[AI_PARAM_KEYS.model] ?? '').trim(),
       // 用途级覆盖：空串 = 「没单独登记」→ 由 readAiConfig 回落用途环境变量/全局模型
       models: AI_PURPOSES.reduce<Record<string, string>>((acc, p) => {
@@ -104,6 +105,23 @@ export class AiSettingService {
         return acc;
       }, {}),
     };
+  }
+
+  /**
+   * 读 `ai.apiKey`：兼容明文存量（`openSecret` 对非密文原样放行），密文解不开时**不抛**。
+   *
+   * 为什么不抛：密钥换了 / 密文坏了的时候，如果这里抛异常，整个「AI 信息登记」页面 500，
+   * 运维连「重新填一次密钥覆盖」的入口都没有。降级成「未配置」至少人还能自救。
+   */
+  private readApiKey(raw: unknown): string {
+    try {
+      return openSecret(String(raw ?? '').trim());
+    } catch (e) {
+      this.logger.error(
+        `ai.apiKey 解密失败，按未配置处理：${e instanceof Error ? e.message : String(e)}`,
+      );
+      return '';
+    }
   }
 
   /** 当前生效配置（三个 service 都走这里，保证"改一处、全站生效"） */
@@ -187,8 +205,12 @@ export class AiSettingService {
         writes.push([aiPurposeParamKey(code as AiPurpose), value.trim()]);
       }
     }
-    // apiKey：undefined = 不修改（页面上是密码框，不回显，也就不该被"空着提交"清掉）
-    if (typeof input?.apiKey === 'string') writes.push([AI_PARAM_KEYS.apiKey, input.apiKey.trim()]);
+    // apiKey：undefined = 不修改（页面上是密码框，不回显，也就不该被"空着提交"清掉）；
+    // 空串 = 清除该项（回落 env）。非空一律**加密后落库**（见 common/crypto/secret-box）。
+    if (typeof input?.apiKey === 'string') {
+      const raw = input.apiKey.trim();
+      writes.push([AI_PARAM_KEYS.apiKey, raw ? sealSecret(raw) : '']);
+    }
 
     if (!writes.length) throw new BadRequestException('没有需要保存的内容');
 
