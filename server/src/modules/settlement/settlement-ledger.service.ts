@@ -25,6 +25,25 @@ import { periodKeyOf, periodMonthKey, startDayOf } from '../../domain/settlement
  */
 const LEDGER_TOTALS_MARKERS = new Set(['汇总', '合计', '总计']);
 
+/**
+ * 按「账期键」聚合金额（逐期 2 位舍入累加）。
+ * 结算台账里「本月结算额 / 保理贴息 / 逾期利息」此前各写一遍同款
+ * `map.set(k, round2((map.get(k)||0)+v))` 循环；收敛到一处，避免漏一个 round2 造成浮点漂移。
+ */
+const sumByPeriod = <T>(
+  rows: T[],
+  keyOf: (r: T) => string | null | undefined,
+  valueOf: (r: T) => number | null | undefined,
+): Map<string, number> => {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    if (!k) continue;
+    out.set(k, round2((out.get(k) || 0) + (valueOf(r) || 0)));
+  }
+  return out;
+};
+
 /** 取表格里的第一个非空值：兼容模板列名与导出表头（导出件带 a/b/c/d 角标） */
 const pickAny = (r: any, ...labels: string[]): any => {
   for (const label of labels) {
@@ -152,12 +171,11 @@ export class SettlementLedgerService {
      * 与 Excel 源表 col9 的 `SUMIFS(本月结算额, 合同=本, 结算月份∈本行同一年)` 一致）。
      * 按账期分月汇总后再按年（YYYY）累加；当期无结算单（仅费用行）不影响——它只贡献本年其他月份的合计。
      */
-    const settleAmountByPeriod = new Map<string, number>();
-    for (const r of allSettlements) {
-      const k = periodKeyOf(startDay, r.settleDate);
-      if (!k) continue;
-      settleAmountByPeriod.set(k, round2((settleAmountByPeriod.get(k) || 0) + (settlementAmountOf(r, 'actual') || 0)));
-    }
+    const settleAmountByPeriod = sumByPeriod(
+      allSettlements,
+      (r: any) => periodKeyOf(startDay, r.settleDate),
+      (r: any) => settlementAmountOf(r, 'actual'),
+    );
     const targetYear = String(canonicalMonthKey(settleMonth) ?? settleMonth).slice(0, 4);
     let yearSettleAmount = 0;
     for (const [k, v] of settleAmountByPeriod) {
@@ -176,20 +194,17 @@ export class SettlementLedgerService {
     // 保理贴息 / 逾期利息按**账期**归集（settlementMonth 可能非零补齐，统一 canonical）：
     // 既取本行当月值（c、d），也供「截止当月开累采购额 = Σ当月实际采购额 b」按历史各期累计。
     const costOf = (r: any) => num(r.totalCost) ?? (num(r.financingInterest) || 0) + (num(r.handlingFee) || 0);
-    const factoringByPeriod = new Map<string, number>();
-    for (const r of factoring) {
-      const k = canonicalMonthKey(r.settlementMonth);
-      if (!k) continue;
-      factoringByPeriod.set(k, round2((factoringByPeriod.get(k) || 0) + (costOf(r) || 0)));
-    }
-    const overdueByPeriod = new Map<string, number>();
-    for (const r of overdue) {
-      const k = canonicalMonthKey(r.settlementMonth);
-      if (!k) continue;
+    const factoringByPeriod = sumByPeriod(
+      factoring,
+      (r: any) => canonicalMonthKey(r.settlementMonth),
+      (r: any) => costOf(r),
+    );
+    const overdueByPeriod = sumByPeriod(
+      overdue,
+      (r: any) => canonicalMonthKey(r.settlementMonth),
       // waived 行按 0 排除，与逾期汇总 interestOf 同口径
-      const v = r.waived ? 0 : (num(r.overdueInterest) || 0);
-      overdueByPeriod.set(k, round2((overdueByPeriod.get(k) || 0) + v));
-    }
+      (r: any) => (r.waived ? 0 : num(r.overdueInterest) || 0),
+    );
     const factoringDiscount = round2(factoringByPeriod.get(period) || 0);
     const overdueSum = round2(overdueByPeriod.get(period) || 0);
 

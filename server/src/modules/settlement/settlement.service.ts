@@ -794,10 +794,14 @@ export class SettlementService {
     const dup = same.find((r: any) => periodKeyOf(startDay, r.settleDate) === period);
     if (dup) {
       const span = currentSettlementPeriod(startDay, settleDate as string | Date);
-      throw new BadRequestException(
+      const err = new BadRequestException(
         `该合同本期（${formatDay(span.start)} ~ ${formatDay(span.end)}，账期 ${period}）已有结算单` +
           `${dup.code ? `（${dup.code}）` : ''}：同一合同同一结算期只允许一张结算单。`,
       );
+      // 稳定错误码：调用方（月度批量生成）据此判定「同期已存在」而跳过，
+      // 不再依赖中文文案子串匹配（文案一改判定即失效，第 CQ 轮审计 L2）。
+      (err as any).code = 'SETTLEMENT_PERIOD_DUP';
+      throw err;
     }
   }
 
@@ -1254,7 +1258,7 @@ export class SettlementService {
        * 没有 PROGRESS 取值）与归档锁，一并吞掉会让接口以 created=0 / skipped=N
        * 正常返回，把配置错误伪装成「本期无可生成数据」。
        */
-      if (e instanceof BadRequestException && String(e.message).includes('只允许一张结算单')) {
+      if (e instanceof BadRequestException && (e as any).code === 'SETTLEMENT_PERIOD_DUP') {
         stats.skipped += 1;
         return;
       }
