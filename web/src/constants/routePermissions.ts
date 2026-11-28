@@ -87,6 +87,7 @@ const CORE_ROUTE_PERMISSIONS: Record<string, string[]> = {
   '/system/ai-register': ['system:config'],
   // 插件管理（构建期插件 B 档）：只读展示已声明插件的装配情况与启用状态，属系统配置
   '/system/plugins': ['system:config'],
+  '/system/mcp': ['system:config'],
 };
 
 /**

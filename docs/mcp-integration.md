@@ -203,6 +203,18 @@ plugin.json 的 mcpTools  ──(scripts/gen-plugins.mjs 校验)──▶  mcp/s
 
 示例插件 `dev-example` 自带两个工具（`dev_example_summary` / `dev_example_permissions`），
 可直接当成写新工具的模板。校验规则见 `server/src/plugins/README.md` §3.1。
+### 5.4 调用审计页（系统管理 → MCP 调用，2026-11-24）
+
+只读页面，回答清单类文档回答不了的问题：**外部 AI 到底在调哪些工具、失败率高不高、慢不慢**。
+
+- `GET /api/system/mcp/overview`：最近 30 天按工具聚合（调用次数 / 失败数 / 成功率 / 平均耗时 / 最近一次），
+  采样上限 5000 条，超出在页面上标「已截断」——它是用量概览，不是全量统计。
+- `GET /api/system/mcp/calls`：调用明细分页，支持按工具、结果、关键字（URL / 用户 / **请求 id**）筛选。
+- 权限 `system:config`（与插件管理同档）；只暴露工具名/耗时/结果/URL，不含业务数据。
+
+刻意**不**在这个页面重复维护「工具/资源/提示词清单」（权威定义在 `mcp/README.md`，再抄一份必然漂移），
+也刻意**不**提供运行时开关——工具是否可用由 `mcp/src/server.ts` 与后端 RBAC 决定，
+给个开关会让人误以为「关掉就没人能调」。
 ## 6. 验收
 
 - `cd mcp && npm test`：构建通过 + 4 个纯函数单测 + stdio/HTTP 协议冒烟（无需后端）。

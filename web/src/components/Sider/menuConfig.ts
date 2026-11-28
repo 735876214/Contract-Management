@@ -122,6 +122,7 @@ const CORE_MENU_CONFIG: MenuItem[] = [
       { key: 'system-log', label: '日志', icon: 'FileSearchOutlined', path: '/system/log', permission: 'system:user' },
       { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
       { key: 'system-plugins', label: '插件管理', icon: 'AppstoreOutlined', path: '/system/plugins', permission: 'system:config' },
+      { key: 'system-mcp', label: 'MCP 调用', icon: 'ApiOutlined', path: '/system/mcp', permission: 'system:config' },
     ],
   },
 ];

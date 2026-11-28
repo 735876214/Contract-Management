@@ -174,6 +174,7 @@ const CORE_MENU_TREE: MenuNode[] = [
       { key: 'system-ai-register', label: 'AI 信息登记', icon: 'RobotOutlined', path: '/system/ai-register', permission: 'system:config' },
       // 构建期插件（B 档）：列出已声明插件的装配情况与启用状态（只读；启停走环境变量 + 重启）
       { key: 'system-plugins', label: '插件管理', icon: 'AppstoreOutlined', path: '/system/plugins', permission: 'system:config' },
+      { key: 'system-mcp', label: 'MCP 调用', icon: 'ApiOutlined', path: '/system/mcp', permission: 'system:config' },
     ],
   },
 ];
