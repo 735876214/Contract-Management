@@ -30,6 +30,7 @@ export function archiveProject(prisma: PrismaClient, projectId: string) {
 
 /** 合同签章件 + 附件（归档文件名用） */
 export async function archiveContracts(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出要全项目合同签章件清单
   const rows = await prisma.contract.findMany({
     where: { projectId },
     select: {
@@ -51,6 +52,7 @@ export async function archiveContracts(prisma: PrismaClient, projectId: string) 
 
 /** 收领单扫描件（附供应商/物资/账期） */
 export async function archiveReceiptScans(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：全项目收领单扫描件清单
   const rows = await prisma.receiptOrder.findMany({
     where: { projectId, scanUrl: { not: null } },
     select: {
@@ -91,6 +93,7 @@ export async function archiveMonthlySettlementDates(prisma: PrismaClient, projec
 
 /** 总结算单 + 合同/供应商（归档文件名与合规单导出用） */
 export async function archiveFinalSettlements(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：总结算单清单（含合同/供应商）
   const rows = await prisma.finalSettlement.findMany({
     where: { projectId },
     select: {
@@ -114,6 +117,7 @@ export async function archiveFinalSettlements(prisma: PrismaClient, projectId: s
 
 /** 分包单位领用单据（按单导出三表工作簿） */
 export function archiveLaborReceivingDocs(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：分包领用单据清单（按单导出三表工作簿）
   return prisma.laborReceivingDoc.findMany({
     where: { projectId },
     orderBy: [{ period: 'asc' }, { subcontractorName: 'asc' }],
@@ -123,6 +127,7 @@ export function archiveLaborReceivingDocs(prisma: PrismaClient, projectId: strin
 
 /** 带图片的发票（附合同/供应商） */
 export async function archiveInvoiceImages(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：带图片的发票清单
   const rows = await prisma.invoice.findMany({
     where: { projectId, imageUrl: { not: null } },
     select: {
@@ -145,6 +150,7 @@ export async function archiveInvoiceImages(prisma: PrismaClient, projectId: stri
 
 /** 月度盈亏记录（一月一条，按 period 升序） */
 export function archiveMonthlyProfitLoss(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：月度盈亏记录（一月一条）
   return prisma.monthlyProfitLoss.findMany({
     where: { projectId },
     orderBy: { period: 'asc' },
@@ -154,6 +160,7 @@ export function archiveMonthlyProfitLoss(prisma: PrismaClient, projectId: string
 
 /** 合同 + 保理/逾期费用条数（决定是否产出对应工作簿）；用 `_count` 一次取回，避免逐合同 N+1 */
 export async function archiveContractsWithFinance(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：合同 + 费用条数（决定是否产出对应工作簿）
   const rows = await prisma.contract.findMany({
     where: { projectId },
     select: {
@@ -176,6 +183,7 @@ export async function archiveContractsWithFinance(prisma: PrismaClient, projectI
 
 /** 分包授权台账（签章授权书归档用） */
 export function archiveLaborAuthLedgers(prisma: PrismaClient, projectId: string) {
+  // @no-limit: 归档导出：分包授权台账清单
   return prisma.laborAuthLedger.findMany({
     where: { projectId },
     select: { id: true, subcontractorName: true, signedAuthFile: true },

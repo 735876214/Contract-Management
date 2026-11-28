@@ -955,6 +955,7 @@ export class SettlementService {
      * 结算来源 = **总日报行**（业务口径 2026-10-18：有总日报之后才有结算单）。
      * 收领单推送的日报行与手工录入的日报行同属来源；`require_confirmed` 开启时只算「已确认」行。
      */
+    // @no-limit: 结算来源=期内总日报行，必须全量（contractId 只排空，不限定单张合同）
     const rows = await this.prisma.dailyReport.findMany({
       where: {
         projectId,
@@ -1015,6 +1016,7 @@ export class SettlementService {
     const period = previousSettlementPeriod(startDay, opts.refDate ? new Date(opts.refDate) : new Date());
     const gated = await this.requireConfirmed();
     // 结算明细来源：期内总日报行（业务口径 2026-10-18）
+    // @no-limit: 同上：期内总日报行全量，contractId 只是可选限定
     const dailyRows = await this.prisma.dailyReport.findMany({
       where: {
         projectId,

@@ -141,6 +141,7 @@ export class SystemService {
 
   // ---------------- 角色 ----------------
   async roles() {
+    // @no-limit: 角色表全量（量级=权限体系里的角色数），前端整表渲染
     return this.prisma.role.findMany({ include: { permissions: { include: { permission: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
   }
 

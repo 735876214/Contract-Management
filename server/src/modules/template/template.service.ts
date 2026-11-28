@@ -172,6 +172,7 @@ export class TemplateService {
   async versions(id: string) {
     const t = await this.findOne(id);
     const rootId = t.parentId || t.id;
+    // @no-limit: 某模板的版本族（根 + 全部子版本），量级=版本数
     return this.prisma.contractTemplate.findMany({
       where: { OR: [{ id: rootId }, { parentId: rootId }] },
       orderBy: { version: 'desc' },

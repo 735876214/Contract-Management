@@ -42,6 +42,7 @@ export class LaborReceivingService {
   /** 分包单位下拉（分包商库主数据）+ 已有单据的结算期列表（月度盈亏「新增」用） */
   async options(projectId: string) {
     const [subcontractors, docs, summaries] = await Promise.all([
+      // @no-limit: 分包商下拉=本项目 + 全局共享主数据，选择项必须全量
       this.prisma.subcontractor.findMany({
         where: { OR: [{ projectId }, { projectId: null }] },
         select: { id: true, name: true },
@@ -577,6 +578,7 @@ export class LaborReceivingService {
    * 分包商出现在供应侧时它是供货方，不是领用方，不能算进它的领用。
    */
   private async aggregateReceipts(projectId: string, subcontractorId: string, startDay: number) {
+    // @no-limit: 月度汇总要扫该分包商全部领用单再按期聚合（where 由 laborReceivingReceiptWhere 组装）
     const orders = await this.prisma.receiptOrder.findMany({
       where: laborReceivingReceiptWhere(projectId, subcontractorId),
       select: {

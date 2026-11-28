@@ -168,7 +168,7 @@ NAS 上实际生效的那份在 `deploy/nas/`（与该目录的 `.env` 一起被
   | `test/frontendChainParity.spec.mts` | **前后端阶段链一致性锁**（跨包 import 前端常量；含「合同状态→任务状态」映射） |
   | `test/apiEnvelope.spec.mts` | **统一响应信封形状锁**（错误分支与成功分支同形：`code`/`data`/`message`/`timestamp`，`data` 恒 `null`，`timestamp` 为毫秒数而非 ISO 字符串） |
   | `test/bodyWhitelist.spec.mts` | **请求体白名单门禁自守**（当前仓库通过门禁 · 负向 fixture 必须判失败 · 豁免条数不超过脚本 `MAX_ALLOW`，防止门禁退化） |
-  | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：无 `take` 且无父实体 id 过滤；负向 fixture 必须判失败；豁免条数只减不增） |
+  | `test/queryLimit.spec.mts` | **列表查询上限门禁自守**（只抓「项目级无上限」findMany：顶层无 `take`、`where` 里也没有父实体键等值/in 列表；先剥注释再判定；12 个 fixture 里 8 个负向必须判失败；豁免条数只减不增） |
 | `test/metricsRegistry.spec.mts` | **报表口径单一实现锁**（2026-11-23 架构评审 P1：治「同一指标各处各算一遍」）：每个登记指标在 `server/src` 内**恰好一个** `// @metric: <id>` 标记（两处=口径分叉、零处=实现被删）· 标记文件必须等于 `constants/metrics.ts` 登记的 `impl` 且符号存在 · 无孤儿标记 · `docs/report-metrics.md` 逐行登记（三处漂移即红） |
   | `test/schemaDanglingRefs.spec.mts` | **schema 悬空引用漂移锁**（解析 `schema.prisma`，白名单豁免有意弱关联） |
   | `test/antdStaticApi.spec.mts` | **antd 静态 API 主题桥锁**（`web/src` 不得再从 antd 直接引入静态 `message`；`App.tsx` 必须把 `App.useApp().message` 绑到 `utils/antdStatic.ts`；静态 `Modal.xxx` 必须为 0） |
@@ -472,8 +472,12 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
 - **健康检查**：`GET /api/health`（免登录，真打 `SELECT 1`；DB 不可用返回 503）。
   容器/监控应探这个而不是只探端口——只探端口的话「服务在、业务全 500」发现不了。
 - **列表查询上限**：`node scripts/check-query-limits.mjs`（CI 一步）。只抓**项目级**无上限
-  `findMany`（没有 `take`、也没有按父实体 id 过滤）。确需全量的在调用处写
-  `// @no-limit: <理由>`，**豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
+  `findMany`，只认三种有界写法：① 顶层 `take`；② `where` 字面量里直接写父实体键的等值/简写/`in` 列表
+  （`contractId`、`taskId`、`settlementId` … 见脚本里的 `PARENT_KEYS`；`projectId` 不算，
+  `contractNo: { contains }` 这类模糊条件也不算）；③ 写 `// @no-limit: <理由>`。
+  2026-11-28 收紧了判定：先剥注释再解析，父实体键只看 `where` 的顶层键、`take` 只看顶层参数，
+  嵌套 `select/include` 里的 `take` 不再算数（旧实现因此放过 31 处项目级全量查询，已逐条补理由）。
+  **豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
   `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
   SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。
 - **静态门禁（ESLint）**：`server` / `web` 各有 `npm run lint`（CI 两个 job 各一步）。口径：

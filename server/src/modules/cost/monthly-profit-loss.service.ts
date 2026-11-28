@@ -383,6 +383,7 @@ export class MonthlyProfitLossService {
     db: any = this.prisma,
   ) {
     // 快照按「分包商库」逐家生成（本项目 + 全局共享），名称取主数据当前名称
+    // @no-limit: 快照按分包商库逐家生成（本项目 + 全局），必须全量
     const subs = await this.prisma.subcontractor.findMany({
       where: { OR: [{ projectId }, { projectId: null }] },
       select: { id: true, name: true },

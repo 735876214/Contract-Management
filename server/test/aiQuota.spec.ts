@@ -92,21 +92,26 @@ describe('AiQuota：过期用户条目回收（防内存泄漏）', () => {
     // 这样才能把「阈值以上但都活跃 → 一个都不删」钉住（回收只看窗口，不看条数）。
     for (let i = 0; i < 250; i++) q.consume(`u${i}`, 0, 60_000);
     assert.equal(q.userCount(), 250, `阈值以上但都在窗口内，不应回收，实际 ${q.userCount()}`);
-    await new Promise((r) => setTimeout(r, 45)); // 远超下面触发调用用的 20ms 窗口
-    // 触发调用带 20ms 窗口：此前 250 个条目都落在窗口外 → 一次扫净
-    q.consume('fresh', 0, 20);
+    // 触发调用的窗口要**明显小于**上面的 sleep（否则 250 条不算过期），又要**明显大于**
+    // 一次断言的耗时：原来用 20ms 窗口 + 45ms sleep，机器一忙（并行构建/CI）就出现
+    // fresh 自己的记录被判过期 → used('fresh', 20) 读到 0 的假失败（2026-11-28 实测复现）。
+    await new Promise((r) => setTimeout(r, 300));
+    // 触发调用带 200ms 窗口：此前 250 个条目都落在窗口外 → 一次扫净
+    q.consume('fresh', 0, 200);
     assert.equal(q.userCount(), 1, `过期用户应被回收，只剩 fresh，实际 ${q.userCount()}`);
-    assert.equal(q.used('fresh', 20), 1);
+    assert.equal(q.used('fresh', 200), 1);
   });
 
   it('回收不影响窗口内仍活跃用户的计数', async () => {
     const q = new AiQuota();
-    for (let i = 0; i < 250; i++) q.consume(`u${i}`, 0, 200);
-    q.consume('keep', 0, 200);
-    q.consume('keep', 0, 200);
+    // 窗口必须远大于「250 次 consume 的耗时」：200ms 在 CI/本机高负载下会把插入阶段甩出窗口，
+    // 造成「窗口内用户被误删」的假失败（2026-11-28 实测复现：并行跑构建时实际只剩 39 条）。
+    for (let i = 0; i < 250; i++) q.consume(`u${i}`, 0, 5000);
+    q.consume('keep', 0, 5000);
+    q.consume('keep', 0, 5000);
     await new Promise((r) => setTimeout(r, 30));
-    q.consume('fresh', 0, 200); // 触发 prune：仍在窗口内的用户不得被删
+    q.consume('fresh', 0, 5000); // 触发 prune：仍在窗口内的用户不得被删
     assert.equal(q.userCount(), 252, `窗口内用户应被保留，实际 ${q.userCount()}`);
-    assert.equal(q.used('keep', 200), 2);
+    assert.equal(q.used('keep', 5000), 2);
   });
 });

@@ -24,8 +24,8 @@ export async function loadLedgerContractPage(
   db: Db,
   opts: { where: Record<string, any>; pageIds: string[] | null; skip: number; take: number },
 ) {
-  // @no-limit: 分页由调用方控制——命中 id 分支按 id 集合取当页（有界）；常规分支带 skip/take
   const [rows, total] = await Promise.all([
+    // @no-limit: 分页由调用方控制——命中 id 分支按 id 集合取当页（有界）；常规分支带 skip/take
     db.contract.findMany({
       where: opts.pageIds ? { ...opts.where, id: { in: opts.pageIds } } : opts.where,
       ...(opts.pageIds ? {} : { skip: opts.skip, take: opts.take }),

@@ -39,7 +39,7 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| P1-4 列表查询上限门禁 | ✅ 完成（2026-11-21） | `scripts/check-query-limits.mjs`；**全部写明 `// @no-limit: 理由`，豁免表清零、上限 0**。门禁顺带修掉两类假阳性（简写 `{ skip, take }`、`{ contractId }` 简写父键） |
+| P1-4 列表查询上限门禁 | ✅ 完成（2026-11-21） | `scripts/check-query-limits.mjs`；**全部写明 `// @no-limit: 理由`，豁免表清零、上限 0**。门禁顺带修掉两类假阳性（简写 `{ skip, take }`、`{ contractId }` 简写父键）。2026-11-28 收紧判定口径（父实体键只看 `where` 顶层键、`take` 只看顶层参数、先剥注释），暴露并补齐 39 处漏判的 `// @no-limit: 理由` |
 | P1-4 ② 聚合改 SQL | ✅ 完成（2026-11-21） | 工作台 `overview`/`trend`/`amountAlerts`/`paymentRatioAlerts`、AI 数据集的 5 个分区块、合同履约的累计结算额全部改成 `aggregate`/`groupBy`（`@no-limit` 44 → 32）；`actualAmount ?? amount` 这类 SQL 表达不了的口径收口在 `common/utils/group-sum.ts`。剩余 32 处是**行级规则/明细喂数**（预警 9 处、台账合规性等），不是聚合，换成 `groupBy` 会静默失效，记在 TODO.md |
 | P2 健康检查 | ✅ 完成（2026-11-21） | `GET /api/health`：真打 `SELECT 1`，DB 不可用 → 503；当前 compose 的 app healthcheck 仅 TCP 探测，建议改调此接口（**未擅自改部署配置**） |
 | P1-2 ESLint 门禁 | ✅ 完成（2026-11-21） | server/web 各装 `eslint@10` + `typescript-eslint@8`（web 另加 `eslint-plugin-react-hooks`），各自 `eslint.config.mjs` + `npm run lint`，CI 两个 job 各加一步；0 error，warning 预算 server 47 / web 74（只减不增）。顺带删掉 6 条「已被 ESLint 判定无问题」的死 `eslint-disable` |
