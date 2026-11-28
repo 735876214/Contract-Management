@@ -136,6 +136,10 @@ cp .env.example .env
 docker compose up -d
 ```
 
+> **跨源访问**：单个容器里前端与 `/api` 同源（nginx 反代），所以后端**默认不回任何 CORS 头**。
+> 只有把前端单独托管到别的域名/端口时才需要在 `.env` 里写 `CORS_ORIGINS=https://你的前端域名`
+> （逗号分隔、写完整 `scheme://host[:port]`）。写成 `*` 等于对任意站点开放，别在公网部署上用。
+
 对外端口 `9080`（被占用就改 `.env` 里的 `CMS_PORT`）；PostgreSQL 数据与上传附件分别落在
 compose 里指定的两个 NAS 绝对路径（bind mount，NAS 文件管理器直接可见、可纳入 NAS 备份计划），
 容器重建不丢数据。

@@ -115,6 +115,8 @@ services:
       JWT_SECRET: "dev-only-secret-do-not-use-in-production"
       JWT_EXPIRES_IN: "7d"
       UPLOAD_DIR: "/data/uploads"
+      # 默认不配（vite 把 /api 代理到本服务，同源）。要用独立源的页面联调时临时填
+      # CORS_ORIGINS: "http://localhost:5174"
       DEFAULT_ADMIN_USERNAME: "admin"
       DEFAULT_ADMIN_PASSWORD: "admin123"
       # 依赖装不动 / 太慢时可换镜像源（去掉注释）

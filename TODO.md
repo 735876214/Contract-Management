@@ -71,9 +71,6 @@
   确实都是「口径本身需要全量」（归档导出、下拉选项、链根解析、合计行）。**未解决的部分**：
   多数注释只写了「为什么必须全量」，没写「什么时候该重看」——即没有触发条件（如「合同数 > 2000 时改为分页/异步导出」），
   下次复查时补。`archive` / `receipt-order` 若继续长，考虑把聚合搬到 `src/query/` 层收口。
-- **CORS 收敛为白名单**：`server/src/main.ts` 是 `enableCors({ origin: true, credentials: true })`
-  （反射任意来源 + 携带凭据）；与 cookie 鉴权组合时风险被 `SameSite=Lax` 限住，但仍应改为
-  `CORS_ORIGINS` 环境变量白名单，与部署文档同源。
 - **采购 6 个单据页面仍高度同构**：`web/src/pages/Procurement/{FrameworkExplanation,PreMeetingMinutes,Notice,
   Document,ResultReport,PriceCompare}.tsx` 各 720–990 行，跨文件 10 行以上的重复窗口 24–44 处/对。
   变量映射与下载 helper 已收口（`utils/projectVars.ts` / `utils/blobDownload.ts`），页面骨架仍应向
