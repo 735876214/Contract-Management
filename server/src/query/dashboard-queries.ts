@@ -60,7 +60,7 @@ export async function loadOverviewTotals(db: Db, projectId: string) {
  * 工作台总览、类型分布、金额预警共用——链结构只能靠 `parentContractId` 在内存里解析。
  */
 export async function loadContractChainRows(db: Db, projectId: string) {
-  // @no-limit: 项目内全部合同（聚合输入的窄投影，每项目量级几十~几百行；分页会让合计失真）
+  // @no-limit: 项目内全部合同（聚合输入的窄投影，每项目量级几十~几百行；分页会让合计失真）｜重看触发：单项目合同 > 2000 时改成预计算/缓存，别再逐次全量算
   return db.contract.findMany({
     where: { projectId },
     select: {
@@ -113,7 +113,7 @@ export async function loadInvoiceStatsGroups(db: Db, projectId: string) {
 export function loadInvoicesToVerify(db: Db, projectId: string, take?: number) {
   const where = { projectId, statusCode: INVOICE_STATUS.WAIT_VERIFY };
   return Promise.all([
-    // @no-limit: take 由调用方决定（工作台传 5、待办页取全部命中），同一 where 另有一条 count 配套
+    // @no-limit: take 由调用方决定（工作台传 5、待办页取全部命中），同一 where 另有一条 count 配套｜重看触发：单项目合同 > 2000 时改成预计算/缓存，别再逐次全量算
     db.invoice.findMany({
       where,
       orderBy: { createdAt: 'asc' },
@@ -226,7 +226,7 @@ export function loadOverdueMilestones(db: Db, projectId: string, opts: { today: 
  * 所以先取本项目合同 id 再查其逾期行。合同 id 只作过滤条件，**不截断**（截断会让待办静默少行）。
  */
 export async function loadOverdueInterestPayables(db: Db, projectId: string, take: number) {
-  // @no-limit: 仅取本项目合同的 id（单列，开销很小）；截断会让超出部分的逾期行静默消失
+  // @no-limit: 仅取本项目合同的 id（单列，开销很小）；截断会让超出部分的逾期行静默消失｜重看触发：单项目合同 > 2000 时改成预计算/缓存，别再逐次全量算
   const contracts = await db.contract.findMany({
     where: { projectId, archivedAt: null },
     select: { id: true },
@@ -277,7 +277,7 @@ export function loadProcurementTodos(db: Db, projectId: string, take: number) {
 /** 合同金额预警：合同行（含链字段，排除归档）+ 按合同聚合的结算额 */
 export async function loadAmountAlertSources(db: Db, projectId: string) {
   const [contracts, settledByContract] = await Promise.all([
-    // @no-limit: 金额预警必须逐条链算（主合同 + Σ changeAmount），链结构只能内存解析；已是窄列
+    // @no-limit: 金额预警必须逐条链算（主合同 + Σ changeAmount），链结构只能内存解析；已是窄列｜重看触发：单项目合同 > 2000 时改成预计算/缓存，别再逐次全量算
     db.contract.findMany({
       where: { projectId, archivedAt: null },
       select: { id: true, parentContractId: true, amount: true, changeAmount: true, code: true, name: true },
@@ -290,7 +290,7 @@ export async function loadAmountAlertSources(db: Db, projectId: string) {
 
 /** 付款超比例预警：链行 + 开累结算 + 开累付款 + 生效比例（派生列） */
 export async function loadPaymentRatioAlertSources(db: Db, projectId: string) {
-  // @no-limit: 逐条链算预警，链结构只能内存解析；窄列（4 列）
+  // @no-limit: 逐条链算预警，链结构只能内存解析；窄列（4 列）｜重看触发：单项目合同 > 2000 时改成预计算/缓存，别再逐次全量算
   const contracts = await db.contract.findMany({
     where: { projectId },
     select: { id: true, parentContractId: true, code: true, name: true },

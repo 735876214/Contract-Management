@@ -53,6 +53,8 @@ describe('列表查询上限门禁', () => {
       'bad-nested-take: violations=1 want=1 OK',
       'bad-comment-take: violations=1 want=1 OK',
       'bad-contains: violations=1 want=1 OK',
+      'bad-null-parent: violations=1 want=1 OK',
+      'ok-parent-nonnull: violations=0 want=0 OK',
       'bad-where-var: violations=1 want=1 OK',
       'bad-no-where: violations=1 want=1 OK',
     ];

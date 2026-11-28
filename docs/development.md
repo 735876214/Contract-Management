@@ -478,7 +478,11 @@ antd 会留占位行与隐藏浮层；② 打字要用 `Input.dispatchKeyEvent{t
   （`contractId`、`taskId`、`settlementId` … 见脚本里的 `PARENT_KEYS`；`projectId` 不算，
   `contractNo: { contains }` 这类模糊条件也不算）；③ 写 `// @no-limit: <理由>`。
   2026-11-28 收紧了判定：先剥注释再解析，父实体键只看 `where` 的顶层键、`take` 只看顶层参数，
-  嵌套 `select/include` 里的 `take` 不再算数（旧实现因此放过 31 处项目级全量查询，已逐条补理由）。
+  嵌套 `select/include` 里的 `take` 不再算数（旧实现因此放过 31 处项目级全量查询，已逐条补理由）；
+  同时 `contractId: null` 这类 **IS NULL 筛选不算有界**（它恰恰是「全项目未挂单」的全量）。
+  **写 `@no-limit` 的规矩**：会随项目体量涨的表（归档导出、AI 事实层、台账、逐合同重算）还要写
+  「｜重看触发：<具体阈值>」，把「什么时候该回头改」也钉在注释里（现 53 条带触发条件）；
+  角色/成员/模板版本/下拉主数据这类量级由设计上限决定的小表，只写「为什么必须全量」即可。
   **豁免表已清零**，新增查询不得再走豁免。纯「分组求和」一律走
   `aggregate`/`groupBy`（`common/utils/group-sum.ts` 收口了 `actualAmount ?? amount` 这类
   SQL 表达不了的求和口径），别再把整项目明细行取回内存 reduce。

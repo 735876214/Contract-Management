@@ -46,7 +46,7 @@ export function loadProjectScope(prisma: PrismaClient, opts: ProjectScopeOptions
     ...(opts.ids?.length ? { id: { in: opts.ids } } : {}),
     ...(opts.memberWhere ?? {}),
   };
-  // @no-limit: 项目范围加载：跨项目全景查询的入口，必须全量
+  // @no-limit: 项目范围加载：跨项目全景查询的入口，必须全量｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.project.findMany({
     where,
     select: { id: true, code: true, name: true },
@@ -104,7 +104,7 @@ export function loadContractChainFacts(
 ) {
   const where: any = { projectId: { in: projectIds } };
   if (opts.signDate?.from) where.signDate = { gte: opts.signDate.from, lte: opts.signDate.to };
-  // @no-limit: AI 事实层：合同链全量窄列，聚合输入不能截断
+  // @no-limit: AI 事实层：合同链全量窄列，聚合输入不能截断｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.contract.findMany({
     where,
     select: {
@@ -142,7 +142,7 @@ export function loadContractForFields(prisma: PrismaClient, contractId: string, 
 
 /** 合同的履约/执行状态（汇报材料的派生统计用） */
 export function loadContractExecStatuses(prisma: PrismaClient, projectId: string) {
-  // @no-limit: 派生统计需要全项目的执行状态（AI 汇报材料），分页会漏数
+  // @no-limit: 派生统计需要全项目的执行状态（AI 汇报材料），分页会漏数｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.contract.findMany({ where: { projectId }, select: { execStatus: true } });
 }
 
@@ -155,7 +155,7 @@ export function loadSettlementFacts(
   const where: any = { projectId: { in: projectIds } };
   if (opts.range?.from) where.settleDate = { gte: opts.range.from, lte: opts.range.to };
   if (opts.excludeDraft !== false) Object.assign(where, notDraft);
-  // @no-limit: AI 事实层：结算全量窄列
+  // @no-limit: AI 事实层：结算全量窄列｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.settlement.findMany({
     where,
     select: {
@@ -190,7 +190,7 @@ export function loadPaymentFacts(
     and.push({ OR: or });
   }
   const where: any = { projectId: { in: projectIds }, ...(and.length ? { AND: and } : {}) };
-  // @no-limit: AI 事实层：付款全量窄列
+  // @no-limit: AI 事实层：付款全量窄列｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.paymentRecord.findMany({
     where,
     select: { id: true, projectId: true, statusCode: true, amount: true, payDate: true, payMonth: true },
@@ -206,7 +206,7 @@ export function loadInvoiceFacts(
   const where: any = { projectId: { in: projectIds } };
   if (opts.range?.from) where.invoiceDate = { gte: opts.range.from, lte: opts.range.to };
   if (opts.excludeTerminal !== false) Object.assign(where, countedInvoiceWhere());
-  // @no-limit: AI 事实层：发票全量窄列
+  // @no-limit: AI 事实层：发票全量窄列｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.invoice.findMany({
     where,
     select: { id: true, projectId: true, statusCode: true, amountWithTax: true, invoiceDate: true },
@@ -215,7 +215,7 @@ export function loadInvoiceFacts(
 
 /** 履约节点（跨项目全景） */
 export function loadMilestoneFacts(prisma: PrismaClient, projectIds: string[]) {
-  // @no-limit: AI 事实层：履约节点全景窄列
+  // @no-limit: AI 事实层：履约节点全景窄列｜重看触发：单项目事实行数 > 1 万时改成 SQL 聚合（现在是拉窄列回内存算）
   return prisma.contractFulfillment.findMany({
     where: { projectId: { in: projectIds } },
     select: { id: true, projectId: true, contractId: true, statusCode: true, planDate: true },

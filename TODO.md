@@ -65,12 +65,6 @@
 阻塞原因：需业务明确承担「AI 写库出错」的责任边界，并确认上述 5 条作为产品口径写进
 `.claude/rules/product-decisions.md`。在那之前只做只读。
 
-- **门禁豁免与 fan-out 聚合器复核**（2026-11-24 审计 P3 备忘，非缺陷）：
-  2026-11-28 收紧门禁后 `check-query-limits` 有 **79 处**内联 `// @no-limit:`（豁免表仍为 0），
-  模块边界检查点名 `archive`(10) / `receipt-order`(6) 两个高 fan-out 聚合器，已逐条复核：
-  确实都是「口径本身需要全量」（归档导出、下拉选项、链根解析、合计行）。**未解决的部分**：
-  多数注释只写了「为什么必须全量」，没写「什么时候该重看」——即没有触发条件（如「合同数 > 2000 时改为分页/异步导出」），
-  下次复查时补。`archive` / `receipt-order` 若继续长，考虑把聚合搬到 `src/query/` 层收口。
 - **采购 6 个单据页面仍高度同构**：`web/src/pages/Procurement/{FrameworkExplanation,PreMeetingMinutes,Notice,
   Document,ResultReport,PriceCompare}.tsx` 各 720–990 行，跨文件 10 行以上的重复窗口 24–44 处/对。
   变量映射与下载 helper 已收口（`utils/projectVars.ts` / `utils/blobDownload.ts`），页面骨架仍应向
